@@ -2,15 +2,14 @@ package hocr
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
-	"github.com/lehigh-university-libraries/htr/pkg/hocr"
-	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	"github.com/lehigh-university-libraries/htr/pkg/azure"
 	"github.com/lehigh-university-libraries/htr/pkg/gemini"
+	"github.com/lehigh-university-libraries/htr/pkg/hocr"
 	"github.com/lehigh-university-libraries/htr/pkg/ollama"
 	"github.com/lehigh-university-libraries/htr/pkg/openai"
+	"github.com/lehigh-university-libraries/htr/pkg/providers"
 )
 
 // convertModelsTohtr converts hOCRedit models to htr package models

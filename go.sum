@@ -1,4 +1,4 @@
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
 github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
-github.com/lehigh-university-libraries/htr v0.3.3 h1:tbuXm3bit3Lh7d93tuhS7sziKLhwPTQy1KtS16VLwV0=
-github.com/lehigh-university-libraries/htr v0.3.3/go.mod h1:l00sr+JIgmTsw8Cfx7LgsTCTwc8o1ft/GcZV2oC3dn4=
+github.com/lehigh-university-libraries/htr v0.7.0 h1:OLy9wBOny+xgz+Imquq+BgS+pL2SDJJZOqN9cUIaclg=
+github.com/lehigh-university-libraries/htr v0.7.0/go.mod h1:l00sr+JIgmTsw8Cfx7LgsTCTwc8o1ft/GcZV2oC3dn4=

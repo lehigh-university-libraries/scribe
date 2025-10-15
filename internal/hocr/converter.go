@@ -298,3 +298,11 @@ func (h *Converter) boundingPolyToBBoxStruct(boundingPoly models.BoundingPoly) m
 
 	return models.BBox{X1: minX, Y1: minY, X2: maxX, Y2: maxY}
 }
+
+// abs returns the absolute value of an integer
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}

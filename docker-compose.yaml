@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  hocredit:
+    build: .
+    container_name: hocredit
+    ports:
+      - "8888:8888"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OLLAMA_HOST: ${OLLAMA_HOST}
+      OLLAMA_MODEL: mistral-small3.2:24b
+      LAYPA_API_URL: http://laypa:5000
+    volumes:
+      - ./uploads:/app/uploads
+      - ./cache:/app/cache
+    depends_on:
+      - laypa
+    networks:
+      - hocredit-network
+
+  laypa:
+    image: loghi/docker.laypa:2.2.31
+    container_name: laypa
+    command: python api/gunicorn_app.py
+    environment:
+      LAYPA_MAX_QUEUE_SIZE: 128
+      LAYPA_MODEL_BASE_PATH: /models
+      LAYPA_OUTPUT_BASE_PATH: /output
+      LAYPA_LEDGER_SIZE: 1000000
+      GUNICORN_RUN_HOST: 0.0.0.0:5000
+      GUNICORN_WORKERS: 1
+      GUNICORN_THREADS: 1
+      GUNICORN_ACCESSLOG: '-'
+    volumes:
+      - ./laypa_models:/models
+      - ./laypa_output:/output
+    shm_size: 512mb
+    # Uncomment the following lines if you have a GPU and want to use it
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    networks:
+      - hocredit-network
+
+networks:
+  hocredit-network:
