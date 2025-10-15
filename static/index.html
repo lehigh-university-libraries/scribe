@@ -19,7 +19,34 @@
             <div class="upload-area" id="upload-area">
                 <h3>Start New hOCR Correction Session</h3>
                 <p>Upload images or provide an image URL - they'll be processed with hOCR-capable OCR</p>
-                
+
+                <!-- Provider and Model Selection -->
+                <div class="provider-selection" style="margin-bottom: 20px; padding: 15px; border: 1px solid #333; border-radius: 8px; background: #1a1a1a;">
+                    <h4>OCR Provider Configuration</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 10px;">
+                        <div>
+                            <label for="provider-select" style="display: block; margin-bottom: 5px; color: #ccc;">Provider:</label>
+                            <select id="provider-select" onchange="updateModelOptions()" style="width: 100%; padding: 8px; border: 1px solid #333; background: #111; color: #fff; border-radius: 4px;">
+                                <option value="openai">OpenAI GPT</option>
+                                <option value="azure">Azure OpenAI</option>
+                                <option value="gemini">Google Gemini</option>
+                                <option value="ollama">Ollama (Local)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="model-select" style="display: block; margin-bottom: 5px; color: #ccc;">Model:</label>
+                            <select id="model-select" style="width: 100%; padding: 8px; border: 1px solid #333; background: #111; color: #fff; border-radius: 4px;">
+                                <option value="gpt-4o">gpt-4o</option>
+                                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                                <option value="gpt-4-turbo">gpt-4-turbo</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 0.9em; color: #888;">
+                        <span id="provider-status">✅ OpenAI provider selected</span>
+                    </div>
+                </div>
+
                 <!-- File Upload -->
                 <div class="upload-method">
                     <h4>Upload from Computer</h4>

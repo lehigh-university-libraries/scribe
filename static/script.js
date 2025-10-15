@@ -609,6 +609,11 @@ async function handleUpload() {
     formData.append("files", file);
   }
 
+  // Add provider and model information
+  const providerConfig = getSelectedProviderConfig();
+  formData.append("provider", providerConfig.provider);
+  formData.append("model", providerConfig.model);
+
   try {
     const response = await fetch("api/upload", {
       method: "POST",
@@ -656,6 +661,9 @@ async function handleUrlUpload() {
     "<h3>Processing image URL...</h3><p>Please wait while the image is downloaded and processed with OCR.</p>";
 
   try {
+    // Get provider and model configuration
+    const providerConfig = getSelectedProviderConfig();
+
     const response = await fetch("api/upload", {
       method: "POST",
       headers: {
@@ -663,6 +671,8 @@ async function handleUrlUpload() {
       },
       body: JSON.stringify({
         image_url: imageUrl,
+        provider: providerConfig.provider,
+        model: providerConfig.model,
       }),
     });
 
@@ -1586,3 +1596,78 @@ async function downloadFormattedHocr() {
     }
   }
 }
+
+// ============================================================================
+// PROVIDER AND MODEL SELECTION FUNCTIONS
+// ============================================================================
+
+// Model options for each provider
+const providerModels = {
+  openai: [
+    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "gpt-4o-mini", label: "GPT-4o Mini" },
+    { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+    { value: "gpt-4", label: "GPT-4" }
+  ],
+  azure: [
+    { value: "gpt-4o", label: "GPT-4o" },
+    { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+    { value: "gpt-4", label: "GPT-4" }
+  ],
+  gemini: [
+    { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
+    { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro" },
+    { value: "gemini-pro-vision", label: "Gemini Pro Vision" }
+  ],
+  ollama: [
+    { value: "mistral-small3.2:24b", label: "Mistral Small 3.2 24B" }
+  ]
+};
+
+// Update model options when provider changes
+function updateModelOptions() {
+  const providerSelect = document.getElementById("provider-select");
+  const modelSelect = document.getElementById("model-select");
+  const statusSpan = document.getElementById("provider-status");
+
+  const selectedProvider = providerSelect.value;
+  const models = providerModels[selectedProvider] || [];
+
+  // Clear existing options
+  modelSelect.innerHTML = "";
+
+  // Add new options
+  models.forEach(model => {
+    const option = document.createElement("option");
+    option.value = model.value;
+    option.textContent = model.label;
+    modelSelect.appendChild(option);
+  });
+
+  // Update status message
+  const providerNames = {
+    openai: "OpenAI",
+    azure: "Azure OpenAI",
+    gemini: "Google Gemini",
+    ollama: "Ollama (Local)"
+  };
+
+  statusSpan.textContent = `✅ ${providerNames[selectedProvider]} provider selected`;
+}
+
+// Get currently selected provider and model
+function getSelectedProviderConfig() {
+  const providerEl = document.getElementById("provider-select");
+  const modelEl = document.getElementById("model-select");
+
+  const provider = providerEl ? providerEl.value : "openai";
+  const model = modelEl ? modelEl.value : "gpt-4o";
+
+  return { provider, model };
+}
+
+// Initialize provider selection on page load
+document.addEventListener("DOMContentLoaded", function() {
+  // Set up initial model options
+  updateModelOptions();
+});

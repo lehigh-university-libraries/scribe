@@ -1,4 +1,4 @@
-FROM ghcr.io/lehigh-university-libraries/scyllaridae-imagemagick:main
+FROM ghcr.io/lehigh-university-libraries/scyllaridae-imagemagick:main@sha256:d085b210070148e00a0605ba653e93bc6c6e6d8cfeea74b092a256203864f757
 
 WORKDIR /app
 

@@ -22,6 +22,7 @@ func main() {
 	http.HandleFunc("/api/sessions", handler.HandleSessions)
 	http.HandleFunc("/api/sessions/", handler.HandleSessionDetail)
 	http.HandleFunc("/api/upload", handler.HandleUpload)
+	http.HandleFunc("/api/ocr", handler.HandleOCR)
 	http.HandleFunc("/api/hocr/parse", handler.HandleHOCRParse)
 	http.HandleFunc("/api/hocr/update", handler.HandleHOCRUpdate)
 	http.HandleFunc("/", handler.HandleStatic)

@@ -1,6 +1,7 @@
 package hocr
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -16,39 +17,28 @@ import (
 	"time"
 
 	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
+	"github.com/lehigh-university-libraries/hOCRedit/internal/providers"
 )
 
-type Service struct{}
+type Service struct {
+	providerService *providers.Service
+}
 
 func NewService() *Service {
-	slog.Info("Initializing hOCR service (Custom word detection + ChatGPT transcription)")
-	return &Service{}
+	slog.Info("Initializing hOCR service (Custom word detection + Multi-provider transcription)")
+	return &Service{
+		providerService: providers.NewService(),
+	}
 }
 
 func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
-	ocrResponse, err := s.detectWordBoundariesCustom(imagePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to detect word boundaries with both methods: %w", err)
-	}
+	// Use the shared package implementation
+	return s.processImageToHOCRUsingSharedPackage(imagePath)
+}
 
-	stitchedImagePath, err := s.createStitchedImageWithHOCRMarkup(imagePath, ocrResponse)
-	if err != nil {
-		slog.Warn("Failed to create stitched image, using basic hOCR output only", "error", err)
-		return s.convertToBasicHOCR(ocrResponse), nil
-	}
-	defer os.Remove(stitchedImagePath)
-
-	slog.Info("Created stitched image with hOCR markup", "path", stitchedImagePath)
-
-	hocrResult, err := s.transcribeWithChatGPT(stitchedImagePath)
-	if err != nil {
-		slog.Warn("ChatGPT transcription failed", "err", err)
-		return "", err
-	}
-
-	slog.Info("ChatGPT transcription completed", "result_length", hocrResult)
-
-	return s.wrapInHOCRDocument(hocrResult), nil
+func (s *Service) ProcessImageToHOCRWithConfig(imagePath, provider, model string) (string, error) {
+	// Use the shared package implementation
+	return s.processImageToHOCRWithConfigUsingSharedPackage(imagePath, provider, model)
 }
 
 func (s *Service) getImageDimensions(imagePath string) (int, int, error) {
@@ -536,3 +526,55 @@ func abs(x int) int {
 	}
 	return x
 }
+
+// transcribeWithProvider uses the provider service to transcribe the image
+func (s *Service) transcribeWithProvider(imagePath string) (string, error) {
+	// Get provider and model from environment or use defaults
+	providerName := s.providerService.GetDefaultProvider()
+	model := s.providerService.GetDefaultModel(providerName)
+
+	slog.Info("Using provider for transcription", "provider", providerName, "model", model)
+
+	// Use the provider service to transcribe the image
+	ctx := context.Background()
+	result, err := s.providerService.TranscribeImage(ctx, providerName, model, imagePath)
+	if err != nil {
+		return "", fmt.Errorf("transcription failed with provider %s: %w", providerName, err)
+	}
+
+	// Apply the same cleaning logic that was used for ChatGPT
+	cleanedResult := s.cleanProviderResponse(result)
+	return cleanedResult, nil
+}
+
+// transcribeWithProviderAndModel uses the specified provider and model to transcribe the image
+func (s *Service) transcribeWithProviderAndModel(imagePath, provider, model string) (string, error) {
+	slog.Info("Using specific provider for transcription", "provider", provider, "model", model)
+
+	// Use the provider service to transcribe the image
+	ctx := context.Background()
+	result, err := s.providerService.TranscribeImage(ctx, provider, model, imagePath)
+	if err != nil {
+		return "", fmt.Errorf("transcription failed with provider %s: %w", provider, err)
+	}
+
+	// Apply the same cleaning logic that was used for ChatGPT
+	cleanedResult := s.cleanProviderResponse(result)
+	return cleanedResult, nil
+}
+
+// cleanProviderResponse applies the same cleaning logic as the original ChatGPT implementation
+func (s *Service) cleanProviderResponse(content string) string {
+	// Clean up the provider response to fix common XML issues
+	result := content
+
+	// Handle standalone & characters that aren't part of valid entities
+	// Replace & with &amp; unless it's already part of a valid entity
+	result = s.fixAmpersands(result)
+
+	// Clean up any other problematic characters in text content
+	result = s.escapeTextContent(result)
+
+	return result
+}
+

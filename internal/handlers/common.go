@@ -28,6 +28,7 @@ type ImageProcessResult struct {
 }
 
 type SessionConfig struct {
+	Provider    string
 	Model       string
 	Prompt      string
 	Temperature float64
@@ -108,6 +109,11 @@ func (h *Handler) createImageSession(sessionID string, result *ImageProcessResul
 }
 
 func (h *Handler) getOCRForImage(imagePath string) (string, error) {
-	// Use the simplified OCR service that bundles word detection + ChatGPT transcription
+	// Use the simplified OCR service that bundles word detection + multi-provider transcription
 	return h.hocrService.ProcessImageToHOCR(imagePath)
+}
+
+func (h *Handler) getOCRForImageWithConfig(imagePath, provider, model string) (string, error) {
+	// Use the simplified OCR service with provider and model configuration
+	return h.hocrService.ProcessImageToHOCRWithConfig(imagePath, provider, model)
 }

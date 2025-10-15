@@ -23,7 +23,9 @@ func (h *Handler) HandleStatic(w http.ResponseWriter, r *http.Request) {
 	imageURL := r.URL.Query().Get("image")
 	if imageURL != "" {
 		// Create session from image URL
-		sessionID, err := h.createSessionFromURL(imageURL)
+		provider := r.URL.Query().Get("provider")
+		model := r.URL.Query().Get("model")
+		sessionID, err := h.createSessionFromURL(imageURL, provider, model)
 		if err != nil {
 			slog.Error("Failed to create session from URL", "url", imageURL, "error", err)
 			http.Error(w, "Failed to process image URL: "+err.Error(), http.StatusBadRequest)

@@ -176,6 +176,44 @@ func (h *Handler) processHOCR(imageFilePath, md5Hash string) (string, error) {
 	return hocrXML, nil
 }
 
+func (h *Handler) processImageFileWithConfig(fileData []byte, filename, provider, model string) (*ImageProcessResult, error) {
+	// Use the existing logic but with provider/model configuration
+	result, err := h.processImageFile(fileData, filename)
+	if err != nil {
+		return nil, err
+	}
+
+	// Process hOCR with specified provider and model
+	if provider != "" && model != "" {
+		hocrXML, err := h.getOCRForImageWithConfig(result.ImageFilePath, provider, model)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process image with OCR using %s: %w", provider, err)
+		}
+		result.HOCRXML = hocrXML
+	}
+
+	return result, nil
+}
+
+func (h *Handler) processImageFromURLWithConfig(imageURL, provider, model string) (*ImageProcessResult, error) {
+	// Use the existing logic but with provider/model configuration
+	result, err := h.processImageFromURL(imageURL)
+	if err != nil {
+		return nil, err
+	}
+
+	// Process hOCR with specified provider and model
+	if provider != "" && model != "" {
+		hocrXML, err := h.getOCRForImageWithConfig(result.ImageFilePath, provider, model)
+		if err != nil {
+			return nil, fmt.Errorf("failed to process image with OCR using %s: %w", provider, err)
+		}
+		result.HOCRXML = hocrXML
+	}
+
+	return result, nil
+}
+
 func (h *Handler) extractFilenameFromURL(imageURL, md5Hash string) string {
 	if urlParts := strings.Split(imageURL, "/"); len(urlParts) > 0 {
 		lastPart := urlParts[len(urlParts)-1]
@@ -186,8 +224,8 @@ func (h *Handler) extractFilenameFromURL(imageURL, md5Hash string) string {
 	return md5Hash
 }
 
-func (h *Handler) createSessionFromURL(imageURL string) (string, error) {
-	result, err := h.processImageFromURL(imageURL)
+func (h *Handler) createSessionFromURL(imageURL, provider, model string) (string, error) {
+	result, err := h.processImageFromURLWithConfig(imageURL, provider, model)
 	if err != nil {
 		return "", err
 	}
@@ -197,7 +235,8 @@ func (h *Handler) createSessionFromURL(imageURL string) (string, error) {
 	sessionID := fmt.Sprintf("%s_%d", filename, time.Now().Unix())
 
 	config := SessionConfig{
-		Model:       "",
+		Provider:    provider,
+		Model:       model,
 		Prompt:      "",
 		Temperature: 0.0,
 	}
@@ -205,7 +244,7 @@ func (h *Handler) createSessionFromURL(imageURL string) (string, error) {
 	session := h.createImageSession(sessionID, result, config)
 	h.sessionStore.Set(sessionID, session)
 
-	slog.Info("Session created from URL", "session_id", sessionID, "url", imageURL)
+	slog.Info("Session created from URL", "session_id", sessionID, "url", imageURL, "provider", provider, "model", model)
 	return sessionID, nil
 }
 
