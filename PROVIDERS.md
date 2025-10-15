@@ -1,6 +1,13 @@
 # Multi-Provider Support
 
-hOCRedit now supports multiple LLM providers for OCR transcription, using the provider implementations from the HTR tool.
+hOCRedit supports multiple LLM providers for text transcription. Document segmentation is handled by [Laypa](https://github.com/knaw-huc/laypa), which generates PageXML with text regions and baselines. The LLM providers then transcribe the detected text regions using the provider implementations from the HTR tool.
+
+## Pipeline Overview
+
+1. **Document Segmentation**: [Laypa](https://github.com/knaw-huc/laypa) detects text regions and baselines (generates PageXML)
+2. **Format Conversion**: PageXML converted to hOCR format
+3. **Transcription**: LLM provider transcribes detected text regions (this document covers this step)
+4. **Output**: Combined hOCR with bounding boxes + transcribed text
 
 ## Available Providers
 

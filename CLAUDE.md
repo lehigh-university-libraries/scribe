@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-hOCRedit is a web-based hOCR editor with visual overlay editing and intelligent OCR processing optimized for handwritten text. It uses a custom word bounding box algorithm combined with LLM transcription (OpenAI, Azure, Gemini, or Ollama) to provide high-quality OCR results.
+hOCRedit is a web-based hOCR editor with visual overlay editing and intelligent OCR processing optimized for handwritten text. It uses [Laypa](https://github.com/knaw-huc/laypa) for document segmentation and baseline detection, combined with multi-provider LLM transcription (OpenAI, Azure, Gemini, or Ollama) to provide high-quality OCR results.
+
+### Processing Pipeline
+
+1. **Document Segmentation**: Laypa generates PageXML with text regions and baselines
+2. **Format Conversion**: PageXML is converted to hOCR format (internal/pagexml/converter.go)
+3. **Transcription**: LLM providers transcribe text regions
+4. **Visual Editing**: Interactive overlay interface for corrections
 
 ## Architecture
 
@@ -18,11 +25,18 @@ hOCRedit is a web-based hOCR editor with visual overlay editing and intelligent 
   - `sessions.go`: Session management endpoints
   - `drupal.go`: Islandora/Drupal integration
   - `static.go`: Static file serving
-- **internal/hocr/service.go**: Core OCR pipeline
-  - Custom word detection using ImageMagick preprocessing and connected component analysis
-  - Line grouping algorithm to organize words into text lines
-  - LLM transcription integration via provider service
-  - Creates stitched image with hOCR markup for LLM context
+- **internal/laypa/service.go**: Laypa API integration
+  - Communicates with Laypa service via REST API
+  - Sends images for segmentation
+  - Receives PageXML with text regions and baselines
+- **internal/pagexml/converter.go**: PageXML to hOCR conversion
+  - Parses PageXML output from Laypa
+  - Converts TextRegions and TextLines to hOCR format
+  - Preserves bounding boxes for visual overlay
+- **internal/hocr/service.go**: Core OCR pipeline orchestration
+  - Uses Laypa for document segmentation (required dependency)
+  - Integrates LLM transcription via provider service
+  - Coordinates PageXML → hOCR conversion
 - **internal/providers/service.go**: Multi-provider LLM abstraction
   - Wraps github.com/lehigh-university-libraries/htr package
   - Supports: OpenAI, Azure OpenAI, Google Gemini, Ollama
@@ -42,28 +56,36 @@ hOCRedit is a web-based hOCR editor with visual overlay editing and intelligent 
   - Session management
 
 ### OCR Pipeline Flow
-1. Image upload → ImageMagick preprocessing (grayscale, contrast, threshold)
-2. Connected component analysis to detect word bounding boxes
-3. Group words into lines based on Y-coordinate clustering
-4. Create stitched image with hOCR markup overlays
-5. Send to LLM provider (with prompt in internal/providers/service.go:69-82)
-6. Parse LLM response and return hOCR XML
+1. Image upload → Send to Laypa API for segmentation
+2. Laypa processes image and returns PageXML with:
+   - Text regions (bounding boxes)
+   - Baselines (text line coordinates)
+   - Region hierarchies
+3. PageXML converted to internal hOCR format (internal/pagexml/converter.go)
+4. Text regions sent to LLM provider for transcription (internal/providers/service.go)
+5. LLM response parsed and merged with bounding box data
+6. Final hOCR XML returned with coordinates + transcribed text
 
 ## Development Commands
 
 ### Build and Run
 ```bash
-# Build Docker image
+# Using Docker Compose (Recommended - includes Laypa)
+docker-compose up
+
+# Build Docker image only (requires external Laypa)
 docker build -t hocredit .
 
-# Run container
+# Run container (requires Laypa API)
 docker run -p 8888:8888 \
+  -e LAYPA_API_URL=http://laypa:5000 \
   -e OCR_PROVIDER=ollama \
   -e OLLAMA_HOST=http://host.docker.internal:11434 \
   -e OLLAMA_MODEL=mistral-small3.2:24b \
   hocredit
 
-# Build and run Go binary directly
+# Build and run Go binary directly (requires Laypa API running)
+export LAYPA_API_URL=http://localhost:5000
 go build -o hOCRedit
 ./hOCRedit
 ```
@@ -79,25 +101,39 @@ curl http://localhost:8888/healthcheck
 
 ## Configuration
 
-See PROVIDERS.md for multi-provider configuration details. Key environment variables:
-- `OCR_PROVIDER`: openai|azure|gemini|ollama (default: ollama)
-- `OPENAI_API_KEY`, `OPENAI_MODEL`: OpenAI configuration
-- `AZURE_API_KEY`, `AZURE_ENDPOINT`, `AZURE_DEPLOYMENT`, `AZURE_MODEL`: Azure configuration
-- `GEMINI_API_KEY`, `GEMINI_MODEL`: Gemini configuration
-- `OLLAMA_HOST`, `OLLAMA_MODEL`: Ollama configuration
-- `DRUPAL_HOCR_URL`: Template for Drupal/Islandora integration
+See [LAYPA_SETUP.md](./LAYPA_SETUP.md) for Laypa configuration and [PROVIDERS.md](./PROVIDERS.md) for LLM provider configuration.
+
+Key environment variables:
+- **Laypa Configuration**:
+  - `LAYPA_API_URL`: URL of Laypa API service (default: http://localhost:5000)
+  - `LAYPA_MODEL_NAME`: Model folder name in Laypa (default: default)
+- **LLM Provider Configuration**:
+  - `OCR_PROVIDER`: openai|azure|gemini|ollama (default: ollama)
+  - `OPENAI_API_KEY`, `OPENAI_MODEL`: OpenAI configuration
+  - `AZURE_API_KEY`, `AZURE_ENDPOINT`, `AZURE_DEPLOYMENT`, `AZURE_MODEL`: Azure configuration
+  - `GEMINI_API_KEY`, `GEMINI_MODEL`: Gemini configuration
+  - `OLLAMA_HOST`, `OLLAMA_MODEL`: Ollama configuration
+- **Integration**:
+  - `DRUPAL_HOCR_URL`: Template for Drupal/Islandora integration
 
 ## Key Implementation Details
 
-### Custom Word Detection Algorithm
-The word detection (internal/hocr/service.go:140-295) uses:
-- Flood fill to find connected components
-- Size filtering (8x10 min, half-image-width max)
-- Horizontal merging of nearby components (gap ≤ 1/3 character height)
-- Vertical overlap detection for line grouping
+### Laypa Integration
+Document segmentation is handled by [Laypa](https://github.com/knaw-huc/laypa) (internal/laypa/service.go):
+- Communicates with Laypa via REST API
+- Sends images to `/predict` endpoint
+- Receives PageXML with text regions and baselines
+- Laypa is a **required dependency** - app will not start without it
+
+### PageXML to hOCR Conversion
+The converter (internal/pagexml/converter.go) transforms Laypa's output:
+- Parses PageXML structure (TextRegions, TextLines, Baselines)
+- Extracts bounding boxes from coordinate strings
+- Converts to internal OCRResponse format
+- Preserves spatial information for visual overlay
 
 ### Provider Integration
-LLM providers are accessed through the HTR tool's provider interface. To add a new provider, implement `providers.Provider` and register in `internal/providers/service.go:22-29`.
+LLM providers are accessed through the HTR tool's provider interface. To add a new provider, implement `providers.Provider` and register in `internal/providers/service.go`.
 
 ### Frontend Navigation
 - Tab: Next line
@@ -108,6 +144,7 @@ LLM providers are accessed through the HTR tool's provider interface. To add a n
 - d: Toggle drawing mode
 
 ## Dependencies
-- ImageMagick (magick command) for image preprocessing
-- Go 1.24.7+
-- github.com/lehigh-university-libraries/htr for LLM providers
+- **Laypa**: Document segmentation service (required) - https://github.com/knaw-huc/laypa
+- **ImageMagick**: Image utilities (magick command)
+- **Go 1.24.7+**: Backend language
+- **github.com/lehigh-university-libraries/htr**: LLM provider abstraction
