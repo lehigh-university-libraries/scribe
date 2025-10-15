@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	"github.com/lehigh-university-libraries/htr/pkg/azure"
 	"github.com/lehigh-university-libraries/htr/pkg/gemini"
 	"github.com/lehigh-university-libraries/htr/pkg/ollama"
 	"github.com/lehigh-university-libraries/htr/pkg/openai"
+	"github.com/lehigh-university-libraries/htr/pkg/providers"
 )
 
 // Service wraps the HTR provider functionality for use in hOCRedit

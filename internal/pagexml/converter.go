@@ -19,8 +19,8 @@ type PageXML struct {
 }
 
 type Metadata struct {
-	Creator  string `xml:"Creator"`
-	Created  string `xml:"Created"`
+	Creator    string `xml:"Creator"`
+	Created    string `xml:"Created"`
 	LastChange string `xml:"LastChange"`
 }
 
@@ -32,16 +32,16 @@ type Page struct {
 }
 
 type TextRegion struct {
-	ID          string     `xml:"id,attr"`
-	Type        string     `xml:"type,attr"`
-	Coords      Coords     `xml:"Coords"`
-	TextLines   []TextLine `xml:"TextLine"`
+	ID        string     `xml:"id,attr"`
+	Type      string     `xml:"type,attr"`
+	Coords    Coords     `xml:"Coords"`
+	TextLines []TextLine `xml:"TextLine"`
 }
 
 type TextLine struct {
-	ID       string   `xml:"id,attr"`
-	Coords   Coords   `xml:"Coords"`
-	Baseline Baseline `xml:"Baseline"`
+	ID        string     `xml:"id,attr"`
+	Coords    Coords     `xml:"Coords"`
+	Baseline  Baseline   `xml:"Baseline"`
 	TextEquiv *TextEquiv `xml:"TextEquiv,omitempty"`
 }
 
