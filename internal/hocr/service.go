@@ -2,26 +2,20 @@ package hocr
 
 import (
 	"fmt"
-	"image"
-	"image/color"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
+	"github.com/otiai10/gosseract/v2"
 )
 
 type Service struct{}
 
 func NewService() *Service {
-	slog.Info("Initializing hOCR service (Custom word detection + ChatGPT transcription)")
+	slog.Info("Initializing hOCR service (Tesseract word detection + ChatGPT transcription)")
 	return &Service{}
 }
 
@@ -68,7 +62,7 @@ func (s *Service) getImageDimensions(imagePath string) (int, int, error) {
 	return width, height, nil
 }
 
-// detectWordBoundariesCustom uses our own image processing algorithm to find word boundaries
+// detectWordBoundariesCustom uses Tesseract to find word boundaries
 func (s *Service) detectWordBoundariesCustom(imagePath string) (models.OCRResponse, error) {
 	// Get image dimensions first
 	width, height, err := s.getImageDimensions(imagePath)
@@ -76,19 +70,45 @@ func (s *Service) detectWordBoundariesCustom(imagePath string) (models.OCRRespon
 		return models.OCRResponse{}, fmt.Errorf("failed to get image dimensions: %w", err)
 	}
 
-	// Step 1: Detect individual words using image processing
-	words, err := s.detectWords(imagePath, width, height)
-	if err != nil {
-		return models.OCRResponse{}, fmt.Errorf("failed to detect words: %w", err)
+	// Use Tesseract to detect words and lines
+	client := gosseract.NewClient()
+	defer client.Close()
+
+	// Set image path
+	if err := client.SetImage(imagePath); err != nil {
+		return models.OCRResponse{}, fmt.Errorf("failed to set image: %w", err)
 	}
 
-	slog.Info("Custom word detection completed", "word_count", len(words), "image_size", fmt.Sprintf("%dx%d", width, height))
+	// Get word-level bounding boxes
+	boxes, err := client.GetBoundingBoxes(gosseract.RIL_WORD)
+	if err != nil {
+		return models.OCRResponse{}, fmt.Errorf("failed to get bounding boxes: %w", err)
+	}
 
-	// Step 2: Group words into lines based on coordinates
+	slog.Info("Tesseract word detection completed", "word_count", len(boxes), "image_size", fmt.Sprintf("%dx%d", width, height))
+
+	// Convert Tesseract boxes to our WordBox format
+	words := make([]WordBox, 0, len(boxes))
+	for i, box := range boxes {
+		// Skip boxes with no content
+		if strings.TrimSpace(box.Word) == "" {
+			continue
+		}
+
+		words = append(words, WordBox{
+			X:      box.Box.Min.X,
+			Y:      box.Box.Min.Y,
+			Width:  box.Box.Max.X - box.Box.Min.X,
+			Height: box.Box.Max.Y - box.Box.Min.Y,
+			Text:   fmt.Sprintf("word_%d", i+1),
+		})
+	}
+
+	// Group words into lines based on coordinates
 	lines := s.groupWordsIntoLines(words)
 	slog.Info("Grouped words into lines", "line_count", len(lines))
 
-	// Step 3: Convert to OCR response format
+	// Convert to OCR response format
 	return s.convertWordsAndLinesToOCRResponse(lines, width, height), nil
 }
 
@@ -102,241 +122,6 @@ type WordBox struct {
 type LineBox struct {
 	Words               []WordBox
 	X, Y, Width, Height int // Bounding box of the entire line
-}
-
-// detectWords finds individual word regions using image processing
-func (s *Service) detectWords(imagePath string, imgWidth, imgHeight int) ([]WordBox, error) {
-	// Preprocess the image
-	processedPath, err := s.preprocessImageForWordDetection(imagePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to preprocess image: %w", err)
-	}
-	defer os.Remove(processedPath)
-
-	// Load processed image
-	file, err := os.Open(processedPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open processed image: %w", err)
-	}
-	defer file.Close()
-
-	img, _, err := image.Decode(file)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode processed image: %w", err)
-	}
-
-	// Find connected components (potential words)
-	components := s.findWordComponents(img)
-
-	// Filter and refine components to get word boxes
-	wordBoxes := s.refineComponentsToWords(components, imgWidth, imgHeight)
-
-	return wordBoxes, nil
-}
-
-// preprocessImageForWordDetection preprocesses the image for better word detection
-func (s *Service) preprocessImageForWordDetection(imagePath string) (string, error) {
-	tempDir := "/tmp"
-	baseName := strings.TrimSuffix(filepath.Base(imagePath), filepath.Ext(imagePath))
-	processedPath := filepath.Join(tempDir, fmt.Sprintf("processed_words_%s_%d.jpg", baseName, time.Now().Unix()))
-
-	// Preprocess: grayscale, enhance contrast, sharpen, threshold
-	cmd := exec.Command("magick", imagePath,
-		"-colorspace", "Gray", // Convert to grayscale
-		"-contrast-stretch", "0.15x0.05%", // Enhance contrast
-		"-sharpen", "0x1", // Sharpen slightly
-		"-morphology", "close", "rectangle:2x1", // Close small gaps horizontally
-		"-threshold", "75%", // Apply threshold
-		processedPath)
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("imagemagick preprocessing failed: %w", err)
-	}
-
-	return processedPath, nil
-}
-
-// findWordComponents finds connected components that could be words
-func (s *Service) findWordComponents(img image.Image) []WordBox {
-	bounds := img.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
-
-	visited := make([][]bool, height)
-	for i := range visited {
-		visited[i] = make([]bool, width)
-	}
-
-	var components []WordBox
-
-	// Find all connected components using flood fill
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			if !visited[y][x] && s.isTextPixel(img.At(x, y)) {
-				minX, minY, maxX, maxY := x, y, x, y
-				s.floodFillComponent(img, visited, x, y, &minX, &minY, &maxX, &maxY)
-
-				// Filter by size to get potential words
-				w := maxX - minX + 1
-				h := maxY - minY + 1
-				if s.isValidWordSize(w, h, width, height) {
-					components = append(components, WordBox{
-						X:      minX,
-						Y:      minY,
-						Width:  w,
-						Height: h,
-						Text:   fmt.Sprintf("word_%d", len(components)+1),
-					})
-				}
-			}
-		}
-	}
-
-	return components
-}
-
-// floodFillComponent performs flood fill to find connected text pixels
-func (s *Service) floodFillComponent(img image.Image, visited [][]bool, x, y int, minX, minY, maxX, maxY *int) {
-	bounds := img.Bounds()
-	if x < 0 || x >= bounds.Dx() || y < 0 || y >= bounds.Dy() || visited[y][x] || !s.isTextPixel(img.At(x, y)) {
-		return
-	}
-
-	visited[y][x] = true
-
-	// Update bounding box
-	if x < *minX {
-		*minX = x
-	}
-	if x > *maxX {
-		*maxX = x
-	}
-	if y < *minY {
-		*minY = y
-	}
-	if y > *maxY {
-		*maxY = y
-	}
-
-	// Check 8 neighbors
-	directions := [][]int{{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}}
-	for _, dir := range directions {
-		s.floodFillComponent(img, visited, x+dir[0], y+dir[1], minX, minY, maxX, maxY)
-	}
-}
-
-// isTextPixel determines if a pixel is likely part of text (dark pixel)
-func (s *Service) isTextPixel(c color.Color) bool {
-	r, g, b, _ := c.RGBA()
-	gray := (r + g + b) / 3
-	return gray < 32768 // Dark pixels are considered text
-}
-
-// isValidWordSize checks if a component size is reasonable for a word
-func (s *Service) isValidWordSize(w, h, imgWidth, imgHeight int) bool {
-	// Filter by reasonable word dimensions
-	minWidth, minHeight := 8, 10 // Minimum size for a word
-	maxWidth := imgWidth / 2     // Words shouldn't be more than half the image width
-	maxHeight := imgHeight / 5   // Words shouldn't be more than 1/5 the image height
-
-	return w >= minWidth && h >= minHeight && w <= maxWidth && h <= maxHeight
-}
-
-// refineComponentsToWords refines detected components into word boxes
-func (s *Service) refineComponentsToWords(components []WordBox, imgWidth, imgHeight int) []WordBox {
-	if len(components) == 0 {
-		return components
-	}
-
-	// Sort components for processing (top to bottom, left to right)
-	sort.Slice(components, func(i, j int) bool {
-		if abs(components[i].Y-components[j].Y) < 10 { // Same line threshold
-			return components[i].X < components[j].X
-		}
-		return components[i].Y < components[j].Y
-	})
-
-	// Merge nearby components that likely belong to the same word
-	mergedWords := s.mergeNearbyComponents(components)
-
-	return mergedWords
-}
-
-// mergeNearbyComponents merges components that are close together into single words
-func (s *Service) mergeNearbyComponents(components []WordBox) []WordBox {
-	if len(components) <= 1 {
-		return components
-	}
-
-	var mergedWords []WordBox
-	currentGroup := []WordBox{components[0]}
-
-	for i := 1; i < len(components); i++ {
-		component := components[i]
-		lastInGroup := currentGroup[len(currentGroup)-1]
-
-		// Check if this component should be merged with the current group
-		if s.shouldMergeComponents(lastInGroup, component) {
-			currentGroup = append(currentGroup, component)
-		} else {
-			// Finish current group and start new one
-			mergedWord := s.mergeComponentGroup(currentGroup)
-			mergedWords = append(mergedWords, mergedWord)
-			currentGroup = []WordBox{component}
-		}
-	}
-
-	// Don't forget the last group
-	if len(currentGroup) > 0 {
-		mergedWord := s.mergeComponentGroup(currentGroup)
-		mergedWords = append(mergedWords, mergedWord)
-	}
-
-	return mergedWords
-}
-
-// shouldMergeComponents determines if two components should be merged into one word
-func (s *Service) shouldMergeComponents(a, b WordBox) bool {
-	// Calculate horizontal and vertical distances
-	horizontalGap := b.X - (a.X + a.Width)
-	verticalOverlap := b.Y+b.Height >= a.Y && b.Y <= a.Y+a.Height
-
-	// Merge if components are close horizontally and have vertical overlap
-	maxGap := max(a.Height, b.Height) / 3 // Allow gap up to 1/3 of character height
-	return horizontalGap >= 0 && horizontalGap <= maxGap && verticalOverlap
-}
-
-// mergeComponentGroup merges a group of components into a single word box
-func (s *Service) mergeComponentGroup(group []WordBox) WordBox {
-	if len(group) == 1 {
-		return group[0]
-	}
-
-	minX, minY := group[0].X, group[0].Y
-	maxX, maxY := group[0].X+group[0].Width, group[0].Y+group[0].Height
-
-	for _, comp := range group[1:] {
-		if comp.X < minX {
-			minX = comp.X
-		}
-		if comp.Y < minY {
-			minY = comp.Y
-		}
-		if comp.X+comp.Width > maxX {
-			maxX = comp.X + comp.Width
-		}
-		if comp.Y+comp.Height > maxY {
-			maxY = comp.Y + comp.Height
-		}
-	}
-
-	return WordBox{
-		X:      minX,
-		Y:      minY,
-		Width:  maxX - minX,
-		Height: maxY - minY,
-		Text:   fmt.Sprintf("merged_word_%d", len(group)),
-	}
 }
 
 // groupWordsIntoLines groups detected words into text lines based on their coordinates
@@ -447,37 +232,43 @@ func (s *Service) createLineFromWords(words []WordBox) LineBox {
 }
 
 // convertWordsAndLinesToOCRResponse converts our custom detection results to OCR response format
-// Each line is treated as a single "word" for simplicity
+// Each line contains individual words, preserving word-level granularity
 func (s *Service) convertWordsAndLinesToOCRResponse(lines []LineBox, width, height int) models.OCRResponse {
 	var paragraphs []models.Paragraph
 
-	// Convert each line to a paragraph containing a single "word" (the entire line)
-	for i, line := range lines {
-		// Create a single word that represents the entire line
-		word := models.Word{
-			BoundingBox: models.BoundingPoly{
-				Vertices: []models.Vertex{
-					{X: line.X, Y: line.Y},
-					{X: line.X + line.Width, Y: line.Y},
-					{X: line.X + line.Width, Y: line.Y + line.Height},
-					{X: line.X, Y: line.Y + line.Height},
-				},
-			},
-			Symbols: []models.Symbol{
-				{
-					BoundingBox: models.BoundingPoly{
-						Vertices: []models.Vertex{
-							{X: line.X, Y: line.Y},
-							{X: line.X + line.Width, Y: line.Y},
-							{X: line.X + line.Width, Y: line.Y + line.Height},
-							{X: line.X, Y: line.Y + line.Height},
-						},
+	// Convert each line to a paragraph containing individual words
+	for _, line := range lines {
+		var words []models.Word
+
+		// Create individual Word objects for each WordBox in the line
+		for j, wordBox := range line.Words {
+			word := models.Word{
+				BoundingBox: models.BoundingPoly{
+					Vertices: []models.Vertex{
+						{X: wordBox.X, Y: wordBox.Y},
+						{X: wordBox.X + wordBox.Width, Y: wordBox.Y},
+						{X: wordBox.X + wordBox.Width, Y: wordBox.Y + wordBox.Height},
+						{X: wordBox.X, Y: wordBox.Y + wordBox.Height},
 					},
-					Text: fmt.Sprintf("line_%d", i+1), // Placeholder text for the entire line
 				},
-			},
+				Symbols: []models.Symbol{
+					{
+						BoundingBox: models.BoundingPoly{
+							Vertices: []models.Vertex{
+								{X: wordBox.X, Y: wordBox.Y},
+								{X: wordBox.X + wordBox.Width, Y: wordBox.Y},
+								{X: wordBox.X + wordBox.Width, Y: wordBox.Y + wordBox.Height},
+								{X: wordBox.X, Y: wordBox.Y + wordBox.Height},
+							},
+						},
+						Text: fmt.Sprintf("word_%d", j+1), // Placeholder text for each word
+					},
+				},
+			}
+			words = append(words, word)
 		}
 
+		// Create paragraph with all words from this line
 		paragraph := models.Paragraph{
 			BoundingBox: models.BoundingPoly{
 				Vertices: []models.Vertex{
@@ -487,7 +278,7 @@ func (s *Service) convertWordsAndLinesToOCRResponse(lines []LineBox, width, heig
 					{X: line.X, Y: line.Y + line.Height},
 				},
 			},
-			Words: []models.Word{word}, // Single word per paragraph (line-level detection)
+			Words: words, // Individual words per paragraph (word-level detection)
 		}
 		paragraphs = append(paragraphs, paragraph)
 	}
