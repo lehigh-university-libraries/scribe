@@ -13,11 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
+	"github.com/lehigh-university-libraries/hOCRedit/internal/worddetection"
 	"github.com/lehigh-university-libraries/htr/pkg/ollama"
 	"github.com/lehigh-university-libraries/htr/pkg/openai"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
-	"github.com/otiai10/gosseract/v2"
 )
 
 type Service struct{}
@@ -28,35 +27,74 @@ func NewService() *Service {
 }
 
 func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
-	// Step 1: Use Tesseract to detect word boundaries
+	ctx := context.Background()
+
+	// Step 1: Get image dimensions
 	width, height, err := s.getImageDimensions(imagePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to get image dimensions: %w", err)
 	}
 
-	words, lines, err := s.detectWordsWithTesseract(imagePath, width, height)
-	if err != nil {
-		return "", fmt.Errorf("failed to detect words: %w", err)
+	// Step 2: Run both word detection providers in parallel
+	tesseractProvider := worddetection.NewTesseract()
+	customProvider := worddetection.NewCustom()
+
+	tesseractWords, tesseractErr := tesseractProvider.DetectWords(ctx, imagePath)
+	customWords, customErr := customProvider.DetectWords(ctx, imagePath)
+
+	// Log results from both providers
+	slog.Info("Word detection results",
+		"tesseract_count", len(tesseractWords),
+		"tesseract_error", tesseractErr,
+		"custom_count", len(customWords),
+		"custom_error", customErr)
+
+	// Pick the provider with more valid words
+	var selectedWords []worddetection.WordBox
+	var selectedProvider string
+
+	if tesseractErr != nil && customErr != nil {
+		return "", fmt.Errorf("both detection methods failed - tesseract: %v, custom: %v", tesseractErr, customErr)
 	}
 
-	slog.Info("Tesseract word detection completed", "word_count", len(words), "line_count", len(lines))
+	if tesseractErr != nil {
+		selectedWords = customWords
+		selectedProvider = "custom"
+	} else if customErr != nil {
+		selectedWords = tesseractWords
+		selectedProvider = "tesseract"
+	} else if len(tesseractWords) >= len(customWords) {
+		selectedWords = tesseractWords
+		selectedProvider = "tesseract"
+	} else {
+		selectedWords = customWords
+		selectedProvider = "custom"
+	}
 
-	// Step 2: Initialize LLM provider
-	provider, err := s.initLLMProvider()
+	slog.Info("Selected word detection provider",
+		"provider", selectedProvider,
+		"word_count", len(selectedWords))
+
+	// Step 3: Group words into lines
+	lines := s.groupWordsIntoLines(selectedWords)
+	slog.Info("Grouped words into lines", "line_count", len(lines))
+
+	// Step 4: Initialize LLM provider
+	llmProvider, err := s.initLLMProvider()
 	if err != nil {
 		return "", fmt.Errorf("failed to initialize LLM provider: %w", err)
 	}
 
-	// Step 3: Transcribe each word using LLM
-	transcribedWords, err := s.transcribeWords(imagePath, words, provider)
+	// Step 5: Transcribe each word using LLM
+	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, llmProvider)
 	if err != nil {
 		return "", fmt.Errorf("failed to transcribe words: %w", err)
 	}
 
 	slog.Info("Word transcription completed", "transcribed_count", len(transcribedWords))
 
-	// Step 4: Generate hOCR with Tesseract boxes + LLM transcriptions
-	hocr := s.generateHOCR(transcribedWords, lines, width, height)
+	// Step 6: Generate hOCR
+	hocr := s.generateHOCRFromWords(transcribedWords, lines, width, height)
 
 	return hocr, nil
 }
@@ -105,47 +143,26 @@ func (s *Service) initLLMProvider() (providers.Provider, error) {
 	}
 }
 
-// detectWordsWithTesseract uses Tesseract to detect word boundaries
-func (s *Service) detectWordsWithTesseract(imagePath string, width, height int) ([]gosseract.BoundingBox, [][]gosseract.BoundingBox, error) {
-	client := gosseract.NewClient()
-	defer client.Close()
-
-	if err := client.SetImage(imagePath); err != nil {
-		return nil, nil, fmt.Errorf("failed to set image: %w", err)
-	}
-
-	// Get word-level bounding boxes
-	words, err := client.GetBoundingBoxes(gosseract.RIL_WORD)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get bounding boxes: %w", err)
-	}
-
-	// Group words into lines
-	lines := s.groupTesseractWordsIntoLines(words)
-
-	return words, lines, nil
-}
-
-// groupTesseractWordsIntoLines groups Tesseract words into lines
-func (s *Service) groupTesseractWordsIntoLines(words []gosseract.BoundingBox) [][]gosseract.BoundingBox {
+// groupWordsIntoLines groups detected words into text lines based on coordinates
+func (s *Service) groupWordsIntoLines(words []worddetection.WordBox) [][]worddetection.WordBox {
 	if len(words) == 0 {
 		return nil
 	}
 
 	// Sort words by Y then X
-	sortedWords := make([]gosseract.BoundingBox, len(words))
+	sortedWords := make([]worddetection.WordBox, len(words))
 	copy(sortedWords, words)
 	sort.Slice(sortedWords, func(i, j int) bool {
-		yi := (sortedWords[i].Box.Min.Y + sortedWords[i].Box.Max.Y) / 2
-		yj := (sortedWords[j].Box.Min.Y + sortedWords[j].Box.Max.Y) / 2
+		yi := sortedWords[i].Y + sortedWords[i].Height/2
+		yj := sortedWords[j].Y + sortedWords[j].Height/2
 		if abs(yi-yj) <= 20 { // Same line threshold
-			return sortedWords[i].Box.Min.X < sortedWords[j].Box.Min.X
+			return sortedWords[i].X < sortedWords[j].X
 		}
 		return yi < yj
 	})
 
-	var lines [][]gosseract.BoundingBox
-	var currentLine []gosseract.BoundingBox
+	var lines [][]worddetection.WordBox
+	var currentLine []worddetection.WordBox
 
 	for _, word := range sortedWords {
 		if len(currentLine) == 0 {
@@ -155,14 +172,14 @@ func (s *Service) groupTesseractWordsIntoLines(words []gosseract.BoundingBox) []
 
 		// Check if this word belongs to current line
 		lastWord := currentLine[len(currentLine)-1]
-		lastY := (lastWord.Box.Min.Y + lastWord.Box.Max.Y) / 2
-		currentY := (word.Box.Min.Y + word.Box.Max.Y) / 2
+		lastY := lastWord.Y + lastWord.Height/2
+		currentY := word.Y + word.Height/2
 
 		if abs(lastY-currentY) <= 20 {
 			currentLine = append(currentLine, word)
 		} else {
 			lines = append(lines, currentLine)
-			currentLine = []gosseract.BoundingBox{word}
+			currentLine = []worddetection.WordBox{word}
 		}
 	}
 
@@ -174,7 +191,7 @@ func (s *Service) groupTesseractWordsIntoLines(words []gosseract.BoundingBox) []
 }
 
 // transcribeWords extracts and transcribes each word using the LLM provider
-func (s *Service) transcribeWords(imagePath string, words []gosseract.BoundingBox, provider providers.Provider) ([]TranscribedWord, error) {
+func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBox, provider providers.Provider) ([]TranscribedWord, error) {
 	ctx := context.Background()
 	transcribed := make([]TranscribedWord, 0, len(words))
 
@@ -185,23 +202,23 @@ func (s *Service) transcribeWords(imagePath string, words []gosseract.BoundingBo
 	skippedCount := 0
 	for i, word := range words {
 		// Skip empty words
-		if strings.TrimSpace(word.Word) == "" {
+		if strings.TrimSpace(word.Text) == "" {
 			skippedCount++
 			continue
 		}
 
 		// Validate that this is likely a real word
-		if !s.isLikelyWord(word) {
+		if !s.isLikelyWordBox(word) {
 			slog.Debug("Skipping non-word detection", "index", i,
-				"width", word.Box.Max.X-word.Box.Min.X,
-				"height", word.Box.Max.Y-word.Box.Min.Y,
-				"detected_text", word.Word)
+				"width", word.Width,
+				"height", word.Height,
+				"detected_text", word.Text)
 			skippedCount++
 			continue
 		}
 
 		// Extract word image
-		wordImagePath, err := s.extractWordFromImage(imagePath, word.Box.Min.X, word.Box.Min.Y, word.Box.Max.X, word.Box.Max.Y, i)
+		wordImagePath, err := s.extractWordFromImage(imagePath, word.X, word.Y, word.X+word.Width, word.Y+word.Height, i)
 		if err != nil {
 			slog.Warn("Failed to extract word image", "index", i, "error", err)
 			continue
@@ -235,10 +252,10 @@ func (s *Service) transcribeWords(imagePath string, words []gosseract.BoundingBo
 		}
 
 		transcribed = append(transcribed, TranscribedWord{
-			X:          word.Box.Min.X,
-			Y:          word.Box.Min.Y,
-			Width:      word.Box.Max.X - word.Box.Min.X,
-			Height:     word.Box.Max.Y - word.Box.Min.Y,
+			X:          word.X,
+			Y:          word.Y,
+			Width:      word.Width,
+			Height:     word.Height,
 			Text:       text,
 			Confidence: 95.0, // Default confidence
 		})
@@ -252,31 +269,28 @@ func (s *Service) transcribeWords(imagePath string, words []gosseract.BoundingBo
 	return transcribed, nil
 }
 
-// isLikelyWord validates whether a detected region is likely to be a real word
-func (s *Service) isLikelyWord(box gosseract.BoundingBox) bool {
-	width := box.Box.Max.X - box.Box.Min.X
-	height := box.Box.Max.Y - box.Box.Min.Y
-
+// isLikelyWordBox validates whether a detected region is likely to be a real word
+func (s *Service) isLikelyWordBox(box worddetection.WordBox) bool {
 	// Check 1: Minimum size - too small is likely noise
-	if width < 10 || height < 10 {
+	if box.Width < 10 || box.Height < 10 {
 		return false
 	}
 
 	// Check 2: Maximum size - too large is likely not a single word
-	if width > 500 || height > 200 {
+	if box.Width > 500 || box.Height > 200 {
 		return false
 	}
 
 	// Check 3: Aspect ratio - words are typically wider than tall
 	// Reject very tall/narrow regions (like vertical lines or borders)
-	aspectRatio := float64(width) / float64(height)
+	aspectRatio := float64(box.Width) / float64(box.Height)
 	if aspectRatio < 0.3 || aspectRatio > 15 {
 		return false
 	}
 
-	// Check 4: Tesseract's detected text should have reasonable characters
+	// Check 4: Detected text should have reasonable characters
 	// Filter out detections with only special characters or numbers
-	word := strings.TrimSpace(box.Word)
+	word := strings.TrimSpace(box.Text)
 	if len(word) == 0 {
 		return false
 	}
@@ -369,34 +383,47 @@ func (s *Service) getModelForProvider(providerName string) string {
 	}
 }
 
-// generateHOCR generates hOCR output from transcribed words
-func (s *Service) generateHOCR(words []TranscribedWord, lines [][]gosseract.BoundingBox, width, height int) string {
+// generateHOCRFromWords generates hOCR output from transcribed words and detected lines
+func (s *Service) generateHOCRFromWords(transcribedWords []TranscribedWord, lines [][]worddetection.WordBox, width, height int) string {
 	var hocrLines []string
 
-	// Assign line IDs to words based on their position
-	wordToLineID := make(map[int]int)
-	wordIndex := 0
-	for lineID, line := range lines {
-		for range line {
-			wordToLineID[wordIndex] = lineID
-			wordIndex++
-		}
-	}
+	// Group transcribed words by line based on Y-coordinate proximity
+	lineWords := make([][]TranscribedWord, len(lines))
 
-	// Group transcribed words by line
-	lineWords := make(map[int][]TranscribedWord)
-	for i, word := range words {
-		lineID := wordToLineID[i]
-		word.LineID = lineID
-		lineWords[lineID] = append(lineWords[lineID], word)
+	// For each transcribed word, find which line it belongs to
+	for _, word := range transcribedWords {
+		wordCenterY := word.Y + word.Height/2
+		bestLineIdx := -1
+		minDistance := int(^uint(0) >> 1) // Max int
+
+		for lineIdx, line := range lines {
+			if len(line) == 0 {
+				continue
+			}
+			// Calculate line center Y
+			lineCenterY := line[0].Y + line[0].Height/2
+			distance := abs(wordCenterY - lineCenterY)
+			if distance < minDistance {
+				minDistance = distance
+				bestLineIdx = lineIdx
+			}
+		}
+
+		if bestLineIdx >= 0 && minDistance <= 20 {
+			lineWords[bestLineIdx] = append(lineWords[bestLineIdx], word)
+		}
 	}
 
 	// Generate hOCR for each line
-	lineID := 0
-	for _, lineWordList := range lineWords {
+	for lineID, lineWordList := range lineWords {
 		if len(lineWordList) == 0 {
 			continue
 		}
+
+		// Sort words by X coordinate within line
+		sort.Slice(lineWordList, func(i, j int) bool {
+			return lineWordList[i].X < lineWordList[j].X
+		})
 
 		// Calculate line bounding box
 		minX, minY := lineWordList[0].X, lineWordList[0].Y
@@ -432,7 +459,6 @@ func (s *Service) generateHOCR(words []TranscribedWord, lines [][]gosseract.Boun
 
 		lineSpan += strings.Join(wordSpans, " ") + "</span>"
 		hocrLines = append(hocrLines, lineSpan)
-		lineID++
 	}
 
 	return s.wrapInHOCRDocument(strings.Join(hocrLines, "\n"), width, height)
@@ -458,257 +484,6 @@ func (s *Service) wrapInHOCRDocument(content string, width, height int) string {
 </html>`, bbox, content)
 }
 
-// detectWordBoundariesCustom uses Tesseract to find word boundaries
-func (s *Service) detectWordBoundariesCustom(imagePath string) (models.OCRResponse, error) {
-	// Get image dimensions first
-	width, height, err := s.getImageDimensions(imagePath)
-	if err != nil {
-		return models.OCRResponse{}, fmt.Errorf("failed to get image dimensions: %w", err)
-	}
-
-	// Use Tesseract to detect words and lines
-	client := gosseract.NewClient()
-	defer client.Close()
-
-	// Set image path
-	if err := client.SetImage(imagePath); err != nil {
-		return models.OCRResponse{}, fmt.Errorf("failed to set image: %w", err)
-	}
-
-	// Get word-level bounding boxes
-	boxes, err := client.GetBoundingBoxes(gosseract.RIL_WORD)
-	if err != nil {
-		return models.OCRResponse{}, fmt.Errorf("failed to get bounding boxes: %w", err)
-	}
-
-	slog.Info("Tesseract word detection completed", "word_count", len(boxes), "image_size", fmt.Sprintf("%dx%d", width, height))
-
-	// Convert Tesseract boxes to our WordBox format
-	words := make([]WordBox, 0, len(boxes))
-	for i, box := range boxes {
-		// Skip boxes with no content
-		if strings.TrimSpace(box.Word) == "" {
-			continue
-		}
-
-		words = append(words, WordBox{
-			X:      box.Box.Min.X,
-			Y:      box.Box.Min.Y,
-			Width:  box.Box.Max.X - box.Box.Min.X,
-			Height: box.Box.Max.Y - box.Box.Min.Y,
-			Text:   fmt.Sprintf("word_%d", i+1),
-		})
-	}
-
-	// Group words into lines based on coordinates
-	lines := s.groupWordsIntoLines(words)
-	slog.Info("Grouped words into lines", "line_count", len(lines))
-
-	// Convert to OCR response format
-	return s.convertWordsAndLinesToOCRResponse(lines, width, height), nil
-}
-
-// WordBox represents a detected word with its bounding box
-type WordBox struct {
-	X, Y, Width, Height int
-	Text                string // Placeholder text for custom detection
-}
-
-// LineBox represents a line of text containing multiple words
-type LineBox struct {
-	Words               []WordBox
-	X, Y, Width, Height int // Bounding box of the entire line
-}
-
-// groupWordsIntoLines groups detected words into text lines based on their coordinates
-func (s *Service) groupWordsIntoLines(words []WordBox) []LineBox {
-	if len(words) == 0 {
-		return nil
-	}
-
-	// Sort words by Y coordinate first, then X coordinate
-	sort.Slice(words, func(i, j int) bool {
-		if abs(words[i].Y-words[j].Y) < words[i].Height/2 { // Same line threshold
-			return words[i].X < words[j].X
-		}
-		return words[i].Y < words[j].Y
-	})
-
-	var lines []LineBox
-	var currentLineWords []WordBox
-
-	for _, word := range words {
-		if len(currentLineWords) == 0 {
-			currentLineWords = append(currentLineWords, word)
-			continue
-		}
-
-		// Check if this word belongs to the current line
-		if s.wordsOnSameLine(currentLineWords, word) {
-			currentLineWords = append(currentLineWords, word)
-		} else {
-			// Finish current line and start new one
-			if len(currentLineWords) > 0 {
-				line := s.createLineFromWords(currentLineWords)
-				lines = append(lines, line)
-			}
-			currentLineWords = []WordBox{word}
-		}
-	}
-
-	// Don't forget the last line
-	if len(currentLineWords) > 0 {
-		line := s.createLineFromWords(currentLineWords)
-		lines = append(lines, line)
-	}
-
-	return lines
-}
-
-// wordsOnSameLine determines if a word belongs to the current line
-func (s *Service) wordsOnSameLine(currentLineWords []WordBox, newWord WordBox) bool {
-	if len(currentLineWords) == 0 {
-		return true
-	}
-
-	// Calculate average height of current line
-	avgHeight := 0
-	minY, maxY := currentLineWords[0].Y, currentLineWords[0].Y+currentLineWords[0].Height
-	for _, word := range currentLineWords {
-		avgHeight += word.Height
-		if word.Y < minY {
-			minY = word.Y
-		}
-		if word.Y+word.Height > maxY {
-			maxY = word.Y + word.Height
-		}
-	}
-	avgHeight /= len(currentLineWords)
-
-	// Check for Y-coordinate overlap with some tolerance
-	tolerance := avgHeight / 3
-	currentLineBottom := maxY + tolerance
-	currentLineTop := minY - tolerance
-
-	return newWord.Y+newWord.Height >= currentLineTop && newWord.Y <= currentLineBottom
-}
-
-// createLineFromWords creates a LineBox from a group of words
-func (s *Service) createLineFromWords(words []WordBox) LineBox {
-	if len(words) == 0 {
-		return LineBox{}
-	}
-
-	// Calculate line bounding box
-	minX, minY := words[0].X, words[0].Y
-	maxX, maxY := words[0].X+words[0].Width, words[0].Y+words[0].Height
-
-	for _, word := range words[1:] {
-		if word.X < minX {
-			minX = word.X
-		}
-		if word.Y < minY {
-			minY = word.Y
-		}
-		if word.X+word.Width > maxX {
-			maxX = word.X + word.Width
-		}
-		if word.Y+word.Height > maxY {
-			maxY = word.Y + word.Height
-		}
-	}
-
-	return LineBox{
-		Words:  words,
-		X:      minX,
-		Y:      minY,
-		Width:  maxX - minX,
-		Height: maxY - minY,
-	}
-}
-
-// convertWordsAndLinesToOCRResponse converts our custom detection results to OCR response format
-// Each line contains individual words, preserving word-level granularity
-func (s *Service) convertWordsAndLinesToOCRResponse(lines []LineBox, width, height int) models.OCRResponse {
-	var paragraphs []models.Paragraph
-
-	// Convert each line to a paragraph containing individual words
-	for _, line := range lines {
-		var words []models.Word
-
-		// Create individual Word objects for each WordBox in the line
-		for j, wordBox := range line.Words {
-			word := models.Word{
-				BoundingBox: models.BoundingPoly{
-					Vertices: []models.Vertex{
-						{X: wordBox.X, Y: wordBox.Y},
-						{X: wordBox.X + wordBox.Width, Y: wordBox.Y},
-						{X: wordBox.X + wordBox.Width, Y: wordBox.Y + wordBox.Height},
-						{X: wordBox.X, Y: wordBox.Y + wordBox.Height},
-					},
-				},
-				Symbols: []models.Symbol{
-					{
-						BoundingBox: models.BoundingPoly{
-							Vertices: []models.Vertex{
-								{X: wordBox.X, Y: wordBox.Y},
-								{X: wordBox.X + wordBox.Width, Y: wordBox.Y},
-								{X: wordBox.X + wordBox.Width, Y: wordBox.Y + wordBox.Height},
-								{X: wordBox.X, Y: wordBox.Y + wordBox.Height},
-							},
-						},
-						Text: fmt.Sprintf("word_%d", j+1), // Placeholder text for each word
-					},
-				},
-			}
-			words = append(words, word)
-		}
-
-		// Create paragraph with all words from this line
-		paragraph := models.Paragraph{
-			BoundingBox: models.BoundingPoly{
-				Vertices: []models.Vertex{
-					{X: line.X, Y: line.Y},
-					{X: line.X + line.Width, Y: line.Y},
-					{X: line.X + line.Width, Y: line.Y + line.Height},
-					{X: line.X, Y: line.Y + line.Height},
-				},
-			},
-			Words: words, // Individual words per paragraph (word-level detection)
-		}
-		paragraphs = append(paragraphs, paragraph)
-	}
-
-	block := models.Block{
-		BoundingBox: models.BoundingPoly{
-			Vertices: []models.Vertex{
-				{X: 0, Y: 0},
-				{X: width, Y: 0},
-				{X: width, Y: height},
-				{X: 0, Y: height},
-			},
-		},
-		BlockType:  "TEXT",
-		Paragraphs: paragraphs,
-	}
-
-	page := models.Page{
-		Width:  width,
-		Height: height,
-		Blocks: []models.Block{block},
-	}
-
-	return models.OCRResponse{
-		Responses: []models.Response{
-			{
-				FullTextAnnotation: &models.FullTextAnnotation{
-					Pages: []models.Page{page},
-					Text:  "Custom word detection with line grouping + ChatGPT transcription",
-				},
-			},
-		},
-	}
-}
 
 func max(a, b int) int {
 	if a > b {
