@@ -190,15 +190,18 @@ func (s *Service) groupWordsIntoLines(words []worddetection.WordBox) [][]worddet
 	return lines
 }
 
-// transcribeWords extracts and transcribes each word using the LLM provider
+// transcribeWords extracts and transcribes words in batches using the LLM provider
 func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBox, provider providers.Provider) ([]TranscribedWord, error) {
 	ctx := context.Background()
 	transcribed := make([]TranscribedWord, 0, len(words))
 
 	providerName := provider.Name()
 	model := s.getModelForProvider(providerName)
-	slog.Info("Starting word transcription", "provider", providerName, "model", model, "word_count", len(words))
+	batchSize := s.getBatchSize()
+	slog.Info("Starting batch word transcription", "provider", providerName, "model", model, "word_count", len(words), "batch_size", batchSize)
 
+	// Filter valid words first
+	validWords := make([]worddetection.WordBox, 0, len(words))
 	skippedCount := 0
 	for i, word := range words {
 		// Skip empty words
@@ -217,55 +220,84 @@ func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBo
 			continue
 		}
 
-		// Extract word image
-		wordImagePath, err := s.extractWordFromImage(imagePath, word.X, word.Y, word.X+word.Width, word.Y+word.Height, i)
+		validWords = append(validWords, word)
+	}
+
+	slog.Info("Filtered words for transcription", "valid", len(validWords), "skipped", skippedCount, "total", len(words))
+
+	// Process words in batches
+	for batchStart := 0; batchStart < len(validWords); batchStart += batchSize {
+		batchEnd := batchStart + batchSize
+		if batchEnd > len(validWords) {
+			batchEnd = len(validWords)
+		}
+
+		batch := validWords[batchStart:batchEnd]
+		batchNum := (batchStart / batchSize) + 1
+		totalBatches := (len(validWords) + batchSize - 1) / batchSize
+
+		slog.Info("Processing batch", "batch", batchNum, "total_batches", totalBatches, "words_in_batch", len(batch))
+
+		// Stitch word images together
+		stitchedImagePath, err := s.stitchWordImages(imagePath, batch)
 		if err != nil {
-			slog.Warn("Failed to extract word image", "index", i, "error", err)
+			slog.Warn("Failed to stitch word images", "batch", batchNum, "error", err)
 			continue
 		}
-		defer os.Remove(wordImagePath)
+		defer os.Remove(stitchedImagePath)
 
 		// Convert to base64
-		imageData, err := os.ReadFile(wordImagePath)
+		imageData, err := os.ReadFile(stitchedImagePath)
 		if err != nil {
-			slog.Warn("Failed to read word image", "index", i, "error", err)
+			slog.Warn("Failed to read stitched image", "batch", batchNum, "error", err)
 			continue
 		}
 		imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
-		// Transcribe using LLM
+		// Create prompt for batch transcription
+		prompt := fmt.Sprintf("There are %d words in this image arranged horizontally. Transcribe each word on a separate line. Return ONLY the words, one per line, with no additional text, numbering, or explanation. If a word is not legible, use an empty line for that position.", len(batch))
+
 		config := providers.Config{
 			Model:       model,
-			Prompt:      "Transcribe the single word in this image. Return ONLY the word with no additional text, punctuation, or explanation. If there is no legible text, return an empty string.",
+			Prompt:      prompt,
 			Temperature: 0.0,
 		}
 
-		text, _, err := provider.ExtractText(ctx, config, wordImagePath, imageBase64)
+		text, _, err := provider.ExtractText(ctx, config, stitchedImagePath, imageBase64)
 		if err != nil {
-			slog.Warn("Failed to transcribe word", "index", i, "error", err)
+			slog.Warn("Failed to transcribe batch", "batch", batchNum, "error", err)
 			continue
 		}
 
-		text = strings.TrimSpace(text)
-		if text == "" {
-			continue
-		}
+		// Parse response - split by newlines
+		lines := strings.Split(strings.TrimSpace(text), "\n")
 
-		transcribed = append(transcribed, TranscribedWord{
-			X:          word.X,
-			Y:          word.Y,
-			Width:      word.Width,
-			Height:     word.Height,
-			Text:       text,
-			Confidence: 95.0, // Default confidence
-		})
+		slog.Debug("Batch transcription result", "batch", batchNum, "expected_words", len(batch), "received_lines", len(lines))
 
-		if (i+1)%10 == 0 {
-			slog.Info("Transcription progress", "completed", i+1, "total", len(words))
+		// Map transcribed words back to their original positions
+		for i, word := range batch {
+			var transcribedText string
+			if i < len(lines) {
+				transcribedText = strings.TrimSpace(lines[i])
+			}
+
+			// Skip empty transcriptions
+			if transcribedText == "" {
+				continue
+			}
+
+			transcribed = append(transcribed, TranscribedWord{
+				X:          word.X,
+				Y:          word.Y,
+				Width:      word.Width,
+				Height:     word.Height,
+				Text:       transcribedText,
+				Confidence: 90.0, // Slightly lower confidence for batch processing
+			})
 		}
 	}
 
-	slog.Info("Transcription completed", "transcribed", len(transcribed), "skipped", skippedCount, "total", len(words))
+	slog.Info("Batch transcription completed", "transcribed", len(transcribed), "skipped", skippedCount, "total", len(words))
 	return transcribed, nil
 }
 
@@ -381,6 +413,60 @@ func (s *Service) getModelForProvider(providerName string) string {
 	default:
 		return ""
 	}
+}
+
+// getBatchSize returns the batch size for word transcription from environment
+func (s *Service) getBatchSize() int {
+	batchSizeStr := os.Getenv("BATCH_SIZE")
+	if batchSizeStr == "" {
+		return 10 // Default batch size
+	}
+
+	var batchSize int
+	_, err := fmt.Sscanf(batchSizeStr, "%d", &batchSize)
+	if err != nil || batchSize < 1 {
+		slog.Warn("Invalid BATCH_SIZE, using default", "value", batchSizeStr, "default", 10)
+		return 10
+	}
+
+	return batchSize
+}
+
+// stitchWordImages combines multiple word images horizontally into a single image
+func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordBox) (string, error) {
+	if len(words) == 0 {
+		return "", fmt.Errorf("no words to stitch")
+	}
+
+	// Create output path
+	outputPath := filepath.Join("/tmp", fmt.Sprintf("stitched_%d.png", time.Now().UnixNano()))
+
+	// Build ImageMagick command to extract and stitch words horizontally
+	// We'll use multiple -crop operations and +append to combine horizontally
+	args := []string{imagePath}
+
+	for _, word := range words {
+		// Add crop for each word with padding
+		padding := 5
+		cropX := max(0, word.X-padding)
+		cropY := max(0, word.Y-padding)
+		cropWidth := word.Width + 2*padding
+		cropHeight := word.Height + 2*padding
+
+		args = append(args, "(", "-clone", "0",
+			"-crop", fmt.Sprintf("%dx%d+%d+%d", cropWidth, cropHeight, cropX, cropY),
+			"+repage", ")")
+	}
+
+	// Remove original image and append all cropped images horizontally
+	args = append(args, "-delete", "0", "+append", outputPath)
+
+	cmd := exec.Command("magick", args...)
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to stitch word images: %w", err)
+	}
+
+	return outputPath, nil
 }
 
 // generateHOCRFromWords generates hOCR output from transcribed words and detected lines
