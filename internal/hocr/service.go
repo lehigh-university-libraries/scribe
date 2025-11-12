@@ -79,6 +79,16 @@ func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
 	lines := s.groupWordsIntoLines(selectedWords)
 	slog.Info("Grouped words into lines", "line_count", len(lines))
 
+	// Step 3b: For custom provider (handwritten text), filter out anomalously small lines
+	if selectedProvider == "custom" {
+		originalLineCount := len(lines)
+		lines = s.filterValidLines(lines, width)
+		slog.Info("Filtered lines for custom provider",
+			"original_count", originalLineCount,
+			"filtered_count", len(lines),
+			"removed", originalLineCount-len(lines))
+	}
+
 	// Step 4: Initialize LLM provider
 	llmProvider, err := s.initLLMProvider()
 	if err != nil {
@@ -86,7 +96,7 @@ func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
 	}
 
 	// Step 5: Transcribe words/lines using LLM (line-based if custom provider selected)
-	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, width, height, llmProvider, selectedProvider)
+	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, width, height, llmProvider, selectedProvider, lines)
 	if err != nil {
 		return "", fmt.Errorf("failed to transcribe words: %w", err)
 	}
@@ -191,8 +201,9 @@ func (s *Service) groupWordsIntoLines(words []worddetection.WordBox) [][]worddet
 }
 
 // transcribeWords extracts and transcribes words in batches using the LLM provider
-// If detectionProvider is "custom", groups words into lines and transcribes entire lines
-func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, detectionProvider string) ([]TranscribedWord, error) {
+// If detectionProvider is "custom", transcribes entire lines instead of individual words
+// The lines parameter contains pre-filtered lines (filtered in ProcessImageToHOCR)
+func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, detectionProvider string, lines [][]worddetection.WordBox) ([]TranscribedWord, error) {
 	ctx := context.Background()
 	transcribed := make([]TranscribedWord, 0, len(words))
 
@@ -200,10 +211,10 @@ func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBo
 	model := s.getModelForProvider(providerName)
 	batchSize := s.getBatchSize()
 
-	// For custom provider (handwritten text), group words into lines and transcribe lines instead
+	// For custom provider (handwritten text), transcribe pre-filtered lines
 	if detectionProvider == "custom" {
-		slog.Info("Using line-based transcription for custom provider", "provider", providerName, "model", model, "word_count", len(words))
-		return s.transcribeLinesForCustomProvider(ctx, imagePath, words, imageWidth, imageHeight, provider, model, batchSize)
+		slog.Info("Using line-based transcription for custom provider", "provider", providerName, "model", model, "line_count", len(lines))
+		return s.transcribeLinesForCustomProvider(ctx, imagePath, lines, imageWidth, imageHeight, provider, model, batchSize)
 	}
 
 	slog.Info("Starting batch word transcription", "provider", providerName, "model", model, "word_count", len(words), "batch_size", batchSize)
@@ -309,86 +320,74 @@ func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBo
 	return transcribed, nil
 }
 
-// transcribeLinesForCustomProvider groups words into lines and transcribes entire lines
-// This is used for handwritten text detected by the custom provider
-func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, model string, batchSize int) ([]TranscribedWord, error) {
-	// Group detected words into lines
-	lines := s.groupWordsIntoLines(words)
-	slog.Info("Grouped detected words into lines for custom provider", "line_count", len(lines))
-
+// transcribeLinesForCustomProvider transcribes entire lines for handwritten text
+// This is used when the custom provider is selected (indicating handwritten text)
+// The lines parameter should be pre-filtered (filtering happens in ProcessImageToHOCR)
+// Each line is processed individually (no batching) for better accuracy
+func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePath string, lines [][]worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, model string, batchSize int) ([]TranscribedWord, error) {
 	if len(lines) == 0 {
+		slog.Info("No lines to transcribe for custom provider")
 		return nil, nil
 	}
 
+	slog.Info("Transcribing lines for custom provider (one at a time)", "line_count", len(lines))
 	transcribed := make([]TranscribedWord, 0, len(lines))
+	skippedEmpty := 0
 
-	// Process lines in batches
-	for batchStart := 0; batchStart < len(lines); batchStart += batchSize {
-		batchEnd := batchStart + batchSize
-		if batchEnd > len(lines) {
-			batchEnd = len(lines)
-		}
-
-		batch := lines[batchStart:batchEnd]
-		batchNum := (batchStart / batchSize) + 1
-		totalBatches := (len(lines) + batchSize - 1) / batchSize
-
-		slog.Info("Processing line batch", "batch", batchNum, "total_batches", totalBatches, "lines_in_batch", len(batch))
-
-		// Create line boxes for this batch
-		lineBoxes := make([]worddetection.WordBox, len(batch))
-		for i, line := range batch {
-			// Calculate bounding box for the entire line
-			if len(line) == 0 {
-				continue
-			}
-
-			minX, minY := line[0].X, line[0].Y
-			maxX, maxY := line[0].X+line[0].Width, line[0].Y+line[0].Height
-
-			for _, word := range line {
-				if word.X < minX {
-					minX = word.X
-				}
-				if word.Y < minY {
-					minY = word.Y
-				}
-				if word.X+word.Width > maxX {
-					maxX = word.X + word.Width
-				}
-				if word.Y+word.Height > maxY {
-					maxY = word.Y + word.Height
-				}
-			}
-
-			lineBoxes[i] = worddetection.WordBox{
-				X:          minX,
-				Y:          minY,
-				Width:      maxX - minX,
-				Height:     maxY - minY,
-				Text:       fmt.Sprintf("line_%d", batchStart+i),
-				Confidence: 90.0,
-			}
-		}
-
-		// Stitch line images together
-		stitchedImagePath, err := s.stitchWordImages(imagePath, lineBoxes)
-		if err != nil {
-			slog.Warn("Failed to stitch line images", "batch", batchNum, "error", err)
+	// Process each line individually (no batching)
+	for lineIndex, line := range lines {
+		// Calculate bounding box for the entire line (not individual words)
+		if len(line) == 0 {
+			slog.Debug("Skipping empty line", "line_index", lineIndex)
 			continue
 		}
-		defer os.Remove(stitchedImagePath)
+
+		minX, minY := line[0].X, line[0].Y
+		maxX, maxY := line[0].X+line[0].Width, line[0].Y+line[0].Height
+
+		for _, word := range line {
+			if word.X < minX {
+				minX = word.X
+			}
+			if word.Y < minY {
+				minY = word.Y
+			}
+			if word.X+word.Width > maxX {
+				maxX = word.X + word.Width
+			}
+			if word.Y+word.Height > maxY {
+				maxY = word.Y + word.Height
+			}
+		}
+
+		lineWidth := maxX - minX
+		lineHeight := maxY - minY
+
+		slog.Info("Processing line",
+			"line_index", lineIndex,
+			"progress", fmt.Sprintf("%d/%d", lineIndex+1, len(lines)),
+			"x", minX, "y", minY,
+			"width", lineWidth, "height", lineHeight,
+			"word_count", len(line))
+
+		// Extract the line image region
+		lineImagePath, err := s.extractLineImage(imagePath, minX, minY, maxX, maxY, lineIndex)
+		if err != nil {
+			slog.Warn("Failed to extract line image", "line_index", lineIndex, "error", err)
+			continue
+		}
+		defer os.Remove(lineImagePath)
 
 		// Convert to base64
-		imageData, err := os.ReadFile(stitchedImagePath)
+		imageData, err := os.ReadFile(lineImagePath)
 		if err != nil {
-			slog.Warn("Failed to read stitched line image", "batch", batchNum, "error", err)
+			slog.Warn("Failed to read line image", "line_index", lineIndex, "error", err)
 			continue
 		}
 		imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
-		// Create prompt for line transcription
-		prompt := fmt.Sprintf("There are %d lines of handwritten text in this image arranged horizontally. Transcribe each line on a separate line in your response. Return ONLY the transcribed text, one line per output line, with no additional text, numbering, or explanation. If a line is not legible, use an empty line for that position.", len(batch))
+		// Create prompt for single line transcription
+		prompt := "Transcribe the handwritten text in this image. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
 
 		config := providers.Config{
 			Model:       model,
@@ -396,44 +395,231 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 			Temperature: 0.0,
 		}
 
-		text, _, err := provider.ExtractText(ctx, config, stitchedImagePath, imageBase64)
+		text, _, err := provider.ExtractText(ctx, config, lineImagePath, imageBase64)
 		if err != nil {
-			slog.Warn("Failed to transcribe line batch", "batch", batchNum, "error", err)
+			slog.Warn("Failed to transcribe line", "line_index", lineIndex, "error", err)
 			continue
 		}
 
-		// Parse response - split by newlines
-		responseLines := strings.Split(strings.TrimSpace(text), "\n")
+		transcribedText := strings.TrimSpace(text)
 
-		slog.Debug("Line batch transcription result", "batch", batchNum, "expected_lines", len(batch), "received_lines", len(responseLines))
+		// Skip empty transcriptions - these will not appear in the hOCR
+		if transcribedText == "" {
+			slog.Info("Line transcribed as empty, excluding from hOCR", "line_index", lineIndex)
+			skippedEmpty++
+			continue
+		}
 
-		// Map transcribed lines back to their bounding boxes
-		for i, lineBox := range lineBoxes {
-			var transcribedText string
-			if i < len(responseLines) {
-				transcribedText = strings.TrimSpace(responseLines[i])
-			}
+		// Filter out LLM refusal responses and illegible markers
+		if s.isRefusalOrIllegible(transcribedText) {
+			slog.Info("Line marked as illegible or refusal, excluding from hOCR",
+				"line_index", lineIndex,
+				"response", transcribedText)
+			skippedEmpty++
+			continue
+		}
 
-			// Skip empty transcriptions
-			if transcribedText == "" {
-				continue
-			}
+		slog.Info("Line transcribed successfully",
+			"line_index", lineIndex,
+			"text_length", len(transcribedText),
+			"text_preview", truncateString(transcribedText, 50))
 
-			// Create a TranscribedWord for the entire line
-			transcribed = append(transcribed, TranscribedWord{
-				X:          lineBox.X,
-				Y:          lineBox.Y,
-				Width:      lineBox.Width,
-				Height:     lineBox.Height,
-				Text:       transcribedText,
-				Confidence: 85.0,
-				LineID:     batchStart + i,
-			})
+		// Create a TranscribedWord for the entire line
+		transcribed = append(transcribed, TranscribedWord{
+			X:          minX,
+			Y:          minY,
+			Width:      lineWidth,
+			Height:     lineHeight,
+			Text:       transcribedText,
+			Confidence: 85.0,
+			LineID:     lineIndex,
+		})
+	}
+
+	slog.Info("Line transcription completed",
+		"total_lines", len(lines),
+		"transcribed_lines", len(transcribed),
+		"skipped_empty", skippedEmpty)
+	return transcribed, nil
+}
+
+// extractLineImage extracts a line region from the image
+func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lineIndex int) (string, error) {
+	width := maxX - minX
+	height := maxY - minY
+
+	// Validate dimensions
+	if width <= 0 || height <= 0 {
+		return "", fmt.Errorf("invalid dimensions: width=%d, height=%d", width, height)
+	}
+
+	// Add padding for better context
+	padding := 10
+	cropX := max(0, minX-padding)
+	cropY := max(0, minY-padding)
+	cropWidth := width + 2*padding
+	cropHeight := height + 2*padding
+
+	outputPath := filepath.Join("/tmp", fmt.Sprintf("line_%d_%d.png", lineIndex, time.Now().UnixNano()))
+
+	// Extract line region
+	cmd := exec.Command("magick", imagePath,
+		"-crop", fmt.Sprintf("%dx%d+%d+%d", cropWidth, cropHeight, cropX, cropY),
+		"+repage",
+		outputPath)
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to extract line image: %w", err)
+	}
+
+	return outputPath, nil
+}
+
+// truncateString truncates a string to maxLen characters, adding "..." if truncated
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// isRefusalOrIllegible checks if the LLM response indicates refusal or illegibility
+func (s *Service) isRefusalOrIllegible(text string) bool {
+	textLower := strings.ToLower(text)
+
+	// Common refusal patterns
+	refusalPatterns := []string{
+		"not legible",
+		"illegible",
+		"cannot transcribe",
+		"can't transcribe",
+		"unable to transcribe",
+		"cannot read",
+		"can't read",
+		"unable to read",
+		"i am sorry",
+		"i'm sorry",
+		"i apologize",
+		"as an ai",
+		"as a language model",
+		"i cannot",
+		"i can't",
+		"no text visible",
+		"no text found",
+		"blank image",
+		"empty image",
+	}
+
+	for _, pattern := range refusalPatterns {
+		if strings.Contains(textLower, pattern) {
+			return true
 		}
 	}
 
-	slog.Info("Line transcription completed", "transcribed_lines", len(transcribed), "total_lines", len(lines))
-	return transcribed, nil
+	return false
+}
+
+// filterValidLines filters out lines that are anomalously small compared to the average
+// This removes detection errors that are too small to be real lines of text
+func (s *Service) filterValidLines(lines [][]worddetection.WordBox, imageWidth int) [][]worddetection.WordBox {
+	if len(lines) == 0 {
+		return lines
+	}
+
+	// Calculate width of each line
+	lineWidths := make([]int, len(lines))
+	for i, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
+		// Find min and max X coordinates
+		minX := line[0].X
+		maxX := line[0].X + line[0].Width
+
+		for _, word := range line {
+			if word.X < minX {
+				minX = word.X
+			}
+			if word.X+word.Width > maxX {
+				maxX = word.X + word.Width
+			}
+		}
+
+		lineWidths[i] = maxX - minX
+	}
+
+	// Calculate average line width
+	totalWidth := 0
+	validCount := 0
+	for _, width := range lineWidths {
+		if width > 0 {
+			totalWidth += width
+			validCount++
+		}
+	}
+
+	if validCount == 0 {
+		return lines
+	}
+
+	avgWidth := float64(totalWidth) / float64(validCount)
+
+	// Calculate median for more robust filtering
+	sortedWidths := make([]int, len(lineWidths))
+	copy(sortedWidths, lineWidths)
+	sort.Ints(sortedWidths)
+	medianWidth := float64(sortedWidths[len(sortedWidths)/2])
+
+	// Use the larger of average or median as reference
+	referenceWidth := avgWidth
+	if medianWidth > avgWidth {
+		referenceWidth = medianWidth
+	}
+
+	slog.Debug("Line width statistics",
+		"avg_width", avgWidth,
+		"median_width", medianWidth,
+		"reference_width", referenceWidth,
+		"image_width", imageWidth)
+
+	// Filter lines based on multiple criteria
+	var validLines [][]worddetection.WordBox
+	minAbsoluteWidth := int(float64(imageWidth) * 0.15) // At least 15% of image width
+	minRelativeWidth := int(referenceWidth * 0.35)      // At least 35% of reference width
+
+	for i, line := range lines {
+		width := lineWidths[i]
+
+		// Skip empty lines
+		if len(line) == 0 || width == 0 {
+			slog.Debug("Skipping empty line", "line_index", i)
+			continue
+		}
+
+		// Check if line meets minimum width requirements
+		if width < minAbsoluteWidth {
+			slog.Debug("Skipping line - too narrow (absolute)",
+				"line_index", i,
+				"width", width,
+				"min_absolute", minAbsoluteWidth,
+				"percent_of_image", float64(width)/float64(imageWidth)*100)
+			continue
+		}
+
+		if width < minRelativeWidth {
+			slog.Debug("Skipping line - too narrow (relative)",
+				"line_index", i,
+				"width", width,
+				"min_relative", minRelativeWidth,
+				"percent_of_reference", float64(width)/referenceWidth*100)
+			continue
+		}
+
+		validLines = append(validLines, line)
+	}
+
+	return validLines
 }
 
 // isLikelyWordBox validates whether a detected region is likely to be a real word
