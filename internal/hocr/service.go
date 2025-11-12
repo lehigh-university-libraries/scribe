@@ -87,6 +87,14 @@ func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
 			"original_count", originalLineCount,
 			"filtered_count", len(lines),
 			"removed", originalLineCount-len(lines))
+
+		// Step 3c: Remove overlapping lines, keeping the largest
+		linesBeforeOverlap := len(lines)
+		lines = s.removeOverlappingLines(lines)
+		slog.Info("Removed overlapping lines",
+			"before", linesBeforeOverlap,
+			"after", len(lines),
+			"removed", linesBeforeOverlap-len(lines))
 	}
 
 	// Step 4: Initialize LLM provider
@@ -620,6 +628,151 @@ func (s *Service) filterValidLines(lines [][]worddetection.WordBox, imageWidth i
 	}
 
 	return validLines
+}
+
+// removeOverlappingLines removes overlapping lines, keeping the one with the largest dimension
+func (s *Service) removeOverlappingLines(lines [][]worddetection.WordBox) [][]worddetection.WordBox {
+	if len(lines) <= 1 {
+		return lines
+	}
+
+	// Calculate bounding boxes for all lines
+	type lineBBox struct {
+		minX, minY, maxX, maxY int
+		width, height, area    int
+		index                  int
+	}
+
+	lineBBoxes := make([]lineBBox, len(lines))
+	for i, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
+		minX, minY := line[0].X, line[0].Y
+		maxX, maxY := line[0].X+line[0].Width, line[0].Y+line[0].Height
+
+		for _, word := range line {
+			if word.X < minX {
+				minX = word.X
+			}
+			if word.Y < minY {
+				minY = word.Y
+			}
+			if word.X+word.Width > maxX {
+				maxX = word.X + word.Width
+			}
+			if word.Y+word.Height > maxY {
+				maxY = word.Y + word.Height
+			}
+		}
+
+		width := maxX - minX
+		height := maxY - minY
+		lineBBoxes[i] = lineBBox{
+			minX:   minX,
+			minY:   minY,
+			maxX:   maxX,
+			maxY:   maxY,
+			width:  width,
+			height: height,
+			area:   width * height,
+			index:  i,
+		}
+	}
+
+	// Track which lines to keep
+	keep := make([]bool, len(lines))
+	for i := range keep {
+		keep[i] = true
+	}
+
+	// Check all pairs for overlaps
+	for i := 0; i < len(lineBBoxes); i++ {
+		if !keep[i] {
+			continue
+		}
+
+		for j := i + 1; j < len(lineBBoxes); j++ {
+			if !keep[j] {
+				continue
+			}
+
+			bbox1 := lineBBoxes[i]
+			bbox2 := lineBBoxes[j]
+
+			// Check if bounding boxes overlap
+			if s.boundingBoxesOverlap(bbox1.minX, bbox1.minY, bbox1.maxX, bbox1.maxY,
+				bbox2.minX, bbox2.minY, bbox2.maxX, bbox2.maxY) {
+
+				// Calculate overlap area
+				overlapMinX := max(bbox1.minX, bbox2.minX)
+				overlapMinY := max(bbox1.minY, bbox2.minY)
+				overlapMaxX := min(bbox1.maxX, bbox2.maxX)
+				overlapMaxY := min(bbox1.maxY, bbox2.maxY)
+
+				overlapWidth := overlapMaxX - overlapMinX
+				overlapHeight := overlapMaxY - overlapMinY
+				overlapArea := overlapWidth * overlapHeight
+
+				// Calculate overlap percentage relative to smaller box
+				smallerArea := min(bbox1.area, bbox2.area)
+				overlapPercent := float64(overlapArea) / float64(smallerArea) * 100
+
+				// If overlap is significant (>30%), keep only the larger box
+				if overlapPercent > 30 {
+					if bbox1.area >= bbox2.area {
+						keep[j] = false
+						slog.Debug("Removing overlapping line (keeping larger)",
+							"kept_line", i,
+							"kept_area", bbox1.area,
+							"removed_line", j,
+							"removed_area", bbox2.area,
+							"overlap_percent", overlapPercent)
+					} else {
+						keep[i] = false
+						slog.Debug("Removing overlapping line (keeping larger)",
+							"kept_line", j,
+							"kept_area", bbox2.area,
+							"removed_line", i,
+							"removed_area", bbox1.area,
+							"overlap_percent", overlapPercent)
+						break // Exit inner loop since line i is removed
+					}
+				}
+			}
+		}
+	}
+
+	// Build result with only kept lines
+	var result [][]worddetection.WordBox
+	for i, shouldKeep := range keep {
+		if shouldKeep {
+			result = append(result, lines[i])
+		}
+	}
+
+	return result
+}
+
+// boundingBoxesOverlap checks if two bounding boxes overlap
+func (s *Service) boundingBoxesOverlap(x1min, y1min, x1max, y1max, x2min, y2min, x2max, y2max int) bool {
+	// Boxes don't overlap if one is completely to the left/right/above/below the other
+	if x1max <= x2min || x2max <= x1min {
+		return false
+	}
+	if y1max <= y2min || y2max <= y1min {
+		return false
+	}
+	return true
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // isLikelyWordBox validates whether a detected region is likely to be a real word
