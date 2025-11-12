@@ -1,0 +1,5 @@
+#!/command/execlineb -P
+
+with-contenv
+cd /app
+exec s6-setuidgid scyllaridae /app/hOCRedit

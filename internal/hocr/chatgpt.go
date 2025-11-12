@@ -403,13 +403,16 @@ func (s *Service) getModel() string {
 
 func (s *Service) convertToBasicHOCR(response models.OCRResponse) string {
 	var lines []string
+	var width, height int
 
 	if len(response.Responses) == 0 || response.Responses[0].FullTextAnnotation == nil {
-		return s.wrapInHOCRDocument("")
+		return s.wrapInHOCRDocument("", 0, 0)
 	}
 
 	wordIndex := 0
 	for _, page := range response.Responses[0].FullTextAnnotation.Pages {
+		width = page.Width
+		height = page.Height
 		for _, block := range page.Blocks {
 			for _, paragraph := range block.Paragraphs {
 				for _, word := range paragraph.Words {
@@ -432,21 +435,5 @@ func (s *Service) convertToBasicHOCR(response models.OCRResponse) string {
 		}
 	}
 
-	return s.wrapInHOCRDocument(strings.Join(lines, "\n"))
-}
-
-func (s *Service) wrapInHOCRDocument(content string) string {
-	return fmt.Sprintf(`<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
-<head>
-<title></title>
-<meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
-<meta name='ocr-system' content='hOCRedit' />
-</head>
-<body>
-<div class='ocr_page' id='page_1'>
-%s
-</div>
-</body>
-</html>`, content)
+	return s.wrapInHOCRDocument(strings.Join(lines, "\n"), width, height)
 }

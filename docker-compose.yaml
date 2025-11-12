@@ -1,0 +1,12 @@
+---
+networks:
+  default:
+
+services:
+  hocredit:
+    image: ghcr.io/lehigh-university-libraries/hocredit:main
+    build: .
+    ports:
+      - 8888:8888
+    volumes:
+      - ./.env:/app/.env
