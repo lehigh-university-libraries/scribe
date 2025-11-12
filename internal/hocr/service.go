@@ -86,7 +86,7 @@ func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
 	}
 
 	// Step 5: Transcribe each word using LLM
-	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, llmProvider)
+	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, width, height, llmProvider)
 	if err != nil {
 		return "", fmt.Errorf("failed to transcribe words: %w", err)
 	}
@@ -191,7 +191,7 @@ func (s *Service) groupWordsIntoLines(words []worddetection.WordBox) [][]worddet
 }
 
 // transcribeWords extracts and transcribes words in batches using the LLM provider
-func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBox, provider providers.Provider) ([]TranscribedWord, error) {
+func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider) ([]TranscribedWord, error) {
 	ctx := context.Background()
 	transcribed := make([]TranscribedWord, 0, len(words))
 
@@ -211,7 +211,7 @@ func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBo
 		}
 
 		// Validate that this is likely a real word
-		if !s.isLikelyWordBox(word) {
+		if !s.isLikelyWordBox(word, imageWidth, imageHeight) {
 			slog.Debug("Skipping non-word detection", "index", i,
 				"width", word.Width,
 				"height", word.Height,
@@ -302,14 +302,39 @@ func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBo
 }
 
 // isLikelyWordBox validates whether a detected region is likely to be a real word
-func (s *Service) isLikelyWordBox(box worddetection.WordBox) bool {
+// Uses relative sizing based on image dimensions to adapt to different image resolutions
+func (s *Service) isLikelyWordBox(box worddetection.WordBox, imageWidth, imageHeight int) bool {
 	// Check 1: Minimum size - too small is likely noise
-	if box.Width < 10 || box.Height < 10 {
+	// Use relative sizing: min 0.5% of image width and 0.8% of image height
+	minWidth := int(float64(imageWidth) * 0.02)
+	minHeight := int(float64(imageHeight) * 0.01)
+
+	// Ensure absolute minimums for very small images
+	if minWidth < 10 {
+		minWidth = 10
+	}
+	if minHeight < 10 {
+		minHeight = 10
+	}
+
+	if box.Width < minWidth || box.Height < minHeight {
 		return false
 	}
 
 	// Check 2: Maximum size - too large is likely not a single word
-	if box.Width > 500 || box.Height > 200 {
+	// Use relative sizing: max 25% of image width and 10% of image height
+	maxWidth := int(float64(imageWidth) * 0.25)
+	maxHeight := int(float64(imageHeight) * 0.10)
+
+	// Cap absolute maximums for very large images
+	if maxWidth > 500 {
+		maxWidth = 500
+	}
+	if maxHeight > 200 {
+		maxHeight = 200
+	}
+
+	if box.Width > maxWidth || box.Height > maxHeight {
 		return false
 	}
 
@@ -569,7 +594,6 @@ func (s *Service) wrapInHOCRDocument(content string, width, height int) string {
 </body>
 </html>`, bbox, content)
 }
-
 
 func max(a, b int) int {
 	if a > b {
