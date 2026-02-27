@@ -834,7 +834,7 @@ func (s *Service) isLikelyWordBox(box worddetection.WordBox, imageWidth, imageHe
 			hasLetter = true
 		}
 		// Count excessive special characters
-		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9')) {
+		if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') {
 			specialCharCount++
 		}
 	}
@@ -854,44 +854,6 @@ func (s *Service) isLikelyWordBox(box worddetection.WordBox, imageWidth, imageHe
 	}
 
 	return true
-}
-
-// extractWordFromImage extracts a word region from the image
-func (s *Service) extractWordFromImage(imagePath string, minX, minY, maxX, maxY, wordIndex int) (string, error) {
-	width := maxX - minX
-	height := maxY - minY
-
-	// Validate dimensions
-	if width <= 0 || height <= 0 {
-		return "", fmt.Errorf("invalid dimensions: width=%d, height=%d", width, height)
-	}
-
-	// Ensure minimum dimensions for vision models
-	if width < 5 || height < 5 {
-		return "", fmt.Errorf("word too small: width=%d, height=%d", width, height)
-	}
-
-	// Add padding
-	padding := 5 // Increased padding for better context
-	cropX := max(0, minX-padding)
-	cropY := max(0, minY-padding)
-	cropWidth := width + 2*padding
-	cropHeight := height + 2*padding
-
-	outputPath := filepath.Join("/tmp", fmt.Sprintf("word_%d_%d.png", wordIndex, time.Now().UnixNano()))
-
-	// Extract and ensure minimum size
-	cmd := exec.Command("magick", imagePath,
-		"-crop", fmt.Sprintf("%dx%d+%d+%d", cropWidth, cropHeight, cropX, cropY),
-		"+repage",
-		"-resize", "x100>", // Ensure minimum height of 100px for clarity
-		outputPath)
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to extract word image: %w", err)
-	}
-
-	return outputPath, nil
 }
 
 // getModelForProvider returns the appropriate model for the provider

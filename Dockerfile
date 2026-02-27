@@ -1,5 +1,5 @@
-FROM islandora/leptonica:main AS leptonica
-FROM islandora/houdini:main
+FROM islandora/leptonica:main@sha256:bf2022d55958e2026acca02d383ea548b0482dc6a13aa3d98cb5328d544b4cd4 AS leptonica
+FROM islandora/houdini:main@sha256:e5d5009761a0dfb3a42bf115421b522935fe2f70f331364df926970d8831a74a
 
 WORKDIR /app
 
@@ -40,6 +40,6 @@ COPY --chown=scyllaridae:scyllaridae static/ ./static/
 
 COPY --link rootfs /
 
-RUN chown -R scyllaridae uploads cache
+RUN mkdir uploads cache && chown -R scyllaridae uploads cache
 
 HEALTHCHECK CMD curl -s http://localhost:8888/healthcheck
