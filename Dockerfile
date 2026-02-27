@@ -40,6 +40,6 @@ COPY --chown=scyllaridae:scyllaridae static/ ./static/
 
 COPY --link rootfs /
 
-RUN chown -R scyllaridae uploads cache
+RUN mkdir uploads cache && chown -R scyllaridae uploads cache
 
 HEALTHCHECK CMD curl -s http://localhost:8888/healthcheck

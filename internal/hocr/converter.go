@@ -57,7 +57,7 @@ func (h *Converter) ConvertHOCRLinesToXML(lines []models.HOCRLine, pageWidth, pa
 	hocr.WriteString("<body>\n")
 
 	bbox := fmt.Sprintf("bbox 0 0 %d %d", pageWidth, pageHeight)
-	hocr.WriteString(fmt.Sprintf("<div class='ocr_page' id='page_1' title='%s'>\n", bbox))
+	fmt.Fprintf(&hocr, "<div class='ocr_page' id='page_1' title='%s'>\n", bbox)
 
 	for _, line := range lines {
 		hocr.WriteString(h.convertHOCRLineToXML(line))
@@ -74,7 +74,7 @@ func (h *Converter) convertHOCRLineToXML(line models.HOCRLine) string {
 	bbox := fmt.Sprintf("bbox %d %d %d %d", line.BBox.X1, line.BBox.Y1, line.BBox.X2, line.BBox.Y2)
 
 	var lineBuilder strings.Builder
-	lineBuilder.WriteString(fmt.Sprintf("<span class='ocr_line' id='%s' title='%s'>", line.ID, bbox))
+	fmt.Fprintf(&lineBuilder, "<span class='ocr_line' id='%s' title='%s'>", line.ID, bbox)
 
 	for _, word := range line.Words {
 		wordXML := h.convertHOCRWordToXML(word)

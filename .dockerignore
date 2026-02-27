@@ -9,4 +9,5 @@ renovate.json5
 *.yaml
 .env
 uploads/*
+cache/*
 terraform/*
