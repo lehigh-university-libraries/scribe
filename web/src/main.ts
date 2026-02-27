@@ -57,6 +57,7 @@ type ParsedLine = {
   bbox: BBox;
   originalBBox: BBox | null;
   words: ParsedWord[];
+  exploded: boolean;
 };
 
 const app = document.getElementById("app");
@@ -420,40 +421,49 @@ async function renderEditor(): Promise<void> {
         <a href="/" class="rounded border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Back</a>
       </header>
 
-      <div class="grid h-[78vh] gap-3 md:grid-cols-2">
-        <section class="relative overflow-auto rounded-xl border border-slate-700 bg-slate-900/60 p-2">
-          <div id="image-wrap" class="relative inline-block">
-            <img id="editor-image" class="max-h-[72vh] rounded" alt="source" />
+      <div class="grid gap-3 md:grid-cols-2">
+        <section class="relative rounded-xl border border-slate-700 bg-slate-900/60 p-2">
+          <div id="image-wrap" class="relative inline-block overflow-hidden rounded">
+            <img id="editor-image" class="max-h-[78vh] rounded" alt="source" />
             <div id="line-overlay" class="absolute inset-0"></div>
           </div>
         </section>
-        <section class="relative overflow-auto rounded-xl border border-slate-700 bg-slate-900/60 p-2">
-          <div id="line-list" class="relative h-[72vh]"></div>
+        <section class="relative rounded-xl border border-slate-700 bg-slate-900/60 p-2">
+          <div id="line-list" class="relative min-h-[18rem]"></div>
           <div id="line-info" class="absolute bottom-2 right-2 rounded border border-slate-700 bg-slate-950/90 px-2 py-1 text-[11px] text-slate-300"></div>
           <p id="save-status" class="absolute bottom-2 left-2 text-[11px] text-slate-400"></p>
         </section>
       </div>
 
-      <div class="mt-3 grid gap-3 md:grid-cols-2">
-        <div></div>
+      <div class="mt-2 grid gap-3 md:grid-cols-2">
         <section class="rounded-xl border border-slate-700 bg-slate-900/60 p-2">
-          <div class="mb-2 flex flex-wrap gap-2">
-            <button id="add-box" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Add</button>
-            <button id="split-line" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Split Line</button>
-            <button id="explode-line" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Explode Words</button>
-            <button id="delete-box" class="rounded border border-rose-600 px-2 py-1 text-xs text-rose-300 hover:bg-rose-950">Delete</button>
-            <button id="save-edits" class="rounded bg-brand-500 px-3 py-1 text-xs font-medium hover:bg-brand-600">Save</button>
-          </div>
           <div class="rounded border border-slate-700 bg-slate-900/40 px-2 py-1 text-[11px] text-slate-300">
             <strong>Keyboard Shortcuts:</strong><br>
-            • <kbd>Tab</kbd> - Next line<br>
-            • <kbd>Shift+Tab</kbd> - Previous line<br>
+            • <kbd>Tab</kbd> - Next line/word<br>
+            • <kbd>Shift+Tab</kbd> - Previous line/word<br>
             • <kbd>Enter</kbd> - Apply changes<br>
             • <kbd>Delete</kbd> - Delete selected line<br>
             • <kbd>D</kbd> - Toggle drawing mode<br>
             • <kbd>S</kbd> - Split line<br>
             • <kbd>E</kbd> - Explode words<br>
+            • <kbd>M</kbd> - Toggle merge mode<br>
+            • <kbd>Ctrl/Cmd+Z</kbd> - Undo<br>
+            • <kbd>Ctrl/Cmd+Y</kbd> - Redo<br>
             • <kbd>Esc</kbd> - Clear selection/Exit drawing
+          </div>
+        </section>
+        <section class="rounded-xl border border-slate-700 bg-slate-900/60 p-2">
+          <div class="mb-2 flex flex-wrap gap-2">
+            <button id="add-box" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Add</button>
+            <button id="split-line" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Split Line</button>
+            <button id="explode-line" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Explode Words</button>
+            <button id="merge-mode" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Merge Mode</button>
+            <button id="merge-selected" class="hidden rounded border border-emerald-500 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-900/20">Merge Selected</button>
+            <button id="reset-edits" class="rounded border border-amber-600 px-2 py-1 text-xs text-amber-300 hover:bg-amber-950/30">Reset</button>
+            <button id="undo-edit" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Undo</button>
+            <button id="redo-edit" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Redo</button>
+            <button id="delete-box" class="rounded border border-rose-600 px-2 py-1 text-xs text-rose-300 hover:bg-rose-950">Delete</button>
+            <button id="save-edits" class="rounded bg-brand-500 px-3 py-1 text-xs font-medium hover:bg-brand-600">Save</button>
           </div>
         </section>
       </div>
@@ -475,6 +485,11 @@ async function renderEditor(): Promise<void> {
   const addBoxBtn = document.getElementById("add-box") as HTMLButtonElement;
   const splitLineBtn = document.getElementById("split-line") as HTMLButtonElement;
   const explodeLineBtn = document.getElementById("explode-line") as HTMLButtonElement;
+  const mergeModeBtn = document.getElementById("merge-mode") as HTMLButtonElement;
+  const mergeSelectedBtn = document.getElementById("merge-selected") as HTMLButtonElement;
+  const resetBtn = document.getElementById("reset-edits") as HTMLButtonElement;
+  const undoBtn = document.getElementById("undo-edit") as HTMLButtonElement;
+  const redoBtn = document.getElementById("redo-edit") as HTMLButtonElement;
   const deleteBoxBtn = document.getElementById("delete-box") as HTMLButtonElement;
 
   let runResp;
@@ -511,6 +526,21 @@ async function renderEditor(): Promise<void> {
   const changedBoxIDs = new Set<string>();
   let nextLineCounter = lines.length + 1;
   let isAddBoxMode = false;
+  let isMergeMode = false;
+  const selectedLineIDs = new Set<string>();
+  const selectedWordKeys = new Set<string>();
+  type EditorSnapshot = {
+    lines: ParsedLine[];
+    activeLineID: string;
+    activeWordID: string;
+  };
+  const undoStack: EditorSnapshot[] = [];
+  const redoStack: EditorSnapshot[] = [];
+  let autosaveTimer: number | null = null;
+  let autosaveInFlight = false;
+  let autosaveQueued = false;
+  let dragDirty = false;
+  let restoringInputFocus = false;
 
   const pageWidth = parsed.pageWidth || 1;
   const pageHeight = parsed.pageHeight || 1;
@@ -552,21 +582,164 @@ async function renderEditor(): Promise<void> {
     else changedBoxIDs.delete(line.id);
   }
 
-  function setActiveLine(id: string): void {
+  function setActiveLine(id: string, shouldRender: boolean = true): void {
     activeLineID = id;
     const line = getLineByID(id);
-    if (!line || line.words.length === 0) {
+    if (!line || !line.exploded || line.words.length === 0) {
       activeWordID = "";
     } else if (!line.words.some((w) => w.id === activeWordID)) {
       activeWordID = line.words[0].id;
     }
+    if (shouldRender) renderEditorState();
+  }
+
+  function setActiveWord(lineID: string, wordID: string, shouldRender: boolean = true): void {
+    activeLineID = lineID;
+    activeWordID = wordID;
+    if (shouldRender) renderEditorState();
+  }
+
+  function cloneLines(src: ParsedLine[]): ParsedLine[] {
+    return src.map((line) => ({
+      id: line.id,
+      text: line.text,
+      originalText: line.originalText,
+      bbox: { ...line.bbox },
+      originalBBox: line.originalBBox ? { ...line.originalBBox } : null,
+      words: line.words.map((w) => ({ id: w.id, text: w.text, bbox: { ...w.bbox } })),
+      exploded: line.exploded
+    }));
+  }
+
+  function captureSnapshot(): EditorSnapshot {
+    return {
+      lines: cloneLines(lines),
+      activeLineID,
+      activeWordID
+    };
+  }
+
+  function applySnapshot(s: EditorSnapshot): void {
+    lines.splice(0, lines.length, ...cloneLines(s.lines));
+    activeLineID = s.activeLineID;
+    activeWordID = s.activeWordID;
+    clearMergeSelections();
+    updateMergeModeUI();
     renderEditorState();
   }
 
-  function setActiveWord(lineID: string, wordID: string): void {
-    activeLineID = lineID;
-    activeWordID = wordID;
-    renderEditorState();
+  function pushUndoSnapshot(): void {
+    undoStack.push(captureSnapshot());
+    if (undoStack.length > 200) undoStack.shift();
+    redoStack.length = 0;
+  }
+
+  function undoEdit(): void {
+    if (undoStack.length === 0) return;
+    redoStack.push(captureSnapshot());
+    const snap = undoStack.pop();
+    if (!snap) return;
+    applySnapshot(snap);
+    markDirty();
+  }
+
+  function redoEdit(): void {
+    if (redoStack.length === 0) return;
+    undoStack.push(captureSnapshot());
+    const snap = redoStack.pop();
+    if (!snap) return;
+    applySnapshot(snap);
+    markDirty();
+  }
+
+  function restoreInputFocus(lineID: string, wordID: string | null, start: number | null, end: number | null): void {
+    requestAnimationFrame(() => {
+      const selector = wordID
+        ? `input[data-line-id="${lineID}"][data-word-id="${wordID}"]`
+        : `input[data-line-id="${lineID}"]:not([data-word-id])`;
+      const next = document.querySelector(selector) as HTMLInputElement | null;
+      if (!next) return;
+      restoringInputFocus = true;
+      next.focus();
+      if (start !== null && end !== null) {
+        try {
+          next.setSelectionRange(start, end);
+        } catch {
+          // ignore non-text selection errors
+        }
+      }
+      requestAnimationFrame(() => {
+        restoringInputFocus = false;
+      });
+    });
+  }
+
+  function focusCurrentEditorInput(selectAll: boolean = false): void {
+    if (activeLineID === "") return;
+    const selector = activeWordID !== ""
+      ? `input[data-line-id="${activeLineID}"][data-word-id="${activeWordID}"]`
+      : `input[data-line-id="${activeLineID}"]:not([data-word-id])`;
+    requestAnimationFrame(() => {
+      const input = document.querySelector(selector) as HTMLInputElement | null;
+      if (!input) return;
+      restoringInputFocus = true;
+      input.focus();
+      if (selectAll) {
+        try {
+          input.setSelectionRange(0, input.value.length);
+        } catch {
+          // ignore
+        }
+      }
+      requestAnimationFrame(() => {
+        restoringInputFocus = false;
+      });
+    });
+  }
+
+  function scheduleAutoSave(delayMs: number = 1200): void {
+    if (autosaveTimer !== null) {
+      window.clearTimeout(autosaveTimer);
+    }
+    autosaveTimer = window.setTimeout(() => {
+      autosaveTimer = null;
+      void persistEdits("auto");
+    }, delayMs);
+  }
+
+  function markDirty(): void {
+    scheduleAutoSave();
+  }
+
+  async function persistEdits(mode: "auto" | "manual"): Promise<void> {
+    if (autosaveInFlight) {
+      autosaveQueued = true;
+      return;
+    }
+    autosaveInFlight = true;
+    if (mode === "auto") {
+      saveStatus.textContent = "autosaving...";
+    } else {
+      saveStatus.textContent = "saving...";
+    }
+    try {
+      const correctedHOCR = buildCorrectedHOCR(workingHOCR, lines);
+      const payload = await imageClient.saveOCREdits(new SaveOCREditsRequest({
+        sessionId: sessionID,
+        correctedHocr: correctedHOCR,
+        editCount: changedLineIDs.size
+      }));
+      const stamp = new Date().toLocaleTimeString();
+      saveStatus.textContent = `saved ${mode === "auto" ? "(auto)" : ""} text=${payload.editCount} lev=${payload.levenshteinDistance} @ ${stamp}`;
+    } catch {
+      saveStatus.textContent = "Failed to save edits";
+    } finally {
+      autosaveInFlight = false;
+      if (autosaveQueued) {
+        autosaveQueued = false;
+        scheduleAutoSave(250);
+      }
+    }
   }
 
   function orderedLines(): ParsedLine[] {
@@ -580,6 +753,36 @@ async function renderEditor(): Promise<void> {
       : "rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800";
   }
 
+  function wordKey(lineID: string, wordID: string): string {
+    return `${lineID}::${wordID}`;
+  }
+
+  function clearMergeSelections(): void {
+    selectedLineIDs.clear();
+    selectedWordKeys.clear();
+  }
+
+  function updateMergeModeUI(): void {
+    mergeModeBtn.className = isMergeMode
+      ? "rounded border border-emerald-400 px-2 py-1 text-xs bg-emerald-900/30"
+      : "rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800";
+
+    const canMergeWords = selectedWordKeys.size >= 2;
+    const canMergeLines = selectedWordKeys.size === 0 && selectedLineIDs.size >= 2;
+    if (isMergeMode && (canMergeWords || canMergeLines)) {
+      mergeSelectedBtn.classList.remove("hidden");
+    } else {
+      mergeSelectedBtn.classList.add("hidden");
+    }
+  }
+
+  function setMergeMode(next: boolean): void {
+    isMergeMode = next;
+    if (!isMergeMode) clearMergeSelections();
+    updateMergeModeUI();
+    renderEditorState();
+  }
+
   function deleteActiveLine(): void {
     if (!activeLineID) return;
     const idx = lines.findIndex((line) => line.id === activeLineID);
@@ -589,6 +792,31 @@ async function renderEditor(): Promise<void> {
     changedBoxIDs.add(activeLineID);
     activeLineID = lines.length > 0 ? orderedLines()[0].id : "";
     activeWordID = "";
+    renderEditorState();
+  }
+
+  function deleteWordFromLine(lineID: string, wordID: string): void {
+    const line = getLineByID(lineID);
+    if (!line || !line.exploded) return;
+    const idx = line.words.findIndex((w) => w.id === wordID);
+    if (idx < 0) return;
+    line.words.splice(idx, 1);
+    line.text = line.words.map((w) => w.text.trim()).filter((w) => w !== "").join(" ");
+    if (line.words.length <= 1) {
+      line.exploded = false;
+      activeWordID = "";
+      if (line.words.length === 1) {
+        line.text = line.words[0].text;
+      }
+      line.words = [];
+    } else {
+      const next = line.words[Math.min(idx, line.words.length - 1)];
+      activeWordID = next.id;
+    }
+    ensureLineContainsWords(line);
+    markBoxChange(line);
+    changedLineIDs.add(line.id);
+    changedBoxIDs.add(line.id);
     renderEditorState();
   }
 
@@ -637,6 +865,10 @@ async function renderEditor(): Promise<void> {
   }
 
   function refreshWordBoxesForLine(line: ParsedLine): void {
+    if (!line.exploded) {
+      line.words = [];
+      return;
+    }
     const words = wordsFromText(line.text);
     if (line.words.length <= 1 && words.length <= 1) {
       line.words = words.length === 1 ? [{ id: `${line.id}_w_1`, text: words[0], bbox: { ...line.bbox } }] : [];
@@ -716,26 +948,60 @@ async function renderEditor(): Promise<void> {
     syncEditorHeights();
     lineOverlay.innerHTML = "";
     lineList.innerHTML = "";
+    if (isMergeMode && !image.classList.contains("hidden")) {
+      const dim = document.createElement("div");
+      dim.className = "absolute inset-0 bg-slate-950/70";
+      dim.style.pointerEvents = "none";
+      lineOverlay.appendChild(dim);
+    }
     const sorted = [...lines].sort((a, b) => (a.bbox.y1 === b.bbox.y1 ? a.bbox.x1 - b.bbox.x1 : a.bbox.y1 - b.bbox.y1));
 
     for (const line of sorted) {
       if (!image.classList.contains("hidden")) {
         const marker = document.createElement("div");
-        marker.className = `absolute border ${line.id === activeLineID ? "border-cyan-300 bg-cyan-300/20" : "border-amber-400/70 bg-amber-300/20"}`;
+        const isActiveLine = line.id === activeLineID;
+        const activeLineInWordMode = isActiveLine && line.exploded && line.words.length > 1;
+        const isLineSelected = selectedLineIDs.has(line.id);
+        marker.className = `absolute border ${isMergeMode
+          ? (isLineSelected ? "border-emerald-300 bg-emerald-300/20" : "border-slate-600/70 bg-transparent")
+          : activeLineInWordMode
+            ? "border-slate-500/70 bg-transparent"
+            : isActiveLine
+              ? "border-cyan-300 bg-cyan-300/20"
+              : "border-amber-400/70 bg-amber-300/20"
+        }`;
         marker.style.left = `${(line.bbox.x1 / pageWidth) * 100}%`;
         marker.style.top = `${(line.bbox.y1 / pageHeight) * 100}%`;
         marker.style.width = `${Math.max(0.5, ((line.bbox.x2 - line.bbox.x1) / pageWidth) * 100)}%`;
         marker.style.height = `${Math.max(1.2, ((line.bbox.y2 - line.bbox.y1) / pageHeight) * 100)}%`;
         marker.style.cursor = "move";
+        if (!isMergeMode && isActiveLine && !activeLineInWordMode) {
+          marker.style.boxShadow = "0 0 0 9999px rgba(2,6,23,0.55)";
+        }
+        if (isMergeMode) {
+          marker.style.cursor = "pointer";
+        }
 
         marker.addEventListener("mousedown", (e) => {
+          if (isMergeMode) return;
           e.preventDefault();
           const doc = pointerToDoc(e.clientX, e.clientY);
           if (!doc) return;
+          pushUndoSnapshot();
           setActiveLine(line.id);
           interaction = { lineID: line.id, mode: "move", handle: "", startDocX: doc.x, startDocY: doc.y, startBox: { ...line.bbox } };
         });
-        marker.addEventListener("click", () => setActiveLine(line.id));
+        marker.addEventListener("click", () => {
+          if (isMergeMode) {
+            if (selectedLineIDs.has(line.id)) selectedLineIDs.delete(line.id);
+            else selectedLineIDs.add(line.id);
+            selectedWordKeys.clear();
+            updateMergeModeUI();
+            renderEditorState();
+            return;
+          }
+          setActiveLine(line.id);
+        });
 
         if (line.id === activeLineID) {
           for (const handle of ["n", "s", "e", "w", "nw", "ne", "sw", "se"]) {
@@ -746,10 +1012,12 @@ async function renderEditor(): Promise<void> {
             h.style.cursor = `${handle}-resize`;
             positionHandle(h, handle);
             h.addEventListener("mousedown", (e) => {
+              if (isMergeMode) return;
               e.stopPropagation();
               e.preventDefault();
               const doc = pointerToDoc(e.clientX, e.clientY);
               if (!doc) return;
+              pushUndoSnapshot();
               interaction = { lineID: line.id, mode: "resize", handle, startDocX: doc.x, startDocY: doc.y, startBox: { ...line.bbox } };
             });
             marker.appendChild(h);
@@ -757,7 +1025,7 @@ async function renderEditor(): Promise<void> {
         }
         lineOverlay.appendChild(marker);
 
-        if (line.id === activeLineID && line.words.length > 1) {
+        if (line.id === activeLineID && line.exploded && line.words.length > 1) {
           for (const word of line.words) {
             const wordBox = document.createElement("div");
             const isWordActive = word.id === activeWordID;
@@ -767,15 +1035,35 @@ async function renderEditor(): Promise<void> {
             wordBox.style.width = `${Math.max(0.3, ((word.bbox.x2 - word.bbox.x1) / pageWidth) * 100)}%`;
             wordBox.style.height = `${Math.max(1, ((word.bbox.y2 - word.bbox.y1) / pageHeight) * 100)}%`;
             wordBox.style.cursor = "move";
+            const key = wordKey(line.id, word.id);
+            const isWordSelected = selectedWordKeys.has(key);
+            if (isMergeMode) {
+              wordBox.className = isWordSelected
+                ? "absolute border border-emerald-300 bg-emerald-300/20"
+                : "absolute border border-slate-600/70 bg-transparent";
+            }
+            if (!isMergeMode && isWordActive) {
+              wordBox.style.boxShadow = "0 0 0 9999px rgba(2,6,23,0.55)";
+            }
             wordBox.addEventListener("click", (e) => {
               e.stopPropagation();
+              if (isMergeMode) {
+                if (selectedWordKeys.has(key)) selectedWordKeys.delete(key);
+                else selectedWordKeys.add(key);
+                selectedLineIDs.clear();
+                updateMergeModeUI();
+                renderEditorState();
+                return;
+              }
               setActiveWord(line.id, word.id);
             });
             wordBox.addEventListener("mousedown", (e) => {
+              if (isMergeMode) return;
               e.stopPropagation();
               e.preventDefault();
               const doc = pointerToDoc(e.clientX, e.clientY);
               if (!doc) return;
+              pushUndoSnapshot();
               setActiveWord(line.id, word.id);
               wordInteraction = {
                 lineID: line.id,
@@ -797,10 +1085,12 @@ async function renderEditor(): Promise<void> {
                 if (handle === "w") h.style.left = "-4px";
                 if (handle === "e") h.style.right = "-4px";
                 h.addEventListener("mousedown", (e) => {
+                  if (isMergeMode) return;
                   e.stopPropagation();
                   e.preventDefault();
                   const doc = pointerToDoc(e.clientX, e.clientY);
                   if (!doc) return;
+                  pushUndoSnapshot();
                   wordInteraction = {
                     lineID: line.id,
                     wordID: word.id,
@@ -825,36 +1115,97 @@ async function renderEditor(): Promise<void> {
       row.style.transform = "translateY(-50%)";
       row.style.zIndex = line.id === activeLineID ? "20" : "10";
 
-      if (line.words.length > 1) {
+      if (line.exploded && line.words.length > 1) {
         const wordsWrap = document.createElement("div");
         wordsWrap.className = "flex w-full gap-1";
         for (const word of line.words) {
+          const key = wordKey(line.id, word.id);
+          const isWordMergeSelected = selectedWordKeys.has(key);
           const wInput = document.createElement("input");
           wInput.type = "text";
-          wInput.className = `min-w-[3.5rem] rounded border px-2 py-1 text-sm leading-tight ${word.id === activeWordID ? "border-cyan-400 bg-slate-900" : "border-slate-700 bg-slate-950"}`;
+          wInput.dataset.lineId = line.id;
+          wInput.dataset.wordId = word.id;
+          wInput.className = `min-w-[3.5rem] rounded border px-2 py-1 text-sm leading-tight ${
+            isMergeMode
+              ? (isWordMergeSelected ? "border-emerald-400 bg-slate-900" : "border-slate-700 bg-slate-950/80")
+              : word.id === activeWordID ? "border-cyan-400 bg-slate-900" : "border-slate-700 bg-slate-950"
+          }`;
           wInput.value = word.text;
+          wInput.setAttribute("value", word.text);
           wInput.style.flexGrow = String(Math.max(1, word.bbox.x2 - word.bbox.x1));
-          wInput.addEventListener("focus", () => setActiveWord(line.id, word.id));
+          if (isMergeMode) {
+            wInput.readOnly = true;
+            wInput.addEventListener("click", (e) => {
+              e.preventDefault();
+              if (selectedWordKeys.has(key)) selectedWordKeys.delete(key);
+              else selectedWordKeys.add(key);
+              selectedLineIDs.clear();
+              updateMergeModeUI();
+              renderEditorState();
+            });
+            wordsWrap.appendChild(wInput);
+            continue;
+          }
+          wInput.addEventListener("focus", () => {
+            if (restoringInputFocus) return;
+            if (activeLineID === line.id && activeWordID === word.id) return;
+            const start = wInput.selectionStart;
+            const end = wInput.selectionEnd;
+            setActiveWord(line.id, word.id);
+            restoreInputFocus(line.id, word.id, start, end);
+          });
           wInput.addEventListener("input", () => {
+            pushUndoSnapshot();
             word.text = wInput.value;
             line.text = line.words.map((w) => w.text.trim()).filter((w) => w !== "").join(" ");
             if (line.text.trim() !== line.originalText.trim()) changedLineIDs.add(line.id);
             else changedLineIDs.delete(line.id);
+            markDirty();
           });
           wordsWrap.appendChild(wInput);
         }
         row.appendChild(wordsWrap);
       } else {
+        const isLineMergeSelected = selectedLineIDs.has(line.id);
         const input = document.createElement("input");
         input.type = "text";
-        input.className = `w-full rounded border px-2 py-1 text-sm leading-tight ${line.id === activeLineID ? "border-cyan-400 bg-slate-900" : "border-slate-700 bg-slate-950"}`;
+        input.dataset.lineId = line.id;
+        input.className = `w-full rounded border px-2 py-1 text-sm leading-tight ${
+          isMergeMode
+            ? (isLineMergeSelected ? "border-emerald-400 bg-slate-900" : "border-slate-700 bg-slate-950/80")
+            : line.id === activeLineID ? "border-cyan-400 bg-slate-900" : "border-slate-700 bg-slate-950"
+        }`;
         input.value = line.text;
-        input.addEventListener("focus", () => setActiveLine(line.id));
+        input.setAttribute("value", line.text);
+        if (isMergeMode) {
+          input.readOnly = true;
+          input.addEventListener("click", (e) => {
+            e.preventDefault();
+            if (selectedLineIDs.has(line.id)) selectedLineIDs.delete(line.id);
+            else selectedLineIDs.add(line.id);
+            selectedWordKeys.clear();
+            updateMergeModeUI();
+            renderEditorState();
+          });
+          row.appendChild(input);
+          lineList.appendChild(row);
+          continue;
+        }
+        input.addEventListener("focus", () => {
+          if (restoringInputFocus) return;
+          if (activeLineID === line.id && (!line.exploded || activeWordID === "")) return;
+          const start = input.selectionStart;
+          const end = input.selectionEnd;
+          setActiveLine(line.id);
+          restoreInputFocus(line.id, null, start, end);
+        });
         input.addEventListener("input", () => {
+          pushUndoSnapshot();
           line.text = input.value;
           refreshWordBoxesForLine(line);
           if (line.text.trim() !== line.originalText.trim()) changedLineIDs.add(line.id);
           else changedLineIDs.delete(line.id);
+          markDirty();
         });
         row.appendChild(input);
       }
@@ -905,6 +1256,7 @@ async function renderEditor(): Promise<void> {
       markBoxChange(line);
       changedLineIDs.add(line.id);
       changedBoxIDs.add(line.id);
+      dragDirty = true;
       renderEditorState();
       return;
     }
@@ -921,6 +1273,7 @@ async function renderEditor(): Promise<void> {
       line.bbox = clampBox({ x1: interaction.startBox.x1 + dx, y1: interaction.startBox.y1 + dy, x2: interaction.startBox.x2 + dx, y2: interaction.startBox.y2 + dy });
       refreshWordBoxesForLine(line);
       markBoxChange(line);
+      dragDirty = true;
       renderEditorState();
       return;
     }
@@ -928,6 +1281,7 @@ async function renderEditor(): Promise<void> {
       line.bbox = applyResize(interaction.startBox, interaction.handle, dx, dy);
       refreshWordBoxesForLine(line);
       markBoxChange(line);
+      dragDirty = true;
       renderEditorState();
       return;
     }
@@ -935,6 +1289,7 @@ async function renderEditor(): Promise<void> {
       line.bbox = applyResize(interaction.startBox, "se", dx, dy);
       refreshWordBoxesForLine(line);
       markBoxChange(line);
+      dragDirty = true;
       renderEditorState();
     }
   });
@@ -942,6 +1297,10 @@ async function renderEditor(): Promise<void> {
   window.addEventListener("mouseup", () => {
     interaction = null;
     wordInteraction = null;
+    if (dragDirty) {
+      dragDirty = false;
+      markDirty();
+    }
   });
 
   addBoxBtn.addEventListener("click", () => {
@@ -949,9 +1308,10 @@ async function renderEditor(): Promise<void> {
   });
 
   lineOverlay.addEventListener("mousedown", (e) => {
-    if (!isAddBoxMode || e.target !== lineOverlay) return;
+    if (isMergeMode || !isAddBoxMode || e.target !== lineOverlay) return;
     const doc = pointerToDoc(e.clientX, e.clientY);
     if (!doc) return;
+    pushUndoSnapshot();
     const id = `line_new_${nextLineCounter++}`;
     const newLine: ParsedLine = {
       id,
@@ -959,7 +1319,8 @@ async function renderEditor(): Promise<void> {
       originalText: "",
       bbox: { x1: roundInt(doc.x), y1: roundInt(doc.y), x2: roundInt(doc.x + 6), y2: roundInt(doc.y + 6) },
       originalBBox: null,
-      words: []
+      words: [],
+      exploded: false
     };
     lines.push(newLine);
     changedLineIDs.add(id);
@@ -967,12 +1328,14 @@ async function renderEditor(): Promise<void> {
     activeWordID = "";
     setActiveLine(id);
     interaction = { lineID: id, mode: "draw", handle: "se", startDocX: doc.x, startDocY: doc.y, startBox: { ...newLine.bbox } };
+    markDirty();
     renderEditorState();
   });
 
   splitLineBtn.addEventListener("click", () => {
     const line = getLineByID(activeLineID);
     if (!line) return;
+    pushUndoSnapshot();
     const original = { ...line.bbox };
     const splitY = Math.round((original.y1 + original.y2) / 2);
     const words = line.text.trim().split(/\s+/).filter(Boolean);
@@ -991,7 +1354,8 @@ async function renderEditor(): Promise<void> {
 
     line.bbox = clampBox({ x1: original.x1, y1: original.y1, x2: original.x2, y2: splitY });
     line.text = topText;
-    line.words = distributeWordsInLine(line, wordsFromText(topText));
+    line.exploded = false;
+    line.words = [];
     markBoxChange(line);
     changedLineIDs.add(line.id);
 
@@ -1002,14 +1366,16 @@ async function renderEditor(): Promise<void> {
       originalText: "",
       bbox: clampBox({ x1: original.x1, y1: splitY, x2: original.x2, y2: original.y2 }),
       originalBBox: null,
-      words: []
+      words: [],
+      exploded: false
     };
-    bottom.words = distributeWordsInLine(bottom, wordsFromText(bottomText));
+    bottom.words = [];
     lines.push(bottom);
     changedLineIDs.add(id);
     changedBoxIDs.add(id);
-    activeWordID = line.words.length > 0 ? line.words[0].id : "";
+    activeWordID = "";
     setActiveLine(line.id);
+    markDirty();
     renderEditorState();
   });
 
@@ -1018,18 +1384,125 @@ async function renderEditor(): Promise<void> {
     if (!line) return;
     const words = line.text.trim().split(/\s+/).filter(Boolean);
     if (words.length <= 1) return;
+    pushUndoSnapshot();
+    line.exploded = true;
     line.words = distributeWordsInLine(line, words);
     changedLineIDs.add(line.id);
     changedBoxIDs.add(line.id);
     activeWordID = line.words.length > 0 ? line.words[0].id : "";
     setActiveLine(line.id);
+    markDirty();
+    renderEditorState();
+  });
+
+  mergeModeBtn.addEventListener("click", () => {
+    setMergeMode(!isMergeMode);
+  });
+
+  mergeSelectedBtn.addEventListener("click", () => {
+    if (!isMergeMode) return;
+
+    if (selectedWordKeys.size >= 2) {
+      const parsed = [...selectedWordKeys].map((k) => k.split("::"));
+      const lineID = parsed[0]?.[0] ?? "";
+      if (lineID === "" || !parsed.every((p) => p[0] === lineID)) return;
+      const line = getLineByID(lineID);
+      if (!line || !line.exploded) return;
+      const selectedIDs = new Set(parsed.map((p) => p[1]));
+      const selectedWords = line.words.filter((w) => selectedIDs.has(w.id));
+      if (selectedWords.length < 2) return;
+
+      pushUndoSnapshot();
+      const remaining = line.words.filter((w) => !selectedIDs.has(w.id));
+      const sortedSelected = [...selectedWords].sort((a, b) => a.bbox.x1 - b.bbox.x1);
+      const merged: ParsedWord = {
+        id: sortedSelected[0].id,
+        text: sortedSelected.map((w) => w.text).join(" ").trim(),
+        bbox: {
+          x1: Math.min(...sortedSelected.map((w) => w.bbox.x1)),
+          y1: line.bbox.y1,
+          x2: Math.max(...sortedSelected.map((w) => w.bbox.x2)),
+          y2: line.bbox.y2
+        }
+      };
+
+      line.words = [...remaining, merged].sort((a, b) => a.bbox.x1 - b.bbox.x1);
+      line.text = line.words.map((w) => w.text.trim()).filter((w) => w !== "").join(" ");
+      if (line.words.length <= 1) line.exploded = false;
+      ensureLineContainsWords(line);
+      markBoxChange(line);
+      changedLineIDs.add(line.id);
+      changedBoxIDs.add(line.id);
+      clearMergeSelections();
+      activeLineID = line.id;
+      activeWordID = line.exploded && line.words.length > 0 ? merged.id : "";
+      updateMergeModeUI();
+      markDirty();
+      renderEditorState();
+      return;
+    }
+
+    if (selectedLineIDs.size >= 2) {
+      const selected = lines.filter((l) => selectedLineIDs.has(l.id));
+      if (selected.length < 2) return;
+      pushUndoSnapshot();
+
+      selected.sort((a, b) => (a.bbox.y1 === b.bbox.y1 ? a.bbox.x1 - b.bbox.x1 : a.bbox.y1 - b.bbox.y1));
+      const base = selected[0];
+      base.text = selected.map((l) => l.text.trim()).filter((t) => t !== "").join(" ");
+      base.exploded = false;
+      base.words = [];
+      base.bbox = clampBox({
+        x1: Math.min(...selected.map((l) => l.bbox.x1)),
+        y1: Math.min(...selected.map((l) => l.bbox.y1)),
+        x2: Math.max(...selected.map((l) => l.bbox.x2)),
+        y2: Math.max(...selected.map((l) => l.bbox.y2))
+      });
+      markBoxChange(base);
+      changedLineIDs.add(base.id);
+      changedBoxIDs.add(base.id);
+
+      const removeIDs = new Set(selected.slice(1).map((l) => l.id));
+      for (let i = lines.length - 1; i >= 0; i -= 1) {
+        if (removeIDs.has(lines[i].id)) {
+          changedLineIDs.add(lines[i].id);
+          changedBoxIDs.add(lines[i].id);
+          lines.splice(i, 1);
+        }
+      }
+
+      clearMergeSelections();
+      activeLineID = base.id;
+      activeWordID = "";
+      updateMergeModeUI();
+      markDirty();
+      renderEditorState();
+    }
+  });
+
+  resetBtn.addEventListener("click", () => {
+    pushUndoSnapshot();
+    const resetParsed = parseHOCR(run.original_hocr);
+    lines.splice(0, lines.length, ...resetParsed.lines);
+    activeLineID = lines.length > 0 ? lines[0].id : "";
+    activeWordID = "";
+    clearMergeSelections();
+    updateMergeModeUI();
+    nextLineCounter = lines.length + 1;
+    markDirty();
     renderEditorState();
   });
 
   deleteBoxBtn.addEventListener("click", () => {
+    pushUndoSnapshot();
     deleteActiveLine();
+    markDirty();
   });
 
+  undoBtn.addEventListener("click", undoEdit);
+  redoBtn.addEventListener("click", redoEdit);
+
+  updateMergeModeUI();
   renderEditorState();
   image.addEventListener("load", () => {
     syncEditorHeights();
@@ -1039,32 +1512,98 @@ async function renderEditor(): Promise<void> {
   window.addEventListener("keydown", (event) => {
     const target = event.target as HTMLElement | null;
     const inTextField = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+    const isMod = event.ctrlKey || event.metaKey;
+    const targetInput = target instanceof HTMLInputElement ? target : null;
+    const targetLineID = targetInput?.dataset.lineId ?? "";
+    const targetWordID = targetInput?.dataset.wordId ?? "";
+
+    if (isMod && (event.key === "z" || event.key === "Z")) {
+      event.preventDefault();
+      if (event.shiftKey) redoEdit();
+      else undoEdit();
+      return;
+    }
+
+    if (isMod && (event.key === "y" || event.key === "Y")) {
+      event.preventDefault();
+      redoEdit();
+      return;
+    }
+
+    if (isMod && (event.key === "Delete" || event.key === "Backspace") && inTextField && targetLineID !== "") {
+      event.preventDefault();
+      pushUndoSnapshot();
+      if (targetWordID !== "") {
+        deleteWordFromLine(targetLineID, targetWordID);
+      } else {
+        activeLineID = targetLineID;
+        deleteActiveLine();
+      }
+      markDirty();
+      return;
+    }
 
     if (event.key === "Tab") {
       event.preventDefault();
       const sorted = orderedLines();
       if (sorted.length === 0) return;
-      const idx = sorted.findIndex((line) => line.id === activeLineID);
-      if (idx < 0) {
-        setActiveLine(sorted[0].id);
-        return;
+      const lineIdx = sorted.findIndex((line) => line.id === activeLineID);
+      const currentLine = lineIdx >= 0 ? sorted[lineIdx] : sorted[0];
+      if (currentLine.exploded && currentLine.words.length > 1) {
+        const wordIdx = currentLine.words.findIndex((w) => w.id === activeWordID);
+        if (wordIdx >= 0) {
+          const step = event.shiftKey ? -1 : 1;
+          const nextWordIdx = wordIdx + step;
+          if (nextWordIdx >= 0 && nextWordIdx < currentLine.words.length) {
+            setActiveWord(currentLine.id, currentLine.words[nextWordIdx].id);
+            focusCurrentEditorInput();
+            return;
+          }
+          const nextLineIdx = event.shiftKey
+            ? (lineIdx - 1 + sorted.length) % sorted.length
+            : (lineIdx + 1) % sorted.length;
+          const nextLine = sorted[nextLineIdx];
+          if (nextLine.exploded && nextLine.words.length > 0) {
+            const nextWord = event.shiftKey ? nextLine.words[nextLine.words.length - 1] : nextLine.words[0];
+            setActiveWord(nextLine.id, nextWord.id);
+            focusCurrentEditorInput();
+          } else {
+            setActiveLine(nextLine.id);
+            focusCurrentEditorInput();
+          }
+          return;
+        }
       }
-      const next = event.shiftKey
-        ? sorted[(idx - 1 + sorted.length) % sorted.length]
-        : sorted[(idx + 1) % sorted.length];
-      setActiveLine(next.id);
+      const nextLineIdx = event.shiftKey
+        ? ((lineIdx >= 0 ? lineIdx : 0) - 1 + sorted.length) % sorted.length
+        : ((lineIdx >= 0 ? lineIdx : 0) + 1) % sorted.length;
+      const nextLine = sorted[nextLineIdx];
+      if (nextLine.exploded && nextLine.words.length > 0) {
+        const nextWord = event.shiftKey ? nextLine.words[nextLine.words.length - 1] : nextLine.words[0];
+        setActiveWord(nextLine.id, nextWord.id);
+        focusCurrentEditorInput();
+      } else {
+        setActiveLine(nextLine.id);
+        focusCurrentEditorInput();
+      }
       return;
     }
 
     if (event.key === "Enter") {
       event.preventDefault();
+      if (isMergeMode) {
+        mergeSelectedBtn.click();
+        return;
+      }
       saveBtn.click();
       return;
     }
 
     if (event.key === "Delete" && !inTextField) {
       event.preventDefault();
+      pushUndoSnapshot();
       deleteActiveLine();
+      markDirty();
       return;
     }
 
@@ -1074,15 +1613,21 @@ async function renderEditor(): Promise<void> {
       return;
     }
 
-    if ((event.key === "s" || event.key === "S") && !inTextField) {
+    if ((event.key === "s" || event.key === "S") && !inTextField && !event.repeat) {
       event.preventDefault();
       splitLineBtn.click();
       return;
     }
 
-    if ((event.key === "e" || event.key === "E") && !inTextField) {
+    if ((event.key === "e" || event.key === "E") && !inTextField && !event.repeat) {
       event.preventDefault();
       explodeLineBtn.click();
+      return;
+    }
+
+    if ((event.key === "m" || event.key === "M") && !inTextField && !event.repeat) {
+      event.preventDefault();
+      setMergeMode(!isMergeMode);
       return;
     }
 
@@ -1091,23 +1636,13 @@ async function renderEditor(): Promise<void> {
       activeLineID = "";
       activeWordID = "";
       setAddMode(false);
+      setMergeMode(false);
       renderEditorState();
     }
   });
 
   saveBtn.addEventListener("click", async () => {
-    const correctedHOCR = buildCorrectedHOCR(workingHOCR, lines);
-    try {
-      const payload = await imageClient.saveOCREdits(new SaveOCREditsRequest({
-        sessionId: sessionID,
-        correctedHocr: correctedHOCR,
-        editCount: changedLineIDs.size
-      }));
-      saveStatus.textContent = `saved text=${payload.editCount} lev=${payload.levenshteinDistance}`;
-    } catch {
-      saveStatus.textContent = "Failed to save edits";
-      return;
-    }
+    await persistEdits("manual");
   });
 }
 
@@ -1135,7 +1670,7 @@ function parseHOCR(hocrXML: string): { lines: ParsedLine[]; pageWidth: number; p
       .filter((w) => w.text !== "");
     const text = words.length > 0 ? words.map((w) => w.text).join(" ") : (node.textContent ?? "").trim();
 
-    return { id, bbox, text, originalText: text, originalBBox: { ...bbox }, words };
+    return { id, bbox, text, originalText: text, originalBBox: { ...bbox }, words, exploded: false };
   });
 
   return {
