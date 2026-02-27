@@ -111,3 +111,7 @@ func (h *Handler) getOCRForImage(imagePath string) (string, error) {
 	// Use the simplified OCR service that bundles word detection + ChatGPT transcription
 	return h.hocrService.ProcessImageToHOCR(imagePath)
 }
+
+func (h *Handler) getOCRForImageWithModel(imagePath, model string) (string, error) {
+	return h.hocrService.ProcessImageToHOCRWithModel(imagePath, model)
+}

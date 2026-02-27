@@ -1,12 +1,31 @@
----
-networks:
-  default:
-
 services:
-  hocredit:
-    image: ghcr.io/lehigh-university-libraries/hocredit:main
-    build: .
-    ports:
-      - 8888:8888
+  mariadb:
+    image: mariadb:12.1
+    environment:
+      MARIADB_DATABASE: hocredit
+      MARIADB_USER: hocredit
+      MARIADB_PASSWORD: hocredit
+      MARIADB_ROOT_PASSWORD: root
     volumes:
-      - ./.env:/app/.env
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      LISTEN_ADDR: :8080
+      DATABASE_DSN: hocredit:hocredit@tcp(mariadb:3306)/hocredit?parseTime=true
+    ports:
+      - "8080:8080"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+volumes:
+  mariadb-data:

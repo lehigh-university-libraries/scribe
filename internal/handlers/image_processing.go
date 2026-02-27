@@ -18,6 +18,10 @@ import (
 )
 
 func (h *Handler) processImageFile(fileData []byte, filename string) (*ImageProcessResult, error) {
+	return h.processImageFileWithModel(fileData, filename, "")
+}
+
+func (h *Handler) processImageFileWithModel(fileData []byte, filename, model string) (*ImageProcessResult, error) {
 	md5Hash := utils.CalculateDataMD5(fileData)
 	ext := filepath.Ext(filename)
 	imageFilename := md5Hash + ext
@@ -30,7 +34,7 @@ func (h *Handler) processImageFile(fileData []byte, filename string) (*ImageProc
 	slog.Info("Image saved", "filename", imageFilename, "md5", md5Hash)
 
 	width, height := utils.GetImageDimensions(imageFilePath)
-	hocrXML, err := h.processHOCR(imageFilePath, md5Hash)
+	hocrXML, err := h.processHOCRWithModel(imageFilePath, md5Hash, model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process hOCR: %w", err)
 	}
@@ -66,16 +70,24 @@ func (h *Handler) downloadImageFromURL(imageURL string) ([]byte, string, error) 
 }
 
 func (h *Handler) processImageFromURL(imageURL string) (*ImageProcessResult, error) {
+	return h.processImageFromURLWithModel(imageURL, "")
+}
+
+func (h *Handler) processImageFromURLWithModel(imageURL, model string) (*ImageProcessResult, error) {
 	// Download image from URL
 	imageData, contentType, err := h.downloadImageFromURL(imageURL)
 	if err != nil {
 		return nil, err
 	}
 
-	return h.processImageFromData(imageData, contentType, imageURL)
+	return h.processImageFromDataWithModel(imageData, contentType, imageURL, model)
 }
 
 func (h *Handler) processImageFromData(imageData []byte, contentType, sourceURL string) (*ImageProcessResult, error) {
+	return h.processImageFromDataWithModel(imageData, contentType, sourceURL, "")
+}
+
+func (h *Handler) processImageFromDataWithModel(imageData []byte, contentType, sourceURL, model string) (*ImageProcessResult, error) {
 	// Convert JP2/TIFF images using Houdini if needed
 	originalImageData := imageData
 	if needsHoudiniConversion(contentType, sourceURL) {
@@ -112,7 +124,7 @@ func (h *Handler) processImageFromData(imageData []byte, contentType, sourceURL 
 	width, height := utils.GetImageDimensions(imageFilePath)
 
 	// Process hOCR
-	hocrXML, err := h.processHOCR(imageFilePath, md5Hash)
+	hocrXML, err := h.processHOCRWithModel(imageFilePath, md5Hash, model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process hOCR: %w", err)
 	}
@@ -146,7 +158,11 @@ func (h *Handler) getFileExtension(contentType, sourceURL string) string {
 }
 
 func (h *Handler) processHOCR(imageFilePath, md5Hash string) (string, error) {
-	hocrFilename := md5Hash + ".xml"
+	return h.processHOCRWithModel(imageFilePath, md5Hash, "")
+}
+
+func (h *Handler) processHOCRWithModel(imageFilePath, md5Hash, model string) (string, error) {
+	hocrFilename := buildHOCRCacheFilename(md5Hash, model)
 	hocrFilePath := filepath.Join("uploads", hocrFilename)
 
 	// Check cache first
@@ -161,7 +177,13 @@ func (h *Handler) processHOCR(imageFilePath, md5Hash string) (string, error) {
 	}
 
 	// Generate new hOCR
-	hocrXML, err := h.getOCRForImage(imageFilePath)
+	var hocrXML string
+	var err error
+	if strings.TrimSpace(model) != "" {
+		hocrXML, err = h.getOCRForImageWithModel(imageFilePath, model)
+	} else {
+		hocrXML, err = h.getOCRForImage(imageFilePath)
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to process image with OCR: %w", err)
 	}
@@ -174,6 +196,16 @@ func (h *Handler) processHOCR(imageFilePath, md5Hash string) (string, error) {
 	}
 
 	return hocrXML, nil
+}
+
+func buildHOCRCacheFilename(imageHash, model string) string {
+	normalizedModel := strings.TrimSpace(strings.ToLower(model))
+	if normalizedModel == "" {
+		return imageHash + ".xml"
+	}
+
+	modelHash := md5.Sum([]byte(normalizedModel))
+	return imageHash + "_" + hex.EncodeToString(modelHash[:8]) + ".xml"
 }
 
 func (h *Handler) extractFilenameFromURL(imageURL, md5Hash string) string {

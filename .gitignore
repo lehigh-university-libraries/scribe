@@ -5,3 +5,6 @@ hOCRedit
 terraform.*
 uploads
 cache
+web/node_modules
+web/dist
+db

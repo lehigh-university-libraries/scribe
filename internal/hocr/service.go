@@ -27,6 +27,14 @@ func NewService() *Service {
 }
 
 func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
+	return s.processImageToHOCR(imagePath, "")
+}
+
+func (s *Service) ProcessImageToHOCRWithModel(imagePath, modelOverride string) (string, error) {
+	return s.processImageToHOCR(imagePath, modelOverride)
+}
+
+func (s *Service) processImageToHOCR(imagePath, modelOverride string) (string, error) {
 	ctx := context.Background()
 
 	// Step 1: Get image dimensions
@@ -104,7 +112,7 @@ func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
 	}
 
 	// Step 5: Transcribe words/lines using LLM (line-based if custom provider selected)
-	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, width, height, llmProvider, selectedProvider, lines)
+	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, width, height, llmProvider, selectedProvider, lines, modelOverride)
 	if err != nil {
 		return "", fmt.Errorf("failed to transcribe words: %w", err)
 	}
@@ -211,12 +219,15 @@ func (s *Service) groupWordsIntoLines(words []worddetection.WordBox) [][]worddet
 // transcribeWords extracts and transcribes words in batches using the LLM provider
 // If detectionProvider is "custom", transcribes entire lines instead of individual words
 // The lines parameter contains pre-filtered lines (filtered in ProcessImageToHOCR)
-func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, detectionProvider string, lines [][]worddetection.WordBox) ([]TranscribedWord, error) {
+func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, detectionProvider string, lines [][]worddetection.WordBox, modelOverride string) ([]TranscribedWord, error) {
 	ctx := context.Background()
 	transcribed := make([]TranscribedWord, 0, len(words))
 
 	providerName := provider.Name()
-	model := s.getModelForProvider(providerName)
+	model := strings.TrimSpace(modelOverride)
+	if model == "" {
+		model = s.getModelForProvider(providerName)
+	}
 	batchSize := s.getBatchSize()
 
 	// For custom provider (handwritten text), transcribe pre-filtered lines
