@@ -115,3 +115,7 @@ func (h *Handler) getOCRForImage(imagePath string) (string, error) {
 func (h *Handler) getOCRForImageWithModel(imagePath, model string) (string, error) {
 	return h.hocrService.ProcessImageToHOCRWithModel(imagePath, model)
 }
+
+func (h *Handler) getOCRForImageWithProviderAndModel(imagePath, provider, model string) (string, error) {
+	return h.hocrService.ProcessImageToHOCRWithProviderAndModel(imagePath, provider, model)
+}

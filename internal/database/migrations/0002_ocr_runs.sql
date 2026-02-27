@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS ocr_runs (
   session_id VARCHAR(128) PRIMARY KEY,
   image_url TEXT NOT NULL,
+  provider VARCHAR(64) NOT NULL DEFAULT 'unknown',
   model VARCHAR(255) NOT NULL,
   original_hocr LONGTEXT NOT NULL,
   original_text LONGTEXT NOT NULL,

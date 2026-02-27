@@ -15,6 +15,8 @@ docker compose up --build
 
 API will be available at `http://localhost:8080`.
 
+Provider/model selection in the UI is driven by backend config (`/v1/llm/options`) and supports `ollama`, `openai`, and `gemini` when configured.
+
 ## Build and Lint
 
 ```bash

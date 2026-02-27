@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lehigh-university-libraries/hOCRedit/internal/hocr"
+	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
 	"github.com/lehigh-university-libraries/hOCRedit/internal/utils"
 )
 
@@ -19,11 +20,15 @@ type ProcessResult struct {
 }
 
 func (h *Handler) ProcessImageURL(imageURL string) (*ProcessResult, error) {
-	return h.ProcessImageURLWithModel(imageURL, "")
+	return h.ProcessImageURLWithProviderAndModel(imageURL, "", "")
 }
 
 func (h *Handler) ProcessImageURLWithModel(imageURL, model string) (*ProcessResult, error) {
-	result, err := h.processImageFromURLWithModel(imageURL, model)
+	return h.ProcessImageURLWithProviderAndModel(imageURL, "", model)
+}
+
+func (h *Handler) ProcessImageURLWithProviderAndModel(imageURL, provider, model string) (*ProcessResult, error) {
+	result, err := h.processImageFromURLWithProviderAndModel(imageURL, provider, model)
 	if err != nil {
 		return nil, err
 	}
@@ -37,15 +42,19 @@ func (h *Handler) ProcessImageURLWithModel(imageURL, model string) (*ProcessResu
 }
 
 func (h *Handler) ProcessImageUpload(filename string, fileData []byte) (*ProcessResult, error) {
-	return h.ProcessImageUploadWithModel(filename, fileData, "")
+	return h.ProcessImageUploadWithProviderAndModel(filename, fileData, "", "")
 }
 
 func (h *Handler) ProcessImageUploadWithModel(filename string, fileData []byte, model string) (*ProcessResult, error) {
+	return h.ProcessImageUploadWithProviderAndModel(filename, fileData, "", model)
+}
+
+func (h *Handler) ProcessImageUploadWithProviderAndModel(filename string, fileData []byte, provider, model string) (*ProcessResult, error) {
 	if err := h.ensureUploadsDir(); err != nil {
 		return nil, fmt.Errorf("create uploads dir: %w", err)
 	}
 
-	result, err := h.processImageFileWithModel(fileData, filename, model)
+	result, err := h.processImageFileWithProviderAndModel(fileData, filename, provider, model)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +109,7 @@ func (h *Handler) buildProcessResult(sessionID string) (*ProcessResult, error) {
 }
 
 func HOCRToPlainText(hocrXML string) (string, error) {
-	lines, err := hocr.ParseHOCRLines(hocrXML)
+	lines, err := HOCRToLines(hocrXML)
 	if err != nil {
 		return "", fmt.Errorf("parse hocr lines: %w", err)
 	}
@@ -120,4 +129,8 @@ func HOCRToPlainText(hocrXML string) (string, error) {
 	}
 
 	return strings.Join(out, "\n"), nil
+}
+
+func HOCRToLines(hocrXML string) ([]models.HOCRLine, error) {
+	return hocr.ParseHOCRLines(hocrXML)
 }

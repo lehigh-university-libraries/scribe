@@ -10,6 +10,7 @@ import (
 type OCRRun struct {
 	SessionID           string     `json:"session_id"`
 	ImageURL            string     `json:"image_url"`
+	Provider            string     `json:"provider"`
 	Model               string     `json:"model"`
 	OriginalHOCR        string     `json:"original_hocr"`
 	OriginalText        string     `json:"original_text"`
@@ -17,6 +18,10 @@ type OCRRun struct {
 	CorrectedText       *string    `json:"corrected_text,omitempty"`
 	EditCount           int        `json:"edit_count"`
 	LevenshteinDistance int        `json:"levenshtein_distance"`
+	BoxEditCount        int        `json:"box_edit_count"`
+	BoxesAdded          int        `json:"boxes_added"`
+	BoxesDeleted        int        `json:"boxes_deleted"`
+	BoxChangeScore      float64    `json:"box_change_score"`
 	CreatedAt           time.Time  `json:"created_at"`
 	UpdatedAt           time.Time  `json:"updated_at"`
 }
@@ -30,16 +35,22 @@ func NewOCRRunStore(db *sql.DB) *OCRRunStore {
 }
 
 func (s *OCRRunStore) Create(ctx context.Context, run OCRRun) error {
+	provider := run.Provider
+	if provider == "" {
+		provider = "unknown"
+	}
+
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO ocr_runs (
-  session_id, image_url, model, original_hocr, original_text
-) VALUES (?, ?, ?, ?, ?)
+  session_id, image_url, provider, model, original_hocr, original_text
+) VALUES (?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
   image_url = VALUES(image_url),
+  provider = VALUES(provider),
   model = VALUES(model),
   original_hocr = VALUES(original_hocr),
   original_text = VALUES(original_text)
-`, run.SessionID, run.ImageURL, run.Model, run.OriginalHOCR, run.OriginalText)
+`, run.SessionID, run.ImageURL, provider, run.Model, run.OriginalHOCR, run.OriginalText)
 	if err != nil {
 		return fmt.Errorf("insert ocr run: %w", err)
 	}
@@ -51,14 +62,16 @@ func (s *OCRRunStore) Get(ctx context.Context, sessionID string) (OCRRun, error)
 	var correctedHOCR, correctedText sql.NullString
 	err := s.db.QueryRowContext(ctx, `
 SELECT
-  session_id, image_url, model, original_hocr, original_text,
+  session_id, image_url, provider, model, original_hocr, original_text,
   corrected_hocr, corrected_text, edit_count, levenshtein_distance,
+  box_edit_count, boxes_added, boxes_deleted, box_change_score,
   created_at, updated_at
 FROM ocr_runs
 WHERE session_id = ?
 `, sessionID).Scan(
 		&run.SessionID,
 		&run.ImageURL,
+		&run.Provider,
 		&run.Model,
 		&run.OriginalHOCR,
 		&run.OriginalText,
@@ -66,6 +79,10 @@ WHERE session_id = ?
 		&correctedText,
 		&run.EditCount,
 		&run.LevenshteinDistance,
+		&run.BoxEditCount,
+		&run.BoxesAdded,
+		&run.BoxesDeleted,
+		&run.BoxChangeScore,
 		&run.CreatedAt,
 		&run.UpdatedAt,
 	)
@@ -83,12 +100,18 @@ WHERE session_id = ?
 	return run, nil
 }
 
-func (s *OCRRunStore) SaveEdits(ctx context.Context, sessionID, correctedHOCR, correctedText string, editCount, levenshteinDistance int) error {
+func (s *OCRRunStore) SaveEdits(
+	ctx context.Context,
+	sessionID, correctedHOCR, correctedText string,
+	editCount, levenshteinDistance, boxEditCount, boxesAdded, boxesDeleted int,
+	boxChangeScore float64,
+) error {
 	_, err := s.db.ExecContext(ctx, `
 UPDATE ocr_runs
-SET corrected_hocr = ?, corrected_text = ?, edit_count = ?, levenshtein_distance = ?
+SET corrected_hocr = ?, corrected_text = ?, edit_count = ?, levenshtein_distance = ?,
+    box_edit_count = ?, boxes_added = ?, boxes_deleted = ?, box_change_score = ?
 WHERE session_id = ?
-`, correctedHOCR, correctedText, editCount, levenshteinDistance, sessionID)
+`, correctedHOCR, correctedText, editCount, levenshteinDistance, boxEditCount, boxesAdded, boxesDeleted, boxChangeScore, sessionID)
 	if err != nil {
 		return fmt.Errorf("update ocr run edits: %w", err)
 	}
