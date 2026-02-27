@@ -457,6 +457,7 @@ async function renderEditor(): Promise<void> {
             <button id="add-box" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Add</button>
             <button id="split-line" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Split Line</button>
             <button id="explode-line" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Explode Words</button>
+            <button id="transcribe-box" class="rounded border border-sky-600 px-2 py-1 text-xs text-sky-300 hover:bg-sky-950/30">Transcribe Box</button>
             <button id="merge-mode" class="rounded border border-slate-600 px-2 py-1 text-xs hover:bg-slate-800">Merge Mode</button>
             <button id="merge-selected" class="hidden rounded border border-emerald-500 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-900/20">Merge Selected</button>
             <button id="reset-edits" class="rounded border border-amber-600 px-2 py-1 text-xs text-amber-300 hover:bg-amber-950/30">Reset</button>
@@ -485,6 +486,7 @@ async function renderEditor(): Promise<void> {
   const addBoxBtn = document.getElementById("add-box") as HTMLButtonElement;
   const splitLineBtn = document.getElementById("split-line") as HTMLButtonElement;
   const explodeLineBtn = document.getElementById("explode-line") as HTMLButtonElement;
+  const transcribeBoxBtn = document.getElementById("transcribe-box") as HTMLButtonElement;
   const mergeModeBtn = document.getElementById("merge-mode") as HTMLButtonElement;
   const mergeSelectedBtn = document.getElementById("merge-selected") as HTMLButtonElement;
   const resetBtn = document.getElementById("reset-edits") as HTMLButtonElement;
@@ -585,7 +587,7 @@ async function renderEditor(): Promise<void> {
   function setActiveLine(id: string, shouldRender: boolean = true): void {
     activeLineID = id;
     const line = getLineByID(id);
-    if (!line || !line.exploded || line.words.length === 0) {
+    if (!line || line.words.length <= 1) {
       activeWordID = "";
     } else if (!line.words.some((w) => w.id === activeWordID)) {
       activeWordID = line.words[0].id;
@@ -676,25 +678,42 @@ async function renderEditor(): Promise<void> {
 
   function focusCurrentEditorInput(selectAll: boolean = false): void {
     if (activeLineID === "") return;
-    const selector = activeWordID !== ""
-      ? `input[data-line-id="${activeLineID}"][data-word-id="${activeWordID}"]`
-      : `input[data-line-id="${activeLineID}"]:not([data-word-id])`;
-    requestAnimationFrame(() => {
-      const input = document.querySelector(selector) as HTMLInputElement | null;
-      if (!input) return;
+    const selectors = activeWordID !== ""
+      ? [
+        `input[data-line-id="${activeLineID}"][data-word-id="${activeWordID}"]`,
+        `input[data-line-id="${activeLineID}"][data-word-id]`
+      ]
+      : [
+        `input[data-line-id="${activeLineID}"]:not([data-word-id])`,
+        `input[data-line-id="${activeLineID}"]`
+      ];
+
+    const tryFocus = (attempt: number): void => {
+      let input: HTMLInputElement | null = null;
+      for (const selector of selectors) {
+        input = document.querySelector(selector) as HTMLInputElement | null;
+        if (input) break;
+      }
+      if (!input) {
+        if (attempt < 2) requestAnimationFrame(() => tryFocus(attempt + 1));
+        return;
+      }
       restoringInputFocus = true;
       input.focus();
-      if (selectAll) {
-        try {
-          input.setSelectionRange(0, input.value.length);
-        } catch {
-          // ignore
+      try {
+        if (selectAll) input.setSelectionRange(0, input.value.length);
+        else {
+          const end = input.value.length;
+          input.setSelectionRange(end, end);
         }
+      } catch {
+        // ignore
       }
       requestAnimationFrame(() => {
         restoringInputFocus = false;
       });
-    });
+    };
+    requestAnimationFrame(() => tryFocus(0));
   }
 
   function scheduleAutoSave(delayMs: number = 1200): void {
@@ -797,7 +816,7 @@ async function renderEditor(): Promise<void> {
 
   function deleteWordFromLine(lineID: string, wordID: string): void {
     const line = getLineByID(lineID);
-    if (!line || !line.exploded) return;
+    if (!line || line.words.length <= 1) return;
     const idx = line.words.findIndex((w) => w.id === wordID);
     if (idx < 0) return;
     line.words.splice(idx, 1);
@@ -865,7 +884,7 @@ async function renderEditor(): Promise<void> {
   }
 
   function refreshWordBoxesForLine(line: ParsedLine): void {
-    if (!line.exploded) {
+    if (line.words.length === 0) {
       line.words = [];
       return;
     }
@@ -960,7 +979,7 @@ async function renderEditor(): Promise<void> {
       if (!image.classList.contains("hidden")) {
         const marker = document.createElement("div");
         const isActiveLine = line.id === activeLineID;
-        const activeLineInWordMode = isActiveLine && line.exploded && line.words.length > 1;
+        const activeLineInWordMode = isActiveLine && line.words.length > 1;
         const isLineSelected = selectedLineIDs.has(line.id);
         marker.className = `absolute border ${isMergeMode
           ? (isLineSelected ? "border-emerald-300 bg-emerald-300/20" : "border-slate-600/70 bg-transparent")
@@ -1025,7 +1044,7 @@ async function renderEditor(): Promise<void> {
         }
         lineOverlay.appendChild(marker);
 
-        if (line.id === activeLineID && line.exploded && line.words.length > 1) {
+        if (line.id === activeLineID && line.words.length > 1) {
           for (const word of line.words) {
             const wordBox = document.createElement("div");
             const isWordActive = word.id === activeWordID;
@@ -1115,9 +1134,10 @@ async function renderEditor(): Promise<void> {
       row.style.transform = "translateY(-50%)";
       row.style.zIndex = line.id === activeLineID ? "20" : "10";
 
-      if (line.exploded && line.words.length > 1) {
+      if (line.words.length > 1) {
         const wordsWrap = document.createElement("div");
         wordsWrap.className = "flex w-full gap-1";
+        const lineWidth = Math.max(1, line.bbox.x2 - line.bbox.x1);
         for (const word of line.words) {
           const key = wordKey(line.id, word.id);
           const isWordMergeSelected = selectedWordKeys.has(key);
@@ -1132,7 +1152,10 @@ async function renderEditor(): Promise<void> {
           }`;
           wInput.value = word.text;
           wInput.setAttribute("value", word.text);
-          wInput.style.flexGrow = String(Math.max(1, word.bbox.x2 - word.bbox.x1));
+          const wordWidth = Math.max(1, word.bbox.x2 - word.bbox.x1);
+          const widthPct = Math.max(2, (wordWidth / lineWidth) * 100);
+          wInput.style.flex = `0 0 ${widthPct}%`;
+          wInput.style.width = `${widthPct}%`;
           if (isMergeMode) {
             wInput.readOnly = true;
             wInput.addEventListener("click", (e) => {
@@ -1193,7 +1216,7 @@ async function renderEditor(): Promise<void> {
         }
         input.addEventListener("focus", () => {
           if (restoringInputFocus) return;
-          if (activeLineID === line.id && (!line.exploded || activeWordID === "")) return;
+          if (activeLineID === line.id && (line.words.length <= 1 || activeWordID === "")) return;
           const start = input.selectionStart;
           const end = input.selectionEnd;
           setActiveLine(line.id);
@@ -1395,6 +1418,50 @@ async function renderEditor(): Promise<void> {
     renderEditorState();
   });
 
+  transcribeBoxBtn.addEventListener("click", async () => {
+    const line = getLineByID(activeLineID);
+    if (!line) return;
+    transcribeBoxBtn.disabled = true;
+    saveStatus.textContent = "transcribing selected box...";
+    try {
+      const resp = await fetch(`/v1/ocr/runs/${encodeURIComponent(sessionID)}/transcribe-region`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          x1: Math.round(line.bbox.x1),
+          y1: Math.round(line.bbox.y1),
+          x2: Math.round(line.bbox.x2),
+          y2: Math.round(line.bbox.y2),
+          provider: run.provider ?? "",
+          model: run.model ?? ""
+        })
+      });
+      if (!resp.ok) {
+        const msg = await resp.text();
+        throw new Error(msg || "transcription failed");
+      }
+      const payload = await resp.json() as { text?: string };
+      const text = (payload.text ?? "").trim();
+      if (text === "") {
+        throw new Error("empty transcription");
+      }
+      pushUndoSnapshot();
+      line.text = text;
+      line.words = [];
+      activeWordID = "";
+      changedLineIDs.add(line.id);
+      markDirty();
+      renderEditorState();
+      focusCurrentEditorInput(true);
+      saveStatus.textContent = "box transcribed";
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "transcription failed";
+      saveStatus.textContent = `transcribe failed: ${msg}`;
+    } finally {
+      transcribeBoxBtn.disabled = false;
+    }
+  });
+
   mergeModeBtn.addEventListener("click", () => {
     setMergeMode(!isMergeMode);
   });
@@ -1407,7 +1474,7 @@ async function renderEditor(): Promise<void> {
       const lineID = parsed[0]?.[0] ?? "";
       if (lineID === "" || !parsed.every((p) => p[0] === lineID)) return;
       const line = getLineByID(lineID);
-      if (!line || !line.exploded) return;
+      if (!line || line.words.length <= 1) return;
       const selectedIDs = new Set(parsed.map((p) => p[1]));
       const selectedWords = line.words.filter((w) => selectedIDs.has(w.id));
       if (selectedWords.length < 2) return;
@@ -1435,7 +1502,7 @@ async function renderEditor(): Promise<void> {
       changedBoxIDs.add(line.id);
       clearMergeSelections();
       activeLineID = line.id;
-      activeWordID = line.exploded && line.words.length > 0 ? merged.id : "";
+      activeWordID = line.words.length > 1 ? merged.id : "";
       updateMergeModeUI();
       markDirty();
       renderEditorState();
@@ -1535,9 +1602,11 @@ async function renderEditor(): Promise<void> {
       pushUndoSnapshot();
       if (targetWordID !== "") {
         deleteWordFromLine(targetLineID, targetWordID);
+        focusCurrentEditorInput();
       } else {
         activeLineID = targetLineID;
         deleteActiveLine();
+        focusCurrentEditorInput();
       }
       markDirty();
       return;
@@ -1547,10 +1616,12 @@ async function renderEditor(): Promise<void> {
       event.preventDefault();
       const sorted = orderedLines();
       if (sorted.length === 0) return;
-      const lineIdx = sorted.findIndex((line) => line.id === activeLineID);
+      const baseLineID = targetLineID !== "" ? targetLineID : activeLineID;
+      const lineIdx = sorted.findIndex((line) => line.id === baseLineID);
       const currentLine = lineIdx >= 0 ? sorted[lineIdx] : sorted[0];
-      if (currentLine.exploded && currentLine.words.length > 1) {
-        const wordIdx = currentLine.words.findIndex((w) => w.id === activeWordID);
+      const currentWordID = targetWordID !== "" ? targetWordID : activeWordID;
+      if (currentLine.words.length > 1) {
+        const wordIdx = currentLine.words.findIndex((w) => w.id === currentWordID);
         if (wordIdx >= 0) {
           const step = event.shiftKey ? -1 : 1;
           const nextWordIdx = wordIdx + step;
@@ -1563,7 +1634,7 @@ async function renderEditor(): Promise<void> {
             ? (lineIdx - 1 + sorted.length) % sorted.length
             : (lineIdx + 1) % sorted.length;
           const nextLine = sorted[nextLineIdx];
-          if (nextLine.exploded && nextLine.words.length > 0) {
+          if (nextLine.words.length > 1) {
             const nextWord = event.shiftKey ? nextLine.words[nextLine.words.length - 1] : nextLine.words[0];
             setActiveWord(nextLine.id, nextWord.id);
             focusCurrentEditorInput();
@@ -1578,7 +1649,7 @@ async function renderEditor(): Promise<void> {
         ? ((lineIdx >= 0 ? lineIdx : 0) - 1 + sorted.length) % sorted.length
         : ((lineIdx >= 0 ? lineIdx : 0) + 1) % sorted.length;
       const nextLine = sorted[nextLineIdx];
-      if (nextLine.exploded && nextLine.words.length > 0) {
+      if (nextLine.words.length > 1) {
         const nextWord = event.shiftKey ? nextLine.words[nextLine.words.length - 1] : nextLine.words[0];
         setActiveWord(nextLine.id, nextWord.id);
         focusCurrentEditorInput();
@@ -1647,17 +1718,16 @@ async function renderEditor(): Promise<void> {
 }
 
 function parseHOCR(hocrXML: string): { lines: ParsedLine[]; pageWidth: number; pageHeight: number } {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(hocrXML, "application/xml");
+  const doc = parseHOCRDocument(hocrXML);
 
-  const page = doc.querySelector(".ocr_page");
+  const page = firstElementWithClass(doc, "ocr_page");
   const pageBBox = parseBBox(page?.getAttribute("title") ?? "") ?? { x1: 0, y1: 0, x2: 1, y2: 1 };
 
-  const lineNodes = Array.from(doc.querySelectorAll(".ocr_line"));
+  const lineNodes = elementsWithClass(doc, "ocr_line");
   const lines: ParsedLine[] = lineNodes.map((node, idx) => {
     const id = node.getAttribute("id") ?? `line_${idx + 1}`;
     const bbox = parseBBox(node.getAttribute("title") ?? "") ?? { x1: 0, y1: 0, x2: 1, y2: 1 };
-    const words: ParsedWord[] = Array.from(node.querySelectorAll(".ocrx_word"))
+    const words: ParsedWord[] = elementsWithClass(node, "ocrx_word")
       .map((w, wordIndex) => {
         const text = (w.textContent ?? "").trim();
         const wordBBox = parseBBox(w.getAttribute("title") ?? "") ?? { ...bbox };
@@ -1669,8 +1739,9 @@ function parseHOCR(hocrXML: string): { lines: ParsedLine[]; pageWidth: number; p
       })
       .filter((w) => w.text !== "");
     const text = words.length > 0 ? words.map((w) => w.text).join(" ") : (node.textContent ?? "").trim();
+    const exploded = words.length > 1;
 
-    return { id, bbox, text, originalText: text, originalBBox: { ...bbox }, words, exploded: false };
+    return { id, bbox, text, originalText: text, originalBBox: { ...bbox }, words, exploded };
   });
 
   return {
@@ -1700,37 +1771,29 @@ function parseBBox(title: string): { x1: number; y1: number; x2: number; y2: num
 
 function fallbackWordBoxes(line: ParsedLine, words: string[]): ParsedWord[] {
   if (words.length === 0) return [];
-  const fullWidth = Math.max(1, line.bbox.x2 - line.bbox.x1);
-  const units = words.reduce((sum, word) => sum + Math.max(1, word.length), 0);
-  let x = line.bbox.x1;
   const out: ParsedWord[] = [];
   for (let i = 0; i < words.length; i += 1) {
     const word = words[i];
-    const ratio = Math.max(1, word.length) / units;
-    const w = Math.max(6, Math.round(fullWidth * ratio));
-    const nextX = i === words.length - 1 ? line.bbox.x2 : x + w;
     out.push({
       id: `${line.id}_w_${i + 1}`,
       text: word,
       bbox: {
-        x1: Math.round(x),
+        x1: Math.round(line.bbox.x1),
         y1: Math.round(line.bbox.y1),
-        x2: Math.round(nextX),
+        x2: Math.round(line.bbox.x2),
         y2: Math.round(line.bbox.y2)
       }
     });
-    x = nextX;
   }
   return out;
 }
 
 function buildCorrectedHOCR(originalHOCR: string, lines: ParsedLine[]): string {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(originalHOCR, "application/xml");
-  const page = doc.querySelector(".ocr_page");
+  const doc = parseHOCRDocument(originalHOCR);
+  const page = firstElementWithClass(doc, "ocr_page");
   if (!page) return originalHOCR;
 
-  const existing = Array.from(page.querySelectorAll(".ocr_line"));
+  const existing = elementsWithClass(page, "ocr_line");
   for (const node of existing) {
     node.remove();
   }
@@ -1746,25 +1809,24 @@ function buildCorrectedHOCR(originalHOCR: string, lines: ParsedLine[]): string {
     lineEl.setAttribute("id", line.id);
     lineEl.setAttribute("title", `bbox ${Math.round(line.bbox.x1)} ${Math.round(line.bbox.y1)} ${Math.round(line.bbox.x2)} ${Math.round(line.bbox.y2)}`);
 
-    const textWords = line.text.trim() === "" ? [] : line.text.trim().split(/\s+/);
-    const availableWordBoxes = line.words.length === textWords.length
+    const wordEntries = line.words.length > 1
       ? line.words
-      : fallbackWordBoxes(line, textWords);
-    for (let i = 0; i < textWords.length; i += 1) {
-      const word = textWords[i];
-      const wordBox = availableWordBoxes[i] ?? {
-        id: `${line.id}_w_${i + 1}`,
-        text: word,
-        bbox: { ...line.bbox }
-      };
+      : fallbackWordBoxes(line, line.text.trim() === "" ? [] : line.text.trim().split(/\s+/)).map((w, i) => ({
+          id: `${line.id}_w_${i + 1}`,
+          text: w.text,
+          bbox: w.bbox
+        }));
+    for (let i = 0; i < wordEntries.length; i += 1) {
+      const wordEntry = wordEntries[i];
+      if (wordEntry.text.trim() === "") continue;
       const wordEl = doc.createElement("span");
       wordEl.setAttribute("class", "ocrx_word");
-      wordEl.setAttribute("id", wordBox.id || `${line.id}_w_${i + 1}`);
+      wordEl.setAttribute("id", wordEntry.id || `${line.id}_w_${i + 1}`);
       wordEl.setAttribute(
         "title",
-        `bbox ${Math.round(wordBox.bbox.x1)} ${Math.round(wordBox.bbox.y1)} ${Math.round(wordBox.bbox.x2)} ${Math.round(wordBox.bbox.y2)}; x_wconf 95`
+        `bbox ${Math.round(wordEntry.bbox.x1)} ${Math.round(wordEntry.bbox.y1)} ${Math.round(wordEntry.bbox.x2)} ${Math.round(wordEntry.bbox.y2)}; x_wconf 95`
       );
-      wordEl.textContent = word;
+      wordEl.textContent = wordEntry.text;
       lineEl.appendChild(wordEl);
       lineEl.appendChild(doc.createTextNode(" "));
     }
@@ -1774,4 +1836,33 @@ function buildCorrectedHOCR(originalHOCR: string, lines: ParsedLine[]): string {
   }
 
   return new XMLSerializer().serializeToString(doc);
+}
+
+function hasClass(el: Element, className: string): boolean {
+  const cls = (el.getAttribute("class") ?? "").trim();
+  if (cls === "") return false;
+  return cls.split(/\s+/).includes(className);
+}
+
+function parseHOCRDocument(hocrXML: string): Document {
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(hocrXML, "application/xml");
+  if (firstElementWithClass(xmlDoc, "ocr_page") || elementsWithClass(xmlDoc, "ocr_line").length > 0) {
+    return xmlDoc;
+  }
+  return parser.parseFromString(hocrXML, "text/html");
+}
+
+function elementsWithClass(root: Document | Element, className: string): Element[] {
+  const out: Element[] = [];
+  const nodes = root.getElementsByTagName("*");
+  for (const node of nodes) {
+    if (hasClass(node, className)) out.push(node);
+  }
+  return out;
+}
+
+function firstElementWithClass(root: Document | Element, className: string): Element | null {
+  const nodes = elementsWithClass(root, className);
+  return nodes.length > 0 ? nodes[0] : null;
 }

@@ -119,3 +119,7 @@ func (h *Handler) getOCRForImageWithModel(imagePath, model string) (string, erro
 func (h *Handler) getOCRForImageWithProviderAndModel(imagePath, provider, model string) (string, error) {
 	return h.hocrService.ProcessImageToHOCRWithProviderAndModel(imagePath, provider, model)
 }
+
+func (h *Handler) TranscribeImageRegion(imagePath string, minX, minY, maxX, maxY int, provider, model string) (string, error) {
+	return h.hocrService.TranscribeRegion(imagePath, minX, minY, maxX, maxY, provider, model)
+}

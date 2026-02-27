@@ -75,6 +75,7 @@ func NewHandler(sessions *store.SessionStore, ocrRuns *store.OCRRunStore) *Handl
 	mux.HandleFunc("GET /v1/llm/options", handler.handleLLMOptions)
 	mux.HandleFunc("GET /v1/ocr/runs/{session_id}", handler.handleGetOCRRun)
 	mux.HandleFunc("PUT /v1/ocr/runs/{session_id}/edits", handler.handleSaveOCREdits)
+	mux.HandleFunc("POST /v1/ocr/runs/{session_id}/transcribe-region", handler.handleTranscribeRegion)
 	mux.Handle("GET /static/uploads/", http.StripPrefix("/static/uploads/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("/", handler.handleWeb)
 	handler.mux = mux
@@ -181,6 +182,13 @@ func (h *Handler) handleProcessURL(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := writeSessionHOCR(result.SessionID, "original.hocr", result.HOCR); err != nil {
+		if progressID != "" {
+			finishProgress(progressID, "failed", "Failed to persist original hOCR", err.Error())
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
@@ -249,6 +257,13 @@ func (h *Handler) handleProcessUpload(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		if progressID != "" {
 			finishProgress(progressID, "failed", "Failed to save OCR run", err.Error())
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := writeSessionHOCR(result.SessionID, "original.hocr", result.HOCR); err != nil {
+		if progressID != "" {
+			finishProgress(progressID, "failed", "Failed to persist original hOCR", err.Error())
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -355,6 +370,13 @@ func (h *Handler) handleProcessHOCR(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := writeSessionHOCR(sessionID, "original.hocr", req.HOCR); err != nil {
+		if progressID != "" {
+			finishProgress(progressID, "failed", "Failed to persist original hOCR", err.Error())
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
@@ -395,6 +417,11 @@ func (h *Handler) handleGetOCRRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if (run.CorrectedHOCR == nil || strings.TrimSpace(*run.CorrectedHOCR) == "") && sessionID != "" {
+		if corrected, ok := readSessionHOCR(sessionID, "corrected.hocr"); ok {
+			run.CorrectedHOCR = &corrected
+		}
+	}
 	writeJSON(w, http.StatusOK, run)
 }
 
@@ -426,8 +453,7 @@ func (h *Handler) handleSaveOCREdits(w http.ResponseWriter, r *http.Request) {
 
 	correctedText, err := legacyhandlers.HOCRToPlainText(req.CorrectedHOCR)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid corrected_hocr")
-		return
+		correctedText = hocrToPlainTextLenient(req.CorrectedHOCR)
 	}
 
 	lev := metrics.LevenshteinDistance(run.OriginalText, correctedText)
@@ -447,6 +473,10 @@ func (h *Handler) handleSaveOCREdits(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := writeSessionHOCR(sessionID, "corrected.hocr", req.CorrectedHOCR); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session_id":            sessionID,
@@ -461,6 +491,94 @@ func (h *Handler) handleSaveOCREdits(w http.ResponseWriter, r *http.Request) {
 		"provider":              run.Provider,
 		"model":                 run.Model,
 	})
+}
+
+func (h *Handler) handleTranscribeRegion(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("session_id"))
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "session_id is required")
+		return
+	}
+
+	run, err := h.ocrRuns.Get(r.Context(), sessionID)
+	if err != nil {
+		if err == sql.ErrNoRows || strings.Contains(err.Error(), "no rows") {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	type reqBody struct {
+		X1       int    `json:"x1"`
+		Y1       int    `json:"y1"`
+		X2       int    `json:"x2"`
+		Y2       int    `json:"y2"`
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+	}
+	var req reqBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.X2 <= req.X1 || req.Y2 <= req.Y1 {
+		writeError(w, http.StatusBadRequest, "invalid bbox")
+		return
+	}
+
+	imagePath, err := resolveSessionImagePath(run.ImageURL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	provider := strings.TrimSpace(req.Provider)
+	if provider == "" {
+		provider = run.Provider
+	}
+	switch strings.ToLower(provider) {
+	case "ollama", "openai", "gemini":
+		// valid
+	default:
+		provider = ""
+	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = run.Model
+	}
+	if strings.EqualFold(model, "custom") {
+		model = ""
+	}
+
+	text, err := h.legacy.TranscribeImageRegion(imagePath, req.X1, req.Y1, req.X2, req.Y2, provider, model)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"text":     text,
+		"provider": provider,
+		"model":    model,
+	})
+}
+
+func resolveSessionImagePath(imageURL string) (string, error) {
+	u := strings.TrimSpace(imageURL)
+	if u == "" {
+		return "", fmt.Errorf("session has no image")
+	}
+	const staticPrefix = "/static/uploads/"
+	if strings.HasPrefix(u, staticPrefix) {
+		name := strings.TrimPrefix(u, staticPrefix)
+		if strings.TrimSpace(name) == "" {
+			return "", fmt.Errorf("invalid image path")
+		}
+		return filepath.Join("uploads", name), nil
+	}
+	return "", fmt.Errorf("transcribe-region requires a local uploaded image")
 }
 
 func extractUploadFile(r *http.Request) (multipart.File, *multipart.FileHeader, error) {

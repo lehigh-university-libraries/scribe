@@ -106,6 +106,9 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[hocr
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	if err := writeSessionHOCR(result.SessionID, "original.hocr", result.HOCR); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
+	}
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
@@ -154,6 +157,9 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[h
 			finishProgress(progressID, "failed", "Failed to save OCR run", err.Error())
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := writeSessionHOCR(result.SessionID, "original.hocr", result.HOCR); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
 	}
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
@@ -217,6 +223,9 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[hocredit
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	if err := writeSessionHOCR(sessionID, "original.hocr", hocrXML); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
+	}
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
@@ -249,6 +258,11 @@ func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[hocreditv1
 	if run.CorrectedHOCR != nil {
 		resp.CorrectedHocr = *run.CorrectedHOCR
 	}
+	if strings.TrimSpace(resp.CorrectedHocr) == "" {
+		if corrected, ok := readSessionHOCR(run.SessionID, "corrected.hocr"); ok {
+			resp.CorrectedHocr = corrected
+		}
+	}
 	if run.CorrectedText != nil {
 		resp.CorrectedText = *run.CorrectedText
 	}
@@ -272,7 +286,7 @@ func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[hocredi
 
 	correctedText, err := legacyhandlers.HOCRToPlainText(correctedHOCR)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid corrected_hocr"))
+		correctedText = hocrToPlainTextLenient(correctedHOCR)
 	}
 
 	lev := metrics.LevenshteinDistance(run.OriginalText, correctedText)
@@ -290,6 +304,9 @@ func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[hocredi
 		boxMetrics.ChangeScore,
 	); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := writeSessionHOCR(sessionID, "corrected.hocr", correctedHOCR); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist corrected hocr: %w", err))
 	}
 
 	return connect.NewResponse(&hocreditv1.SaveOCREditsResponse{

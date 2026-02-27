@@ -43,6 +43,58 @@ func (s *Service) ProcessImageToHOCRWithProviderAndModel(imagePath, providerOver
 	return s.processImageToHOCR(imagePath, providerOverride, modelOverride)
 }
 
+func (s *Service) TranscribeRegion(imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
+	if maxX <= minX || maxY <= minY {
+		return "", fmt.Errorf("invalid bbox")
+	}
+
+	ctx := context.Background()
+	llmProvider, providerName, err := s.initLLMProvider(providerOverride)
+	if err != nil {
+		return "", fmt.Errorf("failed to initialize LLM provider: %w", err)
+	}
+
+	model := strings.TrimSpace(modelOverride)
+	if model == "" {
+		model = s.getModelForProvider(providerName)
+	}
+
+	lineImagePath, err := s.extractLineImage(imagePath, minX, minY, maxX, maxY, 0)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract region image: %w", err)
+	}
+	defer os.Remove(lineImagePath)
+
+	imageData, err := os.ReadFile(lineImagePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read region image: %w", err)
+	}
+	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
+
+	prompt := "Transcribe the handwritten text in this image. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
+	config := providers.Config{
+		Model:       model,
+		Prompt:      prompt,
+		Temperature: 0.0,
+	}
+
+	var text string
+	if providerName == "gemini" {
+		text, err = s.extractTextWithGemini(ctx, model, prompt, imageBase64)
+	} else {
+		text, _, err = llmProvider.ExtractText(ctx, config, lineImagePath, imageBase64)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to transcribe region: %w", err)
+	}
+
+	text = strings.TrimSpace(text)
+	if text == "" || s.isRefusalOrIllegible(text) {
+		return "", fmt.Errorf("region is not legible")
+	}
+	return text, nil
+}
+
 func (s *Service) processImageToHOCR(imagePath, providerOverride, modelOverride string) (string, error) {
 	ctx := context.Background()
 
