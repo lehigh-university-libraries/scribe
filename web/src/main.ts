@@ -1,4 +1,15 @@
 import "./styles.css";
+import { createPromiseClient } from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-web";
+import { ImageProcessingService } from "./proto/hocredit/v1/process_connect";
+import {
+  GetOCRRunRequest,
+  OutputFormat,
+  ProcessHOCRRequest,
+  ProcessImageUploadRequest,
+  ProcessImageURLRequest,
+  SaveOCREditsRequest
+} from "./proto/hocredit/v1/process_pb";
 
 type OCRRun = {
   session_id: string;
@@ -52,6 +63,11 @@ const app = document.getElementById("app");
 if (!app) {
   throw new Error("missing #app element");
 }
+
+const connectTransport = createConnectTransport({
+  baseUrl: window.location.origin
+});
+const imageClient = createPromiseClient(ImageProcessingService, connectTransport);
 
 if (window.location.pathname.startsWith("/editor")) {
   renderEditor();
@@ -123,6 +139,17 @@ function renderHome(): void {
         <pre id="result-output" class="max-h-[28rem] overflow-auto whitespace-pre-wrap rounded border border-slate-700 bg-slate-950 p-4 text-sm text-slate-200"></pre>
       </section>
     </main>
+    <div id="progress-overlay" class="hidden fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm">
+      <div class="flex h-full w-full items-center justify-center p-6">
+        <div class="w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900 p-8 text-center shadow-2xl">
+          <p class="mb-4 text-sm uppercase tracking-[0.25em] text-slate-400">Processing</p>
+          <p id="progress-overlay-status" class="text-2xl font-semibold text-slate-100">Starting...</p>
+          <div class="mt-6 h-2 w-full overflow-hidden rounded bg-slate-800">
+            <div class="h-full w-full animate-pulse bg-brand-500"></div>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 
   const urlForm = document.getElementById("url-form") as HTMLFormElement;
@@ -140,10 +167,12 @@ function renderHome(): void {
   const sessionMeta = document.getElementById("session-meta") as HTMLSpanElement;
   const resultImage = document.getElementById("result-image") as HTMLImageElement;
   const openEditor = document.getElementById("open-editor") as HTMLAnchorElement;
+  const progressOverlay = document.getElementById("progress-overlay") as HTMLDivElement;
+  const progressOverlayStatus = document.getElementById("progress-overlay-status") as HTMLParagraphElement;
   let progressTimer: number | null = null;
 
-  function getAcceptHeader(format: string): string {
-    return format === "text" ? "text/plain" : "text/html";
+  function toOutputFormat(format: string): OutputFormat {
+    return format === "text" ? OutputFormat.TEXT : OutputFormat.HOCR;
   }
 
   async function loadLLMOptions(): Promise<void> {
@@ -198,10 +227,10 @@ function renderHome(): void {
     renderModels();
   }
 
-  async function showResponse(response: Response): Promise<string> {
-    const body = await response.text();
-    const sessionID = response.headers.get("X-Session-ID") ?? "";
-    const imageURL = response.headers.get("X-Image-URL") ?? "";
+  function showProcessResult(result: { sessionId: string; imageUrl: string; hocr: string; plainText: string }, format: string): string {
+    const body = format === "text" ? result.plainText : result.hocr;
+    const sessionID = result.sessionId ?? "";
+    const imageURL = result.imageUrl ?? "";
 
     if (sessionID) {
       sessionMeta.textContent = `session ${sessionID}`;
@@ -223,6 +252,11 @@ function renderHome(): void {
     return sessionID;
   }
 
+  async function readFileBytes(file: File): Promise<Uint8Array> {
+    const buffer = await file.arrayBuffer();
+    return new Uint8Array(buffer);
+  }
+
   function newProgressID(): string {
     return `p_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   }
@@ -232,11 +266,14 @@ function renderHome(): void {
       window.clearInterval(progressTimer);
       progressTimer = null;
     }
+    progressOverlay.classList.add("hidden");
   }
 
   function startProgressPolling(progressID: string): void {
     stopProgressPolling();
+    progressOverlay.classList.remove("hidden");
     sessionMeta.textContent = "processing...";
+    progressOverlayStatus.textContent = "Processing...";
     const poll = async () => {
       try {
         const resp = await fetch(`/v1/progress/${encodeURIComponent(progressID)}`);
@@ -246,6 +283,7 @@ function renderHome(): void {
         const message = (state.message || "").trim();
         const suffix = message ? `: ${message}` : "";
         sessionMeta.textContent = `${status}${suffix}`;
+        progressOverlayStatus.textContent = `${status}${suffix}`;
         if (state.done) {
           stopProgressPolling();
         }
@@ -270,17 +308,17 @@ function renderHome(): void {
     const progressID = newProgressID();
     startProgressPolling(progressID);
     try {
-      const response = await fetch(`/v1/process/url?format=${encodeURIComponent(format)}`, {
-        method: "POST",
+      const result = await imageClient.processImageURL(new ProcessImageURLRequest({
+        imageUrl: imageURL,
+        model,
+        outputFormat: toOutputFormat(format)
+      }), {
         headers: {
-          "Content-Type": "application/json",
-          "Accept": getAcceptHeader(format),
-          "X-Progress-ID": progressID
-        },
-        body: JSON.stringify({ image_url: imageURL, provider, model })
+          "X-Progress-ID": progressID,
+          "X-Provider": provider
+        }
       });
-
-      await showResponse(response);
+      showProcessResult(result, format);
     } finally {
       stopProgressPolling();
     }
@@ -300,25 +338,22 @@ function renderHome(): void {
     const model = modelSelect.value;
     const progressID = newProgressID();
     startProgressPolling(progressID);
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("provider", provider);
-    if (model !== "") {
-      formData.append("model", model);
-    }
 
     try {
-      const response = await fetch(`/v1/process/upload?format=${encodeURIComponent(format)}`, {
-        method: "POST",
+      const imageData = await readFileBytes(file);
+      const result = await imageClient.processImageUpload(new ProcessImageUploadRequest({
+        imageData,
+        filename: file.name,
+        model,
+        outputFormat: toOutputFormat(format)
+      }), {
         headers: {
-          "Accept": getAcceptHeader(format),
-          "X-Progress-ID": progressID
-        },
-        body: formData
+          "X-Progress-ID": progressID,
+          "X-Provider": provider
+        }
       });
-
-      const sessionID = await showResponse(response);
-      if (response.ok && sessionID) {
+      const sessionID = showProcessResult(result, format);
+      if (sessionID) {
         window.location.href = `/editor?session=${encodeURIComponent(sessionID)}`;
       }
     } finally {
@@ -344,26 +379,25 @@ function renderHome(): void {
     startProgressPolling(progressID);
     const imageURL = hocrImageURLInput.value.trim();
     const imageFile = hocrImageFileInput.files?.[0];
-    const formData = new FormData();
-    formData.append("hocr", hocr);
-    formData.append("provider", provider);
-    formData.append("model", model);
-    formData.append("image_url", imageURL);
-    if (imageFile) {
-      formData.append("file", imageFile);
-    }
 
     try {
-      const response = await fetch(`/v1/process/hocr?format=${encodeURIComponent(format)}`, {
-        method: "POST",
-        headers: {
-          "Accept": getAcceptHeader(format),
-          "X-Progress-ID": progressID
-        },
-        body: formData
+      const payload = new ProcessHOCRRequest({
+        hocr,
+        model,
+        imageUrl: imageURL,
+        outputFormat: toOutputFormat(format)
       });
-
-      await showResponse(response);
+      if (imageFile) {
+        payload.imageData = await readFileBytes(imageFile);
+        payload.filename = imageFile.name;
+      }
+      const result = await imageClient.processHOCR(payload, {
+        headers: {
+          "X-Progress-ID": progressID,
+          "X-Provider": provider
+        }
+      });
+      showProcessResult(result, format);
     } finally {
       stopProgressPolling();
     }
@@ -443,13 +477,25 @@ async function renderEditor(): Promise<void> {
   const explodeLineBtn = document.getElementById("explode-line") as HTMLButtonElement;
   const deleteBoxBtn = document.getElementById("delete-box") as HTMLButtonElement;
 
-  const runResp = await fetch(`/v1/ocr/runs/${encodeURIComponent(sessionID)}`);
-  if (!runResp.ok) {
+  let runResp;
+  try {
+    runResp = await imageClient.getOCRRun(new GetOCRRunRequest({ sessionId: sessionID }));
+  } catch {
     meta.textContent = `Failed to load session ${sessionID}`;
     return;
   }
-
-  const run = await runResp.json() as OCRRun;
+  const runProto = runResp;
+  const run: OCRRun = {
+    session_id: runProto.sessionId,
+    image_url: runProto.imageUrl,
+    model: runProto.model,
+    original_hocr: runProto.originalHocr,
+    original_text: runProto.originalText,
+    corrected_hocr: runProto.correctedHocr,
+    corrected_text: runProto.correctedText,
+    edit_count: runProto.editCount,
+    levenshtein_distance: runProto.levenshteinDistance
+  };
   const workingHOCR = run.corrected_hocr && run.corrected_hocr.trim() !== "" ? run.corrected_hocr : run.original_hocr;
   const providerLabel = run.provider && run.provider.trim() !== "" ? run.provider : "unknown";
   meta.textContent = `session ${run.session_id} | provider ${providerLabel} | model ${run.model} | edits ${run.edit_count}`;
@@ -460,6 +506,7 @@ async function renderEditor(): Promise<void> {
   const parsed = parseHOCR(workingHOCR);
   const lines = parsed.lines;
   let activeLineID = lines.length > 0 ? lines[0].id : "";
+  let activeWordID = "";
   const changedLineIDs = new Set<string>();
   const changedBoxIDs = new Set<string>();
   let nextLineCounter = lines.length + 1;
@@ -476,6 +523,14 @@ async function renderEditor(): Promise<void> {
     startDocY: number;
     startBox: { x1: number; y1: number; x2: number; y2: number };
   } = null;
+  let wordInteraction: null | {
+    lineID: string;
+    wordID: string;
+    mode: "move" | "resize";
+    handle: "w" | "e";
+    startDocX: number;
+    startBox: BBox;
+  } = null;
 
   function syncEditorHeights(): void {
     const minHeight = 280;
@@ -488,6 +543,10 @@ async function renderEditor(): Promise<void> {
     return lines.find((line) => line.id === id);
   }
 
+  function getWordByID(line: ParsedLine, wordID: string): ParsedWord | undefined {
+    return line.words.find((word) => word.id === wordID);
+  }
+
   function markBoxChange(line: ParsedLine): void {
     if (!line.originalBBox || !sameBBox(line.bbox, line.originalBBox)) changedBoxIDs.add(line.id);
     else changedBoxIDs.delete(line.id);
@@ -495,6 +554,18 @@ async function renderEditor(): Promise<void> {
 
   function setActiveLine(id: string): void {
     activeLineID = id;
+    const line = getLineByID(id);
+    if (!line || line.words.length === 0) {
+      activeWordID = "";
+    } else if (!line.words.some((w) => w.id === activeWordID)) {
+      activeWordID = line.words[0].id;
+    }
+    renderEditorState();
+  }
+
+  function setActiveWord(lineID: string, wordID: string): void {
+    activeLineID = lineID;
+    activeWordID = wordID;
     renderEditorState();
   }
 
@@ -517,6 +588,7 @@ async function renderEditor(): Promise<void> {
     changedLineIDs.add(activeLineID);
     changedBoxIDs.add(activeLineID);
     activeLineID = lines.length > 0 ? orderedLines()[0].id : "";
+    activeWordID = "";
     renderEditorState();
   }
 
@@ -571,6 +643,40 @@ async function renderEditor(): Promise<void> {
       return;
     }
     line.words = distributeWordsInLine(line, words);
+  }
+
+  function clampWordBox(box: BBox, line: ParsedLine): BBox {
+    const minW = 3;
+    let x1 = roundInt(Math.max(0, Math.min(pageWidth, box.x1)));
+    let x2 = roundInt(Math.max(0, Math.min(pageWidth, box.x2)));
+    if (x2 < x1) [x1, x2] = [x2, x1];
+    if (x2-x1 < minW) {
+      x2 = Math.min(pageWidth, x1+minW);
+    }
+    return {
+      x1: roundInt(x1),
+      y1: line.bbox.y1,
+      x2: roundInt(x2),
+      y2: line.bbox.y2
+    };
+  }
+
+  function ensureLineContainsWords(line: ParsedLine): void {
+    if (line.words.length === 0) return;
+    let minX = line.bbox.x1;
+    let maxX = line.bbox.x2;
+    for (const word of line.words) {
+      if (word.bbox.x1 < minX) minX = word.bbox.x1;
+      if (word.bbox.x2 > maxX) maxX = word.bbox.x2;
+      word.bbox.y1 = line.bbox.y1;
+      word.bbox.y2 = line.bbox.y2;
+    }
+    line.bbox = clampBox({
+      x1: minX,
+      y1: line.bbox.y1,
+      x2: maxX,
+      y2: line.bbox.y2
+    });
   }
 
   function pointerToDoc(clientX: number, clientY: number): { x: number; y: number } | null {
@@ -654,11 +760,59 @@ async function renderEditor(): Promise<void> {
         if (line.id === activeLineID && line.words.length > 1) {
           for (const word of line.words) {
             const wordBox = document.createElement("div");
-            wordBox.className = "absolute border border-emerald-300/90 bg-emerald-300/10";
+            const isWordActive = word.id === activeWordID;
+            wordBox.className = `absolute border ${isWordActive ? "border-cyan-300 bg-cyan-300/20" : "border-emerald-300/90 bg-emerald-300/10"}`;
             wordBox.style.left = `${(word.bbox.x1 / pageWidth) * 100}%`;
             wordBox.style.top = `${(word.bbox.y1 / pageHeight) * 100}%`;
             wordBox.style.width = `${Math.max(0.3, ((word.bbox.x2 - word.bbox.x1) / pageWidth) * 100)}%`;
             wordBox.style.height = `${Math.max(1, ((word.bbox.y2 - word.bbox.y1) / pageHeight) * 100)}%`;
+            wordBox.style.cursor = "move";
+            wordBox.addEventListener("click", (e) => {
+              e.stopPropagation();
+              setActiveWord(line.id, word.id);
+            });
+            wordBox.addEventListener("mousedown", (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              const doc = pointerToDoc(e.clientX, e.clientY);
+              if (!doc) return;
+              setActiveWord(line.id, word.id);
+              wordInteraction = {
+                lineID: line.id,
+                wordID: word.id,
+                mode: "move",
+                handle: "e",
+                startDocX: doc.x,
+                startBox: { ...word.bbox }
+              };
+            });
+
+            if (isWordActive) {
+              for (const handle of ["w", "e"] as const) {
+                const h = document.createElement("div");
+                h.className = "absolute h-2 w-2 bg-cyan-200";
+                h.style.top = "50%";
+                h.style.transform = "translateY(-50%)";
+                h.style.cursor = `${handle}-resize`;
+                if (handle === "w") h.style.left = "-4px";
+                if (handle === "e") h.style.right = "-4px";
+                h.addEventListener("mousedown", (e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  const doc = pointerToDoc(e.clientX, e.clientY);
+                  if (!doc) return;
+                  wordInteraction = {
+                    lineID: line.id,
+                    wordID: word.id,
+                    mode: "resize",
+                    handle,
+                    startDocX: doc.x,
+                    startBox: { ...word.bbox }
+                  };
+                });
+                wordBox.appendChild(h);
+              }
+            }
             lineOverlay.appendChild(wordBox);
           }
         }
@@ -671,30 +825,90 @@ async function renderEditor(): Promise<void> {
       row.style.transform = "translateY(-50%)";
       row.style.zIndex = line.id === activeLineID ? "20" : "10";
 
-      const input = document.createElement("input");
-      input.type = "text";
-      input.className = `w-full rounded border px-2 py-1 text-sm leading-tight ${line.id === activeLineID ? "border-cyan-400 bg-slate-900" : "border-slate-700 bg-slate-950"}`;
-      input.value = line.text;
-      input.addEventListener("focus", () => setActiveLine(line.id));
-      input.addEventListener("input", () => {
-        line.text = input.value;
-        refreshWordBoxesForLine(line);
-        if (line.text.trim() !== line.originalText.trim()) changedLineIDs.add(line.id);
-        else changedLineIDs.delete(line.id);
-      });
-      row.appendChild(input);
+      if (line.words.length > 1) {
+        const wordsWrap = document.createElement("div");
+        wordsWrap.className = "flex w-full gap-1";
+        for (const word of line.words) {
+          const wInput = document.createElement("input");
+          wInput.type = "text";
+          wInput.className = `min-w-[3.5rem] rounded border px-2 py-1 text-sm leading-tight ${word.id === activeWordID ? "border-cyan-400 bg-slate-900" : "border-slate-700 bg-slate-950"}`;
+          wInput.value = word.text;
+          wInput.style.flexGrow = String(Math.max(1, word.bbox.x2 - word.bbox.x1));
+          wInput.addEventListener("focus", () => setActiveWord(line.id, word.id));
+          wInput.addEventListener("input", () => {
+            word.text = wInput.value;
+            line.text = line.words.map((w) => w.text.trim()).filter((w) => w !== "").join(" ");
+            if (line.text.trim() !== line.originalText.trim()) changedLineIDs.add(line.id);
+            else changedLineIDs.delete(line.id);
+          });
+          wordsWrap.appendChild(wInput);
+        }
+        row.appendChild(wordsWrap);
+      } else {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = `w-full rounded border px-2 py-1 text-sm leading-tight ${line.id === activeLineID ? "border-cyan-400 bg-slate-900" : "border-slate-700 bg-slate-950"}`;
+        input.value = line.text;
+        input.addEventListener("focus", () => setActiveLine(line.id));
+        input.addEventListener("input", () => {
+          line.text = input.value;
+          refreshWordBoxesForLine(line);
+          if (line.text.trim() !== line.originalText.trim()) changedLineIDs.add(line.id);
+          else changedLineIDs.delete(line.id);
+        });
+        row.appendChild(input);
+      }
       lineList.appendChild(row);
     }
 
     const active = getLineByID(activeLineID);
     if (active) {
-      lineInfo.textContent = `${active.id} | (${active.bbox.x1},${active.bbox.y1})-(${active.bbox.x2},${active.bbox.y2})`;
+      if (activeWordID !== "") {
+        const word = getWordByID(active, activeWordID);
+        if (word) {
+          lineInfo.textContent = `${active.id}:${word.id} | (${word.bbox.x1},${word.bbox.y1})-(${word.bbox.x2},${word.bbox.y2})`;
+        } else {
+          lineInfo.textContent = `${active.id} | (${active.bbox.x1},${active.bbox.y1})-(${active.bbox.x2},${active.bbox.y2})`;
+        }
+      } else {
+        lineInfo.textContent = `${active.id} | (${active.bbox.x1},${active.bbox.y1})-(${active.bbox.x2},${active.bbox.y2})`;
+      }
     } else {
       lineInfo.textContent = "";
     }
   }
 
   window.addEventListener("mousemove", (e) => {
+    if (wordInteraction) {
+      const doc = pointerToDoc(e.clientX, e.clientY);
+      if (!doc) return;
+      const line = getLineByID(wordInteraction.lineID);
+      if (!line) return;
+      const word = getWordByID(line, wordInteraction.wordID);
+      if (!word) return;
+
+      const dx = doc.x - wordInteraction.startDocX;
+      if (wordInteraction.mode === "move") {
+        word.bbox = clampWordBox({
+          x1: wordInteraction.startBox.x1 + dx,
+          y1: line.bbox.y1,
+          x2: wordInteraction.startBox.x2 + dx,
+          y2: line.bbox.y2
+        }, line);
+      } else {
+        const next = { ...wordInteraction.startBox };
+        if (wordInteraction.handle === "w") next.x1 = wordInteraction.startBox.x1 + dx;
+        if (wordInteraction.handle === "e") next.x2 = wordInteraction.startBox.x2 + dx;
+        word.bbox = clampWordBox(next, line);
+      }
+      ensureLineContainsWords(line);
+      markBoxChange(line);
+      changedLineIDs.add(line.id);
+      changedBoxIDs.add(line.id);
+      renderEditorState();
+      return;
+    }
+
     if (!interaction) return;
     const doc = pointerToDoc(e.clientX, e.clientY);
     if (!doc) return;
@@ -725,7 +939,10 @@ async function renderEditor(): Promise<void> {
     }
   });
 
-  window.addEventListener("mouseup", () => { interaction = null; });
+  window.addEventListener("mouseup", () => {
+    interaction = null;
+    wordInteraction = null;
+  });
 
   addBoxBtn.addEventListener("click", () => {
     setAddMode(!isAddBoxMode);
@@ -747,6 +964,7 @@ async function renderEditor(): Promise<void> {
     lines.push(newLine);
     changedLineIDs.add(id);
     changedBoxIDs.add(id);
+    activeWordID = "";
     setActiveLine(id);
     interaction = { lineID: id, mode: "draw", handle: "se", startDocX: doc.x, startDocY: doc.y, startBox: { ...newLine.bbox } };
     renderEditorState();
@@ -790,6 +1008,7 @@ async function renderEditor(): Promise<void> {
     lines.push(bottom);
     changedLineIDs.add(id);
     changedBoxIDs.add(id);
+    activeWordID = line.words.length > 0 ? line.words[0].id : "";
     setActiveLine(line.id);
     renderEditorState();
   });
@@ -802,6 +1021,7 @@ async function renderEditor(): Promise<void> {
     line.words = distributeWordsInLine(line, words);
     changedLineIDs.add(line.id);
     changedBoxIDs.add(line.id);
+    activeWordID = line.words.length > 0 ? line.words[0].id : "";
     setActiveLine(line.id);
     renderEditorState();
   });
@@ -869,6 +1089,7 @@ async function renderEditor(): Promise<void> {
     if (event.key === "Escape") {
       event.preventDefault();
       activeLineID = "";
+      activeWordID = "";
       setAddMode(false);
       renderEditorState();
     }
@@ -876,25 +1097,17 @@ async function renderEditor(): Promise<void> {
 
   saveBtn.addEventListener("click", async () => {
     const correctedHOCR = buildCorrectedHOCR(workingHOCR, lines);
-    const response = await fetch(`/v1/ocr/runs/${encodeURIComponent(sessionID)}/edits`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ corrected_hocr: correctedHOCR, edit_count: changedLineIDs.size })
-    });
-    if (!response.ok) {
+    try {
+      const payload = await imageClient.saveOCREdits(new SaveOCREditsRequest({
+        sessionId: sessionID,
+        correctedHocr: correctedHOCR,
+        editCount: changedLineIDs.size
+      }));
+      saveStatus.textContent = `saved text=${payload.editCount} lev=${payload.levenshteinDistance}`;
+    } catch {
       saveStatus.textContent = "Failed to save edits";
       return;
     }
-
-    const payload = await response.json() as {
-      edit_count: number;
-      levenshtein_distance: number;
-      box_edit_count: number;
-      boxes_added: number;
-      boxes_deleted: number;
-      box_change_score: number;
-    };
-    saveStatus.textContent = `saved text=${payload.edit_count} box=${payload.box_edit_count} +${payload.boxes_added}/-${payload.boxes_deleted} severity=${payload.box_change_score.toFixed(3)} lev=${payload.levenshtein_distance}`;
   });
 }
 

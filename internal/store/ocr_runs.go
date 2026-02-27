@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	db "github.com/lehigh-university-libraries/hOCRedit/internal/db"
 )
 
 type OCRRun struct {
@@ -27,11 +29,11 @@ type OCRRun struct {
 }
 
 type OCRRunStore struct {
-	db *sql.DB
+	q *db.Queries
 }
 
-func NewOCRRunStore(db *sql.DB) *OCRRunStore {
-	return &OCRRunStore{db: db}
+func NewOCRRunStore(pool *sql.DB) *OCRRunStore {
+	return &OCRRunStore{q: db.New(pool)}
 }
 
 func (s *OCRRunStore) Create(ctx context.Context, run OCRRun) error {
@@ -40,17 +42,14 @@ func (s *OCRRunStore) Create(ctx context.Context, run OCRRun) error {
 		provider = "unknown"
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-INSERT INTO ocr_runs (
-  session_id, image_url, provider, model, original_hocr, original_text
-) VALUES (?, ?, ?, ?, ?, ?)
-ON DUPLICATE KEY UPDATE
-  image_url = VALUES(image_url),
-  provider = VALUES(provider),
-  model = VALUES(model),
-  original_hocr = VALUES(original_hocr),
-  original_text = VALUES(original_text)
-`, run.SessionID, run.ImageURL, provider, run.Model, run.OriginalHOCR, run.OriginalText)
+	err := s.q.UpsertOCRRun(ctx, db.UpsertOCRRunParams{
+		SessionID:    run.SessionID,
+		ImageURL:     run.ImageURL,
+		Provider:     provider,
+		Model:        run.Model,
+		OriginalHocr: run.OriginalHOCR,
+		OriginalText: run.OriginalText,
+	})
 	if err != nil {
 		return fmt.Errorf("insert ocr run: %w", err)
 	}
@@ -58,43 +57,32 @@ ON DUPLICATE KEY UPDATE
 }
 
 func (s *OCRRunStore) Get(ctx context.Context, sessionID string) (OCRRun, error) {
-	var run OCRRun
-	var correctedHOCR, correctedText sql.NullString
-	err := s.db.QueryRowContext(ctx, `
-SELECT
-  session_id, image_url, provider, model, original_hocr, original_text,
-  corrected_hocr, corrected_text, edit_count, levenshtein_distance,
-  box_edit_count, boxes_added, boxes_deleted, box_change_score,
-  created_at, updated_at
-FROM ocr_runs
-WHERE session_id = ?
-`, sessionID).Scan(
-		&run.SessionID,
-		&run.ImageURL,
-		&run.Provider,
-		&run.Model,
-		&run.OriginalHOCR,
-		&run.OriginalText,
-		&correctedHOCR,
-		&correctedText,
-		&run.EditCount,
-		&run.LevenshteinDistance,
-		&run.BoxEditCount,
-		&run.BoxesAdded,
-		&run.BoxesDeleted,
-		&run.BoxChangeScore,
-		&run.CreatedAt,
-		&run.UpdatedAt,
-	)
+	row, err := s.q.GetOCRRun(ctx, sessionID)
 	if err != nil {
 		return OCRRun{}, fmt.Errorf("get ocr run: %w", err)
 	}
 
-	if correctedHOCR.Valid {
-		run.CorrectedHOCR = &correctedHOCR.String
+	run := OCRRun{
+		SessionID:           row.SessionID,
+		ImageURL:            row.ImageURL,
+		Provider:            row.Provider,
+		Model:               row.Model,
+		OriginalHOCR:        row.OriginalHocr,
+		OriginalText:        row.OriginalText,
+		EditCount:           int(row.EditCount),
+		LevenshteinDistance: int(row.LevenshteinDistance),
+		BoxEditCount:        int(row.BoxEditCount),
+		BoxesAdded:          int(row.BoxesAdded),
+		BoxesDeleted:        int(row.BoxesDeleted),
+		BoxChangeScore:      row.BoxChangeScore,
+		CreatedAt:           row.CreatedAt,
+		UpdatedAt:           row.UpdatedAt,
 	}
-	if correctedText.Valid {
-		run.CorrectedText = &correctedText.String
+	if row.CorrectedHocr.Valid {
+		run.CorrectedHOCR = &row.CorrectedHocr.String
+	}
+	if row.CorrectedText.Valid {
+		run.CorrectedText = &row.CorrectedText.String
 	}
 
 	return run, nil
@@ -106,12 +94,17 @@ func (s *OCRRunStore) SaveEdits(
 	editCount, levenshteinDistance, boxEditCount, boxesAdded, boxesDeleted int,
 	boxChangeScore float64,
 ) error {
-	_, err := s.db.ExecContext(ctx, `
-UPDATE ocr_runs
-SET corrected_hocr = ?, corrected_text = ?, edit_count = ?, levenshtein_distance = ?,
-    box_edit_count = ?, boxes_added = ?, boxes_deleted = ?, box_change_score = ?
-WHERE session_id = ?
-`, correctedHOCR, correctedText, editCount, levenshteinDistance, boxEditCount, boxesAdded, boxesDeleted, boxChangeScore, sessionID)
+	err := s.q.SaveOCREdits(ctx, db.SaveOCREditsParams{
+		CorrectedHocr:       correctedHOCR,
+		CorrectedText:       correctedText,
+		EditCount:           int32(editCount),
+		LevenshteinDistance: int32(levenshteinDistance),
+		BoxEditCount:        int32(boxEditCount),
+		BoxesAdded:          int32(boxesAdded),
+		BoxesDeleted:        int32(boxesDeleted),
+		BoxChangeScore:      boxChangeScore,
+		SessionID:           sessionID,
+	})
 	if err != nil {
 		return fmt.Errorf("update ocr run edits: %w", err)
 	}

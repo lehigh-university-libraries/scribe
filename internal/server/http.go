@@ -20,6 +20,7 @@ import (
 	legacyhandlers "github.com/lehigh-university-libraries/hOCRedit/internal/handlers"
 	"github.com/lehigh-university-libraries/hOCRedit/internal/metrics"
 	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
+	"github.com/lehigh-university-libraries/hOCRedit/proto/hocredit/v1/hocreditv1connect"
 )
 
 type Handler struct {
@@ -60,6 +61,10 @@ func NewHandler(sessions *store.SessionStore, ocrRuns *store.OCRRunStore) *Handl
 		legacy:   legacyhandlers.New(),
 	}
 	mux := http.NewServeMux()
+	imageAPIPath, imageAPIHandler := hocreditv1connect.NewImageProcessingServiceHandler(handler)
+	mux.Handle(imageAPIPath, imageAPIHandler)
+	sessionAPIPath, sessionAPIHandler := hocreditv1connect.NewSessionServiceHandler(handler)
+	mux.Handle(sessionAPIPath, sessionAPIHandler)
 	mux.HandleFunc("GET /healthz", handler.handleHealth)
 	mux.HandleFunc("GET /v1/sessions", handler.handleListSessions)
 	mux.HandleFunc("POST /v1/sessions", handler.handleCreateSession)
@@ -71,7 +76,7 @@ func NewHandler(sessions *store.SessionStore, ocrRuns *store.OCRRunStore) *Handl
 	mux.HandleFunc("GET /v1/ocr/runs/{session_id}", handler.handleGetOCRRun)
 	mux.HandleFunc("PUT /v1/ocr/runs/{session_id}/edits", handler.handleSaveOCREdits)
 	mux.Handle("GET /static/uploads/", http.StripPrefix("/static/uploads/", http.FileServer(http.Dir("uploads"))))
-	mux.HandleFunc("GET /", handler.handleWeb)
+	mux.HandleFunc("/", handler.handleWeb)
 	handler.mux = mux
 	return handler
 }

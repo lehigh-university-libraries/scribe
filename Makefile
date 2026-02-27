@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up
+.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/hocredit:main
 # renovate: datasource=docker depName=golangci/golangci-lint
@@ -16,6 +16,9 @@ build: ## Build the Docker image used for runtime
 
 up: ## Start services in detached mode
 	@docker compose up -d
+
+logs: ## Follow logs for the API
+	@docker compose logs api --tail 20 -f
 
 fmt: ## Format changed Go files
 	@./ci/fmt.sh
