@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build fmt lint test proto proto-lint sqlc web-build generate install-tools up
+.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/hocredit:main
 # renovate: datasource=docker depName=golangci/golangci-lint
@@ -31,9 +31,6 @@ proto-lint: ## Lint protobuf files
 
 sqlc: ## Generate SQL access code
 	@./ci/sqlc.sh
-
-web-build: ## Build frontend assets
-	@IMAGE="$(IMAGE)" ./ci/web-build.sh
 
 generate: proto sqlc ## Generate all code (proto + sqlc)
 	@echo "✅ All code generation complete!"

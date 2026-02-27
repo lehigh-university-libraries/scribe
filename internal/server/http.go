@@ -1,7 +1,9 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -12,17 +14,19 @@ import (
 	"time"
 
 	legacyhandlers "github.com/lehigh-university-libraries/hOCRedit/internal/handlers"
+	"github.com/lehigh-university-libraries/hOCRedit/internal/metrics"
 	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
 )
 
 type Handler struct {
 	sessions *store.SessionStore
+	ocrRuns  *store.OCRRunStore
 	mux      *http.ServeMux
 	webDir   string
 	legacy   *legacyhandlers.Handler
 }
 
-func NewHandler(sessions *store.SessionStore) *Handler {
+func NewHandler(sessions *store.SessionStore, ocrRuns *store.OCRRunStore) *Handler {
 	webDir := detectWebDir()
 	if webDir == "" {
 		slog.Warn("web assets directory not found; root path will return 404")
@@ -32,6 +36,7 @@ func NewHandler(sessions *store.SessionStore) *Handler {
 
 	handler := &Handler{
 		sessions: sessions,
+		ocrRuns:  ocrRuns,
 		webDir:   webDir,
 		legacy:   legacyhandlers.New(),
 	}
@@ -41,6 +46,9 @@ func NewHandler(sessions *store.SessionStore) *Handler {
 	mux.HandleFunc("POST /v1/sessions", handler.handleCreateSession)
 	mux.HandleFunc("POST /v1/process/url", handler.handleProcessURL)
 	mux.HandleFunc("POST /v1/process/upload", handler.handleProcessUpload)
+	mux.HandleFunc("POST /v1/process/hocr", handler.handleProcessHOCR)
+	mux.HandleFunc("GET /v1/ocr/runs/{session_id}", handler.handleGetOCRRun)
+	mux.HandleFunc("PUT /v1/ocr/runs/{session_id}/edits", handler.handleSaveOCREdits)
 	mux.Handle("GET /static/uploads/", http.StripPrefix("/static/uploads/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("GET /", handler.handleWeb)
 	handler.mux = mux
@@ -110,6 +118,16 @@ func (h *Handler) handleProcessURL(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := h.ocrRuns.Create(r.Context(), store.OCRRun{
+		SessionID:    result.SessionID,
+		ImageURL:     result.ImageURL,
+		Model:        effectiveModel(req.Model),
+		OriginalHOCR: result.HOCR,
+		OriginalText: result.PlainText,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	h.renderProcessedOutput(w, r, result)
 }
@@ -139,8 +157,150 @@ func (h *Handler) handleProcessUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := h.ocrRuns.Create(r.Context(), store.OCRRun{
+		SessionID:    result.SessionID,
+		ImageURL:     result.ImageURL,
+		Model:        effectiveModel(model),
+		OriginalHOCR: result.HOCR,
+		OriginalText: result.PlainText,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	h.renderProcessedOutput(w, r, result)
+}
+
+func (h *Handler) handleProcessHOCR(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		HOCR     string `json:"hocr"`
+		Model    string `json:"model"`
+		ImageURL string `json:"image_url"`
+	}
+
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	if strings.Contains(contentType, "multipart/form-data") {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid multipart form")
+			return
+		}
+		req.HOCR = r.FormValue("hocr")
+		req.Model = r.FormValue("model")
+		req.ImageURL = r.FormValue("image_url")
+
+		if file, fileHeader, err := extractUploadFile(r); err == nil {
+			defer file.Close()
+			fileData, readErr := io.ReadAll(file)
+			if readErr != nil {
+				writeError(w, http.StatusBadRequest, "failed to read uploaded image")
+				return
+			}
+			imageURL, storeErr := h.legacy.StoreUploadedImage(fileHeader.Filename, fileData)
+			if storeErr != nil {
+				writeError(w, http.StatusInternalServerError, storeErr.Error())
+				return
+			}
+			req.ImageURL = imageURL
+		}
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+	}
+
+	if strings.TrimSpace(req.HOCR) == "" {
+		writeError(w, http.StatusBadRequest, "hocr is required")
+		return
+	}
+
+	plainText, err := legacyhandlers.HOCRToPlainText(req.HOCR)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid hocr")
+		return
+	}
+
+	sessionID := fmt.Sprintf("hocr_%d", time.Now().UnixNano())
+	run := store.OCRRun{
+		SessionID:    sessionID,
+		ImageURL:     strings.TrimSpace(req.ImageURL),
+		Model:        effectiveModel(req.Model),
+		OriginalHOCR: req.HOCR,
+		OriginalText: plainText,
+	}
+	if err := h.ocrRuns.Create(r.Context(), run); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.renderProcessedOutput(w, r, &legacyhandlers.ProcessResult{
+		SessionID: sessionID,
+		HOCR:      req.HOCR,
+		PlainText: plainText,
+		ImageURL:  run.ImageURL,
+	})
+}
+
+func (h *Handler) handleGetOCRRun(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("session_id")
+	run, err := h.ocrRuns.Get(r.Context(), sessionID)
+	if err != nil {
+		if err == sql.ErrNoRows || strings.Contains(err.Error(), "no rows") {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, run)
+}
+
+func (h *Handler) handleSaveOCREdits(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("session_id")
+
+	var req struct {
+		CorrectedHOCR string `json:"corrected_hocr"`
+		EditCount     int    `json:"edit_count"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if strings.TrimSpace(req.CorrectedHOCR) == "" {
+		writeError(w, http.StatusBadRequest, "corrected_hocr is required")
+		return
+	}
+
+	run, err := h.ocrRuns.Get(r.Context(), sessionID)
+	if err != nil {
+		if err == sql.ErrNoRows || strings.Contains(err.Error(), "no rows") {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	correctedText, err := legacyhandlers.HOCRToPlainText(req.CorrectedHOCR)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid corrected_hocr")
+		return
+	}
+
+	lev := metrics.LevenshteinDistance(run.OriginalText, correctedText)
+	if err := h.ocrRuns.SaveEdits(r.Context(), sessionID, req.CorrectedHOCR, correctedText, req.EditCount, lev); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session_id":            sessionID,
+		"edit_count":            req.EditCount,
+		"levenshtein_distance":  lev,
+		"corrected_plain_text":  correctedText,
+		"original_plain_text":   run.OriginalText,
+		"model":                 run.Model,
+	})
 }
 
 func extractUploadFile(r *http.Request) (multipart.File, *multipart.FileHeader, error) {
@@ -188,6 +348,28 @@ func getOutputFormat(r *http.Request) string {
 	}
 
 	return "hocr"
+}
+
+func effectiveModel(requestModel string) string {
+	if strings.TrimSpace(requestModel) != "" {
+		return strings.TrimSpace(requestModel)
+	}
+
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("LLM_PROVIDER")))
+	if provider == "" {
+		provider = "ollama"
+	}
+	if provider == "openai" {
+		if m := strings.TrimSpace(os.Getenv("OPENAI_MODEL")); m != "" {
+			return m
+		}
+		return "gpt-4o"
+	}
+
+	if m := strings.TrimSpace(os.Getenv("OLLAMA_MODEL")); m != "" {
+		return m
+	}
+	return "mistral-small3.2:24b"
 }
 
 func (h *Handler) handleWeb(w http.ResponseWriter, r *http.Request) {

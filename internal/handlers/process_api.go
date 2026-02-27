@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/lehigh-university-libraries/hOCRedit/internal/hocr"
+	"github.com/lehigh-university-libraries/hOCRedit/internal/utils"
 )
 
 type ProcessResult struct {
@@ -57,6 +59,26 @@ func (h *Handler) ProcessImageUploadWithModel(filename string, fileData []byte, 
 	return h.buildProcessResult(sessionID)
 }
 
+func (h *Handler) StoreUploadedImage(filename string, fileData []byte) (string, error) {
+	if err := h.ensureUploadsDir(); err != nil {
+		return "", fmt.Errorf("create uploads dir: %w", err)
+	}
+
+	md5Hash := utils.CalculateDataMD5(fileData)
+	ext := filepath.Ext(filename)
+	if ext == "" {
+		ext = ".jpg"
+	}
+
+	imageFilename := md5Hash + ext
+	imageFilePath := filepath.Join("uploads", imageFilename)
+	if err := os.WriteFile(imageFilePath, fileData, 0644); err != nil {
+		return "", fmt.Errorf("save uploaded image: %w", err)
+	}
+
+	return "/static/uploads/" + imageFilename, nil
+}
+
 func (h *Handler) buildProcessResult(sessionID string) (*ProcessResult, error) {
 	session, exists := h.sessionStore.Get(sessionID)
 	if !exists || len(session.Images) == 0 {
@@ -64,7 +86,7 @@ func (h *Handler) buildProcessResult(sessionID string) (*ProcessResult, error) {
 	}
 
 	hocrXML := session.Images[0].OriginalHOCR
-	plainText, err := hocrToPlainText(hocrXML)
+	plainText, err := HOCRToPlainText(hocrXML)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +99,7 @@ func (h *Handler) buildProcessResult(sessionID string) (*ProcessResult, error) {
 	}, nil
 }
 
-func hocrToPlainText(hocrXML string) (string, error) {
+func HOCRToPlainText(hocrXML string) (string, error) {
 	lines, err := hocr.ParseHOCRLines(hocrXML)
 	if err != nil {
 		return "", fmt.Errorf("parse hocr lines: %w", err)

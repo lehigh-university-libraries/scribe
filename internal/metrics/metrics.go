@@ -38,6 +38,10 @@ func normalizeText(text string) string {
 	return strings.ToLower(text)
 }
 
+func LevenshteinDistance(a, b string) int {
+	return levenshteinDistance(normalizeText(a), normalizeText(b))
+}
+
 func levenshteinDistance(s1, s2 string) int {
 	len1, len2 := len(s1), len(s2)
 	if len1 == 0 {

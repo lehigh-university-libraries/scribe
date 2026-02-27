@@ -30,8 +30,9 @@ func main() {
     os.Exit(1)
   }
 
-  sessionStore := store.NewSessionStore(dbPool)
-  handler := server.NewHandler(sessionStore)
+	sessionStore := store.NewSessionStore(dbPool)
+	ocrRunStore := store.NewOCRRunStore(dbPool)
+	handler := server.NewHandler(sessionStore, ocrRunStore)
 
   httpServer := &http.Server{
     Addr:         cfg.ListenAddr,

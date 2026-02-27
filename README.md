@@ -15,14 +15,6 @@ docker compose up --build
 
 API will be available at `http://localhost:8080`.
 
-## Build Frontend Assets
-
-Frontend assets are built only inside Docker:
-
-```bash
-make web-build
-```
-
 ## Build and Lint
 
 ```bash
@@ -30,7 +22,6 @@ make lint
 make test
 make proto
 make sqlc
-make web-build
 make install-tools
 make generate
 ```

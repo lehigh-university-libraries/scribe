@@ -23,9 +23,14 @@ services:
       DATABASE_DSN: hocredit:hocredit@tcp(mariadb:3306)/hocredit?parseTime=true
     ports:
       - "8080:8080"
+    volumes:
+      - uploads-data:/app/uploads
+      - cache-data:/app/cache
     depends_on:
       mariadb:
         condition: service_healthy
 
 volumes:
   mariadb-data:
+  uploads-data:
+  cache-data:
