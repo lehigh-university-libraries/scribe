@@ -43,6 +43,87 @@ func (s *Service) ProcessImageToHOCRWithProviderAndModel(imagePath, providerOver
 	return s.processImageToHOCR(imagePath, providerOverride, modelOverride)
 }
 
+func (s *Service) DetectLinesToHOCR(imagePath string) (string, error) {
+	ctx := context.Background()
+
+	width, height, err := s.getImageDimensions(imagePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get image dimensions: %w", err)
+	}
+
+	tesseractProvider := worddetection.NewTesseract()
+	customProvider := worddetection.NewCustom()
+
+	tesseractWords, tesseractErr := tesseractProvider.DetectWords(ctx, imagePath)
+	customWords, customErr := customProvider.DetectWords(ctx, imagePath)
+
+	if tesseractErr != nil && customErr != nil {
+		return "", fmt.Errorf("both detection methods failed - tesseract: %v, custom: %v", tesseractErr, customErr)
+	}
+
+	var selectedWords []worddetection.WordBox
+	var selectedProvider string
+	if tesseractErr != nil {
+		selectedWords = customWords
+		selectedProvider = "custom"
+	} else if customErr != nil {
+		selectedWords = tesseractWords
+		selectedProvider = "tesseract"
+	} else if len(tesseractWords) >= len(customWords) {
+		selectedWords = tesseractWords
+		selectedProvider = "tesseract"
+	} else {
+		selectedWords = customWords
+		selectedProvider = "custom"
+	}
+
+	lines := s.groupWordsIntoLines(selectedWords)
+	if selectedProvider == "custom" {
+		lines = s.filterValidLines(lines, width)
+		lines = s.removeOverlappingLines(lines)
+	}
+
+	return s.generateHOCRFromDetectedLines(lines, width, height), nil
+}
+
+func (s *Service) generateHOCRFromDetectedLines(lines [][]worddetection.WordBox, width, height int) string {
+	type lineRange struct {
+		lineID int
+		y1     int
+		y2     int
+	}
+	ranges := make([]lineRange, 0, len(lines))
+	for i, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		minY := line[0].Y
+		maxY := line[0].Y + line[0].Height
+		for _, word := range line {
+			if word.Y < minY {
+				minY = word.Y
+			}
+			if word.Y+word.Height > maxY {
+				maxY = word.Y + word.Height
+			}
+		}
+		ranges = append(ranges, lineRange{lineID: i, y1: minY, y2: maxY})
+	}
+
+	boxes := make([]lineVerticalBox, 0, len(ranges))
+	for _, r := range ranges {
+		boxes = append(boxes, lineVerticalBox{lineID: r.lineID, y1: r.y1, y2: r.y2})
+	}
+	boxes = normalizeLineVerticalBoxes(boxes, height)
+
+	var out []string
+	for _, box := range boxes {
+		lineBBox := fmt.Sprintf("bbox %d %d %d %d", 0, box.y1, width, box.y2)
+		out = append(out, fmt.Sprintf("<span class='ocr_line' id='line_%d' title='%s'></span>", box.lineID, lineBBox))
+	}
+	return s.wrapInHOCRDocument(strings.Join(out, "\n"), width, height)
+}
+
 func (s *Service) TranscribeRegion(imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
 	if maxX <= minX || maxY <= minY {
 		return "", fmt.Errorf("invalid bbox")

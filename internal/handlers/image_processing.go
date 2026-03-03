@@ -178,7 +178,8 @@ func (h *Handler) processHOCRWithModel(imageFilePath, md5Hash, model string) (st
 }
 
 func (h *Handler) processHOCRWithProviderAndModel(imageFilePath, md5Hash, provider, model string) (string, error) {
-	hocrFilename := buildHOCRCacheFilename(md5Hash, model)
+	_ = provider
+	hocrFilename := buildHOCRBoxesCacheFilename(md5Hash, model)
 	hocrFilePath := filepath.Join("uploads", hocrFilename)
 
 	// Check cache first
@@ -192,14 +193,8 @@ func (h *Handler) processHOCRWithProviderAndModel(imageFilePath, md5Hash, provid
 		}
 	}
 
-	// Generate new hOCR
-	var hocrXML string
-	var err error
-	if strings.TrimSpace(provider) != "" || strings.TrimSpace(model) != "" {
-		hocrXML, err = h.getOCRForImageWithProviderAndModel(imageFilePath, provider, model)
-	} else {
-		hocrXML, err = h.getOCRForImage(imageFilePath)
-	}
+	// Generate detection-only hOCR (line boxes only). Transcription is done in editor.
+	hocrXML, err := h.getDetectedHOCRForImage(imageFilePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to process image with OCR: %w", err)
 	}
@@ -212,6 +207,16 @@ func (h *Handler) processHOCRWithProviderAndModel(imageFilePath, md5Hash, provid
 	}
 
 	return hocrXML, nil
+}
+
+func buildHOCRBoxesCacheFilename(imageHash, model string) string {
+	normalizedModel := strings.TrimSpace(strings.ToLower(model))
+	if normalizedModel == "" {
+		return imageHash + "_boxes.xml"
+	}
+
+	modelHash := md5.Sum([]byte(normalizedModel))
+	return imageHash + "_boxes_" + hex.EncodeToString(modelHash[:8]) + ".xml"
 }
 
 func buildHOCRCacheFilename(imageHash, model string) string {

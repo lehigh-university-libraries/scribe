@@ -1,4 +1,5 @@
 import "./styles.css";
+import Panzoom from "@panzoom/panzoom";
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { ImageProcessingService } from "./proto/hocredit/v1/process_connect";
@@ -423,9 +424,18 @@ async function renderEditor(): Promise<void> {
 
       <div class="grid gap-3 md:grid-cols-2">
         <section class="relative rounded-xl border border-slate-700 bg-slate-900/60 p-2">
-          <div id="image-wrap" class="relative inline-block overflow-hidden rounded">
-            <img id="editor-image" class="max-h-[78vh] rounded" alt="source" />
-            <div id="line-overlay" class="absolute inset-0"></div>
+          <div class="mb-2 flex items-center gap-2 text-xs">
+            <button id="zoom-out" class="rounded border border-slate-600 px-2 py-1 hover:bg-slate-800">-</button>
+            <input id="zoom-slider" type="range" min="100" max="800" step="10" value="100" class="w-44" />
+            <button id="zoom-in" class="rounded border border-slate-600 px-2 py-1 hover:bg-slate-800">+</button>
+            <button id="zoom-reset" class="rounded border border-slate-600 px-2 py-1 hover:bg-slate-800">Reset</button>
+            <span id="zoom-label" class="text-slate-300">100%</span>
+          </div>
+          <div id="image-wrap" class="relative h-[78vh] w-full overflow-hidden rounded bg-slate-950/50">
+            <div id="image-stage" class="relative inline-block origin-top-left will-change-transform">
+              <img id="editor-image" class="max-h-[78vh] rounded select-none" alt="source" />
+              <div id="line-overlay" class="absolute inset-0"></div>
+            </div>
           </div>
         </section>
         <section class="relative rounded-xl border border-slate-700 bg-slate-900/60 p-2">
@@ -478,7 +488,14 @@ async function renderEditor(): Promise<void> {
 
   const meta = document.getElementById("editor-meta") as HTMLParagraphElement;
   const image = document.getElementById("editor-image") as HTMLImageElement;
+  const imageWrap = document.getElementById("image-wrap") as HTMLDivElement;
+  const imageStage = document.getElementById("image-stage") as HTMLDivElement;
   const lineOverlay = document.getElementById("line-overlay") as HTMLDivElement;
+  const zoomOutBtn = document.getElementById("zoom-out") as HTMLButtonElement;
+  const zoomInBtn = document.getElementById("zoom-in") as HTMLButtonElement;
+  const zoomResetBtn = document.getElementById("zoom-reset") as HTMLButtonElement;
+  const zoomSlider = document.getElementById("zoom-slider") as HTMLInputElement;
+  const zoomLabel = document.getElementById("zoom-label") as HTMLSpanElement;
   const lineList = document.getElementById("line-list") as HTMLDivElement;
   const lineInfo = document.getElementById("line-info") as HTMLDivElement;
   const saveStatus = document.getElementById("save-status") as HTMLParagraphElement;
@@ -543,6 +560,9 @@ async function renderEditor(): Promise<void> {
   let autosaveQueued = false;
   let dragDirty = false;
   let restoringInputFocus = false;
+  let autoTranscribeStarted = false;
+  let didAutoZoom = false;
+  let panzoomInstance: ReturnType<typeof Panzoom> | null = null;
 
   const pageWidth = parsed.pageWidth || 1;
   const pageHeight = parsed.pageHeight || 1;
@@ -566,7 +586,7 @@ async function renderEditor(): Promise<void> {
 
   function syncEditorHeights(): void {
     const minHeight = 280;
-    const imageHeight = Math.round(image.clientHeight || 0);
+    const imageHeight = Math.round(imageWrap.clientHeight || image.clientHeight || 0);
     const target = Math.max(minHeight, imageHeight);
     lineList.style.height = `${target}px`;
   }
@@ -577,6 +597,123 @@ async function renderEditor(): Promise<void> {
 
   function getWordByID(line: ParsedLine, wordID: string): ParsedWord | undefined {
     return line.words.find((word) => word.id === wordID);
+  }
+
+  function currentScale(): number {
+    return panzoomInstance ? panzoomInstance.getScale() : 1;
+  }
+
+  function currentPan(): { x: number; y: number } {
+    return panzoomInstance ? panzoomInstance.getPan() : { x: 0, y: 0 };
+  }
+
+  function updateZoomUI(): void {
+    const scale = currentScale();
+    const pct = Math.round(scale * 100);
+    zoomLabel.textContent = `${pct}%`;
+    zoomSlider.value = String(Math.max(100, Math.min(800, pct)));
+  }
+
+  function viewportDocBounds(): BBox | null {
+    const stageW = image.clientWidth;
+    const stageH = image.clientHeight;
+    if (stageW <= 0 || stageH <= 0) return null;
+    const wrapW = imageWrap.clientWidth;
+    const wrapH = imageWrap.clientHeight;
+    if (wrapW <= 0 || wrapH <= 0) return null;
+    const scale = currentScale();
+    const pan = currentPan();
+    const vx1 = Math.max(0, (-pan.x) / scale);
+    const vy1 = Math.max(0, (-pan.y) / scale);
+    const vx2 = Math.min(stageW, (wrapW - pan.x) / scale);
+    const vy2 = Math.min(stageH, (wrapH - pan.y) / scale);
+    if (vx2 <= vx1 || vy2 <= vy1) return null;
+    return {
+      x1: (vx1 / stageW) * pageWidth,
+      y1: (vy1 / stageH) * pageHeight,
+      x2: (vx2 / stageW) * pageWidth,
+      y2: (vy2 / stageH) * pageHeight
+    };
+  }
+
+  function visibleLineIDs(all: ParsedLine[]): Set<string> {
+    const view = viewportDocBounds();
+    if (!view) return new Set(all.map((line) => line.id));
+    const visible = new Set<string>();
+    for (const line of all) {
+      const overlapX = Math.min(view.x2, line.bbox.x2) - Math.max(view.x1, line.bbox.x1);
+      const overlapY = Math.min(view.y2, line.bbox.y2) - Math.max(view.y1, line.bbox.y1);
+      if (overlapX > 0 && overlapY > 0) visible.add(line.id);
+    }
+    return visible;
+  }
+
+  function clampPanToBounds(x: number, y: number, scale: number): { x: number; y: number } {
+    const stageW = image.clientWidth;
+    const stageH = image.clientHeight;
+    const wrapW = imageWrap.clientWidth;
+    const wrapH = imageWrap.clientHeight;
+    if (stageW <= 0 || stageH <= 0 || wrapW <= 0 || wrapH <= 0) return { x, y };
+    const minX = Math.min(0, wrapW - stageW * scale);
+    const minY = Math.min(0, wrapH - stageH * scale);
+    const maxX = 0;
+    const maxY = 0;
+    return {
+      x: Math.max(minX, Math.min(maxX, x)),
+      y: Math.max(minY, Math.min(maxY, y))
+    };
+  }
+
+  function panToLine(line: ParsedLine, position: "center" | "top" = "center"): void {
+    if (!panzoomInstance) return;
+    const stageW = image.clientWidth;
+    const stageH = image.clientHeight;
+    if (stageW <= 0 || stageH <= 0) return;
+    const wrapW = imageWrap.clientWidth;
+    const wrapH = imageWrap.clientHeight;
+    const scale = currentScale();
+    const centerY = ((line.bbox.y1 + line.bbox.y2) / 2 / pageHeight) * stageH;
+    const topY = (line.bbox.y1 / pageHeight) * stageH;
+    const centerX = ((line.bbox.x1 + line.bbox.x2) / 2 / pageWidth) * stageW;
+    let targetX = (wrapW * 0.5) - (centerX * scale);
+    let targetY = position === "top"
+      ? (wrapH * 0.18) - (topY * scale)
+      : (wrapH * 0.5) - (centerY * scale);
+    const clamped = clampPanToBounds(targetX, targetY, scale);
+    panzoomInstance.pan(clamped.x, clamped.y, { animate: true });
+  }
+
+  function applyScale(nextScale: number): void {
+    if (!panzoomInstance) return;
+    const scale = Math.max(1, Math.min(8, nextScale));
+    panzoomInstance.zoom(scale, { animate: false, force: true });
+    updateZoomUI();
+    renderEditorState();
+  }
+
+  function navigableLines(): ParsedLine[] {
+    const sorted = orderedLines();
+    if (currentScale() <= 1.01) return sorted;
+    const ids = visibleLineIDs(sorted);
+    const filtered = sorted.filter((line) => ids.has(line.id));
+    return filtered.length > 0 ? filtered : sorted;
+  }
+
+  function maybeAutoZoomTopLine(): void {
+    if (didAutoZoom || !panzoomInstance) return;
+    const sorted = orderedLines();
+    if (sorted.length <= 10) {
+      didAutoZoom = true;
+      return;
+    }
+    const top = sorted[0];
+    const lineHeightPx = Math.max(1, ((top.bbox.y2 - top.bbox.y1) / pageHeight) * image.clientHeight);
+    const target = Math.max(1.8, Math.min(6, (imageWrap.clientHeight * 0.28) / lineHeightPx));
+    applyScale(target);
+    setActiveLine(top.id, false);
+    panToLine(top, "top");
+    renderEditorState();
+    didAutoZoom = true;
   }
 
   function markBoxChange(line: ParsedLine): void {
@@ -728,6 +865,69 @@ async function renderEditor(): Promise<void> {
 
   function markDirty(): void {
     scheduleAutoSave();
+  }
+
+  async function autoTranscribeDetectedLines(): Promise<void> {
+    if (autoTranscribeStarted) return;
+    autoTranscribeStarted = true;
+
+    const pending = orderedLines().filter((line) => line.text.trim() === "");
+    if (pending.length === 0) return;
+
+    const concurrency = 5;
+    let next = 0;
+    let completed = 0;
+    let success = 0;
+
+    saveStatus.textContent = `transcribing ${pending.length} lines...`;
+
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const idx = next;
+        next += 1;
+        if (idx >= pending.length) return;
+        const target = pending[idx];
+        try {
+          const resp = await fetch(`/v1/ocr/runs/${encodeURIComponent(sessionID)}/transcribe-region`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              x1: Math.round(target.bbox.x1),
+              y1: Math.round(target.bbox.y1),
+              x2: Math.round(target.bbox.x2),
+              y2: Math.round(target.bbox.y2),
+              model: run.model ?? ""
+            })
+          });
+          if (resp.ok) {
+            const payload = await resp.json() as { text?: string };
+            const text = (payload.text ?? "").trim();
+            const live = getLineByID(target.id);
+            if (live && live.text.trim() === "" && text !== "") {
+              live.text = text;
+              live.originalText = text;
+              live.words = [];
+              changedLineIDs.delete(live.id);
+              success += 1;
+              markDirty();
+              renderEditorState();
+            }
+          }
+        } catch {
+          // best-effort
+        } finally {
+          completed += 1;
+          saveStatus.textContent = `transcribing ${completed}/${pending.length} lines...`;
+        }
+      }
+    };
+
+    const workers: Promise<void>[] = [];
+    for (let i = 0; i < Math.min(concurrency, pending.length); i += 1) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+    saveStatus.textContent = `transcribed ${success}/${pending.length} lines`;
   }
 
   async function persistEdits(mode: "auto" | "manual"): Promise<void> {
@@ -1571,6 +1771,7 @@ async function renderEditor(): Promise<void> {
 
   updateMergeModeUI();
   renderEditorState();
+  void autoTranscribeDetectedLines();
   image.addEventListener("load", () => {
     syncEditorHeights();
     renderEditorState();
