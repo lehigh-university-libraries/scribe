@@ -57,4 +57,3 @@ func normalizeText(s string) string {
 	decoded := html.UnescapeString(noTags)
 	return strings.TrimSpace(reSpace.ReplaceAllString(decoded, " "))
 }
-

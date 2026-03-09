@@ -15,12 +15,16 @@ services:
       retries: 20
 
   api:
+    image: ghcr.io/lehigh-university-libraries/hocredit:main
     build: .
     env_file:
       - .env
     environment:
       LISTEN_ADDR: :8080
       DATABASE_DSN: hocredit:hocredit@tcp(mariadb:3306)/hocredit?parseTime=true
+      ANNOTATION_API_BASE: http://localhost:8080
+      CANTALOUPE_IIIF_BASE: http://localhost:8182/iiif/2
+      CANTALOUPE_IIIF_INTERNAL_BASE: http://cantaloupe:8182/iiif/2
     ports:
       - "8080:8080"
     volumes:
@@ -30,7 +34,25 @@ services:
       mariadb:
         condition: service_healthy
 
+  cantaloupe:
+    image: islandora/cantaloupe:6
+    environment:
+      CANTALOUPE_SOURCE_STATIC: FilesystemSource
+      CANTALOUPE_FILESYSTEMSOURCE_LOOKUP_STRATEGY: BasicLookupStrategy
+      CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: /uploads/
+      CANTALOUPE_ENDPOINT_IIIF_2_ENABLED: "true"
+      CANTALOUPE_ENDPOINT_IIIF_3_ENABLED: "true"
+      CANTALOUPE_HTTP_PORT: "8182"
+    ports:
+      - "8182:8182"
+    volumes:
+      - uploads-data:/uploads:ro
+      - cantaloupe-data:/data
+    depends_on:
+      - api
+
 volumes:
   mariadb-data:
   uploads-data:
   cache-data:
+  cantaloupe-data:

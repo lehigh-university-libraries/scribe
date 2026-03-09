@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs
+.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs logs-annotations sequelace
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/hocredit:main
 # renovate: datasource=docker depName=golangci/golangci-lint
@@ -19,6 +19,12 @@ up: ## Start services in detached mode
 
 logs: ## Follow logs for the API
 	@docker compose logs api --tail 20 -f
+
+logs-annotations: ## Follow logs for annotation routes on the main API
+	@docker compose logs api --tail 20 -f
+
+sequelace: ## Open the local MariaDB in Sequel Ace (macOS)
+	@./ci/sequelace.sh
 
 fmt: ## Format changed Go files
 	@./ci/fmt.sh
@@ -47,5 +53,5 @@ install-tools: ## Install required development tools
 	@go install github.com/google/gnostic/cmd/protoc-gen-openapi@v0.7.0
 	@go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
 
-test: ## Run Go tests
+test: ## Run Go tests (integration tests run automatically if 'make up' is active)
 	@./ci/test.sh

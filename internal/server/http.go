@@ -1,13 +1,14 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
-	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -18,17 +19,23 @@ import (
 	"time"
 
 	legacyhandlers "github.com/lehigh-university-libraries/hOCRedit/internal/handlers"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/metrics"
+	"github.com/lehigh-university-libraries/hOCRedit/internal/hocr"
+	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
 	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
 	"github.com/lehigh-university-libraries/hOCRedit/proto/hocredit/v1/hocreditv1connect"
 )
 
 type Handler struct {
-	sessions *store.SessionStore
-	ocrRuns  *store.OCRRunStore
-	mux      *http.ServeMux
-	webDir   string
-	legacy   *legacyhandlers.Handler
+	ocrRuns     *store.OCRRunStore
+	items       *store.ItemStore
+	contexts    *store.ContextStore
+	annotations *store.AnnotationStore
+	mux         http.Handler
+	webDir      string
+	legacy      *legacyhandlers.Handler
+	// baseURL is derived from the first request; used for IIIF IDs.
+	// The annotation handler needs it to build annotation item URLs.
+	annotationBaseURL string
 }
 
 type processProgress struct {
@@ -46,7 +53,52 @@ var (
 	progressState = map[string]processProgress{}
 )
 
-func NewHandler(sessions *store.SessionStore, ocrRuns *store.OCRRunStore) *Handler {
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *responseWriter) WriteHeader(statusCode int) {
+	w.statusCode = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *responseWriter) Write(b []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.statusCode = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func AccessLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" || r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		start := time.Now()
+		wrapped := &responseWriter{ResponseWriter: w}
+
+		next.ServeHTTP(wrapped, r)
+		if wrapped.statusCode == 0 {
+			wrapped.statusCode = http.StatusOK
+		}
+
+		slog.Info(r.Method+" "+r.URL.Path,
+			"status", wrapped.statusCode,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"remote_addr", r.RemoteAddr,
+		)
+	})
+}
+
+func NewHandler(
+	ocrRuns *store.OCRRunStore,
+	items *store.ItemStore,
+	contexts *store.ContextStore,
+	annotations *store.AnnotationStore,
+) *Handler {
 	webDir := detectWebDir()
 	if webDir == "" {
 		slog.Warn("web assets directory not found; root path will return 404")
@@ -55,34 +107,75 @@ func NewHandler(sessions *store.SessionStore, ocrRuns *store.OCRRunStore) *Handl
 	}
 
 	handler := &Handler{
-		sessions: sessions,
-		ocrRuns:  ocrRuns,
-		webDir:   webDir,
-		legacy:   legacyhandlers.New(),
+		ocrRuns:     ocrRuns,
+		items:       items,
+		contexts:    contexts,
+		annotations: annotations,
+		webDir:      webDir,
+		legacy:      legacyhandlers.New(),
 	}
 	mux := http.NewServeMux()
+
+	// Connect RPC services
 	imageAPIPath, imageAPIHandler := hocreditv1connect.NewImageProcessingServiceHandler(handler)
 	mux.Handle(imageAPIPath, imageAPIHandler)
-	sessionAPIPath, sessionAPIHandler := hocreditv1connect.NewSessionServiceHandler(handler)
-	mux.Handle(sessionAPIPath, sessionAPIHandler)
+	itemAPIPath, itemAPIHandler := hocreditv1connect.NewItemServiceHandler(handler)
+	mux.Handle(itemAPIPath, itemAPIHandler)
+	contextAPIPath, contextAPIHandler := hocreditv1connect.NewContextServiceHandler(handler)
+	mux.Handle(contextAPIPath, contextAPIHandler)
+	annotationAPIPath, annotationAPIHandler := hocreditv1connect.NewAnnotationServiceHandler(handler)
+	mux.Handle(annotationAPIPath, annotationAPIHandler)
+
+	// Generic IIIF annotation action routes (Text Granularity Extension aware).
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/SplitAnnotationIntoWords", handler.handleSplitAnnotationIntoWords)
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/SplitAnnotationIntoTwoLines", handler.handleSplitAnnotationIntoTwoLines)
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/MergeAnnotationsIntoLine", handler.handleMergeAnnotationsIntoLine)
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/MergeWordsIntoLineAnnotation", handler.handleMergeWordsIntoLineAnnotation)
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/TranscribeAnnotation", handler.handleTranscribeAnnotation)
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/TranscribeAnnotationPage", handler.handleTranscribeAnnotationPage)
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/CrosswalkToPlainText", handler.handleCrosswalkToPlainText)
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/CrosswalkToHOCR", handler.handleCrosswalkToHOCR)
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/CrosswalkToPageXML", handler.handleCrosswalkToPageXML)
+	mux.HandleFunc("POST /hocredit.v1.AnnotationService/CrosswalkToALTOXML", handler.handleCrosswalkToALTOXML)
+	mux.HandleFunc("POST /hocredit.v1.ImageProcessingService/ReprocessItemImageWithContext", handler.handleReprocessItemImageWithContext)
+
+	// Health
 	mux.HandleFunc("GET /healthz", handler.handleHealth)
-	mux.HandleFunc("GET /v1/sessions", handler.handleListSessions)
-	mux.HandleFunc("POST /v1/sessions", handler.handleCreateSession)
-	mux.HandleFunc("POST /v1/process/url", handler.handleProcessURL)
-	mux.HandleFunc("POST /v1/process/upload", handler.handleProcessUpload)
-	mux.HandleFunc("POST /v1/process/hocr", handler.handleProcessHOCR)
-	mux.HandleFunc("GET /v1/progress/{progress_id}", handler.handleGetProgress)
-	mux.HandleFunc("GET /v1/llm/options", handler.handleLLMOptions)
-	mux.HandleFunc("GET /v1/ocr/runs/{session_id}", handler.handleGetOCRRun)
-	mux.HandleFunc("PUT /v1/ocr/runs/{session_id}/edits", handler.handleSaveOCREdits)
-	mux.HandleFunc("POST /v1/ocr/runs/{session_id}/transcribe-region", handler.handleTranscribeRegion)
+
+	// IIIF presentation endpoints used by the editor.
+	mux.HandleFunc("GET /v1/item-images/{item_image_id}/manifest", handler.handleGetIIIFManifest)
+	mux.HandleFunc("GET /v1/item-images/{item_image_id}/annotations", handler.handleGetIIIFAnnotations)
+	mux.HandleFunc("GET /v1/item-images/{item_image_id}/hocr", handler.handleGetHOCR)
+
+	// Annotation REST routes (replaces the former port-8090 server)
+	mux.HandleFunc("GET /v1/annotations/3/search", handler.handleAnnotationSearch)
+	mux.HandleFunc("POST /v1/annotations/3/create", handler.handleAnnotationCreate)
+	mux.HandleFunc("POST /v1/annotations/3/update", handler.handleAnnotationUpdate)
+	mux.HandleFunc("DELETE /v1/annotations/3/delete", handler.handleAnnotationDelete)
+	mux.HandleFunc("GET /v1/annotations/3/item/{id}", handler.handleAnnotationGet)
+	mux.HandleFunc("POST /v1/annotations/3/enrich", handler.handleAnnotationEnrich)
+
+	// Static assets
 	mux.Handle("GET /static/uploads/", http.StripPrefix("/static/uploads/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("/", handler.handleWeb)
-	handler.mux = mux
+	handler.mux = AccessLogger(mux)
 	return handler
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// CORS: allow all origins for annotation / Connect RPC clients.
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		origin = "*"
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Vary", "Origin")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Accept,Authorization,Connect-Protocol-Version,X-Provider")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	h.mux.ServeHTTP(w, r)
 }
 
@@ -90,482 +183,691 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *Handler) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := h.sessions.List(r.Context())
+func (h *Handler) handleGetHOCR(w http.ResponseWriter, r *http.Request) {
+	run, _, _, _, err := h.resolveRunAndIIIFPaths(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
-}
-
-func (h *Handler) handleCreateSession(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-
-	if req.ID == "" {
-		req.ID = time.Now().UTC().Format("20060102150405")
-	}
-	if req.Name == "" {
-		req.Name = "Untitled Session"
-	}
-
-	session, err := h.sessions.Create(r.Context(), req.ID, req.Name)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusCreated, session)
-}
-
-func (h *Handler) handleProcessURL(w http.ResponseWriter, r *http.Request) {
-	progressID := strings.TrimSpace(r.Header.Get("X-Progress-ID"))
-	if progressID != "" {
-		w.Header().Set("X-Progress-ID", progressID)
-		startProgress(progressID, "starting", "Validating request")
-		defer startProgressHeartbeat(progressID)()
-	}
-
-	var req struct {
-		ImageURL string `json:"image_url"`
-		Model    string `json:"model"`
-		Provider string `json:"provider"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Invalid JSON", "invalid json")
-		}
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	if strings.TrimSpace(req.ImageURL) == "" {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "image_url is required", "image_url is required")
-		}
-		writeError(w, http.StatusBadRequest, "image_url is required")
-		return
-	}
-	if progressID != "" {
-		updateProgress(progressID, "processing", "Running OCR")
-	}
-
-	result, err := h.legacy.ProcessImageURLWithProviderAndModel(req.ImageURL, req.Provider, req.Model)
-	if err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "OCR processing failed", err.Error())
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if progressID != "" {
-		updateProgress(progressID, "saving", "Saving OCR run")
-	}
-	if err := h.ocrRuns.Create(r.Context(), store.OCRRun{
-		SessionID:    result.SessionID,
-		ImageURL:     result.ImageURL,
-		Provider:     effectiveProvider(req.Provider),
-		Model:        effectiveModel(req.Provider, req.Model),
-		OriginalHOCR: result.HOCR,
-		OriginalText: result.PlainText,
-	}); err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Failed to save OCR run", err.Error())
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := writeSessionHOCR(result.SessionID, "original.hocr", result.HOCR); err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Failed to persist original hOCR", err.Error())
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if progressID != "" {
-		finishProgress(progressID, "done", "Completed", "")
-	}
-
-	h.renderProcessedOutput(w, r, result)
-}
-
-func (h *Handler) handleProcessUpload(w http.ResponseWriter, r *http.Request) {
-	progressID := strings.TrimSpace(r.Header.Get("X-Progress-ID"))
-	if progressID != "" {
-		w.Header().Set("X-Progress-ID", progressID)
-		startProgress(progressID, "starting", "Reading upload")
-		defer startProgressHeartbeat(progressID)()
-	}
-
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Invalid multipart form", "invalid multipart form")
-		}
-		writeError(w, http.StatusBadRequest, "invalid multipart form")
-		return
-	}
-
-	file, fileHeader, err := extractUploadFile(r)
-	if err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Missing upload file", err.Error())
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	defer file.Close()
-
-	fileData, err := io.ReadAll(file)
-	if err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Failed to read upload", "failed to read upload")
-		}
-		writeError(w, http.StatusBadRequest, "failed to read upload")
-		return
-	}
-	if progressID != "" {
-		updateProgress(progressID, "processing", "Running OCR")
-	}
-
-	model := r.FormValue("model")
-	provider := r.FormValue("provider")
-	result, err := h.legacy.ProcessImageUploadWithProviderAndModel(fileHeader.Filename, fileData, provider, model)
-	if err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "OCR processing failed", err.Error())
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if progressID != "" {
-		updateProgress(progressID, "saving", "Saving OCR run")
-	}
-	if err := h.ocrRuns.Create(r.Context(), store.OCRRun{
-		SessionID:    result.SessionID,
-		ImageURL:     result.ImageURL,
-		Provider:     effectiveProvider(provider),
-		Model:        effectiveModel(provider, model),
-		OriginalHOCR: result.HOCR,
-		OriginalText: result.PlainText,
-	}); err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Failed to save OCR run", err.Error())
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := writeSessionHOCR(result.SessionID, "original.hocr", result.HOCR); err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Failed to persist original hOCR", err.Error())
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if progressID != "" {
-		finishProgress(progressID, "done", "Completed", "")
-	}
-
-	h.renderProcessedOutput(w, r, result)
-}
-
-func (h *Handler) handleProcessHOCR(w http.ResponseWriter, r *http.Request) {
-	progressID := strings.TrimSpace(r.Header.Get("X-Progress-ID"))
-	if progressID != "" {
-		w.Header().Set("X-Progress-ID", progressID)
-		startProgress(progressID, "starting", "Processing supplied hOCR")
-		defer startProgressHeartbeat(progressID)()
-	}
-
-	var req struct {
-		HOCR     string `json:"hocr"`
-		Model    string `json:"model"`
-		Provider string `json:"provider"`
-		ImageURL string `json:"image_url"`
-	}
-
-	contentType := strings.ToLower(r.Header.Get("Content-Type"))
-	if strings.Contains(contentType, "multipart/form-data") {
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			if progressID != "" {
-				finishProgress(progressID, "failed", "Invalid multipart form", "invalid multipart form")
-			}
-			writeError(w, http.StatusBadRequest, "invalid multipart form")
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		req.HOCR = r.FormValue("hocr")
-		req.Model = r.FormValue("model")
-		req.Provider = r.FormValue("provider")
-		req.ImageURL = r.FormValue("image_url")
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
-		if file, fileHeader, err := extractUploadFile(r); err == nil {
-			defer file.Close()
-			fileData, readErr := io.ReadAll(file)
-			if readErr != nil {
-				if progressID != "" {
-					finishProgress(progressID, "failed", "Failed to read uploaded image", "failed to read uploaded image")
-				}
-				writeError(w, http.StatusBadRequest, "failed to read uploaded image")
-				return
-			}
-			imageURL, storeErr := h.legacy.StoreUploadedImage(fileHeader.Filename, fileData)
-			if storeErr != nil {
-				if progressID != "" {
-					finishProgress(progressID, "failed", "Failed to store uploaded image", storeErr.Error())
-				}
-				writeError(w, http.StatusInternalServerError, storeErr.Error())
-				return
-			}
-			req.ImageURL = imageURL
-		}
-	} else {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			if progressID != "" {
-				finishProgress(progressID, "failed", "Invalid JSON", "invalid json")
-			}
-			writeError(w, http.StatusBadRequest, "invalid json")
+	hocrXML := strings.TrimSpace(run.OriginalHOCR)
+	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
+		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
+	}
+	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
+		hocrXML = persisted
+	}
+	if hocrXML == "" {
+		writeError(w, http.StatusNotFound, "hocr not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/vnd.hocr+html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(hocrXML))
+}
+
+func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) {
+	run, manifestPath, _, hocrPath, err := h.resolveRunAndIIIFPaths(r)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
-	}
-
-	if strings.TrimSpace(req.HOCR) == "" {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "hocr is required", "hocr is required")
-		}
-		writeError(w, http.StatusBadRequest, "hocr is required")
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	plainText, err := legacyhandlers.HOCRToPlainText(req.HOCR)
+	hocrXML := strings.TrimSpace(run.OriginalHOCR)
+	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
+		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
+	}
+	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
+		hocrXML = persisted
+	}
+	pageW, pageH := extractPageDimensions(hocrXML)
+	if pageW <= 0 {
+		pageW = 1
+	}
+	if pageH <= 0 {
+		pageH = 1
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	apiBase := scheme + "://" + r.Host
+	manifestID := apiBase + manifestPath
+	canvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
+	paintingPageID := fmt.Sprintf("%s/page/painting", manifestID)
+	paintingAnnID := fmt.Sprintf("%s/annotation/painting-1", manifestID)
+	annotationAPIBase := strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
+	if annotationAPIBase == "" {
+		annotationAPIBase = apiBase
+	}
+	annotationPageID := fmt.Sprintf("%s/v1/annotations/3/search?canvasUri=%s", annotationAPIBase, url.QueryEscape(canvasID))
+	seeAlsoID := apiBase + hocrPath
+
+	iiifBase := strings.TrimRight(strings.TrimSpace(os.Getenv("CANTALOUPE_IIIF_BASE")), "/")
+	if iiifBase == "" {
+		iiifBase = "http://localhost:8182/iiif/2"
+	}
+	imageBody := buildImageBody(run.ImageURL, iiifBase, pageW, pageH)
+	canvasLabel := run.ImageURL
+	if iiifID, err := iiifIdentifierFromImageURL(run.ImageURL); err == nil {
+		canvasLabel = iiifID
+	}
+
+	manifest := map[string]any{
+		"@context": "http://iiif.io/api/presentation/3/context.json",
+		"id":       manifestID,
+		"type":     "Manifest",
+		"label": map[string]any{
+			"none": []string{iiifManifestLabel(run)},
+		},
+		"items": []any{
+			map[string]any{
+				"id":     canvasID,
+				"type":   "Canvas",
+				"label":  map[string]any{"none": []string{canvasLabel}},
+				"height": pageH,
+				"width":  pageW,
+				"items": []any{
+					map[string]any{
+						"id":   paintingPageID,
+						"type": "AnnotationPage",
+						"items": []any{
+							map[string]any{
+								"id":         paintingAnnID,
+								"type":       "Annotation",
+								"motivation": "painting",
+								"target":     canvasID,
+								"body":       imageBody,
+							},
+						},
+					},
+				},
+				"annotations": []any{
+					map[string]any{
+						"id":   annotationPageID,
+						"type": "AnnotationPage",
+					},
+				},
+				"seeAlso": []any{
+					map[string]any{
+						"id":      seeAlsoID,
+						"type":    "Text",
+						"format":  "text/vnd.hocr+html",
+						"profile": "http://kba.cloud/hocr-spec",
+						"label":   map[string]any{"none": []string{"hOCR embedded text"}},
+					},
+				},
+			},
+		},
+	}
+	writeJSON(w, http.StatusOK, manifest)
+}
+
+func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Request) {
+	run, manifestPath, annotationsPath, _, err := h.resolveRunAndIIIFPaths(r)
 	if err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "invalid hocr", "invalid hocr")
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
 		}
-		writeError(w, http.StatusBadRequest, "invalid hocr")
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if progressID != "" {
-		updateProgress(progressID, "saving", "Saving OCR run")
+
+	hocrXML := strings.TrimSpace(run.OriginalHOCR)
+	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
+		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
+	}
+	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
+		hocrXML = persisted
+	}
+	if hocrXML == "" {
+		writeError(w, http.StatusNotFound, "hocr not found")
+		return
 	}
 
-	sessionID := fmt.Sprintf("hocr_%d", time.Now().UnixNano())
-	run := store.OCRRun{
+	granularity := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("textGranularity")))
+	if granularity == "" {
+		granularity = "line"
+	}
+	if granularity != "line" && granularity != "word" && granularity != "glyph" {
+		writeError(w, http.StatusBadRequest, "textGranularity must be one of: line, word, glyph")
+		return
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	apiBase := scheme + "://" + r.Host
+	manifestID := apiBase + manifestPath
+	canvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
+	pageID := fmt.Sprintf("%s%s?textGranularity=%s", apiBase, annotationsPath, granularity)
+	annotationScopeID := run.SessionID
+	if run.ItemImageID != nil {
+		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
+	}
+
+	var items []any
+	switch granularity {
+	case "line":
+		lines, err := hocr.ParseHOCRLines(hocrXML)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "unable to parse hocr lines")
+			return
+		}
+		items = buildLineAnnotations(apiBase, annotationScopeID, canvasID, lines)
+	case "word":
+		words, err := hocr.ParseHOCRWords(hocrXML)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "unable to parse hocr words")
+			return
+		}
+		items = buildWordAnnotations(apiBase, annotationScopeID, canvasID, words)
+	case "glyph":
+		wordGlyphs, err := hocr.ParseHOCRWordGlyphs(hocrXML)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "unable to parse hocr glyphs")
+			return
+		}
+		items = buildGlyphAnnotations(apiBase, annotationScopeID, canvasID, wordGlyphs)
+	}
+
+	payload := map[string]any{
+		"@context": annotationPageContexts(),
+		"id":       pageID,
+		"type":     "AnnotationPage",
+		"items":    items,
+	}
+	writeJSON(w, http.StatusOK, payload)
+}
+
+func joinLineWords(line models.HOCRLine) string {
+	if len(line.Words) == 0 {
+		return line.ID
+	}
+	parts := make([]string, 0, len(line.Words))
+	for _, word := range line.Words {
+		txt := strings.TrimSpace(word.Text)
+		if txt == "" {
+			continue
+		}
+		parts = append(parts, txt)
+	}
+	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+func buildLineAnnotations(apiBase, sessionID, canvasID string, lines []models.HOCRLine) []any {
+	items := make([]any, 0, len(lines))
+	for i, line := range lines {
+		width := line.BBox.X2 - line.BBox.X1
+		height := line.BBox.Y2 - line.BBox.Y1
+		if width <= 0 || height <= 0 {
+			continue
+		}
+		text := strings.TrimSpace(joinLineWords(line))
+		lineID := strings.TrimSpace(line.ID)
+		if lineID == "" {
+			lineID = fmt.Sprintf("line-%d", i+1)
+		}
+		annID := fmt.Sprintf("%s/v1/annotations/3/item/%s-line-%s", apiBase, url.PathEscape(sessionID), url.PathEscape(lineID))
+		items = append(items, transcriptionAnnotation(annID, "line", text, canvasID, line.BBox))
+	}
+	return items
+}
+
+func buildWordAnnotations(apiBase, sessionID, canvasID string, words []models.HOCRWord) []any {
+	items := make([]any, 0, len(words))
+	for i, word := range words {
+		width := word.BBox.X2 - word.BBox.X1
+		height := word.BBox.Y2 - word.BBox.Y1
+		if width <= 0 || height <= 0 {
+			continue
+		}
+		wordID := strings.TrimSpace(word.ID)
+		if wordID == "" {
+			wordID = fmt.Sprintf("word-%d", i+1)
+		}
+		annID := fmt.Sprintf("%s/v1/annotations/3/item/%s-word-%s", apiBase, url.PathEscape(sessionID), url.PathEscape(wordID))
+		items = append(items, transcriptionAnnotation(annID, "word", strings.TrimSpace(word.Text), canvasID, word.BBox))
+	}
+	return items
+}
+
+func buildGlyphAnnotations(apiBase, sessionID, canvasID string, wordGlyphs []hocr.WordWithGlyphs) []any {
+	items := make([]any, 0)
+	count := 0
+	for _, ww := range wordGlyphs {
+		for _, glyph := range ww.Glyphs {
+			width := glyph.BBox.X2 - glyph.BBox.X1
+			height := glyph.BBox.Y2 - glyph.BBox.Y1
+			if width <= 0 || height <= 0 {
+				continue
+			}
+			count++
+			glyphID := strings.TrimSpace(glyph.ID)
+			if glyphID == "" {
+				glyphID = fmt.Sprintf("%s-glyph-%d", ww.Word.ID, count)
+			}
+			annID := fmt.Sprintf("%s/v1/annotations/3/item/%s-glyph-%s", apiBase, url.PathEscape(sessionID), url.PathEscape(glyphID))
+			items = append(items, transcriptionAnnotation(annID, "glyph", strings.TrimSpace(glyph.Text), canvasID, glyph.BBox))
+		}
+	}
+	return items
+}
+
+func transcriptionAnnotation(id, granularity, text, canvasID string, box models.BBox) map[string]any {
+	width := box.X2 - box.X1
+	height := box.Y2 - box.Y1
+	return map[string]any{
+		"id":              id,
+		"type":            "Annotation",
+		"textGranularity": granularity,
+		"motivation":      "supplementing",
+		"body": []any{
+			map[string]any{
+				"type":    "TextualBody",
+				"purpose": "supplementing",
+				"format":  "text/plain",
+				"value":   text,
+			},
+		},
+		"target": map[string]any{
+			"source": map[string]any{
+				"id":   canvasID,
+				"type": "Canvas",
+			},
+			"selector": map[string]any{
+				"type":       "FragmentSelector",
+				"conformsTo": "http://www.w3.org/TR/media-frags/",
+				"value":      fmt.Sprintf("xywh=%d,%d,%d,%d", box.X1, box.Y1, width, height),
+			},
+		},
+	}
+}
+
+func iiifManifestLabel(run store.OCRRun) string {
+	if run.ItemImageID != nil {
+		return fmt.Sprintf("item-image-%d", *run.ItemImageID)
+	}
+	return run.SessionID
+}
+
+// fetchOrCacheHOCRRun returns an OCRRun for the given item_image_id. If no run
+// exists yet, it fetches hOCR on-demand from the item_image's hocr_url, caches
+// the result as a new OCR run, and returns it.
+func (h *Handler) fetchOrCacheHOCRRun(ctx context.Context, itemImageID uint64) (store.OCRRun, error) {
+	run, err := h.ocrRuns.GetByItemImageID(ctx, itemImageID)
+	if err == nil {
+		return run, nil
+	}
+	if err != sql.ErrNoRows && !strings.Contains(err.Error(), "no rows") {
+		return store.OCRRun{}, err
+	}
+	// No OCR run yet — try to fetch and cache hOCR from the item_image's hocr_url.
+	img, imgErr := h.items.GetImage(ctx, itemImageID)
+	if imgErr != nil {
+		return store.OCRRun{}, fmt.Errorf("item image not found")
+	}
+	if img.HocrURL == "" {
+		return store.OCRRun{}, fmt.Errorf("item image not found")
+	}
+	hocrXML, fetchErr := fetchHOCRContent(ctx, img.HocrURL)
+	if fetchErr != nil || strings.TrimSpace(hocrXML) == "" {
+		slog.Warn("on-demand hOCR fetch failed", "item_image_id", itemImageID, "hocr_url", img.HocrURL, "error", fetchErr)
+		return store.OCRRun{}, fmt.Errorf("item image not found")
+	}
+	hocrXML = strings.TrimSpace(hocrXML)
+	sessionID := fmt.Sprintf("hocr-url-%d", itemImageID)
+	plainText := hocrToPlainTextLenient(hocrXML)
+	run = store.OCRRun{
 		SessionID:    sessionID,
-		ImageURL:     strings.TrimSpace(req.ImageURL),
-		Provider:     "custom",
-		Model:        "custom",
-		OriginalHOCR: req.HOCR,
+		ItemImageID:  &itemImageID,
+		ImageURL:     img.ImageURL,
+		Provider:     "manifest",
+		Model:        "imported",
+		OriginalHOCR: hocrXML,
 		OriginalText: plainText,
 	}
-	if err := h.ocrRuns.Create(r.Context(), run); err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Failed to save OCR run", err.Error())
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	if cacheErr := h.ocrRuns.Create(ctx, run); cacheErr != nil {
+		slog.Warn("failed to cache on-demand hOCR run", "item_image_id", itemImageID, "error", cacheErr)
 	}
-	if err := writeSessionHOCR(sessionID, "original.hocr", req.HOCR); err != nil {
-		if progressID != "" {
-			finishProgress(progressID, "failed", "Failed to persist original hOCR", err.Error())
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if progressID != "" {
-		finishProgress(progressID, "done", "Completed", "")
-	}
-
-	h.renderProcessedOutput(w, r, &legacyhandlers.ProcessResult{
-		SessionID: sessionID,
-		HOCR:      req.HOCR,
-		PlainText: plainText,
-		ImageURL:  run.ImageURL,
-	})
+	return run, nil
 }
 
-func (h *Handler) handleGetProgress(w http.ResponseWriter, r *http.Request) {
-	progressID := strings.TrimSpace(r.PathValue("progress_id"))
-	if progressID == "" {
-		writeError(w, http.StatusBadRequest, "progress_id is required")
-		return
-	}
+func (h *Handler) resolveRunAndIIIFPaths(r *http.Request) (store.OCRRun, string, string, string, error) {
+	ctx := r.Context()
 
-	progressMu.RLock()
-	state, ok := progressState[progressID]
-	progressMu.RUnlock()
-	if !ok {
-		writeError(w, http.StatusNotFound, "progress not found")
-		return
+	itemImageIDRaw := strings.TrimSpace(r.PathValue("item_image_id"))
+	if itemImageIDRaw == "" {
+		return store.OCRRun{}, "", "", "", fmt.Errorf("item_image_id is required")
 	}
-	writeJSON(w, http.StatusOK, state)
-}
-
-func (h *Handler) handleGetOCRRun(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("session_id")
-	run, err := h.ocrRuns.Get(r.Context(), sessionID)
+	itemImageID, err := strconv.ParseUint(itemImageIDRaw, 10, 64)
 	if err != nil {
-		if err == sql.ErrNoRows || strings.Contains(err.Error(), "no rows") {
-			writeError(w, http.StatusNotFound, "session not found")
+		return store.OCRRun{}, "", "", "", fmt.Errorf("invalid item_image_id")
+	}
+	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
+	if err != nil {
+		return store.OCRRun{}, "", "", "", err
+	}
+	base := fmt.Sprintf("/v1/item-images/%d", itemImageID)
+	return run, base + "/manifest", base + "/annotations", base + "/hocr", nil
+}
+
+func iiifBaseURL() string {
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv("CANTALOUPE_IIIF_INTERNAL_BASE")), "/")
+	if base == "" {
+		base = strings.TrimRight(strings.TrimSpace(os.Getenv("CANTALOUPE_IIIF_BASE")), "/")
+	}
+	if base == "" {
+		base = "http://cantaloupe:8182/iiif/2"
+	}
+	return base
+}
+
+func fetchIIIFImageToTemp(iiifID string) (string, func(), error) {
+	imageURL := fmt.Sprintf("%s/%s/full/full/0/default.jpg", iiifBaseURL(), iiifID)
+	resp, err := http.Get(imageURL) // #nosec G107 - IIIF base comes from trusted environment config
+	if err != nil {
+		return "", func() {}, fmt.Errorf("fetch iiif image: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", func() {}, fmt.Errorf("fetch iiif image: status %d", resp.StatusCode)
+	}
+
+	f, err := os.CreateTemp("", "hocredit-image-*.jpg")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create temp image file: %w", err)
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", func() {}, fmt.Errorf("write temp image file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", func() {}, fmt.Errorf("close temp image file: %w", err)
+	}
+	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
+}
+
+func fetchIIIFRegionToTemp(iiifID string, x1, y1, x2, y2 int) (string, func(), error) {
+	width := x2 - x1
+	height := y2 - y1
+	if width <= 0 || height <= 0 {
+		return "", func() {}, fmt.Errorf("invalid bbox")
+	}
+	cropURL := fmt.Sprintf("%s/%s/%d,%d,%d,%d/full/0/default.jpg", iiifBaseURL(), iiifID, x1, y1, width, height)
+	resp, err := http.Get(cropURL) // #nosec G107 - IIIF base comes from trusted environment config
+	if err != nil {
+		return "", func() {}, fmt.Errorf("fetch iiif crop: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", func() {}, fmt.Errorf("fetch iiif crop: status %d", resp.StatusCode)
+	}
+
+	f, err := os.CreateTemp("", "hocredit-region-*.jpg")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create temp crop file: %w", err)
+	}
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", func() {}, fmt.Errorf("write temp crop file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", func() {}, fmt.Errorf("close temp crop file: %w", err)
+	}
+	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
+}
+
+func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model string) {
+	go func() {
+		ctx := context.Background()
+		run, err := h.ocrRuns.Get(ctx, sessionID)
+		if err != nil {
+			slog.Warn("Skipping async transcription; session lookup failed", "session_id", sessionID, "error", err)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if (run.CorrectedHOCR == nil || strings.TrimSpace(*run.CorrectedHOCR) == "") && sessionID != "" {
-		if corrected, ok := readSessionHOCR(sessionID, "corrected.hocr"); ok {
-			run.CorrectedHOCR = &corrected
+		sourceHOCR := strings.TrimSpace(run.OriginalHOCR)
+		if persisted, ok := readSessionHOCR(sessionID, "original.hocr"); ok && strings.TrimSpace(persisted) != "" {
+			sourceHOCR = persisted
 		}
-	}
-	writeJSON(w, http.StatusOK, run)
-}
-
-func (h *Handler) handleSaveOCREdits(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("session_id")
-
-	var req struct {
-		CorrectedHOCR string `json:"corrected_hocr"`
-		EditCount     int    `json:"edit_count"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	if strings.TrimSpace(req.CorrectedHOCR) == "" {
-		writeError(w, http.StatusBadRequest, "corrected_hocr is required")
-		return
-	}
-
-	run, err := h.ocrRuns.Get(r.Context(), sessionID)
-	if err != nil {
-		if err == sql.ErrNoRows || strings.Contains(err.Error(), "no rows") {
-			writeError(w, http.StatusNotFound, "session not found")
+		if sourceHOCR == "" {
+			slog.Warn("Skipping async transcription; missing source hOCR", "session_id", sessionID)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	correctedText, err := legacyhandlers.HOCRToPlainText(req.CorrectedHOCR)
-	if err != nil {
-		correctedText = hocrToPlainTextLenient(req.CorrectedHOCR)
-	}
-
-	lev := metrics.LevenshteinDistance(run.OriginalText, correctedText)
-	boxMetrics := calculateBoxEditMetrics(run.OriginalHOCR, req.CorrectedHOCR)
-	if err := h.ocrRuns.SaveEdits(
-		r.Context(),
-		sessionID,
-		req.CorrectedHOCR,
-		correctedText,
-		req.EditCount,
-		lev,
-		boxMetrics.ChangedCount,
-		boxMetrics.AddedCount,
-		boxMetrics.DeletedCount,
-		boxMetrics.ChangeScore,
-	); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := writeSessionHOCR(sessionID, "corrected.hocr", req.CorrectedHOCR); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"session_id":            sessionID,
-		"edit_count":            req.EditCount,
-		"levenshtein_distance":  lev,
-		"box_edit_count":        boxMetrics.ChangedCount,
-		"boxes_added":           boxMetrics.AddedCount,
-		"boxes_deleted":         boxMetrics.DeletedCount,
-		"box_change_score":      boxMetrics.ChangeScore,
-		"corrected_plain_text":  correctedText,
-		"original_plain_text":   run.OriginalText,
-		"provider":              run.Provider,
-		"model":                 run.Model,
-	})
-}
-
-func (h *Handler) handleTranscribeRegion(w http.ResponseWriter, r *http.Request) {
-	sessionID := strings.TrimSpace(r.PathValue("session_id"))
-	if sessionID == "" {
-		writeError(w, http.StatusBadRequest, "session_id is required")
-		return
-	}
-
-	run, err := h.ocrRuns.Get(r.Context(), sessionID)
-	if err != nil {
-		if err == sql.ErrNoRows || strings.Contains(err.Error(), "no rows") {
-			writeError(w, http.StatusNotFound, "session not found")
+		lines, err := hocr.ParseHOCRLines(sourceHOCR)
+		if err != nil {
+			slog.Warn("Skipping async transcription; unable to parse source hOCR", "session_id", sessionID, "error", err)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+		if len(lines) == 0 {
+			slog.Warn("Skipping async transcription; no detected lines", "session_id", sessionID)
+			return
+		}
 
-	type reqBody struct {
-		X1       int    `json:"x1"`
-		Y1       int    `json:"y1"`
-		X2       int    `json:"x2"`
-		Y2       int    `json:"y2"`
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
-	}
-	var req reqBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	if req.X2 <= req.X1 || req.Y2 <= req.Y1 {
-		writeError(w, http.StatusBadRequest, "invalid bbox")
-		return
-	}
+		iiifID, err := iiifIdentifierFromImageURL(imageURL)
+		if err != nil {
+			slog.Warn("Skipping async transcription; invalid IIIF identifier", "session_id", sessionID, "error", err)
+			return
+		}
+		slog.Info(
+			"Starting async session transcription",
+			"session_id", sessionID,
+			"provider", effectiveProvider(provider),
+			"model", effectiveModel(provider, model),
+			"line_count", len(lines),
+		)
 
-	imagePath, err := resolveSessionImagePath(run.ImageURL)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+		type lineJob struct {
+			idx  int
+			line models.HOCRLine
+		}
+		type lineResult struct {
+			idx  int
+			line models.HOCRLine
+		}
+		jobs := make(chan lineJob, len(lines))
+		results := make(chan lineResult, len(lines))
+		var wg sync.WaitGroup
 
-	provider := strings.TrimSpace(req.Provider)
-	if provider == "" {
-		provider = run.Provider
-	}
-	switch strings.ToLower(provider) {
-	case "ollama", "openai", "gemini":
-		// valid
-	default:
-		provider = ""
-	}
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		model = run.Model
-	}
-	if strings.EqualFold(model, "custom") {
-		model = ""
-	}
+		workerCount := getAsyncTranscribeConcurrency()
+		if workerCount > len(lines) {
+			workerCount = len(lines)
+		}
+		if workerCount < 1 {
+			workerCount = 1
+		}
 
-	text, err := h.legacy.TranscribeImageRegion(imagePath, req.X1, req.Y1, req.X2, req.Y2, provider, model)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+		worker := func() {
+			defer wg.Done()
+			for job := range jobs {
+				outLine := job.line
+				width := outLine.BBox.X2 - outLine.BBox.X1
+				height := outLine.BBox.Y2 - outLine.BBox.Y1
+				if width <= 0 || height <= 0 {
+					outLine.Words = nil
+					results <- lineResult{idx: job.idx, line: outLine}
+					continue
+				}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"text":     text,
-		"provider": provider,
-		"model":    model,
-	})
+				regionPath, cleanup, err := fetchIIIFRegionToTemp(iiifID, outLine.BBox.X1, outLine.BBox.Y1, outLine.BBox.X2, outLine.BBox.Y2)
+				if err != nil {
+					slog.Warn("Async line fetch failed", "session_id", sessionID, "line_id", outLine.ID, "error", err)
+					outLine.Words = nil
+					results <- lineResult{idx: job.idx, line: outLine}
+					continue
+				}
+				text, err := h.legacy.TranscribeImageFile(regionPath, provider, model)
+				cleanup()
+				if err != nil {
+					slog.Warn("Async line transcription failed", "session_id", sessionID, "line_id", outLine.ID, "error", err)
+					outLine.Words = nil
+					results <- lineResult{idx: job.idx, line: outLine}
+					continue
+				}
+				outLine.Words = []models.HOCRWord{
+					{
+						ID:         fmt.Sprintf("word_%d_0", job.idx),
+						LineID:     outLine.ID,
+						BBox:       outLine.BBox,
+						Text:       text,
+						Confidence: 85,
+					},
+				}
+				results <- lineResult{idx: job.idx, line: outLine}
+			}
+		}
+
+		wg.Add(workerCount)
+		for i := 0; i < workerCount; i++ {
+			go worker()
+		}
+		for i, line := range lines {
+			jobs <- lineJob{idx: i, line: line}
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+
+		rebuilt := make([]models.HOCRLine, len(lines))
+		for result := range results {
+			rebuilt[result.idx] = result.line
+		}
+
+		pageW, pageH := extractPageDimensions(sourceHOCR)
+		if pageW <= 0 || pageH <= 0 {
+			for _, line := range rebuilt {
+				if line.BBox.X2 > pageW {
+					pageW = line.BBox.X2
+				}
+				if line.BBox.Y2 > pageH {
+					pageH = line.BBox.Y2
+				}
+			}
+		}
+		if pageW <= 0 {
+			pageW = 1
+		}
+		if pageH <= 0 {
+			pageH = 1
+		}
+
+		converter := hocr.NewConverter()
+		hocrXML := converter.ConvertHOCRLinesToXML(rebuilt, pageW, pageH)
+
+		plainText, err := legacyhandlers.HOCRToPlainText(hocrXML)
+		if err != nil {
+			plainText = hocrToPlainTextLenient(hocrXML)
+		}
+
+		if err := h.ocrRuns.Create(ctx, store.OCRRun{
+			SessionID:    sessionID,
+			ImageURL:     imageURL,
+			Provider:     effectiveProvider(provider),
+			Model:        effectiveModel(provider, model),
+			OriginalHOCR: hocrXML,
+			OriginalText: plainText,
+		}); err != nil {
+			slog.Warn("Async session transcription save failed", "session_id", sessionID, "error", err)
+			return
+		}
+		if err := writeSessionHOCR(sessionID, "original.hocr", hocrXML); err != nil {
+			slog.Warn("Async session transcription persist failed", "session_id", sessionID, "error", err)
+			return
+		}
+		slog.Info("Async session transcription complete", "session_id", sessionID)
+	}()
 }
 
-func resolveSessionImagePath(imageURL string) (string, error) {
+func getAsyncTranscribeConcurrency() int {
+	raw := strings.TrimSpace(os.Getenv("LINE_TRANSCRIBE_CONCURRENCY"))
+	if raw == "" {
+		return 5
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 1 {
+		return 5
+	}
+	return v
+}
+
+// buildImageBody returns a IIIF Presentation v3 painting body for the given image URL.
+// For local uploads it wraps the image in a IIIF Image Service descriptor.
+// For external URLs it detects and reuses any IIIF image service embedded in the URL;
+// otherwise it returns a plain Image body.
+func buildImageBody(imageURL, iiifBase string, pageW, pageH int) map[string]any {
+	body := map[string]any{
+		"type":   "Image",
+		"height": pageH,
+		"width":  pageW,
+	}
+
+	// Local upload: use our own Cantaloupe IIIF service.
+	if strings.HasPrefix(imageURL, "/static/uploads/") {
+		iiifID, err := iiifIdentifierFromImageURL(imageURL)
+		if err == nil {
+			serviceID := iiifBase + "/" + iiifID
+			body["id"] = serviceID + "/full/full/0/default.jpg"
+			body["format"] = "image/jpeg"
+			body["service"] = []any{map[string]any{
+				"id":      serviceID,
+				"type":    "ImageService2",
+				"profile": "http://iiif.io/api/image/2/level2.json",
+			}}
+			return body
+		}
+	}
+
+	// External URL: use as-is and try to attach a IIIF service descriptor.
+	body["id"] = imageURL
+	body["format"] = "image/jpeg"
+	if serviceID := iiifServiceFromImageURL(imageURL); serviceID != "" {
+		body["service"] = []any{map[string]any{
+			"id":      serviceID,
+			"type":    "ImageService2",
+			"profile": "http://iiif.io/api/image/2/level2.json",
+		}}
+	}
+	return body
+}
+
+// iiifServiceFromImageURL extracts the IIIF image service base URL from a full
+// IIIF image URL by stripping the trailing region/size/rotation/quality segments.
+// Returns "" if the URL does not appear to be a IIIF image URL.
+func iiifServiceFromImageURL(imageURL string) string {
+	for _, seg := range []string{"/iiif/2/", "/iiif/3/"} {
+		if !strings.Contains(imageURL, seg) {
+			continue
+		}
+		// Strip the last 4 path segments (region/size/rotation/quality.format).
+		u := imageURL
+		for i := 0; i < 4; i++ {
+			idx := strings.LastIndex(u, "/")
+			if idx < 0 {
+				return ""
+			}
+			u = u[:idx]
+		}
+		return u
+	}
+	return ""
+}
+
+func iiifIdentifierFromImageURL(imageURL string) (string, error) {
 	u := strings.TrimSpace(imageURL)
 	if u == "" {
 		return "", fmt.Errorf("session has no image")
@@ -576,125 +878,9 @@ func resolveSessionImagePath(imageURL string) (string, error) {
 		if strings.TrimSpace(name) == "" {
 			return "", fmt.Errorf("invalid image path")
 		}
-		return filepath.Join("uploads", name), nil
+		return url.PathEscape(name), nil
 	}
-	return "", fmt.Errorf("transcribe-region requires a local uploaded image")
-}
-
-func extractUploadFile(r *http.Request) (multipart.File, *multipart.FileHeader, error) {
-	file, header, err := r.FormFile("file")
-	if err == nil {
-		return file, header, nil
-	}
-
-	file, header, err = r.FormFile("files")
-	if err == nil {
-		return file, header, nil
-	}
-
-	return nil, nil, err
-}
-
-func (h *Handler) renderProcessedOutput(w http.ResponseWriter, r *http.Request, result *legacyhandlers.ProcessResult) {
-	format := getOutputFormat(r)
-	w.Header().Set("X-Session-ID", result.SessionID)
-	w.Header().Set("X-Image-URL", result.ImageURL)
-
-	switch format {
-	case "text":
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(result.PlainText))
-	default:
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(result.HOCR))
-	}
-}
-
-func getOutputFormat(r *http.Request) string {
-	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format"))) {
-	case "text", "plain":
-		return "text"
-	case "hocr", "html":
-		return "hocr"
-	}
-
-	accept := strings.ToLower(r.Header.Get("Accept"))
-	if strings.Contains(accept, "text/plain") {
-		return "text"
-	}
-
-	return "hocr"
-}
-
-func handleList(raw string, fallback string) []string {
-	values := strings.Split(raw, ",")
-	out := make([]string, 0, len(values)+1)
-	seen := map[string]bool{}
-	for _, item := range values {
-		v := strings.TrimSpace(item)
-		if v == "" || seen[v] {
-			continue
-		}
-		out = append(out, v)
-		seen[v] = true
-	}
-	if fallback != "" && !seen[fallback] {
-		out = append([]string{fallback}, out...)
-	}
-	return out
-}
-
-func (h *Handler) handleLLMOptions(w http.ResponseWriter, _ *http.Request) {
-	defaultProvider := strings.ToLower(strings.TrimSpace(os.Getenv("LLM_PROVIDER")))
-	if defaultProvider == "" {
-		defaultProvider = "ollama"
-	}
-
-	ollamaDefault := strings.TrimSpace(os.Getenv("OLLAMA_MODEL"))
-	if ollamaDefault == "" {
-		ollamaDefault = "mistral-small3.2:24b"
-	}
-	openAIDefault := strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
-	if openAIDefault == "" {
-		openAIDefault = "gpt-4o"
-	}
-	geminiDefault := strings.TrimSpace(os.Getenv("GEMINI_MODEL"))
-	if geminiDefault == "" {
-		geminiDefault = "gemini-2.0-flash"
-	}
-
-	ollamaModels := handleList(os.Getenv("OLLAMA_MODELS"), ollamaDefault)
-	openAIModels := handleList(os.Getenv("OPENAI_MODELS"), openAIDefault)
-	geminiModels := handleList(os.Getenv("GEMINI_MODELS"), geminiDefault)
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"default_provider": defaultProvider,
-		"providers": []map[string]any{
-			{
-				"id":            "ollama",
-				"name":          "Ollama",
-				"enabled":       true,
-				"default_model": ollamaDefault,
-				"models":        ollamaModels,
-			},
-			{
-				"id":            "openai",
-				"name":          "OpenAI",
-				"enabled":       strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != "",
-				"default_model": openAIDefault,
-				"models":        openAIModels,
-			},
-			{
-				"id":            "gemini",
-				"name":          "Gemini",
-				"enabled":       strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "",
-				"default_model": geminiDefault,
-				"models":        geminiModels,
-			},
-		},
-	})
+	return "", fmt.Errorf("manifest requires a local uploaded image")
 }
 
 func effectiveModel(provider, requestModel string) string {
@@ -857,7 +1043,8 @@ func boxDeltaScore(a, b bbox, pageW, pageH int) float64 {
 }
 
 func extractPageDimensions(hocrXML string) (int, int) {
-	re := regexp.MustCompile(`ocr_page[^>]*title=['"]bbox\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)`)
+	// title may contain other tokens before bbox, e.g. title='image "…"; bbox 0 0 3312 2159'
+	re := regexp.MustCompile(`ocr_page[^>]*bbox\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)`)
 	matches := re.FindStringSubmatch(hocrXML)
 	if len(matches) != 5 {
 		return 0, 0

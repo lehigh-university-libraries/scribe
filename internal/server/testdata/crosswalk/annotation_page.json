@@ -1,0 +1,60 @@
+{
+  "@context": [
+    "http://iiif.io/api/extension/text-granularity/context.json",
+    "http://iiif.io/api/presentation/3/context.json"
+  ],
+  "id": "http://example.com/annotations/page/1",
+  "type": "AnnotationPage",
+  "items": [
+    {
+      "id": "line-1",
+      "type": "Annotation",
+      "textGranularity": "line",
+      "motivation": "supplementing",
+      "body": [
+        {
+          "type": "TextualBody",
+          "purpose": "supplementing",
+          "format": "text/plain",
+          "value": "Hello world"
+        }
+      ],
+      "target": {
+        "source": {
+          "id": "http://example.com/canvas/1",
+          "type": "Canvas"
+        },
+        "selector": {
+          "type": "FragmentSelector",
+          "conformsTo": "http://www.w3.org/TR/media-frags/",
+          "value": "xywh=10,20,200,30"
+        }
+      }
+    },
+    {
+      "id": "line-2",
+      "type": "Annotation",
+      "textGranularity": "line",
+      "motivation": "supplementing",
+      "body": [
+        {
+          "type": "TextualBody",
+          "purpose": "supplementing",
+          "format": "text/plain",
+          "value": "Foo bar baz"
+        }
+      ],
+      "target": {
+        "source": {
+          "id": "http://example.com/canvas/1",
+          "type": "Canvas"
+        },
+        "selector": {
+          "type": "FragmentSelector",
+          "conformsTo": "http://www.w3.org/TR/media-frags/",
+          "value": "xywh=10,60,200,30"
+        }
+      }
+    }
+  ]
+}

@@ -127,3 +127,11 @@ func (h *Handler) getDetectedHOCRForImage(imagePath string) (string, error) {
 func (h *Handler) TranscribeImageRegion(imagePath string, minX, minY, maxX, maxY int, provider, model string) (string, error) {
 	return h.hocrService.TranscribeRegion(imagePath, minX, minY, maxX, maxY, provider, model)
 }
+
+func (h *Handler) TranscribeImageToHOCR(imagePath, provider, model string) (string, error) {
+	return h.hocrService.ProcessImageToHOCRWithProviderAndModel(imagePath, provider, model)
+}
+
+func (h *Handler) TranscribeImageFile(imagePath, provider, model string) (string, error) {
+	return h.hocrService.TranscribeImage(imagePath, provider, model)
+}

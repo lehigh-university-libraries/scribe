@@ -41,3 +41,9 @@ func readSessionHOCR(sessionID, filename string) (string, bool) {
 	return s, true
 }
 
+func readPreferredSessionHOCR(sessionID string) (string, bool) {
+	if corrected, ok := readSessionHOCR(sessionID, "corrected.hocr"); ok {
+		return corrected, true
+	}
+	return readSessionHOCR(sessionID, "original.hocr")
+}

@@ -1,11 +1,26 @@
+FROM node:22-alpine AS mae-build
+
+WORKDIR /plugin
+COPY mirador-annotation-editor/package*.json ./
+RUN npm install --ignore-scripts
+COPY mirador-annotation-editor/ ./
+RUN npm run build
+
 FROM node:22-alpine AS web-build
 
-WORKDIR /web
+WORKDIR /app
+RUN mkdir -p /app/mirador-annotation-editor/dist
+COPY --from=mae-build /plugin/package.json /app/mirador-annotation-editor/package.json
+COPY --from=mae-build /plugin/dist /app/mirador-annotation-editor/dist
+
+WORKDIR /app/web
 
 COPY web/package*.json ./
-RUN npm install
+RUN npm install --ignore-scripts
 
 COPY web/ ./
+RUN mkdir -p /app/web/vendor/mirador-annotation-editor \
+    && cp -R /app/mirador-annotation-editor/dist /app/web/vendor/mirador-annotation-editor/dist
 RUN npm run build
 
 FROM golang:1.24-alpine AS builder
@@ -33,7 +48,7 @@ RUN apk add --no-cache \
     libstdc++
 RUN adduser -D -u 10001 appuser
 COPY --from=builder /out/hocredit /app/hocredit
-COPY --from=web-build /web/dist /app/web-dist
+COPY --from=web-build /app/web/dist /app/web-dist
 RUN mkdir -p /app/uploads /app/cache && chown -R appuser:appuser /app
 USER appuser
 EXPOSE 8080

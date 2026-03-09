@@ -10,22 +10,24 @@ import (
 )
 
 type OCRRun struct {
-	SessionID           string     `json:"session_id"`
-	ImageURL            string     `json:"image_url"`
-	Provider            string     `json:"provider"`
-	Model               string     `json:"model"`
-	OriginalHOCR        string     `json:"original_hocr"`
-	OriginalText        string     `json:"original_text"`
-	CorrectedHOCR       *string    `json:"corrected_hocr,omitempty"`
-	CorrectedText       *string    `json:"corrected_text,omitempty"`
-	EditCount           int        `json:"edit_count"`
-	LevenshteinDistance int        `json:"levenshtein_distance"`
-	BoxEditCount        int        `json:"box_edit_count"`
-	BoxesAdded          int        `json:"boxes_added"`
-	BoxesDeleted        int        `json:"boxes_deleted"`
-	BoxChangeScore      float64    `json:"box_change_score"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	SessionID           string    `json:"session_id"`
+	ItemImageID         *uint64   `json:"item_image_id,omitempty"`
+	ContextID           *uint64   `json:"context_id,omitempty"`
+	ImageURL            string    `json:"image_url"`
+	Provider            string    `json:"provider"`
+	Model               string    `json:"model"`
+	OriginalHOCR        string    `json:"original_hocr"`
+	OriginalText        string    `json:"original_text"`
+	CorrectedHOCR       *string   `json:"corrected_hocr,omitempty"`
+	CorrectedText       *string   `json:"corrected_text,omitempty"`
+	EditCount           int       `json:"edit_count"`
+	LevenshteinDistance int       `json:"levenshtein_distance"`
+	BoxEditCount        int       `json:"box_edit_count"`
+	BoxesAdded          int       `json:"boxes_added"`
+	BoxesDeleted        int       `json:"boxes_deleted"`
+	BoxChangeScore      float64   `json:"box_change_score"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type OCRRunStore struct {
@@ -44,6 +46,8 @@ func (s *OCRRunStore) Create(ctx context.Context, run OCRRun) error {
 
 	err := s.q.UpsertOCRRun(ctx, db.UpsertOCRRunParams{
 		SessionID:    run.SessionID,
+		ItemImageID:  uint64ToNullInt64(run.ItemImageID),
+		ContextID:    uint64ToNullInt64(run.ContextID),
 		ImageURL:     run.ImageURL,
 		Provider:     provider,
 		Model:        run.Model,
@@ -78,6 +82,14 @@ func (s *OCRRunStore) Get(ctx context.Context, sessionID string) (OCRRun, error)
 		CreatedAt:           row.CreatedAt,
 		UpdatedAt:           row.UpdatedAt,
 	}
+	if row.ItemImageID.Valid && row.ItemImageID.Int64 > 0 {
+		v := uint64(row.ItemImageID.Int64)
+		run.ItemImageID = &v
+	}
+	if row.ContextID.Valid && row.ContextID.Int64 > 0 {
+		v := uint64(row.ContextID.Int64)
+		run.ContextID = &v
+	}
 	if row.CorrectedHocr.Valid {
 		run.CorrectedHOCR = &row.CorrectedHocr.String
 	}
@@ -85,6 +97,45 @@ func (s *OCRRunStore) Get(ctx context.Context, sessionID string) (OCRRun, error)
 		run.CorrectedText = &row.CorrectedText.String
 	}
 
+	return run, nil
+}
+
+func (s *OCRRunStore) GetByItemImageID(ctx context.Context, itemImageID uint64) (OCRRun, error) {
+	row, err := s.q.GetOCRRunByItemImageID(ctx, itemImageID)
+	if err != nil {
+		return OCRRun{}, fmt.Errorf("get ocr run by item image id: %w", err)
+	}
+
+	run := OCRRun{
+		SessionID:           row.SessionID,
+		ImageURL:            row.ImageURL,
+		Provider:            row.Provider,
+		Model:               row.Model,
+		OriginalHOCR:        row.OriginalHocr,
+		OriginalText:        row.OriginalText,
+		EditCount:           int(row.EditCount),
+		LevenshteinDistance: int(row.LevenshteinDistance),
+		BoxEditCount:        int(row.BoxEditCount),
+		BoxesAdded:          int(row.BoxesAdded),
+		BoxesDeleted:        int(row.BoxesDeleted),
+		BoxChangeScore:      row.BoxChangeScore,
+		CreatedAt:           row.CreatedAt,
+		UpdatedAt:           row.UpdatedAt,
+	}
+	if row.ItemImageID.Valid && row.ItemImageID.Int64 > 0 {
+		v := uint64(row.ItemImageID.Int64)
+		run.ItemImageID = &v
+	}
+	if row.ContextID.Valid && row.ContextID.Int64 > 0 {
+		v := uint64(row.ContextID.Int64)
+		run.ContextID = &v
+	}
+	if row.CorrectedHocr.Valid {
+		run.CorrectedHOCR = &row.CorrectedHocr.String
+	}
+	if row.CorrectedText.Valid {
+		run.CorrectedText = &row.CorrectedText.String
+	}
 	return run, nil
 }
 
@@ -109,4 +160,14 @@ func (s *OCRRunStore) SaveEdits(
 		return fmt.Errorf("update ocr run edits: %w", err)
 	}
 	return nil
+}
+
+func uint64ToNullInt64(v *uint64) sql.NullInt64 {
+	if v == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{
+		Int64: int64(*v),
+		Valid: true,
+	}
 }

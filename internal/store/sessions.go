@@ -11,10 +11,10 @@ import (
 )
 
 type Session struct {
-  ID        string    `json:"id"`
-  Name      string    `json:"name"`
-  CreatedAt time.Time `json:"created_at"`
-  UpdatedAt time.Time `json:"updated_at"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type SessionStore struct {
@@ -43,9 +43,9 @@ func (s *SessionStore) List(ctx context.Context) ([]Session, error) {
 }
 
 func (s *SessionStore) Create(ctx context.Context, id, name string) (Session, error) {
-  if id == "" || name == "" {
-    return Session{}, errors.New("id and name are required")
-  }
+	if id == "" || name == "" {
+		return Session{}, errors.New("id and name are required")
+	}
 
 	if err := s.q.CreateSession(ctx, db.CreateSessionParams{
 		ID:   id,
@@ -54,7 +54,7 @@ func (s *SessionStore) Create(ctx context.Context, id, name string) (Session, er
 		return Session{}, fmt.Errorf("insert session: %w", err)
 	}
 
-  return s.Get(ctx, id)
+	return s.Get(ctx, id)
 }
 
 func (s *SessionStore) Get(ctx context.Context, id string) (Session, error) {

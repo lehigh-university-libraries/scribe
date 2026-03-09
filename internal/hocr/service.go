@@ -7,6 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -29,6 +33,101 @@ type Service struct{}
 func NewService() *Service {
 	slog.Info("Initializing hOCR service (Tesseract word detection + LLM transcription)")
 	return &Service{}
+}
+
+// ProcessingContext carries the parameters from a store.Context into the
+// processing pipeline without importing the store package (avoids cycles).
+type ProcessingContext struct {
+	SegmentationModel     string // "tesseract" | "hocredit" | "kraken:<model>"
+	TranscriptionProvider string
+	TranscriptionModel    string
+	Temperature           *float64
+	SystemPrompt          string
+}
+
+// ProcessImageWithContext runs the full pipeline using the supplied context.
+func (s *Service) ProcessImageWithContext(imagePath string, pctx ProcessingContext) (string, error) {
+	goCtx := context.Background()
+
+	width, height, err := s.getImageDimensions(imagePath)
+	if err != nil {
+		return "", fmt.Errorf("get image dimensions: %w", err)
+	}
+
+	selectedWords, selectedProvider, err := s.detectWithModel(goCtx, imagePath, pctx.SegmentationModel)
+	if err != nil {
+		return "", fmt.Errorf("segmentation failed (model=%s): %w", pctx.SegmentationModel, err)
+	}
+	slog.Info("Word detection complete",
+		"segmentation_model", pctx.SegmentationModel,
+		"selected_provider", selectedProvider,
+		"word_count", len(selectedWords))
+
+	lines := s.groupWordsIntoLines(selectedWords)
+	if selectedProvider == "custom" || selectedProvider == "kraken" {
+		lines = s.filterValidLines(lines, width)
+		lines = s.removeOverlappingLines(lines)
+	}
+
+	llmProvider, providerName, err := s.initLLMProvider(pctx.TranscriptionProvider)
+	if err != nil {
+		return "", fmt.Errorf("init LLM provider: %w", err)
+	}
+
+	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, width, height,
+		llmProvider, providerName, selectedProvider, lines, pctx.TranscriptionModel)
+	if err != nil {
+		return "", fmt.Errorf("transcribe words: %w", err)
+	}
+
+	return s.generateHOCRFromWords(transcribedWords, lines, width, height, selectedProvider), nil
+}
+
+// detectWithModel selects and runs the appropriate segmentation provider.
+// segModel values: "tesseract", "hocredit", "kraken:<model-id>", ""
+// An empty string triggers the existing auto-select logic (parallel run, best wins).
+func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel string) ([]worddetection.WordBox, string, error) {
+	seg := strings.ToLower(strings.TrimSpace(segModel))
+
+	switch {
+	case seg == "tesseract":
+		p := worddetection.NewTesseract()
+		words, err := p.DetectWords(ctx, imagePath)
+		return words, "tesseract", err
+
+	case seg == "hocredit":
+		p := worddetection.NewCustom()
+		words, err := p.DetectWords(ctx, imagePath)
+		return words, "custom", err
+
+	case strings.HasPrefix(seg, "kraken:"):
+		modelID := strings.TrimPrefix(seg, "kraken:")
+		p := worddetection.NewKraken(modelID)
+		words, err := p.DetectWords(ctx, imagePath)
+		return words, "kraken", err
+
+	default:
+		// Auto-select: run both in parallel, pick the one with more detections.
+		tesseractProvider := worddetection.NewTesseract()
+		customProvider := worddetection.NewCustom()
+		tesseractWords, tesseractErr := tesseractProvider.DetectWords(ctx, imagePath)
+		customWords, customErr := customProvider.DetectWords(ctx, imagePath)
+
+		if tesseractErr != nil && customErr != nil {
+			return nil, "", fmt.Errorf("both detection methods failed - tesseract: %v, custom: %v",
+				tesseractErr, customErr)
+		}
+		if tesseractErr != nil {
+			return customWords, "custom", nil
+		}
+		if customErr != nil {
+			return tesseractWords, "tesseract", nil
+		}
+		if len(tesseractWords) >= len(customWords) {
+			return tesseractWords, "tesseract", nil
+		}
+		return customWords, "custom", nil
+	}
 }
 
 func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
@@ -128,6 +227,20 @@ func (s *Service) TranscribeRegion(imagePath string, minX, minY, maxX, maxY int,
 	if maxX <= minX || maxY <= minY {
 		return "", fmt.Errorf("invalid bbox")
 	}
+	if minX == 0 && minY == 0 {
+		return s.transcribeImageFile(imagePath, providerOverride, modelOverride)
+	}
+	return s.transcribeRegionFromPath(imagePath, minX, minY, maxX, maxY, providerOverride, modelOverride)
+}
+
+func (s *Service) TranscribeImage(imagePath, providerOverride, modelOverride string) (string, error) {
+	return s.transcribeImageFile(imagePath, providerOverride, modelOverride)
+}
+
+func (s *Service) transcribeRegionFromPath(imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
+	if maxX <= minX || maxY <= minY {
+		return "", fmt.Errorf("invalid bbox")
+	}
 
 	ctx := context.Background()
 	llmProvider, providerName, err := s.initLLMProvider(providerOverride)
@@ -146,9 +259,29 @@ func (s *Service) TranscribeRegion(imagePath string, minX, minY, maxX, maxY int,
 	}
 	defer os.Remove(lineImagePath)
 
-	imageData, err := os.ReadFile(lineImagePath)
+	return s.extractTranscriptionFromImage(ctx, llmProvider, providerName, model, lineImagePath)
+}
+
+func (s *Service) transcribeImageFile(imagePath, providerOverride, modelOverride string) (string, error) {
+
+	ctx := context.Background()
+	llmProvider, providerName, err := s.initLLMProvider(providerOverride)
 	if err != nil {
-		return "", fmt.Errorf("failed to read region image: %w", err)
+		return "", fmt.Errorf("failed to initialize LLM provider: %w", err)
+	}
+
+	model := strings.TrimSpace(modelOverride)
+	if model == "" {
+		model = s.getModelForProvider(providerName)
+	}
+
+	return s.extractTranscriptionFromImage(ctx, llmProvider, providerName, model, imagePath)
+}
+
+func (s *Service) extractTranscriptionFromImage(ctx context.Context, llmProvider providers.Provider, providerName, model, imagePath string) (string, error) {
+	imageData, err := os.ReadFile(imagePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read image for transcription: %w", err)
 	}
 	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
@@ -159,14 +292,9 @@ func (s *Service) TranscribeRegion(imagePath string, minX, minY, maxX, maxY int,
 		Temperature: 0.0,
 	}
 
-	var text string
-	if providerName == "gemini" {
-		text, err = s.extractTextWithGemini(ctx, model, prompt, imageBase64)
-	} else {
-		text, _, err = llmProvider.ExtractText(ctx, config, lineImagePath, imageBase64)
-	}
+	text, err := s.extractTextWithRetry(ctx, llmProvider, providerName, config, imagePath, imageBase64, prompt)
 	if err != nil {
-		return "", fmt.Errorf("failed to transcribe region: %w", err)
+		return "", fmt.Errorf("failed to transcribe image: %w", err)
 	}
 
 	text = strings.TrimSpace(text)
@@ -174,6 +302,86 @@ func (s *Service) TranscribeRegion(imagePath string, minX, minY, maxX, maxY int,
 		return "", fmt.Errorf("region is not legible")
 	}
 	return text, nil
+}
+
+func (s *Service) extractTextWithRetry(
+	ctx context.Context,
+	llmProvider providers.Provider,
+	providerName string,
+	config providers.Config,
+	imagePath, imageBase64, prompt string,
+) (string, error) {
+	attempts := 1
+	baseDelay := 0 * time.Millisecond
+	maxDelay := 0 * time.Millisecond
+	if providerName == "ollama" {
+		attempts = getIntEnv("OLLAMA_RETRY_ATTEMPTS", 6)
+		baseDelay = time.Duration(getIntEnv("OLLAMA_RETRY_BASE_MS", 1000)) * time.Millisecond
+		maxDelay = time.Duration(getIntEnv("OLLAMA_RETRY_MAX_MS", 30000)) * time.Millisecond
+		if attempts < 1 {
+			attempts = 1
+		}
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		var text string
+		var err error
+		if providerName == "gemini" {
+			text, err = s.extractTextWithGemini(ctx, config.Model, prompt, imageBase64)
+		} else {
+			text, _, err = llmProvider.ExtractText(ctx, config, imagePath, imageBase64)
+		}
+		if err == nil {
+			return text, nil
+		}
+		lastErr = err
+
+		if providerName != "ollama" || !isRetriableOllamaError(err) || attempt == attempts {
+			break
+		}
+
+		delay := baseDelay * time.Duration(1<<(attempt-1))
+		if maxDelay > 0 && delay > maxDelay {
+			delay = maxDelay
+		}
+		slog.Warn(
+			"Ollama request failed; retrying with backoff",
+			"attempt", attempt,
+			"max_attempts", attempts,
+			"delay_ms", delay.Milliseconds(),
+			"error", err,
+		)
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return "", lastErr
+}
+
+func isRetriableOllamaError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "503") ||
+		strings.Contains(msg, "status 503") ||
+		strings.Contains(msg, "service you requested is not available yet") ||
+		strings.Contains(msg, "temporarily unavailable")
+}
+
+func getIntEnv(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	var v int
+	if _, err := fmt.Sscanf(raw, "%d", &v); err != nil || v < 1 {
+		return fallback
+	}
+	return v
 }
 
 func (s *Service) processImageToHOCR(imagePath, providerOverride, modelOverride string) (string, error) {
@@ -268,20 +476,44 @@ func (s *Service) processImageToHOCR(imagePath, providerOverride, modelOverride 
 }
 
 func (s *Service) getImageDimensions(imagePath string) (int, int, error) {
-	// Use ImageMagick to get dimensions
-	cmd := exec.Command("magick", "identify", "-format", "%w %h", imagePath)
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get image dimensions: %w", err)
+	parse := func(raw []byte) (int, int, error) {
+		var width, height int
+		if _, err := fmt.Sscanf(strings.TrimSpace(string(raw)), "%d %d", &width, &height); err != nil {
+			return 0, 0, err
+		}
+		if width <= 0 || height <= 0 {
+			return 0, 0, fmt.Errorf("invalid dimensions %d x %d", width, height)
+		}
+		return width, height, nil
 	}
 
-	var width, height int
-	_, err = fmt.Sscanf(strings.TrimSpace(string(output)), "%d %d", &width, &height)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to parse dimensions: %w", err)
+	// Prefer ImageMagick v7 style.
+	if out, err := exec.Command("magick", "identify", "-format", "%w %h", imagePath).Output(); err == nil {
+		if w, h, parseErr := parse(out); parseErr == nil {
+			return w, h, nil
+		}
+	}
+	// Fallback to ImageMagick v6 style.
+	if out, err := exec.Command("identify", "-format", "%w %h", imagePath).Output(); err == nil {
+		if w, h, parseErr := parse(out); parseErr == nil {
+			return w, h, nil
+		}
 	}
 
-	return width, height, nil
+	// Final fallback: decode image config directly in Go.
+	f, err := os.Open(imagePath)
+	if err != nil {
+		return 0, 0, fmt.Errorf("open image for dimension fallback: %w", err)
+	}
+	defer f.Close()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get image dimensions via identify and decode-config: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, fmt.Errorf("invalid dimensions from decode-config %d x %d", cfg.Width, cfg.Height)
+	}
+	return cfg.Width, cfg.Height, nil
 }
 
 // TranscribedWord represents a word with its bounding box and transcribed text

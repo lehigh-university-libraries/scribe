@@ -9,10 +9,21 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@panzoom/panzoom": "^4.6.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/material": "^7.3.2",
+    "@mui/system": "^7.3.2",
     "@bufbuild/protobuf": "^1.10.0",
     "@connectrpc/connect": "^1.6.0",
-    "@connectrpc/connect-web": "^1.6.0"
+    "@connectrpc/connect-web": "^1.6.0",
+    "i18next": "^25.5.3",
+    "lodash": "^4.17.21",
+    "mirador": "^4.0.0",
+    "prop-types": "^15.8.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-i18next": "^15.7.0",
+    "uuid": "^8.3.2"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.20",

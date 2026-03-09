@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/lehigh-university-libraries/hOCRedit/internal/db"
 	legacyhandlers "github.com/lehigh-university-libraries/hOCRedit/internal/handlers"
 	"github.com/lehigh-university-libraries/hOCRedit/internal/metrics"
 	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
@@ -30,55 +32,60 @@ func firstHeaderValue(h map[string][]string, key string) string {
 	return ""
 }
 
-func (h *Handler) ListSessions(ctx context.Context, _ *connect.Request[hocreditv1.ListSessionsRequest]) (*connect.Response[hocreditv1.ListSessionsResponse], error) {
-	sessions, err := h.sessions.List(ctx)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	resp := &hocreditv1.ListSessionsResponse{
-		Sessions: make([]*hocreditv1.Session, 0, len(sessions)),
-	}
-	for _, s := range sessions {
-		resp.Sessions = append(resp.Sessions, &hocreditv1.Session{
-			Id:        s.ID,
-			Name:      s.Name,
-			CreatedAt: s.CreatedAt.UTC().Format(time.RFC3339),
-			UpdatedAt: s.UpdatedAt.UTC().Format(time.RFC3339),
-		})
-	}
-	return connect.NewResponse(resp), nil
-}
+func (h *Handler) resolveTranscriptionConfig(
+	ctx context.Context,
+	contextID uint64,
+	metadataJSON string,
+	headerProvider string,
+) (string, string, error) {
+	var selectedProvider string
+	var selectedModel string
 
-func (h *Handler) CreateSession(ctx context.Context, req *connect.Request[hocreditv1.CreateSessionRequest]) (*connect.Response[hocreditv1.CreateSessionResponse], error) {
-	id := strings.TrimSpace(req.Msg.GetId())
-	name := strings.TrimSpace(req.Msg.GetName())
-	if id == "" {
-		id = time.Now().UTC().Format("20060102150405")
+	if contextID > 0 {
+		c, err := h.contexts.Get(ctx, contextID)
+		if err != nil {
+			return "", "", fmt.Errorf("context not found")
+		}
+		selectedProvider = c.TranscriptionProvider
+		selectedModel = c.TranscriptionModel
+	} else {
+		var metadata map[string]any
+		raw := strings.TrimSpace(metadataJSON)
+		if raw != "" {
+			if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+				return "", "", fmt.Errorf("invalid metadata json")
+			}
+		}
+		c, _, err := h.contexts.Resolve(ctx, metadata)
+		if err != nil {
+			return "", "", fmt.Errorf("resolve context: %w", err)
+		}
+		selectedProvider = c.TranscriptionProvider
+		selectedModel = c.TranscriptionModel
 	}
-	if name == "" {
-		name = "Untitled Session"
+
+	headerProvider = strings.TrimSpace(headerProvider)
+	if headerProvider != "" {
+		// Explicit request override for provider should not inherit a model from a different provider.
+		selectedProvider = headerProvider
+		selectedModel = ""
 	}
-	session, err := h.sessions.Create(ctx, id, name)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	return connect.NewResponse(&hocreditv1.CreateSessionResponse{
-		Session: &hocreditv1.Session{
-			Id:        session.ID,
-			Name:      session.Name,
-			CreatedAt: session.CreatedAt.UTC().Format(time.RFC3339),
-			UpdatedAt: session.UpdatedAt.UTC().Format(time.RFC3339),
-		},
-	}), nil
+
+	provider := effectiveProvider(selectedProvider)
+	model := effectiveModel(provider, selectedModel)
+	return provider, model, nil
 }
 
 func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[hocreditv1.ProcessImageURLRequest]) (*connect.Response[hocreditv1.ProcessImageResponse], error) {
 	progressID := progressIDFromHeader(req.Header())
-	provider := providerFromHeader(req.Header())
-	model := strings.TrimSpace(req.Msg.GetModel())
+	providerHeader := providerFromHeader(req.Header())
 	imageURL := strings.TrimSpace(req.Msg.GetImageUrl())
 	if imageURL == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("image_url is required"))
+	}
+	provider, model, err := h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), req.Msg.GetMetadata(), providerHeader)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	if progressID != "" {
@@ -93,11 +100,23 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[hocr
 		}
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	item, itemImage, err := h.createOCRItemAndImage(ctx, "url", result.ImageURL, result.ImageURL)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	sessionID := item.ID
+	var contextID *uint64
+	if req.Msg.GetContextId() > 0 {
+		v := req.Msg.GetContextId()
+		contextID = &v
+	}
 	if err := h.ocrRuns.Create(ctx, store.OCRRun{
-		SessionID:    result.SessionID,
+		SessionID:    sessionID,
+		ItemImageID:  &itemImage.ID,
+		ContextID:    contextID,
 		ImageURL:     result.ImageURL,
-		Provider:     effectiveProvider(provider),
-		Model:        effectiveModel(provider, model),
+		Provider:     provider,
+		Model:        model,
 		OriginalHOCR: result.HOCR,
 		OriginalText: result.PlainText,
 	}); err != nil {
@@ -106,31 +125,37 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[hocr
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := writeSessionHOCR(result.SessionID, "original.hocr", result.HOCR); err != nil {
+	if err := writeSessionHOCR(sessionID, "original.hocr", result.HOCR); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
 	}
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
+	h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
 
 	return connect.NewResponse(&hocreditv1.ProcessImageResponse{
-		SessionId: result.SessionID,
-		ImageUrl:  result.ImageURL,
-		Hocr:      result.HOCR,
-		PlainText: result.PlainText,
+		ItemId:      item.ID,
+		ItemImageId: itemImage.ID,
+		SessionId:   sessionID,
+		ImageUrl:    result.ImageURL,
+		Hocr:        result.HOCR,
+		PlainText:   result.PlainText,
 	}), nil
 }
 
 func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[hocreditv1.ProcessImageUploadRequest]) (*connect.Response[hocreditv1.ProcessImageResponse], error) {
 	progressID := progressIDFromHeader(req.Header())
-	provider := providerFromHeader(req.Header())
-	model := strings.TrimSpace(req.Msg.GetModel())
+	providerHeader := providerFromHeader(req.Header())
 	filename := strings.TrimSpace(req.Msg.GetFilename())
 	if filename == "" {
 		filename = "upload.jpg"
 	}
 	if len(req.Msg.GetImageData()) == 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("image_data is required"))
+	}
+	provider, model, err := h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), "", providerHeader)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	if progressID != "" {
@@ -145,11 +170,23 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[h
 		}
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	item, itemImage, err := h.createOCRItemAndImage(ctx, "upload", result.ImageURL, "")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	sessionID := item.ID
+	var contextID *uint64
+	if req.Msg.GetContextId() > 0 {
+		v := req.Msg.GetContextId()
+		contextID = &v
+	}
 	if err := h.ocrRuns.Create(ctx, store.OCRRun{
-		SessionID:    result.SessionID,
+		SessionID:    sessionID,
+		ItemImageID:  &itemImage.ID,
+		ContextID:    contextID,
 		ImageURL:     result.ImageURL,
-		Provider:     effectiveProvider(provider),
-		Model:        effectiveModel(provider, model),
+		Provider:     provider,
+		Model:        model,
 		OriginalHOCR: result.HOCR,
 		OriginalText: result.PlainText,
 	}); err != nil {
@@ -158,18 +195,21 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[h
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := writeSessionHOCR(result.SessionID, "original.hocr", result.HOCR); err != nil {
+	if err := writeSessionHOCR(sessionID, "original.hocr", result.HOCR); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
 	}
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
+	h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
 
 	return connect.NewResponse(&hocreditv1.ProcessImageResponse{
-		SessionId: result.SessionID,
-		ImageUrl:  result.ImageURL,
-		Hocr:      result.HOCR,
-		PlainText: result.PlainText,
+		ItemId:      item.ID,
+		ItemImageId: itemImage.ID,
+		SessionId:   sessionID,
+		ImageUrl:    result.ImageURL,
+		Hocr:        result.HOCR,
+		PlainText:   result.PlainText,
 	}), nil
 }
 
@@ -209,9 +249,14 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[hocredit
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid hocr"))
 	}
 
-	sessionID := fmt.Sprintf("hocr_%d", time.Now().UnixNano())
+	item, itemImage, err := h.createOCRItemAndImage(ctx, "hocr", imageURL, "")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	sessionID := item.ID
 	if err := h.ocrRuns.Create(ctx, store.OCRRun{
 		SessionID:    sessionID,
+		ItemImageID:  &itemImage.ID,
 		ImageURL:     imageURL,
 		Provider:     "custom",
 		Model:        "custom",
@@ -231,18 +276,30 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[hocredit
 	}
 
 	return connect.NewResponse(&hocreditv1.ProcessImageResponse{
-		SessionId: sessionID,
-		ImageUrl:  imageURL,
-		Hocr:      hocrXML,
-		PlainText: plainText,
+		ItemId:      item.ID,
+		ItemImageId: itemImage.ID,
+		SessionId:   sessionID,
+		ImageUrl:    imageURL,
+		Hocr:        hocrXML,
+		PlainText:   plainText,
 	}), nil
 }
 
 func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[hocreditv1.GetOCRRunRequest]) (*connect.Response[hocreditv1.OCRRun], error) {
-	run, err := h.ocrRuns.Get(ctx, req.Msg.GetSessionId())
+	var (
+		run store.OCRRun
+		err error
+	)
+	if req.Msg.GetItemImageId() > 0 {
+		// Use the on-demand fallback: if no OCR run exists but the item_image
+		// has a hocr_url (from a manifest seeAlso), fetch and cache it now.
+		run, err = h.fetchOrCacheHOCRRun(ctx, req.Msg.GetItemImageId())
+	} else {
+		run, err = h.ocrRuns.Get(ctx, req.Msg.GetSessionId())
+	}
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "no rows") {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found"))
+		if strings.Contains(strings.ToLower(err.Error()), "no rows") || strings.Contains(strings.ToLower(err.Error()), "not found") {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -254,6 +311,9 @@ func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[hocreditv1
 		OriginalText:        run.OriginalText,
 		EditCount:           int32(run.EditCount),
 		LevenshteinDistance: int32(run.LevenshteinDistance),
+	}
+	if run.ItemImageID != nil {
+		resp.ItemImageId = *run.ItemImageID
 	}
 	if run.CorrectedHOCR != nil {
 		resp.CorrectedHocr = *run.CorrectedHOCR
@@ -276,10 +336,24 @@ func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[hocredi
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("corrected_hocr is required"))
 	}
 
-	run, err := h.ocrRuns.Get(ctx, sessionID)
+	var (
+		run         store.OCRRun
+		err         error
+		itemImageID uint64
+	)
+	if req.Msg.GetItemImageId() > 0 {
+		itemImageID = req.Msg.GetItemImageId()
+		run, err = h.ocrRuns.GetByItemImageID(ctx, itemImageID)
+		sessionID = run.SessionID
+	} else {
+		run, err = h.ocrRuns.Get(ctx, sessionID)
+		if run.ItemImageID != nil {
+			itemImageID = *run.ItemImageID
+		}
+	}
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "no rows") {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("session not found"))
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -311,9 +385,34 @@ func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[hocredi
 
 	return connect.NewResponse(&hocreditv1.SaveOCREditsResponse{
 		SessionId:           sessionID,
+		ItemImageId:         itemImageID,
 		EditCount:           req.Msg.GetEditCount(),
 		LevenshteinDistance: int32(lev),
 		CorrectedPlainText:  correctedText,
 		OriginalPlainText:   run.OriginalText,
 	}), nil
+}
+
+func (h *Handler) createOCRItemAndImage(ctx context.Context, sourceType, imageURL, sourceURL string) (store.Item, store.ItemImage, error) {
+	itemID := fmt.Sprintf("item_%d", time.Now().UnixNano())
+	itemName := "OCR Item " + time.Now().UTC().Format(time.RFC3339)
+	item, err := h.items.Create(ctx, db.CreateItemParams{
+		ID:         itemID,
+		UserID:     store.AnonymousUserID,
+		Name:       itemName,
+		SourceType: sourceType,
+		SourceURL:  sourceURL,
+	})
+	if err != nil {
+		return store.Item{}, store.ItemImage{}, fmt.Errorf("create item: %w", err)
+	}
+	itemImage, err := h.items.AddImage(ctx, db.CreateItemImageParams{
+		ItemID:   item.ID,
+		Sequence: 0,
+		ImageURL: imageURL,
+	})
+	if err != nil {
+		return store.Item{}, store.ItemImage{}, fmt.Errorf("add item image: %w", err)
+	}
+	return item, itemImage, nil
 }

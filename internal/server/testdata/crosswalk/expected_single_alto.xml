@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alto xmlns="http://www.loc.gov/standards/alto/ns-v4#">
+<Layout>
+<Page WIDTH="305" HEIGHT="35">
+<PrintSpace HPOS="0" VPOS="0" WIDTH="305" HEIGHT="35">
+<TextBlock ID="TB1">
+<TextLine ID="TL1" HPOS="5" VPOS="10" WIDTH="300" HEIGHT="25"><String ID="S1_1" CONTENT="Quick" HPOS="5" VPOS="10" WIDTH="100" HEIGHT="25"/><String ID="S1_2" CONTENT="brown" HPOS="105" VPOS="10" WIDTH="100" HEIGHT="25"/><String ID="S1_3" CONTENT="fox" HPOS="205" VPOS="10" WIDTH="100" HEIGHT="25"/></TextLine>
+</TextBlock>
+</PrintSpace>
+</Page>
+</Layout>
+</alto>
