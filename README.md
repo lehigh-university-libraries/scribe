@@ -9,7 +9,8 @@ hosts Connect RPC, annotation and IIIF HTTP routes, and the static web app.
 
 Scribe is standardizing on IIIF Presentation 3 `AnnotationPage` JSON as the
 canonical persisted OCR correction model, using the IIIF Text Granularity
-Extension for line/word/glyph structure.
+Extension for page/block/paragraph/line/word/glyph structure:
+https://iiif.io/api/extension/text-granularity/
 
 That means:
 
@@ -18,6 +19,11 @@ That means:
 - editor-specific UI state is transient and not the canonical storage model
 - revision metadata such as `updated_by`, `updated_at`, and `revision` is stored
   adjacent to the canonical IIIF payload
+- the API exposes annotation and text-editing actions that editor plugins can
+  call directly rather than reimplementing split/join/transcription logic in
+  the browser
+- the same backend also serves a standalone web app for item ingestion,
+  management, OCR generation, and QA editing
 
 The editor is designed as a custom text-first OCR correction workflow built on
 top of canonical IIIF annotation state.
@@ -70,8 +76,19 @@ Canonical data model:
 
 - Persist one IIIF Presentation 3 `AnnotationPage` per page/canvas
 - Use IIIF Text Granularity Extension semantics for line/word/glyph annotations
+- Preserve the finest source granularity available during import, such as word
+  boxes from hOCR `ocrx_word`
 - Store revision and workflow metadata adjacent to the canonical annotation JSON
 - Export repository-facing formats such as hOCR/PageXML/ALTO from that canonical state
+
+API/editor contract:
+
+- the backend is the canonical source for annotation mutations such as line
+  splitting, line joining, word splitting, word joining, and retranscription
+- editor plugins should call those API operations and then reload or reconcile
+  the returned IIIF annotations
+- this keeps plugin implementations thinner and makes the same API usable from
+  Mirador or other IIIF-capable editors
 
 ## Build and test
 
@@ -125,6 +142,41 @@ DELETE /v1/annotations/3/delete?uri=<id>
 GET    /v1/annotations/3/item/{id}
 POST   /v1/annotations/3/enrich
 ```
+
+Editor-oriented annotation operations are also exposed as API requests so
+plugins can delegate structural OCR edits to the backend:
+
+```
+POST /scribe.v1.AnnotationService/SplitAnnotationIntoWords
+POST /scribe.v1.AnnotationService/SplitAnnotationIntoTwoLines
+POST /scribe.v1.AnnotationService/MergeAnnotationsIntoLine
+POST /scribe.v1.AnnotationService/MergeWordsIntoLineAnnotation
+POST /scribe.v1.AnnotationService/TranscribeAnnotation
+POST /scribe.v1.AnnotationService/TranscribeAnnotationPage
+```
+
+## Contexts and metrics
+
+Contexts bundle the OCR/transcription settings used to process or enrich an
+image. A context can include:
+
+- a segmentation model
+- a transcription provider/model
+- additional context-selection metadata used to infer the best context from the
+  supplied image or related metadata
+
+The backend exposes context resolution so ingestion and editor operations can
+choose a context explicitly or let the server pick one when enough information
+can be inferred.
+
+Scribe records edit metrics to evaluate context quality. The primary metric
+today is document-level Levenshtein distance between:
+
+- the plain-text document produced by the app originally
+- the plain-text document represented by the user-corrected final result
+
+This gives a simple measure of how much correction a context required.
+Segmentation quality metrics are planned but still TBD.
 
 ## Product Model
 

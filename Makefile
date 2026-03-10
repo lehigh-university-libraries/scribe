@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs logs-annotations sequelace
+.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs  sequelace
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 # renovate: datasource=docker depName=golangci/golangci-lint
@@ -18,9 +18,6 @@ up: ## Start services in detached mode
 	@docker compose up -d
 
 logs: ## Follow logs for the API
-	@docker compose logs api --tail 20 -f
-
-logs-annotations: ## Follow logs for annotation routes on the main API
 	@docker compose logs api --tail 20 -f
 
 sequelace: ## Open the local MariaDB in Sequel Ace (macOS)
@@ -55,3 +52,4 @@ install-tools: ## Install required development tools
 
 test: ## Run Go tests (integration tests run automatically if 'make up' is active)
 	@./ci/test.sh
+

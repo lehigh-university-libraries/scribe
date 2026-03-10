@@ -417,9 +417,11 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	if searchPage.Type != "AnnotationPage" {
 		t.Errorf("search type = %q; want AnnotationPage", searchPage.Type)
 	}
-	if len(searchPage.Items) != 2 {
-		t.Errorf("search returned %d items; want 2", len(searchPage.Items))
+	if len(searchPage.Items) != 5 {
+		t.Errorf("search returned %d items; want 5 (2 lines + 3 words)", len(searchPage.Items))
 	}
+	lineCount := 0
+	wordCount := 0
 	for i, item := range searchPage.Items {
 		target, _ := item["target"].(map[string]any)
 		source, _ := target["source"].(map[string]any)
@@ -427,5 +429,17 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 		if gotCanvas != createBody.Item.Images[0].CanvasUri {
 			t.Errorf("search item[%d] target.source.id = %q; want %q", i, gotCanvas, createBody.Item.Images[0].CanvasUri)
 		}
+		switch item["textGranularity"] {
+		case "line":
+			lineCount++
+		case "word":
+			wordCount++
+		}
+	}
+	if lineCount != 2 {
+		t.Errorf("search returned %d line annotations; want 2", lineCount)
+	}
+	if wordCount != 3 {
+		t.Errorf("search returned %d word annotations; want 3", wordCount)
 	}
 }

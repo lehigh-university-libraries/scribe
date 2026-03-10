@@ -215,6 +215,51 @@ func TestCrosswalkErrors(t *testing.T) {
 	}
 }
 
+func TestCrosswalkMixedLineAndWordGranularity(t *testing.T) {
+	h := &Handler{}
+	pageJSON := `{
+	  "type": "AnnotationPage",
+	  "items": [
+	    {
+	      "id": "line-1",
+	      "type": "Annotation",
+	      "textGranularity": "line",
+	      "motivation": "supplementing",
+	      "body": [{"type":"TextualBody","purpose":"supplementing","value":"Course Catalog"}],
+	      "target": {"source":{"id":"https://example.org/canvas/1","type":"Canvas"},"selector":{"type":"FragmentSelector","value":"xywh=10,20,490,25"}}
+	    },
+	    {
+	      "id": "word-1",
+	      "type": "Annotation",
+	      "textGranularity": "word",
+	      "motivation": "supplementing",
+	      "body": [{"type":"TextualBody","purpose":"supplementing","value":"Course"}],
+	      "target": {"source":{"id":"https://example.org/canvas/1","type":"Canvas"},"selector":{"type":"FragmentSelector","value":"xywh=10,20,90,25"}}
+	    },
+	    {
+	      "id": "word-2",
+	      "type": "Annotation",
+	      "textGranularity": "word",
+	      "motivation": "supplementing",
+	      "body": [{"type":"TextualBody","purpose":"supplementing","value":"Catalog"}],
+	      "target": {"source":{"id":"https://example.org/canvas/1","type":"Canvas"},"selector":{"type":"FragmentSelector","value":"xywh=110,20,90,25"}}
+	    }
+	  ]
+	}`
+
+	rec := postCrosswalkHandler(t, h.handleCrosswalkToPlainText, map[string]string{"annotation_page_json": pageJSON})
+	resp := decodeCrosswalkResponse(t, rec)
+	if strings.TrimSpace(resp.Content) != "Course Catalog" {
+		t.Fatalf("plain text crosswalk duplicated or lost mixed granularity content: %q", resp.Content)
+	}
+
+	rec = postCrosswalkHandler(t, h.handleCrosswalkToHOCR, map[string]string{"annotation_page_json": pageJSON})
+	resp = decodeCrosswalkResponse(t, rec)
+	if strings.Count(resp.Content, "Course") != 1 || strings.Count(resp.Content, "Catalog") != 1 {
+		t.Fatalf("hOCR crosswalk duplicated mixed granularity content:\n%s", resp.Content)
+	}
+}
+
 // buildCrosswalkBody JSON-encodes a crosswalk request with a single string field.
 func buildCrosswalkBody(t *testing.T, key, value string) string {
 	t.Helper()

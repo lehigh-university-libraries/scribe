@@ -104,11 +104,11 @@ func (h *Handler) handleSplitAnnotationIntoWords(w http.ResponseWriter, r *http.
 			"id":              fmt.Sprintf("%s-word-%d", lineID, i+1),
 			"type":            "Annotation",
 			"textGranularity": "word",
-			"motivation":      "commenting",
+			"motivation":      "supplementing",
 			"body": []any{
 				map[string]any{
 					"type":    "TextualBody",
-					"purpose": "describing",
+					"purpose": "supplementing",
 					"format":  "text/plain",
 					"value":   strings.TrimSpace(word),
 				},
@@ -384,11 +384,11 @@ func buildLineAnnotation(id, canvasURI string, x1, y1, x2, y2 int, text string) 
 		"id":              id,
 		"type":            "Annotation",
 		"textGranularity": "line",
-		"motivation":      "commenting",
+		"motivation":      "supplementing",
 		"body": []any{
 			map[string]any{
 				"type":    "TextualBody",
-				"purpose": "describing",
+				"purpose": "supplementing",
 				"format":  "text/plain",
 				"value":   strings.TrimSpace(text),
 			},

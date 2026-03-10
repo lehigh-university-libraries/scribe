@@ -114,7 +114,7 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 	}
 
 	lineByID := map[string]*models.HOCRLine{}
-	var looseLines []models.HOCRLine
+	lineOrder := make([]string, 0)
 	var allWords []models.HOCRWord
 	pageW, pageH := 1, 1
 	lineCounter := 0
@@ -164,27 +164,42 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 				lineCounter++
 				lineID = fmt.Sprintf("line_%d", lineCounter)
 			}
-			words := splitLineTextToWords(text, x1, y1, x2, y2, lineID)
 			line := models.HOCRLine{
 				ID:    lineID,
 				BBox:  models.BBox{X1: x1, Y1: y1, X2: x2, Y2: y2},
-				Words: words,
 			}
 			if existing, ok := lineByID[lineID]; ok {
-				existing.Words = append(existing.Words, line.Words...)
+				existing.BBox = line.BBox
 			} else {
-				copyLine := line
-				lineByID[lineID] = &copyLine
-				looseLines = append(looseLines, copyLine)
+				lineByID[lineID] = &line
+				lineOrder = append(lineOrder, lineID)
 			}
 		}
 	}
 
 	if len(allWords) > 0 {
-		grouped := wordsToLines(allWords)
-		for _, ln := range grouped {
-			looseLines = append(looseLines, ln)
+		if len(lineByID) > 0 {
+			assignWordsToLines(lineByID, allWords)
+		} else {
+			grouped := wordsToLines(allWords)
+			for _, ln := range grouped {
+				copyLine := ln
+				lineByID[copyLine.ID] = &copyLine
+				lineOrder = append(lineOrder, copyLine.ID)
+			}
 		}
+	}
+
+	looseLines := make([]models.HOCRLine, 0, len(lineOrder))
+	for _, lineID := range lineOrder {
+		line := lineByID[lineID]
+		if line == nil {
+			continue
+		}
+		if len(line.Words) == 0 {
+			line.Words = splitLineTextToWords(extractLineTextFromID(page, lineID), line.BBox.X1, line.BBox.Y1, line.BBox.X2, line.BBox.Y2, lineID)
+		}
+		looseLines = append(looseLines, *line)
 	}
 
 	if len(looseLines) == 0 {
@@ -210,6 +225,98 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 		}
 	}
 	return looseLines, pageW, pageH, nil
+}
+
+func assignWordsToLines(lineByID map[string]*models.HOCRLine, words []models.HOCRWord) {
+	lines := make([]*models.HOCRLine, 0, len(lineByID))
+	for _, line := range lineByID {
+		if line != nil {
+			line.Words = nil
+			lines = append(lines, line)
+		}
+	}
+	sort.Slice(lines, func(i, j int) bool {
+		ai := lines[i].BBox.Y1 + lines[i].BBox.Y2
+		aj := lines[j].BBox.Y1 + lines[j].BBox.Y2
+		if ai != aj {
+			return ai < aj
+		}
+		return lines[i].BBox.X1 < lines[j].BBox.X1
+	})
+
+	for _, word := range words {
+		best := nearestLineForWord(lines, word)
+		if best == nil {
+			continue
+		}
+		best.Words = append(best.Words, models.HOCRWord{
+			ID:     word.ID,
+			LineID: best.ID,
+			Text:   word.Text,
+			BBox:   word.BBox,
+		})
+	}
+
+	for _, line := range lines {
+		sort.Slice(line.Words, func(i, j int) bool {
+			if line.Words[i].BBox.X1 != line.Words[j].BBox.X1 {
+				return line.Words[i].BBox.X1 < line.Words[j].BBox.X1
+			}
+			return line.Words[i].BBox.Y1 < line.Words[j].BBox.Y1
+		})
+	}
+}
+
+func nearestLineForWord(lines []*models.HOCRLine, word models.HOCRWord) *models.HOCRLine {
+	var best *models.HOCRLine
+	bestScore := -1.0
+	bestDistance := int(^uint(0) >> 1)
+	wordCenterY := (word.BBox.Y1 + word.BBox.Y2) / 2
+
+	for _, line := range lines {
+		if line == nil {
+			continue
+		}
+		score := wordLineVerticalOverlap(line.BBox, word.BBox)
+		lineCenterY := (line.BBox.Y1 + line.BBox.Y2) / 2
+		distance := abs(wordCenterY - lineCenterY)
+		if score > bestScore || (score == bestScore && distance < bestDistance) {
+			best = line
+			bestScore = score
+			bestDistance = distance
+		}
+	}
+	return best
+}
+
+func wordLineVerticalOverlap(lineBox, wordBox models.BBox) float64 {
+	overlapTop := maxInt(lineBox.Y1, wordBox.Y1)
+	overlapBottom := minInt(lineBox.Y2, wordBox.Y2)
+	overlap := maxInt(0, overlapBottom-overlapTop)
+	wordHeight := maxInt(1, wordBox.Y2-wordBox.Y1)
+	return float64(overlap) / float64(wordHeight)
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func extractLineTextFromID(page map[string]any, lineID string) string {
+	items, _ := page["items"].([]any)
+	for _, it := range items {
+		anno, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		id := strings.TrimSpace(annStringValue(anno, "id"))
+		if id == lineID {
+			return strings.TrimSpace(extractAnnotationText(anno))
+		}
+	}
+	return ""
 }
 
 func annotationPayloadToHOCRLines(pageJSON, annotationJSON string) ([]models.HOCRLine, int, int, error) {

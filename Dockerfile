@@ -1,8 +1,11 @@
+# syntax=docker/dockerfile:1.7
+
 FROM node:22-alpine AS plugin-build
 
 WORKDIR /plugin
 COPY mirador-scribe/package*.json ./
-RUN npm install --ignore-scripts
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --ignore-scripts --prefer-offline --no-audit --progress=false
 COPY mirador-scribe/ ./
 RUN npm run build
 
@@ -16,7 +19,8 @@ COPY --from=plugin-build /plugin/dist /app/mirador-scribe/dist
 WORKDIR /app/web
 
 COPY web/package*.json ./
-RUN npm install --ignore-scripts
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --ignore-scripts --prefer-offline --no-audit --progress=false
 
 COPY web/ ./
 RUN mkdir -p /app/web/vendor/mirador-scribe \

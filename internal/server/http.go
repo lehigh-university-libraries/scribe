@@ -472,11 +472,11 @@ func transcriptionAnnotation(id, granularity, text, canvasID string, box models.
 		"id":              id,
 		"type":            "Annotation",
 		"textGranularity": granularity,
-		"motivation":      "commenting",
+		"motivation":      "supplementing",
 		"body": []any{
 			map[string]any{
 				"type":    "TextualBody",
-				"purpose": "describing",
+				"purpose": "supplementing",
 				"format":  "text/plain",
 				"value":   text,
 			},

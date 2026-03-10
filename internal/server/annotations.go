@@ -73,50 +73,7 @@ var (
 // bootstrapAnnotationsFromHOCR fetches the hOCR annotation page from the
 // core API for a canvas that has no saved annotations yet.
 func (h *Handler) bootstrapAnnotationsFromHOCR(ctx context.Context, canvasURI, base string) ([]any, error) {
-	reqURL, err := annotationBootstrapURL(base, canvasURI)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("annotation bootstrap failed: %s", resp.Status)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, err
-	}
-	rawItems, _ := payload["items"].([]any)
-	for i, item := range rawItems {
-		anno, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		id := strings.TrimSpace(annStringValue(anno, "id"))
-		if id == "" {
-			id = strings.TrimSpace(annStringValue(anno, "@id"))
-		}
-		if id == "" || strings.HasPrefix(id, base+"/v1/annotations/3/item/") {
-			continue
-		}
-		stable := annStableID(id)
-		full := base + "/v1/annotations/3/item/" + stable
-		anno["id"] = full
-		anno["@id"] = full
-		rawItems[i] = normalizeAnnotation(anno, canvasURI)
-	}
-	return rawItems, nil
+	return h.bootstrapAnnotationsForGranularities(ctx, canvasURI, base, annotationBootstrapURL, "line", "word")
 }
 
 func bindAnnotationToCanvas(anno map[string]any, canvasURI string) map[string]any {
@@ -191,22 +148,103 @@ func (h *Handler) bootstrapAnnotationsForCanvas(ctx context.Context, canvasURI, 
 
 	// Build a bootstrap URL using our internal item-image route.
 	internalBase := base
-	bootstrapURL := internalBase + "/v1/item-images/" + fmt.Sprintf("%d", img.ID) + "/annotations"
-	req, err2 := http.NewRequestWithContext(ctx, http.MethodGet, bootstrapURL, nil)
-	if err2 != nil {
-		return nil, err2
+	return h.bootstrapAnnotationsForGranularities(ctx, canvasURI, base, func(_ string, _ string) (string, error) {
+		return internalBase + "/v1/item-images/" + fmt.Sprintf("%d", img.ID) + "/annotations", nil
+	}, "line", "word")
+}
+
+func (h *Handler) bootstrapAnnotationsForGranularities(
+	ctx context.Context,
+	canvasURI, base string,
+	urlBuilder func(string, string) (string, error),
+	granularities ...string,
+) ([]any, error) {
+	type result struct {
+		order []string
+		items map[string]map[string]any
 	}
-	resp, err2 := http.DefaultClient.Do(req)
-	if err2 != nil {
-		return nil, err2
+
+	merged := result{
+		order: make([]string, 0),
+		items: make(map[string]map[string]any),
+	}
+	seen := make(map[string]struct{})
+
+	for _, granularity := range granularities {
+		rawItems, err := h.fetchBootstrapAnnotationItems(ctx, canvasURI, base, granularity, urlBuilder)
+		if err != nil {
+			if granularity == "line" {
+				return nil, err
+			}
+			continue
+		}
+		for _, item := range rawItems {
+			anno, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			id := strings.TrimSpace(annStringValue(anno, "id"))
+			if id == "" {
+				id = strings.TrimSpace(annStringValue(anno, "@id"))
+			}
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; !ok {
+				seen[id] = struct{}{}
+				merged.order = append(merged.order, id)
+			}
+			merged.items[id] = anno
+		}
+	}
+
+	items := make([]any, 0, len(merged.order))
+	for _, id := range merged.order {
+		if anno, ok := merged.items[id]; ok {
+			items = append(items, anno)
+		}
+	}
+	return items, nil
+}
+
+func (h *Handler) fetchBootstrapAnnotationItems(
+	ctx context.Context,
+	canvasURI, base, granularity string,
+	urlBuilder func(string, string) (string, error),
+) ([]any, error) {
+	reqURL, err := urlBuilder(base, canvasURI)
+	if err != nil {
+		return nil, err
+	}
+	if granularity != "" {
+		parsed, parseErr := url.Parse(reqURL)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		query := parsed.Query()
+		query.Set("textGranularity", granularity)
+		parsed.RawQuery = query.Encode()
+		reqURL = parsed.String()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("bootstrap fetch failed: %s", resp.Status)
+		return nil, fmt.Errorf("annotation bootstrap failed: %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
 	var payload map[string]any
-	if err2 = json.NewDecoder(resp.Body).Decode(&payload); err2 != nil {
-		return nil, err2
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
 	}
 	rawItems, _ := payload["items"].([]any)
 	for i, item := range rawItems {
@@ -595,7 +633,7 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 	// Replace body with enriched text.
 	anno["body"] = []any{map[string]any{
 		"type":    "TextualBody",
-		"purpose": "describing",
+		"purpose": "supplementing",
 		"format":  "text/plain",
 		"value":   strings.TrimSpace(text),
 	}}

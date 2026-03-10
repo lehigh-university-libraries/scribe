@@ -25,7 +25,11 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 
-port_output="$(cd "$PROJECT_ROOT" && docker compose port mariadb 3306 2>/dev/null || true)"
+if port_output="$(cd "$PROJECT_ROOT" && docker compose port mariadb 3306 2>/dev/null)"; then
+  :
+else
+  port_output=""
+fi
 if [[ -z "$port_output" ]]; then
   echo "Error: MariaDB is not published to the host." >&2
   echo "" >&2
