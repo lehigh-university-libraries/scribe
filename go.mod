@@ -10,6 +10,6 @@ require (
 	google.golang.org/protobuf v1.36.11
 )
 
-require filippo.io/edwards25519 v1.1.0 // indirect
+require filippo.io/edwards25519 v1.1.1 // indirect
 
 replace github.com/lehigh-university-libraries/scribe => .
