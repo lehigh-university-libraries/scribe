@@ -1,0 +1,2 @@
+ALTER TABLE item_images
+  ADD COLUMN IF NOT EXISTS hocr_url TEXT NULL AFTER label;

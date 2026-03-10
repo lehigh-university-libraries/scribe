@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/metrics"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/metrics"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
 )
 
 func (h *Handler) HandleSessions(w http.ResponseWriter, r *http.Request) {

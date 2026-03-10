@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package scribe.v1;
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
+
+// AnnotationService handles IIIF Presentation 3 annotation storage and
+// annotation enrichment operations on the main API server.
+
+message SearchAnnotationsRequest {
+  string canvas_uri = 1;
+}
+
+message SearchAnnotationsResponse {
+  // Full IIIF AnnotationPage JSON, serialised as string for round-trip fidelity.
+  string annotation_page_json = 1;
+}
+
+message GetAnnotationRequest {
+  // Bare ID suffix (the part after /v1/annotations/3/item/)
+  string id = 1;
+}
+
+message GetAnnotationResponse {
+  string annotation_json = 1;
+}
+
+message CreateAnnotationRequest {
+  string annotation_json = 1;
+}
+
+message CreateAnnotationResponse {
+  string annotation_json = 1;
+}
+
+message UpdateAnnotationRequest {
+  string annotation_json = 1;
+}
+
+message UpdateAnnotationResponse {
+  string annotation_json = 1;
+}
+
+message DeleteAnnotationRequest {
+  string uri = 1;
+}
+
+message DeleteAnnotationResponse {}
+
+// EnrichAnnotationRequest sends a IIIF annotation (one line or an entire
+// AnnotationPage) to Scribe's transcription service for improvement.
+// The caller provides the raw JSON and specifies the scope.
+message EnrichAnnotationRequest {
+  // "line" = single Annotation JSON; "page" = full AnnotationPage JSON
+  string scope           = 1;
+  string annotation_json = 2;
+  // Optional: override context used for transcription
+  uint64 context_id      = 3;
+}
+
+message EnrichAnnotationResponse {
+  string annotation_json = 1;
+}
+
+// Split a line annotation into proportionally-spaced word annotations.
+// If words is empty the line text is tokenised on whitespace.
+message SplitLineIntoWordsRequest {
+  string            annotation_json = 1;
+  repeated string   words           = 2;
+}
+
+message SplitLineIntoWordsResponse {
+  // Full AnnotationPage JSON containing the new word annotations.
+  string annotation_page_json = 1;
+}
+
+// Split a line annotation into two lines at a word boundary.
+message SplitLineIntoTwoLinesRequest {
+  string annotation_json = 1;
+  // 0 means split at midpoint.
+  int32  split_at_word   = 2;
+}
+
+message SplitLineIntoTwoLinesResponse {
+  repeated string annotation_jsons = 1;
+}
+
+// Join two or more line annotations into one (union bbox, concatenated text).
+message JoinAnnotationsRequest {
+  repeated string annotation_jsons = 1;
+}
+
+message JoinAnnotationsResponse {
+  string annotation_json = 1;
+}
+
+// Crosswalk: convert an AnnotationPage (or single annotation) to an export format.
+message CrosswalkRequest {
+  // Provide one of the two fields; annotation_page_json takes priority.
+  string annotation_page_json = 1;
+  string annotation_json      = 2;
+}
+
+message CrosswalkResponse {
+  string format  = 1; // MIME type of the exported content
+  string content = 2;
+}
+
+service AnnotationService {
+  rpc SearchAnnotations(SearchAnnotationsRequest) returns (SearchAnnotationsResponse);
+  rpc GetAnnotation(GetAnnotationRequest) returns (GetAnnotationResponse);
+  rpc CreateAnnotation(CreateAnnotationRequest) returns (CreateAnnotationResponse);
+  rpc UpdateAnnotation(UpdateAnnotationRequest) returns (UpdateAnnotationResponse);
+  rpc DeleteAnnotation(DeleteAnnotationRequest) returns (DeleteAnnotationResponse);
+  // Improve transcription for one line or a full canvas.
+  rpc EnrichAnnotation(EnrichAnnotationRequest) returns (EnrichAnnotationResponse);
+
+  // Structural split/join operations.
+  rpc SplitLineIntoWords(SplitLineIntoWordsRequest) returns (SplitLineIntoWordsResponse);
+  rpc SplitLineIntoTwoLines(SplitLineIntoTwoLinesRequest) returns (SplitLineIntoTwoLinesResponse);
+  rpc JoinLines(JoinAnnotationsRequest) returns (JoinAnnotationsResponse);
+  rpc JoinWordsIntoLine(JoinAnnotationsRequest) returns (JoinAnnotationsResponse);
+
+  // Export / crosswalk operations.
+  rpc CrosswalkToPlainText(CrosswalkRequest) returns (CrosswalkResponse);
+  rpc CrosswalkToHOCR(CrosswalkRequest) returns (CrosswalkResponse);
+  rpc CrosswalkToPageXML(CrosswalkRequest) returns (CrosswalkResponse);
+  rpc CrosswalkToALTOXML(CrosswalkRequest) returns (CrosswalkResponse);
+}

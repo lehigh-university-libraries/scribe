@@ -4,10 +4,11 @@ import (
 	"encoding/xml"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
 )
 
 type XMLElement struct {
@@ -15,6 +16,11 @@ type XMLElement struct {
 	Attrs    []xml.Attr   `xml:",any,attr"`
 	Content  string       `xml:",chardata"`
 	Children []XMLElement `xml:",any"`
+}
+
+type WordWithGlyphs struct {
+	Word   models.HOCRWord    `json:"word"`
+	Glyphs []models.HOCRGlyph `json:"glyphs"`
 }
 
 func ParseHOCRLines(hocrXML string) ([]models.HOCRLine, error) {
@@ -44,6 +50,19 @@ func ParseHOCRWords(hocrXML string) ([]models.HOCRWord, error) {
 
 	traverseElementsWithLineContext(doc, &words, "")
 
+	return words, nil
+}
+
+func ParseHOCRWordGlyphs(hocrXML string) ([]WordWithGlyphs, error) {
+	var doc XMLElement
+
+	decoder := xml.NewDecoder(strings.NewReader(hocrXML))
+	if err := decoder.Decode(&doc); err != nil {
+		return nil, fmt.Errorf("failed to parse XML: %w", err)
+	}
+
+	var words []WordWithGlyphs
+	traverseWordGlyphElements(doc, &words, "")
 	return words, nil
 }
 
@@ -83,6 +102,32 @@ func traverseElementsWithLineContext(element XMLElement, words *[]models.HOCRWor
 	// Recursively traverse children with current line context
 	for _, child := range element.Children {
 		traverseElementsWithLineContext(child, words, currentLineID)
+	}
+}
+
+func traverseWordGlyphElements(element XMLElement, words *[]WordWithGlyphs, currentLineID string) {
+	if isLineElement(element) {
+		for _, attr := range element.Attrs {
+			if attr.Name.Local == "id" {
+				currentLineID = attr.Value
+				break
+			}
+		}
+	}
+
+	if isWordElement(element) {
+		word, title, err := parseWordElementWithTitle(element)
+		if err == nil && word.ID != "" && isValidWordText(word.Text) {
+			word.LineID = currentLineID
+			*words = append(*words, WordWithGlyphs{
+				Word:   word,
+				Glyphs: glyphsFromWord(word, title),
+			})
+		}
+	}
+
+	for _, child := range element.Children {
+		traverseWordGlyphElements(child, words, currentLineID)
 	}
 }
 
@@ -184,6 +229,150 @@ func parseWordElement(element XMLElement) (models.HOCRWord, error) {
 	word.Text = strings.TrimSpace(element.Content)
 
 	return word, nil
+}
+
+func parseWordElementWithTitle(element XMLElement) (models.HOCRWord, string, error) {
+	word := models.HOCRWord{}
+	title := ""
+
+	for _, attr := range element.Attrs {
+		switch attr.Name.Local {
+		case "id":
+			word.ID = attr.Value
+		case "title":
+			title = attr.Value
+			if err := parseTitleAttribute(attr.Value, &word); err != nil {
+				return word, title, fmt.Errorf("failed to parse title attribute: %w", err)
+			}
+		}
+	}
+
+	word.Text = strings.TrimSpace(element.Content)
+	return word, title, nil
+}
+
+func glyphsFromWord(word models.HOCRWord, title string) []models.HOCRGlyph {
+	textRunes := []rune(strings.TrimSpace(word.Text))
+	if len(textRunes) == 0 {
+		return nil
+	}
+
+	x1 := word.BBox.X1
+	x2 := word.BBox.X2
+	if x2 <= x1 {
+		return nil
+	}
+
+	cuts := parseCuts(title)
+	boundaries := normalizeBoundaries(x1, x2, cuts)
+	if len(cuts) == 0 {
+		boundaries = evenlySplitBoundaries(x1, x2, len(textRunes))
+	}
+	if len(boundaries) < 2 {
+		return nil
+	}
+
+	segments := len(boundaries) - 1
+	if segments <= 0 {
+		return nil
+	}
+
+	glyphs := make([]models.HOCRGlyph, 0, segments)
+	for i := 0; i < segments; i++ {
+		startX := boundaries[i]
+		endX := boundaries[i+1]
+		if endX <= startX {
+			continue
+		}
+
+		startRune := (i * len(textRunes)) / segments
+		endRune := ((i + 1) * len(textRunes)) / segments
+		if endRune <= startRune {
+			endRune = startRune + 1
+			if endRune > len(textRunes) {
+				endRune = len(textRunes)
+			}
+		}
+		if startRune >= len(textRunes) {
+			break
+		}
+		glyphText := string(textRunes[startRune:endRune])
+
+		glyphs = append(glyphs, models.HOCRGlyph{
+			ID:     fmt.Sprintf("%s_g%d", word.ID, i+1),
+			Text:   glyphText,
+			BBox:   models.BBox{X1: startX, Y1: word.BBox.Y1, X2: endX, Y2: word.BBox.Y2},
+			WordID: word.ID,
+			LineID: word.LineID,
+			Index:  i,
+		})
+	}
+	return glyphs
+}
+
+func parseCuts(title string) []int {
+	re := regexp.MustCompile(`cuts\s+([0-9,\s]+)`)
+	matches := re.FindStringSubmatch(title)
+	if len(matches) != 2 {
+		return nil
+	}
+
+	raw := strings.FieldsFunc(matches[1], func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	})
+	out := make([]int, 0, len(raw))
+	for _, token := range raw {
+		if token == "" {
+			continue
+		}
+		n, err := strconv.Atoi(token)
+		if err != nil {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+func normalizeBoundaries(x1, x2 int, cuts []int) []int {
+	width := x2 - x1
+	if width <= 0 {
+		return nil
+	}
+	bounds := []int{x1, x2}
+	for _, c := range cuts {
+		v := c
+		if v < x1 || v > x2 {
+			v = x1 + c
+		}
+		if v <= x1 || v >= x2 {
+			continue
+		}
+		bounds = append(bounds, v)
+	}
+	sort.Ints(bounds)
+	dedup := bounds[:0]
+	last := -1
+	for _, b := range bounds {
+		if b == last {
+			continue
+		}
+		dedup = append(dedup, b)
+		last = b
+	}
+	return dedup
+}
+
+func evenlySplitBoundaries(x1, x2, segments int) []int {
+	if segments <= 0 || x2 <= x1 {
+		return nil
+	}
+	bounds := make([]int, 0, segments+1)
+	for i := 0; i <= segments; i++ {
+		x := x1 + ((x2-x1)*i)/segments
+		bounds = append(bounds, x)
+	}
+	return bounds
 }
 
 func parseTitleAttribute(title string, word *models.HOCRWord) error {

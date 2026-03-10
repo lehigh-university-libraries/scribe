@@ -688,8 +688,8 @@ async function handleUrlUpload() {
 function resetUploadArea() {
   const uploadArea = document.getElementById("upload-area");
   uploadArea.innerHTML = `
-        <h3>Start New hOCR Correction Session</h3>
-        <p>Upload images or provide an image URL - they'll be processed with hOCR-capable OCR</p>
+        <h3>Start New Scribe Session</h3>
+        <p>Upload images or provide an image URL to generate and edit canonical IIIF text annotations</p>
 
         <!-- File Upload -->
         <div class="upload-method">
@@ -1521,7 +1521,7 @@ async function saveSession() {
 
 async function finishSession() {
   await saveSession();
-  alert("Session completed! hOCR corrections have been saved.");
+  alert("Session completed. Scribe edits have been saved.");
   location.reload();
 }
 

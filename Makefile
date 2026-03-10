@@ -1,7 +1,7 @@
 .PHONY: help
-.PHONY: build fmt lint test
+.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs  sequelace
 
-IMAGE ?= ghcr.io/lehigh-university-libraries/hocredit:main
+IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 # renovate: datasource=docker depName=golangci/golangci-lint
 GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.10.1-alpine
 
@@ -11,14 +11,46 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build: ## Build the Docker image used for linting/runtime
+build: ## Build the Docker image used for runtime
 	@IMAGE="$(IMAGE)" ./ci/build.sh
 
-fmt: ## Format all go code the CLI
+up: ## Start services in detached mode
+	@test -f .env || cp sample.env .env
+	@docker compose up -d
+
+logs: ## Follow logs for the API
+	@docker compose logs api --tail 20 -f
+
+sequelace: ## Open the local MariaDB in Sequel Ace (macOS)
+	@./ci/sequelace.sh
+
+fmt: ## Format changed Go files
 	@./ci/fmt.sh
 
-lint: build ## Lint Go code
+lint: ## Lint shell + Go + optional proto
 	@IMAGE="$(IMAGE)" GOLANGCI_IMAGE="$(GOLANGCI_IMAGE)" ./ci/lint.sh
 
-test: build ## Run all tests
-	@IMAGE="$(IMAGE)" ./ci/test.sh
+proto: ## Generate protobuf/connect code
+	@./ci/proto.sh
+
+proto-lint: ## Lint protobuf files
+	@./ci/proto-lint.sh
+
+sqlc: ## Generate SQL access code
+	@./ci/sqlc.sh
+
+generate: proto sqlc ## Generate all code (proto + sqlc)
+	@echo "✅ All code generation complete!"
+
+install-tools: ## Install required development tools
+	@echo "Installing development tools..."
+	@go install github.com/bufbuild/buf/cmd/buf@v1.61.0
+	@go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+	@go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.19.1
+	@go install github.com/sudorandom/protoc-gen-connect-openapi@v0.21.3
+	@go install github.com/google/gnostic/cmd/protoc-gen-openapi@v0.7.0
+	@go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+
+test: ## Run Go tests (integration tests run automatically if 'make up' is active)
+	@./ci/test.sh
+

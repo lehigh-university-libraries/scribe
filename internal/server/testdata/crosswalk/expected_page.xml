@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15">
+<Page imageWidth="210" imageHeight="90">
+<TextRegion id="r1">
+<TextLine id="l1"><Coords points="10,20 210,20 210,50 10,50"/><TextEquiv><Unicode>Hello world</Unicode></TextEquiv><Word id="w1_1"><Coords points="10,20 110,20 110,50 10,50"/><TextEquiv><Unicode>Hello</Unicode></TextEquiv></Word><Word id="w1_2"><Coords points="110,20 210,20 210,50 110,50"/><TextEquiv><Unicode>world</Unicode></TextEquiv></Word></TextLine>
+<TextLine id="l2"><Coords points="10,60 210,60 210,90 10,90"/><TextEquiv><Unicode>Foo bar baz</Unicode></TextEquiv><Word id="w2_1"><Coords points="10,60 76,60 76,90 10,90"/><TextEquiv><Unicode>Foo</Unicode></TextEquiv></Word><Word id="w2_2"><Coords points="76,60 142,60 142,90 76,90"/><TextEquiv><Unicode>bar</Unicode></TextEquiv></Word><Word id="w2_3"><Coords points="142,60 210,60 210,90 142,90"/><TextEquiv><Unicode>baz</Unicode></TextEquiv></Word></TextLine>
+</TextRegion>
+</Page>
+</PcGts>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15">
+<Page imageWidth="305" imageHeight="35">
+<TextRegion id="r1">
+<TextLine id="l1"><Coords points="5,10 305,10 305,35 5,35"/><TextEquiv><Unicode>Quick brown fox</Unicode></TextEquiv><Word id="w1_1"><Coords points="5,10 105,10 105,35 5,35"/><TextEquiv><Unicode>Quick</Unicode></TextEquiv></Word><Word id="w1_2"><Coords points="105,10 205,10 205,35 105,35"/><TextEquiv><Unicode>brown</Unicode></TextEquiv></Word><Word id="w1_3"><Coords points="205,10 305,10 305,35 205,35"/><TextEquiv><Unicode>fox</Unicode></TextEquiv></Word></TextLine>
+</TextRegion>
+</Page>
+</PcGts>

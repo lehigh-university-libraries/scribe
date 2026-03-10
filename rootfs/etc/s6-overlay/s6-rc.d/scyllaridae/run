@@ -2,4 +2,4 @@
 
 with-contenv
 cd /app
-exec s6-setuidgid scyllaridae /app/hOCRedit
+exec s6-setuidgid scyllaridae /app/scribe

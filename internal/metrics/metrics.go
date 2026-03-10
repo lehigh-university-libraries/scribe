@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
 )
 
 func CalculateAccuracyMetrics(original, transcribed string) models.EvalResult {
@@ -36,6 +36,10 @@ func normalizeText(text string) string {
 	re := regexp.MustCompile(`\s+`)
 	text = re.ReplaceAllString(strings.TrimSpace(text), " ")
 	return strings.ToLower(text)
+}
+
+func LevenshteinDistance(a, b string) int {
+	return levenshteinDistance(normalizeText(a), normalizeText(b))
 }
 
 func levenshteinDistance(s1, s2 string) int {

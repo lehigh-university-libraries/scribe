@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/hocr"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/hocr"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
 )
 
 func (h *Handler) HandleHOCRUpdate(w http.ResponseWriter, r *http.Request) {
