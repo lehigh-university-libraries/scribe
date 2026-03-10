@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/worddetection"
+	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 	"github.com/lehigh-university-libraries/htr/pkg/ollama"
 	"github.com/lehigh-university-libraries/htr/pkg/openai"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
@@ -38,7 +38,7 @@ func NewService() *Service {
 // ProcessingContext carries the parameters from a store.Context into the
 // processing pipeline without importing the store package (avoids cycles).
 type ProcessingContext struct {
-	SegmentationModel     string // "tesseract" | "hocredit" | "kraken:<model>"
+	SegmentationModel     string // "tesseract" | "scribe" | "kraken:<model>"
 	TranscriptionProvider string
 	TranscriptionModel    string
 	Temperature           *float64
@@ -84,7 +84,7 @@ func (s *Service) ProcessImageWithContext(imagePath string, pctx ProcessingConte
 }
 
 // detectWithModel selects and runs the appropriate segmentation provider.
-// segModel values: "tesseract", "hocredit", "kraken:<model-id>", ""
+// segModel values: "tesseract", "scribe", "kraken:<model-id>", ""
 // An empty string triggers the existing auto-select logic (parallel run, best wins).
 func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel string) ([]worddetection.WordBox, string, error) {
 	seg := strings.ToLower(strings.TrimSpace(segModel))
@@ -95,7 +95,7 @@ func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel strin
 		words, err := p.DetectWords(ctx, imagePath)
 		return words, "tesseract", err
 
-	case seg == "hocredit":
+	case seg == "scribe":
 		p := worddetection.NewCustom()
 		words, err := p.DetectWords(ctx, imagePath)
 		return words, "custom", err
@@ -1713,7 +1713,7 @@ func (s *Service) wrapInHOCRDocument(content string, width, height int) string {
 <head>
 <title></title>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
-<meta name='ocr-system' content='hOCRedit-tesseract-llm' />
+<meta name='ocr-system' content='Scribe-tesseract-llm' />
 <meta name='ocr-capabilities' content='ocr_page ocr_carea ocr_par ocr_line ocrx_word' />
 </head>
 <body>

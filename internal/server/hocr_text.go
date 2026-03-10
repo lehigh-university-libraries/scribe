@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	legacyhandlers "github.com/lehigh-university-libraries/hOCRedit/internal/handlers"
+	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 )
 
 var (
@@ -16,7 +16,7 @@ var (
 )
 
 func hocrToPlainTextLenient(hocrXML string) string {
-	if out, err := legacyhandlers.HOCRToPlainText(hocrXML); err == nil {
+	if out, err := ocrhandlers.HOCRToPlainText(hocrXML); err == nil {
 		return out
 	}
 

@@ -3,7 +3,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/lehigh-university-libraries/hOCRedit/proto
+      value: github.com/lehigh-university-libraries/scribe/proto
 plugins:
   - local: protoc-gen-go
     out: .

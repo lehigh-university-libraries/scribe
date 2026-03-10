@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
 )
 
 func CalculateAccuracyMetrics(original, transcribed string) models.EvalResult {

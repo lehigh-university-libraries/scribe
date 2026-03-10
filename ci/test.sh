@@ -15,7 +15,7 @@ if [ -n "$MARIADB_ID" ]; then
   if [ -n "$NETWORK" ]; then
     echo "MariaDB detected — running integration tests on network: $NETWORK"
     NETWORK_ARGS="--network $NETWORK"
-    DSN_ARGS="-e TEST_DSN=hocredit:hocredit@tcp(mariadb:3306)/hocredit?parseTime=true"
+    DSN_ARGS="-e TEST_DSN=scribe:scribe@tcp(mariadb:3306)/scribe?parseTime=true"
   fi
 fi
 

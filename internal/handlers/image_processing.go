@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/utils"
+	"github.com/lehigh-university-libraries/scribe/internal/utils"
 )
 
 func (h *Handler) processImageFile(fileData []byte, filename string) (*ImageProcessResult, error) {

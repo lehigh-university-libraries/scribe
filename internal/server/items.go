@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/db"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/db"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 func (h *Handler) handleListItems(w http.ResponseWriter, r *http.Request) {

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/hocr"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/hocr"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
 )
 
 func abs(v int) int {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	db "github.com/lehigh-university-libraries/hOCRedit/internal/db"
+	db "github.com/lehigh-university-libraries/scribe/internal/db"
 )
 
 // Context is the store representation of a processing context.

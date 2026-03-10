@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package scribe.v1;
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
+
+// ImagePreprocessor is a single image pre-processing step.
+message ImagePreprocessor {
+  // type: resize | contrast | binarize | invert
+  string type  = 1;
+  // JSON-encoded parameters, e.g. {"px":2000} for resize
+  string params = 2;
+}
+
+// Context bundles all processing parameters for a pipeline run.
+message Context {
+  uint64                   id                     = 1;
+  // user_id=0 means system context
+  uint64                   user_id                = 2;
+  string                   name                   = 3;
+  string                   description            = 4;
+  bool                     is_default             = 5;
+  // Segmentation model: "tesseract" | "scribe" | "kraken:<model-id>"
+  string                   segmentation_model     = 6;
+  repeated ImagePreprocessor image_preprocessors  = 7;
+  string                   transcription_provider = 8;
+  string                   transcription_model    = 9;
+  // -1 means "use provider default"
+  double                   temperature            = 10;
+  string                   system_prompt          = 11;
+  repeated string          post_processing_steps  = 12;
+  string                   created_at             = 13;
+  string                   updated_at             = 14;
+}
+
+// RuleCondition is a single AND-clause predicate.
+message RuleCondition {
+  string field    = 1;
+  // eq | neq | contains | starts_with | ends_with
+  string operator = 2;
+  string value    = 3;
+}
+
+// ContextSelectionRule maps a set of AND conditions to a context.
+// The engine evaluates rules ordered by priority (descending); the first
+// fully-matching rule wins. If no rule matches, the default context is used.
+message ContextSelectionRule {
+  uint64             id         = 1;
+  uint64             context_id = 2;
+  int32              priority   = 3;
+  repeated RuleCondition conditions = 4;
+}
+
+// --- requests / responses ---
+
+message ListContextsRequest {
+  // If true, only return system contexts (user_id=0).
+  bool system_only = 1;
+}
+
+message ListContextsResponse {
+  repeated Context contexts = 1;
+}
+
+message GetContextRequest {
+  uint64 context_id = 1;
+}
+
+message GetContextResponse {
+  Context context = 1;
+}
+
+message CreateContextRequest {
+  Context context = 1;
+}
+
+message CreateContextResponse {
+  Context context = 1;
+}
+
+message UpdateContextRequest {
+  Context context = 1;
+}
+
+message UpdateContextResponse {
+  Context context = 1;
+}
+
+message DeleteContextRequest {
+  uint64 context_id = 1;
+}
+
+message DeleteContextResponse {}
+
+message ListSelectionRulesRequest {
+  // Filter by context; 0 = all rules
+  uint64 context_id = 1;
+}
+
+message ListSelectionRulesResponse {
+  repeated ContextSelectionRule rules = 1;
+}
+
+message CreateSelectionRuleRequest {
+  ContextSelectionRule rule = 1;
+}
+
+message CreateSelectionRuleResponse {
+  ContextSelectionRule rule = 1;
+}
+
+message DeleteSelectionRuleRequest {
+  uint64 rule_id = 1;
+}
+
+message DeleteSelectionRuleResponse {}
+
+// ResolveContextRequest asks the selection engine to pick the right context
+// for a given metadata bag (JSON object as string).
+message ResolveContextRequest {
+  string metadata_json = 1;
+}
+
+message ResolveContextResponse {
+  Context context    = 1;
+  bool    is_default = 2;
+}
+
+service ContextService {
+  rpc ListContexts(ListContextsRequest) returns (ListContextsResponse);
+  rpc GetContext(GetContextRequest) returns (GetContextResponse);
+  rpc CreateContext(CreateContextRequest) returns (CreateContextResponse);
+  rpc UpdateContext(UpdateContextRequest) returns (UpdateContextResponse);
+  rpc DeleteContext(DeleteContextRequest) returns (DeleteContextResponse);
+
+  rpc ListSelectionRules(ListSelectionRulesRequest) returns (ListSelectionRulesResponse);
+  rpc CreateSelectionRule(CreateSelectionRuleRequest) returns (CreateSelectionRuleResponse);
+  rpc DeleteSelectionRule(DeleteSelectionRuleRequest) returns (DeleteSelectionRuleResponse);
+
+  rpc ResolveContext(ResolveContextRequest) returns (ResolveContextResponse);
+}

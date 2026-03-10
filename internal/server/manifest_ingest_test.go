@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/database"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/database"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 // minimalHOCR is a valid hOCR document with two lines and three words.
@@ -265,7 +265,7 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	manifestURL := iiifServer.URL + "/manifest"
 	reqBody := fmt.Sprintf(`{"name":"Test Manifest","sourceType":"manifest","sourceUrl":%q}`, manifestURL)
 	createReq, _ := http.NewRequest(http.MethodPost,
-		appServer.URL+"/hocredit.v1.ItemService/CreateItem",
+		appServer.URL+"/scribe.v1.ItemService/CreateItem",
 		strings.NewReader(reqBody))
 	createReq.Header.Set("Content-Type", "application/json")
 	createReq.Header.Set("Connect-Protocol-Version", "1")
@@ -303,7 +303,7 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	// Clean up the created item after the test.
 	t.Cleanup(func() {
 		delReq, _ := http.NewRequest(http.MethodPost,
-			appServer.URL+"/hocredit.v1.ItemService/DeleteItem",
+			appServer.URL+"/scribe.v1.ItemService/DeleteItem",
 			strings.NewReader(fmt.Sprintf(`{"itemId":%q}`, createBody.Item.ID)))
 		delReq.Header.Set("Content-Type", "application/json")
 		delReq.Header.Set("Connect-Protocol-Version", "1")
@@ -312,7 +312,7 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 
 	// — step 3: call GetOCRRun (mirrors what the editor does before loading Mirador) —
 	getRunReq, _ := http.NewRequest(http.MethodPost,
-		appServer.URL+"/hocredit.v1.ImageProcessingService/GetOCRRun",
+		appServer.URL+"/scribe.v1.ImageProcessingService/GetOCRRun",
 		strings.NewReader(fmt.Sprintf(`{"itemImageId":%s}`, itemImageID)))
 	getRunReq.Header.Set("Content-Type", "application/json")
 	getRunReq.Header.Set("Connect-Protocol-Version", "1")
@@ -395,7 +395,7 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	}
 
 	// — step 5: call the annotation search endpoint with the external canvas URI
-	// used by Mirador/MAE and verify the returned annotations are bound to that
+	// used by the viewer and verify the returned annotations are bound to that
 	// requested canvas rather than the internal item-image canvas URI.
 	searchURL := fmt.Sprintf("%s/v1/annotations/3/search?canvasUri=%s", appServer.URL, url.QueryEscape(createBody.Item.Images[0].CanvasUri))
 	searchResp, err := http.Get(searchURL)

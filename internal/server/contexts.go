@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 func (h *Handler) handleListContexts(w http.ResponseWriter, r *http.Request) {

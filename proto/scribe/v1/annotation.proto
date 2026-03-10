@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package scribe.v1;
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
+
+// AnnotationService handles IIIF Presentation 3 annotation storage and
+// annotation enrichment operations on the main API server.
+
+message SearchAnnotationsRequest {
+  string canvas_uri = 1;
+}
+
+message SearchAnnotationsResponse {
+  // Full IIIF AnnotationPage JSON, serialised as string for round-trip fidelity.
+  string annotation_page_json = 1;
+}
+
+message GetAnnotationRequest {
+  // Bare ID suffix (the part after /v1/annotations/3/item/)
+  string id = 1;
+}
+
+message GetAnnotationResponse {
+  string annotation_json = 1;
+}
+
+message CreateAnnotationRequest {
+  string annotation_json = 1;
+}
+
+message CreateAnnotationResponse {
+  string annotation_json = 1;
+}
+
+message UpdateAnnotationRequest {
+  string annotation_json = 1;
+}
+
+message UpdateAnnotationResponse {
+  string annotation_json = 1;
+}
+
+message DeleteAnnotationRequest {
+  string uri = 1;
+}
+
+message DeleteAnnotationResponse {}
+
+// EnrichAnnotationRequest sends a IIIF annotation (one line or an entire
+// AnnotationPage) to Scribe's transcription service for improvement.
+// The caller provides the raw JSON and specifies the scope.
+message EnrichAnnotationRequest {
+  // "line" = single Annotation JSON; "page" = full AnnotationPage JSON
+  string scope           = 1;
+  string annotation_json = 2;
+  // Optional: override context used for transcription
+  uint64 context_id      = 3;
+}
+
+message EnrichAnnotationResponse {
+  string annotation_json = 1;
+}
+
+service AnnotationService {
+  rpc SearchAnnotations(SearchAnnotationsRequest) returns (SearchAnnotationsResponse);
+  rpc GetAnnotation(GetAnnotationRequest) returns (GetAnnotationResponse);
+  rpc CreateAnnotation(CreateAnnotationRequest) returns (CreateAnnotationResponse);
+  rpc UpdateAnnotation(UpdateAnnotationRequest) returns (UpdateAnnotationResponse);
+  rpc DeleteAnnotation(DeleteAnnotationRequest) returns (DeleteAnnotationResponse);
+  // Improve transcription for one line or a full canvas.
+  rpc EnrichAnnotation(EnrichAnnotationRequest) returns (EnrichAnnotationResponse);
+}

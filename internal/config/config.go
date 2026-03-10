@@ -15,7 +15,7 @@ func FromEnv() Config {
 
 	dsn := os.Getenv("DATABASE_DSN")
 	if dsn == "" {
-		dsn = "hocredit:hocredit@tcp(127.0.0.1:3306)/hocredit?parseTime=true"
+		dsn = "scribe:scribe@tcp(127.0.0.1:3306)/scribe?parseTime=true"
 	}
 
 	return Config{

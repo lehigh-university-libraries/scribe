@@ -46,8 +46,8 @@ if [[ "$host_port" != "3306" ]]; then
 fi
 
 db_host="127.0.0.1"
-db_name="${MARIADB_DATABASE:-hocredit}"
-db_user="${MARIADB_USER:-hocredit}"
-db_password="${MARIADB_PASSWORD:-hocredit}"
+db_name="${MARIADB_DATABASE:-scribe}"
+db_user="${MARIADB_USER:-scribe}"
+db_password="${MARIADB_PASSWORD:-scribe}"
 
 open "mysql://${db_user}:${db_password}@${db_host}:${host_port}/${db_name}" -a "$SEQUEL_ACE_PATH"

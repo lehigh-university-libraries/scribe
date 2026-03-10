@@ -18,11 +18,11 @@ import (
 	"sync"
 	"time"
 
-	legacyhandlers "github.com/lehigh-university-libraries/hOCRedit/internal/handlers"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/hocr"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
-	"github.com/lehigh-university-libraries/hOCRedit/proto/hocredit/v1/hocreditv1connect"
+	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
+	"github.com/lehigh-university-libraries/scribe/internal/hocr"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
+	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
 )
 
 type Handler struct {
@@ -32,7 +32,7 @@ type Handler struct {
 	annotations *store.AnnotationStore
 	mux         http.Handler
 	webDir      string
-	legacy      *legacyhandlers.Handler
+	ocr         *ocrhandlers.Handler
 	// baseURL is derived from the first request; used for IIIF IDs.
 	// The annotation handler needs it to build annotation item URLs.
 	annotationBaseURL string
@@ -112,32 +112,32 @@ func NewHandler(
 		contexts:    contexts,
 		annotations: annotations,
 		webDir:      webDir,
-		legacy:      legacyhandlers.New(),
+		ocr:         ocrhandlers.New(),
 	}
 	mux := http.NewServeMux()
 
 	// Connect RPC services
-	imageAPIPath, imageAPIHandler := hocreditv1connect.NewImageProcessingServiceHandler(handler)
+	imageAPIPath, imageAPIHandler := scribev1connect.NewImageProcessingServiceHandler(handler)
 	mux.Handle(imageAPIPath, imageAPIHandler)
-	itemAPIPath, itemAPIHandler := hocreditv1connect.NewItemServiceHandler(handler)
+	itemAPIPath, itemAPIHandler := scribev1connect.NewItemServiceHandler(handler)
 	mux.Handle(itemAPIPath, itemAPIHandler)
-	contextAPIPath, contextAPIHandler := hocreditv1connect.NewContextServiceHandler(handler)
+	contextAPIPath, contextAPIHandler := scribev1connect.NewContextServiceHandler(handler)
 	mux.Handle(contextAPIPath, contextAPIHandler)
-	annotationAPIPath, annotationAPIHandler := hocreditv1connect.NewAnnotationServiceHandler(handler)
+	annotationAPIPath, annotationAPIHandler := scribev1connect.NewAnnotationServiceHandler(handler)
 	mux.Handle(annotationAPIPath, annotationAPIHandler)
 
 	// Generic IIIF annotation action routes (Text Granularity Extension aware).
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/SplitAnnotationIntoWords", handler.handleSplitAnnotationIntoWords)
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/SplitAnnotationIntoTwoLines", handler.handleSplitAnnotationIntoTwoLines)
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/MergeAnnotationsIntoLine", handler.handleMergeAnnotationsIntoLine)
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/MergeWordsIntoLineAnnotation", handler.handleMergeWordsIntoLineAnnotation)
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/TranscribeAnnotation", handler.handleTranscribeAnnotation)
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/TranscribeAnnotationPage", handler.handleTranscribeAnnotationPage)
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/CrosswalkToPlainText", handler.handleCrosswalkToPlainText)
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/CrosswalkToHOCR", handler.handleCrosswalkToHOCR)
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/CrosswalkToPageXML", handler.handleCrosswalkToPageXML)
-	mux.HandleFunc("POST /hocredit.v1.AnnotationService/CrosswalkToALTOXML", handler.handleCrosswalkToALTOXML)
-	mux.HandleFunc("POST /hocredit.v1.ImageProcessingService/ReprocessItemImageWithContext", handler.handleReprocessItemImageWithContext)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/SplitAnnotationIntoWords", handler.handleSplitAnnotationIntoWords)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/SplitAnnotationIntoTwoLines", handler.handleSplitAnnotationIntoTwoLines)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/MergeAnnotationsIntoLine", handler.handleMergeAnnotationsIntoLine)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/MergeWordsIntoLineAnnotation", handler.handleMergeWordsIntoLineAnnotation)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/TranscribeAnnotation", handler.handleTranscribeAnnotation)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/TranscribeAnnotationPage", handler.handleTranscribeAnnotationPage)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/CrosswalkToPlainText", handler.handleCrosswalkToPlainText)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/CrosswalkToHOCR", handler.handleCrosswalkToHOCR)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/CrosswalkToPageXML", handler.handleCrosswalkToPageXML)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/CrosswalkToALTOXML", handler.handleCrosswalkToALTOXML)
+	mux.HandleFunc("POST /scribe.v1.ImageProcessingService/ReprocessItemImageWithContext", handler.handleReprocessItemImageWithContext)
 
 	// Health
 	mux.HandleFunc("GET /healthz", handler.handleHealth)
@@ -147,7 +147,7 @@ func NewHandler(
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/annotations", handler.handleGetIIIFAnnotations)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/hocr", handler.handleGetHOCR)
 
-	// Annotation REST routes (replaces the former port-8090 server)
+	// Annotation HTTP routes
 	mux.HandleFunc("GET /v1/annotations/3/search", handler.handleAnnotationSearch)
 	mux.HandleFunc("POST /v1/annotations/3/create", handler.handleAnnotationCreate)
 	mux.HandleFunc("POST /v1/annotations/3/update", handler.handleAnnotationUpdate)
@@ -472,11 +472,11 @@ func transcriptionAnnotation(id, granularity, text, canvasID string, box models.
 		"id":              id,
 		"type":            "Annotation",
 		"textGranularity": granularity,
-		"motivation":      "supplementing",
+		"motivation":      "commenting",
 		"body": []any{
 			map[string]any{
 				"type":    "TextualBody",
-				"purpose": "supplementing",
+				"purpose": "describing",
 				"format":  "text/plain",
 				"value":   text,
 			},
@@ -585,7 +585,7 @@ func fetchIIIFImageToTemp(iiifID string) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("fetch iiif image: status %d", resp.StatusCode)
 	}
 
-	f, err := os.CreateTemp("", "hocredit-image-*.jpg")
+	f, err := os.CreateTemp("", "scribe-image-*.jpg")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("create temp image file: %w", err)
 	}
@@ -617,7 +617,7 @@ func fetchIIIFRegionToTemp(iiifID string, x1, y1, x2, y2 int) (string, func(), e
 		return "", func() {}, fmt.Errorf("fetch iiif crop: status %d", resp.StatusCode)
 	}
 
-	f, err := os.CreateTemp("", "hocredit-region-*.jpg")
+	f, err := os.CreateTemp("", "scribe-region-*.jpg")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("create temp crop file: %w", err)
 	}
@@ -711,7 +711,7 @@ func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model s
 					results <- lineResult{idx: job.idx, line: outLine}
 					continue
 				}
-				text, err := h.legacy.TranscribeImageFile(regionPath, provider, model)
+				text, err := h.ocr.TranscribeImageFile(regionPath, provider, model)
 				cleanup()
 				if err != nil {
 					slog.Warn("Async line transcription failed", "session_id", sessionID, "line_id", outLine.ID, "error", err)
@@ -769,7 +769,7 @@ func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model s
 		converter := hocr.NewConverter()
 		hocrXML := converter.ConvertHOCRLinesToXML(rebuilt, pageW, pageH)
 
-		plainText, err := legacyhandlers.HOCRToPlainText(hocrXML)
+		plainText, err := ocrhandlers.HOCRToPlainText(hocrXML)
 		if err != nil {
 			plainText = hocrToPlainTextLenient(hocrXML)
 		}
@@ -941,8 +941,8 @@ type boxEditMetrics struct {
 }
 
 func calculateBoxEditMetrics(originalHOCR, correctedHOCR string) boxEditMetrics {
-	origLines, _ := legacyhandlers.HOCRToLines(originalHOCR)
-	newLines, _ := legacyhandlers.HOCRToLines(correctedHOCR)
+	origLines, _ := ocrhandlers.HOCRToLines(originalHOCR)
+	newLines, _ := ocrhandlers.HOCRToLines(correctedHOCR)
 	origPageW, origPageH := extractPageDimensions(originalHOCR)
 	newPageW, newPageH := extractPageDimensions(correctedHOCR)
 	pageW := maxInt(origPageW, newPageW)

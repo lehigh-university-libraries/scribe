@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package scribe.v1;
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
+
+enum OutputFormat {
+  OUTPUT_FORMAT_UNSPECIFIED = 0;
+  OUTPUT_FORMAT_HOCR        = 1;
+  OUTPUT_FORMAT_TEXT        = 2;
+  OUTPUT_FORMAT_PAGE_XML    = 3;
+}
+
+// ProcessImageURLRequest is kept for direct URL → hOCR flows that don't
+// need to create a full item first (e.g. Islandora integration).
+message ProcessImageURLRequest {
+  string       image_url     = 1;
+  OutputFormat output_format = 2;
+  // If set, uses this context; otherwise selection engine runs against metadata.
+  uint64       context_id    = 3;
+  // Optional metadata JSON passed to the selection engine.
+  string       metadata      = 4;
+}
+
+message ProcessImageUploadRequest {
+  bytes        image_data    = 1;
+  string       filename      = 2;
+  OutputFormat output_format = 3;
+  uint64       context_id    = 4;
+}
+
+message ProcessHOCRRequest {
+  string       hocr          = 1;
+  string       image_url     = 2;
+  OutputFormat output_format = 3;
+  bytes        image_data    = 4;
+  string       filename      = 5;
+}
+
+// ProcessImageResponse returns item/image IDs along with run-scoped OCR data.
+message ProcessImageResponse {
+  string item_id       = 1;
+  uint64 item_image_id = 2;
+  string image_url     = 3;
+  string hocr          = 4;
+  string plain_text    = 5;
+  // Session-scoped identifier for OCR run lookups and async processing.
+  string session_id    = 6;
+}
+
+message GetOCRRunRequest {
+  // Accept either session_id or item_image_id.
+  string session_id    = 1;
+  uint64 item_image_id = 2;
+}
+
+message OCRRun {
+  string session_id            = 1;
+  uint64 item_image_id         = 2;
+  string image_url             = 3;
+  string model                 = 4;
+  string original_hocr         = 5;
+  string original_text         = 6;
+  string corrected_hocr        = 7;
+  string corrected_text        = 8;
+  int32  edit_count            = 9;
+  int32  levenshtein_distance  = 10;
+}
+
+message SaveOCREditsRequest {
+  string session_id    = 1;
+  uint64 item_image_id = 2;
+  string corrected_hocr = 3;
+  int32  edit_count    = 4;
+}
+
+message SaveOCREditsResponse {
+  string session_id            = 1;
+  uint64 item_image_id         = 2;
+  int32  edit_count            = 3;
+  int32  levenshtein_distance  = 4;
+  string corrected_plain_text  = 5;
+  string original_plain_text   = 6;
+}
+
+service ImageProcessingService {
+  rpc ProcessImageURL(ProcessImageURLRequest) returns (ProcessImageResponse);
+  rpc ProcessImageUpload(ProcessImageUploadRequest) returns (ProcessImageResponse);
+  rpc ProcessHOCR(ProcessHOCRRequest) returns (ProcessImageResponse);
+  rpc GetOCRRun(GetOCRRunRequest) returns (OCRRun);
+  rpc SaveOCREdits(SaveOCREditsRequest) returns (SaveOCREditsResponse);
+}

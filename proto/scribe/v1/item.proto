@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package scribe.v1;
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
+
+// ItemImage represents a single image (canvas) within an item.
+message ItemImage {
+  uint64 id         = 1;
+  string item_id    = 2;
+  uint32 sequence   = 3;
+  string image_url  = 4;
+  string canvas_uri = 5;
+  string label      = 6;
+}
+
+// Item is the primary container for one or more images to be processed.
+message Item {
+  string             id          = 1;
+  uint64             user_id     = 2;
+  string             name        = 3;
+  // url | upload | manifest
+  string             source_type = 4;
+  string             source_url  = 5;
+  // Arbitrary metadata bag (JSON object serialised as string)
+  string             metadata    = 6;
+  repeated ItemImage images      = 7;
+  string             created_at  = 8;
+  string             updated_at  = 9;
+}
+
+// --- requests / responses ---
+
+message ListItemsRequest {}
+
+message ListItemsResponse {
+  repeated Item items = 1;
+}
+
+message GetItemRequest {
+  string item_id = 1;
+}
+
+message GetItemResponse {
+  Item item = 1;
+}
+
+// CreateItemRequest covers URL ingest and manifest ingest.
+// For single/multi file upload use UploadItemImageRequest.
+message CreateItemRequest {
+  string name        = 1;
+  // source_type: "url" | "manifest"
+  string source_type = 2;
+  string source_url  = 3;
+  // Optional context to use for processing; if empty, selection engine runs.
+  uint64 context_id  = 4;
+  // Optional metadata JSON to seed the item (for integrations like Islandora).
+  string metadata    = 5;
+}
+
+message CreateItemResponse {
+  Item item = 1;
+}
+
+// UploadItemImageRequest handles single or batch file upload.
+// Returns the item after all images are added.
+message UploadItemImageRequest {
+  string item_id    = 1; // if empty, a new item is created
+  string name       = 2; // item name (used when creating)
+  bytes  image_data = 3;
+  string filename   = 4;
+  uint32 sequence   = 5;
+  uint64 context_id = 6;
+}
+
+message UploadItemImageResponse {
+  Item      item  = 1;
+  ItemImage image = 2;
+}
+
+message DeleteItemRequest {
+  string item_id = 1;
+}
+
+message DeleteItemResponse {}
+
+service ItemService {
+  rpc ListItems(ListItemsRequest) returns (ListItemsResponse);
+  rpc GetItem(GetItemRequest) returns (GetItemResponse);
+  rpc CreateItem(CreateItemRequest) returns (CreateItemResponse);
+  rpc UploadItemImage(UploadItemImageRequest) returns (UploadItemImageResponse);
+  rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse);
+}

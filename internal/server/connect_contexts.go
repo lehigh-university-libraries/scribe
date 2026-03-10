@@ -6,20 +6,20 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
-	hocreditv1 "github.com/lehigh-university-libraries/hOCRedit/proto/hocredit/v1"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
+	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // --- ContextService Connect handlers ---
 
-func (h *Handler) ListContexts(ctx context.Context, req *connect.Request[hocreditv1.ListContextsRequest]) (*connect.Response[hocreditv1.ListContextsResponse], error) {
+func (h *Handler) ListContexts(ctx context.Context, req *connect.Request[scribev1.ListContextsRequest]) (*connect.Response[scribev1.ListContextsResponse], error) {
 	contexts, err := h.contexts.List(ctx, req.Msg.GetSystemOnly())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	resp := &hocreditv1.ListContextsResponse{
-		Contexts: make([]*hocreditv1.Context, 0, len(contexts)),
+	resp := &scribev1.ListContextsResponse{
+		Contexts: make([]*scribev1.Context, 0, len(contexts)),
 	}
 	for _, c := range contexts {
 		resp.Contexts = append(resp.Contexts, storeContextToProto(c))
@@ -27,44 +27,44 @@ func (h *Handler) ListContexts(ctx context.Context, req *connect.Request[hocredi
 	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) GetContext(ctx context.Context, req *connect.Request[hocreditv1.GetContextRequest]) (*connect.Response[hocreditv1.GetContextResponse], error) {
+func (h *Handler) GetContext(ctx context.Context, req *connect.Request[scribev1.GetContextRequest]) (*connect.Response[scribev1.GetContextResponse], error) {
 	c, err := h.contexts.Get(ctx, req.Msg.GetContextId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
 	}
-	return connect.NewResponse(&hocreditv1.GetContextResponse{Context: storeContextToProto(c)}), nil
+	return connect.NewResponse(&scribev1.GetContextResponse{Context: storeContextToProto(c)}), nil
 }
 
-func (h *Handler) CreateContext(ctx context.Context, req *connect.Request[hocreditv1.CreateContextRequest]) (*connect.Response[hocreditv1.CreateContextResponse], error) {
+func (h *Handler) CreateContext(ctx context.Context, req *connect.Request[scribev1.CreateContextRequest]) (*connect.Response[scribev1.CreateContextResponse], error) {
 	c, err := h.contexts.Create(ctx, protoContextToStore(req.Msg.GetContext()))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.CreateContextResponse{Context: storeContextToProto(c)}), nil
+	return connect.NewResponse(&scribev1.CreateContextResponse{Context: storeContextToProto(c)}), nil
 }
 
-func (h *Handler) UpdateContext(ctx context.Context, req *connect.Request[hocreditv1.UpdateContextRequest]) (*connect.Response[hocreditv1.UpdateContextResponse], error) {
+func (h *Handler) UpdateContext(ctx context.Context, req *connect.Request[scribev1.UpdateContextRequest]) (*connect.Response[scribev1.UpdateContextResponse], error) {
 	c, err := h.contexts.Update(ctx, protoContextToStore(req.Msg.GetContext()))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.UpdateContextResponse{Context: storeContextToProto(c)}), nil
+	return connect.NewResponse(&scribev1.UpdateContextResponse{Context: storeContextToProto(c)}), nil
 }
 
-func (h *Handler) DeleteContext(ctx context.Context, req *connect.Request[hocreditv1.DeleteContextRequest]) (*connect.Response[hocreditv1.DeleteContextResponse], error) {
+func (h *Handler) DeleteContext(ctx context.Context, req *connect.Request[scribev1.DeleteContextRequest]) (*connect.Response[scribev1.DeleteContextResponse], error) {
 	if err := h.contexts.Delete(ctx, req.Msg.GetContextId()); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.DeleteContextResponse{}), nil
+	return connect.NewResponse(&scribev1.DeleteContextResponse{}), nil
 }
 
-func (h *Handler) ListSelectionRules(ctx context.Context, req *connect.Request[hocreditv1.ListSelectionRulesRequest]) (*connect.Response[hocreditv1.ListSelectionRulesResponse], error) {
+func (h *Handler) ListSelectionRules(ctx context.Context, req *connect.Request[scribev1.ListSelectionRulesRequest]) (*connect.Response[scribev1.ListSelectionRulesResponse], error) {
 	rules, err := h.contexts.ListRules(ctx, req.Msg.GetContextId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	resp := &hocreditv1.ListSelectionRulesResponse{
-		Rules: make([]*hocreditv1.ContextSelectionRule, 0, len(rules)),
+	resp := &scribev1.ListSelectionRulesResponse{
+		Rules: make([]*scribev1.ContextSelectionRule, 0, len(rules)),
 	}
 	for _, r := range rules {
 		resp.Rules = append(resp.Rules, storeRuleToProto(r))
@@ -72,22 +72,22 @@ func (h *Handler) ListSelectionRules(ctx context.Context, req *connect.Request[h
 	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) CreateSelectionRule(ctx context.Context, req *connect.Request[hocreditv1.CreateSelectionRuleRequest]) (*connect.Response[hocreditv1.CreateSelectionRuleResponse], error) {
+func (h *Handler) CreateSelectionRule(ctx context.Context, req *connect.Request[scribev1.CreateSelectionRuleRequest]) (*connect.Response[scribev1.CreateSelectionRuleResponse], error) {
 	r, err := h.contexts.CreateRule(ctx, protoRuleToStore(req.Msg.GetRule()))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.CreateSelectionRuleResponse{Rule: storeRuleToProto(r)}), nil
+	return connect.NewResponse(&scribev1.CreateSelectionRuleResponse{Rule: storeRuleToProto(r)}), nil
 }
 
-func (h *Handler) DeleteSelectionRule(ctx context.Context, req *connect.Request[hocreditv1.DeleteSelectionRuleRequest]) (*connect.Response[hocreditv1.DeleteSelectionRuleResponse], error) {
+func (h *Handler) DeleteSelectionRule(ctx context.Context, req *connect.Request[scribev1.DeleteSelectionRuleRequest]) (*connect.Response[scribev1.DeleteSelectionRuleResponse], error) {
 	if err := h.contexts.DeleteRule(ctx, req.Msg.GetRuleId()); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.DeleteSelectionRuleResponse{}), nil
+	return connect.NewResponse(&scribev1.DeleteSelectionRuleResponse{}), nil
 }
 
-func (h *Handler) ResolveContext(ctx context.Context, req *connect.Request[hocreditv1.ResolveContextRequest]) (*connect.Response[hocreditv1.ResolveContextResponse], error) {
+func (h *Handler) ResolveContext(ctx context.Context, req *connect.Request[scribev1.ResolveContextRequest]) (*connect.Response[scribev1.ResolveContextResponse], error) {
 	var metadata map[string]any
 	if raw := req.Msg.GetMetadataJson(); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
@@ -98,7 +98,7 @@ func (h *Handler) ResolveContext(ctx context.Context, req *connect.Request[hocre
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.ResolveContextResponse{
+	return connect.NewResponse(&scribev1.ResolveContextResponse{
 		Context:   storeContextToProto(c),
 		IsDefault: isDefault,
 	}), nil
@@ -106,8 +106,8 @@ func (h *Handler) ResolveContext(ctx context.Context, req *connect.Request[hocre
 
 // --- proto ↔ store conversion ---
 
-func storeContextToProto(c store.Context) *hocreditv1.Context {
-	proto := &hocreditv1.Context{
+func storeContextToProto(c store.Context) *scribev1.Context {
+	proto := &scribev1.Context{
 		Id:                    c.ID,
 		Name:                  c.Name,
 		Description:           c.Description,
@@ -129,7 +129,7 @@ func storeContextToProto(c store.Context) *hocreditv1.Context {
 		proto.Temperature = -1
 	}
 	for _, pp := range c.ImagePreprocessors {
-		proto.ImagePreprocessors = append(proto.ImagePreprocessors, &hocreditv1.ImagePreprocessor{
+		proto.ImagePreprocessors = append(proto.ImagePreprocessors, &scribev1.ImagePreprocessor{
 			Type:   pp.Type,
 			Params: marshalJSONOrEmpty(pp.Params),
 		})
@@ -137,7 +137,7 @@ func storeContextToProto(c store.Context) *hocreditv1.Context {
 	return proto
 }
 
-func protoContextToStore(p *hocreditv1.Context) store.Context {
+func protoContextToStore(p *scribev1.Context) store.Context {
 	if p == nil {
 		return store.Context{}
 	}
@@ -173,14 +173,14 @@ func protoContextToStore(p *hocreditv1.Context) store.Context {
 	return c
 }
 
-func storeRuleToProto(r store.ContextSelectionRule) *hocreditv1.ContextSelectionRule {
-	proto := &hocreditv1.ContextSelectionRule{
+func storeRuleToProto(r store.ContextSelectionRule) *scribev1.ContextSelectionRule {
+	proto := &scribev1.ContextSelectionRule{
 		Id:        r.ID,
 		ContextId: r.ContextID,
 		Priority:  r.Priority,
 	}
 	for _, cond := range r.Conditions {
-		proto.Conditions = append(proto.Conditions, &hocreditv1.RuleCondition{
+		proto.Conditions = append(proto.Conditions, &scribev1.RuleCondition{
 			Field:    cond.Field,
 			Operator: cond.Operator,
 			Value:    cond.Value,
@@ -189,7 +189,7 @@ func storeRuleToProto(r store.ContextSelectionRule) *hocreditv1.ContextSelection
 	return proto
 }
 
-func protoRuleToStore(p *hocreditv1.ContextSelectionRule) store.ContextSelectionRule {
+func protoRuleToStore(p *scribev1.ContextSelectionRule) store.ContextSelectionRule {
 	if p == nil {
 		return store.ContextSelectionRule{}
 	}

@@ -1,13 +1,13 @@
 import { createPromiseClient } from "@connectrpc/connect";
 import { protoInt64 } from "@bufbuild/protobuf";
-import { ImageProcessingService } from "../proto/hocredit/v1/process_connect";
+import { ImageProcessingService } from "../proto/scribe/v1/process_connect";
 import {
   GetOCRRunRequest,
   ProcessImageUploadRequest,
   ProcessImageURLRequest,
   type OCRRun,
   type ProcessImageResponse,
-} from "../proto/hocredit/v1/process_pb";
+} from "../proto/scribe/v1/process_pb";
 import { getTransport } from "./transport";
 import { readFileBytes } from "../lib/util";
 

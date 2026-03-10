@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/db"
-	legacyhandlers "github.com/lehigh-university-libraries/hOCRedit/internal/handlers"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/metrics"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
-	hocreditv1 "github.com/lehigh-university-libraries/hOCRedit/proto/hocredit/v1"
+	"github.com/lehigh-university-libraries/scribe/internal/db"
+	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
+	"github.com/lehigh-university-libraries/scribe/internal/metrics"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
+	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
 
 func progressIDFromHeader(h map[string][]string) string {
@@ -76,7 +76,7 @@ func (h *Handler) resolveTranscriptionConfig(
 	return provider, model, nil
 }
 
-func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[hocreditv1.ProcessImageURLRequest]) (*connect.Response[hocreditv1.ProcessImageResponse], error) {
+func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scribev1.ProcessImageURLRequest]) (*connect.Response[scribev1.ProcessImageResponse], error) {
 	progressID := progressIDFromHeader(req.Header())
 	providerHeader := providerFromHeader(req.Header())
 	imageURL := strings.TrimSpace(req.Msg.GetImageUrl())
@@ -93,7 +93,7 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[hocr
 		defer startProgressHeartbeat(progressID)()
 	}
 
-	result, err := h.legacy.ProcessImageURLWithProviderAndModel(imageURL, provider, model)
+	result, err := h.ocr.ProcessImageURLWithProviderAndModel(imageURL, provider, model)
 	if err != nil {
 		if progressID != "" {
 			finishProgress(progressID, "failed", "OCR processing failed", err.Error())
@@ -133,7 +133,7 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[hocr
 	}
 	h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
 
-	return connect.NewResponse(&hocreditv1.ProcessImageResponse{
+	return connect.NewResponse(&scribev1.ProcessImageResponse{
 		ItemId:      item.ID,
 		ItemImageId: itemImage.ID,
 		SessionId:   sessionID,
@@ -143,7 +143,7 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[hocr
 	}), nil
 }
 
-func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[hocreditv1.ProcessImageUploadRequest]) (*connect.Response[hocreditv1.ProcessImageResponse], error) {
+func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[scribev1.ProcessImageUploadRequest]) (*connect.Response[scribev1.ProcessImageResponse], error) {
 	progressID := progressIDFromHeader(req.Header())
 	providerHeader := providerFromHeader(req.Header())
 	filename := strings.TrimSpace(req.Msg.GetFilename())
@@ -163,7 +163,7 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[h
 		defer startProgressHeartbeat(progressID)()
 	}
 
-	result, err := h.legacy.ProcessImageUploadWithProviderAndModel(filename, req.Msg.GetImageData(), provider, model)
+	result, err := h.ocr.ProcessImageUploadWithProviderAndModel(filename, req.Msg.GetImageData(), provider, model)
 	if err != nil {
 		if progressID != "" {
 			finishProgress(progressID, "failed", "OCR processing failed", err.Error())
@@ -203,7 +203,7 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[h
 	}
 	h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
 
-	return connect.NewResponse(&hocreditv1.ProcessImageResponse{
+	return connect.NewResponse(&scribev1.ProcessImageResponse{
 		ItemId:      item.ID,
 		ItemImageId: itemImage.ID,
 		SessionId:   sessionID,
@@ -213,7 +213,7 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[h
 	}), nil
 }
 
-func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[hocreditv1.ProcessHOCRRequest]) (*connect.Response[hocreditv1.ProcessImageResponse], error) {
+func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1.ProcessHOCRRequest]) (*connect.Response[scribev1.ProcessImageResponse], error) {
 	progressID := progressIDFromHeader(req.Header())
 	if progressID != "" {
 		startProgress(progressID, "processing", "Processing supplied hOCR")
@@ -231,7 +231,7 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[hocredit
 		if filename == "" {
 			filename = "upload.jpg"
 		}
-		storedURL, err := h.legacy.StoreUploadedImage(filename, req.Msg.GetImageData())
+		storedURL, err := h.ocr.StoreUploadedImage(filename, req.Msg.GetImageData())
 		if err != nil {
 			if progressID != "" {
 				finishProgress(progressID, "failed", "Failed to store uploaded image", err.Error())
@@ -241,7 +241,7 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[hocredit
 		imageURL = storedURL
 	}
 
-	plainText, err := legacyhandlers.HOCRToPlainText(hocrXML)
+	plainText, err := ocrhandlers.HOCRToPlainText(hocrXML)
 	if err != nil {
 		if progressID != "" {
 			finishProgress(progressID, "failed", "invalid hocr", err.Error())
@@ -275,7 +275,7 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[hocredit
 		finishProgress(progressID, "done", "Completed", "")
 	}
 
-	return connect.NewResponse(&hocreditv1.ProcessImageResponse{
+	return connect.NewResponse(&scribev1.ProcessImageResponse{
 		ItemId:      item.ID,
 		ItemImageId: itemImage.ID,
 		SessionId:   sessionID,
@@ -285,7 +285,7 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[hocredit
 	}), nil
 }
 
-func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[hocreditv1.GetOCRRunRequest]) (*connect.Response[hocreditv1.OCRRun], error) {
+func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[scribev1.GetOCRRunRequest]) (*connect.Response[scribev1.OCRRun], error) {
 	var (
 		run store.OCRRun
 		err error
@@ -303,7 +303,7 @@ func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[hocreditv1
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	resp := &hocreditv1.OCRRun{
+	resp := &scribev1.OCRRun{
 		SessionId:           run.SessionID,
 		ImageUrl:            run.ImageURL,
 		Model:               run.Model,
@@ -329,7 +329,7 @@ func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[hocreditv1
 	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[hocreditv1.SaveOCREditsRequest]) (*connect.Response[hocreditv1.SaveOCREditsResponse], error) {
+func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[scribev1.SaveOCREditsRequest]) (*connect.Response[scribev1.SaveOCREditsResponse], error) {
 	sessionID := req.Msg.GetSessionId()
 	correctedHOCR := strings.TrimSpace(req.Msg.GetCorrectedHocr())
 	if correctedHOCR == "" {
@@ -358,7 +358,7 @@ func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[hocredi
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	correctedText, err := legacyhandlers.HOCRToPlainText(correctedHOCR)
+	correctedText, err := ocrhandlers.HOCRToPlainText(correctedHOCR)
 	if err != nil {
 		correctedText = hocrToPlainTextLenient(correctedHOCR)
 	}
@@ -383,7 +383,7 @@ func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[hocredi
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist corrected hocr: %w", err))
 	}
 
-	return connect.NewResponse(&hocreditv1.SaveOCREditsResponse{
+	return connect.NewResponse(&scribev1.SaveOCREditsResponse{
 		SessionId:           sessionID,
 		ItemImageId:         itemImageID,
 		EditCount:           req.Msg.GetEditCount(),

@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
-	hocreditv1 "github.com/lehigh-university-libraries/hOCRedit/proto/hocredit/v1"
+	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
 
 // --- AnnotationService Connect handlers ---
 
-func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[hocreditv1.SearchAnnotationsRequest]) (*connect.Response[hocreditv1.SearchAnnotationsResponse], error) {
+func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[scribev1.SearchAnnotationsRequest]) (*connect.Response[scribev1.SearchAnnotationsResponse], error) {
 	canvasURI := strings.TrimSpace(req.Msg.GetCanvasUri())
 	base := h.annotationBaseURL
 	if base == "" {
@@ -55,12 +55,12 @@ func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[ho
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.SearchAnnotationsResponse{
+	return connect.NewResponse(&scribev1.SearchAnnotationsResponse{
 		AnnotationPageJson: string(b),
 	}), nil
 }
 
-func (h *Handler) GetAnnotation(ctx context.Context, req *connect.Request[hocreditv1.GetAnnotationRequest]) (*connect.Response[hocreditv1.GetAnnotationResponse], error) {
+func (h *Handler) GetAnnotation(ctx context.Context, req *connect.Request[scribev1.GetAnnotationRequest]) (*connect.Response[scribev1.GetAnnotationResponse], error) {
 	id := strings.TrimSpace(req.Msg.GetId())
 	if id == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("id is required"))
@@ -69,10 +69,10 @@ func (h *Handler) GetAnnotation(ctx context.Context, req *connect.Request[hocred
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
 	}
-	return connect.NewResponse(&hocreditv1.GetAnnotationResponse{AnnotationJson: raw}), nil
+	return connect.NewResponse(&scribev1.GetAnnotationResponse{AnnotationJson: raw}), nil
 }
 
-func (h *Handler) CreateAnnotation(ctx context.Context, req *connect.Request[hocreditv1.CreateAnnotationRequest]) (*connect.Response[hocreditv1.CreateAnnotationResponse], error) {
+func (h *Handler) CreateAnnotation(ctx context.Context, req *connect.Request[scribev1.CreateAnnotationRequest]) (*connect.Response[scribev1.CreateAnnotationResponse], error) {
 	base := h.annotationBaseURL
 	if base == "" {
 		base = strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
@@ -103,10 +103,10 @@ func (h *Handler) CreateAnnotation(ctx context.Context, req *connect.Request[hoc
 	if err := h.annotations.Upsert(ctx, id, canvasURI, string(payload)); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.CreateAnnotationResponse{AnnotationJson: string(payload)}), nil
+	return connect.NewResponse(&scribev1.CreateAnnotationResponse{AnnotationJson: string(payload)}), nil
 }
 
-func (h *Handler) UpdateAnnotation(ctx context.Context, req *connect.Request[hocreditv1.UpdateAnnotationRequest]) (*connect.Response[hocreditv1.UpdateAnnotationResponse], error) {
+func (h *Handler) UpdateAnnotation(ctx context.Context, req *connect.Request[scribev1.UpdateAnnotationRequest]) (*connect.Response[scribev1.UpdateAnnotationResponse], error) {
 	var anno map[string]any
 	if err := json.Unmarshal([]byte(req.Msg.GetAnnotationJson()), &anno); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid annotation json"))
@@ -133,10 +133,10 @@ func (h *Handler) UpdateAnnotation(ctx context.Context, req *connect.Request[hoc
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	}
-	return connect.NewResponse(&hocreditv1.UpdateAnnotationResponse{AnnotationJson: string(payload)}), nil
+	return connect.NewResponse(&scribev1.UpdateAnnotationResponse{AnnotationJson: string(payload)}), nil
 }
 
-func (h *Handler) DeleteAnnotation(ctx context.Context, req *connect.Request[hocreditv1.DeleteAnnotationRequest]) (*connect.Response[hocreditv1.DeleteAnnotationResponse], error) {
+func (h *Handler) DeleteAnnotation(ctx context.Context, req *connect.Request[scribev1.DeleteAnnotationRequest]) (*connect.Response[scribev1.DeleteAnnotationResponse], error) {
 	uri := strings.TrimSpace(req.Msg.GetUri())
 	if uri == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("uri is required"))
@@ -144,10 +144,10 @@ func (h *Handler) DeleteAnnotation(ctx context.Context, req *connect.Request[hoc
 	if err := h.annotations.Delete(ctx, uri); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.DeleteAnnotationResponse{}), nil
+	return connect.NewResponse(&scribev1.DeleteAnnotationResponse{}), nil
 }
 
-func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[hocreditv1.EnrichAnnotationRequest]) (*connect.Response[hocreditv1.EnrichAnnotationResponse], error) {
+func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scribev1.EnrichAnnotationRequest]) (*connect.Response[scribev1.EnrichAnnotationResponse], error) {
 	annotationJSON := strings.TrimSpace(req.Msg.GetAnnotationJson())
 	if annotationJSON == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("annotation_json is required"))
@@ -185,5 +185,5 @@ func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[hoc
 	if enrichErr != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, enrichErr)
 	}
-	return connect.NewResponse(&hocreditv1.EnrichAnnotationResponse{AnnotationJson: enriched}), nil
+	return connect.NewResponse(&scribev1.EnrichAnnotationResponse{AnnotationJson: enriched}), nil
 }

@@ -1,7 +1,7 @@
 .PHONY: help
 .PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs logs-annotations sequelace
 
-IMAGE ?= ghcr.io/lehigh-university-libraries/hocredit:main
+IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 # renovate: datasource=docker depName=golangci/golangci-lint
 GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.10.1-alpine
 

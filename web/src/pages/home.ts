@@ -1,13 +1,13 @@
 import { listItems, createItemFromManifest, uploadItemImages, deleteItem } from "../api/items";
 import { processImageURL, processImageUpload } from "../api/processing";
 import { uint64ToString, escHtml } from "../lib/util";
-import type { Item } from "../proto/hocredit/v1/item_pb";
+import type { Item } from "../proto/scribe/v1/item_pb";
 
 export async function renderHome(app: HTMLElement): Promise<void> {
   app.innerHTML = `
     <main class="mx-auto max-w-5xl p-8">
       <header class="mb-6">
-        <h1 class="text-4xl font-bold">hOCRedit</h1>
+        <h1 class="text-4xl font-bold">Scribe</h1>
         <p class="mt-2 text-slate-300">Process images for OCR and edit annotations.</p>
       </header>
 

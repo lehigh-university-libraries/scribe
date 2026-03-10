@@ -1,12 +1,12 @@
 import { createPromiseClient } from "@connectrpc/connect";
-import { ItemService } from "../proto/hocredit/v1/item_connect";
+import { ItemService } from "../proto/scribe/v1/item_connect";
 import {
   CreateItemRequest,
   DeleteItemRequest,
   ListItemsRequest,
   UploadItemImageRequest,
   type Item,
-} from "../proto/hocredit/v1/item_pb";
+} from "../proto/scribe/v1/item_pb";
 import { getTransport } from "./transport";
 import { readFileBytes, uint64ToString } from "../lib/util";
 

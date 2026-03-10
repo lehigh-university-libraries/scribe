@@ -10,10 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/config"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/database"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/server"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/database"
+	"github.com/lehigh-university-libraries/scribe/internal/server"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 func main() {

@@ -17,9 +17,9 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/db"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
-	hocreditv1 "github.com/lehigh-university-libraries/hOCRedit/proto/hocredit/v1"
+	"github.com/lehigh-university-libraries/scribe/internal/db"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
+	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
 
 const (
@@ -48,7 +48,7 @@ func (h *Handler) annBase(r *http.Request) string {
 
 func (h *Handler) handleAnnotationSearch(w http.ResponseWriter, r *http.Request) {
 	canvasURI := strings.TrimSpace(r.URL.Query().Get("canvasUri"))
-	resp, err := h.SearchAnnotations(r.Context(), connect.NewRequest(&hocreditv1.SearchAnnotationsRequest{
+	resp, err := h.SearchAnnotations(r.Context(), connect.NewRequest(&scribev1.SearchAnnotationsRequest{
 		CanvasUri: canvasURI,
 	}))
 	if err != nil {
@@ -60,7 +60,7 @@ func (h *Handler) handleAnnotationSearch(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "invalid annotation page json")
 		return
 	}
-	// Keep REST path identity for MAE/IIIF clients.
+	// Keep HTTP path identity for annotation/IIIF clients.
 	base := h.annBase(r)
 	page["id"] = base + "/v1/annotations/3/search?canvasUri=" + url.QueryEscape(canvasURI)
 	writeJSON(w, http.StatusOK, page)
@@ -283,7 +283,7 @@ func (h *Handler) handleAnnotationCreate(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	resp, err := h.CreateAnnotation(r.Context(), connect.NewRequest(&hocreditv1.CreateAnnotationRequest{
+	resp, err := h.CreateAnnotation(r.Context(), connect.NewRequest(&scribev1.CreateAnnotationRequest{
 		AnnotationJson: string(body),
 	}))
 	if err != nil {
@@ -304,7 +304,7 @@ func (h *Handler) handleAnnotationUpdate(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	resp, err := h.UpdateAnnotation(r.Context(), connect.NewRequest(&hocreditv1.UpdateAnnotationRequest{
+	resp, err := h.UpdateAnnotation(r.Context(), connect.NewRequest(&scribev1.UpdateAnnotationRequest{
 		AnnotationJson: string(body),
 	}))
 	if err != nil {
@@ -325,7 +325,7 @@ func (h *Handler) handleAnnotationDelete(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "uri is required")
 		return
 	}
-	_, err := h.DeleteAnnotation(r.Context(), connect.NewRequest(&hocreditv1.DeleteAnnotationRequest{Uri: uri}))
+	_, err := h.DeleteAnnotation(r.Context(), connect.NewRequest(&scribev1.DeleteAnnotationRequest{Uri: uri}))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -341,7 +341,7 @@ func (h *Handler) handleAnnotationGet(w http.ResponseWriter, r *http.Request) {
 	}
 	base := h.annBase(r)
 	fullID := base + "/v1/annotations/3/item/" + id
-	resp, err := h.GetAnnotation(r.Context(), connect.NewRequest(&hocreditv1.GetAnnotationRequest{Id: fullID}))
+	resp, err := h.GetAnnotation(r.Context(), connect.NewRequest(&scribev1.GetAnnotationRequest{Id: fullID}))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "annotation not found")
 		return
@@ -435,7 +435,7 @@ func normalizeAnnotation(anno map[string]any, defaultCanvasURI string) map[strin
 	case map[string]any:
 		target = tv
 	case string:
-		// MAE sends target as a plain string: "canvasURI#xywh=x,y,w,h"
+		// Some clients send target as a plain string: "canvasURI#xywh=x,y,w,h"
 		if canvasURI == "" {
 			if idx := strings.Index(tv, "#"); idx >= 0 {
 				canvasURI = tv[:idx]
@@ -535,12 +535,11 @@ func annStableID(raw string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// handleAnnotationEnrich is the MAE magic-wand endpoint. It accepts a single
-// IIIF Annotation (scope=line) or a full AnnotationPage (scope=page) as JSON,
-// re-transcribes the image region(s) using the chosen context, and returns the
-// enriched annotation JSON.
+// handleAnnotationEnrich accepts a single IIIF Annotation (scope=line) or a
+// full AnnotationPage (scope=page) as JSON, re-transcribes the image region(s)
+// using the chosen context, and returns the enriched annotation JSON.
 func (h *Handler) handleAnnotationEnrich(w http.ResponseWriter, r *http.Request) {
-	var req hocreditv1.EnrichAnnotationRequest
+	var req scribev1.EnrichAnnotationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
@@ -585,7 +584,7 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 	}
 	defer cleanup()
 
-	text, err := h.legacy.TranscribeImageRegion(
+	text, err := h.ocr.TranscribeImageRegion(
 		imagePath, 0, 0, x2-x1, y2-y1,
 		pctx.TranscriptionProvider, pctx.TranscriptionModel,
 	)
@@ -596,7 +595,7 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 	// Replace body with enriched text.
 	anno["body"] = []any{map[string]any{
 		"type":    "TextualBody",
-		"purpose": "supplementing",
+		"purpose": "describing",
 		"format":  "text/plain",
 		"value":   strings.TrimSpace(text),
 	}}

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 type splitAnnotationIntoWordsRequest struct {
@@ -104,11 +104,11 @@ func (h *Handler) handleSplitAnnotationIntoWords(w http.ResponseWriter, r *http.
 			"id":              fmt.Sprintf("%s-word-%d", lineID, i+1),
 			"type":            "Annotation",
 			"textGranularity": "word",
-			"motivation":      "supplementing",
+			"motivation":      "commenting",
 			"body": []any{
 				map[string]any{
 					"type":    "TextualBody",
-					"purpose": "supplementing",
+					"purpose": "describing",
 					"format":  "text/plain",
 					"value":   strings.TrimSpace(word),
 				},
@@ -306,7 +306,7 @@ func (h *Handler) handleReprocessItemImageWithContext(w http.ResponseWriter, r *
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := h.legacy.ProcessImageURLWithProviderAndModel(run.ImageURL, provider, model)
+	result, err := h.ocr.ProcessImageURLWithProviderAndModel(run.ImageURL, provider, model)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -384,11 +384,11 @@ func buildLineAnnotation(id, canvasURI string, x1, y1, x2, y2 int, text string) 
 		"id":              id,
 		"type":            "Annotation",
 		"textGranularity": "line",
-		"motivation":      "supplementing",
+		"motivation":      "commenting",
 		"body": []any{
 			map[string]any{
 				"type":    "TextualBody",
-				"purpose": "supplementing",
+				"purpose": "describing",
 				"format":  "text/plain",
 				"value":   strings.TrimSpace(text),
 			},

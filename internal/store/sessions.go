@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	db "github.com/lehigh-university-libraries/hOCRedit/internal/db"
+	db "github.com/lehigh-university-libraries/scribe/internal/db"
 )
 
 type Session struct {

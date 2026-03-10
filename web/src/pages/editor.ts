@@ -1,6 +1,5 @@
 import Mirador from "mirador";
-import annotationPlugins, { annotationAdapters } from "../../vendor/mirador-annotation-editor/dist/mirador-annotation-editor.es.js";
-import "../../vendor/mirador-annotation-editor/dist/index.css";
+import scribeMiradorPlugin, { annotationAdapters } from "../../vendor/mirador-scribe/dist/mirador-scribe.es.js";
 import { getOCRRun } from "../api/processing";
 import { uint64ToString } from "../lib/util";
 
@@ -12,7 +11,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     <main class="h-screen w-screen overflow-hidden bg-slate-950">
       <header class="flex items-center justify-between border-b border-slate-800 px-4 py-2">
         <div>
-          <h1 class="text-xl font-bold">hOCR Annotation Editor</h1>
+          <h1 class="text-xl font-bold">Scribe Editor</h1>
           <p id="editor-meta" class="text-xs text-slate-300"></p>
         </div>
         <a href="/" class="rounded border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Back</a>
@@ -26,12 +25,16 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   const meta = document.getElementById("editor-meta") as HTMLParagraphElement;
   const annotationBase = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_ANNOTATION_API_BASE
     || window.location.origin;
-  const AiiinotateAdapter = annotationAdapters.AiiinotateAdapter as new (
+  const ScribeAnnotationAdapter = annotationAdapters.ScribeAnnotationAdapter as new (
     endpointURL: string,
-    iiifPresentationVersion: 2 | 3,
+    iiifPresentationVersion: 3,
     canvasID: string,
     user: string
   ) => unknown;
+  const osdConfig = {
+    crossOriginPolicy: "Anonymous",
+    ajaxWithCredentials: false,
+  };
 
   // No itemImageId — open a bare Mirador workspace so the user can paste any
   // IIIF manifest URL. Annotations are auto-registered by the backend when the
@@ -40,8 +43,9 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     meta.textContent = "Open a IIIF manifest using the workspace panel (+ button)";
     Mirador.viewer({
       id: "mirador-viewer",
+      osdConfig,
       annotation: {
-        adapter: (canvasID: string) => new AiiinotateAdapter(`${annotationBase}/v1`, 3, canvasID, "hOCRedit User"),
+        adapter: (canvasID: string) => new ScribeAnnotationAdapter(`${annotationBase}/v1`, 3, canvasID, "Scribe User"),
         readonly: false,
       },
       annotations: { htmlSanitizationRuleSet: "liberal" },
@@ -62,7 +66,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
           layers: false,
         },
       },
-    }, [...annotationPlugins]);
+    }, [...scribeMiradorPlugin]);
     return;
   }
 
@@ -98,8 +102,9 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   Mirador.viewer({
     id: "mirador-viewer",
     theme: { direction: "rtl" },
+    osdConfig,
     annotation: {
-      adapter: (canvasID: string) => new AiiinotateAdapter(`${annotationBase}/v1`, 3, canvasID, "hOCRedit User"),
+      adapter: (canvasID: string) => new ScribeAnnotationAdapter(`${annotationBase}/v1`, 3, canvasID, "Scribe User"),
       readonly: false,
     },
     annotations: { htmlSanitizationRuleSet: "liberal" },
@@ -125,5 +130,5 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
         layers: false,
       },
     },
-  }, [...annotationPlugins]);
+  }, [...scribeMiradorPlugin]);
 }

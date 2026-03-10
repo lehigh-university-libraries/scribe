@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lehigh-university-libraries/hOCRedit/internal/hocr"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/models"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/utils"
+	"github.com/lehigh-university-libraries/scribe/internal/hocr"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/utils"
 )
 
 type ProcessResult struct {

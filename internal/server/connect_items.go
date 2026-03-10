@@ -11,20 +11,20 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/db"
-	"github.com/lehigh-university-libraries/hOCRedit/internal/store"
-	hocreditv1 "github.com/lehigh-university-libraries/hOCRedit/proto/hocredit/v1"
+	"github.com/lehigh-university-libraries/scribe/internal/db"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
+	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
 
 // --- ItemService Connect handlers ---
 
-func (h *Handler) ListItems(ctx context.Context, _ *connect.Request[hocreditv1.ListItemsRequest]) (*connect.Response[hocreditv1.ListItemsResponse], error) {
+func (h *Handler) ListItems(ctx context.Context, _ *connect.Request[scribev1.ListItemsRequest]) (*connect.Response[scribev1.ListItemsResponse], error) {
 	items, err := h.items.List(ctx, store.AnonymousUserID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	resp := &hocreditv1.ListItemsResponse{
-		Items: make([]*hocreditv1.Item, 0, len(items)),
+	resp := &scribev1.ListItemsResponse{
+		Items: make([]*scribev1.Item, 0, len(items)),
 	}
 	for _, it := range items {
 		resp.Items = append(resp.Items, storeItemToProto(it))
@@ -32,15 +32,15 @@ func (h *Handler) ListItems(ctx context.Context, _ *connect.Request[hocreditv1.L
 	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) GetItem(ctx context.Context, req *connect.Request[hocreditv1.GetItemRequest]) (*connect.Response[hocreditv1.GetItemResponse], error) {
+func (h *Handler) GetItem(ctx context.Context, req *connect.Request[scribev1.GetItemRequest]) (*connect.Response[scribev1.GetItemResponse], error) {
 	it, err := h.items.Get(ctx, req.Msg.GetItemId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
 	}
-	return connect.NewResponse(&hocreditv1.GetItemResponse{Item: storeItemToProto(it)}), nil
+	return connect.NewResponse(&scribev1.GetItemResponse{Item: storeItemToProto(it)}), nil
 }
 
-func (h *Handler) CreateItem(ctx context.Context, req *connect.Request[hocreditv1.CreateItemRequest]) (*connect.Response[hocreditv1.CreateItemResponse], error) {
+func (h *Handler) CreateItem(ctx context.Context, req *connect.Request[scribev1.CreateItemRequest]) (*connect.Response[scribev1.CreateItemResponse], error) {
 	name := strings.TrimSpace(req.Msg.GetName())
 	srcType := strings.TrimSpace(req.Msg.GetSourceType())
 	if srcType == "" {
@@ -88,10 +88,10 @@ func (h *Handler) CreateItem(ctx context.Context, req *connect.Request[hocreditv
 		it, _ = h.items.Get(ctx, it.ID)
 	}
 
-	return connect.NewResponse(&hocreditv1.CreateItemResponse{Item: storeItemToProto(it)}), nil
+	return connect.NewResponse(&scribev1.CreateItemResponse{Item: storeItemToProto(it)}), nil
 }
 
-func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[hocreditv1.UploadItemImageRequest]) (*connect.Response[hocreditv1.UploadItemImageResponse], error) {
+func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scribev1.UploadItemImageRequest]) (*connect.Response[scribev1.UploadItemImageResponse], error) {
 	itemID := strings.TrimSpace(req.Msg.GetItemId())
 	if itemID == "" {
 		// Create a new item for this upload.
@@ -117,7 +117,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[hocr
 	if filename == "" {
 		filename = "upload.jpg"
 	}
-	imageURL, err := h.legacy.StoreUploadedImage(filename, req.Msg.GetImageData())
+	imageURL, err := h.ocr.StoreUploadedImage(filename, req.Msg.GetImageData())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -132,17 +132,17 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[hocr
 	}
 
 	it, _ := h.items.Get(ctx, itemID)
-	return connect.NewResponse(&hocreditv1.UploadItemImageResponse{
+	return connect.NewResponse(&scribev1.UploadItemImageResponse{
 		Item:  storeItemToProto(it),
 		Image: storeItemImageToProto(img),
 	}), nil
 }
 
-func (h *Handler) DeleteItem(ctx context.Context, req *connect.Request[hocreditv1.DeleteItemRequest]) (*connect.Response[hocreditv1.DeleteItemResponse], error) {
+func (h *Handler) DeleteItem(ctx context.Context, req *connect.Request[scribev1.DeleteItemRequest]) (*connect.Response[scribev1.DeleteItemResponse], error) {
 	if err := h.items.Delete(ctx, req.Msg.GetItemId()); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	return connect.NewResponse(&hocreditv1.DeleteItemResponse{}), nil
+	return connect.NewResponse(&scribev1.DeleteItemResponse{}), nil
 }
 
 // ingestManifest fetches and processes a IIIF manifest by URL.
@@ -226,14 +226,14 @@ func fetchHOCRContent(ctx context.Context, hocrURL string) (string, error) {
 
 // --- proto conversion helpers ---
 
-func storeItemToProto(it store.Item) *hocreditv1.Item {
+func storeItemToProto(it store.Item) *scribev1.Item {
 	metaJSON := ""
 	if it.Metadata != nil {
 		if b, err := json.Marshal(it.Metadata); err == nil {
 			metaJSON = string(b)
 		}
 	}
-	proto := &hocreditv1.Item{
+	proto := &scribev1.Item{
 		Id:         it.ID,
 		UserId:     it.UserID,
 		Name:       it.Name,
@@ -242,7 +242,7 @@ func storeItemToProto(it store.Item) *hocreditv1.Item {
 		Metadata:   metaJSON,
 		CreatedAt:  it.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:  it.UpdatedAt.UTC().Format(time.RFC3339),
-		Images:     make([]*hocreditv1.ItemImage, 0, len(it.Images)),
+		Images:     make([]*scribev1.ItemImage, 0, len(it.Images)),
 	}
 	for _, img := range it.Images {
 		proto.Images = append(proto.Images, storeItemImageToProto(img))
@@ -250,8 +250,8 @@ func storeItemToProto(it store.Item) *hocreditv1.Item {
 	return proto
 }
 
-func storeItemImageToProto(img store.ItemImage) *hocreditv1.ItemImage {
-	return &hocreditv1.ItemImage{
+func storeItemImageToProto(img store.ItemImage) *scribev1.ItemImage {
+	return &scribev1.ItemImage{
 		Id:        img.ID,
 		ItemId:    img.ItemID,
 		Sequence:  img.Sequence,

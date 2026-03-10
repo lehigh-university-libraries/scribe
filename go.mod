@@ -1,4 +1,4 @@
-module github.com/lehigh-university-libraries/hOCRedit
+module github.com/lehigh-university-libraries/scribe
 
 go 1.24.4
 
@@ -12,4 +12,4 @@ require (
 
 require filippo.io/edwards25519 v1.1.0 // indirect
 
-replace github.com/lehigh-university-libraries/hOCRedit => .
+replace github.com/lehigh-university-libraries/scribe => .
