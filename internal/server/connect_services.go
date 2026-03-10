@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/db"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
+	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/metrics"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
@@ -76,6 +77,39 @@ func (h *Handler) resolveTranscriptionConfig(
 	return provider, model, nil
 }
 
+// resolveContext returns the full store.Context for a request, resolving via
+// explicit context ID or metadata-based selection rules.
+func (h *Handler) resolveContext(ctx context.Context, contextID uint64, metadataJSON string) (store.Context, error) {
+	if contextID > 0 {
+		return h.contexts.Get(ctx, contextID)
+	}
+	var metadata map[string]any
+	if raw := strings.TrimSpace(metadataJSON); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+			return store.Context{}, fmt.Errorf("invalid metadata json: %w", err)
+		}
+	}
+	c, _, err := h.contexts.Resolve(ctx, metadata)
+	return c, err
+}
+
+// processingContextFromStore converts a store.Context into an hocr.ProcessingContext.
+func processingContextFromStore(c store.Context, providerOverride string) hocr.ProcessingContext {
+	provider := c.TranscriptionProvider
+	model := c.TranscriptionModel
+	if providerOverride != "" {
+		provider = providerOverride
+		model = "" // let the hocr service pick the default for this provider
+	}
+	return hocr.ProcessingContext{
+		SegmentationModel:     c.SegmentationModel,
+		TranscriptionProvider: effectiveProvider(provider),
+		TranscriptionModel:    effectiveModel(effectiveProvider(provider), model),
+		Temperature:           c.Temperature,
+		SystemPrompt:          c.SystemPrompt,
+	}
+}
+
 func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scribev1.ProcessImageURLRequest]) (*connect.Response[scribev1.ProcessImageResponse], error) {
 	progressID := progressIDFromHeader(req.Header())
 	providerHeader := providerFromHeader(req.Header())
@@ -83,24 +117,46 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 	if imageURL == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("image_url is required"))
 	}
-	provider, model, err := h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), req.Msg.GetMetadata(), providerHeader)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
 
 	if progressID != "" {
 		startProgress(progressID, "processing", "Running OCR")
 		defer startProgressHeartbeat(progressID)()
 	}
 
-	result, err := h.ocr.ProcessImageURLWithProviderAndModel(imageURL, provider, model)
+	resolvedCtx, err := h.resolveContext(ctx, req.Msg.GetContextId(), req.Msg.GetMetadata())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	var result *ocrhandlers.ProcessResult
+	var provider, model string
+	runAsync := true
+
+	seg := strings.ToLower(strings.TrimSpace(resolvedCtx.SegmentationModel))
+	if seg != "" && providerHeader == "" {
+		// Context has a segmentation model set: run the full synchronous pipeline
+		// (segmentation + transcription in one shot, no async step needed).
+		pctx := processingContextFromStore(resolvedCtx, "")
+		result, err = h.ocr.ProcessImageURLWithContext(imageURL, pctx)
+		provider = pctx.TranscriptionProvider
+		model = pctx.TranscriptionModel
+		runAsync = false
+	} else {
+		// Legacy path: detection-only hOCR + async LLM transcription.
+		provider, model, err = h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), req.Msg.GetMetadata(), providerHeader)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		result, err = h.ocr.ProcessImageURLWithProviderAndModel(imageURL, provider, model)
+	}
+
 	if err != nil {
 		if progressID != "" {
 			finishProgress(progressID, "failed", "OCR processing failed", err.Error())
 		}
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	item, itemImage, err := h.createOCRItemAndImage(ctx, "url", result.ImageURL, result.ImageURL)
+	item, itemImage, err := h.createOCRItemAndImage(ctx, "url", result.ImageURL, imageURL)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -131,7 +187,9 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
-	h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
+	if runAsync {
+		h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
+	}
 
 	return connect.NewResponse(&scribev1.ProcessImageResponse{
 		ItemId:      item.ID,
@@ -153,17 +211,36 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 	if len(req.Msg.GetImageData()) == 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("image_data is required"))
 	}
-	provider, model, err := h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), "", providerHeader)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
 
 	if progressID != "" {
 		startProgress(progressID, "processing", "Running OCR")
 		defer startProgressHeartbeat(progressID)()
 	}
 
-	result, err := h.ocr.ProcessImageUploadWithProviderAndModel(filename, req.Msg.GetImageData(), provider, model)
+	resolvedCtx, err := h.resolveContext(ctx, req.Msg.GetContextId(), "")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	var result *ocrhandlers.ProcessResult
+	var provider, model string
+	runAsync := true
+
+	seg := strings.ToLower(strings.TrimSpace(resolvedCtx.SegmentationModel))
+	if seg != "" && providerHeader == "" {
+		pctx := processingContextFromStore(resolvedCtx, "")
+		result, err = h.ocr.ProcessImageUploadWithContext(filename, req.Msg.GetImageData(), pctx)
+		provider = pctx.TranscriptionProvider
+		model = pctx.TranscriptionModel
+		runAsync = false
+	} else {
+		provider, model, err = h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), "", providerHeader)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		result, err = h.ocr.ProcessImageUploadWithProviderAndModel(filename, req.Msg.GetImageData(), provider, model)
+	}
+
 	if err != nil {
 		if progressID != "" {
 			finishProgress(progressID, "failed", "OCR processing failed", err.Error())
@@ -201,7 +278,9 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
-	h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
+	if runAsync {
+		h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
+	}
 
 	return connect.NewResponse(&scribev1.ProcessImageResponse{
 		ItemId:      item.ID,

@@ -97,7 +97,7 @@ func defaultContextFromEnv() store.Context {
 
 	segModel := strings.TrimSpace(os.Getenv("SEGMENTATION_MODEL"))
 	if segModel == "" {
-		segModel = "tesseract"
+		segModel = "auto"
 	}
 
 	return store.Context{

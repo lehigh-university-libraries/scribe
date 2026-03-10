@@ -69,6 +69,18 @@ func (s *Service) ProcessImageWithContext(imagePath string, pctx ProcessingConte
 		lines = s.removeOverlappingLines(lines)
 	}
 
+	// For "auto" (competitive) segmentation when tesseract wins, use its detected text
+	// directly without LLM re-transcription.  The words are grouped into lines and
+	// the per-line text is assembled from what tesseract already read.
+	seg := strings.ToLower(strings.TrimSpace(pctx.SegmentationModel))
+	if (seg == "auto" || seg == "") && selectedProvider == "tesseract" {
+		slog.Info("Auto mode: tesseract wins – using tesseract text directly (no LLM)",
+			"line_count", len(lines))
+		transcribedWords := s.transcribeTesseractDirect(lines, width)
+		// Pass "custom" so generateHOCRFromWords emits one line-span per entry.
+		return s.generateHOCRFromWords(transcribedWords, lines, width, height, "custom"), nil
+	}
+
 	llmProvider, providerName, err := s.initLLMProvider(pctx.TranscriptionProvider)
 	if err != nil {
 		return "", fmt.Errorf("init LLM provider: %w", err)
@@ -83,9 +95,50 @@ func (s *Service) ProcessImageWithContext(imagePath string, pctx ProcessingConte
 	return s.generateHOCRFromWords(transcribedWords, lines, width, height, selectedProvider), nil
 }
 
+// transcribeTesseractDirect converts already-grouped lines of tesseract WordBoxes into
+// line-level TranscribedWords by joining the text that tesseract detected in each line.
+// This is used by auto mode when tesseract wins the competitive segmentation race,
+// letting us skip the LLM transcription step entirely.
+func (s *Service) transcribeTesseractDirect(lines [][]worddetection.WordBox, imageWidth int) []TranscribedWord {
+	result := make([]TranscribedWord, 0, len(lines))
+	for i, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		minY := line[0].Y
+		maxY := line[0].Y + line[0].Height
+		var texts []string
+		for _, w := range line {
+			if w.Y < minY {
+				minY = w.Y
+			}
+			if w.Y+w.Height > maxY {
+				maxY = w.Y + w.Height
+			}
+			if t := strings.TrimSpace(w.Text); t != "" {
+				texts = append(texts, t)
+			}
+		}
+		if len(texts) == 0 {
+			continue
+		}
+		result = append(result, TranscribedWord{
+			X:          0,
+			Y:          minY,
+			Width:      imageWidth,
+			Height:     maxY - minY,
+			Text:       strings.Join(texts, " "),
+			Confidence: 90.0,
+			LineID:     i,
+		})
+	}
+	return result
+}
+
 // detectWithModel selects and runs the appropriate segmentation provider.
-// segModel values: "tesseract", "scribe", "kraken:<model-id>", ""
-// An empty string triggers the existing auto-select logic (parallel run, best wins).
+// segModel values: "tesseract", "scribe", "kraken:<model-id>", "auto", ""
+// "auto" (or empty string) runs both providers in parallel and picks the one that
+// detects more words; the winning provider name is returned for downstream use.
 func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel string) ([]worddetection.WordBox, string, error) {
 	seg := strings.ToLower(strings.TrimSpace(segModel))
 
@@ -107,7 +160,7 @@ func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel strin
 		return words, "kraken", err
 
 	default:
-		// Auto-select: run both in parallel, pick the one with more detections.
+		// "auto" or empty: run both providers, pick the one with more detections.
 		tesseractProvider := worddetection.NewTesseract()
 		customProvider := worddetection.NewCustom()
 		tesseractWords, tesseractErr := tesseractProvider.DetectWords(ctx, imagePath)

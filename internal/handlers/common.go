@@ -2,15 +2,18 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
 	"github.com/lehigh-university-libraries/scribe/internal/storage"
+	"github.com/lehigh-university-libraries/scribe/internal/utils"
 )
 
 type Handler struct {
@@ -134,4 +137,83 @@ func (h *Handler) TranscribeImageToHOCR(imagePath, provider, model string) (stri
 
 func (h *Handler) TranscribeImageFile(imagePath, provider, model string) (string, error) {
 	return h.hocrService.TranscribeImage(imagePath, provider, model)
+}
+
+// ProcessImageURLWithContext downloads an image, runs the full segmentation+transcription
+// pipeline defined by pctx, and returns a ProcessResult with complete hOCR.
+// Unlike ProcessImageURLWithProviderAndModel this does not use the detection-only cache
+// and does not require a separate async transcription step.
+func (h *Handler) ProcessImageURLWithContext(imageURL string, pctx hocr.ProcessingContext) (*ProcessResult, error) {
+	if err := h.ensureUploadsDir(); err != nil {
+		return nil, fmt.Errorf("create uploads dir: %w", err)
+	}
+	imageData, contentType, err := h.downloadImageFromURL(imageURL)
+	if err != nil {
+		return nil, err
+	}
+	return h.processDataWithContext(imageData, contentType, imageURL, imageURL, pctx)
+}
+
+// ProcessImageUploadWithContext saves uploaded image bytes, runs the full
+// segmentation+transcription pipeline defined by pctx, and returns a ProcessResult
+// with complete hOCR.
+func (h *Handler) ProcessImageUploadWithContext(filename string, fileData []byte, pctx hocr.ProcessingContext) (*ProcessResult, error) {
+	if err := h.ensureUploadsDir(); err != nil {
+		return nil, fmt.Errorf("create uploads dir: %w", err)
+	}
+	return h.processDataWithContext(fileData, "", filename, "", pctx)
+}
+
+// processDataWithContext is the shared implementation for ProcessImageURLWithContext
+// and ProcessImageUploadWithContext.
+func (h *Handler) processDataWithContext(imageData []byte, contentType, filename, sourceURL string, pctx hocr.ProcessingContext) (*ProcessResult, error) {
+	if needsHoudiniConversion(contentType, sourceURL) {
+		converted, err := h.convertImageViaHoudini(imageData, contentType)
+		if err != nil {
+			return nil, fmt.Errorf("convert image: %w", err)
+		}
+		imageData = converted
+		contentType = "image/jpeg"
+	}
+
+	md5Hash := utils.CalculateDataMD5(imageData)
+	ext := h.getFileExtension(contentType, filename)
+	imageFilename := md5Hash + ext
+	imageFilePath := filepath.Join("uploads", imageFilename)
+
+	if err := os.WriteFile(imageFilePath, imageData, 0644); err != nil {
+		return nil, fmt.Errorf("save image: %w", err)
+	}
+
+	imageLocalURL := "/static/uploads/" + imageFilename
+	width, height := utils.GetImageDimensions(imageFilePath)
+
+	hocrXML, err := h.hocrService.ProcessImageWithContext(imageFilePath, pctx)
+	if err != nil {
+		return nil, fmt.Errorf("process image with context: %w", err)
+	}
+
+	plainText, err := HOCRToPlainText(hocrXML)
+	if err != nil {
+		return nil, fmt.Errorf("hocr to plain text: %w", err)
+	}
+
+	baseFilename := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	sessionID := fmt.Sprintf("%s_%d", baseFilename, time.Now().Unix())
+	session := h.createImageSession(sessionID, &ImageProcessResult{
+		ImageFilename: imageFilename,
+		ImageFilePath: imageFilePath,
+		HOCRXML:       hocrXML,
+		Width:         width,
+		Height:        height,
+		MD5Hash:       md5Hash,
+	}, SessionConfig{})
+	h.sessionStore.Set(sessionID, session)
+
+	return &ProcessResult{
+		SessionID: sessionID,
+		HOCR:      hocrXML,
+		PlainText: plainText,
+		ImageURL:  imageLocalURL,
+	}, nil
 }
