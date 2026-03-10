@@ -14,7 +14,7 @@
     "@mui/material": "^7.3.2",
     "@mui/system": "^7.3.2",
     "@bufbuild/protobuf": "^1.10.0",
-    "@connectrpc/connect": "^1.6.0",
+    "@connectrpc/connect": "^2.0.0",
     "@connectrpc/connect-web": "^1.6.0",
     "i18next": "^25.5.3",
     "lodash": "^4.17.21",
