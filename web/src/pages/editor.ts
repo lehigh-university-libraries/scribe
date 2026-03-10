@@ -1,5 +1,6 @@
 import Mirador from "mirador";
 import scribeMiradorPlugin, { annotationAdapters } from "../../vendor/mirador-scribe/dist/mirador-scribe.es.js";
+import { annotationClient } from "../api/annotations";
 import { getOCRRun } from "../api/processing";
 import { uint64ToString } from "../lib/util";
 
@@ -78,7 +79,8 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     endpointURL: string,
     iiifPresentationVersion: 3,
     canvasID: string,
-    user: string
+    user: string,
+    client: typeof annotationClient,
   ) => unknown;
   const osdConfig = {
     crossOriginPolicy: "Anonymous",
@@ -133,7 +135,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       id: "mirador-viewer",
       osdConfig,
       annotation: {
-        adapter: (canvasID: string) => new ScribeAnnotationAdapter(`${annotationBase}/v1`, 3, canvasID, "Scribe User"),
+        adapter: (canvasID: string) => new ScribeAnnotationAdapter(annotationBase, 3, canvasID, "Scribe User", annotationClient),
         readonly: false,
       },
       annotations: { htmlSanitizationRuleSet: "liberal" },
@@ -189,7 +191,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     theme: { direction: "rtl" },
     osdConfig,
     annotation: {
-      adapter: (canvasID: string) => new ScribeAnnotationAdapter(`${annotationBase}/v1`, 3, canvasID, "Scribe User"),
+      adapter: (canvasID: string) => new ScribeAnnotationAdapter(annotationBase, 3, canvasID, "Scribe User", annotationClient),
       readonly: false,
     },
     annotations: { htmlSanitizationRuleSet: "liberal" },

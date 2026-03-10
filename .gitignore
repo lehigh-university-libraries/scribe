@@ -1,5 +1,5 @@
 .env
-hOCRedit
+scribe
 .terraform
 .terraform*
 terraform.*
@@ -7,5 +7,5 @@ uploads
 cache
 web/node_modules
 web/dist
-db
+/db
 docker-compose.override.yaml

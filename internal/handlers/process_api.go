@@ -17,6 +17,8 @@ type ProcessResult struct {
 	HOCR      string `json:"hocr"`
 	PlainText string `json:"plain_text"`
 	ImageURL  string `json:"image_url"`
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
 }
 
 func (h *Handler) ProcessImageURL(imageURL string) (*ProcessResult, error) {

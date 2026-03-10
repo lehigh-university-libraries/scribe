@@ -468,3 +468,340 @@ export class EnrichAnnotationResponse extends Message<EnrichAnnotationResponse> 
   }
 }
 
+/**
+ * Split a line annotation into proportionally-spaced word annotations.
+ * If words is empty the line text is tokenised on whitespace.
+ *
+ * @generated from message scribe.v1.SplitLineIntoWordsRequest
+ */
+export class SplitLineIntoWordsRequest extends Message<SplitLineIntoWordsRequest> {
+  /**
+   * @generated from field: string annotation_json = 1;
+   */
+  annotationJson = "";
+
+  /**
+   * @generated from field: repeated string words = 2;
+   */
+  words: string[] = [];
+
+  constructor(data?: PartialMessage<SplitLineIntoWordsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.SplitLineIntoWordsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "annotation_json", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "words", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SplitLineIntoWordsRequest {
+    return new SplitLineIntoWordsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SplitLineIntoWordsRequest {
+    return new SplitLineIntoWordsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SplitLineIntoWordsRequest {
+    return new SplitLineIntoWordsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SplitLineIntoWordsRequest | PlainMessage<SplitLineIntoWordsRequest> | undefined, b: SplitLineIntoWordsRequest | PlainMessage<SplitLineIntoWordsRequest> | undefined): boolean {
+    return proto3.util.equals(SplitLineIntoWordsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message scribe.v1.SplitLineIntoWordsResponse
+ */
+export class SplitLineIntoWordsResponse extends Message<SplitLineIntoWordsResponse> {
+  /**
+   * Full AnnotationPage JSON containing the new word annotations.
+   *
+   * @generated from field: string annotation_page_json = 1;
+   */
+  annotationPageJson = "";
+
+  constructor(data?: PartialMessage<SplitLineIntoWordsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.SplitLineIntoWordsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "annotation_page_json", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SplitLineIntoWordsResponse {
+    return new SplitLineIntoWordsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SplitLineIntoWordsResponse {
+    return new SplitLineIntoWordsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SplitLineIntoWordsResponse {
+    return new SplitLineIntoWordsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SplitLineIntoWordsResponse | PlainMessage<SplitLineIntoWordsResponse> | undefined, b: SplitLineIntoWordsResponse | PlainMessage<SplitLineIntoWordsResponse> | undefined): boolean {
+    return proto3.util.equals(SplitLineIntoWordsResponse, a, b);
+  }
+}
+
+/**
+ * Split a line annotation into two lines at a word boundary.
+ *
+ * @generated from message scribe.v1.SplitLineIntoTwoLinesRequest
+ */
+export class SplitLineIntoTwoLinesRequest extends Message<SplitLineIntoTwoLinesRequest> {
+  /**
+   * @generated from field: string annotation_json = 1;
+   */
+  annotationJson = "";
+
+  /**
+   * 0 means split at midpoint.
+   *
+   * @generated from field: int32 split_at_word = 2;
+   */
+  splitAtWord = 0;
+
+  constructor(data?: PartialMessage<SplitLineIntoTwoLinesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.SplitLineIntoTwoLinesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "annotation_json", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "split_at_word", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SplitLineIntoTwoLinesRequest {
+    return new SplitLineIntoTwoLinesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SplitLineIntoTwoLinesRequest {
+    return new SplitLineIntoTwoLinesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SplitLineIntoTwoLinesRequest {
+    return new SplitLineIntoTwoLinesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SplitLineIntoTwoLinesRequest | PlainMessage<SplitLineIntoTwoLinesRequest> | undefined, b: SplitLineIntoTwoLinesRequest | PlainMessage<SplitLineIntoTwoLinesRequest> | undefined): boolean {
+    return proto3.util.equals(SplitLineIntoTwoLinesRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message scribe.v1.SplitLineIntoTwoLinesResponse
+ */
+export class SplitLineIntoTwoLinesResponse extends Message<SplitLineIntoTwoLinesResponse> {
+  /**
+   * @generated from field: repeated string annotation_jsons = 1;
+   */
+  annotationJsons: string[] = [];
+
+  constructor(data?: PartialMessage<SplitLineIntoTwoLinesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.SplitLineIntoTwoLinesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "annotation_jsons", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SplitLineIntoTwoLinesResponse {
+    return new SplitLineIntoTwoLinesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SplitLineIntoTwoLinesResponse {
+    return new SplitLineIntoTwoLinesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SplitLineIntoTwoLinesResponse {
+    return new SplitLineIntoTwoLinesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SplitLineIntoTwoLinesResponse | PlainMessage<SplitLineIntoTwoLinesResponse> | undefined, b: SplitLineIntoTwoLinesResponse | PlainMessage<SplitLineIntoTwoLinesResponse> | undefined): boolean {
+    return proto3.util.equals(SplitLineIntoTwoLinesResponse, a, b);
+  }
+}
+
+/**
+ * Join two or more line annotations into one (union bbox, concatenated text).
+ *
+ * @generated from message scribe.v1.JoinAnnotationsRequest
+ */
+export class JoinAnnotationsRequest extends Message<JoinAnnotationsRequest> {
+  /**
+   * @generated from field: repeated string annotation_jsons = 1;
+   */
+  annotationJsons: string[] = [];
+
+  constructor(data?: PartialMessage<JoinAnnotationsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.JoinAnnotationsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "annotation_jsons", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): JoinAnnotationsRequest {
+    return new JoinAnnotationsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): JoinAnnotationsRequest {
+    return new JoinAnnotationsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): JoinAnnotationsRequest {
+    return new JoinAnnotationsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: JoinAnnotationsRequest | PlainMessage<JoinAnnotationsRequest> | undefined, b: JoinAnnotationsRequest | PlainMessage<JoinAnnotationsRequest> | undefined): boolean {
+    return proto3.util.equals(JoinAnnotationsRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message scribe.v1.JoinAnnotationsResponse
+ */
+export class JoinAnnotationsResponse extends Message<JoinAnnotationsResponse> {
+  /**
+   * @generated from field: string annotation_json = 1;
+   */
+  annotationJson = "";
+
+  constructor(data?: PartialMessage<JoinAnnotationsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.JoinAnnotationsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "annotation_json", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): JoinAnnotationsResponse {
+    return new JoinAnnotationsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): JoinAnnotationsResponse {
+    return new JoinAnnotationsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): JoinAnnotationsResponse {
+    return new JoinAnnotationsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: JoinAnnotationsResponse | PlainMessage<JoinAnnotationsResponse> | undefined, b: JoinAnnotationsResponse | PlainMessage<JoinAnnotationsResponse> | undefined): boolean {
+    return proto3.util.equals(JoinAnnotationsResponse, a, b);
+  }
+}
+
+/**
+ * Crosswalk: convert an AnnotationPage (or single annotation) to an export format.
+ *
+ * @generated from message scribe.v1.CrosswalkRequest
+ */
+export class CrosswalkRequest extends Message<CrosswalkRequest> {
+  /**
+   * Provide one of the two fields; annotation_page_json takes priority.
+   *
+   * @generated from field: string annotation_page_json = 1;
+   */
+  annotationPageJson = "";
+
+  /**
+   * @generated from field: string annotation_json = 2;
+   */
+  annotationJson = "";
+
+  constructor(data?: PartialMessage<CrosswalkRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.CrosswalkRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "annotation_page_json", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "annotation_json", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CrosswalkRequest {
+    return new CrosswalkRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CrosswalkRequest {
+    return new CrosswalkRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CrosswalkRequest {
+    return new CrosswalkRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CrosswalkRequest | PlainMessage<CrosswalkRequest> | undefined, b: CrosswalkRequest | PlainMessage<CrosswalkRequest> | undefined): boolean {
+    return proto3.util.equals(CrosswalkRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message scribe.v1.CrosswalkResponse
+ */
+export class CrosswalkResponse extends Message<CrosswalkResponse> {
+  /**
+   * MIME type of the exported content
+   *
+   * @generated from field: string format = 1;
+   */
+  format = "";
+
+  /**
+   * @generated from field: string content = 2;
+   */
+  content = "";
+
+  constructor(data?: PartialMessage<CrosswalkResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.CrosswalkResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "format", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "content", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CrosswalkResponse {
+    return new CrosswalkResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CrosswalkResponse {
+    return new CrosswalkResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CrosswalkResponse {
+    return new CrosswalkResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CrosswalkResponse | PlainMessage<CrosswalkResponse> | undefined, b: CrosswalkResponse | PlainMessage<CrosswalkResponse> | undefined): boolean {
+    return proto3.util.equals(CrosswalkResponse, a, b);
+  }
+}
+

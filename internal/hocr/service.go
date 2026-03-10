@@ -45,18 +45,19 @@ type ProcessingContext struct {
 	SystemPrompt          string
 }
 
-// ProcessImageWithContext runs the full pipeline using the supplied context.
-func (s *Service) ProcessImageWithContext(imagePath string, pctx ProcessingContext) (string, error) {
+// ProcessImageWithContext runs the full pipeline using the supplied context and
+// returns the generated hOCR plus the effective provider/model used.
+func (s *Service) ProcessImageWithContext(imagePath string, pctx ProcessingContext) (string, string, string, error) {
 	goCtx := context.Background()
 
 	width, height, err := s.getImageDimensions(imagePath)
 	if err != nil {
-		return "", fmt.Errorf("get image dimensions: %w", err)
+		return "", "", "", fmt.Errorf("get image dimensions: %w", err)
 	}
 
 	selectedWords, selectedProvider, err := s.detectWithModel(goCtx, imagePath, pctx.SegmentationModel)
 	if err != nil {
-		return "", fmt.Errorf("segmentation failed (model=%s): %w", pctx.SegmentationModel, err)
+		return "", "", "", fmt.Errorf("segmentation failed (model=%s): %w", pctx.SegmentationModel, err)
 	}
 	slog.Info("Word detection complete",
 		"segmentation_model", pctx.SegmentationModel,
@@ -69,30 +70,34 @@ func (s *Service) ProcessImageWithContext(imagePath string, pctx ProcessingConte
 		lines = s.removeOverlappingLines(lines)
 	}
 
-	// For "auto" (competitive) segmentation when tesseract wins, use its detected text
-	// directly without LLM re-transcription.  The words are grouped into lines and
-	// the per-line text is assembled from what tesseract already read.
+	// For explicit tesseract segmentation or "auto" when tesseract wins, use the
+	// detected tesseract text directly without an LLM pass.
 	seg := strings.ToLower(strings.TrimSpace(pctx.SegmentationModel))
-	if (seg == "auto" || seg == "") && selectedProvider == "tesseract" {
-		slog.Info("Auto mode: tesseract wins – using tesseract text directly (no LLM)",
+	if seg == "tesseract" || ((seg == "auto" || seg == "") && selectedProvider == "tesseract") {
+		slog.Info("Using tesseract text directly (no LLM)",
+			"segmentation_model", seg,
 			"line_count", len(lines))
 		transcribedWords := s.transcribeTesseractDirect(lines, width)
 		// Pass "custom" so generateHOCRFromWords emits one line-span per entry.
-		return s.generateHOCRFromWords(transcribedWords, lines, width, height, "custom"), nil
+		return s.generateHOCRFromWords(transcribedWords, lines, width, height, "custom"), "tesseract", "tesseract", nil
 	}
 
 	llmProvider, providerName, err := s.initLLMProvider(pctx.TranscriptionProvider)
 	if err != nil {
-		return "", fmt.Errorf("init LLM provider: %w", err)
+		return "", "", "", fmt.Errorf("init LLM provider: %w", err)
+	}
+	model := strings.TrimSpace(pctx.TranscriptionModel)
+	if model == "" {
+		model = s.getModelForProvider(providerName)
 	}
 
 	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, width, height,
-		llmProvider, providerName, selectedProvider, lines, pctx.TranscriptionModel)
+		llmProvider, providerName, selectedProvider, lines, model)
 	if err != nil {
-		return "", fmt.Errorf("transcribe words: %w", err)
+		return "", "", "", fmt.Errorf("transcribe words: %w", err)
 	}
 
-	return s.generateHOCRFromWords(transcribedWords, lines, width, height, selectedProvider), nil
+	return s.generateHOCRFromWords(transcribedWords, lines, width, height, selectedProvider), providerName, model, nil
 }
 
 // transcribeTesseractDirect converts already-grouped lines of tesseract WordBoxes into

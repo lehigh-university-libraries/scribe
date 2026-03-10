@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { GetOCRRunRequest, OCRRun, ProcessHOCRRequest, ProcessImageResponse, ProcessImageUploadRequest, ProcessImageURLRequest, SaveOCREditsRequest, SaveOCREditsResponse } from "./process_pb.js";
+import { GetOCRRunRequest, OCRRun, ProcessHOCRRequest, ProcessImageResponse, ProcessImageUploadRequest, ProcessImageURLRequest, ReprocessItemImageRequest, ReprocessItemImageResponse, SaveOCREditsRequest, SaveOCREditsResponse } from "./process_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -55,6 +55,15 @@ export const ImageProcessingService = {
       name: "SaveOCREdits",
       I: SaveOCREditsRequest,
       O: SaveOCREditsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc scribe.v1.ImageProcessingService.ReprocessItemImage
+     */
+    reprocessItemImage: {
+      name: "ReprocessItemImage",
+      I: ReprocessItemImageRequest,
+      O: ReprocessItemImageResponse,
       kind: MethodKind.Unary,
     },
   }

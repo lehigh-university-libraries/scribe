@@ -36,8 +36,8 @@ func main() {
 	contextStore := store.NewContextStore(dbPool)
 	annotationStore := store.NewAnnotationStore(dbPool)
 
-	if err := contextStore.EnsureDefault(context.Background(), defaultContextFromEnv()); err != nil {
-		slog.Error("failed to seed default context", "err", err)
+	if err := seedSystemContexts(context.Background(), contextStore); err != nil {
+		slog.Error("failed to seed system contexts", "err", err)
 		os.Exit(1)
 	}
 
@@ -102,11 +102,47 @@ func defaultContextFromEnv() store.Context {
 
 	return store.Context{
 		Name:                  "Default",
-		Description:           "System default context seeded from environment configuration",
+		Description:           "System default context. Runs both Tesseract and the Scribe segmentor, then keeps whichever finds more words.",
 		IsDefault:             true,
 		SegmentationModel:     segModel,
 		TranscriptionProvider: provider,
 		TranscriptionModel:    model,
 		SystemPrompt:          strings.TrimSpace(os.Getenv("DEFAULT_SYSTEM_PROMPT")),
 	}
+}
+
+func systemContextsFromEnv() []store.Context {
+	defaultCtx := defaultContextFromEnv()
+	return []store.Context{
+		defaultCtx,
+		{
+			Name:                  "Tesseract OCR",
+			Description:           "Built-in system context that uses Tesseract segmentation and Tesseract transcription directly.",
+			IsDefault:             false,
+			SegmentationModel:     "tesseract",
+			TranscriptionProvider: "tesseract",
+			TranscriptionModel:    "tesseract",
+		},
+		{
+			Name:                  "Scribe Custom",
+			Description:           "Built-in system context that uses the Scribe custom segmentor and line-by-line LLM transcription.",
+			IsDefault:             false,
+			SegmentationModel:     "scribe",
+			TranscriptionProvider: defaultCtx.TranscriptionProvider,
+			TranscriptionModel:    defaultCtx.TranscriptionModel,
+			SystemPrompt:          defaultCtx.SystemPrompt,
+		},
+	}
+}
+
+func seedSystemContexts(ctx context.Context, contextStore *store.ContextStore) error {
+	if err := contextStore.EnsureDefault(ctx, defaultContextFromEnv()); err != nil {
+		return err
+	}
+	for _, systemCtx := range systemContextsFromEnv() {
+		if err := contextStore.EnsureSystemContext(ctx, systemCtx); err != nil {
+			return err
+		}
+	}
+	return nil
 }

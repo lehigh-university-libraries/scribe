@@ -27,7 +27,7 @@ const mapStateToProps = (state, { windowId }) => ({
 
 const mapDispatchToProps = (dispatch, { windowId }) => ({
   openScribeWindow: () => dispatch(
-    addOrUpdateCompanionWindowAction(windowId, { content: 'scribeEditor', position: 'right' }),
+    addOrUpdateCompanionWindowAction(windowId, { content: 'scribeEditor', position: 'bottom' }),
   ),
 });
 

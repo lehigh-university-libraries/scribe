@@ -1,18 +1,12 @@
-async function successOrThrow(response) {
-  if (!response.ok) {
-    throw new Error(`Fetch error: response ${response.status} on url: ${response.url}`);
-  }
-}
-
 export default class ScribeAnnotationAdapter {
-  constructor(endpointUrl, iiifPresentationVersion, canvasId, user) {
+  constructor(endpointUrl, iiifPresentationVersion, canvasId, user, client = null) {
     if (iiifPresentationVersion !== 3) {
       throw new Error(`ScribeAnnotationAdapter expects IIIF Presentation 3, got '${iiifPresentationVersion}'`);
     }
     this.user = user || 'Scribe User';
     this.canvasId = canvasId;
     this.endpointUrl = endpointUrl;
-    this.endpointUrlAnnotations = `${endpointUrl}/annotations/${iiifPresentationVersion}`;
+    this.client = client;
   }
 
   getStorageAdapterUser() {
@@ -20,7 +14,14 @@ export default class ScribeAnnotationAdapter {
   }
 
   get annotationPageId() {
-    return `${this.endpointUrlAnnotations}/search?canvasUri=${encodeURIComponent(this.canvasId)}`;
+    return `urn:scribe:annotation-page:${encodeURIComponent(this.canvasId)}`;
+  }
+
+  requireClient(methodName) {
+    if (!this.client) {
+      throw new Error(`${methodName} requires an injected Scribe Connect client`);
+    }
+    return this.client;
   }
 
   async create(annotation) {
@@ -29,16 +30,7 @@ export default class ScribeAnnotationAdapter {
   }
 
   async createOne(annotation) {
-    const response = await fetch(`${this.endpointUrlAnnotations}/create`, {
-      method: 'POST',
-      body: JSON.stringify(annotation),
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-    await successOrThrow(response);
-    return response.json();
+    return this.requireClient('createOne').createAnnotation(JSON.stringify(annotation));
   }
 
   async update(annotation) {
@@ -47,16 +39,7 @@ export default class ScribeAnnotationAdapter {
   }
 
   async updateOne(annotation) {
-    const response = await fetch(`${this.endpointUrlAnnotations}/update`, {
-      method: 'POST',
-      body: JSON.stringify(annotation),
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-    await successOrThrow(response);
-    return response.json();
+    return this.requireClient('updateOne').updateAnnotation(JSON.stringify(annotation));
   }
 
   async delete(annotationId) {
@@ -65,147 +48,60 @@ export default class ScribeAnnotationAdapter {
   }
 
   async deleteOne(annotationId) {
-    const response = await fetch(`${this.endpointUrlAnnotations}/delete?uri=${encodeURIComponent(annotationId)}`, {
-      method: 'DELETE',
-    });
-    await successOrThrow(response);
-    return response.text();
+    return this.requireClient('deleteOne').deleteAnnotation(annotationId);
   }
 
   async get(annotationId) {
-    const response = await fetch(annotationId);
-    await successOrThrow(response);
-    return response.json();
-  }
-
-  async splitAnnotationIntoWords(annotation, words = []) {
-    const response = await fetch(`${this.endpointUrl}/scribe.v1.AnnotationService/SplitAnnotationIntoWords`, {
-      method: 'POST',
-      body: JSON.stringify({
-        annotation_json: JSON.stringify(annotation),
-        words,
-      }),
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-    await successOrThrow(response);
-    return response.json();
-  }
-
-  async splitLineIntoWords(annotation, words = []) {
-    return this.splitAnnotationIntoWords(annotation, words);
-  }
-
-  async splitAnnotationIntoTwoLines(annotation, splitAtWord = 0) {
-    const response = await fetch(`${this.endpointUrl}/scribe.v1.AnnotationService/SplitAnnotationIntoTwoLines`, {
-      method: 'POST',
-      body: JSON.stringify({
-        annotation_json: JSON.stringify(annotation),
-        split_at_word: splitAtWord,
-      }),
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-    await successOrThrow(response);
-    return response.json();
-  }
-
-  async splitLineIntoTwoLines(annotation, splitAtWord = 0) {
-    return this.splitAnnotationIntoTwoLines(annotation, splitAtWord);
-  }
-
-  async mergeAnnotationsIntoLine(annotations) {
-    const response = await fetch(`${this.endpointUrl}/scribe.v1.AnnotationService/MergeAnnotationsIntoLine`, {
-      method: 'POST',
-      body: JSON.stringify({
-        annotation_jsons: annotations.map((annotation) => JSON.stringify(annotation)),
-      }),
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-    await successOrThrow(response);
-    return response.json();
-  }
-
-  async joinLinesIntoLine(annotations) {
-    return this.mergeAnnotationsIntoLine(annotations);
-  }
-
-  async mergeWordsIntoLineAnnotation(annotations) {
-    const response = await fetch(`${this.endpointUrl}/scribe.v1.AnnotationService/MergeWordsIntoLineAnnotation`, {
-      method: 'POST',
-      body: JSON.stringify({
-        annotation_jsons: annotations.map((annotation) => JSON.stringify(annotation)),
-      }),
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-    await successOrThrow(response);
-    return response.json();
-  }
-
-  async joinWordsIntoLine(annotations) {
-    return this.mergeWordsIntoLineAnnotation(annotations);
-  }
-
-  async transcribeAnnotation(annotation, contextId = 0) {
-    const response = await fetch(`${this.endpointUrl}/scribe.v1.AnnotationService/TranscribeAnnotation`, {
-      method: 'POST',
-      body: JSON.stringify({
-        annotation_json: JSON.stringify(annotation),
-        context_id: contextId,
-      }),
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-    await successOrThrow(response);
-    return response.json();
-  }
-
-  async transcribeAnnotationPage(annotationPage, contextId = 0) {
-    const response = await fetch(`${this.endpointUrl}/scribe.v1.AnnotationService/TranscribeAnnotationPage`, {
-      method: 'POST',
-      body: JSON.stringify({
-        annotation_page_json: JSON.stringify(annotationPage),
-        context_id: contextId,
-      }),
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-    });
-    await successOrThrow(response);
-    return response.json();
+    return this.requireClient('get').getAnnotation(annotationId);
   }
 
   async all() {
-    const items = [];
-    let nextPage = this.annotationPageId;
-    let page;
-
-    while (nextPage) {
-      const response = await fetch(nextPage);
-      await successOrThrow(response);
-      page = await response.json();
-      items.push(...(Array.isArray(page?.items) ? page.items : []));
-      nextPage = page?.next || '';
-    }
-
+    const page = await this.requireClient('all').searchAnnotations(this.canvasId);
     return {
       '@context': page?.['@context'] || 'http://iiif.io/api/presentation/3/context.json',
       id: page?.id || this.annotationPageId,
-      items,
+      items: Array.isArray(page?.items) ? page.items : [],
       type: 'AnnotationPage',
     };
+  }
+
+  async splitLineIntoWords(annotation, words = []) {
+    return this.requireClient('splitLineIntoWords').splitLineIntoWords(JSON.stringify(annotation), words);
+  }
+
+  async splitAnnotationIntoWords(annotation, words = []) {
+    return this.splitLineIntoWords(annotation, words);
+  }
+
+  async splitLineIntoTwoLines(annotation, splitAtWord = 0) {
+    return this.requireClient('splitLineIntoTwoLines').splitLineIntoTwoLines(JSON.stringify(annotation), splitAtWord);
+  }
+
+  async splitAnnotationIntoTwoLines(annotation, splitAtWord = 0) {
+    return this.splitLineIntoTwoLines(annotation, splitAtWord);
+  }
+
+  async joinLinesIntoLine(annotations) {
+    return this.requireClient('joinLinesIntoLine').joinLines(annotations.map((a) => JSON.stringify(a)));
+  }
+
+  async mergeAnnotationsIntoLine(annotations) {
+    return this.joinLinesIntoLine(annotations);
+  }
+
+  async joinWordsIntoLine(annotations) {
+    return this.requireClient('joinWordsIntoLine').joinWordsIntoLine(annotations.map((a) => JSON.stringify(a)));
+  }
+
+  async mergeWordsIntoLineAnnotation(annotations) {
+    return this.joinWordsIntoLine(annotations);
+  }
+
+  async transcribeAnnotation(annotation, contextId = 0) {
+    return this.requireClient('transcribeAnnotation').enrichAnnotation('line', JSON.stringify(annotation), contextId);
+  }
+
+  async transcribeAnnotationPage(annotationPage, contextId = 0) {
+    return this.requireClient('transcribeAnnotationPage').enrichAnnotation('page', JSON.stringify(annotationPage), contextId);
   }
 }

@@ -86,6 +86,53 @@ func (s *ContextStore) EnsureDefault(ctx context.Context, defaultCtx Context) er
 	return err
 }
 
+// EnsureSystemContext creates or updates a named system context so built-in
+// contexts remain available across restarts.
+func (s *ContextStore) EnsureSystemContext(ctx context.Context, desired Context) error {
+	desired.UserID = nil
+	desired.Name = strings.TrimSpace(desired.Name)
+	if desired.Name == "" {
+		return fmt.Errorf("system context name is required")
+	}
+
+	existing, err := s.List(ctx, true)
+	if err != nil {
+		return fmt.Errorf("list system contexts: %w", err)
+	}
+	for _, current := range existing {
+		if !strings.EqualFold(strings.TrimSpace(current.Name), desired.Name) {
+			continue
+		}
+		desired.ID = current.ID
+		if desired.IsDefault && current.IsDefault {
+			// Keep the existing default in place, but refresh its other fields.
+			return s.updateSystemContext(ctx, desired)
+		}
+		if desired.IsDefault && !current.IsDefault {
+			desired.IsDefault = false
+		}
+		return s.updateSystemContext(ctx, desired)
+	}
+
+	if desired.IsDefault {
+		hasDefault, err := s.q.HasDefaultContext(ctx)
+		if err != nil {
+			return fmt.Errorf("check default context: %w", err)
+		}
+		if hasDefault {
+			desired.IsDefault = false
+		}
+	}
+
+	_, err = s.Create(ctx, desired)
+	return err
+}
+
+func (s *ContextStore) updateSystemContext(ctx context.Context, desired Context) error {
+	_, err := s.Update(ctx, desired)
+	return err
+}
+
 func (s *ContextStore) Create(ctx context.Context, c Context) (Context, error) {
 	preprocessorsJSON := marshalJSON(c.ImagePreprocessors)
 	postStepsJSON := marshalJSON(c.PostProcessingSteps)

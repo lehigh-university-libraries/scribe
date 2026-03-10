@@ -188,7 +188,7 @@ func (h *Handler) processDataWithContext(imageData []byte, contentType, filename
 	imageLocalURL := "/static/uploads/" + imageFilename
 	width, height := utils.GetImageDimensions(imageFilePath)
 
-	hocrXML, err := h.hocrService.ProcessImageWithContext(imageFilePath, pctx)
+	hocrXML, provider, model, err := h.hocrService.ProcessImageWithContext(imageFilePath, pctx)
 	if err != nil {
 		return nil, fmt.Errorf("process image with context: %w", err)
 	}
@@ -215,5 +215,7 @@ func (h *Handler) processDataWithContext(imageData []byte, contentType, filename
 		HOCR:      hocrXML,
 		PlainText: plainText,
 		ImageURL:  imageLocalURL,
+		Provider:  provider,
+		Model:     model,
 	}, nil
 }

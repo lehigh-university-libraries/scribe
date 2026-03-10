@@ -239,6 +239,74 @@ export function groupAnnotationsForEditor(page) {
   });
 }
 
+export function rowText(row) {
+  const fields = Array.isArray(row?.fields) ? row.fields : [];
+  if (fields.length === 0) return '';
+  if (row?.granularity === 'word') {
+    return fields.map((annotation) => annotationText(annotation)).join(' ').trim();
+  }
+  return annotationText(row?.lead || fields[0]);
+}
+
+export function rowBBox(row) {
+  const fields = Array.isArray(row?.fields) ? row.fields : [];
+  const annotations = [row?.lead, ...fields].filter(Boolean);
+  if (annotations.length === 0) {
+    return {
+      h: 0,
+      w: 0,
+      x: 0,
+      y: 0,
+    };
+  }
+
+  const boxes = annotations.map((annotation) => annotationBBox(annotation));
+  const left = Math.min(...boxes.map((box) => box.x));
+  const top = Math.min(...boxes.map((box) => box.y));
+  const right = Math.max(...boxes.map((box) => box.x + box.w));
+  const bottom = Math.max(...boxes.map((box) => box.y + box.h));
+
+  return {
+    h: Math.max(0, bottom - top),
+    w: Math.max(0, right - left),
+    x: left,
+    y: top,
+  };
+}
+
+export function lineAnnotationForSelection(page, annotation) {
+  if (!page || !annotation) return null;
+  if (isLineAnnotation(annotation)) return annotation;
+  const items = Array.isArray(page?.items) ? page.items : [];
+  return items.find((candidate) => (
+    isLineAnnotation(candidate) && annotationsShareLine(candidate, annotation)
+  )) || null;
+}
+
+export function rowSelectionId(row) {
+  return row?.lead?.id || row?.fields?.[0]?.id || '';
+}
+
+export function findEditorRowByAnnotationId(page, annotationId) {
+  if (!annotationId) return null;
+  return groupAnnotationsForEditor(page).find((row) => (
+    row?.lead?.id === annotationId
+      || (Array.isArray(row?.fields) && row.fields.some((annotation) => annotation.id === annotationId))
+  )) || null;
+}
+
+export function wordAnnotationIdForCaret(row, value, selectionStart) {
+  if (row?.granularity !== 'word' || !Array.isArray(row?.fields) || row.fields.length === 0) {
+    return rowSelectionId(row);
+  }
+  const text = String(value || '');
+  const caret = Math.max(0, Math.min(selectionStart ?? text.length, text.length));
+  const beforeCaret = text.slice(0, caret);
+  const tokensBeforeCaret = beforeCaret.trim().length === 0 ? 0 : beforeCaret.trim().split(/\s+/).length - 1;
+  const clampedIndex = Math.max(0, Math.min(tokensBeforeCaret, row.fields.length - 1));
+  return row.fields[clampedIndex]?.id || rowSelectionId(row);
+}
+
 export function joinWordCandidates(selectedAnnotation, annotations) {
   if (!isWordAnnotation(selectedAnnotation)) return [];
   const candidates = sortedAnnotations({
@@ -268,6 +336,48 @@ export function synchronizeLineTextFromWords(page, changedWordAnnotation) {
   return upsertAnnotationInPage(page, nextLine);
 }
 
+function distributeRowTextAcrossWords(words, text) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  const tokens = normalized ? normalized.split(' ') : [];
+  if (!Array.isArray(words) || words.length === 0) return [];
+
+  return words.map((word, index) => {
+    let nextText = '';
+    if (tokens.length === words.length) {
+      nextText = tokens[index] || '';
+    } else if (tokens.length < words.length) {
+      nextText = tokens[index] || '';
+    } else if (index === words.length - 1) {
+      nextText = tokens.slice(index).join(' ');
+    } else {
+      nextText = tokens[index] || '';
+    }
+    return updateAnnotationText(word, nextText);
+  });
+}
+
+export function updateRowText(page, row, text) {
+  if (!page || !row) return page;
+
+  const fields = Array.isArray(row.fields) ? row.fields : [];
+  if (row.granularity !== 'word' || fields.length === 0) {
+    const target = row.lead || fields[0];
+    return target ? upsertAnnotationInPage(page, updateAnnotationText(target, text)) : page;
+  }
+
+  let nextPage = structuredClone(page);
+  const nextWords = distributeRowTextAcrossWords(fields, text);
+  nextWords.forEach((word) => {
+    nextPage = upsertAnnotationInPage(nextPage, word);
+  });
+
+  if (row.lead && isLineAnnotation(row.lead)) {
+    nextPage = upsertAnnotationInPage(nextPage, updateAnnotationText(row.lead, text));
+  }
+
+  return nextPage;
+}
+
 export function joinLineCandidates(selectedAnnotation, annotations) {
   if (!isLineAnnotation(selectedAnnotation)) return [];
   const lines = sortedAnnotations({
@@ -288,6 +398,18 @@ export function findAnnotationForWindow(state, canvases, annotationId) {
     if (annotation) return annotation;
   }
   return null;
+}
+
+export function updateAnnotationBBox(annotation, { x, y, w, h }) {
+  const next = structuredClone(annotation);
+  const selector = next?.target?.selector;
+  const fragment = Array.isArray(selector)
+    ? selector.find((item) => item?.type === 'FragmentSelector')
+    : (selector?.type === 'FragmentSelector' ? selector : null);
+  if (fragment) {
+    fragment.value = `xywh=${Math.round(x)},${Math.round(y)},${Math.max(1, Math.round(w))},${Math.max(1, Math.round(h))}`;
+  }
+  return next;
 }
 
 export function updateAnnotationText(annotation, text) {

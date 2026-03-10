@@ -31,11 +31,42 @@ type OCRRun struct {
 }
 
 type OCRRunStore struct {
-	q *db.Queries
+	q    *db.Queries
+	pool *sql.DB
 }
 
 func NewOCRRunStore(pool *sql.DB) *OCRRunStore {
-	return &OCRRunStore{q: db.New(pool)}
+	return &OCRRunStore{q: db.New(pool), pool: pool}
+}
+
+// ContextMetrics holds aggregate statistics for all OCR runs belonging to a context.
+type ContextMetrics struct {
+	ContextID              uint64  `json:"context_id"`
+	TotalRuns              int64   `json:"total_runs"`
+	CorrectedRuns          int64   `json:"corrected_runs"`
+	AvgLevenshteinDistance float64 `json:"avg_levenshtein_distance"`
+	AvgEditCount           float64 `json:"avg_edit_count"`
+	AvgBoxChangeScore      float64 `json:"avg_box_change_score"`
+}
+
+// GetContextMetrics returns aggregate metrics for all OCR runs in the given context.
+func (s *OCRRunStore) GetContextMetrics(ctx context.Context, contextID uint64) (ContextMetrics, error) {
+	var m ContextMetrics
+	m.ContextID = contextID
+	err := s.pool.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*) AS total_runs,
+			COALESCE(SUM(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN 1 ELSE 0 END), 0) AS corrected_runs,
+			COALESCE(AVG(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN levenshtein_distance END), 0) AS avg_lev,
+			COALESCE(AVG(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN edit_count END), 0) AS avg_edit,
+			COALESCE(AVG(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN box_change_score END), 0) AS avg_box
+		FROM ocr_runs
+		WHERE context_id = ?
+	`, contextID).Scan(&m.TotalRuns, &m.CorrectedRuns, &m.AvgLevenshteinDistance, &m.AvgEditCount, &m.AvgBoxChangeScore)
+	if err != nil {
+		return ContextMetrics{}, fmt.Errorf("get context metrics: %w", err)
+	}
+	return m, nil
 }
 
 func (s *OCRRunStore) Create(ctx context.Context, run OCRRun) error {

@@ -3,6 +3,39 @@ import { processImageURL, processImageUpload } from "../api/processing";
 import { uint64ToString, escHtml } from "../lib/util";
 import type { Item } from "../proto/scribe/v1/item_pb";
 
+function exportHref(itemImageId: string, format: "hocr" | "pagexml" | "alto" | "txt"): string {
+  return `/v1/item-images/${encodeURIComponent(itemImageId)}/export?format=${encodeURIComponent(format)}`;
+}
+
+function renderExportSelect(itemImageId: string): string {
+  return `
+    <label class="inline-flex items-center gap-2 text-xs text-slate-400">
+      <span>Download</span>
+      <select data-export-select="${escHtml(itemImageId)}" class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200">
+        <option value="">Select format</option>
+        <option value="hocr">hOCR</option>
+        <option value="pagexml">PAGE XML</option>
+        <option value="alto">ALTO XML</option>
+        <option value="txt">Plain text</option>
+      </select>
+    </label>`;
+}
+
+function renderImageExports(item: Item): string {
+  if (item.images.length === 0) {
+    return `<span class="text-xs text-slate-500">No images</span>`;
+  }
+
+  return item.images.map((image) => {
+    const itemImageId = uint64ToString(image.id);
+
+    return `
+      <div class="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
+        ${renderExportSelect(itemImageId)}
+      </div>`;
+  }).join("");
+}
+
 export async function renderHome(app: HTMLElement): Promise<void> {
   app.innerHTML = `
     <main class="min-h-screen bg-slate-950">
@@ -11,7 +44,8 @@ export async function renderHome(app: HTMLElement): Promise<void> {
           <div class="flex items-center gap-4">
             <a href="/" class="text-2xl font-bold tracking-tight">Scribe</a>
             <nav class="flex items-center gap-2 text-sm text-slate-300">
-              <a href="/" class="rounded border border-slate-700 px-3 py-2 hover:bg-slate-800">Home</a>
+              <a href="/" class="rounded border border-slate-600 bg-slate-800 px-3 py-2">Home</a>
+              <a href="/contexts" class="rounded border border-slate-700 px-3 py-2 hover:bg-slate-800">Contexts</a>
             </nav>
           </div>
           <p class="text-sm text-slate-300">Process images for OCR and edit annotations.</p>
@@ -139,24 +173,36 @@ export async function renderHome(app: HTMLElement): Promise<void> {
     }
 
     const rows = items.map(item => {
-      const firstImageId = item.images[0] ? uint64ToString(item.images[0].id) : "";
-      const editHref = firstImageId ? `/editor?itemImageId=${encodeURIComponent(firstImageId)}` : "";
-      const editBtn = editHref
-        ? `<a href="${editHref}" class="rounded bg-emerald-700 px-2 py-1 text-xs font-medium hover:bg-emerald-600">Edit</a>`
-        : `<span class="text-xs text-slate-500">No images</span>`;
       return `
-        <tr class="border-t border-slate-800 hover:bg-slate-800/40">
-          <td class="px-3 py-2 text-sm">${escHtml(item.name || item.id)}</td>
+        <tr class="border-t border-slate-800 align-top hover:bg-slate-800/40">
+          <td class="px-3 py-3">
+            <p class="text-sm">${escHtml(item.name || item.id)}</p>
+            <p class="mt-1 text-xs text-slate-500">${escHtml(item.id)}</p>
+          </td>
           <td class="px-3 py-2 text-xs text-slate-400">${escHtml(item.sourceType)}</td>
           <td class="px-3 py-2 text-xs text-slate-400 text-center">${item.images.length}</td>
           <td class="px-3 py-2 text-xs text-slate-400">${escHtml(item.createdAt.slice(0, 10))}</td>
           <td class="px-3 py-2">
-            <div class="flex gap-2">
-              ${editBtn}
+            <div class="space-y-2">
+              ${item.images.length === 0
+                ? `<span class="text-xs text-slate-500">No images</span>`
+                : item.images.map((image) => {
+                    const itemImageId = uint64ToString(image.id);
+                    const editHref = `/editor?itemImageId=${encodeURIComponent(itemImageId)}`;
+                    return `
+                      <div class="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
+                        <a href="${editHref}" class="rounded bg-emerald-700 px-2 py-1 text-xs font-medium hover:bg-emerald-600">Edit</a>
+                      </div>`;
+                  }).join("")}
               <button data-delete="${escHtml(item.id)}"
                 class="rounded border border-red-800 px-2 py-1 text-xs text-red-400 hover:bg-red-900/40">
-                Delete
+                Delete item
               </button>
+            </div>
+          </td>
+          <td class="px-3 py-2">
+            <div class="space-y-2">
+              ${renderImageExports(item)}
             </div>
           </td>
         </tr>`;
@@ -171,6 +217,7 @@ export async function renderHome(app: HTMLElement): Promise<void> {
             <th class="px-3 pb-2 font-medium text-center">Images</th>
             <th class="px-3 pb-2 font-medium">Created</th>
             <th class="px-3 pb-2 font-medium">Actions</th>
+            <th class="px-3 pb-2 font-medium">Download</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -186,6 +233,16 @@ export async function renderHome(app: HTMLElement): Promise<void> {
         } catch (err) {
           alert(`Delete failed: ${String(err)}`);
         }
+      });
+    });
+
+    container.querySelectorAll<HTMLSelectElement>("[data-export-select]").forEach((select) => {
+      select.addEventListener("change", () => {
+        const itemImageId = select.dataset.exportSelect;
+        const format = select.value as "" | "hocr" | "pagexml" | "alto" | "txt";
+        if (!itemImageId || !format) return;
+        window.location.href = exportHref(itemImageId, format);
+        select.value = "";
       });
     });
   }

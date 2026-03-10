@@ -15,6 +15,7 @@ build: ## Build the Docker image used for runtime
 	@IMAGE="$(IMAGE)" ./ci/build.sh
 
 up: ## Start services in detached mode
+	@test -f .env || cp sample.env .env
 	@docker compose up -d
 
 logs: ## Follow logs for the API

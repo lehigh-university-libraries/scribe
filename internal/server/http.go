@@ -126,19 +126,6 @@ func NewHandler(
 	annotationAPIPath, annotationAPIHandler := scribev1connect.NewAnnotationServiceHandler(handler)
 	mux.Handle(annotationAPIPath, annotationAPIHandler)
 
-	// Generic IIIF annotation action routes (Text Granularity Extension aware).
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/SplitAnnotationIntoWords", handler.handleSplitAnnotationIntoWords)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/SplitAnnotationIntoTwoLines", handler.handleSplitAnnotationIntoTwoLines)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/MergeAnnotationsIntoLine", handler.handleMergeAnnotationsIntoLine)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/MergeWordsIntoLineAnnotation", handler.handleMergeWordsIntoLineAnnotation)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/TranscribeAnnotation", handler.handleTranscribeAnnotation)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/TranscribeAnnotationPage", handler.handleTranscribeAnnotationPage)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/CrosswalkToPlainText", handler.handleCrosswalkToPlainText)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/CrosswalkToHOCR", handler.handleCrosswalkToHOCR)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/CrosswalkToPageXML", handler.handleCrosswalkToPageXML)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/CrosswalkToALTOXML", handler.handleCrosswalkToALTOXML)
-	mux.HandleFunc("POST /scribe.v1.ImageProcessingService/ReprocessItemImageWithContext", handler.handleReprocessItemImageWithContext)
-
 	// Health
 	mux.HandleFunc("GET /healthz", handler.handleHealth)
 
@@ -146,14 +133,10 @@ func NewHandler(
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/manifest", handler.handleGetIIIFManifest)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/annotations", handler.handleGetIIIFAnnotations)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/hocr", handler.handleGetHOCR)
+	mux.HandleFunc("GET /v1/item-images/{item_image_id}/export", handler.handleExportAnnotations)
 
-	// Annotation HTTP routes
-	mux.HandleFunc("GET /v1/annotations/3/search", handler.handleAnnotationSearch)
-	mux.HandleFunc("POST /v1/annotations/3/create", handler.handleAnnotationCreate)
-	mux.HandleFunc("POST /v1/annotations/3/update", handler.handleAnnotationUpdate)
-	mux.HandleFunc("DELETE /v1/annotations/3/delete", handler.handleAnnotationDelete)
-	mux.HandleFunc("GET /v1/annotations/3/item/{id}", handler.handleAnnotationGet)
-	mux.HandleFunc("POST /v1/annotations/3/enrich", handler.handleAnnotationEnrich)
+	// Context metrics
+	mux.HandleFunc("GET /v1/contexts/{context_id}/metrics", handler.handleGetContextMetrics)
 
 	// Static assets
 	mux.Handle("GET /static/uploads/", http.StripPrefix("/static/uploads/", http.FileServer(http.Dir("uploads"))))
@@ -211,7 +194,7 @@ func (h *Handler) handleGetHOCR(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) {
-	run, manifestPath, _, hocrPath, err := h.resolveRunAndIIIFPaths(r)
+	run, manifestPath, annotationsPath, hocrPath, err := h.resolveRunAndIIIFPaths(r)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
 			writeError(w, http.StatusNotFound, err.Error())
@@ -245,11 +228,7 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 	canvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
 	paintingPageID := fmt.Sprintf("%s/page/painting", manifestID)
 	paintingAnnID := fmt.Sprintf("%s/annotation/painting-1", manifestID)
-	annotationAPIBase := strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
-	if annotationAPIBase == "" {
-		annotationAPIBase = apiBase
-	}
-	annotationPageID := fmt.Sprintf("%s/v1/annotations/3/search?canvasUri=%s", annotationAPIBase, url.QueryEscape(canvasID))
+	annotationPageURI := apiBase + annotationsPath
 	seeAlsoID := apiBase + hocrPath
 
 	iiifBase := strings.TrimRight(strings.TrimSpace(os.Getenv("CANTALOUPE_IIIF_BASE")), "/")
@@ -293,7 +272,7 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 				},
 				"annotations": []any{
 					map[string]any{
-						"id":   annotationPageID,
+						"id":   annotationPageURI,
 						"type": "AnnotationPage",
 					},
 				},
@@ -365,21 +344,21 @@ func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "unable to parse hocr lines")
 			return
 		}
-		items = buildLineAnnotations(apiBase, annotationScopeID, canvasID, lines)
+		items = buildLineAnnotations(annotationScopeID, canvasID, lines)
 	case "word":
 		words, err := hocr.ParseHOCRWords(hocrXML)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "unable to parse hocr words")
 			return
 		}
-		items = buildWordAnnotations(apiBase, annotationScopeID, canvasID, words)
+		items = buildWordAnnotations(annotationScopeID, canvasID, words)
 	case "glyph":
 		wordGlyphs, err := hocr.ParseHOCRWordGlyphs(hocrXML)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "unable to parse hocr glyphs")
 			return
 		}
-		items = buildGlyphAnnotations(apiBase, annotationScopeID, canvasID, wordGlyphs)
+		items = buildGlyphAnnotations(annotationScopeID, canvasID, wordGlyphs)
 	}
 
 	payload := map[string]any{
@@ -406,7 +385,7 @@ func joinLineWords(line models.HOCRLine) string {
 	return strings.TrimSpace(strings.Join(parts, " "))
 }
 
-func buildLineAnnotations(apiBase, sessionID, canvasID string, lines []models.HOCRLine) []any {
+func buildLineAnnotations(sessionID, canvasID string, lines []models.HOCRLine) []any {
 	items := make([]any, 0, len(lines))
 	for i, line := range lines {
 		width := line.BBox.X2 - line.BBox.X1
@@ -419,13 +398,13 @@ func buildLineAnnotations(apiBase, sessionID, canvasID string, lines []models.HO
 		if lineID == "" {
 			lineID = fmt.Sprintf("line-%d", i+1)
 		}
-		annID := fmt.Sprintf("%s/v1/annotations/3/item/%s-line-%s", apiBase, url.PathEscape(sessionID), url.PathEscape(lineID))
+		annID := annotationID(sessionID, "line", lineID)
 		items = append(items, transcriptionAnnotation(annID, "line", text, canvasID, line.BBox))
 	}
 	return items
 }
 
-func buildWordAnnotations(apiBase, sessionID, canvasID string, words []models.HOCRWord) []any {
+func buildWordAnnotations(sessionID, canvasID string, words []models.HOCRWord) []any {
 	items := make([]any, 0, len(words))
 	for i, word := range words {
 		width := word.BBox.X2 - word.BBox.X1
@@ -437,13 +416,13 @@ func buildWordAnnotations(apiBase, sessionID, canvasID string, words []models.HO
 		if wordID == "" {
 			wordID = fmt.Sprintf("word-%d", i+1)
 		}
-		annID := fmt.Sprintf("%s/v1/annotations/3/item/%s-word-%s", apiBase, url.PathEscape(sessionID), url.PathEscape(wordID))
+		annID := annotationID(sessionID, "word", wordID)
 		items = append(items, transcriptionAnnotation(annID, "word", strings.TrimSpace(word.Text), canvasID, word.BBox))
 	}
 	return items
 }
 
-func buildGlyphAnnotations(apiBase, sessionID, canvasID string, wordGlyphs []hocr.WordWithGlyphs) []any {
+func buildGlyphAnnotations(sessionID, canvasID string, wordGlyphs []hocr.WordWithGlyphs) []any {
 	items := make([]any, 0)
 	count := 0
 	for _, ww := range wordGlyphs {
@@ -458,7 +437,7 @@ func buildGlyphAnnotations(apiBase, sessionID, canvasID string, wordGlyphs []hoc
 			if glyphID == "" {
 				glyphID = fmt.Sprintf("%s-glyph-%d", ww.Word.ID, count)
 			}
-			annID := fmt.Sprintf("%s/v1/annotations/3/item/%s-glyph-%s", apiBase, url.PathEscape(sessionID), url.PathEscape(glyphID))
+			annID := annotationID(sessionID, "glyph", glyphID)
 			items = append(items, transcriptionAnnotation(annID, "glyph", strings.TrimSpace(glyph.Text), canvasID, glyph.BBox))
 		}
 	}
@@ -1181,4 +1160,172 @@ func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 
 func writeError(w http.ResponseWriter, statusCode int, message string) {
 	writeJSON(w, statusCode, map[string]string{"error": message})
+}
+
+// handleExportAnnotations exports OCR annotations for an item image in the
+// requested format (hocr, pagexml, alto, or txt).
+func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	idStr := strings.TrimSpace(r.PathValue("item_image_id"))
+	itemImageID, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid item_image_id")
+		return
+	}
+
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if format == "" {
+		format = "hocr"
+	}
+	switch format {
+	case "hocr", "pagexml", "alto", "txt":
+		// valid
+	default:
+		writeError(w, http.StatusBadRequest, "format must be one of: hocr, pagexml, alto, txt")
+		return
+	}
+
+	// Fetch or cache the OCR run; returns "item image not found" error when none exists.
+	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Determine the canvas URI for the item image.
+	img, err := h.items.GetImage(ctx, itemImageID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "item image not found")
+		return
+	}
+
+	// Determine the annotation API base URL.
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+
+	// Build annotation page JSON: prefer saved annotations over hOCR fallback.
+	var annotationPageJSON string
+	canvasURI := strings.TrimSpace(img.CanvasURI)
+
+	if canvasURI != "" {
+		// Try to get annotations from the annotations table (edited state), falling
+		// back to hOCR-derived annotations via bootstrapAnnotationsForCanvas.
+		items, bootstrapErr := h.bootstrapAnnotationsForCanvas(ctx, canvasURI, base)
+		if bootstrapErr == nil {
+			page := map[string]any{
+				"@context": annotationPageContexts(),
+				"id":       annotationPageID(canvasURI),
+				"type":     "AnnotationPage",
+				"items":    items,
+			}
+			if b, jsonErr := json.Marshal(page); jsonErr == nil {
+				annotationPageJSON = string(b)
+			}
+		}
+	}
+
+	// Fallback: build annotations inline from hOCR (same as handleGetIIIFAnnotations).
+	if annotationPageJSON == "" {
+		hocrXML := strings.TrimSpace(run.OriginalHOCR)
+		if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
+			hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
+		}
+		if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
+			hocrXML = persisted
+		}
+		if hocrXML == "" {
+			writeError(w, http.StatusNotFound, "no annotations available")
+			return
+		}
+		annotationScopeID := run.SessionID
+		if run.ItemImageID != nil {
+			annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
+		}
+		manifestBase := fmt.Sprintf("/v1/item-images/%d", itemImageID)
+		manifestID := base + manifestBase + "/manifest"
+		internalCanvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
+		lines, parseErr := hocr.ParseHOCRLines(hocrXML)
+		if parseErr != nil {
+			writeError(w, http.StatusInternalServerError, "unable to parse hocr lines")
+			return
+		}
+		annItems := buildLineAnnotations(annotationScopeID, internalCanvasID, lines)
+		page := map[string]any{
+			"@context": annotationPageContexts(),
+			"id":       annotationPageID(internalCanvasID),
+			"type":     "AnnotationPage",
+			"items":    annItems,
+		}
+		b, _ := json.Marshal(page)
+		annotationPageJSON = string(b)
+	}
+
+	// Convert annotation page to the requested format using the crosswalk functions.
+	lines, pageW, pageH, err := annotationPageToHOCRLines(annotationPageJSON)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no annotations available")
+		return
+	}
+
+	var content string
+	var mimeType string
+	var ext string
+
+	switch format {
+	case "hocr":
+		converter := hocr.NewConverter()
+		content = converter.ConvertHOCRLinesToXML(lines, pageW, pageH)
+		mimeType = "text/vnd.hocr+html; charset=utf-8"
+		ext = "hocr"
+	case "pagexml":
+		content = linesToPageXML(lines, pageW, pageH)
+		mimeType = "application/vnd.prima.page+xml; charset=utf-8"
+		ext = "xml"
+	case "alto":
+		content = linesToALTOXML(lines, pageW, pageH)
+		mimeType = "application/alto+xml; charset=utf-8"
+		ext = "xml"
+	case "txt":
+		content = linesToPlainText(lines)
+		mimeType = "text/plain; charset=utf-8"
+		ext = "txt"
+	}
+
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"item-%d.%s\"", itemImageID, ext))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(content))
+}
+
+// handleGetContextMetrics returns aggregate OCR metrics for a context.
+func (h *Handler) handleGetContextMetrics(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimSpace(r.PathValue("context_id"))
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid context_id")
+		return
+	}
+	ctx := r.Context()
+	// Verify context exists.
+	c, err := h.contexts.Get(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "context not found")
+		return
+	}
+	metrics, err := h.ocrRuns.GetContextMetrics(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"context": c,
+		"metrics": metrics,
+	})
 }

@@ -3,7 +3,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateAnnotationRequest, CreateAnnotationResponse, DeleteAnnotationRequest, DeleteAnnotationResponse, EnrichAnnotationRequest, EnrichAnnotationResponse, GetAnnotationRequest, GetAnnotationResponse, SearchAnnotationsRequest, SearchAnnotationsResponse, UpdateAnnotationRequest, UpdateAnnotationResponse } from "./annotation_pb.js";
+import { CreateAnnotationRequest, CreateAnnotationResponse, CrosswalkRequest, CrosswalkResponse, DeleteAnnotationRequest, DeleteAnnotationResponse, EnrichAnnotationRequest, EnrichAnnotationResponse, GetAnnotationRequest, GetAnnotationResponse, JoinAnnotationsRequest, JoinAnnotationsResponse, SearchAnnotationsRequest, SearchAnnotationsResponse, SplitLineIntoTwoLinesRequest, SplitLineIntoTwoLinesResponse, SplitLineIntoWordsRequest, SplitLineIntoWordsResponse, UpdateAnnotationRequest, UpdateAnnotationResponse } from "./annotation_pb.js";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -66,6 +66,82 @@ export const AnnotationService = {
       name: "EnrichAnnotation",
       I: EnrichAnnotationRequest,
       O: EnrichAnnotationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Structural split/join operations.
+     *
+     * @generated from rpc scribe.v1.AnnotationService.SplitLineIntoWords
+     */
+    splitLineIntoWords: {
+      name: "SplitLineIntoWords",
+      I: SplitLineIntoWordsRequest,
+      O: SplitLineIntoWordsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc scribe.v1.AnnotationService.SplitLineIntoTwoLines
+     */
+    splitLineIntoTwoLines: {
+      name: "SplitLineIntoTwoLines",
+      I: SplitLineIntoTwoLinesRequest,
+      O: SplitLineIntoTwoLinesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc scribe.v1.AnnotationService.JoinLines
+     */
+    joinLines: {
+      name: "JoinLines",
+      I: JoinAnnotationsRequest,
+      O: JoinAnnotationsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc scribe.v1.AnnotationService.JoinWordsIntoLine
+     */
+    joinWordsIntoLine: {
+      name: "JoinWordsIntoLine",
+      I: JoinAnnotationsRequest,
+      O: JoinAnnotationsResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * Export / crosswalk operations.
+     *
+     * @generated from rpc scribe.v1.AnnotationService.CrosswalkToPlainText
+     */
+    crosswalkToPlainText: {
+      name: "CrosswalkToPlainText",
+      I: CrosswalkRequest,
+      O: CrosswalkResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc scribe.v1.AnnotationService.CrosswalkToHOCR
+     */
+    crosswalkToHOCR: {
+      name: "CrosswalkToHOCR",
+      I: CrosswalkRequest,
+      O: CrosswalkResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc scribe.v1.AnnotationService.CrosswalkToPageXML
+     */
+    crosswalkToPageXML: {
+      name: "CrosswalkToPageXML",
+      I: CrosswalkRequest,
+      O: CrosswalkResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * @generated from rpc scribe.v1.AnnotationService.CrosswalkToALTOXML
+     */
+    crosswalkToALTOXML: {
+      name: "CrosswalkToALTOXML",
+      I: CrosswalkRequest,
+      O: CrosswalkResponse,
       kind: MethodKind.Unary,
     },
   }

@@ -3,6 +3,7 @@ import { ItemService } from "../proto/scribe/v1/item_connect";
 import {
   CreateItemRequest,
   DeleteItemRequest,
+  GetItemRequest,
   ListItemsRequest,
   UploadItemImageRequest,
   type Item,
@@ -50,6 +51,12 @@ export async function uploadItemImages(files: File[]): Promise<Item> {
   }
   if (!item) throw new Error("no files provided");
   return item;
+}
+
+export async function getItem(itemId: string): Promise<Item> {
+  const resp = await client().getItem(new GetItemRequest({ itemId }));
+  if (!resp.item) throw new Error("no item in response");
+  return resp.item;
 }
 
 export async function deleteItem(itemId: string): Promise<void> {

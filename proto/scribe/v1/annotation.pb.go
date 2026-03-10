@@ -564,6 +564,398 @@ func (x *EnrichAnnotationResponse) GetAnnotationJson() string {
 	return ""
 }
 
+// Split a line annotation into proportionally-spaced word annotations.
+// If words is empty the line text is tokenised on whitespace.
+type SplitLineIntoWordsRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AnnotationJson string                 `protobuf:"bytes,1,opt,name=annotation_json,json=annotationJson,proto3" json:"annotation_json,omitempty"`
+	Words          []string               `protobuf:"bytes,2,rep,name=words,proto3" json:"words,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SplitLineIntoWordsRequest) Reset() {
+	*x = SplitLineIntoWordsRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SplitLineIntoWordsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SplitLineIntoWordsRequest) ProtoMessage() {}
+
+func (x *SplitLineIntoWordsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SplitLineIntoWordsRequest.ProtoReflect.Descriptor instead.
+func (*SplitLineIntoWordsRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SplitLineIntoWordsRequest) GetAnnotationJson() string {
+	if x != nil {
+		return x.AnnotationJson
+	}
+	return ""
+}
+
+func (x *SplitLineIntoWordsRequest) GetWords() []string {
+	if x != nil {
+		return x.Words
+	}
+	return nil
+}
+
+type SplitLineIntoWordsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Full AnnotationPage JSON containing the new word annotations.
+	AnnotationPageJson string `protobuf:"bytes,1,opt,name=annotation_page_json,json=annotationPageJson,proto3" json:"annotation_page_json,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *SplitLineIntoWordsResponse) Reset() {
+	*x = SplitLineIntoWordsResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SplitLineIntoWordsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SplitLineIntoWordsResponse) ProtoMessage() {}
+
+func (x *SplitLineIntoWordsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SplitLineIntoWordsResponse.ProtoReflect.Descriptor instead.
+func (*SplitLineIntoWordsResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *SplitLineIntoWordsResponse) GetAnnotationPageJson() string {
+	if x != nil {
+		return x.AnnotationPageJson
+	}
+	return ""
+}
+
+// Split a line annotation into two lines at a word boundary.
+type SplitLineIntoTwoLinesRequest struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AnnotationJson string                 `protobuf:"bytes,1,opt,name=annotation_json,json=annotationJson,proto3" json:"annotation_json,omitempty"`
+	// 0 means split at midpoint.
+	SplitAtWord   int32 `protobuf:"varint,2,opt,name=split_at_word,json=splitAtWord,proto3" json:"split_at_word,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SplitLineIntoTwoLinesRequest) Reset() {
+	*x = SplitLineIntoTwoLinesRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SplitLineIntoTwoLinesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SplitLineIntoTwoLinesRequest) ProtoMessage() {}
+
+func (x *SplitLineIntoTwoLinesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SplitLineIntoTwoLinesRequest.ProtoReflect.Descriptor instead.
+func (*SplitLineIntoTwoLinesRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SplitLineIntoTwoLinesRequest) GetAnnotationJson() string {
+	if x != nil {
+		return x.AnnotationJson
+	}
+	return ""
+}
+
+func (x *SplitLineIntoTwoLinesRequest) GetSplitAtWord() int32 {
+	if x != nil {
+		return x.SplitAtWord
+	}
+	return 0
+}
+
+type SplitLineIntoTwoLinesResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AnnotationJsons []string               `protobuf:"bytes,1,rep,name=annotation_jsons,json=annotationJsons,proto3" json:"annotation_jsons,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SplitLineIntoTwoLinesResponse) Reset() {
+	*x = SplitLineIntoTwoLinesResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SplitLineIntoTwoLinesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SplitLineIntoTwoLinesResponse) ProtoMessage() {}
+
+func (x *SplitLineIntoTwoLinesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SplitLineIntoTwoLinesResponse.ProtoReflect.Descriptor instead.
+func (*SplitLineIntoTwoLinesResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SplitLineIntoTwoLinesResponse) GetAnnotationJsons() []string {
+	if x != nil {
+		return x.AnnotationJsons
+	}
+	return nil
+}
+
+// Join two or more line annotations into one (union bbox, concatenated text).
+type JoinAnnotationsRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AnnotationJsons []string               `protobuf:"bytes,1,rep,name=annotation_jsons,json=annotationJsons,proto3" json:"annotation_jsons,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *JoinAnnotationsRequest) Reset() {
+	*x = JoinAnnotationsRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinAnnotationsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinAnnotationsRequest) ProtoMessage() {}
+
+func (x *JoinAnnotationsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinAnnotationsRequest.ProtoReflect.Descriptor instead.
+func (*JoinAnnotationsRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *JoinAnnotationsRequest) GetAnnotationJsons() []string {
+	if x != nil {
+		return x.AnnotationJsons
+	}
+	return nil
+}
+
+type JoinAnnotationsResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AnnotationJson string                 `protobuf:"bytes,1,opt,name=annotation_json,json=annotationJson,proto3" json:"annotation_json,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *JoinAnnotationsResponse) Reset() {
+	*x = JoinAnnotationsResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinAnnotationsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinAnnotationsResponse) ProtoMessage() {}
+
+func (x *JoinAnnotationsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinAnnotationsResponse.ProtoReflect.Descriptor instead.
+func (*JoinAnnotationsResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *JoinAnnotationsResponse) GetAnnotationJson() string {
+	if x != nil {
+		return x.AnnotationJson
+	}
+	return ""
+}
+
+// Crosswalk: convert an AnnotationPage (or single annotation) to an export format.
+type CrosswalkRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Provide one of the two fields; annotation_page_json takes priority.
+	AnnotationPageJson string `protobuf:"bytes,1,opt,name=annotation_page_json,json=annotationPageJson,proto3" json:"annotation_page_json,omitempty"`
+	AnnotationJson     string `protobuf:"bytes,2,opt,name=annotation_json,json=annotationJson,proto3" json:"annotation_json,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CrosswalkRequest) Reset() {
+	*x = CrosswalkRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CrosswalkRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrosswalkRequest) ProtoMessage() {}
+
+func (x *CrosswalkRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrosswalkRequest.ProtoReflect.Descriptor instead.
+func (*CrosswalkRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *CrosswalkRequest) GetAnnotationPageJson() string {
+	if x != nil {
+		return x.AnnotationPageJson
+	}
+	return ""
+}
+
+func (x *CrosswalkRequest) GetAnnotationJson() string {
+	if x != nil {
+		return x.AnnotationJson
+	}
+	return ""
+}
+
+type CrosswalkResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Format        string                 `protobuf:"bytes,1,opt,name=format,proto3" json:"format,omitempty"` // MIME type of the exported content
+	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CrosswalkResponse) Reset() {
+	*x = CrosswalkResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CrosswalkResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrosswalkResponse) ProtoMessage() {}
+
+func (x *CrosswalkResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrosswalkResponse.ProtoReflect.Descriptor instead.
+func (*CrosswalkResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *CrosswalkResponse) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *CrosswalkResponse) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
 var File_scribe_v1_annotation_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_annotation_proto_rawDesc = "" +
@@ -595,14 +987,42 @@ const file_scribe_v1_annotation_proto_rawDesc = "" +
 	"\n" +
 	"context_id\x18\x03 \x01(\x04R\tcontextId\"C\n" +
 	"\x18EnrichAnnotationResponse\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson2\xbb\x04\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"Z\n" +
+	"\x19SplitLineIntoWordsRequest\x12'\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\x12\x14\n" +
+	"\x05words\x18\x02 \x03(\tR\x05words\"N\n" +
+	"\x1aSplitLineIntoWordsResponse\x120\n" +
+	"\x14annotation_page_json\x18\x01 \x01(\tR\x12annotationPageJson\"k\n" +
+	"\x1cSplitLineIntoTwoLinesRequest\x12'\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\x12\"\n" +
+	"\rsplit_at_word\x18\x02 \x01(\x05R\vsplitAtWord\"J\n" +
+	"\x1dSplitLineIntoTwoLinesResponse\x12)\n" +
+	"\x10annotation_jsons\x18\x01 \x03(\tR\x0fannotationJsons\"C\n" +
+	"\x16JoinAnnotationsRequest\x12)\n" +
+	"\x10annotation_jsons\x18\x01 \x03(\tR\x0fannotationJsons\"B\n" +
+	"\x17JoinAnnotationsResponse\x12'\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"m\n" +
+	"\x10CrosswalkRequest\x120\n" +
+	"\x14annotation_page_json\x18\x01 \x01(\tR\x12annotationPageJson\x12'\n" +
+	"\x0fannotation_json\x18\x02 \x01(\tR\x0eannotationJson\"E\n" +
+	"\x11CrosswalkResponse\x12\x16\n" +
+	"\x06format\x18\x01 \x01(\tR\x06format\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent2\xfd\t\n" +
 	"\x11AnnotationService\x12^\n" +
 	"\x11SearchAnnotations\x12#.scribe.v1.SearchAnnotationsRequest\x1a$.scribe.v1.SearchAnnotationsResponse\x12R\n" +
 	"\rGetAnnotation\x12\x1f.scribe.v1.GetAnnotationRequest\x1a .scribe.v1.GetAnnotationResponse\x12[\n" +
 	"\x10CreateAnnotation\x12\".scribe.v1.CreateAnnotationRequest\x1a#.scribe.v1.CreateAnnotationResponse\x12[\n" +
 	"\x10UpdateAnnotation\x12\".scribe.v1.UpdateAnnotationRequest\x1a#.scribe.v1.UpdateAnnotationResponse\x12[\n" +
 	"\x10DeleteAnnotation\x12\".scribe.v1.DeleteAnnotationRequest\x1a#.scribe.v1.DeleteAnnotationResponse\x12[\n" +
-	"\x10EnrichAnnotation\x12\".scribe.v1.EnrichAnnotationRequest\x1a#.scribe.v1.EnrichAnnotationResponseB\xad\x01\n" +
+	"\x10EnrichAnnotation\x12\".scribe.v1.EnrichAnnotationRequest\x1a#.scribe.v1.EnrichAnnotationResponse\x12a\n" +
+	"\x12SplitLineIntoWords\x12$.scribe.v1.SplitLineIntoWordsRequest\x1a%.scribe.v1.SplitLineIntoWordsResponse\x12j\n" +
+	"\x15SplitLineIntoTwoLines\x12'.scribe.v1.SplitLineIntoTwoLinesRequest\x1a(.scribe.v1.SplitLineIntoTwoLinesResponse\x12R\n" +
+	"\tJoinLines\x12!.scribe.v1.JoinAnnotationsRequest\x1a\".scribe.v1.JoinAnnotationsResponse\x12Z\n" +
+	"\x11JoinWordsIntoLine\x12!.scribe.v1.JoinAnnotationsRequest\x1a\".scribe.v1.JoinAnnotationsResponse\x12Q\n" +
+	"\x14CrosswalkToPlainText\x12\x1b.scribe.v1.CrosswalkRequest\x1a\x1c.scribe.v1.CrosswalkResponse\x12L\n" +
+	"\x0fCrosswalkToHOCR\x12\x1b.scribe.v1.CrosswalkRequest\x1a\x1c.scribe.v1.CrosswalkResponse\x12O\n" +
+	"\x12CrosswalkToPageXML\x12\x1b.scribe.v1.CrosswalkRequest\x1a\x1c.scribe.v1.CrosswalkResponse\x12O\n" +
+	"\x12CrosswalkToALTOXML\x12\x1b.scribe.v1.CrosswalkRequest\x1a\x1c.scribe.v1.CrosswalkResponseB\xad\x01\n" +
 	"\rcom.scribe.v1B\x0fAnnotationProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 
@@ -618,20 +1038,28 @@ func file_scribe_v1_annotation_proto_rawDescGZIP() []byte {
 	return file_scribe_v1_annotation_proto_rawDescData
 }
 
-var file_scribe_v1_annotation_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_scribe_v1_annotation_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_scribe_v1_annotation_proto_goTypes = []any{
-	(*SearchAnnotationsRequest)(nil),  // 0: scribe.v1.SearchAnnotationsRequest
-	(*SearchAnnotationsResponse)(nil), // 1: scribe.v1.SearchAnnotationsResponse
-	(*GetAnnotationRequest)(nil),      // 2: scribe.v1.GetAnnotationRequest
-	(*GetAnnotationResponse)(nil),     // 3: scribe.v1.GetAnnotationResponse
-	(*CreateAnnotationRequest)(nil),   // 4: scribe.v1.CreateAnnotationRequest
-	(*CreateAnnotationResponse)(nil),  // 5: scribe.v1.CreateAnnotationResponse
-	(*UpdateAnnotationRequest)(nil),   // 6: scribe.v1.UpdateAnnotationRequest
-	(*UpdateAnnotationResponse)(nil),  // 7: scribe.v1.UpdateAnnotationResponse
-	(*DeleteAnnotationRequest)(nil),   // 8: scribe.v1.DeleteAnnotationRequest
-	(*DeleteAnnotationResponse)(nil),  // 9: scribe.v1.DeleteAnnotationResponse
-	(*EnrichAnnotationRequest)(nil),   // 10: scribe.v1.EnrichAnnotationRequest
-	(*EnrichAnnotationResponse)(nil),  // 11: scribe.v1.EnrichAnnotationResponse
+	(*SearchAnnotationsRequest)(nil),      // 0: scribe.v1.SearchAnnotationsRequest
+	(*SearchAnnotationsResponse)(nil),     // 1: scribe.v1.SearchAnnotationsResponse
+	(*GetAnnotationRequest)(nil),          // 2: scribe.v1.GetAnnotationRequest
+	(*GetAnnotationResponse)(nil),         // 3: scribe.v1.GetAnnotationResponse
+	(*CreateAnnotationRequest)(nil),       // 4: scribe.v1.CreateAnnotationRequest
+	(*CreateAnnotationResponse)(nil),      // 5: scribe.v1.CreateAnnotationResponse
+	(*UpdateAnnotationRequest)(nil),       // 6: scribe.v1.UpdateAnnotationRequest
+	(*UpdateAnnotationResponse)(nil),      // 7: scribe.v1.UpdateAnnotationResponse
+	(*DeleteAnnotationRequest)(nil),       // 8: scribe.v1.DeleteAnnotationRequest
+	(*DeleteAnnotationResponse)(nil),      // 9: scribe.v1.DeleteAnnotationResponse
+	(*EnrichAnnotationRequest)(nil),       // 10: scribe.v1.EnrichAnnotationRequest
+	(*EnrichAnnotationResponse)(nil),      // 11: scribe.v1.EnrichAnnotationResponse
+	(*SplitLineIntoWordsRequest)(nil),     // 12: scribe.v1.SplitLineIntoWordsRequest
+	(*SplitLineIntoWordsResponse)(nil),    // 13: scribe.v1.SplitLineIntoWordsResponse
+	(*SplitLineIntoTwoLinesRequest)(nil),  // 14: scribe.v1.SplitLineIntoTwoLinesRequest
+	(*SplitLineIntoTwoLinesResponse)(nil), // 15: scribe.v1.SplitLineIntoTwoLinesResponse
+	(*JoinAnnotationsRequest)(nil),        // 16: scribe.v1.JoinAnnotationsRequest
+	(*JoinAnnotationsResponse)(nil),       // 17: scribe.v1.JoinAnnotationsResponse
+	(*CrosswalkRequest)(nil),              // 18: scribe.v1.CrosswalkRequest
+	(*CrosswalkResponse)(nil),             // 19: scribe.v1.CrosswalkResponse
 }
 var file_scribe_v1_annotation_proto_depIdxs = []int32{
 	0,  // 0: scribe.v1.AnnotationService.SearchAnnotations:input_type -> scribe.v1.SearchAnnotationsRequest
@@ -640,14 +1068,30 @@ var file_scribe_v1_annotation_proto_depIdxs = []int32{
 	6,  // 3: scribe.v1.AnnotationService.UpdateAnnotation:input_type -> scribe.v1.UpdateAnnotationRequest
 	8,  // 4: scribe.v1.AnnotationService.DeleteAnnotation:input_type -> scribe.v1.DeleteAnnotationRequest
 	10, // 5: scribe.v1.AnnotationService.EnrichAnnotation:input_type -> scribe.v1.EnrichAnnotationRequest
-	1,  // 6: scribe.v1.AnnotationService.SearchAnnotations:output_type -> scribe.v1.SearchAnnotationsResponse
-	3,  // 7: scribe.v1.AnnotationService.GetAnnotation:output_type -> scribe.v1.GetAnnotationResponse
-	5,  // 8: scribe.v1.AnnotationService.CreateAnnotation:output_type -> scribe.v1.CreateAnnotationResponse
-	7,  // 9: scribe.v1.AnnotationService.UpdateAnnotation:output_type -> scribe.v1.UpdateAnnotationResponse
-	9,  // 10: scribe.v1.AnnotationService.DeleteAnnotation:output_type -> scribe.v1.DeleteAnnotationResponse
-	11, // 11: scribe.v1.AnnotationService.EnrichAnnotation:output_type -> scribe.v1.EnrichAnnotationResponse
-	6,  // [6:12] is the sub-list for method output_type
-	0,  // [0:6] is the sub-list for method input_type
+	12, // 6: scribe.v1.AnnotationService.SplitLineIntoWords:input_type -> scribe.v1.SplitLineIntoWordsRequest
+	14, // 7: scribe.v1.AnnotationService.SplitLineIntoTwoLines:input_type -> scribe.v1.SplitLineIntoTwoLinesRequest
+	16, // 8: scribe.v1.AnnotationService.JoinLines:input_type -> scribe.v1.JoinAnnotationsRequest
+	16, // 9: scribe.v1.AnnotationService.JoinWordsIntoLine:input_type -> scribe.v1.JoinAnnotationsRequest
+	18, // 10: scribe.v1.AnnotationService.CrosswalkToPlainText:input_type -> scribe.v1.CrosswalkRequest
+	18, // 11: scribe.v1.AnnotationService.CrosswalkToHOCR:input_type -> scribe.v1.CrosswalkRequest
+	18, // 12: scribe.v1.AnnotationService.CrosswalkToPageXML:input_type -> scribe.v1.CrosswalkRequest
+	18, // 13: scribe.v1.AnnotationService.CrosswalkToALTOXML:input_type -> scribe.v1.CrosswalkRequest
+	1,  // 14: scribe.v1.AnnotationService.SearchAnnotations:output_type -> scribe.v1.SearchAnnotationsResponse
+	3,  // 15: scribe.v1.AnnotationService.GetAnnotation:output_type -> scribe.v1.GetAnnotationResponse
+	5,  // 16: scribe.v1.AnnotationService.CreateAnnotation:output_type -> scribe.v1.CreateAnnotationResponse
+	7,  // 17: scribe.v1.AnnotationService.UpdateAnnotation:output_type -> scribe.v1.UpdateAnnotationResponse
+	9,  // 18: scribe.v1.AnnotationService.DeleteAnnotation:output_type -> scribe.v1.DeleteAnnotationResponse
+	11, // 19: scribe.v1.AnnotationService.EnrichAnnotation:output_type -> scribe.v1.EnrichAnnotationResponse
+	13, // 20: scribe.v1.AnnotationService.SplitLineIntoWords:output_type -> scribe.v1.SplitLineIntoWordsResponse
+	15, // 21: scribe.v1.AnnotationService.SplitLineIntoTwoLines:output_type -> scribe.v1.SplitLineIntoTwoLinesResponse
+	17, // 22: scribe.v1.AnnotationService.JoinLines:output_type -> scribe.v1.JoinAnnotationsResponse
+	17, // 23: scribe.v1.AnnotationService.JoinWordsIntoLine:output_type -> scribe.v1.JoinAnnotationsResponse
+	19, // 24: scribe.v1.AnnotationService.CrosswalkToPlainText:output_type -> scribe.v1.CrosswalkResponse
+	19, // 25: scribe.v1.AnnotationService.CrosswalkToHOCR:output_type -> scribe.v1.CrosswalkResponse
+	19, // 26: scribe.v1.AnnotationService.CrosswalkToPageXML:output_type -> scribe.v1.CrosswalkResponse
+	19, // 27: scribe.v1.AnnotationService.CrosswalkToALTOXML:output_type -> scribe.v1.CrosswalkResponse
+	14, // [14:28] is the sub-list for method output_type
+	0,  // [0:14] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -664,7 +1108,7 @@ func file_scribe_v1_annotation_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_annotation_proto_rawDesc), len(file_scribe_v1_annotation_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

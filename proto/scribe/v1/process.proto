@@ -83,10 +83,27 @@ message SaveOCREditsResponse {
   string original_plain_text   = 6;
 }
 
+message ReprocessItemImageRequest {
+  uint64 item_image_id = 1;
+  uint64 context_id    = 2;
+}
+
+message ReprocessItemImageResponse {
+  string session_id    = 1;
+  uint64 item_image_id = 2;
+  uint64 context_id    = 3;
+  string image_url     = 4;
+  string hocr          = 5;
+  string plain_text    = 6;
+  string provider      = 7;
+  string model         = 8;
+}
+
 service ImageProcessingService {
   rpc ProcessImageURL(ProcessImageURLRequest) returns (ProcessImageResponse);
   rpc ProcessImageUpload(ProcessImageUploadRequest) returns (ProcessImageResponse);
   rpc ProcessHOCR(ProcessHOCRRequest) returns (ProcessImageResponse);
   rpc GetOCRRun(GetOCRRunRequest) returns (OCRRun);
   rpc SaveOCREdits(SaveOCREditsRequest) returns (SaveOCREditsResponse);
+  rpc ReprocessItemImage(ReprocessItemImageRequest) returns (ReprocessItemImageResponse);
 }

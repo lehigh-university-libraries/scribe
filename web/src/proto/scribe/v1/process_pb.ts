@@ -545,3 +545,125 @@ export class SaveOCREditsResponse extends Message<SaveOCREditsResponse> {
   }
 }
 
+/**
+ * @generated from message scribe.v1.ReprocessItemImageRequest
+ */
+export class ReprocessItemImageRequest extends Message<ReprocessItemImageRequest> {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId = protoInt64.zero;
+
+  /**
+   * @generated from field: uint64 context_id = 2;
+   */
+  contextId = protoInt64.zero;
+
+  constructor(data?: PartialMessage<ReprocessItemImageRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.ReprocessItemImageRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "item_image_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 2, name: "context_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReprocessItemImageRequest {
+    return new ReprocessItemImageRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReprocessItemImageRequest {
+    return new ReprocessItemImageRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReprocessItemImageRequest {
+    return new ReprocessItemImageRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReprocessItemImageRequest | PlainMessage<ReprocessItemImageRequest> | undefined, b: ReprocessItemImageRequest | PlainMessage<ReprocessItemImageRequest> | undefined): boolean {
+    return proto3.util.equals(ReprocessItemImageRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message scribe.v1.ReprocessItemImageResponse
+ */
+export class ReprocessItemImageResponse extends Message<ReprocessItemImageResponse> {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId = "";
+
+  /**
+   * @generated from field: uint64 item_image_id = 2;
+   */
+  itemImageId = protoInt64.zero;
+
+  /**
+   * @generated from field: uint64 context_id = 3;
+   */
+  contextId = protoInt64.zero;
+
+  /**
+   * @generated from field: string image_url = 4;
+   */
+  imageUrl = "";
+
+  /**
+   * @generated from field: string hocr = 5;
+   */
+  hocr = "";
+
+  /**
+   * @generated from field: string plain_text = 6;
+   */
+  plainText = "";
+
+  /**
+   * @generated from field: string provider = 7;
+   */
+  provider = "";
+
+  /**
+   * @generated from field: string model = 8;
+   */
+  model = "";
+
+  constructor(data?: PartialMessage<ReprocessItemImageResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "scribe.v1.ReprocessItemImageResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "session_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "item_image_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 3, name: "context_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
+    { no: 4, name: "image_url", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "hocr", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "plain_text", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "provider", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 8, name: "model", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReprocessItemImageResponse {
+    return new ReprocessItemImageResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReprocessItemImageResponse {
+    return new ReprocessItemImageResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReprocessItemImageResponse {
+    return new ReprocessItemImageResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReprocessItemImageResponse | PlainMessage<ReprocessItemImageResponse> | undefined, b: ReprocessItemImageResponse | PlainMessage<ReprocessItemImageResponse> | undefined): boolean {
+    return proto3.util.equals(ReprocessItemImageResponse, a, b);
+  }
+}
+

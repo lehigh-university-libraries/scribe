@@ -119,31 +119,29 @@ npm run build
 
 ```
 GET  /v1/item-images/{id}/manifest        IIIF Presentation v3 manifest
-GET  /v1/ocr/runs/{session_id}/hocr       Raw hOCR for a run
-GET  /v1/ocr/runs/{session_id}/annotations  IIIF annotation page
+GET  /v1/item-images/{id}/hocr            Current persisted hOCR document
+GET  /v1/item-images/{id}/annotations     IIIF annotation page bootstrap/export
 ```
 
-Crosswalk routes convert stored IIIF annotations to other OCR formats:
+The application API is proto-first. New API operations should be defined in
+protobuf and consumed through generated Connect clients.
+
+Annotation and OCR operations are exposed on these Connect services:
 
 ```
-POST /v1/crosswalk/plain-text
-POST /v1/crosswalk/hocr
-POST /v1/crosswalk/page-xml
-POST /v1/crosswalk/alto-xml
+POST /scribe.v1.ItemService/*
+POST /scribe.v1.ImageProcessingService/*
+POST /scribe.v1.ContextService/*
+POST /scribe.v1.AnnotationService/*
 ```
 
-Annotation persistence (used by Mirador):
+Plain HTTP routes should exist only when there is a concrete resource-URL
+reason not to use RPC. The `GET /v1/item-images/{id}/manifest`,
+`GET /v1/item-images/{id}/annotations`, and `GET /v1/item-images/{id}/hocr`
+routes are examples of that exception: they expose dereferenceable IIIF/OCR
+documents that external viewers and IIIF clients fetch directly.
 
-```
-GET    /v1/annotations/3/search?canvasUri=<id>
-POST   /v1/annotations/3/create
-POST   /v1/annotations/3/update
-DELETE /v1/annotations/3/delete?uri=<id>
-GET    /v1/annotations/3/item/{id}
-POST   /v1/annotations/3/enrich
-```
-
-Editor-oriented annotation operations are also exposed as API requests so
+Editor-oriented annotation operations are exposed on `AnnotationService` so
 plugins can delegate structural OCR edits to the backend:
 
 ```
@@ -165,9 +163,30 @@ image. A context can include:
 - additional context-selection metadata used to infer the best context from the
   supplied image or related metadata
 
+Scribe seeds these system contexts on startup:
+
+- `Default`
+  Runs both `tesseract` segmentation and the in-repo `scribe` custom segmentor,
+  then keeps whichever finds more words.
+- `Tesseract OCR`
+  Uses Tesseract segmentation and Tesseract transcription directly.
+- `Scribe Custom`
+  Uses the custom segmentor, crops by detected line, sends each line to the
+  configured LLM provider, and assembles the result back into line-level OCR.
+
+For images uploaded or supplied without existing hOCR, the default system flow
+is:
+
+1. Run the Tesseract segmentor and the Scribe custom segmentor.
+2. Compare the number of detected words.
+3. Use the winning segmentation path for OCR generation.
+4. If Tesseract wins, keep Tesseract's text directly.
+5. If the Scribe segmentor wins, run the line-crop LLM transcription path.
+
 The backend exposes context resolution so ingestion and editor operations can
 choose a context explicitly or let the server pick one when enough information
-can be inferred.
+can be inferred. OCR runs are stored with the resolved context so context-level
+metrics aggregate against the context that was actually used.
 
 Scribe records edit metrics to evaluate context quality. The primary metric
 today is document-level Levenshtein distance between:

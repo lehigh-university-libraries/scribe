@@ -48,6 +48,9 @@ const (
 	// ImageProcessingServiceSaveOCREditsProcedure is the fully-qualified name of the
 	// ImageProcessingService's SaveOCREdits RPC.
 	ImageProcessingServiceSaveOCREditsProcedure = "/scribe.v1.ImageProcessingService/SaveOCREdits"
+	// ImageProcessingServiceReprocessItemImageProcedure is the fully-qualified name of the
+	// ImageProcessingService's ReprocessItemImage RPC.
+	ImageProcessingServiceReprocessItemImageProcedure = "/scribe.v1.ImageProcessingService/ReprocessItemImage"
 )
 
 // ImageProcessingServiceClient is a client for the scribe.v1.ImageProcessingService service.
@@ -57,6 +60,7 @@ type ImageProcessingServiceClient interface {
 	ProcessHOCR(context.Context, *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessImageResponse], error)
 	GetOCRRun(context.Context, *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.OCRRun], error)
 	SaveOCREdits(context.Context, *connect.Request[v1.SaveOCREditsRequest]) (*connect.Response[v1.SaveOCREditsResponse], error)
+	ReprocessItemImage(context.Context, *connect.Request[v1.ReprocessItemImageRequest]) (*connect.Response[v1.ReprocessItemImageResponse], error)
 }
 
 // NewImageProcessingServiceClient constructs a client for the scribe.v1.ImageProcessingService
@@ -100,6 +104,12 @@ func NewImageProcessingServiceClient(httpClient connect.HTTPClient, baseURL stri
 			connect.WithSchema(imageProcessingServiceMethods.ByName("SaveOCREdits")),
 			connect.WithClientOptions(opts...),
 		),
+		reprocessItemImage: connect.NewClient[v1.ReprocessItemImageRequest, v1.ReprocessItemImageResponse](
+			httpClient,
+			baseURL+ImageProcessingServiceReprocessItemImageProcedure,
+			connect.WithSchema(imageProcessingServiceMethods.ByName("ReprocessItemImage")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -110,6 +120,7 @@ type imageProcessingServiceClient struct {
 	processHOCR        *connect.Client[v1.ProcessHOCRRequest, v1.ProcessImageResponse]
 	getOCRRun          *connect.Client[v1.GetOCRRunRequest, v1.OCRRun]
 	saveOCREdits       *connect.Client[v1.SaveOCREditsRequest, v1.SaveOCREditsResponse]
+	reprocessItemImage *connect.Client[v1.ReprocessItemImageRequest, v1.ReprocessItemImageResponse]
 }
 
 // ProcessImageURL calls scribe.v1.ImageProcessingService.ProcessImageURL.
@@ -137,6 +148,11 @@ func (c *imageProcessingServiceClient) SaveOCREdits(ctx context.Context, req *co
 	return c.saveOCREdits.CallUnary(ctx, req)
 }
 
+// ReprocessItemImage calls scribe.v1.ImageProcessingService.ReprocessItemImage.
+func (c *imageProcessingServiceClient) ReprocessItemImage(ctx context.Context, req *connect.Request[v1.ReprocessItemImageRequest]) (*connect.Response[v1.ReprocessItemImageResponse], error) {
+	return c.reprocessItemImage.CallUnary(ctx, req)
+}
+
 // ImageProcessingServiceHandler is an implementation of the scribe.v1.ImageProcessingService
 // service.
 type ImageProcessingServiceHandler interface {
@@ -145,6 +161,7 @@ type ImageProcessingServiceHandler interface {
 	ProcessHOCR(context.Context, *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessImageResponse], error)
 	GetOCRRun(context.Context, *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.OCRRun], error)
 	SaveOCREdits(context.Context, *connect.Request[v1.SaveOCREditsRequest]) (*connect.Response[v1.SaveOCREditsResponse], error)
+	ReprocessItemImage(context.Context, *connect.Request[v1.ReprocessItemImageRequest]) (*connect.Response[v1.ReprocessItemImageResponse], error)
 }
 
 // NewImageProcessingServiceHandler builds an HTTP handler from the service implementation. It
@@ -184,6 +201,12 @@ func NewImageProcessingServiceHandler(svc ImageProcessingServiceHandler, opts ..
 		connect.WithSchema(imageProcessingServiceMethods.ByName("SaveOCREdits")),
 		connect.WithHandlerOptions(opts...),
 	)
+	imageProcessingServiceReprocessItemImageHandler := connect.NewUnaryHandler(
+		ImageProcessingServiceReprocessItemImageProcedure,
+		svc.ReprocessItemImage,
+		connect.WithSchema(imageProcessingServiceMethods.ByName("ReprocessItemImage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/scribe.v1.ImageProcessingService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ImageProcessingServiceProcessImageURLProcedure:
@@ -196,6 +219,8 @@ func NewImageProcessingServiceHandler(svc ImageProcessingServiceHandler, opts ..
 			imageProcessingServiceGetOCRRunHandler.ServeHTTP(w, r)
 		case ImageProcessingServiceSaveOCREditsProcedure:
 			imageProcessingServiceSaveOCREditsHandler.ServeHTTP(w, r)
+		case ImageProcessingServiceReprocessItemImageProcedure:
+			imageProcessingServiceReprocessItemImageHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -223,4 +248,8 @@ func (UnimplementedImageProcessingServiceHandler) GetOCRRun(context.Context, *co
 
 func (UnimplementedImageProcessingServiceHandler) SaveOCREdits(context.Context, *connect.Request[v1.SaveOCREditsRequest]) (*connect.Response[v1.SaveOCREditsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ImageProcessingService.SaveOCREdits is not implemented"))
+}
+
+func (UnimplementedImageProcessingServiceHandler) ReprocessItemImage(context.Context, *connect.Request[v1.ReprocessItemImageRequest]) (*connect.Response[v1.ReprocessItemImageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ImageProcessingService.ReprocessItemImage is not implemented"))
 }

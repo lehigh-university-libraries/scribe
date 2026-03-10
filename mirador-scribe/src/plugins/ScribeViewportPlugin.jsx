@@ -3,7 +3,10 @@ import PropTypes from 'prop-types';
 import Box from '@mui/material/Box';
 import OpenSeadragon from 'openseadragon';
 
-const MIN_READABLE_BBOX_HEIGHT_PX = 28;
+const INITIAL_BBOX_VIEWPORT_RATIO = 0.22;
+const INITIAL_BBOX_WIDTH_RATIO = 0.6;
+const FOCUS_BBOX_VIEWPORT_RATIO = 0.16;
+const FOCUS_BBOX_WIDTH_RATIO = 0.82;
 
 function currentImageBounds(viewer) {
   if (!viewer?.viewport || !viewer?.world?.getItemCount?.()) return null;
@@ -20,14 +23,6 @@ function currentImageBounds(viewer) {
   };
 }
 
-function containsBBox(bounds, bbox) {
-  if (!bounds || !bbox) return false;
-  return bbox.x >= bounds.x
-    && bbox.y >= bounds.y
-    && (bbox.x + bbox.w) <= (bounds.x + bounds.w)
-    && (bbox.y + bbox.h) <= (bounds.y + bounds.h);
-}
-
 function rectFromPoints(start, end) {
   const left = Math.min(start.x, end.x);
   const top = Math.min(start.y, end.y);
@@ -41,30 +36,25 @@ function rectFromPoints(start, end) {
   };
 }
 
-function bboxScreenHeight(viewer, bbox) {
-  if (!viewer?.world?.getItemCount?.() || !bbox) return 0;
+function fitViewportToBBox(viewer, bbox, heightRatio, widthRatio) {
+  if (!viewer?.viewport || !viewer?.world?.getItemCount?.() || !bbox) return;
   const tiledImage = viewer.world.getItemAt(0);
-  if (!tiledImage?.imageToWindowCoordinates) return 0;
-  const topLeft = tiledImage.imageToWindowCoordinates(bbox.x, bbox.y);
-  const bottomRight = tiledImage.imageToWindowCoordinates(bbox.x + bbox.w, bbox.y + bbox.h);
-  return Math.max(0, bottomRight.y - topLeft.y);
+  if (!tiledImage?.imageToViewportRectangle) return;
+
+  const viewportElement = viewer.element;
+  const viewportWidthPx = viewportElement?.clientWidth || 1;
+  const viewportHeightPx = viewportElement?.clientHeight || 1;
+  const viewportAspect = viewportWidthPx / viewportHeightPx;
+  const targetHeight = Math.max(bbox.h / heightRatio, bbox.h * 1.8);
+  const targetWidth = Math.max(bbox.w / widthRatio, targetHeight * viewportAspect);
+  const left = bbox.x + (bbox.w / 2) - (targetWidth / 2);
+  const top = bbox.y + (bbox.h / 2) - (targetHeight / 2);
+  const nextBounds = tiledImage.imageToViewportRectangle(left, top, targetWidth, targetHeight);
+  viewer.viewport.fitBoundsWithConstraints(nextBounds, true);
 }
 
-function ensureReadableBBox(viewer, bbox) {
-  if (!viewer?.viewport || !viewer?.world?.getItemCount?.() || !bbox) return;
-  const currentHeight = bboxScreenHeight(viewer, bbox);
-  if (currentHeight >= MIN_READABLE_BBOX_HEIGHT_PX || currentHeight <= 0) return;
-
-  const tiledImage = viewer.world.getItemAt(0);
-  if (!tiledImage?.imageToViewportCoordinates) return;
-
-  const center = tiledImage.imageToViewportCoordinates(
-    bbox.x + bbox.w / 2,
-    bbox.y + bbox.h / 2,
-  );
-  const scale = MIN_READABLE_BBOX_HEIGHT_PX / currentHeight;
-  viewer.viewport.zoomBy(scale, new OpenSeadragon.Point(center.x, center.y), true);
-  viewer.viewport.applyConstraints(true);
+function snapViewportToBBox(viewer, bbox) {
+  fitViewportToBBox(viewer, bbox, INITIAL_BBOX_VIEWPORT_RATIO, INITIAL_BBOX_WIDTH_RATIO);
 }
 
 function ScribeViewportPlugin({ viewer, windowId }) {
@@ -87,27 +77,12 @@ function ScribeViewportPlugin({ viewer, windowId }) {
   const focusAnnotation = useEffectEvent((bbox) => {
     if (!viewer?.viewport || !viewer?.world?.getItemCount?.() || !bbox) return;
     focusedBBoxRef.current = bbox;
-    const bounds = currentImageBounds(viewer);
-    if (!containsBBox(bounds, bbox)) {
-      const tiledImage = viewer.world.getItemAt(0);
-      if (!tiledImage?.imageToViewportCoordinates) return;
-
-      const center = tiledImage.imageToViewportCoordinates(
-        bbox.x + bbox.w / 2,
-        bbox.y + bbox.h / 2,
-      );
-      viewer.viewport.panTo(new OpenSeadragon.Point(center.x, center.y), true);
-    }
-
-    ensureReadableBBox(viewer, bbox);
+    fitViewportToBBox(viewer, bbox, FOCUS_BBOX_VIEWPORT_RATIO, FOCUS_BBOX_WIDTH_RATIO);
   });
 
   useEffect(() => {
     if (!viewer) return undefined;
     const handleViewport = () => {
-      if (focusedBBoxRef.current && !drawMode) {
-        ensureReadableBBox(viewer, focusedBBoxRef.current);
-      }
       emitViewport();
     };
     viewer.addHandler('animation-finish', handleViewport);
@@ -129,6 +104,15 @@ function ScribeViewportPlugin({ viewer, windowId }) {
     document.addEventListener('scribe:focus-annotation', handleFocus);
     return () => document.removeEventListener('scribe:focus-annotation', handleFocus);
   }, [focusAnnotation, windowId]);
+
+  useEffect(() => {
+    const handleSnap = (event) => {
+      if (event?.detail?.windowId !== windowId) return;
+      snapViewportToBBox(viewer, event.detail.bbox || null);
+    };
+    document.addEventListener('scribe:snap-to-bbox', handleSnap);
+    return () => document.removeEventListener('scribe:snap-to-bbox', handleSnap);
+  }, [viewer, windowId]);
 
   useEffect(() => {
     const handleDrawMode = (event) => {

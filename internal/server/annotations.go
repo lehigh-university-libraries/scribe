@@ -16,10 +16,8 @@ import (
 	"strconv"
 	"strings"
 
-	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/db"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
-	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
 
 const (
@@ -32,38 +30,6 @@ func annotationPageContexts() []string {
 		iiifTextGranularityContext,
 		iiifPresentationContext,
 	}
-}
-
-// annotationBaseURL returns the scheme+host to use as base for annotation IDs.
-func (h *Handler) annBase(r *http.Request) string {
-	if h.annotationBaseURL != "" {
-		return h.annotationBaseURL
-	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	return scheme + "://" + r.Host
-}
-
-func (h *Handler) handleAnnotationSearch(w http.ResponseWriter, r *http.Request) {
-	canvasURI := strings.TrimSpace(r.URL.Query().Get("canvasUri"))
-	resp, err := h.SearchAnnotations(r.Context(), connect.NewRequest(&scribev1.SearchAnnotationsRequest{
-		CanvasUri: canvasURI,
-	}))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	var page map[string]any
-	if err := json.Unmarshal([]byte(resp.Msg.GetAnnotationPageJson()), &page); err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid annotation page json")
-		return
-	}
-	// Keep HTTP path identity for annotation/IIIF clients.
-	base := h.annBase(r)
-	page["id"] = base + "/v1/annotations/3/search?canvasUri=" + url.QueryEscape(canvasURI)
-	writeJSON(w, http.StatusOK, page)
 }
 
 var (
@@ -256,9 +222,9 @@ func (h *Handler) fetchBootstrapAnnotationItems(
 		if id == "" {
 			id = strings.TrimSpace(annStringValue(anno, "@id"))
 		}
-		if id != "" && !strings.HasPrefix(id, base+"/v1/annotations/3/item/") {
+		if id != "" && !strings.HasPrefix(id, "urn:scribe:annotation:") {
 			stable := annStableID(id)
-			full := base + "/v1/annotations/3/item/" + stable
+			full := annotationID(stable)
 			anno["id"] = full
 			anno["@id"] = full
 		}
@@ -313,83 +279,6 @@ func annotationBootstrapURL(base, canvasURI string) (string, error) {
 		return base + "/v1/item-images/" + url.PathEscape(itemImageID) + "/annotations", nil
 	}
 	return "", fmt.Errorf("cannot extract item image reference from canvas uri")
-}
-
-func (h *Handler) handleAnnotationCreate(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	resp, err := h.CreateAnnotation(r.Context(), connect.NewRequest(&scribev1.CreateAnnotationRequest{
-		AnnotationJson: string(body),
-	}))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	var anno map[string]any
-	if err := json.Unmarshal([]byte(resp.Msg.GetAnnotationJson()), &anno); err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid annotation json")
-		return
-	}
-	writeJSON(w, http.StatusOK, anno)
-}
-
-func (h *Handler) handleAnnotationUpdate(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-	resp, err := h.UpdateAnnotation(r.Context(), connect.NewRequest(&scribev1.UpdateAnnotationRequest{
-		AnnotationJson: string(body),
-	}))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	var anno map[string]any
-	if err := json.Unmarshal([]byte(resp.Msg.GetAnnotationJson()), &anno); err != nil {
-		writeError(w, http.StatusInternalServerError, "invalid annotation json")
-		return
-	}
-	writeJSON(w, http.StatusOK, anno)
-}
-
-func (h *Handler) handleAnnotationDelete(w http.ResponseWriter, r *http.Request) {
-	uri := strings.TrimSpace(r.URL.Query().Get("uri"))
-	if uri == "" {
-		writeError(w, http.StatusBadRequest, "uri is required")
-		return
-	}
-	_, err := h.DeleteAnnotation(r.Context(), connect.NewRequest(&scribev1.DeleteAnnotationRequest{Uri: uri}))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *Handler) handleAnnotationGet(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(r.PathValue("id"))
-	if id == "" {
-		writeError(w, http.StatusBadRequest, "id is required")
-		return
-	}
-	base := h.annBase(r)
-	fullID := base + "/v1/annotations/3/item/" + id
-	resp, err := h.GetAnnotation(r.Context(), connect.NewRequest(&scribev1.GetAnnotationRequest{Id: fullID}))
-	if err != nil {
-		writeError(w, http.StatusNotFound, "annotation not found")
-		return
-	}
-	var anno map[string]any
-	if err := json.Unmarshal([]byte(resp.Msg.GetAnnotationJson()), &anno); err != nil {
-		writeError(w, http.StatusInternalServerError, "stored annotation is invalid json")
-		return
-	}
-	writeJSON(w, http.StatusOK, normalizeAnnotation(anno, ""))
 }
 
 // --- IIIF annotation normalisation (ported from annotationserver) ---
@@ -573,21 +462,20 @@ func annStableID(raw string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// handleAnnotationEnrich accepts a single IIIF Annotation (scope=line) or a
-// full AnnotationPage (scope=page) as JSON, re-transcribes the image region(s)
-// using the chosen context, and returns the enriched annotation JSON.
-func (h *Handler) handleAnnotationEnrich(w http.ResponseWriter, r *http.Request) {
-	var req scribev1.EnrichAnnotationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid json")
-		return
+func annotationPageID(canvasURI string) string {
+	return "urn:scribe:annotation-page:" + url.QueryEscape(strings.TrimSpace(canvasURI))
+}
+
+func annotationID(parts ...string) string {
+	escaped := make([]string, 0, len(parts))
+	for _, part := range parts {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		escaped = append(escaped, url.QueryEscape(p))
 	}
-	resp, err := h.EnrichAnnotation(r.Context(), connect.NewRequest(&req))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"annotation_json": resp.Msg.GetAnnotationJson()})
+	return "urn:scribe:annotation:" + strings.Join(escaped, ":")
 }
 
 // enrichSingleAnnotation re-transcribes the image region referenced by a single

@@ -138,8 +138,6 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 		// (segmentation + transcription in one shot, no async step needed).
 		pctx := processingContextFromStore(resolvedCtx, "")
 		result, err = h.ocr.ProcessImageURLWithContext(imageURL, pctx)
-		provider = pctx.TranscriptionProvider
-		model = pctx.TranscriptionModel
 		runAsync = false
 	} else {
 		// Legacy path: detection-only hOCR + async LLM transcription.
@@ -156,14 +154,18 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 		}
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	if !runAsync {
+		provider = result.Provider
+		model = result.Model
+	}
 	item, itemImage, err := h.createOCRItemAndImage(ctx, "url", result.ImageURL, imageURL)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	sessionID := item.ID
 	var contextID *uint64
-	if req.Msg.GetContextId() > 0 {
-		v := req.Msg.GetContextId()
+	if resolvedCtx.ID > 0 {
+		v := resolvedCtx.ID
 		contextID = &v
 	}
 	if err := h.ocrRuns.Create(ctx, store.OCRRun{
@@ -230,8 +232,6 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 	if seg != "" && providerHeader == "" {
 		pctx := processingContextFromStore(resolvedCtx, "")
 		result, err = h.ocr.ProcessImageUploadWithContext(filename, req.Msg.GetImageData(), pctx)
-		provider = pctx.TranscriptionProvider
-		model = pctx.TranscriptionModel
 		runAsync = false
 	} else {
 		provider, model, err = h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), "", providerHeader)
@@ -247,14 +247,18 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 		}
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	if !runAsync {
+		provider = result.Provider
+		model = result.Model
+	}
 	item, itemImage, err := h.createOCRItemAndImage(ctx, "upload", result.ImageURL, "")
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	sessionID := item.ID
 	var contextID *uint64
-	if req.Msg.GetContextId() > 0 {
-		v := req.Msg.GetContextId()
+	if resolvedCtx.ID > 0 {
+		v := resolvedCtx.ID
 		contextID = &v
 	}
 	if err := h.ocrRuns.Create(ctx, store.OCRRun{
@@ -469,6 +473,56 @@ func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[scribev
 		LevenshteinDistance: int32(lev),
 		CorrectedPlainText:  correctedText,
 		OriginalPlainText:   run.OriginalText,
+	}), nil
+}
+
+func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[scribev1.ReprocessItemImageRequest]) (*connect.Response[scribev1.ReprocessItemImageResponse], error) {
+	if req.Msg.GetItemImageId() == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_image_id is required"))
+	}
+	run, err := h.ocrRuns.GetByItemImageID(ctx, req.Msg.GetItemImageId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
+	}
+
+	provider, model, err := h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), "", "")
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	result, err := h.ocr.ProcessImageURLWithProviderAndModel(run.ImageURL, provider, model)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	var contextID *uint64
+	if req.Msg.GetContextId() > 0 {
+		v := req.Msg.GetContextId()
+		contextID = &v
+	}
+	itemImageID := req.Msg.GetItemImageId()
+	if err := h.ocrRuns.Create(ctx, store.OCRRun{
+		SessionID:    run.SessionID,
+		ItemImageID:  &itemImageID,
+		ContextID:    contextID,
+		ImageURL:     result.ImageURL,
+		Provider:     provider,
+		Model:        model,
+		OriginalHOCR: result.HOCR,
+		OriginalText: result.PlainText,
+	}); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if err := writeSessionHOCR(run.SessionID, "original.hocr", result.HOCR); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
+	}
+	return connect.NewResponse(&scribev1.ReprocessItemImageResponse{
+		SessionId:   run.SessionID,
+		ItemImageId: req.Msg.GetItemImageId(),
+		ContextId:   req.Msg.GetContextId(),
+		ImageUrl:    result.ImageURL,
+		Hocr:        result.HOCR,
+		PlainText:   result.PlainText,
+		Provider:    provider,
+		Model:       model,
 	}), nil
 }
 
