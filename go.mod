@@ -4,8 +4,8 @@ go 1.24.4
 
 require (
 	connectrpc.com/connect v1.19.1
-	github.com/go-sql-driver/mysql v1.9.0
-	github.com/lehigh-university-libraries/htr v0.12.0
+	github.com/go-sql-driver/mysql v1.9.3
+	github.com/lehigh-university-libraries/htr v0.15.0
 	github.com/otiai10/gosseract/v2 v2.4.1
 	google.golang.org/protobuf v1.36.11
 )
