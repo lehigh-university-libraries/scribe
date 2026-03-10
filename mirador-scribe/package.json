@@ -1,0 +1,41 @@
+{
+  "name": "mirador-scribe",
+  "version": "0.1.0",
+  "description": "Text-first OCR editing plugin for Mirador 4 backed by IIIF AnnotationPages",
+  "main": "dist/mirador-scribe.cjs.js",
+  "module": "dist/mirador-scribe.es.js",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/mirador-scribe.es.js",
+      "require": "./dist/mirador-scribe.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vite build",
+    "clean": "rm -rf dist",
+    "start": "vite"
+  },
+  "peerDependencies": {
+    "@emotion/react": ">=11",
+    "@emotion/styled": ">=11",
+    "@mui/material": ">=7",
+    "@mui/system": ">=7",
+    "i18next": ">=25",
+    "mirador": "^4.0.0",
+    "prop-types": "^15.8.1",
+    "react": ">=19",
+    "react-dom": ">=19",
+    "react-i18next": ">=15"
+  },
+  "dependencies": {
+    "@mui/icons-material": "^7.3.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "vite": "^7.2.7"
+  }
+}

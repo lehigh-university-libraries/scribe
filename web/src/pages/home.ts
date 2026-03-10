@@ -5,10 +5,22 @@ import type { Item } from "../proto/scribe/v1/item_pb";
 
 export async function renderHome(app: HTMLElement): Promise<void> {
   app.innerHTML = `
-    <main class="mx-auto max-w-5xl p-8">
+    <main class="min-h-screen bg-slate-950">
+      <header class="border-b border-slate-800 bg-slate-950/95 px-8 py-3">
+        <div class="mx-auto flex max-w-5xl items-center justify-between">
+          <div class="flex items-center gap-4">
+            <a href="/" class="text-2xl font-bold tracking-tight">Scribe</a>
+            <nav class="flex items-center gap-2 text-sm text-slate-300">
+              <a href="/" class="rounded border border-slate-700 px-3 py-2 hover:bg-slate-800">Home</a>
+            </nav>
+          </div>
+          <p class="text-sm text-slate-300">Process images for OCR and edit annotations.</p>
+        </div>
+      </header>
+      <section class="mx-auto max-w-5xl p-8">
       <header class="mb-6">
-        <h1 class="text-4xl font-bold">Scribe</h1>
-        <p class="mt-2 text-slate-300">Process images for OCR and edit annotations.</p>
+        <h1 class="text-4xl font-bold">Workspace</h1>
+        <p class="mt-2 text-slate-300">Create items, process OCR, and open pages in the editor.</p>
       </header>
 
       <!-- Create new item -->
@@ -87,6 +99,7 @@ export async function renderHome(app: HTMLElement): Promise<void> {
         <div id="items-container">
           <p class="text-sm text-slate-400">Loading…</p>
         </div>
+      </section>
       </section>
     </main>
   `;
