@@ -43,6 +43,9 @@ type ProcessingContext struct {
 	TranscriptionModel    string
 	Temperature           *float64
 	SystemPrompt          string
+	// SegmentOnly skips LLM transcription and returns hOCR with line bounding
+	// boxes only. Used when the client will handle transcription via a batch job.
+	SegmentOnly bool
 }
 
 // ProcessImageWithContext runs the full pipeline using the supplied context and
@@ -68,6 +71,12 @@ func (s *Service) ProcessImageWithContext(imagePath string, pctx ProcessingConte
 	if selectedProvider == "custom" || selectedProvider == "kraken" {
 		lines = s.filterValidLines(lines, width)
 		lines = s.removeOverlappingLines(lines)
+	}
+
+	// SegmentOnly: return line boxes without any transcription.
+	if pctx.SegmentOnly {
+		slog.Info("Segment-only mode: skipping transcription", "line_count", len(lines))
+		return s.generateHOCRFromDetectedLines(lines, width, height), selectedProvider, "", nil
 	}
 
 	// For explicit tesseract segmentation or "auto" when tesseract wins, use the

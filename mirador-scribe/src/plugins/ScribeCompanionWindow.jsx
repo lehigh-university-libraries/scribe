@@ -48,9 +48,10 @@ function ScribeCompanionWindow({
   windowId,
 }) {
   function cycleOverlayMode(current) {
+    if (current === 'none') return 'edit';
     if (current === 'edit') return 'read';
-    if (current === 'read') return 'none';
-    return 'edit';
+    if (current === 'read') return 'outline';
+    return 'none'; // 'outline' → 'none'
   }
 
   const [isBusy, setIsBusy] = useState(false);
@@ -62,9 +63,10 @@ function ScribeCompanionWindow({
   const [transcribeDialogOpen, setTranscribeDialogOpen] = useState(false);
   const [transcribeSelection, setTranscribeSelection] = useState([]);
   const [drawMode, setDrawMode] = useState(false);
-  const [overlayMode, setOverlayMode] = useState('edit');
+  const [overlayMode, setOverlayMode] = useState('none');
   const [focusedWordAnnotationId, setFocusedWordAnnotationId] = useState('');
   const didInitialSnapRef = useRef(false);
+  const batchResultTimersRef = useRef(new Set());
   const inlineEditorVisible = overlayMode === 'edit';
   const textOverlayVisible = overlayMode === 'read';
 
@@ -415,6 +417,45 @@ function ScribeCompanionWindow({
     await performSave();
   }
 
+  async function handlePublish() {
+    if (!localPage) return;
+    setIsBusy(true);
+    setStatusMessage('Saving before publish...');
+    try {
+      const saved = await performSave();
+      if (!saved) {
+        setStatusMessage('Publish blocked: save failed.');
+        return;
+      }
+      const itemImageId = window.location.search ? new URLSearchParams(window.location.search).get('itemImageId') : '';
+      if (!itemImageId) {
+        setStatusMessage('Publish unavailable: missing item image.');
+        return;
+      }
+      setStatusMessage('Publishing edits...');
+      const ok = await new Promise((resolve) => {
+        const requestId = `publish-${Date.now()}`;
+        const handleResult = (event) => {
+          const detail = event?.detail;
+          if (!detail || detail.requestId !== requestId) return;
+          document.removeEventListener('scribe:publish-result', handleResult);
+          resolve(Boolean(detail.ok));
+        };
+        document.addEventListener('scribe:publish-result', handleResult);
+        document.dispatchEvent(new CustomEvent('scribe:request-publish', {
+          detail: {
+            itemImageId,
+            requestId,
+            windowId,
+          },
+        }));
+      });
+      setStatusMessage(ok ? 'Edits published.' : 'Publish failed.');
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   useEffect(() => {
     const handleSaveRequest = async (event) => {
       if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
@@ -432,6 +473,57 @@ function ScribeCompanionWindow({
     document.addEventListener('scribe:request-save', handleSaveRequest);
     return () => document.removeEventListener('scribe:request-save', handleSaveRequest);
   }, [windowId, adapterFactory, canvasId, localPage, serverPage, selectedAnnotation]);
+
+  useEffect(() => {
+    const handleTranscribeAll = (event) => {
+      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
+      void handleTranscribe({ all: true });
+    };
+    document.addEventListener('scribe:request-transcribe-all', handleTranscribeAll);
+    return () => document.removeEventListener('scribe:request-transcribe-all', handleTranscribeAll);
+  }, [windowId, adapterFactory, canvasId, localPage, selectedAnnotation, transcribeSelection]);
+
+  useEffect(() => {
+    const handleBatchState = (event) => {
+      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
+      const { active, message } = event.detail || {};
+      if (typeof message === 'string') {
+        setStatusMessage(message);
+      }
+      if (active) {
+        setDrawMode(false);
+        setOverlayMode('none');
+      }
+    };
+
+    const handleBatchResult = (event) => {
+      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
+      const annotation = event?.detail?.annotation;
+      if (!annotation) return;
+      const timer = window.setTimeout(() => {
+        batchResultTimersRef.current.delete(timer);
+        setLocalPage((current) => {
+          const basePage = current || serverPage || { type: 'AnnotationPage', items: [] };
+          const nextPage = upsertAnnotationInPage(basePage, annotation);
+          const targetCanvasId = canvasId || findCanvasIdByAnnotationId(nextPage, annotation.id) || firstAnnotationCanvasId(nextPage);
+          if (targetCanvasId) {
+            receiveAnnotation(targetCanvasId, nextPage.id, nextPage);
+          }
+          return nextPage;
+        });
+      }, 900);
+      batchResultTimersRef.current.add(timer);
+    };
+
+    document.addEventListener('scribe:transcription-job-state', handleBatchState);
+    document.addEventListener('scribe:transcription-result', handleBatchResult);
+    return () => {
+      batchResultTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      batchResultTimersRef.current.clear();
+      document.removeEventListener('scribe:transcription-job-state', handleBatchState);
+      document.removeEventListener('scribe:transcription-result', handleBatchResult);
+    };
+  }, [canvasId, receiveAnnotation, serverPage, windowId]);
 
   useEffect(() => {
     const handleInlineChange = (event) => {
@@ -662,42 +754,89 @@ function ScribeCompanionWindow({
     setLocalPage(next);
   }
 
+  function clearTranscriptionOverlay() {
+    document.dispatchEvent(new CustomEvent('scribe:transcription-segment', {
+      detail: { annotation: null, done: 0, total: 0, windowId },
+    }));
+  }
+
+  // ConnectRPC code strings that map to HTTP 4xx — skip and continue.
+  const CLIENT_ERROR_CODES = new Set([
+    'invalid_argument', 'not_found', 'already_exists', 'permission_denied',
+    'resource_exhausted', 'failed_precondition', 'aborted', 'out_of_range',
+    'unauthenticated', 'unimplemented',
+  ]);
+  // ConnectRPC code strings that map to HTTP 5xx — slow down, then continue.
+  const SERVER_ERROR_CODES = new Set([
+    'unknown', 'internal', 'unavailable', 'data_loss', 'deadline_exceeded',
+  ]);
+
   async function handleTranscribe({ all = false, annotationIds = [] } = {}) {
     if (!adapterFactory || !localPage) return;
     setIsBusy(true);
-    setStatusMessage(all ? 'Transcribing document...' : 'Transcribing selected text...');
-    try {
-      const adapter = adapterFactory(canvasId || annotationCanvasId(selectedAnnotation));
-      let nextPage = localPage;
+    // Clear overlays so the magic wand animation is unobstructed.
+    // Respect edit mode if the user already has the inline editor open.
+    if (overlayMode !== 'edit') setOverlayMode('none');
 
-      if (all) {
-        nextPage = await adapter.transcribeAnnotationPage(localPage);
-      } else {
-        const targetIds = annotationIds.length > 0 ? annotationIds : transcribeSelection;
-        const replacements = await Promise.all(
-          targetIds.map(async (annotationId) => {
-            const source = (localPage.items || []).find((annotation) => annotation?.id === annotationId);
-            if (!source) return null;
-            return adapter.transcribeAnnotation(source);
-          }),
-        );
+    const targetAnnotations = all
+      ? (localPage.items || [])
+      : (annotationIds.length > 0 ? annotationIds : transcribeSelection)
+          .map((id) => (localPage.items || []).find((a) => a?.id === id))
+          .filter(Boolean);
 
-        nextPage = replacements.filter(Boolean).reduce(
-          (page, annotation) => upsertAnnotationInPage(page, annotation),
-          localPage,
-        );
+    const total = targetAnnotations.length;
+    setStatusMessage(`Transcribing… 0 / ${total}`);
+
+    let nextPage = localPage;
+    const adapter = adapterFactory(canvasId || annotationCanvasId(selectedAnnotation));
+
+    for (let i = 0; i < targetAnnotations.length; i++) {
+      const annotation = targetAnnotations[i];
+      const done = i + 1;
+      setStatusMessage(`Transcribing… ${done} / ${total}`);
+      document.dispatchEvent(new CustomEvent('scribe:transcription-segment', {
+        detail: { annotation, done, total, windowId },
+      }));
+
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const transcribed = await adapter.transcribeAnnotation(annotation);
+        if (transcribed) {
+          nextPage = upsertAnnotationInPage(nextPage, transcribed);
+        }
+        document.dispatchEvent(new CustomEvent('scribe:transcription-result', {
+          detail: { annotation: transcribed || annotation, done, total, windowId },
+        }));
+        // Pause so the dissolve animation is visible before moving to the next segment.
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => { setTimeout(resolve, 1200); });
+      } catch (error) {
+        const code = error?.code;
+        if (CLIENT_ERROR_CODES.has(code)) {
+          // 4xx: not legible / bad request — skip silently and continue.
+        } else if (SERVER_ERROR_CODES.has(code)) {
+          // 5xx: back off before continuing so we don't hammer a struggling server.
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => { setTimeout(resolve, 3000); });
+        } else {
+          // Unknown error shape — treat as server error: back off and continue.
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => { setTimeout(resolve, 3000); });
+        }
       }
 
-      pushHistory(nextPage);
-      const focusId = all ? nextPage?.items?.[0]?.id : (annotationIds[0] || transcribeSelection[0] || nextPage?.items?.[0]?.id);
-      if (focusId) selectAnnotation(windowId, focusId);
-      setTranscribeDialogOpen(false);
-      setStatusMessage(all ? 'Document transcribed.' : 'Selected text transcribed.');
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Transcription failed.');
-    } finally {
-      setIsBusy(false);
+      document.dispatchEvent(new CustomEvent('scribe:transcription-progress', {
+        detail: { done, total },
+      }));
     }
+
+    clearTranscriptionOverlay();
+    pushHistory(nextPage);
+    const focusId = targetAnnotations[0]?.id || nextPage?.items?.[0]?.id;
+    if (focusId) selectAnnotation(windowId, focusId);
+    setTranscribeDialogOpen(false);
+    setStatusMessage(all ? 'Document transcribed.' : 'Selected text transcribed.');
+    setIsBusy(false);
   }
 
   return (
@@ -716,6 +855,7 @@ function ScribeCompanionWindow({
       onJoinLines={handleJoinLines}
       onJoinWords={handleJoinWords}
       onRedo={handleRedo}
+      onPublish={handlePublish}
       onSave={handleSave}
       onSplit={handleSplit}
       onTranscribe={handleTranscribe}

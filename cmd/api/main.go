@@ -35,19 +35,25 @@ func main() {
 	itemStore := store.NewItemStore(dbPool)
 	contextStore := store.NewContextStore(dbPool)
 	annotationStore := store.NewAnnotationStore(dbPool)
+	transcriptionJobStore := store.NewTranscriptionJobStore(dbPool)
 
 	if err := seedSystemContexts(context.Background(), contextStore); err != nil {
 		slog.Error("failed to seed system contexts", "err", err)
 		os.Exit(1)
 	}
 
-	handler := server.NewHandler(ocrRunStore, itemStore, contextStore, annotationStore)
+	handler := server.NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+
+	// Start background transcription job worker.
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+	handler.StartTranscriptionWorker(workerCtx)
 
 	httpServer := &http.Server{
 		Addr:         cfg.ListenAddr,
 		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 0, // streaming responses need no write timeout
 		IdleTimeout:  60 * time.Second,
 	}
 
@@ -63,6 +69,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
+	workerCancel()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {

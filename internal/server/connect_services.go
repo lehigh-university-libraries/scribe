@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -134,9 +135,11 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 
 	seg := strings.ToLower(strings.TrimSpace(resolvedCtx.SegmentationModel))
 	if seg != "" && providerHeader == "" {
-		// Context has a segmentation model set: run the full synchronous pipeline
-		// (segmentation + transcription in one shot, no async step needed).
+		// Segmentation model set: detect segments only, then enqueue a batch
+		// transcription job. The client is redirected to the editor immediately
+		// and the job worker transcribes segment by segment in the background.
 		pctx := processingContextFromStore(resolvedCtx, "")
+		pctx.SegmentOnly = true
 		result, err = h.ocr.ProcessImageURLWithContext(imageURL, pctx)
 		runAsync = false
 	} else {
@@ -186,11 +189,26 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 	if err := writeSessionHOCR(sessionID, "original.hocr", result.HOCR); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
 	}
+	if !runAsync {
+		if err := h.ensureItemImageCanvasAndAnnotations(ctx, store.OCRRun{
+			SessionID:    sessionID,
+			ItemImageID:  &itemImage.ID,
+			OriginalHOCR: result.HOCR,
+		}, itemImage.ID); err != nil {
+			slog.Warn("Failed to initialize item image canvas/annotations", "item_image_id", itemImage.ID, "error", err)
+		}
+	}
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
 	if runAsync {
 		h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
+	} else {
+		// Segment-only path: enqueue a batch transcription job so the worker
+		// transcribes annotations in the background and the editor can stream progress.
+		if _, err := h.transcriptionJobs.Create(ctx, itemImage.ID, contextID); err != nil {
+			slog.Warn("Failed to enqueue transcription job", "item_image_id", itemImage.ID, "error", err)
+		}
 	}
 
 	return connect.NewResponse(&scribev1.ProcessImageResponse{
@@ -231,6 +249,7 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 	seg := strings.ToLower(strings.TrimSpace(resolvedCtx.SegmentationModel))
 	if seg != "" && providerHeader == "" {
 		pctx := processingContextFromStore(resolvedCtx, "")
+		pctx.SegmentOnly = true
 		result, err = h.ocr.ProcessImageUploadWithContext(filename, req.Msg.GetImageData(), pctx)
 		runAsync = false
 	} else {
@@ -279,11 +298,24 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 	if err := writeSessionHOCR(sessionID, "original.hocr", result.HOCR); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
 	}
+	if !runAsync {
+		if err := h.ensureItemImageCanvasAndAnnotations(ctx, store.OCRRun{
+			SessionID:    sessionID,
+			ItemImageID:  &itemImage.ID,
+			OriginalHOCR: result.HOCR,
+		}, itemImage.ID); err != nil {
+			slog.Warn("Failed to initialize item image canvas/annotations", "item_image_id", itemImage.ID, "error", err)
+		}
+	}
 	if progressID != "" {
 		finishProgress(progressID, "done", "Completed", "")
 	}
 	if runAsync {
 		h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
+	} else {
+		if _, err := h.transcriptionJobs.Create(ctx, itemImage.ID, contextID); err != nil {
+			slog.Warn("Failed to enqueue transcription job", "item_image_id", itemImage.ID, "error", err)
+		}
 	}
 
 	return connect.NewResponse(&scribev1.ProcessImageResponse{

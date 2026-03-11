@@ -88,6 +88,11 @@ export async function renderContexts(app: HTMLElement): Promise<void> {
           </div>
           <button id="refresh-contexts" class="rounded border border-slate-600 px-3 py-2 text-sm hover:bg-slate-800">Refresh</button>
         </header>
+        <div id="contexts-summary" class="mb-6 grid gap-4 sm:grid-cols-3"></div>
+        <div id="contexts-container">
+          <p class="text-sm text-slate-400">Loading…</p>
+        </div>
+
         <section class="mb-6 rounded-xl border border-slate-700 bg-slate-900/60 p-6">
           <div class="mb-4">
             <h2 class="text-xl font-semibold">Create context</h2>
@@ -128,10 +133,6 @@ export async function renderContexts(app: HTMLElement): Promise<void> {
             <p id="create-context-status" class="md:col-span-2 text-sm text-slate-400"></p>
           </form>
         </section>
-        <div id="contexts-summary" class="mb-6 grid gap-4 sm:grid-cols-3"></div>
-        <div id="contexts-container">
-          <p class="text-sm text-slate-400">Loading…</p>
-        </div>
       </section>
     </main>
   `;

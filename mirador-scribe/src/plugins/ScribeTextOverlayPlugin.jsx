@@ -20,6 +20,18 @@ import {
   selectedAnnotationIdForWindow,
 } from '../utils/iiif';
 
+// Inject keyframe animations once at module load
+if (typeof document !== 'undefined' && !document.getElementById('scribe-transcription-kf')) {
+  const kfStyle = document.createElement('style');
+  kfStyle.id = 'scribe-transcription-kf';
+  kfStyle.textContent = [
+    '@keyframes scribeSegmentPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(139,92,246,.35)}50%{opacity:.75;box-shadow:0 0 0 5px rgba(139,92,246,0)}}',
+    '@keyframes scribeResultDissolve{0%{opacity:0;transform:scaleY(.92)}12%{opacity:1;transform:scaleY(1)}72%{opacity:1}100%{opacity:0}}',
+    '@keyframes scribeSpinner{to{transform:rotate(360deg)}}',
+  ].join('');
+  document.head.appendChild(kfStyle);
+}
+
 const INLINE_EDITOR_GAP_PX = 0;
 const INLINE_EDITOR_HEIGHT_PX = 72;
 const INLINE_EDITOR_MIN_WIDTH_PX = 280;
@@ -88,8 +100,11 @@ function ScribeTextOverlayPlugin({
   const [dragState, setDragState] = useState(null);
   const [bboxDragState, setBboxDragState] = useState(null);
   const [pendingFocusWordId, setPendingFocusWordId] = useState('');
+  const [transcriptionSegment, setTranscriptionSegment] = useState(null);
+  const [transcriptionResult, setTranscriptionResult] = useState(null);
   const inputRefs = useRef(new Map());
   const dragIntentRef = useRef(null);
+  const transcriptionResultTimerRef = useRef(null);
 
   function screenToImagePoint(clientX, clientY) {
     if (!viewer?.viewport || !viewer?.world?.getItemCount?.()) return null;
@@ -146,6 +161,43 @@ function ScribeTextOverlayPlugin({
     };
     document.addEventListener('scribe:editor-state', handleEditorState);
     return () => document.removeEventListener('scribe:editor-state', handleEditorState);
+  }, [windowId]);
+
+  useEffect(() => {
+    const handle = (event) => {
+      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
+      const { annotation, done, total } = event.detail;
+      setTranscriptionSegment(annotation ? { annotation, done, total } : null);
+    };
+    document.addEventListener('scribe:transcription-segment', handle);
+    return () => document.removeEventListener('scribe:transcription-segment', handle);
+  }, [windowId]);
+
+  useEffect(() => {
+    const handle = (event) => {
+      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
+      const { annotation, done, total } = event.detail;
+      if (!annotation) return;
+      const text = annotation?.body?.value
+        ?? (Array.isArray(annotation?.body) ? annotation.body[0]?.value : null)
+        ?? null;
+      setTranscriptionResult({ annotation, text, done, total });
+      if (transcriptionResultTimerRef.current) {
+        window.clearTimeout(transcriptionResultTimerRef.current);
+      }
+      transcriptionResultTimerRef.current = window.setTimeout(() => {
+        setTranscriptionResult(null);
+        transcriptionResultTimerRef.current = null;
+      }, 1400);
+    };
+    document.addEventListener('scribe:transcription-result', handle);
+    return () => {
+      if (transcriptionResultTimerRef.current) {
+        window.clearTimeout(transcriptionResultTimerRef.current);
+        transcriptionResultTimerRef.current = null;
+      }
+      document.removeEventListener('scribe:transcription-result', handle);
+    };
   }, [windowId]);
 
   useEffect(() => {
@@ -218,6 +270,7 @@ function ScribeTextOverlayPlugin({
   const overlayMode = editorState?.overlayMode || 'none';
   const inlineEditorVisible = overlayMode === 'edit';
   const textOverlayVisible = overlayMode === 'read';
+  const outlineVisible = overlayMode === 'outline';
 
   useEffect(() => {
     if (!viewer) return undefined;
@@ -233,6 +286,16 @@ function ScribeTextOverlayPlugin({
     setPendingFocusWordId('');
     clearDragIntent();
   }, [activeSelectedAnnotationId]);
+
+  const transcriptionRect = useMemo(() => {
+    if (!transcriptionSegment?.annotation || !viewer) return null;
+    return annotationRect(viewer, transcriptionSegment.annotation);
+  }, [transcriptionSegment, viewer, version]);
+
+  const transcriptionResultRect = useMemo(() => {
+    if (!transcriptionResult?.annotation || !viewer) return null;
+    return annotationRect(viewer, transcriptionResult.annotation);
+  }, [transcriptionResult, viewer, version]);
 
   const labels = useMemo(() => {
     if (!textOverlayVisible) return [];
@@ -348,7 +411,7 @@ function ScribeTextOverlayPlugin({
   }, [activeFocusedWordAnnotationId, activeSelectedAnnotationId, inlineEditor, overlayMode, pendingFocusWordId]);
 
   const focusBounds = useMemo(() => {
-    if (!selectedDecoration.lineRect) return null;
+    if (!inlineEditorVisible || !selectedDecoration.lineRect) return null;
     const linePaddingX = 10;
     const linePaddingY = 6;
     return {
@@ -357,9 +420,17 @@ function ScribeTextOverlayPlugin({
       right: selectedDecoration.lineRect.x + selectedDecoration.lineRect.w + linePaddingX,
       top: Math.max(8, selectedDecoration.lineRect.y - linePaddingY),
     };
-  }, [selectedDecoration.lineRect, viewer]);
+  }, [inlineEditorVisible, selectedDecoration.lineRect, viewer]);
 
-  if (!viewer || overlayMode === 'none') return null;
+  if (!viewer) return null;
+  if (overlayMode === 'none' && !transcriptionRect && !transcriptionResultRect) return null;
+
+  const outlineRects = outlineVisible
+    ? (Array.isArray(activePage?.items) ? activePage.items : [])
+        .filter(isLineAnnotation)
+        .map((annotation) => ({ id: annotation.id, rect: annotationRect(viewer, annotation) }))
+        .filter(({ rect }) => rect && rect.w > 4 && rect.h > 4)
+    : [];
 
   return ReactDOM.createPortal(
     <div
@@ -789,6 +860,122 @@ function ScribeTextOverlayPlugin({
           )}
         </div>
       ) : null}
+      {outlineRects.map(({ id, rect }) => (
+        <div
+          key={id}
+          style={{
+            border: '1px solid rgba(148,163,184,0.55)',
+            borderRadius: 2,
+            boxSizing: 'border-box',
+            height: `${rect.h}px`,
+            left: rect.x,
+            pointerEvents: 'none',
+            position: 'absolute',
+            top: rect.y,
+            width: `${rect.w}px`,
+            zIndex: 5,
+          }}
+        />
+      ))}
+      {transcriptionResultRect && transcriptionResult?.text ? (() => {
+        const rr = transcriptionResultRect;
+        const fontSize = Math.max(11, Math.min(18, rr.h * 0.68));
+        return (
+          <div
+            key={transcriptionResult.annotation?.id}
+            style={{
+              alignItems: 'center',
+              animation: 'scribeResultDissolve 1.2s ease-out forwards',
+              background: 'rgba(15,23,42,0.82)',
+              borderRadius: 3,
+              boxSizing: 'border-box',
+              color: '#f1f5f9',
+              display: 'flex',
+              fontFamily: '"IBM Plex Sans","Helvetica Neue",sans-serif',
+              fontSize,
+              fontWeight: 500,
+              height: `${Math.max(20, rr.h)}px`,
+              left: rr.x,
+              letterSpacing: '0.01em',
+              lineHeight: 1.2,
+              overflow: 'hidden',
+              padding: '0 6px',
+              pointerEvents: 'none',
+              position: 'absolute',
+              top: rr.y,
+              width: `${Math.max(40, rr.w)}px`,
+              zIndex: 1402,
+            }}
+          >
+            {transcriptionResult.text}
+          </div>
+        );
+      })() : null}
+      {transcriptionRect && transcriptionSegment ? (() => {
+        const tr = transcriptionRect;
+        const canvasWidth = viewer.canvas?.clientWidth || 9999;
+        const badgeWidth = 72;
+        const badgeLeft = tr.x + tr.w + 8;
+        const clampedBadgeLeft = Math.min(badgeLeft, canvasWidth - badgeWidth - 4);
+        return (
+          <>
+            <div
+              style={{
+                animation: 'scribeSegmentPulse 1.4s ease-in-out infinite',
+                border: '2px solid rgba(139,92,246,0.9)',
+                borderRadius: 4,
+                boxSizing: 'border-box',
+                height: `${Math.max(8, tr.h + 6)}px`,
+                left: tr.x - 3,
+                pointerEvents: 'none',
+                position: 'absolute',
+                top: tr.y - 3,
+                transition: 'left 0.2s ease, top 0.2s ease, width 0.2s ease, height 0.2s ease',
+                width: `${Math.max(8, tr.w + 6)}px`,
+                zIndex: 1400,
+              }}
+            />
+            <div
+              style={{
+                alignItems: 'center',
+                background: 'rgba(109,40,217,0.93)',
+                backdropFilter: 'blur(6px)',
+                borderRadius: 20,
+                boxShadow: '0 2px 10px rgba(109,40,217,0.5)',
+                color: '#fff',
+                display: 'flex',
+                fontSize: 11,
+                fontWeight: 700,
+                gap: 4,
+                left: clampedBadgeLeft,
+                padding: '3px 8px 3px 5px',
+                pointerEvents: 'none',
+                position: 'absolute',
+                top: tr.y + tr.h / 2 - 13,
+                transition: 'left 0.2s ease, top 0.2s ease',
+                whiteSpace: 'nowrap',
+                zIndex: 1401,
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="white" aria-hidden="true">
+                <path d="M7.5 5.6L10 7 8.6 4.5 10 2 7.5 3.4 5 2l1.4 2.5L5 7zm12 9.8L17 14l1.4 2.5L17 19l2.5-1.4L22 19l-1.4-2.5L22 14zM22 2l-2.5 1.4L17 2l1.4 2.5L17 7l2.5-1.4L22 7l-1.4-2.5zm-7.63 5.29a1 1 0 00-1.41 0L1.29 18.96a1 1 0 000 1.41l2.34 2.34c.39.39 1.02.39 1.41 0L16.7 11.05a1 1 0 000-1.41zM14.21 7L17 9.79 9.79 17 7 14.21z" />
+              </svg>
+              <div
+                style={{
+                  animation: 'scribeSpinner 0.75s linear infinite',
+                  border: '1.5px solid rgba(255,255,255,0.3)',
+                  borderRadius: '50%',
+                  borderTopColor: '#fff',
+                  flexShrink: 0,
+                  height: 10,
+                  width: 10,
+                }}
+              />
+              <span>{transcriptionSegment.done}&nbsp;/&nbsp;{transcriptionSegment.total}</span>
+            </div>
+          </>
+        );
+      })() : null}
     </div>,
     viewer.canvas,
   );

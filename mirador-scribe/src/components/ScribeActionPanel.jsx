@@ -6,6 +6,7 @@ import BorderColorOutlinedIcon from '@mui/icons-material/BorderColorOutlined';
 import CallSplitOutlinedIcon from '@mui/icons-material/CallSplitOutlined';
 import HorizontalSplitOutlinedIcon from '@mui/icons-material/HorizontalSplitOutlined';
 import MergeTypeOutlinedIcon from '@mui/icons-material/MergeTypeOutlined';
+import PublishOutlinedIcon from '@mui/icons-material/PublishOutlined';
 import RedoOutlinedIcon from '@mui/icons-material/RedoOutlined';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import SplitscreenOutlinedIcon from '@mui/icons-material/SplitscreenOutlined';
@@ -13,7 +14,9 @@ import SubjectOutlinedIcon from '@mui/icons-material/SubjectOutlined';
 import UndoOutlinedIcon from '@mui/icons-material/UndoOutlined';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
+import Divider from '@mui/material/Divider';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -28,7 +31,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useTranslation } from 'react-i18next';
 import { ConnectedCompanionWindow as CompanionWindow } from 'mirador';
-import { annotationGranularity, annotationText } from '../utils/iiif';
+import { annotationGranularity, annotationText, isLineAnnotation } from '../utils/iiif';
 
 function ToolbarAction({ color = 'default', disabled, icon: Icon, onClick, selected = false, title }) {
   return (
@@ -61,53 +64,59 @@ function ToolbarAction({ color = 'default', disabled, icon: Icon, onClick, selec
   );
 }
 
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+const mod = isMac ? 'Cmd' : 'Ctrl';
+
 function ShortcutLegend() {
   const shortcuts = [
     { key: 'Esc', label: 'No overlay' },
     { key: 'E', label: 'Edit overlay' },
     { key: 'Tab', label: 'Next row' },
-    { key: 'Shift+Tab', label: 'Previous row' },
-    { key: 'Cmd/Ctrl+Z', label: 'Undo' },
-    { key: 'Cmd/Ctrl+Shift+Z', label: 'Redo' },
+    { key: 'Shift+Tab', label: 'Prev row' },
+    { key: `${mod}+Z`, label: 'Undo' },
+    { key: `${mod}+Shift+Z`, label: 'Redo' },
   ];
 
   return (
     <Box
+      component="ul"
       sx={{
-        alignItems: 'center',
-        borderLeft: '1px solid rgba(148,163,184,0.18)',
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: 0.75,
-        justifyContent: 'flex-end',
-        minHeight: 36,
-        pl: 1.25,
+        alignSelf: 'center',
+        listStyle: 'none',
+        m: 0,
+        p: 0,
+        pl: 0.5,
       }}
     >
-      <Typography
-        variant="caption"
-        sx={{
-          color: 'text.secondary',
-          fontWeight: 600,
-          mr: 0.25,
-          textTransform: 'uppercase',
-        }}
-      >
-        Shortcuts
-      </Typography>
       {shortcuts.map((shortcut) => (
-        <Chip
+        <Box
           key={shortcut.key}
-          label={`${shortcut.key}: ${shortcut.label}`}
-          size="small"
-          variant="outlined"
+          component="li"
           sx={{
-            backgroundColor: 'rgba(255,255,255,0.78)',
-            borderColor: 'rgba(148,163,184,0.24)',
-            fontSize: 11,
-            height: 24,
+            alignItems: 'center',
+            display: 'flex',
+            gap: 0.75,
+            mb: 0.3,
           }}
-        />
+        >
+          <Typography component="span" sx={{ color: 'text.disabled', fontSize: 10, lineHeight: 1 }}>
+            •
+          </Typography>
+          <Chip
+            label={shortcut.key}
+            size="small"
+            variant="outlined"
+            sx={{
+              backgroundColor: 'rgba(255,255,255,0.78)',
+              borderColor: 'rgba(148,163,184,0.24)',
+              fontSize: 10,
+              height: 18,
+            }}
+          />
+          <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11, lineHeight: 1 }}>
+            {shortcut.label}
+          </Typography>
+        </Box>
       ))}
     </Box>
   );
@@ -136,6 +145,7 @@ export default function ScribeActionPanel({
   onJoinLines,
   onJoinWords,
   onRedo,
+  onPublish,
   onSave,
   onSplit,
   onCycleOverlayMode,
@@ -155,9 +165,12 @@ export default function ScribeActionPanel({
   const { t } = useTranslation();
   const orderedAnnotations = annotations;
   const hasSelection = Boolean(selectedAnnotation?.id);
-  const allTranscribeSelected = orderedAnnotations.length > 0 && transcribeSelection.length === orderedAnnotations.length;
+
   const panelRef = useRef(null);
-  const overlayModeLabel = overlayMode === 'read' ? 'Read Overlay' : overlayMode === 'edit' ? 'Edit Overlay' : 'No Overlay';
+  const overlayModeLabel = overlayMode === 'edit' ? 'Edit Overlay'
+    : overlayMode === 'read' ? 'Read Overlay'
+    : overlayMode === 'outline' ? 'Outline Overlay'
+    : 'No Overlay';
 
   useEffect(() => {
     const container = panelRef.current;
@@ -181,7 +194,7 @@ export default function ScribeActionPanel({
       element.style.setProperty('min-width', '100%', 'important');
       element.style.setProperty('max-width', '100%', 'important');
       element.style.setProperty('flex-basis', '100%', 'important');
-      element.style.setProperty('height', '104px', 'important');
+      element.style.setProperty('height', '128px', 'important');
     }
 
     return () => {
@@ -196,13 +209,17 @@ export default function ScribeActionPanel({
   }, []);
 
   return (
-    <CompanionWindow title={t('scribeEditorTitle')} id={id} windowId={windowId}>
+    <CompanionWindow title="" id={id} windowId={windowId}>
       <Box
         ref={panelRef}
         sx={{
+          alignItems: 'center',
           background: 'linear-gradient(180deg, rgba(248,250,252,0.98) 0%, rgba(241,245,249,0.98) 100%)',
           boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
           height: '100%',
+          justifyContent: 'center',
           minHeight: 0,
           overflow: 'hidden',
           p: 1,
@@ -211,156 +228,219 @@ export default function ScribeActionPanel({
       >
         <Box
           sx={{
-            alignItems: 'center',
-            backgroundColor: 'rgba(255,255,255,0.68)',
-            border: '1px solid rgba(148,163,184,0.18)',
-            borderRadius: 3,
-            boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
+            alignItems: 'stretch',
             display: 'flex',
-            gap: 1,
-            justifyContent: 'space-between',
-            p: 0.75,
+            gap: 1.5,
+            justifyContent: 'center',
+            width: '100%',
           }}
         >
-          <Stack
-            direction="row"
-            flexWrap="wrap"
-            useFlexGap
-            spacing={0.75}
+          {/* Action buttons — centered, max-width, wrappable */}
+          <Box
             sx={{
-              alignItems: 'center',
-              flex: '1 1 auto',
+              backgroundColor: 'rgba(255,255,255,0.68)',
+              border: '1px solid rgba(148,163,184,0.18)',
+              borderRadius: 3,
+              boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              maxWidth: 340,
+              p: 0.75,
             }}
           >
-            <ToolbarAction title={t('scribeEditorCreateLine')} icon={BorderColorOutlinedIcon} color="warning" disabled={isBusy} onClick={onCreateLine} selected={drawMode} />
-            <ToolbarAction title={t('scribeEditorSplitWords')} icon={CallSplitOutlinedIcon} disabled={isBusy || !hasSelection || selectedGranularity !== 'line'} onClick={onExplode} />
-            <ToolbarAction title={t('scribeEditorJoinWords')} icon={HorizontalSplitOutlinedIcon} disabled={isBusy || !canJoinWords} onClick={onJoinWords} />
-            <ToolbarAction title={t('scribeEditorSplitLine')} icon={SplitscreenOutlinedIcon} disabled={isBusy || !hasSelection || selectedGranularity !== 'line'} onClick={onSplit} />
-            <ToolbarAction title={t('scribeEditorJoinLines')} icon={MergeTypeOutlinedIcon} disabled={isBusy || !canJoinLines} onClick={onJoinLines} />
-            <ToolbarAction title={t('scribeEditorTranscribe')} icon={AutoFixHighIcon} color="secondary" disabled={isBusy || orderedAnnotations.length === 0} onClick={onTranscribeDialogOpen} />
-            <ToolbarAction title={t('scribeEditorUndo')} icon={UndoOutlinedIcon} disabled={isBusy} onClick={onUndo} />
-            <ToolbarAction title={t('scribeEditorRedo')} icon={RedoOutlinedIcon} disabled={isBusy} onClick={onRedo} />
-            <ToolbarAction title={overlayModeLabel} icon={SubjectOutlinedIcon} color="info" disabled={isBusy} onClick={onCycleOverlayMode} selected={overlayMode !== 'none'} />
-            <ToolbarAction
-              title={t('scribeEditorDelete')}
-              icon={BackspaceOutlinedIcon}
-              color="error"
-              disabled={isBusy || !hasSelection}
-              onClick={() => {
-                startTransition(() => {
-                  void onDelete(selectedAnnotation.id);
-                });
+            <Stack
+              direction="row"
+              flexWrap="wrap"
+              useFlexGap
+              spacing={0.75}
+              sx={{
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
-            />
-            <ToolbarAction
-              title={t('scribeEditorSave')}
-              icon={SaveOutlinedIcon}
-              color="primary"
-              disabled={isBusy || saveDisabled}
-              onClick={() => {
-                startTransition(() => {
-                  void onSave();
-                });
-              }}
-            />
-          </Stack>
+            >
+              <ToolbarAction title={t('scribeEditorCreateLine')} icon={BorderColorOutlinedIcon} color="warning" disabled={isBusy} onClick={onCreateLine} selected={drawMode} />
+              <ToolbarAction title={t('scribeEditorSplitWords')} icon={CallSplitOutlinedIcon} disabled={isBusy || !hasSelection || selectedGranularity !== 'line'} onClick={onExplode} />
+              <ToolbarAction title={t('scribeEditorJoinWords')} icon={HorizontalSplitOutlinedIcon} disabled={isBusy || !canJoinWords} onClick={onJoinWords} />
+              <ToolbarAction title={t('scribeEditorSplitLine')} icon={SplitscreenOutlinedIcon} disabled={isBusy || !hasSelection || selectedGranularity !== 'line'} onClick={onSplit} />
+              <ToolbarAction title={t('scribeEditorJoinLines')} icon={MergeTypeOutlinedIcon} disabled={isBusy || !canJoinLines} onClick={onJoinLines} />
+              <ToolbarAction title={t('scribeEditorTranscribe')} icon={AutoFixHighIcon} color="secondary" disabled={isBusy || orderedAnnotations.length === 0} onClick={onTranscribeDialogOpen} />
+              <ToolbarAction title={t('scribeEditorUndo')} icon={UndoOutlinedIcon} disabled={isBusy} onClick={onUndo} />
+              <ToolbarAction title={t('scribeEditorRedo')} icon={RedoOutlinedIcon} disabled={isBusy} onClick={onRedo} />
+              <ToolbarAction title={overlayModeLabel} icon={SubjectOutlinedIcon} color="info" disabled={isBusy} onClick={onCycleOverlayMode} selected={overlayMode !== 'none'} />
+              <ToolbarAction
+                title={t('scribeEditorDelete')}
+                icon={BackspaceOutlinedIcon}
+                color="error"
+                disabled={isBusy || !hasSelection}
+                onClick={() => {
+                  startTransition(() => {
+                    void onDelete(selectedAnnotation.id);
+                  });
+                }}
+              />
+              <ToolbarAction
+                title={t('scribeEditorSave')}
+                icon={SaveOutlinedIcon}
+                color="primary"
+                disabled={isBusy || saveDisabled}
+                onClick={() => {
+                  startTransition(() => {
+                    void onSave();
+                  });
+                }}
+              />
+              <ToolbarAction
+                title="Publish edits"
+                icon={PublishOutlinedIcon}
+                color="success"
+                disabled={isBusy}
+                onClick={() => {
+                  startTransition(() => {
+                    void onPublish();
+                  });
+                }}
+              />
+            </Stack>
+            {selectedAnnotation ? (
+              <Typography
+                variant="caption"
+                sx={{
+                  color: 'text.secondary',
+                  display: 'block',
+                  lineHeight: 1.3,
+                  mt: 0.5,
+                  textAlign: 'center',
+                }}
+              >
+                {`${selectedGranularity || 'line'} selected`}
+              </Typography>
+            ) : null}
+          </Box>
+
+          {/* Keyboard shortcuts — bulleted list to the right */}
           <ShortcutLegend />
         </Box>
+
         {statusMessage ? (
           <Alert
             severity="info"
             sx={{
               mt: 1,
               p: 0.75,
+              width: '100%',
             }}
           >
             {statusMessage}
           </Alert>
         ) : null}
-        <Typography
-          variant="caption"
-          sx={{
-            color: 'text.secondary',
-            display: 'block',
-            lineHeight: 1.3,
-            mt: 0.5,
-            textAlign: 'center',
-          }}
-        >
-          {selectedAnnotation ? `${selectedGranularity || 'line'} selected` : t('scribeEditorEmpty')}
-        </Typography>
       </Box>
 
       <Dialog open={transcribeDialogOpen} onClose={onTranscribeDialogClose} fullWidth maxWidth="sm">
         <DialogTitle>{t('scribeEditorTranscribeDialogTitle')}</DialogTitle>
         <DialogContent dividers>
-          <Stack spacing={1.25}>
-            <Typography variant="body2" color="text.secondary">
-              {t('scribeEditorTranscribeDialogDescription')}
-            </Typography>
-            <List dense disablePadding sx={{ maxHeight: 320, overflowY: 'auto' }}>
-              <ListItemButton
-                selected={allTranscribeSelected}
-                onClick={() => {
-                  onTranscribeSelectionChange(
-                    allTranscribeSelected ? [] : orderedAnnotations.map((annotation) => annotation.id),
-                  );
-                }}
-                sx={{ borderRadius: 1, mb: 0.5 }}
-              >
-                <Checkbox edge="start" tabIndex={-1} disableRipple checked={allTranscribeSelected} />
-                <ListItemText primary={t('scribeEditorTranscribeSelectVisible')} />
-              </ListItemButton>
-              {orderedAnnotations.map((annotation) => {
-                const checked = transcribeSelection.includes(annotation.id);
+          <Stack spacing={2}>
+            <Button
+              fullWidth
+              size="large"
+              variant="contained"
+              disabled={isBusy || orderedAnnotations.length === 0}
+              startIcon={<AutoFixHighIcon />}
+              onClick={() => {
+                onTranscribeDialogClose();
+                void onTranscribe({ all: true });
+              }}
+              sx={{
+                background: 'linear-gradient(135deg, #6d28d9 0%, #7c3aed 100%)',
+                borderRadius: 2,
+                boxShadow: '0 4px 14px rgba(109,40,217,0.4)',
+                fontWeight: 700,
+                letterSpacing: '0.02em',
+                py: 1.25,
+                textTransform: 'none',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #5b21b6 0%, #6d28d9 100%)',
+                  boxShadow: '0 6px 20px rgba(109,40,217,0.5)',
+                },
+              }}
+            >
+            &nbsp; entire page
+            </Button>
+
+            <Divider>
+              <Typography variant="caption" sx={{ color: 'text.disabled', px: 1 }}>
+                or select lines
+              </Typography>
+            </Divider>
+
+            <List dense disablePadding sx={{ maxHeight: 280, overflowY: 'auto' }}>
+              {(() => {
+                const lineAnnotations = orderedAnnotations.filter(isLineAnnotation);
+                const allLinesSelected = lineAnnotations.length > 0
+                  && lineAnnotations.every((a) => transcribeSelection.includes(a.id));
                 return (
-                  <ListItemButton
-                    key={annotation.id}
-                    selected={checked}
-                    onClick={() => {
-                      onTranscribeSelectionChange(
-                        checked
-                          ? transcribeSelection.filter((entry) => entry !== annotation.id)
-                          : [...transcribeSelection, annotation.id],
+                  <>
+                    <ListItemButton
+                      selected={allLinesSelected}
+                      onClick={() => {
+                        onTranscribeSelectionChange(
+                          allLinesSelected ? [] : lineAnnotations.map((a) => a.id),
+                        );
+                      }}
+                      sx={{ borderRadius: 1, mb: 0.5 }}
+                    >
+                      <Checkbox edge="start" tabIndex={-1} disableRipple checked={allLinesSelected} />
+                      <ListItemText primary={t('scribeEditorTranscribeSelectVisible')} />
+                    </ListItemButton>
+                    {lineAnnotations.map((annotation) => {
+                      const checked = transcribeSelection.includes(annotation.id);
+                      return (
+                        <ListItemButton
+                          key={annotation.id}
+                          selected={checked}
+                          onClick={() => {
+                            onTranscribeSelectionChange(
+                              checked
+                                ? transcribeSelection.filter((entry) => entry !== annotation.id)
+                                : [...transcribeSelection, annotation.id],
+                            );
+                          }}
+                          sx={{ borderRadius: 1, mb: 0.5 }}
+                        >
+                          <Checkbox edge="start" tabIndex={-1} disableRipple checked={checked} />
+                          <ListItemText
+                            primary={annotationText(annotation) || t('scribeEditorUntitled')}
+                            secondary={annotation.id}
+                            primaryTypographyProps={{ noWrap: true }}
+                            secondaryTypographyProps={{ noWrap: true }}
+                          />
+                          <Chip label={annotationGranularity(annotation)} size="small" variant="outlined" />
+                        </ListItemButton>
                       );
-                    }}
-                    sx={{ borderRadius: 1, mb: 0.5 }}
-                  >
-                    <Checkbox edge="start" tabIndex={-1} disableRipple checked={checked} />
-                    <ListItemText
-                      primary={annotationText(annotation) || t('scribeEditorUntitled')}
-                      secondary={annotation.id}
-                      primaryTypographyProps={{ noWrap: true }}
-                      secondaryTypographyProps={{ noWrap: true }}
-                    />
-                    <Chip label={annotationGranularity(annotation)} size="small" variant="outlined" />
-                  </ListItemButton>
+                    })}
+                  </>
                 );
-              })}
+              })()}
             </List>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Tooltip title={t('scribeEditorTranscribeSelected')}>
             <span>
-              <IconButton
+              <Button
+                variant="outlined"
                 color="secondary"
+                size="small"
+                startIcon={<AutoFixHighIcon />}
                 disabled={isBusy || transcribeSelection.length === 0}
-                onClick={() => void onTranscribe({ all: false, annotationIds: transcribeSelection })}
+                onClick={() => {
+                  onTranscribeDialogClose();
+                  void onTranscribe({ all: false, annotationIds: transcribeSelection });
+                }}
+                sx={{ textTransform: 'none' }}
               >
-                <AutoFixHighIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title={t('scribeEditorTranscribeDocument')}>
-            <span>
-              <IconButton
-                color="secondary"
-                disabled={isBusy || orderedAnnotations.length === 0}
-                onClick={() => void onTranscribe({ all: true })}
-              >
-                <AutoFixHighIcon />
-              </IconButton>
+                Transcribe selected
+              </Button>
             </span>
           </Tooltip>
         </DialogActions>
@@ -381,13 +461,14 @@ ScribeActionPanel.propTypes = {
   drawMode: PropTypes.bool.isRequired,
   id: PropTypes.string.isRequired,
   isBusy: PropTypes.bool.isRequired,
-  overlayMode: PropTypes.oneOf(['none', 'read', 'edit']).isRequired,
+  overlayMode: PropTypes.oneOf(['none', 'read', 'edit', 'outline']).isRequired,
   onCreateLine: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
   onExplode: PropTypes.func.isRequired,
   onJoinLines: PropTypes.func.isRequired,
   onJoinWords: PropTypes.func.isRequired,
   onRedo: PropTypes.func.isRequired,
+  onPublish: PropTypes.func.isRequired,
   onSave: PropTypes.func.isRequired,
   onSplit: PropTypes.func.isRequired,
   onCycleOverlayMode: PropTypes.func.isRequired,

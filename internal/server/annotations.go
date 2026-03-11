@@ -173,6 +173,34 @@ func (h *Handler) bootstrapAnnotationsForGranularities(
 	return items, nil
 }
 
+func (h *Handler) persistAnnotationItems(ctx context.Context, canvasURI string, items []any) ([]string, error) {
+	payloads := make([]string, 0, len(items))
+	for _, item := range items {
+		anno, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		anno = normalizeAnnotation(anno, canvasURI)
+		id := strings.TrimSpace(annStringValue(anno, "id"))
+		if id == "" {
+			id = strings.TrimSpace(annStringValue(anno, "@id"))
+		}
+		if id == "" {
+			continue
+		}
+		b, err := json.Marshal(anno)
+		if err != nil {
+			return nil, err
+		}
+		raw := string(b)
+		if err := h.annotations.Upsert(ctx, id, canvasURI, raw); err != nil {
+			return nil, err
+		}
+		payloads = append(payloads, raw)
+	}
+	return payloads, nil
+}
+
 func (h *Handler) fetchBootstrapAnnotationItems(
 	ctx context.Context,
 	canvasURI, base, granularity string,
