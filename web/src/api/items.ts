@@ -1,31 +1,24 @@
-import { createPromiseClient } from "@connectrpc/connect";
+import { createClient } from "@connectrpc/connect";
 import { ItemService } from "../proto/scribe/v1/item_connect";
-import {
-  CreateItemRequest,
-  DeleteItemRequest,
-  GetItemRequest,
-  ListItemsRequest,
-  UploadItemImageRequest,
-  type Item,
-} from "../proto/scribe/v1/item_pb";
+import { type Item } from "../proto/scribe/v1/item_pb";
 import { getTransport } from "./transport";
 import { readFileBytes, uint64ToString } from "../lib/util";
 
 function client() {
-  return createPromiseClient(ItemService, getTransport());
+  return createClient(ItemService, getTransport());
 }
 
 export async function listItems(): Promise<Item[]> {
-  const resp = await client().listItems(new ListItemsRequest());
+  const resp = await client().listItems({});
   return resp.items;
 }
 
 export async function createItemFromManifest(manifestUrl: string): Promise<{ item: Item; firstItemImageId: string }> {
-  const resp = await client().createItem(new CreateItemRequest({
+  const resp = await client().createItem({
     name: manifestUrl,
     sourceType: "manifest",
     sourceUrl: manifestUrl,
-  }));
+  });
   if (!resp.item) throw new Error("no item in response");
   const firstImage = resp.item.images[0];
   const firstItemImageId = firstImage ? uint64ToString(firstImage.id) : "";
@@ -38,13 +31,13 @@ export async function uploadItemImages(files: File[]): Promise<Item> {
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const imageData = await readFileBytes(file);
-    const resp = await client().uploadItemImage(new UploadItemImageRequest({
+    const resp = await client().uploadItemImage({
       itemId,
       name: files[0].name,
       imageData,
       filename: file.name,
       sequence: i + 1,
-    }));
+    });
     if (!resp.item) throw new Error("no item in response");
     item = resp.item;
     itemId = item.id;
@@ -54,11 +47,11 @@ export async function uploadItemImages(files: File[]): Promise<Item> {
 }
 
 export async function getItem(itemId: string): Promise<Item> {
-  const resp = await client().getItem(new GetItemRequest({ itemId }));
+  const resp = await client().getItem({ itemId });
   if (!resp.item) throw new Error("no item in response");
   return resp.item;
 }
 
 export async function deleteItem(itemId: string): Promise<void> {
-  await client().deleteItem(new DeleteItemRequest({ itemId }));
+  await client().deleteItem({ itemId });
 }

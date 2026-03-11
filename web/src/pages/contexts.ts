@@ -1,6 +1,7 @@
+import { create } from "@bufbuild/protobuf";
 import { createContext, getContextMetrics, listContexts, type ContextMetrics } from "../api/context";
 import { escHtml } from "../lib/util";
-import { Context } from "../proto/scribe/v1/context_pb";
+import { ContextSchema, type Context } from "../proto/scribe/v1/context_pb";
 
 function levBadgeClass(avg: number): string {
   if (avg === 0) return "bg-slate-700 text-slate-300";
@@ -158,7 +159,7 @@ export async function renderContexts(app: HTMLElement): Promise<void> {
     }
 
     try {
-      await createContext(new Context({
+      await createContext(create(ContextSchema, {
         name,
         description,
         isDefault,
