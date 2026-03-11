@@ -1,8 +1,6 @@
-import { protoInt64 } from "@bufbuild/protobuf";
-
 export function uint64ToString(value: unknown): string {
   try {
-    return protoInt64.parse(value).toString();
+    return BigInt(value as string | number | bigint).toString();
   } catch {
     return "";
   }

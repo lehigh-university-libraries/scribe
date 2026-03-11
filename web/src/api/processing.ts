@@ -1,13 +1,6 @@
-import { createPromiseClient } from "@connectrpc/connect";
-import { protoInt64 } from "@bufbuild/protobuf";
+import { createClient } from "@connectrpc/connect";
 import { ImageProcessingService } from "../proto/scribe/v1/process_connect";
 import {
-  GetOCRRunRequest,
-  ProcessHOCRRequest,
-  ProcessImageUploadRequest,
-  ProcessImageURLRequest,
-  ReprocessItemImageRequest,
-  SaveOCREditsRequest,
   type OCRRun,
   type ProcessImageResponse,
   type ReprocessItemImageResponse,
@@ -17,43 +10,43 @@ import { getTransport } from "./transport";
 import { readFileBytes } from "../lib/util";
 
 function client() {
-  return createPromiseClient(ImageProcessingService, getTransport());
+  return createClient(ImageProcessingService, getTransport());
 }
 
 export async function processImageURL(imageUrl: string): Promise<ProcessImageResponse> {
-  return client().processImageURL(new ProcessImageURLRequest({ imageUrl }));
+  return client().processImageURL({ imageUrl });
 }
 
 export async function processImageUpload(file: File): Promise<ProcessImageResponse> {
   const imageData = await readFileBytes(file);
-  return client().processImageUpload(new ProcessImageUploadRequest({
+  return client().processImageUpload({
     imageData,
     filename: file.name,
-  }));
+  });
 }
 
 export async function processHOCR(hocr: string, imageUrl = "", imageData?: Uint8Array, filename = ""): Promise<ProcessImageResponse> {
-  return client().processHOCR(new ProcessHOCRRequest({ hocr, imageUrl, imageData, filename }));
+  return client().processHOCR({ hocr, imageUrl, imageData, filename });
 }
 
 export async function getOCRRun(itemImageId: string): Promise<OCRRun> {
-  return client().getOCRRun(new GetOCRRunRequest({
-    itemImageId: protoInt64.parse(itemImageId),
-  }));
+  return client().getOCRRun({
+    itemImageId: BigInt(itemImageId),
+  });
 }
 
 export async function saveOCREdits(sessionId: string, itemImageId: string, correctedHocr: string, editCount: number): Promise<SaveOCREditsResponse> {
-  return client().saveOCREdits(new SaveOCREditsRequest({
+  return client().saveOCREdits({
     sessionId,
-    itemImageId: protoInt64.parse(itemImageId),
+    itemImageId: BigInt(itemImageId),
     correctedHocr,
     editCount,
-  }));
+  });
 }
 
 export async function reprocessItemImage(itemImageId: string, contextId = 0): Promise<ReprocessItemImageResponse> {
-  return client().reprocessItemImage(new ReprocessItemImageRequest({
-    itemImageId: protoInt64.parse(itemImageId),
+  return client().reprocessItemImage({
+    itemImageId: BigInt(itemImageId),
     contextId: BigInt(contextId),
-  }));
+  });
 }
