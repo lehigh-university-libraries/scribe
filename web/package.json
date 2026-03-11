@@ -23,7 +23,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-i18next": "^15.7.0",
-    "uuid": "^8.3.2"
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "autoprefixer": "10.4.27",
