@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
 	"github.com/lehigh-university-libraries/scribe/internal/database"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
@@ -244,8 +245,9 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	itemStore := store.NewItemStore(db)
 	contextStore := store.NewContextStore(db)
 	annotationStore := store.NewAnnotationStore(db)
+	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore)
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
 	appServer := httptest.NewServer(h)
 	t.Cleanup(appServer.Close)
 	t.Setenv("ANNOTATION_API_BASE", appServer.URL)
@@ -458,6 +460,209 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	}
 }
 
+func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
+	db := openTestDB(t)
+
+	ocrRunStore := store.NewOCRRunStore(db)
+	itemStore := store.NewItemStore(db)
+	contextStore := store.NewContextStore(db)
+	annotationStore := store.NewAnnotationStore(db)
+	transcriptionJobStore := store.NewTranscriptionJobStore(db)
+
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	appServer := httptest.NewServer(h)
+	t.Cleanup(appServer.Close)
+
+	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
+		ID:         "test-item-manifest-persist",
+		UserID:     store.AnonymousUserID,
+		Name:       "Test Item",
+		SourceType: "upload",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
+		ItemID:   item.ID,
+		Sequence: 1,
+		ImageURL: "https://example.org/image.jpg",
+	})
+	if err != nil {
+		t.Fatalf("add item image: %v", err)
+	}
+	if err := ocrRunStore.Create(context.Background(), store.OCRRun{
+		SessionID:    "persist-canvas-uri",
+		ItemImageID:  &img.ID,
+		ImageURL:     img.ImageURL,
+		Provider:     "test",
+		Model:        "test",
+		OriginalHOCR: minimalHOCR,
+		OriginalText: "Course Catalog\n1908-1909",
+	}); err != nil {
+		t.Fatalf("create ocr run: %v", err)
+	}
+
+	manifestURL := fmt.Sprintf("%s/v1/item-images/%d/manifest", appServer.URL, img.ID)
+	resp, err := http.Get(manifestURL)
+	if err != nil {
+		t.Fatalf("GET manifest: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("manifest status %d", resp.StatusCode)
+	}
+
+	updated, err := itemStore.GetImage(context.Background(), img.ID)
+	if err != nil {
+		t.Fatalf("get updated item image: %v", err)
+	}
+	want := manifestURL + "/canvas/page-1"
+	if updated.CanvasURI != want {
+		t.Fatalf("canvas_uri = %q; want %q", updated.CanvasURI, want)
+	}
+}
+
+func TestGetIIIFManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
+	db := openTestDB(t)
+
+	ocrRunStore := store.NewOCRRunStore(db)
+	itemStore := store.NewItemStore(db)
+	contextStore := store.NewContextStore(db)
+	annotationStore := store.NewAnnotationStore(db)
+	transcriptionJobStore := store.NewTranscriptionJobStore(db)
+
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	appServer := httptest.NewServer(h)
+	t.Cleanup(appServer.Close)
+
+	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
+		ID:         "test-item-manifest-preserve",
+		UserID:     store.AnonymousUserID,
+		Name:       "Test Item",
+		SourceType: "manifest",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	const existingCanvasURI = "https://example.org/external/canvas/1"
+	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
+		ItemID:    item.ID,
+		Sequence:  1,
+		ImageURL:  "https://example.org/image.jpg",
+		CanvasURI: existingCanvasURI,
+	})
+	if err != nil {
+		t.Fatalf("add item image: %v", err)
+	}
+	if err := ocrRunStore.Create(context.Background(), store.OCRRun{
+		SessionID:    "preserve-canvas-uri",
+		ItemImageID:  &img.ID,
+		ImageURL:     img.ImageURL,
+		Provider:     "test",
+		Model:        "test",
+		OriginalHOCR: minimalHOCR,
+		OriginalText: "Course Catalog\n1908-1909",
+	}); err != nil {
+		t.Fatalf("create ocr run: %v", err)
+	}
+
+	manifestURL := fmt.Sprintf("%s/v1/item-images/%d/manifest", appServer.URL, img.ID)
+	resp, err := http.Get(manifestURL)
+	if err != nil {
+		t.Fatalf("GET manifest: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("manifest status %d", resp.StatusCode)
+	}
+
+	updated, err := itemStore.GetImage(context.Background(), img.ID)
+	if err != nil {
+		t.Fatalf("get updated item image: %v", err)
+	}
+	if updated.CanvasURI != existingCanvasURI {
+		t.Fatalf("canvas_uri = %q; want existing %q", updated.CanvasURI, existingCanvasURI)
+	}
+}
+
+func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) {
+	db := openTestDB(t)
+
+	ocrRunStore := store.NewOCRRunStore(db)
+	itemStore := store.NewItemStore(db)
+	contextStore := store.NewContextStore(db)
+	annotationStore := store.NewAnnotationStore(db)
+	transcriptionJobStore := store.NewTranscriptionJobStore(db)
+
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	appServer := httptest.NewServer(h)
+	t.Cleanup(appServer.Close)
+	t.Setenv("ANNOTATION_API_BASE", appServer.URL)
+
+	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
+		ID:         "test-item-search-persist",
+		UserID:     store.AnonymousUserID,
+		Name:       "Test Item",
+		SourceType: "upload",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
+		ItemID:   item.ID,
+		Sequence: 1,
+		ImageURL: "https://example.org/image.jpg",
+	})
+	if err != nil {
+		t.Fatalf("add item image: %v", err)
+	}
+	if err := ocrRunStore.Create(context.Background(), store.OCRRun{
+		SessionID:    "search-persist-canvas-uri",
+		ItemImageID:  &img.ID,
+		ImageURL:     img.ImageURL,
+		Provider:     "test",
+		Model:        "test",
+		OriginalHOCR: minimalHOCR,
+		OriginalText: "Course Catalog\n1908-1909",
+	}); err != nil {
+		t.Fatalf("create ocr run: %v", err)
+	}
+
+	manifestURL := fmt.Sprintf("%s/v1/item-images/%d/manifest", appServer.URL, img.ID)
+	resp, err := http.Get(manifestURL)
+	if err != nil {
+		t.Fatalf("GET manifest: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("manifest status %d", resp.StatusCode)
+	}
+
+	searchReq, _ := http.NewRequest(
+		http.MethodPost,
+		appServer.URL+"/scribe.v1.AnnotationService/SearchAnnotations",
+		strings.NewReader(fmt.Sprintf(`{"canvasUri":%q}`, manifestURL+"/canvas/page-1")),
+	)
+	searchReq.Header.Set("Content-Type", "application/json")
+	searchReq.Header.Set("Connect-Protocol-Version", "1")
+	searchResp, err := http.DefaultClient.Do(searchReq)
+	if err != nil {
+		t.Fatalf("SearchAnnotations request: %v", err)
+	}
+	searchResp.Body.Close()
+	if searchResp.StatusCode != http.StatusOK {
+		t.Fatalf("SearchAnnotations status %d", searchResp.StatusCode)
+	}
+
+	payloads, err := annotationStore.SearchByCanvas(context.Background(), manifestURL+"/canvas/page-1")
+	if err != nil {
+		t.Fatalf("search persisted annotations: %v", err)
+	}
+	if len(payloads) != 5 {
+		t.Fatalf("persisted %d annotations; want 5", len(payloads))
+	}
+}
+
 // TestAnnotationPageRevisionSaveSemantics verifies the two-version save contract:
 //
 //  1. Original generated annotations are preserved in original_hocr (never mutated).
@@ -472,8 +677,9 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 	itemStore := store.NewItemStore(db)
 	contextStore := store.NewContextStore(db)
 	annotationStore := store.NewAnnotationStore(db)
+	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore)
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
 	appServer := httptest.NewServer(h)
 	t.Cleanup(appServer.Close)
 	t.Setenv("ANNOTATION_API_BASE", appServer.URL)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"os"
 	"strings"
 
@@ -41,6 +42,9 @@ func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[sc
 			bootstrap, err := h.bootstrapAnnotationsForCanvas(ctx, canvasURI, base)
 			if err == nil {
 				items = bootstrap
+				if _, persistErr := h.persistAnnotationItems(ctx, canvasURI, bootstrap); persistErr != nil {
+					return nil, connect.NewError(connect.CodeInternal, persistErr)
+				}
 			}
 		}
 	}
@@ -94,6 +98,17 @@ func (h *Handler) CreateAnnotation(ctx context.Context, req *connect.Request[scr
 	}
 	if err := h.annotations.Upsert(ctx, id, canvasURI, string(payload)); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI); len(matches) >= 2 {
+		if itemImageID, convErr := strconv.ParseUint(strings.TrimSpace(matches[1]), 10, 64); convErr == nil {
+			h.publishEvent("dev.scribe.annotations.created", subjectForAnnotation(itemImageID, id), map[string]any{
+				"itemImageId":     itemImageID,
+				"canvasUri":       canvasURI,
+				"annotationId":    id,
+				"annotationJson":  string(payload),
+				"annotationCount": 1,
+			})
+		}
 	}
 	return connect.NewResponse(&scribev1.CreateAnnotationResponse{AnnotationJson: string(payload)}), nil
 }

@@ -1,5 +1,7 @@
 # Scribe
 
+![Scribe example workflow](docs/assets/example.gif)
+
 Scribe is a web-based OCR correction tool. Upload images or point it at a IIIF manifest, run OCR, then fix the results visually in an image-aligned text editor. All data is stored per-user and the API is defined end-to-end in protobuf with Connect RPC.
 
 The application now runs as a single Go API server on port `8080`. That server
@@ -113,6 +115,7 @@ npm run build
 |----------|---------|-------------|
 | `ANNOTATION_API_BASE` | `http://localhost:8080` | Public base URL used when generating annotation item/page IDs |
 | `CANTALOUPE_IIIF_BASE` | `http://localhost:8182/iiif/2` | IIIF image base URL used in manifests |
+| `SCRIBE_WEBHOOK_URLS` | empty | Comma-separated webhook endpoints that receive all emitted Scribe CloudEvents |
 | `VITE_ANNOTATION_API_BASE` | `http://localhost:8080` | Annotation API base for viewer/editor integration |
 
 ## IIIF endpoints
@@ -121,6 +124,7 @@ npm run build
 GET  /v1/item-images/{id}/manifest        IIIF Presentation v3 manifest
 GET  /v1/item-images/{id}/hocr            Current persisted hOCR document
 GET  /v1/item-images/{id}/annotations     IIIF annotation page bootstrap/export
+GET  /v1/events                           Server-sent event stream for job + annotation lifecycle events
 ```
 
 The application API is proto-first. New API operations should be defined in
@@ -140,6 +144,27 @@ reason not to use RPC. The `GET /v1/item-images/{id}/manifest`,
 `GET /v1/item-images/{id}/annotations`, and `GET /v1/item-images/{id}/hocr`
 routes are examples of that exception: they expose dereferenceable IIIF/OCR
 documents that external viewers and IIIF clients fetch directly.
+
+## Events and webhooks
+
+Scribe emits a small CloudEvents-style event set from the backend. Clients can
+consume those events either through `GET /v1/events` over SSE or by configuring
+`SCRIBE_WEBHOOK_URLS` to fan out each event as `application/cloudevents+json`.
+
+Current event types:
+
+- `dev.scribe.transcription.task.started`
+- `dev.scribe.transcription.task.completed`
+- `dev.scribe.transcription.completed`
+- `dev.scribe.transcription.failed`
+- `dev.scribe.annotations.created`
+- `dev.scribe.annotations.published`
+
+Use `transcription.task.completed` to drive per-line progress in the UI. Use
+`annotations.created` and `annotations.published` for external integrations such
+as Islandora. Save does not publish: `annotations.published` is emitted only
+after the explicit `POST /scribe.v1.AnnotationService/PublishItemImageEdits`
+action.
 
 Editor-oriented annotation operations are exposed on `AnnotationService` so
 plugins can delegate structural OCR edits to the backend:

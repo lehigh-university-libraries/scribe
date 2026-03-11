@@ -30,6 +30,20 @@ export async function deleteAnnotation(uri: string): Promise<void> {
   await client().deleteAnnotation({ uri });
 }
 
+export async function publishItemImageEdits(itemImageId: string): Promise<{ itemImageId: string; canvasUri: string; annotationPageJson: string; publishedAt: string }> {
+  const resp = await fetch("/scribe.v1.AnnotationService/PublishItemImageEdits", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ itemImageId: Number(itemImageId) }),
+  });
+  if (!resp.ok) {
+    throw new Error(`publish failed: ${resp.status}`);
+  }
+  return resp.json() as Promise<{ itemImageId: string; canvasUri: string; annotationPageJson: string; publishedAt: string }>;
+}
+
 export async function enrichAnnotation(
   scope: "line" | "page",
   annotationJson: string,
@@ -95,6 +109,7 @@ export const annotationClient = {
   createAnnotation,
   updateAnnotation,
   deleteAnnotation,
+  publishItemImageEdits,
   enrichAnnotation,
   splitLineIntoWords,
   splitLineIntoTwoLines,

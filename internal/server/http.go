@@ -26,13 +26,17 @@ import (
 )
 
 type Handler struct {
-	ocrRuns     *store.OCRRunStore
-	items       *store.ItemStore
-	contexts    *store.ContextStore
-	annotations *store.AnnotationStore
-	mux         http.Handler
-	webDir      string
-	ocr         *ocrhandlers.Handler
+	ocrRuns           *store.OCRRunStore
+	items             *store.ItemStore
+	contexts          *store.ContextStore
+	annotations       *store.AnnotationStore
+	transcriptionJobs *store.TranscriptionJobStore
+	events            *eventBroker
+	webhookClient     *http.Client
+	webhookURLs       []string
+	mux               http.Handler
+	webDir            string
+	ocr               *ocrhandlers.Handler
 	// baseURL is derived from the first request; used for IIIF IDs.
 	// The annotation handler needs it to build annotation item URLs.
 	annotationBaseURL string
@@ -70,6 +74,14 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+func (w *responseWriter) Flush() {
+	flusher, ok := w.ResponseWriter.(http.Flusher)
+	if !ok {
+		return
+	}
+	flusher.Flush()
+}
+
 func AccessLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" || r.URL.Path == "/healthz" {
@@ -98,6 +110,7 @@ func NewHandler(
 	items *store.ItemStore,
 	contexts *store.ContextStore,
 	annotations *store.AnnotationStore,
+	transcriptionJobs *store.TranscriptionJobStore,
 ) *Handler {
 	webDir := detectWebDir()
 	if webDir == "" {
@@ -107,12 +120,16 @@ func NewHandler(
 	}
 
 	handler := &Handler{
-		ocrRuns:     ocrRuns,
-		items:       items,
-		contexts:    contexts,
-		annotations: annotations,
-		webDir:      webDir,
-		ocr:         ocrhandlers.New(),
+		ocrRuns:           ocrRuns,
+		items:             items,
+		contexts:          contexts,
+		annotations:       annotations,
+		transcriptionJobs: transcriptionJobs,
+		events:            newEventBroker(),
+		webhookClient:     &http.Client{Timeout: 10 * time.Second},
+		webhookURLs:       parseWebhookURLs(os.Getenv("SCRIBE_WEBHOOK_URLS")),
+		webDir:            webDir,
+		ocr:               ocrhandlers.New(),
 	}
 	mux := http.NewServeMux()
 
@@ -125,6 +142,8 @@ func NewHandler(
 	mux.Handle(contextAPIPath, contextAPIHandler)
 	annotationAPIPath, annotationAPIHandler := scribev1connect.NewAnnotationServiceHandler(handler)
 	mux.Handle(annotationAPIPath, annotationAPIHandler)
+	transcriptionAPIPath, transcriptionAPIHandler := scribev1connect.NewTranscriptionServiceHandler(handler)
+	mux.Handle(transcriptionAPIPath, transcriptionAPIHandler)
 
 	// Health
 	mux.HandleFunc("GET /healthz", handler.handleHealth)
@@ -134,6 +153,8 @@ func NewHandler(
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/annotations", handler.handleGetIIIFAnnotations)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/hocr", handler.handleGetHOCR)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/export", handler.handleExportAnnotations)
+	mux.HandleFunc("GET /v1/events", handler.handleEventStream)
+	mux.HandleFunc("POST /scribe.v1.AnnotationService/PublishItemImageEdits", handler.handlePublishItemImageEdits)
 
 	// Context metrics
 	mux.HandleFunc("GET /v1/contexts/{context_id}/metrics", handler.handleGetContextMetrics)
@@ -194,6 +215,12 @@ func (h *Handler) handleGetHOCR(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) {
+	itemImageID, err := itemImageIDFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	run, manifestPath, annotationsPath, hocrPath, err := h.resolveRunAndIIIFPaths(r)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
@@ -230,6 +257,18 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 	paintingAnnID := fmt.Sprintf("%s/annotation/painting-1", manifestID)
 	annotationPageURI := apiBase + annotationsPath
 	seeAlsoID := apiBase + hocrPath
+
+	img, err := h.items.GetImage(r.Context(), itemImageID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "item image not found")
+		return
+	}
+	if strings.TrimSpace(img.CanvasURI) == "" {
+		if err := h.items.UpdateImageCanvasURI(r.Context(), itemImageID, canvasID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to persist canvas uri")
+			return
+		}
+	}
 
 	iiifBase := strings.TrimRight(strings.TrimSpace(os.Getenv("CANTALOUPE_IIIF_BASE")), "/")
 	if iiifBase == "" {
@@ -526,13 +565,9 @@ func (h *Handler) fetchOrCacheHOCRRun(ctx context.Context, itemImageID uint64) (
 func (h *Handler) resolveRunAndIIIFPaths(r *http.Request) (store.OCRRun, string, string, string, error) {
 	ctx := r.Context()
 
-	itemImageIDRaw := strings.TrimSpace(r.PathValue("item_image_id"))
-	if itemImageIDRaw == "" {
-		return store.OCRRun{}, "", "", "", fmt.Errorf("item_image_id is required")
-	}
-	itemImageID, err := strconv.ParseUint(itemImageIDRaw, 10, 64)
+	itemImageID, err := itemImageIDFromRequest(r)
 	if err != nil {
-		return store.OCRRun{}, "", "", "", fmt.Errorf("invalid item_image_id")
+		return store.OCRRun{}, "", "", "", err
 	}
 	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
 	if err != nil {
@@ -540,6 +575,89 @@ func (h *Handler) resolveRunAndIIIFPaths(r *http.Request) (store.OCRRun, string,
 	}
 	base := fmt.Sprintf("/v1/item-images/%d", itemImageID)
 	return run, base + "/manifest", base + "/annotations", base + "/hocr", nil
+}
+
+func itemImageIDFromRequest(r *http.Request) (uint64, error) {
+	itemImageIDRaw := strings.TrimSpace(r.PathValue("item_image_id"))
+	if itemImageIDRaw == "" {
+		return 0, fmt.Errorf("item_image_id is required")
+	}
+	itemImageID, err := strconv.ParseUint(itemImageIDRaw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid item_image_id")
+	}
+	return itemImageID, nil
+}
+
+func (h *Handler) internalAnnotationBaseURL() string {
+	base := strings.TrimRight(strings.TrimSpace(h.annotationBaseURL), "/")
+	if base == "" {
+		base = strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
+	}
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+	return base
+}
+
+func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run store.OCRRun, itemImageID uint64) error {
+	img, err := h.items.GetImage(ctx, itemImageID)
+	if err != nil {
+		return fmt.Errorf("get item image: %w", err)
+	}
+
+	canvasURI := strings.TrimSpace(img.CanvasURI)
+	if canvasURI == "" {
+		canvasURI = fmt.Sprintf("%s/v1/item-images/%d/manifest/canvas/page-1", h.internalAnnotationBaseURL(), itemImageID)
+		if err := h.items.UpdateImageCanvasURI(ctx, itemImageID, canvasURI); err != nil {
+			return fmt.Errorf("persist canvas uri: %w", err)
+		}
+	}
+
+	existing, err := h.annotations.SearchByCanvas(ctx, canvasURI)
+	if err != nil {
+		return fmt.Errorf("search annotations: %w", err)
+	}
+	if len(existing) > 0 {
+		return nil
+	}
+
+	hocrXML := strings.TrimSpace(run.OriginalHOCR)
+	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
+		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
+	}
+	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
+		hocrXML = persisted
+	}
+	if hocrXML == "" {
+		return nil
+	}
+
+	annotationScopeID := run.SessionID
+	if run.ItemImageID != nil {
+		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
+	}
+
+	lines, err := hocr.ParseHOCRLines(hocrXML)
+	if err != nil {
+		return fmt.Errorf("parse hocr lines: %w", err)
+	}
+	words, err := hocr.ParseHOCRWords(hocrXML)
+	if err != nil {
+		return fmt.Errorf("parse hocr words: %w", err)
+	}
+
+	items := append(buildLineAnnotations(annotationScopeID, canvasURI, lines), buildWordAnnotations(annotationScopeID, canvasURI, words)...)
+	if _, err := h.persistAnnotationItems(ctx, canvasURI, items); err != nil {
+		return fmt.Errorf("persist annotations: %w", err)
+	}
+	h.publishEvent("dev.scribe.annotations.created", subjectForItemImage(itemImageID), map[string]any{
+		"itemImageId":      itemImageID,
+		"canvasUri":        canvasURI,
+		"annotationCount":  len(items),
+		"annotationPageId": annotationPageID(canvasURI),
+	})
+	return nil
 }
 
 func iiifBaseURL() string {

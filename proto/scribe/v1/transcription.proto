@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package scribe.v1;
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
+
+// TranscriptionJobStatus represents the lifecycle state of a batch transcription job.
+enum TranscriptionJobStatus {
+  TRANSCRIPTION_JOB_STATUS_UNSPECIFIED = 0;
+  TRANSCRIPTION_JOB_STATUS_PENDING     = 1;
+  TRANSCRIPTION_JOB_STATUS_RUNNING     = 2;
+  TRANSCRIPTION_JOB_STATUS_COMPLETED   = 3;
+  TRANSCRIPTION_JOB_STATUS_FAILED      = 4;
+}
+
+// TranscriptionJob represents a batch transcription job for a single item image.
+// One job covers all line-level annotations on the canvas; progress is tracked
+// segment by segment so the editor overlay can visualise the work in real time.
+message TranscriptionJob {
+  uint64                  id                      = 1;
+  uint64                  item_image_id            = 2;
+  uint64                  context_id               = 3;
+  TranscriptionJobStatus  status                  = 4;
+  int32                   total_segments           = 5;
+  int32                   completed_segments       = 6;
+  int32                   failed_segments          = 7;
+  // annotation_id of the segment currently being processed.
+  string                  current_annotation_id    = 8;
+  // Full annotation JSON of the segment currently being processed, so the
+  // editor overlay can highlight it without a separate lookup.
+  string                  current_annotation_json  = 9;
+  // annotation JSON of the most recently completed segment (with enriched text).
+  string                  last_result_annotation_json = 10;
+  string                  error_message            = 11;
+  string                  created_at               = 12;
+  string                  updated_at               = 13;
+}
+
+// CreateTranscriptionJobRequest kicks off a batch transcription job for a
+// single item image. The backend will process all line-level annotations on
+// that image's canvas, one at a time, using the resolved or supplied context.
+message CreateTranscriptionJobRequest {
+  uint64 item_image_id = 1;
+  // Optional explicit context; resolved automatically if omitted.
+  uint64 context_id    = 2;
+}
+
+message CreateTranscriptionJobResponse {
+  uint64 job_id = 1;
+}
+
+message GetTranscriptionJobRequest {
+  uint64 job_id = 1;
+}
+
+message ListTranscriptionJobsRequest {
+  // Filter by item_image_id; returns all jobs if zero.
+  uint64 item_image_id = 1;
+}
+
+message ListTranscriptionJobsResponse {
+  repeated TranscriptionJob jobs = 1;
+}
+
+// StreamTranscriptionJobRequest opens a server-sent-events stream for a job.
+// The server sends a TranscriptionJob message after every segment is processed
+// and once more when the job reaches a terminal state.
+message StreamTranscriptionJobRequest {
+  uint64 job_id = 1;
+}
+
+service TranscriptionService {
+  // CreateTranscriptionJob enqueues a new batch transcription job for an image.
+  rpc CreateTranscriptionJob(CreateTranscriptionJobRequest) returns (CreateTranscriptionJobResponse);
+
+  // GetTranscriptionJob returns the current state of a job (for polling).
+  rpc GetTranscriptionJob(GetTranscriptionJobRequest) returns (TranscriptionJob);
+
+  // ListTranscriptionJobs lists jobs, optionally filtered by item image.
+  rpc ListTranscriptionJobs(ListTranscriptionJobsRequest) returns (ListTranscriptionJobsResponse);
+
+  // StreamTranscriptionJob streams job updates in real time until the job
+  // reaches a terminal state (completed or failed).
+  rpc StreamTranscriptionJob(StreamTranscriptionJobRequest) returns (stream TranscriptionJob);
+}

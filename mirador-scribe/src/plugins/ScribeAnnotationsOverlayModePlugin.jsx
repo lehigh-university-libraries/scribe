@@ -1,28 +1,19 @@
-import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 
+// Always disable Mirador's built-in annotation drawing. Scribe renders its
+// own overlays via ScribeTextOverlayPlugin so we never want the default
+// purple/violet annotation shapes drawn on top of the canvas.
 function ScribeAnnotationsOverlayModePlugin({
   TargetComponent,
   targetProps,
   ...props
 }) {
-  const [displayMode, setDisplayMode] = useState('segments');
-
-  useEffect(() => {
-    const handleModeChange = (event) => {
-      if (event?.detail?.windowId !== props.windowId) return;
-      setDisplayMode(event.detail.mode || 'segments');
-    };
-    document.addEventListener('scribe:display-mode-change', handleModeChange);
-    return () => document.removeEventListener('scribe:display-mode-change', handleModeChange);
-  }, [props.windowId]);
-
   return (
     <TargetComponent
       {...targetProps}
       {...props}
-      drawAnnotations={displayMode === 'segments'}
-      drawSearchAnnotations={displayMode === 'segments'}
+      drawAnnotations={false}
+      drawSearchAnnotations={false}
     />
   );
 }
@@ -30,7 +21,6 @@ function ScribeAnnotationsOverlayModePlugin({
 ScribeAnnotationsOverlayModePlugin.propTypes = {
   TargetComponent: PropTypes.elementType.isRequired,
   targetProps: PropTypes.object.isRequired,
-  windowId: PropTypes.string.isRequired,
 };
 
 const scribeAnnotationsOverlayModePlugin = {
