@@ -32,6 +32,12 @@ variable "machine_type" {
   default     = "n4-standard-2"
 }
 
+variable "ingress_port" {
+  description = "TCP port on the VM that the Cloud Run ingress should connect to."
+  type        = number
+  default     = 8080
+}
+
 variable "disk_type" {
   description = "Disk type for attached disks."
   type        = string

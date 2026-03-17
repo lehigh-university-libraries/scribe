@@ -91,6 +91,7 @@ Production uses:
 - Terraform workspace `prod`
 - VM name `scribe`
 - branch `main`
+- Cloud Run ingress port `8080`
 
 ## Notes
 

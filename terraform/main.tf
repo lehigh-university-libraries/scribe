@@ -16,7 +16,7 @@ locals {
 }
 
 module "scribe" {
-  source = "git::https://github.com/libops/cloud-compose?ref=0.5.2"
+  source = "git::https://github.com/libops/cloud-compose?ref=0.5.3"
 
   project_id            = var.project_id
   project_number        = var.project_number
@@ -24,6 +24,7 @@ module "scribe" {
   region                = var.region
   zone                  = var.zone
   machine_type          = var.machine_type
+  ingress_port          = var.ingress_port
   disk_type             = var.disk_type
   disk_size_gb          = var.disk_size_gb
   docker_compose_repo   = var.docker_compose_repo
@@ -36,5 +37,5 @@ module "scribe" {
   allowed_ssh_ipv6      = var.allowed_ssh_ipv6
   users                 = var.users
   run_snapshots         = var.run_snapshots
-  rootfs                = "${path.module}/../rootfs"
+  rootfs                = "${path.module}/rootfs"
 }
