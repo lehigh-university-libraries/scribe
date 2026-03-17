@@ -58,8 +58,11 @@ variable "docker_compose_branch" {
 
 variable "docker_compose_init" {
   description = "Shell command run after cloning and before docker compose up."
-  type        = string
-  default     = "test -f .env || cp sample.env .env; bash generate-secrets.sh"
+  type        = list(string)
+  default = [
+    "test -f .env || cp sample.env .env",
+    "bash generate-secrets.sh"
+  ]
 }
 
 variable "app_env" {
@@ -71,14 +74,19 @@ variable "app_env" {
 
 variable "docker_compose_up" {
   description = "Shell command used to start the compose stack."
-  type        = string
-  default     = "docker compose pull api && docker compose up -d --no-build --remove-orphans"
+  type        = list(string)
+  default = [
+    "docker compose pull api",
+    "docker compose up -d --no-build --remove-orphans"
+  ]
 }
 
 variable "docker_compose_down" {
   description = "Shell command used to stop the compose stack."
-  type        = string
-  default     = "docker compose down"
+  type        = list(string)
+  default = [
+    "docker compose down"
+  ]
 }
 
 variable "allowed_ips" {

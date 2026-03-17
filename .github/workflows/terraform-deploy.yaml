@@ -1,0 +1,163 @@
+name: Terraform Deploy
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      environment_name:
+        required: true
+        type: string
+      tf_workspace:
+        required: true
+        type: string
+      site_name:
+        required: true
+        type: string
+      docker_compose_branch:
+        required: true
+        type: string
+      checkout_ref:
+        required: true
+        type: string
+      run_snapshots:
+        required: true
+        type: string
+      push_image:
+        required: true
+        type: boolean
+      image_tag:
+        required: false
+        type: string
+        default: ""
+    outputs:
+      status:
+        description: Workflow status for the terraform action.
+        value: ${{ jobs.deploy.outputs.status }}
+      preview_url:
+        description: Cloud Run ingress URL for preview environments.
+        value: ${{ jobs.deploy.outputs.preview_url }}
+      image:
+        description: Deployed GHCR image reference.
+        value: ${{ jobs.deploy.outputs.image }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment_name }}
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: terraform
+    env:
+      TARGET_TF_WORKSPACE: ${{ inputs.tf_workspace }}
+      TF_VAR_name: ${{ inputs.site_name }}
+      TF_VAR_project_id: ${{ secrets.GCLOUD_PROJECT }}
+      TF_VAR_docker_compose_branch: ${{ inputs.docker_compose_branch }}
+      TF_VAR_run_snapshots: ${{ inputs.run_snapshots }}
+
+    outputs:
+      status: ${{ steps.capture.outputs.status }}
+      preview_url: ${{ steps.preview_url.outputs.url }}
+      image: ${{ steps.capture.outputs.image }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Check Terraform formatting
+        if: inputs.mode == 'apply'
+        run: terraform fmt -check -recursive
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: latest
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: access_token
+
+      - name: Configure Terraform environment
+        run: |
+          gcloud config set project "${{ secrets.GCLOUD_PROJECT }}"
+          gcloud config set disable_prompts true
+          echo "TF_VAR_project_number=$(gcloud projects describe "${{ secrets.GCLOUD_PROJECT }}" --format='value(projectNumber)')" >> "$GITHUB_ENV"
+          if [ -n '${{ vars.ALLOWED_IPS }}' ]; then
+            echo 'TF_VAR_allowed_ips=${{ vars.ALLOWED_IPS }}' >> "$GITHUB_ENV"
+          fi
+          if [ -n '${{ vars.ALLOWED_SSH_IPV4 }}' ]; then
+            echo 'TF_VAR_allowed_ssh_ipv4=${{ vars.ALLOWED_SSH_IPV4 }}' >> "$GITHUB_ENV"
+          fi
+
+          base_env='${{ secrets.SCRIBE_APP_ENV }}'
+          if [ -z "$base_env" ]; then
+            base_env='{}'
+          fi
+          image_ref="$(printf '%s' '${{ inputs.image_tag }}' | tr '[:upper:]' '[:lower:]')"
+          if [ '${{ inputs.mode }}' = 'apply' ] && [ -n "$image_ref" ]; then
+            merged_env="$(jq -cn --argjson base "$base_env" --arg image "$image_ref" '$base + {SCRIBE_API_IMAGE: $image}')"
+          else
+            merged_env="$base_env"
+          fi
+          {
+            echo 'TF_VAR_app_env<<EOF'
+            echo "$merged_env"
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
+
+      - name: Terraform Init
+        run: terraform init -upgrade -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="prefix=scribe"
+
+      - name: Select Terraform workspace
+        run: |
+          if ! terraform workspace select "$TARGET_TF_WORKSPACE"; then
+            terraform workspace new "$TARGET_TF_WORKSPACE" || terraform workspace select "$TARGET_TF_WORKSPACE"
+          fi
+          echo "TF_WORKSPACE=$TARGET_TF_WORKSPACE" >> "$GITHUB_ENV"
+
+      - name: Terraform Validate
+        if: inputs.mode == 'apply'
+        run: terraform validate
+
+      - name: Terraform Apply
+        id: apply
+        if: inputs.mode == 'apply'
+        run: terraform apply -auto-approve
+
+      - name: Read preview URL
+        id: preview_url
+        if: inputs.mode == 'apply'
+        run: |
+          url="$(terraform output -json | jq -r '.urls.value["us-east5"] // ""')"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform Destroy
+        id: destroy
+        if: inputs.mode == 'destroy'
+        run: terraform destroy -auto-approve
+
+      - name: Capture status
+        id: capture
+        if: always()
+        run: |
+          image_ref="$(printf '%s' '${{ inputs.image_tag }}' | tr '[:upper:]' '[:lower:]')"
+          if [ '${{ inputs.mode }}' = 'apply' ]; then
+            echo "status=${{ steps.apply.outcome }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=${{ steps.destroy.outcome }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "image=$image_ref" >> "$GITHUB_OUTPUT"

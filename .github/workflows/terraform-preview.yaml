@@ -20,125 +20,47 @@ jobs:
     uses: ./.github/workflows/lint-test.yaml
     permissions:
       contents: read
+    secrets: inherit
+
+  build-push-image:
+    if: github.event.action != 'closed'
+    needs: [lint-test]
+    uses: ./.github/workflows/build-push-image.yaml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      checkout_ref: ${{ github.event.pull_request.head.sha }}
+      image_tag: ghcr.io/${{ github.repository }}:${{ github.event.pull_request.head.ref }}
 
   preview:
-    name: terraform preview
-    needs: [lint-test]
     if: github.event.action != 'closed'
-    runs-on: ubuntu-24.04
-    environment: preview
+    needs: [build-push-image]
+    uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
       contents: read
-      packages: write
+    secrets: inherit
+    with:
+      mode: apply
+      environment_name: preview
+      tf_workspace: pr-${{ github.event.pull_request.number }}
+      site_name: scribe-pr-${{ github.event.pull_request.number }}
+      docker_compose_branch: ${{ github.event.pull_request.head.ref }}
+      checkout_ref: ${{ github.event.pull_request.head.sha }}
+      run_snapshots: "false"
+      push_image: false
+      image_tag: ${{ needs.build-push-image.outputs.image }}
+
+  preview-comment:
+    if: github.event.action != 'closed'
+    needs: [preview]
+    runs-on: ubuntu-24.04
+    permissions:
       pull-requests: write
-
-    defaults:
-      run:
-        working-directory: terraform
-
-    env:
-      TF_WORKSPACE: pr-${{ github.event.pull_request.number }}
-      TF_VAR_name: scribe-pr-${{ github.event.pull_request.number }}
-      TF_VAR_project_id: ${{ secrets.GCLOUD_PROJECT }}
-      TF_VAR_docker_compose_branch: ${{ github.event.pull_request.head.ref }}
-      TF_VAR_run_snapshots: "false"
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Install Terraform
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
-        with:
-          terraform_version: 1.5.7
-
-      - name: Check Terraform formatting
-        run: terraform fmt -check -recursive
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
-        with:
-          version: latest
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: access_token
-
-      - name: Log in to GHCR
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute image reference
-        id: image
-        run: |
-          owner_repo="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
-          short_sha="$(echo '${{ github.event.pull_request.head.sha }}' | cut -c1-12)"
-          echo "image=ghcr.io/${owner_repo}:pr-${{ github.event.pull_request.number }}-${short_sha}" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push preview image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.image.outputs.image }}
-
-      - name: Configure Terraform environment
-        run: |
-          gcloud config set project "${{ secrets.GCLOUD_PROJECT }}"
-          gcloud config set disable_prompts true
-          echo "TF_VAR_project_number=$(gcloud projects describe "${{ secrets.GCLOUD_PROJECT }}" --format='value(projectNumber)')" >> "$GITHUB_ENV"
-          if [ -n '${{ vars.ALLOWED_IPS }}' ]; then
-            echo 'TF_VAR_allowed_ips=${{ vars.ALLOWED_IPS }}' >> "$GITHUB_ENV"
-          fi
-          if [ -n '${{ vars.ALLOWED_SSH_IPV4 }}' ]; then
-            echo 'TF_VAR_allowed_ssh_ipv4=${{ vars.ALLOWED_SSH_IPV4 }}' >> "$GITHUB_ENV"
-          fi
-
-          base_env='${{ secrets.SCRIBE_APP_ENV }}'
-          if [ -z "$base_env" ]; then
-            base_env='{}'
-          fi
-          merged_env="$(jq -cn --argjson base "$base_env" --arg image "${{ steps.image.outputs.image }}" '$base + {SCRIBE_API_IMAGE: $image}')"
-          {
-            echo 'TF_VAR_app_env<<EOF'
-            echo "$merged_env"
-            echo 'EOF'
-          } >> "$GITHUB_ENV"
-
-      - name: Terraform Init
-        run: terraform init -upgrade -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="prefix=scribe"
-
-      - name: Select Terraform workspace
-        run: |
-          if ! terraform workspace select "$TF_WORKSPACE"; then
-            terraform workspace new "$TF_WORKSPACE" || terraform workspace select "$TF_WORKSPACE"
-          fi
-
-      - name: Terraform Validate
-        run: terraform validate
-
-      - name: Terraform Apply
-        id: apply
-        run: terraform apply -auto-approve
-
-      - name: Read preview URL
-        id: preview_url
-        if: steps.apply.outcome == 'success'
-        run: |
-          url="$(terraform output -json | jq -r '.urls.value["us-east5"] // ""')"
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-
       - name: Post preview status comment
-        if: always()
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -147,13 +69,13 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const commentIdentifier = '<!-- terraform-preview-comment -->';
-            const previewUrl = '${{ steps.preview_url.outputs.url }}';
+            const previewUrl = `${{ needs.preview.outputs.preview_url }}`;
             const newCommentBody = `#### Terraform Preview
             ${commentIdentifier}
             Environment: \`scribe-pr-${{ github.event.pull_request.number }}\`
             Workspace: \`pr-${{ github.event.pull_request.number }}\`
             Action: \`apply\`
-            Status: \`${{ steps.apply.outcome }}\`
+            Status: \`${{ needs.preview.outputs.status }}\`
             ${previewUrl ? `URL: ${previewUrl}` : '' }
 
             Full Terraform output is intentionally not posted here.
@@ -184,86 +106,30 @@ jobs:
             }
 
   destroy-preview:
-    name: terraform destroy preview
     if: github.event.action == 'closed'
-    runs-on: ubuntu-24.04
-    environment: preview
+    uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
       contents: read
+    secrets: inherit
+    with:
+      mode: destroy
+      environment_name: preview
+      tf_workspace: pr-${{ github.event.pull_request.number }}
+      site_name: scribe-pr-${{ github.event.pull_request.number }}
+      docker_compose_branch: ${{ github.event.pull_request.head.ref }}
+      checkout_ref: ${{ github.event.pull_request.head.sha }}
+      run_snapshots: "false"
+      push_image: false
+
+  destroy-comment:
+    if: github.event.action == 'closed'
+    needs: [destroy-preview]
+    runs-on: ubuntu-24.04
+    permissions:
       pull-requests: write
-
-    defaults:
-      run:
-        working-directory: terraform
-
-    env:
-      TF_WORKSPACE: pr-${{ github.event.pull_request.number }}
-      TF_VAR_name: scribe-pr-${{ github.event.pull_request.number }}
-      TF_VAR_project_id: ${{ secrets.GCLOUD_PROJECT }}
-      TF_VAR_docker_compose_branch: ${{ github.event.pull_request.head.ref }}
-      TF_VAR_run_snapshots: "false"
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Install Terraform
-        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
-        with:
-          terraform_version: 1.5.7
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
-        with:
-          version: latest
-
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: access_token
-
-      - name: Configure Terraform environment
-        run: |
-          gcloud config set project "${{ secrets.GCLOUD_PROJECT }}"
-          gcloud config set disable_prompts true
-          echo "TF_VAR_project_number=$(gcloud projects describe "${{ secrets.GCLOUD_PROJECT }}" --format='value(projectNumber)')" >> "$GITHUB_ENV"
-          if [ -n '${{ vars.ALLOWED_IPS }}' ]; then
-            echo 'TF_VAR_allowed_ips=${{ vars.ALLOWED_IPS }}' >> "$GITHUB_ENV"
-          fi
-          if [ -n '${{ vars.ALLOWED_SSH_IPV4 }}' ]; then
-            echo 'TF_VAR_allowed_ssh_ipv4=${{ vars.ALLOWED_SSH_IPV4 }}' >> "$GITHUB_ENV"
-          fi
-
-          base_env='${{ secrets.SCRIBE_APP_ENV }}'
-          if [ -z "$base_env" ]; then
-            base_env='{}'
-          fi
-          {
-            echo 'TF_VAR_app_env<<EOF'
-            echo "$base_env"
-            echo 'EOF'
-          } >> "$GITHUB_ENV"
-
-      - name: Terraform Init
-        run: terraform init -upgrade -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="prefix=scribe"
-
-      - name: Select Terraform workspace
-        run: |
-          if ! terraform workspace select "$TF_WORKSPACE"; then
-            terraform workspace new "$TF_WORKSPACE" || terraform workspace select "$TF_WORKSPACE"
-          fi
-
-      - name: Terraform Destroy
-        id: destroy
-        run: terraform destroy -auto-approve
-
-      - name: Post preview status comment
-        if: always()
+      - name: Post preview destroy comment
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -277,7 +143,7 @@ jobs:
             Environment: \`scribe-pr-${{ github.event.pull_request.number }}\`
             Workspace: \`pr-${{ github.event.pull_request.number }}\`
             Action: \`destroy\`
-            Status: \`${{ steps.destroy.outcome }}\`
+            Status: \`${{ needs.destroy-preview.outputs.status }}\`
 
             Full Terraform output is intentionally not posted here.
             Review the workflow run logs for details.`;
