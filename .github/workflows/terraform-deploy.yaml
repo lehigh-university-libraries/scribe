@@ -21,6 +21,10 @@ on:
       checkout_ref:
         required: true
         type: string
+      pr_number:
+        required: false
+        type: string
+        default: ""
       run_snapshots:
         required: true
         type: string
@@ -49,15 +53,12 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    defaults:
-      run:
-        working-directory: terraform
     env:
-      TARGET_TF_WORKSPACE: ${{ inputs.tf_workspace }}
-      TF_VAR_name: ${{ inputs.site_name }}
-      TF_VAR_project_id: ${{ secrets.GCLOUD_PROJECT }}
-      TF_VAR_docker_compose_branch: ${{ inputs.docker_compose_branch }}
-      TF_VAR_run_snapshots: ${{ inputs.run_snapshots }}
+      GCLOUD_PROJECT: ${{ secrets.GCLOUD_PROJECT }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      ALLOWED_IPS: ${{ vars.ALLOWED_IPS }}
+      ALLOWED_SSH_IPV4: ${{ vars.ALLOWED_SSH_IPV4 }}
+      SCRIBE_APP_ENV: ${{ secrets.SCRIBE_APP_ENV }}
 
     outputs:
       status: ${{ steps.capture.outputs.status }}
@@ -91,64 +92,33 @@ jobs:
           service_account: ${{ secrets.GSA }}
           token_format: access_token
 
-      - name: Configure Terraform environment
-        run: |
-          gcloud config set project "${{ secrets.GCLOUD_PROJECT }}"
-          gcloud config set disable_prompts true
-          echo "TF_VAR_project_number=$(gcloud projects describe "${{ secrets.GCLOUD_PROJECT }}" --format='value(projectNumber)')" >> "$GITHUB_ENV"
-          if [ -n '${{ vars.ALLOWED_IPS }}' ]; then
-            echo 'TF_VAR_allowed_ips=${{ vars.ALLOWED_IPS }}' >> "$GITHUB_ENV"
-          fi
-          if [ -n '${{ vars.ALLOWED_SSH_IPV4 }}' ]; then
-            echo 'TF_VAR_allowed_ssh_ipv4=${{ vars.ALLOWED_SSH_IPV4 }}' >> "$GITHUB_ENV"
-          fi
-
-          base_env='${{ secrets.SCRIBE_APP_ENV }}'
-          if [ -z "$base_env" ]; then
-            base_env='{}'
-          fi
-          image_ref="$(printf '%s' '${{ inputs.image_tag }}' | tr '[:upper:]' '[:lower:]')"
-          if [ '${{ inputs.mode }}' = 'apply' ] && [ -n "$image_ref" ]; then
-            merged_env="$(jq -cn --argjson base "$base_env" --arg image "$image_ref" '$base + {SCRIBE_API_IMAGE: $image}')"
-          else
-            merged_env="$base_env"
-          fi
-          {
-            echo 'TF_VAR_app_env<<EOF'
-            echo "$merged_env"
-            echo 'EOF'
-          } >> "$GITHUB_ENV"
-
-      - name: Terraform Init
-        run: terraform init -upgrade -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="prefix=scribe"
-
-      - name: Select Terraform workspace
-        run: |
-          if ! terraform workspace select "$TARGET_TF_WORKSPACE"; then
-            terraform workspace new "$TARGET_TF_WORKSPACE" || terraform workspace select "$TARGET_TF_WORKSPACE"
-          fi
-          echo "TF_WORKSPACE=$TARGET_TF_WORKSPACE" >> "$GITHUB_ENV"
-
-      - name: Terraform Validate
-        if: inputs.mode == 'apply'
-        run: terraform validate
-
-      - name: Terraform Apply
+      - name: Run production Terraform
         id: apply
-        if: inputs.mode == 'apply'
-        run: terraform apply -auto-approve
+        if: inputs.mode == 'apply' && inputs.pr_number == ''
+        run: make tf-prod ACTION=apply
+
+      - name: Run preview Terraform
+        id: apply_preview
+        if: inputs.mode == 'apply' && inputs.pr_number != ''
+        run: make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=apply
 
       - name: Read preview URL
         id: preview_url
         if: inputs.mode == 'apply'
         run: |
+          cd terraform
           url="$(terraform output -json | jq -r '.urls.value["us-east5"] // ""')"
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
-      - name: Terraform Destroy
+      - name: Destroy production Terraform
         id: destroy
-        if: inputs.mode == 'destroy'
-        run: terraform destroy -auto-approve
+        if: inputs.mode == 'destroy' && inputs.pr_number == ''
+        run: make tf-prod ACTION=destroy
+
+      - name: Destroy preview Terraform
+        id: destroy_preview
+        if: inputs.mode == 'destroy' && inputs.pr_number != ''
+        run: make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=destroy
 
       - name: Capture status
         id: capture
@@ -156,8 +126,15 @@ jobs:
         run: |
           image_ref="$(printf '%s' '${{ inputs.image_tag }}' | tr '[:upper:]' '[:lower:]')"
           if [ '${{ inputs.mode }}' = 'apply' ]; then
-            echo "status=${{ steps.apply.outcome }}" >> "$GITHUB_OUTPUT"
+            status='${{ steps.apply.outcome }}'
+            if [ "$status" = '' ]; then
+              status='${{ steps.apply_preview.outcome }}'
+            fi
           else
-            echo "status=${{ steps.destroy.outcome }}" >> "$GITHUB_OUTPUT"
+            status='${{ steps.destroy.outcome }}'
+            if [ "$status" = '' ]; then
+              status='${{ steps.destroy_preview.outcome }}'
+            fi
           fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "image=$image_ref" >> "$GITHUB_OUTPUT"

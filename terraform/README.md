@@ -23,30 +23,46 @@ If the repository name or visibility changes, update `docker_compose_repo`.
 
 ## Local usage
 
-```bash
-cd /workspace/scribe/terraform
-cp terraform.tfvars.example terraform.tfvars
-terraform init -backend-config="bucket=YOUR_TF_STATE_BUCKET" -backend-config="prefix=scribe"
-terraform workspace select prod || terraform workspace new prod
-terraform plan
-terraform apply
-```
+Local Terraform should use the same conventions as GitHub Actions:
 
-For a local preview environment, use a separate workspace and name:
+- production workspace: `prod`
+- production image: `ghcr.io/lehigh-university-libraries/scribe:main`
+- preview workspace: `pr-<number>`
+- preview image: `ghcr.io/lehigh-university-libraries/scribe:<branch>`
+- preview site name: `scribe-pr-<number>`
 
 ```bash
-cd /workspace/scribe/terraform
-terraform init -backend-config="bucket=YOUR_TF_STATE_BUCKET" -backend-config="prefix=scribe"
-terraform workspace select pr-123 || terraform workspace new pr-123
-terraform plan \
-  -var="name=scribe-pr-123" \
-  -var="docker_compose_branch=my-feature-branch" \
-  -var="run_snapshots=false"
-terraform apply \
-  -var="name=scribe-pr-123" \
-  -var="docker_compose_branch=my-feature-branch" \
-  -var="run_snapshots=false"
+export GCLOUD_PROJECT=your-gcp-project-id
+make tf-prod ACTION=plan
+make tf-prod ACTION=apply
 ```
+
+For a local preview environment that matches GitHub Actions:
+
+```bash
+export GCLOUD_PROJECT=your-gcp-project-id
+make tf-preview PR=23 BRANCH=google-cloud ACTION=plan
+make tf-preview PR=23 BRANCH=google-cloud ACTION=apply
+```
+
+The underlying script is [deploy-local.sh](/workspace/scribe/terraform/deploy-local.sh). It mirrors the
+GitHub deploy workflow's variable setup for:
+
+- `TF_VAR_name`
+- `TF_VAR_docker_compose_branch`
+- `TF_VAR_run_snapshots`
+- `TF_VAR_project_id`
+- `TF_VAR_project_number`
+- `TF_VAR_allowed_ips`
+- `TF_VAR_allowed_ssh_ipv4`
+- `TF_VAR_app_env`
+- Terraform workspace selection
+
+If you need to debug a failed GitHub deploy locally, use the same PR number and
+branch name so the local run targets the same workspace and image tag.
+
+By default, the local script uses `TF_STATE_BUCKET=${GCLOUD_PROJECT}-terraform`.
+Set `TF_STATE_BUCKET` explicitly only if you need a different bucket.
 
 ## Required edits in `terraform.tfvars`
 

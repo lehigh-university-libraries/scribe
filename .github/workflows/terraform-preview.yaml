@@ -50,6 +50,7 @@ jobs:
       site_name: scribe-pr-${{ github.event.pull_request.number }}
       docker_compose_branch: ${{ github.event.pull_request.head.ref }}
       checkout_ref: ${{ github.event.pull_request.head.sha }}
+      pr_number: "${{ github.event.pull_request.number }}"
       run_snapshots: "false"
       push_image: false
       image_tag: ghcr.io/lehigh-university-libraries/scribe:${{ github.event.pull_request.head.ref }}
@@ -120,5 +121,6 @@ jobs:
       site_name: scribe-pr-${{ github.event.pull_request.number }}
       docker_compose_branch: ${{ github.event.pull_request.head.ref }}
       checkout_ref: ${{ github.event.pull_request.head.sha }}
+      pr_number: "${{ github.event.pull_request.number }}"
       run_snapshots: "false"
       push_image: false
