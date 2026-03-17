@@ -118,7 +118,10 @@ jobs:
         run: terraform init -upgrade -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="prefix=scribe"
 
       - name: Select Terraform workspace
-        run: terraform workspace select "$TF_WORKSPACE" || terraform workspace new "$TF_WORKSPACE"
+        run: |
+          if ! terraform workspace select "$TF_WORKSPACE"; then
+            terraform workspace new "$TF_WORKSPACE" || terraform workspace select "$TF_WORKSPACE"
+          fi
 
       - name: Terraform Validate
         run: terraform validate
@@ -250,7 +253,10 @@ jobs:
         run: terraform init -upgrade -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="prefix=scribe"
 
       - name: Select Terraform workspace
-        run: terraform workspace select "$TF_WORKSPACE" || terraform workspace new "$TF_WORKSPACE"
+        run: |
+          if ! terraform workspace select "$TF_WORKSPACE"; then
+            terraform workspace new "$TF_WORKSPACE" || terraform workspace select "$TF_WORKSPACE"
+          fi
 
       - name: Terraform Destroy
         id: destroy
