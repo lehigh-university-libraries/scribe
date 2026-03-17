@@ -1,0 +1,140 @@
+name: Terraform Deploy
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      environment_name:
+        required: true
+        type: string
+      tf_workspace:
+        required: true
+        type: string
+      site_name:
+        required: true
+        type: string
+      docker_compose_branch:
+        required: true
+        type: string
+      checkout_ref:
+        required: true
+        type: string
+      pr_number:
+        required: false
+        type: string
+        default: ""
+      run_snapshots:
+        required: true
+        type: string
+      push_image:
+        required: true
+        type: boolean
+      image_tag:
+        required: false
+        type: string
+        default: ""
+    outputs:
+      status:
+        description: Workflow status for the terraform action.
+        value: ${{ jobs.deploy.outputs.status }}
+      preview_url:
+        description: Cloud Run ingress URL for preview environments.
+        value: ${{ jobs.deploy.outputs.preview_url }}
+      image:
+        description: Deployed GHCR image reference.
+        value: ${{ jobs.deploy.outputs.image }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment_name }}
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      GCLOUD_PROJECT: ${{ secrets.GCLOUD_PROJECT }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      ALLOWED_IPS: ${{ vars.ALLOWED_IPS }}
+      ALLOWED_SSH_IPV4: ${{ vars.ALLOWED_SSH_IPV4 }}
+      SCRIBE_APP_ENV: ${{ secrets.SCRIBE_APP_ENV }}
+
+    outputs:
+      status: ${{ steps.capture.outputs.status }}
+      preview_url: ${{ steps.preview_url.outputs.url }}
+      image: ${{ steps.capture.outputs.image }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Check Terraform formatting
+        if: inputs.mode == 'apply'
+        run: terraform fmt -check -recursive
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: latest
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: access_token
+
+      - name: Run production Terraform
+        id: apply
+        if: inputs.mode == 'apply' && inputs.pr_number == ''
+        run: make tf-prod ACTION=apply
+
+      - name: Run preview Terraform
+        id: apply_preview
+        if: inputs.mode == 'apply' && inputs.pr_number != ''
+        run: make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=apply
+
+      - name: Read preview URL
+        id: preview_url
+        if: inputs.mode == 'apply'
+        run: |
+          cd terraform
+          url="$(terraform output -json | jq -r '.urls.value["us-east5"] // ""')"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Destroy production Terraform
+        id: destroy
+        if: inputs.mode == 'destroy' && inputs.pr_number == ''
+        run: make tf-prod ACTION=destroy
+
+      - name: Destroy preview Terraform
+        id: destroy_preview
+        if: inputs.mode == 'destroy' && inputs.pr_number != ''
+        run: make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=destroy
+
+      - name: Capture status
+        id: capture
+        if: always()
+        run: |
+          image_ref="$(printf '%s' '${{ inputs.image_tag }}' | tr '[:upper:]' '[:lower:]')"
+          if [ '${{ inputs.mode }}' = 'apply' ]; then
+            status='${{ steps.apply.outcome }}'
+            if [ "$status" = '' ]; then
+              status='${{ steps.apply_preview.outcome }}'
+            fi
+          else
+            status='${{ steps.destroy.outcome }}'
+            if [ "$status" = '' ]; then
+              status='${{ steps.destroy_preview.outcome }}'
+            fi
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "image=$image_ref" >> "$GITHUB_OUTPUT"

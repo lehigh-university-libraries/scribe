@@ -1,0 +1,126 @@
+name: Terraform Preview
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - closed
+
+concurrency:
+  group: terraform-preview-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build-push:
+    if: github.event.action != 'closed'
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+
+  lint-test:
+    if: github.event.action != 'closed'
+    needs: [build-push]
+    uses: ./.github/workflows/lint-test.yaml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      checkout_ref: ${{ github.event.pull_request.head.sha }}
+      image_tag: ghcr.io/lehigh-university-libraries/scribe:${{ github.event.pull_request.head.ref }}
+
+  preview:
+    if: github.event.action != 'closed'
+    needs: [build-push]
+    uses: ./.github/workflows/terraform-deploy.yaml
+    permissions:
+      id-token: write
+      contents: read
+    secrets: inherit
+    with:
+      mode: apply
+      environment_name: preview
+      tf_workspace: pr-${{ github.event.pull_request.number }}
+      site_name: scribe-pr-${{ github.event.pull_request.number }}
+      docker_compose_branch: ${{ github.event.pull_request.head.ref }}
+      checkout_ref: ${{ github.event.pull_request.head.sha }}
+      pr_number: "${{ github.event.pull_request.number }}"
+      run_snapshots: "false"
+      push_image: false
+      image_tag: ghcr.io/lehigh-university-libraries/scribe:${{ github.event.pull_request.head.ref }}
+
+  preview-comment:
+    if: github.event.action != 'closed'
+    needs: [preview, lint-test]
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post preview status comment
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue_number = context.issue.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const commentIdentifier = '<!-- terraform-preview-comment -->';
+            const previewUrl = `${{ needs.preview.outputs.preview_url }}`;
+            const newCommentBody = `#### Terraform Preview
+            ${commentIdentifier}
+            Environment: \`scribe-pr-${{ github.event.pull_request.number }}\`
+            Workspace: \`pr-${{ github.event.pull_request.number }}\`
+            Action: \`apply\`
+            Status: \`${{ needs.preview.outputs.status }}\`
+            ${previewUrl ? `URL: ${previewUrl}` : '' }
+
+            Full Terraform output is intentionally not posted here.
+            Review the workflow run logs for details.`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number
+            });
+
+            const existingComment = comments.find(comment => comment.body.includes(commentIdentifier));
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existingComment.id,
+                body: newCommentBody
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: newCommentBody
+              });
+            }
+
+  destroy-preview:
+    if: github.event.action == 'closed'
+    uses: ./.github/workflows/terraform-deploy.yaml
+    permissions:
+      id-token: write
+      contents: read
+    secrets: inherit
+    with:
+      mode: destroy
+      environment_name: preview
+      tf_workspace: pr-${{ github.event.pull_request.number }}
+      site_name: scribe-pr-${{ github.event.pull_request.number }}
+      docker_compose_branch: ${{ github.event.pull_request.head.ref }}
+      checkout_ref: ${{ github.event.pull_request.head.sha }}
+      pr_number: "${{ github.event.pull_request.number }}"
+      run_snapshots: "false"
+      push_image: false

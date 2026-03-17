@@ -1,7 +1,8 @@
 .PHONY: help
-.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs  sequelace
+.PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs sequelace tf-prod tf-preview
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
+COMPOSE_UP_FLAGS ?= -d --build
 # renovate: datasource=docker depName=golangci/golangci-lint
 GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.10.1-alpine
 
@@ -16,7 +17,8 @@ build: ## Build the Docker image used for runtime
 
 up: ## Start services in detached mode
 	@test -f .env || cp sample.env .env
-	@docker compose up -d
+	@bash generate-secrets.sh
+	@docker compose up $(COMPOSE_UP_FLAGS)
 
 logs: ## Follow logs for the API
 	@docker compose logs api --tail 20 -f
@@ -54,3 +56,18 @@ install-tools: ## Install required development tools
 test: ## Run Go tests (integration tests run automatically if 'make up' is active)
 	@./ci/test.sh
 
+tf-prod: ## Run local Terraform for production. Usage: make tf-prod ACTION=plan|apply|destroy
+	@set -eu; \
+	action="${ACTION}"; \
+	if [ -z "$$action" ]; then action="plan"; fi; \
+	./terraform/deploy-local.sh prod "$$action"
+
+tf-preview: ## Run local Terraform for a preview env. Usage: make tf-preview PR=23 [BRANCH=name] ACTION=plan|apply|destroy
+	@set -eu; \
+	action="${ACTION}"; \
+	if [ -z "$$action" ]; then action="plan"; fi; \
+	pr="${PR}"; \
+	if [ -z "$$pr" ]; then echo "set PR=<number>" >&2; exit 1; fi; \
+	branch_arg=""; \
+	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
+	./terraform/deploy-local.sh preview "$$action" $$branch_arg --pr-number "$$pr"

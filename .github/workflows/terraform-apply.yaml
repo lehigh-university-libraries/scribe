@@ -1,0 +1,44 @@
+name: Terraform Apply
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-push:
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+
+  lint-test:
+    needs: [build-push]
+    uses: ./.github/workflows/lint-test.yaml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      checkout_ref: ${{ github.sha }}
+      image_tag: ghcr.io/lehigh-university-libraries/scribe:main
+
+  terraform-apply:
+    needs: [build-push]
+    uses: ./.github/workflows/terraform-deploy.yaml
+    permissions:
+      id-token: write
+      contents: read
+    secrets: inherit
+    with:
+      mode: apply
+      environment_name: production
+      tf_workspace: prod
+      site_name: scribe
+      docker_compose_branch: main
+      checkout_ref: ${{ github.sha }}
+      run_snapshots: "true"
+      push_image: false
+      image_tag: ghcr.io/lehigh-university-libraries/scribe:main

@@ -2,12 +2,15 @@ services:
   mariadb:
     image: mariadb:12.2@sha256:b1cb255a9939d28a1856815f0de6046c20c28c21b92a9f2696bc782b247a47ee
     environment:
-      MARIADB_DATABASE: scribe
-      MARIADB_USER: scribe
-      MARIADB_PASSWORD: scribe
-      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-scribe}
+      MARIADB_USER: ${MARIADB_USER:-scribe}
+      MARIADB_PASSWORD_FILE: /run/secrets/mariadb_password
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/mariadb_root_password
     volumes:
       - mariadb-data:/var/lib/mysql
+    secrets:
+      - mariadb_password
+      - mariadb_root_password
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
@@ -15,13 +18,12 @@ services:
       retries: 20
 
   api:
-    image: ghcr.io/lehigh-university-libraries/scribe:main
+    image: ${SCRIBE_API_IMAGE:-ghcr.io/lehigh-university-libraries/scribe:main}
     build: .
     env_file:
       - .env
     environment:
       LISTEN_ADDR: :8080
-      DATABASE_DSN: scribe:scribe@tcp(mariadb:3306)/scribe?parseTime=true
       ANNOTATION_API_BASE: http://localhost:8080
       CANTALOUPE_IIIF_BASE: http://localhost:8182/iiif/2
       CANTALOUPE_IIIF_INTERNAL_BASE: http://cantaloupe:8182/iiif/2
@@ -30,8 +32,12 @@ services:
     volumes:
       - uploads-data:/app/uploads
       - cache-data:/app/cache
+    secrets:
+      - mariadb_password
     depends_on:
       mariadb:
+        condition: service_healthy
+      cantaloupe:
         condition: service_healthy
 
   cantaloupe:
@@ -48,11 +54,15 @@ services:
     volumes:
       - uploads-data:/uploads:ro
       - cantaloupe-data:/data
-    depends_on:
-      - api
 
 volumes:
   mariadb-data:
   uploads-data:
   cache-data:
   cantaloupe-data:
+
+secrets:
+  mariadb_password:
+    file: ./secrets/mariadb_password
+  mariadb_root_password:
+    file: ./secrets/mariadb_root_password

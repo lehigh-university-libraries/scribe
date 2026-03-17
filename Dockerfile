@@ -53,8 +53,11 @@ RUN apk add --no-cache \
 RUN adduser -D -u 10001 appuser
 COPY --from=builder /out/scribe /app/scribe
 COPY --from=web-build /app/web/dist /app/web-dist
-RUN mkdir -p /app/uploads /app/cache && chown -R appuser:appuser /app
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod 755 /app/docker-entrypoint.sh \
+    && mkdir -p /app/uploads /app/cache \
+    && chown -R appuser:appuser /app
 USER appuser
 EXPOSE 8080
 ENV LISTEN_ADDR=:8080
-ENTRYPOINT ["/app/scribe"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

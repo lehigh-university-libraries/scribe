@@ -1,5 +1,17 @@
 name: lint-test
-on: [push]
+on:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        required: false
+        type: string
+        default: ""
+      image_tag:
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+
 permissions:
   contents: read
 
@@ -8,18 +20,31 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.checkout_ref != '' && inputs.checkout_ref || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6
 
+      - name: Log in to GHCR
+        if: inputs.image_tag != ''
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull published app image
+        if: inputs.image_tag != ''
+        run: docker pull "${{ inputs.image_tag }}"
+
       - run: make lint
 
-      - run: make build up test
+      - name: Run tests against published image
+        if: inputs.image_tag != ''
+        run: |
+          SCRIBE_API_IMAGE="${{ inputs.image_tag }}" COMPOSE_UP_FLAGS="-d" make up test
 
-  build-push-ghcr:
-    needs: [lint-test]
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
-    permissions:
-      contents: read
-      packages: write
-    secrets: inherit
+      - name: Build local image and run tests
+        if: inputs.image_tag == ''
+        run: make build up test
