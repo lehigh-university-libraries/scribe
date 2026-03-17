@@ -72,7 +72,7 @@ variable "app_env" {
 variable "docker_compose_up" {
   description = "Shell command used to start the compose stack."
   type        = string
-  default     = "docker compose up -d --remove-orphans"
+  default     = "docker compose pull api && docker compose up -d --no-build --remove-orphans"
 }
 
 variable "docker_compose_down" {

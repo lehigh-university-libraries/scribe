@@ -17,7 +17,7 @@ build: ## Build the Docker image used for runtime
 up: ## Start services in detached mode
 	@test -f .env || cp sample.env .env
 	@bash generate-secrets.sh
-	@docker compose up -d
+	@docker compose up -d --build
 
 logs: ## Follow logs for the API
 	@docker compose logs api --tail 20 -f

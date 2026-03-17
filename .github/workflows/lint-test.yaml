@@ -1,5 +1,8 @@
 name: lint-test
-on: [push]
+on:
+  workflow_call:
+  workflow_dispatch:
+
 permissions:
   contents: read
 
@@ -15,11 +18,3 @@ jobs:
       - run: make lint
 
       - run: make build up test
-
-  build-push-ghcr:
-    needs: [lint-test]
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
-    permissions:
-      contents: read
-      packages: write
-    secrets: inherit

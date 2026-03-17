@@ -7,13 +7,20 @@ on:
       - main
 
 jobs:
+  lint-test:
+    uses: ./.github/workflows/lint-test.yaml
+    permissions:
+      contents: read
+
   terraform-apply:
+    needs: [lint-test]
     name: terraform apply prod
     runs-on: ubuntu-24.04
     environment: production
     permissions:
       id-token: write
       contents: read
+      packages: write
 
     defaults:
       run:
@@ -47,21 +54,52 @@ jobs:
           service_account: ${{ secrets.GSA }}
           token_format: access_token
 
+      - name: Log in to GHCR
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image reference
+        id: image
+        run: |
+          owner_repo="$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          short_sha="$(echo '${{ github.sha }}' | cut -c1-12)"
+          echo "image=ghcr.io/${owner_repo}:main-${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "main_tag=ghcr.io/${owner_repo}:main" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push production image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.image.outputs.image }}
+            ${{ steps.image.outputs.main_tag }}
+
       - name: Configure Terraform environment
         run: |
           gcloud config set project "${{ secrets.GCLOUD_PROJECT }}"
           gcloud config set disable_prompts true
           echo "TF_VAR_project_number=$(gcloud projects describe "${{ secrets.GCLOUD_PROJECT }}" --format='value(projectNumber)')" >> "$GITHUB_ENV"
-          echo 'TF_VAR_allowed_ips=${{ vars.ALLOWED_IPS }}' >> "$GITHUB_ENV"
-          echo 'TF_VAR_allowed_ssh_ipv4=${{ vars.ALLOWED_SSH_IPV4 }}' >> "$GITHUB_ENV"
-
-          if [ -n '${{ secrets.SCRIBE_APP_ENV }}' ]; then
-            {
-              echo 'TF_VAR_app_env<<EOF'
-              echo '${{ secrets.SCRIBE_APP_ENV }}'
-              echo 'EOF'
-            } >> "$GITHUB_ENV"
+          if [ -n '${{ vars.ALLOWED_IPS }}' ]; then
+            echo 'TF_VAR_allowed_ips=${{ vars.ALLOWED_IPS }}' >> "$GITHUB_ENV"
           fi
+          if [ -n '${{ vars.ALLOWED_SSH_IPV4 }}' ]; then
+            echo 'TF_VAR_allowed_ssh_ipv4=${{ vars.ALLOWED_SSH_IPV4 }}' >> "$GITHUB_ENV"
+          fi
+
+          base_env='${{ secrets.SCRIBE_APP_ENV }}'
+          if [ -z "$base_env" ]; then
+            base_env='{}'
+          fi
+          merged_env="$(jq -cn --argjson base "$base_env" --arg image "${{ steps.image.outputs.image }}" '$base + {SCRIBE_API_IMAGE: $image}')"
+          {
+            echo 'TF_VAR_app_env<<EOF'
+            echo "$merged_env"
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
 
       - name: Terraform Init
         run: terraform init -upgrade -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="prefix=scribe"

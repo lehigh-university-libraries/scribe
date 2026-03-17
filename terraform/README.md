@@ -13,7 +13,8 @@ to `0.3.0`.
 - runs `bash generate-secrets.sh` on first boot to create any missing docker
   secret files under `./secrets/`
 - merges secret environment variables from Terraform into `.env` before startup
-- starts Scribe with `docker compose up -d --remove-orphans`
+- pulls the configured API image from GHCR, then starts Scribe with
+  `docker compose up -d --no-build --remove-orphans`
 
 The compose repo URL defaults to the current GitHub remote in HTTPS form:
 `https://github.com/lehigh-university-libraries/scribe.git`
@@ -83,7 +84,9 @@ Production uses:
   values for `openai` or `gemini`.
 - The recommended CI pattern for app env vars is a single JSON object mapped
   into `TF_VAR_app_env`, for example:
-  `{"OLLAMA_URL":"https://ollama.example.org","OPENAI_API_KEY":"..."}`
+  `{"OLLAMA_URL":"https://ollama.example.org","SCRIBE_API_IMAGE":"ghcr.io/lehigh-university-libraries/scribe:pr-123-deadbeef","OPENAI_API_KEY":"..."}`
+- Preview and production deploys push an image to GHCR first, then inject that
+  exact image reference into `SCRIBE_API_IMAGE`.
 - MariaDB passwords are now generated into docker secret files by
   `generate-secrets.sh` instead of being stored directly in `.env`.
 - The PR preview comment includes the Cloud Run ingress URL from

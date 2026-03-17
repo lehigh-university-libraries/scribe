@@ -18,7 +18,7 @@ services:
       retries: 20
 
   api:
-    image: ghcr.io/lehigh-university-libraries/scribe:main
+    image: ${SCRIBE_API_IMAGE:-ghcr.io/lehigh-university-libraries/scribe:main}
     build: .
     entrypoint: ["/bin/sh", "-ec"]
     command: |
