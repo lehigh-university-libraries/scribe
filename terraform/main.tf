@@ -4,13 +4,15 @@ provider "google" {
 }
 
 locals {
-  docker_compose_init = join(" && ", compact([
+  docker_compose_init = concat(
     var.docker_compose_init,
-    length(var.app_env) > 0 ? format(
-      "bash /home/cloud-compose/merge-env-json.sh .env '%s'",
-      base64encode(jsonencode(var.app_env))
-    ) : ""
-  ]))
+    length(var.app_env) > 0 ? [
+      format(
+        "bash /home/cloud-compose/merge-env-json.sh .env '%s'",
+        base64encode(jsonencode(var.app_env))
+      )
+    ] : []
+  )
 }
 
 module "scribe" {
