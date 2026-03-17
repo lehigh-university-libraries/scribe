@@ -7,26 +7,26 @@ on:
       - main
 
 jobs:
-  lint-test:
-    uses: ./.github/workflows/lint-test.yaml
+  build-push:
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
     permissions:
       contents: read
+      packages: write
     secrets: inherit
 
-  build-push-image:
-    needs: [lint-test]
-    uses: ./.github/workflows/build-push-image.yaml
+  lint-test:
+    needs: [build-push]
+    uses: ./.github/workflows/lint-test.yaml
     permissions:
       contents: read
       packages: write
     secrets: inherit
     with:
       checkout_ref: ${{ github.sha }}
-      image_tag: ghcr.io/${{ github.repository }}:main
-      extra_image_tag: ghcr.io/${{ github.repository }}:main-${{ github.sha }}
+      image_tag: ghcr.io/lehigh-university-libraries/scribe:main
 
   terraform-apply:
-    needs: [build-push-image]
+    needs: [build-push]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
@@ -41,4 +41,4 @@ jobs:
       checkout_ref: ${{ github.sha }}
       run_snapshots: "true"
       push_image: false
-      image_tag: ${{ needs.build-push-image.outputs.image }}
+      image_tag: ghcr.io/lehigh-university-libraries/scribe:main

@@ -2,6 +2,7 @@
 .PHONY: build fmt lint test proto proto-lint sqlc generate install-tools up logs  sequelace
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
+COMPOSE_UP_FLAGS ?= -d --build
 # renovate: datasource=docker depName=golangci/golangci-lint
 GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.10.1-alpine
 
@@ -17,7 +18,7 @@ build: ## Build the Docker image used for runtime
 up: ## Start services in detached mode
 	@test -f .env || cp sample.env .env
 	@bash generate-secrets.sh
-	@docker compose up -d --build
+	@docker compose up $(COMPOSE_UP_FLAGS)
 
 logs: ## Follow logs for the API
 	@docker compose logs api --tail 20 -f
