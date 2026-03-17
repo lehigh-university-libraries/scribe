@@ -33,6 +33,8 @@ top of canonical IIIF annotation state.
 ## Quick start
 
 ```bash
+cp sample.env .env
+bash generate-secrets.sh
 docker compose up --build
 ```
 

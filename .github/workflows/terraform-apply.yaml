@@ -1,0 +1,73 @@
+name: Terraform Apply
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  terraform-apply:
+    name: terraform apply prod
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+
+    defaults:
+      run:
+        working-directory: terraform
+
+    env:
+      TF_WORKSPACE: prod
+      TF_VAR_name: scribe
+      TF_VAR_project_id: ${{ secrets.GCLOUD_PROJECT }}
+      TF_VAR_docker_compose_branch: main
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.5.7
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: latest
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: access_token
+
+      - name: Configure Terraform environment
+        run: |
+          gcloud config set project "${{ secrets.GCLOUD_PROJECT }}"
+          gcloud config set disable_prompts true
+          echo "TF_VAR_project_number=$(gcloud projects describe "${{ secrets.GCLOUD_PROJECT }}" --format='value(projectNumber)')" >> "$GITHUB_ENV"
+          echo 'TF_VAR_allowed_ips=${{ vars.ALLOWED_IPS }}' >> "$GITHUB_ENV"
+          echo 'TF_VAR_allowed_ssh_ipv4=${{ vars.ALLOWED_SSH_IPV4 }}' >> "$GITHUB_ENV"
+
+          if [ -n '${{ secrets.SCRIBE_APP_ENV }}' ]; then
+            {
+              echo 'TF_VAR_app_env<<EOF'
+              echo '${{ secrets.SCRIBE_APP_ENV }}'
+              echo 'EOF'
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Terraform Init
+        run: terraform init -upgrade -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" -backend-config="prefix=scribe"
+
+      - name: Select Terraform workspace
+        run: terraform workspace select "$TF_WORKSPACE" || terraform workspace new "$TF_WORKSPACE"
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve

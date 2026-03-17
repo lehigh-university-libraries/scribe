@@ -16,6 +16,7 @@ build: ## Build the Docker image used for runtime
 
 up: ## Start services in detached mode
 	@test -f .env || cp sample.env .env
+	@bash generate-secrets.sh
 	@docker compose up -d
 
 logs: ## Follow logs for the API
@@ -53,4 +54,3 @@ install-tools: ## Install required development tools
 
 test: ## Run Go tests (integration tests run automatically if 'make up' is active)
 	@./ci/test.sh
-
