@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-set -euo pipefail
+set -eu
 
 if [ -z "${DATABASE_DSN:-}" ] && [ -f /run/secrets/mariadb_password ]; then
   password="$(tr -d '\n' < /run/secrets/mariadb_password)"
