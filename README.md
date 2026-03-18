@@ -42,7 +42,7 @@ docker compose up --build
 |---------|-----|
 | Web app | http://localhost:8080 |
 | API + Annotation API | http://localhost:8080 |
-| IIIF image server (Cantaloupe) | http://localhost:8182 |
+| IIIF image server (Cantaloupe) | http://localhost:8080/cantaloupe |
 
 ## Creating items
 
@@ -115,10 +115,10 @@ npm run build
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ANNOTATION_API_BASE` | `http://localhost:8080` | Public base URL used when generating annotation item/page IDs |
-| `CANTALOUPE_IIIF_BASE` | `http://localhost:8182/iiif/2` | IIIF image base URL used in manifests |
+| `ANNOTATION_API_BASE` | `/` | Public base URL used when generating annotation item/page IDs; path values are expanded against the incoming request host |
+| `CANTALOUPE_IIIF_BASE` | `/cantaloupe/iiif/2` | IIIF image base URL used in manifests; path values are expanded against the incoming request host |
 | `SCRIBE_WEBHOOK_URLS` | empty | Comma-separated webhook endpoints that receive all emitted Scribe CloudEvents |
-| `VITE_ANNOTATION_API_BASE` | `http://localhost:8080` | Annotation API base for viewer/editor integration |
+| `VITE_ANNOTATION_API_BASE` | `/` | Annotation API base for viewer/editor integration; runtime HTML injection takes precedence when available |
 
 ## IIIF endpoints
 

@@ -15,7 +15,7 @@ func FromEnv() Config {
 
 	dsn := os.Getenv("DATABASE_DSN")
 	if dsn == "" {
-		dsn = "scribe:scribe@tcp(127.0.0.1:3306)/scribe?parseTime=true"
+		dsn = "scribe:scribe@tcp(mariadb:3306)/scribe?parseTime=true"
 	}
 
 	return Config{

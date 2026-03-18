@@ -1,4 +1,18 @@
 services:
+  traefik:
+    image: traefik:v3.6.10
+    command:
+      - --entrypoints.web.address=:8080
+      - --providers.file.filename=/etc/traefik/dynamic.yaml
+      - --providers.file.watch=true
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./conf/traefik/traefik.dynamic.yaml:/etc/traefik/dynamic.yaml:ro
+    depends_on:
+      - api
+      - cantaloupe
+
   mariadb:
     image: mariadb:12.2@sha256:e16f61b8f6ed25111adbb1c5c19bbc2904efc8ed14029999af0cbe1c7ae18bf1
     environment:
@@ -24,11 +38,9 @@ services:
       - .env
     environment:
       LISTEN_ADDR: :8080
-      ANNOTATION_API_BASE: http://localhost:8080
-      CANTALOUPE_IIIF_BASE: http://localhost:8182/iiif/2
-      CANTALOUPE_IIIF_INTERNAL_BASE: http://cantaloupe:8182/iiif/2
-    ports:
-      - "8080:8080"
+      ANNOTATION_API_BASE: ${ANNOTATION_API_BASE:-/}
+      CANTALOUPE_IIIF_BASE: ${CANTALOUPE_IIIF_BASE:-/cantaloupe/iiif/2}
+      CANTALOUPE_IIIF_INTERNAL_BASE: ${CANTALOUPE_IIIF_INTERNAL_BASE:-http://cantaloupe:8182/iiif/2}
     volumes:
       - uploads-data:/app/uploads
       - cache-data:/app/cache
@@ -36,8 +48,6 @@ services:
       - mariadb_password
     depends_on:
       mariadb:
-        condition: service_healthy
-      cantaloupe:
         condition: service_healthy
 
   cantaloupe:
@@ -49,8 +59,6 @@ services:
       CANTALOUPE_ENDPOINT_IIIF_2_ENABLED: "true"
       CANTALOUPE_ENDPOINT_IIIF_3_ENABLED: "true"
       CANTALOUPE_HTTP_PORT: "8182"
-    ports:
-      - "8182:8182"
     volumes:
       - uploads-data:/uploads:ro
       - cantaloupe-data:/data
