@@ -55,6 +55,7 @@ type processProgress struct {
 var (
 	progressMu    sync.RWMutex
 	progressState = map[string]processProgress{}
+	_, trustedNet, _ = net.ParseCIDR("10.0.0.0/8")
 )
 
 type responseWriter struct {
@@ -1263,18 +1264,37 @@ func detectWebDir() string {
 	return ""
 }
 
+func isTrustedProxy(remoteAddr string) bool {
+    host, _, err := net.SplitHostPort(remoteAddr)
+    if err != nil {
+        host = remoteAddr
+    }
+    ip := net.ParseIP(host)
+    if ip == nil {
+        return false
+    }
+    
+    return (trustedNet != nil && trustedNet.Contains(ip)) || ip.IsLoopback()
+}
+
 func requestOrigin(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	if forwardedProto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
+	if !isTrustedProxy(r.RemoteAddr) {
+		return scheme + "://" + r.Host
+	}
+
+    if forwardedProto := r.Header.Get("X-Forwarded-Proto"); forwardedProto != "" {
 		scheme = forwardedProto
 	}
-	host := strings.TrimSpace(r.Host)
-	if forwardedHost := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
-		host = forwardedHost
+
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
 	}
+
 	return scheme + "://" + host
 }
 
