@@ -40,9 +40,9 @@ docker compose up --build
 
 | Service | URL |
 |---------|-----|
-| Web app | http://localhost:8080 |
-| API + Annotation API | http://localhost:8080 |
-| IIIF image server (Cantaloupe) | http://localhost:8080/cantaloupe |
+| Web app | http://localhost |
+| API + Annotation API | http://localhost |
+| IIIF image server (Cantaloupe) | http://localhost/cantaloupe |
 
 ## Creating items
 

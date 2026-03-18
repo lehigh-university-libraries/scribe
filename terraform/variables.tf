@@ -32,12 +32,6 @@ variable "machine_type" {
   default     = "n4-standard-2"
 }
 
-variable "ingress_port" {
-  description = "TCP port on the VM that the Cloud Run ingress should connect to."
-  type        = number
-  default     = 8080
-}
-
 variable "disk_type" {
   description = "Disk type for attached disks."
   type        = string
@@ -82,8 +76,9 @@ variable "docker_compose_up" {
   description = "Shell command used to start the compose stack."
   type        = list(string)
   default = [
+    "git pull",
     "docker compose pull api",
-    "docker compose up -d --no-build --remove-orphans"
+    "docker compose up -d --no-build"
   ]
 }
 

@@ -8,12 +8,14 @@ http:
       headers:
         customRequestHeaders:
           X-Forwarded-Path: /cantaloupe
+{{- if (eq (env "TRAEFIK_TLS_FRONTEND") "true") }}
+          X-Forwarded-Port: 443
+{{- end }}
     cantaloupe:
       chain:
         middlewares:
           - cantaloupe-strip-prefix
           - cantaloupe-custom-request-headers
-
   services:
     api:
       loadBalancer:

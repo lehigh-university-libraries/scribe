@@ -1,12 +1,16 @@
 services:
   traefik:
     image: traefik:v3.6.10
-    command:
-      - --entrypoints.web.address=:8080
-      - --providers.file.filename=/etc/traefik/dynamic.yaml
-      - --providers.file.watch=true
+    command: >-
+      --entryPoints.web.address=:80
+      --entryPoints.web.forwardedHeaders.trustedIPs=10.0.0.0/8,127.0.0.1/32,172.0.0.0/8
+      --entryPoints.web.transport.respondingTimeouts.readTimeout=3600
+      --providers.file.filename=/etc/traefik/dynamic.yaml
+      --providers.file.watch=true
+    environment:
+      TRAEFIK_TLS_FRONTEND: ${TRAEFIK_TLS_FRONTEND:-false}
     ports:
-      - "8080:8080"
+      - "80:80"
     volumes:
       - ./conf/traefik/traefik.dynamic.yaml:/etc/traefik/dynamic.yaml:ro
     depends_on:

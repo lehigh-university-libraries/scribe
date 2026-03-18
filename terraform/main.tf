@@ -24,7 +24,6 @@ module "scribe" {
   region                = var.region
   zone                  = var.zone
   machine_type          = var.machine_type
-  ingress_port          = var.ingress_port
   disk_type             = var.disk_type
   disk_size_gb          = var.disk_size_gb
   docker_compose_repo   = var.docker_compose_repo

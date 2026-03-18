@@ -56,8 +56,27 @@ type processProgress struct {
 var (
 	progressMu    sync.RWMutex
 	progressState = map[string]processProgress{}
-	_, trustedNet, _ = net.ParseCIDR("10.0.0.0/8")
+	trustedProxyNets = mustParseCIDRs(
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"100.64.0.0/10",
+		"169.254.0.0/16",
+		"fc00::/7",
+	)
 )
+
+func mustParseCIDRs(cidrs ...string) []*net.IPNet {
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Sprintf("invalid trusted proxy CIDR %q: %v", cidr, err))
+		}
+		nets = append(nets, network)
+	}
+	return nets
+}
 
 type responseWriter struct {
 	http.ResponseWriter
@@ -357,11 +376,7 @@ func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	apiBase := scheme + "://" + r.Host
+	apiBase := requestOrigin(r)
 	manifestID := apiBase + manifestPath
 	canvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
 	pageID := fmt.Sprintf("%s%s?textGranularity=%s", apiBase, annotationsPath, granularity)
@@ -1266,16 +1281,73 @@ func detectWebDir() string {
 }
 
 func isTrustedProxy(remoteAddr string) bool {
-    host, _, err := net.SplitHostPort(remoteAddr)
-    if err != nil {
-        host = remoteAddr
-    }
-    ip := net.ParseIP(host)
-    if ip == nil {
-        return false
-    }
-    
-    return (trustedNet != nil && trustedNet.Contains(ip)) || ip.IsLoopback()
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
+		return true
+	}
+	for _, network := range trustedProxyNets {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstForwardedValue(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	part := strings.TrimSpace(strings.Split(raw, ",")[0])
+	part = strings.Trim(part, "\"")
+	return strings.TrimSpace(part)
+}
+
+func forwardedParams(raw string) map[string]string {
+	params := map[string]string{}
+	entry := firstForwardedValue(raw)
+	if entry == "" {
+		return params
+	}
+	for _, part := range strings.Split(entry, ";") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			continue
+		}
+		key = strings.ToLower(strings.TrimSpace(key))
+		value = strings.TrimSpace(strings.Trim(value, "\""))
+		if key != "" && value != "" {
+			params[key] = value
+		}
+	}
+	return params
+}
+
+func normalizeOriginHost(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
+	if parsedHost, parsedPort, err := net.SplitHostPort(host); err == nil {
+		if parsedHost != "" {
+			return parsedHost
+		}
+		if parsedPort != "" {
+			return host
+		}
+	}
+	if strings.Count(host, ":") == 1 {
+		if maybeHost, _, ok := strings.Cut(host, ":"); ok && maybeHost != "" {
+			return maybeHost
+		}
+	}
+	return host
 }
 
 func requestOrigin(r *http.Request) string {
@@ -1284,19 +1356,26 @@ func requestOrigin(r *http.Request) string {
 		scheme = "https"
 	}
 	if !isTrustedProxy(r.RemoteAddr) {
-		return scheme + "://" + r.Host
+		return scheme + "://" + normalizeOriginHost(r.Host)
 	}
 
-    if forwardedProto := r.Header.Get("X-Forwarded-Proto"); forwardedProto != "" {
+	forwarded := forwardedParams(r.Header.Get("Forwarded"))
+	if forwardedProto := firstForwardedValue(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
 		scheme = forwardedProto
 	}
-
-	host := r.Header.Get("X-Forwarded-Host")
-	if host == "" {
-		host = r.Host
+	if forwarded["proto"] != "" {
+		scheme = forwarded["proto"]
 	}
 
-	return scheme + "://" + host
+	host := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
+	if host == "" && forwarded["host"] != "" {
+		host = forwarded["host"]
+	}
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+
+	return scheme + "://" + normalizeOriginHost(host)
 }
 
 func resolvePublicBase(raw string, r *http.Request, fallbackPath string) string {
