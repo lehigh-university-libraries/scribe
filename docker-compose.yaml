@@ -1,6 +1,6 @@
 services:
   mariadb:
-    image: mariadb:12.2@sha256:b1cb255a9939d28a1856815f0de6046c20c28c21b92a9f2696bc782b247a47ee
+    image: mariadb:12.2@sha256:e16f61b8f6ed25111adbb1c5c19bbc2904efc8ed14029999af0cbe1c7ae18bf1
     environment:
       MARIADB_DATABASE: ${MARIADB_DATABASE:-scribe}
       MARIADB_USER: ${MARIADB_USER:-scribe}
@@ -41,7 +41,7 @@ services:
         condition: service_healthy
 
   cantaloupe:
-    image: islandora/cantaloupe:6@sha256:7aec54fbb95e1cc480f2444245b690b3a780327e3179269d4a6fd0b15b04bfb5
+    image: islandora/cantaloupe:6@sha256:20a60e735293ddbc904f4faf9916585941456432cfe36d6c51d6294ac1c377d6
     environment:
       CANTALOUPE_SOURCE_STATIC: FilesystemSource
       CANTALOUPE_FILESYSTEMSOURCE_LOOKUP_STRATEGY: BasicLookupStrategy
