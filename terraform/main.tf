@@ -16,7 +16,7 @@ locals {
 }
 
 module "scribe" {
-  source = "git::https://github.com/libops/cloud-compose?ref=0.5.3"
+  source = "git::https://github.com/libops/cloud-compose?ref=0.5.4"
 
   project_id            = var.project_id
   project_number        = var.project_number
