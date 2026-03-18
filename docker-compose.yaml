@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.6.10
+    image: traefik:v3.6.10@sha256:c549d482c55d7a797398562064f35428cc53e748d84d7190997930e7b31bcc32
     command: >-
       --entryPoints.web.address=:80
       --entryPoints.web.forwardedHeaders.trustedIPs=10.0.0.0/8,127.0.0.1/32,172.0.0.0/8
