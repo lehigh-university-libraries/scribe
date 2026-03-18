@@ -1,0 +1,35 @@
+http:
+  middlewares:
+    cantaloupe-strip-prefix:
+      stripPrefix:
+        prefixes:
+          - /cantaloupe
+    cantaloupe-custom-request-headers:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Path: /cantaloupe
+    cantaloupe:
+      chain:
+        middlewares:
+          - cantaloupe-strip-prefix
+          - cantaloupe-custom-request-headers
+
+  services:
+    api:
+      loadBalancer:
+        servers:
+          - url: http://api:8080
+    cantaloupe:
+      loadBalancer:
+        servers:
+          - url: http://cantaloupe:8182
+
+  routers:
+    api:
+      rule: PathPrefix(`/`)
+      service: api
+    cantaloupe:
+      rule: PathPrefix(`/cantaloupe`)
+      middlewares:
+        - cantaloupe
+      service: cantaloupe

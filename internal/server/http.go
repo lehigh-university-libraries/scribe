@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -55,6 +56,7 @@ type processProgress struct {
 var (
 	progressMu    sync.RWMutex
 	progressState = map[string]processProgress{}
+	_, trustedNet, _ = net.ParseCIDR("10.0.0.0/8")
 )
 
 type responseWriter struct {
@@ -246,11 +248,7 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 		pageH = 1
 	}
 
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	apiBase := scheme + "://" + r.Host
+	apiBase := requestOrigin(r)
 	manifestID := apiBase + manifestPath
 	canvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
 	paintingPageID := fmt.Sprintf("%s/page/painting", manifestID)
@@ -270,10 +268,7 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	iiifBase := strings.TrimRight(strings.TrimSpace(os.Getenv("CANTALOUPE_IIIF_BASE")), "/")
-	if iiifBase == "" {
-		iiifBase = "http://localhost:8182/iiif/2"
-	}
+	iiifBase := resolvePublicBase(os.Getenv("CANTALOUPE_IIIF_BASE"), r, "/cantaloupe/iiif/2")
 	imageBody := buildImageBody(run.ImageURL, iiifBase, pageW, pageH)
 	canvasLabel := run.ImageURL
 	if iiifID, err := iiifIdentifierFromImageURL(run.ImageURL); err == nil {
@@ -1252,7 +1247,7 @@ func (h *Handler) handleWeb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.ServeFile(w, r, filepath.Join(h.webDir, "index.html"))
+	h.serveIndexHTML(w, r)
 }
 
 func detectWebDir() string {
@@ -1268,6 +1263,89 @@ func detectWebDir() string {
 	}
 
 	return ""
+}
+
+func isTrustedProxy(remoteAddr string) bool {
+    host, _, err := net.SplitHostPort(remoteAddr)
+    if err != nil {
+        host = remoteAddr
+    }
+    ip := net.ParseIP(host)
+    if ip == nil {
+        return false
+    }
+    
+    return (trustedNet != nil && trustedNet.Contains(ip)) || ip.IsLoopback()
+}
+
+func requestOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if !isTrustedProxy(r.RemoteAddr) {
+		return scheme + "://" + r.Host
+	}
+
+    if forwardedProto := r.Header.Get("X-Forwarded-Proto"); forwardedProto != "" {
+		scheme = forwardedProto
+	}
+
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
+
+	return scheme + "://" + host
+}
+
+func resolvePublicBase(raw string, r *http.Request, fallbackPath string) string {
+	base := strings.TrimSpace(raw)
+	if base == "" {
+		base = strings.TrimSpace(fallbackPath)
+	}
+	if base == "" || base == "/" {
+		return requestOrigin(r)
+	}
+	if strings.HasPrefix(base, "http://") || strings.HasPrefix(base, "https://") {
+		return strings.TrimRight(base, "/")
+	}
+	if !strings.HasPrefix(base, "/") {
+		base = "/" + base
+	}
+	if base == "/" {
+		return requestOrigin(r)
+	}
+	return requestOrigin(r) + strings.TrimRight(base, "/")
+}
+
+func (h *Handler) serveIndexHTML(w http.ResponseWriter, r *http.Request) {
+	indexPath := filepath.Join(h.webDir, "index.html")
+	content, err := os.ReadFile(indexPath)
+	if err != nil {
+		http.ServeFile(w, r, indexPath)
+		return
+	}
+
+	runtimeConfig, err := json.Marshal(map[string]string{
+		"ANNOTATION_API_BASE": resolvePublicBase(os.Getenv("ANNOTATION_API_BASE"), r, "/"),
+		"CANTALOUPE_IIIF_BASE": resolvePublicBase(os.Getenv("CANTALOUPE_IIIF_BASE"), r, "/cantaloupe/iiif/2"),
+	})
+	if err != nil {
+		http.ServeFile(w, r, indexPath)
+		return
+	}
+
+	snippet := "<script>window.__SCRIBE_RUNTIME_CONFIG=" + string(runtimeConfig) + ";</script>"
+	html := string(content)
+	if strings.Contains(html, "</head>") {
+		html = strings.Replace(html, "</head>", snippet+"</head>", 1)
+	} else {
+		html = snippet + html
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.WriteString(w, html)
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
@@ -1323,10 +1401,7 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 	}
 
 	// Determine the annotation API base URL.
-	base := strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
-	if base == "" {
-		base = "http://localhost:8080"
-	}
+	base := resolvePublicBase(os.Getenv("ANNOTATION_API_BASE"), r, "/")
 
 	// Build annotation page JSON: prefer saved annotations over hOCR fallback.
 	var annotationPageJSON string

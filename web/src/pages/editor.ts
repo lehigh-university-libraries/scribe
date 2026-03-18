@@ -115,7 +115,11 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   const leaveCancel = document.getElementById("leave-cancel") as HTMLButtonElement;
   const leaveDiscard = document.getElementById("leave-discard") as HTMLButtonElement;
   const leaveSave = document.getElementById("leave-save") as HTMLButtonElement;
-  const annotationBase = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_ANNOTATION_API_BASE
+  const runtimeConfig = (window as Window & {
+    __SCRIBE_RUNTIME_CONFIG?: Record<string, string | undefined>;
+  }).__SCRIBE_RUNTIME_CONFIG;
+  const annotationBase = runtimeConfig?.ANNOTATION_API_BASE
+    || (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_ANNOTATION_API_BASE
     || window.location.origin;
   const ScribeAnnotationAdapter = annotationAdapters.ScribeAnnotationAdapter as new (
     endpointURL: string,
