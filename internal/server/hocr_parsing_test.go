@@ -152,10 +152,9 @@ func TestParseHOCRLines_NoWords(t *testing.T) {
 	if line.ID != "line_empty" {
 		t.Errorf("line.ID = %q; want %q", line.ID, "line_empty")
 	}
-	// joinLineWords falls back to the line ID when there are no words.
 	text := joinLineWords(line)
-	if text != "line_empty" {
-		t.Errorf("joinLineWords on empty line = %q; want %q (line ID fallback)", text, "line_empty")
+	if text != "" {
+		t.Errorf("joinLineWords on empty line = %q; want empty string", text)
 	}
 }
 

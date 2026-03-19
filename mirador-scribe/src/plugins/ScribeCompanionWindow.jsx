@@ -66,7 +66,6 @@ function ScribeCompanionWindow({
   const [overlayMode, setOverlayMode] = useState('none');
   const [focusedWordAnnotationId, setFocusedWordAnnotationId] = useState('');
   const didInitialSnapRef = useRef(false);
-  const batchResultTimersRef = useRef(new Set());
   const inlineEditorVisible = overlayMode === 'edit';
   const textOverlayVisible = overlayMode === 'read';
 
@@ -500,26 +499,20 @@ function ScribeCompanionWindow({
       if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
       const annotation = event?.detail?.annotation;
       if (!annotation) return;
-      const timer = window.setTimeout(() => {
-        batchResultTimersRef.current.delete(timer);
-        setLocalPage((current) => {
-          const basePage = current || serverPage || { type: 'AnnotationPage', items: [] };
-          const nextPage = upsertAnnotationInPage(basePage, annotation);
-          const targetCanvasId = canvasId || findCanvasIdByAnnotationId(nextPage, annotation.id) || firstAnnotationCanvasId(nextPage);
-          if (targetCanvasId) {
-            receiveAnnotation(targetCanvasId, nextPage.id, nextPage);
-          }
-          return nextPage;
-        });
-      }, 900);
-      batchResultTimersRef.current.add(timer);
+      setLocalPage((current) => {
+        const basePage = current || serverPage || { type: 'AnnotationPage', items: [] };
+        const nextPage = upsertAnnotationInPage(basePage, annotation);
+        const targetCanvasId = canvasId || findCanvasIdByAnnotationId(nextPage, annotation.id) || firstAnnotationCanvasId(nextPage);
+        if (targetCanvasId) {
+          receiveAnnotation(targetCanvasId, nextPage.id, nextPage);
+        }
+        return nextPage;
+      });
     };
 
     document.addEventListener('scribe:transcription-job-state', handleBatchState);
     document.addEventListener('scribe:transcription-result', handleBatchResult);
     return () => {
-      batchResultTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-      batchResultTimersRef.current.clear();
       document.removeEventListener('scribe:transcription-job-state', handleBatchState);
       document.removeEventListener('scribe:transcription-result', handleBatchResult);
     };

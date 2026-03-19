@@ -239,3 +239,13 @@ Scribe supports two primary workflows:
    - edit text and geometry with a text-first workflow
    - save new revisions
    - export or publish corrected results
+
+## Deferred work
+
+Word-level OCR accuracy is not a default workflow yet. The current automatic
+transcription path crops by line and sends each line image to an LLM, then
+writes the result back as line text. Supporting first-class word-by-word OCR
+would require substantially more model calls and image crops, which would raise
+costs materially. For now, Scribe creates line annotations by default and lets
+the editor split a line into words when finer correction work is actually
+needed.

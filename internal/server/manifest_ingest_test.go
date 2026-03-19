@@ -433,8 +433,8 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	if searchPage.Type != "AnnotationPage" {
 		t.Errorf("search type = %q; want AnnotationPage", searchPage.Type)
 	}
-	if len(searchPage.Items) != 5 {
-		t.Errorf("search returned %d items; want 5 (2 lines + 3 words)", len(searchPage.Items))
+	if len(searchPage.Items) != 2 {
+		t.Errorf("search returned %d items; want 2 line annotations", len(searchPage.Items))
 	}
 	lineCount := 0
 	wordCount := 0
@@ -455,8 +455,8 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	if lineCount != 2 {
 		t.Errorf("search returned %d line annotations; want 2", lineCount)
 	}
-	if wordCount != 3 {
-		t.Errorf("search returned %d word annotations; want 3", wordCount)
+	if wordCount != 0 {
+		t.Errorf("search returned %d word annotations; want 0 by default", wordCount)
 	}
 }
 
