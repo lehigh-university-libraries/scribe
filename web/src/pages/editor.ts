@@ -38,6 +38,16 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   const jobIdParam = params.get("jobId");
   let hasUnsavedChanges = false;
   let saveSequence = 0;
+  let allowHistoryBack = false;
+  let leaveAction: "home" | "history-back" = "home";
+
+  const historySentinel = {
+    ...(window.history.state ?? {}),
+    __scribeEditorSentinel: true,
+  };
+
+  window.history.replaceState(historySentinel, "", window.location.href);
+  window.history.pushState(historySentinel, "", window.location.href);
 
   function requestSave(): Promise<boolean> {
     return new Promise((resolve) => {
@@ -63,6 +73,16 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
 
   function navigateHome() {
     window.location.href = "/";
+  }
+
+  function leaveEditor() {
+    closeLeaveDialog();
+    if (leaveAction === "history-back") {
+      allowHistoryBack = true;
+      window.history.back();
+      return;
+    }
+    navigateHome();
   }
 
   app.innerHTML = `
@@ -172,10 +192,10 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }) {
     if (isRunningStatus(job.status)) {
       const total = job.totalSegments > 0 ? job.totalSegments : "?";
-      publishBatchState(`Batch transcription is running. Automatic transcription progress: ${job.completedSegments}/${total}. Edit overlay is paused while new text is applied.`, true);
+      publishBatchState(`Batch transcription is running. Automatic transcription progress: ${job.completedSegments}/${total}. You can keep editing while new text is applied.`, true);
       setBatchBanner(
         `Automatic transcription in progress: ${job.completedSegments}/${total}`,
-        "Scribe is still writing text onto the page line by line. You can view the page now, but editing tools stay out of the way until the current updates settle.",
+        "Scribe is still writing text onto the page line by line. You can keep working in edit mode while those updates continue.",
         true,
       );
       return;
@@ -268,6 +288,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   async function handleHomeNavigation() {
+    leaveAction = "home";
     if (!hasUnsavedChanges) {
       navigateHome();
       return;
@@ -275,26 +296,40 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     openLeaveDialog();
   }
 
+  function handleHistoryBackNavigation() {
+    leaveAction = "history-back";
+    if (!hasUnsavedChanges) {
+      allowHistoryBack = true;
+      window.history.back();
+      return;
+    }
+    window.history.pushState(historySentinel, "", window.location.href);
+    openLeaveDialog();
+  }
+
   homeNav.addEventListener("click", () => { void handleHomeNavigation(); });
   leaveCancel.addEventListener("click", closeLeaveDialog);
-  leaveDiscard.addEventListener("click", navigateHome);
+  leaveDiscard.addEventListener("click", leaveEditor);
   leaveSave.addEventListener("click", async () => {
     leaveSave.disabled = true;
     const ok = await requestSave();
     leaveSave.disabled = false;
-    if (ok) navigateHome();
+    if (ok) leaveEditor();
   });
 
   const handleDirtyState = (event: Event) => {
     const detail = (event as CustomEvent<{ dirty: boolean }>).detail;
     hasUnsavedChanges = Boolean(detail?.dirty);
   };
+  const handlePopState = () => {
+    if (allowHistoryBack) {
+      allowHistoryBack = false;
+      return;
+    }
+    handleHistoryBackNavigation();
+  };
   document.addEventListener("scribe:dirty-state", handleDirtyState);
-  window.addEventListener("beforeunload", (event) => {
-    if (!hasUnsavedChanges) return;
-    event.preventDefault();
-    event.returnValue = "";
-  });
+  window.addEventListener("popstate", handlePopState);
 
   document.addEventListener("scribe:request-publish", async (event: Event) => {
     const detail = (event as CustomEvent<{ itemImageId: string; requestId: string; windowId?: string }>).detail;
@@ -507,7 +542,9 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       }
     },
   );
-  window.addEventListener("beforeunload", () => {
+  window.addEventListener("pagehide", () => {
+    document.removeEventListener("scribe:dirty-state", handleDirtyState);
+    window.removeEventListener("popstate", handlePopState);
     eventSubscription.close();
   }, { once: true });
 }

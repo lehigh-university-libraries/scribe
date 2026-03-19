@@ -489,10 +489,6 @@ function ScribeCompanionWindow({
       if (typeof message === 'string') {
         setStatusMessage(message);
       }
-      if (active) {
-        setDrawMode(false);
-        setOverlayMode('none');
-      }
     };
 
     const handleBatchResult = (event) => {
