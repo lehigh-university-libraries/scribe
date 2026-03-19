@@ -58,6 +58,7 @@ jobs:
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       ALLOWED_IPS: ${{ vars.ALLOWED_IPS }}
       ALLOWED_SSH_IPV4: ${{ vars.ALLOWED_SSH_IPV4 }}
+      SCRIBE_API_IMAGE: ${{ inputs.image_tag }}
       SCRIBE_APP_ENV: ${{ secrets.SCRIBE_APP_ENV }}
 
     outputs:

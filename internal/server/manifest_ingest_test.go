@@ -663,6 +663,84 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 	}
 }
 
+func TestSearchAnnotationsSupportsAllGranularity(t *testing.T) {
+	db := openTestDB(t)
+
+	ocrRunStore := store.NewOCRRunStore(db)
+	itemStore := store.NewItemStore(db)
+	contextStore := store.NewContextStore(db)
+	annotationStore := store.NewAnnotationStore(db)
+	transcriptionJobStore := store.NewTranscriptionJobStore(db)
+
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	appServer := httptest.NewServer(h)
+	t.Cleanup(appServer.Close)
+	t.Setenv("ANNOTATION_API_BASE", appServer.URL)
+
+	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
+		ID:         t.Name(),
+		UserID:     store.AnonymousUserID,
+		Name:       "Test Item",
+		SourceType: "upload",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
+		ItemID:   item.ID,
+		Sequence: 1,
+		ImageURL: "https://example.org/image.jpg",
+	})
+	if err != nil {
+		t.Fatalf("add item image: %v", err)
+	}
+	if err := ocrRunStore.Create(context.Background(), store.OCRRun{
+		SessionID:    t.Name() + "-session",
+		ItemImageID:  &img.ID,
+		ImageURL:     img.ImageURL,
+		Provider:     "test",
+		Model:        "test",
+		OriginalHOCR: minimalHOCR,
+		OriginalText: "Course Catalog\n1908-1909",
+	}); err != nil {
+		t.Fatalf("create ocr run: %v", err)
+	}
+
+	manifestURL := fmt.Sprintf("%s/v1/item-images/%d/manifest", appServer.URL, img.ID)
+	canvasURI := manifestURL + "/canvas/page-1?textGranularity=all"
+	searchReq, _ := http.NewRequest(
+		http.MethodPost,
+		appServer.URL+"/scribe.v1.AnnotationService/SearchAnnotations",
+		strings.NewReader(fmt.Sprintf(`{"canvasUri":%q}`, canvasURI)),
+	)
+	searchReq.Header.Set("Content-Type", "application/json")
+	searchReq.Header.Set("Connect-Protocol-Version", "1")
+	searchResp, err := http.DefaultClient.Do(searchReq)
+	if err != nil {
+		t.Fatalf("SearchAnnotations request: %v", err)
+	}
+	defer searchResp.Body.Close()
+	if searchResp.StatusCode != http.StatusOK {
+		t.Fatalf("SearchAnnotations status %d", searchResp.StatusCode)
+	}
+
+	var envelope struct {
+		AnnotationPageJson string `json:"annotationPageJson"`
+	}
+	if err := json.NewDecoder(searchResp.Body).Decode(&envelope); err != nil {
+		t.Fatalf("decode search envelope: %v", err)
+	}
+	var page struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(envelope.AnnotationPageJson), &page); err != nil {
+		t.Fatalf("decode search page: %v", err)
+	}
+	if len(page.Items) != 5 {
+		t.Fatalf("search returned %d items; want 5 when requesting all granularities", len(page.Items))
+	}
+}
+
 // TestAnnotationPageRevisionSaveSemantics verifies the two-version save contract:
 //
 //  1. Original generated annotations are preserved in original_hocr (never mutated).

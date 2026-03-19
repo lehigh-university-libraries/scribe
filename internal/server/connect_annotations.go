@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"os"
 	"strings"
@@ -16,7 +17,7 @@ import (
 // --- AnnotationService Connect handlers ---
 
 func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[scribev1.SearchAnnotationsRequest]) (*connect.Response[scribev1.SearchAnnotationsResponse], error) {
-	canvasURI := strings.TrimSpace(req.Msg.GetCanvasUri())
+	canvasURI, granularity := parseSearchAnnotationsCanvasURI(req.Msg.GetCanvasUri())
 	base := h.annotationBaseURL
 	if base == "" {
 		base = strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
@@ -48,6 +49,7 @@ func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[sc
 			}
 		}
 	}
+	items = filterAnnotationsByGranularity(items, granularity)
 
 	page := map[string]any{
 		"@context": annotationPageContexts(),
@@ -62,6 +64,44 @@ func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[sc
 	return connect.NewResponse(&scribev1.SearchAnnotationsResponse{
 		AnnotationPageJson: string(b),
 	}), nil
+}
+
+func parseSearchAnnotationsCanvasURI(raw string) (string, string) {
+	canvasURI := strings.TrimSpace(raw)
+	if canvasURI == "" {
+		return "", "line"
+	}
+	parsed, err := url.Parse(canvasURI)
+	if err != nil {
+		return canvasURI, "line"
+	}
+	granularity := strings.ToLower(strings.TrimSpace(parsed.Query().Get("textGranularity")))
+	switch granularity {
+	case "", "line":
+		granularity = "line"
+	case "word", "glyph", "all":
+	default:
+		granularity = "line"
+	}
+	parsed.RawQuery = ""
+	return parsed.String(), granularity
+}
+
+func filterAnnotationsByGranularity(items []any, granularity string) []any {
+	if granularity == "" || granularity == "all" {
+		return items
+	}
+	filtered := make([]any, 0, len(items))
+	for _, item := range items {
+		anno, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(annStringValue(anno, "textGranularity")), granularity) {
+			filtered = append(filtered, anno)
+		}
+	}
+	return filtered
 }
 
 func (h *Handler) GetAnnotation(ctx context.Context, req *connect.Request[scribev1.GetAnnotationRequest]) (*connect.Response[scribev1.GetAnnotationResponse], error) {
