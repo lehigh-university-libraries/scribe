@@ -474,7 +474,7 @@ func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
 	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
-		ID:         "test-item-manifest-persist",
+		ID:         t.Name(),
 		UserID:     store.AnonymousUserID,
 		Name:       "Test Item",
 		SourceType: "upload",
@@ -491,7 +491,7 @@ func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
 		t.Fatalf("add item image: %v", err)
 	}
 	if err := ocrRunStore.Create(context.Background(), store.OCRRun{
-		SessionID:    "persist-canvas-uri",
+		SessionID:    t.Name() + "-session",
 		ItemImageID:  &img.ID,
 		ImageURL:     img.ImageURL,
 		Provider:     "test",
@@ -516,7 +516,7 @@ func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get updated item image: %v", err)
 	}
-	want := manifestURL + "/canvas/page-1"
+	want := fmt.Sprintf("http://127.0.0.1/v1/item-images/%d/manifest/canvas/page-1", img.ID)
 	if updated.CanvasURI != want {
 		t.Fatalf("canvas_uri = %q; want %q", updated.CanvasURI, want)
 	}
@@ -536,7 +536,7 @@ func TestGetIIIFManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
 	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
-		ID:         "test-item-manifest-preserve",
+		ID:         t.Name(),
 		UserID:     store.AnonymousUserID,
 		Name:       "Test Item",
 		SourceType: "manifest",
@@ -555,7 +555,7 @@ func TestGetIIIFManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
 		t.Fatalf("add item image: %v", err)
 	}
 	if err := ocrRunStore.Create(context.Background(), store.OCRRun{
-		SessionID:    "preserve-canvas-uri",
+		SessionID:    t.Name() + "-session",
 		ItemImageID:  &img.ID,
 		ImageURL:     img.ImageURL,
 		Provider:     "test",
@@ -600,7 +600,7 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 	t.Setenv("ANNOTATION_API_BASE", appServer.URL)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
-		ID:         "test-item-search-persist",
+		ID:         t.Name(),
 		UserID:     store.AnonymousUserID,
 		Name:       "Test Item",
 		SourceType: "upload",
@@ -617,7 +617,7 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 		t.Fatalf("add item image: %v", err)
 	}
 	if err := ocrRunStore.Create(context.Background(), store.OCRRun{
-		SessionID:    "search-persist-canvas-uri",
+		SessionID:    t.Name() + "-session",
 		ItemImageID:  &img.ID,
 		ImageURL:     img.ImageURL,
 		Provider:     "test",
