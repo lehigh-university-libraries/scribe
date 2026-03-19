@@ -15,6 +15,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prepare-image-tag:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    outputs:
+      image_tag: ${{ steps.image-tag.outputs.image_tag }}
+    steps:
+      - name: Sanitize PR image tag
+        id: image-tag
+        env:
+          RAW_TAG: ${{ github.event.pull_request.head.ref }}
+        run: |
+          TAG=$(echo "$RAW_TAG" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}')
+          echo "image_tag=ghcr.io/lehigh-university-libraries/scribe:$TAG" >> "$GITHUB_OUTPUT"
+
   build-push:
     if: github.event.action != 'closed'
     uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
@@ -25,7 +39,7 @@ jobs:
 
   lint-test:
     if: github.event.action != 'closed'
-    needs: [build-push]
+    needs: [prepare-image-tag, build-push]
     uses: ./.github/workflows/lint-test.yaml
     permissions:
       contents: read
@@ -33,11 +47,11 @@ jobs:
     secrets: inherit
     with:
       checkout_ref: ${{ github.event.pull_request.head.sha }}
-      image_tag: ghcr.io/lehigh-university-libraries/scribe:${{ github.event.pull_request.head.ref }}
+      image_tag: ${{ needs.prepare-image-tag.outputs.image_tag }}
 
   preview:
     if: github.event.action != 'closed'
-    needs: [build-push]
+    needs: [prepare-image-tag, build-push]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
@@ -53,7 +67,7 @@ jobs:
       pr_number: "${{ github.event.pull_request.number }}"
       run_snapshots: "false"
       push_image: false
-      image_tag: ghcr.io/lehigh-university-libraries/scribe:${{ github.event.pull_request.head.ref }}
+      image_tag: ${{ needs.prepare-image-tag.outputs.image_tag }}
 
   preview-comment:
     if: github.event.action != 'closed'

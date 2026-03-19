@@ -21,7 +21,6 @@ import {
   groupAnnotationsForEditor,
   isWordAnnotation,
   joinLineCandidates,
-  joinWordCandidates,
   lineAnnotationForSelection,
   removeAnnotationsFromPage,
   replaceAnnotationInPage,
@@ -66,7 +65,6 @@ function ScribeCompanionWindow({
   const [overlayMode, setOverlayMode] = useState('none');
   const [focusedWordAnnotationId, setFocusedWordAnnotationId] = useState('');
   const didInitialSnapRef = useRef(false);
-  const batchResultTimersRef = useRef(new Set());
   const inlineEditorVisible = overlayMode === 'edit';
   const textOverlayVisible = overlayMode === 'read';
 
@@ -135,11 +133,16 @@ function ScribeCompanionWindow({
     [visibleAnnotations, selectedAnnotationId],
   );
   const effectiveSelectedAnnotationId = selectedAnnotation?.id || '';
-  const saveDisabled = JSON.stringify(serverPage?.items || []) === JSON.stringify(localPage?.items || []);
-  const wordJoinCandidates = useMemo(
-    () => joinWordCandidates(selectedAnnotation, visibleAnnotations),
-    [selectedAnnotation, visibleAnnotations],
+  const selectedRow = useMemo(
+    () => findEditorRowByAnnotationId(localPage || serverPage, effectiveSelectedAnnotationId)
+      || findEditorRowByAnnotationId(localPage || serverPage, selectedAnnotation?.id),
+    [effectiveSelectedAnnotationId, localPage, selectedAnnotation?.id, serverPage],
   );
+  const selectedGranularity = selectedRow?.granularity || (selectedAnnotation ? (isWordAnnotation(selectedAnnotation) ? 'word' : 'line') : null);
+  const saveDisabled = JSON.stringify(serverPage?.items || []) === JSON.stringify(localPage?.items || []);
+  const wordJoinCandidates = useMemo(() => (
+    selectedRow?.granularity === 'word' ? [...(selectedRow.fields || [])] : []
+  ), [selectedRow]);
   const lineJoinCandidates = useMemo(
     () => joinLineCandidates(selectedAnnotation, visibleAnnotations),
     [selectedAnnotation, visibleAnnotations],
@@ -246,7 +249,7 @@ function ScribeCompanionWindow({
         overlayMode,
         saveDisabled,
         selectedAnnotationId: effectiveSelectedAnnotationId,
-        selectedGranularity: selectedAnnotation ? (isWordAnnotation(selectedAnnotation) ? 'word' : 'line') : null,
+        selectedGranularity,
         statusMessage,
         textOverlayVisible,
         windowId,
@@ -264,6 +267,7 @@ function ScribeCompanionWindow({
     overlayMode,
     saveDisabled,
     selectedAnnotation,
+    selectedGranularity,
     serverPage,
     statusMessage,
     textOverlayVisible,
@@ -490,36 +494,26 @@ function ScribeCompanionWindow({
       if (typeof message === 'string') {
         setStatusMessage(message);
       }
-      if (active) {
-        setDrawMode(false);
-        setOverlayMode('none');
-      }
     };
 
     const handleBatchResult = (event) => {
       if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
       const annotation = event?.detail?.annotation;
       if (!annotation) return;
-      const timer = window.setTimeout(() => {
-        batchResultTimersRef.current.delete(timer);
-        setLocalPage((current) => {
-          const basePage = current || serverPage || { type: 'AnnotationPage', items: [] };
-          const nextPage = upsertAnnotationInPage(basePage, annotation);
-          const targetCanvasId = canvasId || findCanvasIdByAnnotationId(nextPage, annotation.id) || firstAnnotationCanvasId(nextPage);
-          if (targetCanvasId) {
-            receiveAnnotation(targetCanvasId, nextPage.id, nextPage);
-          }
-          return nextPage;
-        });
-      }, 900);
-      batchResultTimersRef.current.add(timer);
+      setLocalPage((current) => {
+        const basePage = current || serverPage || { type: 'AnnotationPage', items: [] };
+        const nextPage = upsertAnnotationInPage(basePage, annotation);
+        const targetCanvasId = canvasId || findCanvasIdByAnnotationId(nextPage, annotation.id) || firstAnnotationCanvasId(nextPage);
+        if (targetCanvasId) {
+          receiveAnnotation(targetCanvasId, nextPage.id, nextPage);
+        }
+        return nextPage;
+      });
     };
 
     document.addEventListener('scribe:transcription-job-state', handleBatchState);
     document.addEventListener('scribe:transcription-result', handleBatchResult);
     return () => {
-      batchResultTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-      batchResultTimersRef.current.clear();
       document.removeEventListener('scribe:transcription-job-state', handleBatchState);
       document.removeEventListener('scribe:transcription-result', handleBatchResult);
     };
@@ -865,7 +859,7 @@ function ScribeCompanionWindow({
       onUndo={handleUndo}
       saveDisabled={saveDisabled}
       selectedAnnotation={selectedAnnotation}
-      selectedGranularity={selectedAnnotation ? (isWordAnnotation(selectedAnnotation) ? 'word' : 'line') : null}
+      selectedGranularity={selectedGranularity}
       statusMessage={statusMessage}
       transcribeDialogOpen={transcribeDialogOpen}
       transcribeSelection={transcribeSelection}

@@ -78,7 +78,7 @@ variable "docker_compose_up" {
   default = [
     "git pull",
     "docker compose pull api",
-    "docker compose up -d --no-build"
+    "docker compose up --no-build"
   ]
 }
 

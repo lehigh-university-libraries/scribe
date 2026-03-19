@@ -242,6 +242,9 @@ export function groupAnnotationsForEditor(page) {
 export function rowText(row) {
   const fields = Array.isArray(row?.fields) ? row.fields : [];
   if (fields.length === 0) return '';
+  if (row?.granularity === 'word' && row?.lead && isLineAnnotation(row.lead)) {
+    return annotationText(row.lead);
+  }
   if (row?.granularity === 'word') {
     return fields.map((annotation) => annotationText(annotation)).join(' ').trim();
   }

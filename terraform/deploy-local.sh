@@ -15,6 +15,7 @@ Optional environment:
   TF_STATE_BUCKET      GCS bucket used for Terraform remote state. Defaults to ${GCLOUD_PROJECT}-terraform
   ALLOWED_IPS         Terraform list(string), e.g. ["203.0.113.10/32"]
   ALLOWED_SSH_IPV4    Terraform list(string), e.g. ["203.0.113.10/32"]
+  SCRIBE_API_IMAGE    Exact app image to inject into Terraform app_env
   SCRIBE_APP_ENV      JSON object merged into TF_VAR_app_env
 
 Notes:
@@ -31,8 +32,8 @@ require_cmd() {
   }
 }
 
-sanitize_branch() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+sanitize_image_tag() {
+  printf '%s' "$1" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}' | tr '[:upper:]' '[:lower:]'
 }
 
 merge_app_env() {
@@ -108,7 +109,7 @@ case "$environment" in
     export TF_VAR_name="scribe"
     export TF_VAR_docker_compose_branch="main"
     export TF_VAR_run_snapshots="true"
-    image_tag="ghcr.io/lehigh-university-libraries/scribe:main"
+    fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:main"
     ;;
   preview)
     if [ -z "$pr_number" ]; then
@@ -119,7 +120,7 @@ case "$environment" in
     export TF_VAR_name="scribe-pr-${pr_number}"
     export TF_VAR_docker_compose_branch="$branch"
     export TF_VAR_run_snapshots="false"
-    image_tag="ghcr.io/lehigh-university-libraries/scribe:$(sanitize_branch "$branch")"
+    fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:$(sanitize_image_tag "$branch")"
     ;;
   *)
     echo "Unknown environment: $environment" >&2
@@ -127,6 +128,8 @@ case "$environment" in
     exit 1
     ;;
 esac
+
+image_tag="${SCRIBE_API_IMAGE:-$fallback_image_tag}"
 
 case "$action" in
   plan|apply|destroy) ;;

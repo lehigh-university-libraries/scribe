@@ -420,9 +420,6 @@ func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Reques
 }
 
 func joinLineWords(line models.HOCRLine) string {
-	if len(line.Words) == 0 {
-		return line.ID
-	}
 	parts := make([]string, 0, len(line.Words))
 	for _, word := range line.Words {
 		txt := strings.TrimSpace(word.Text)
@@ -434,6 +431,10 @@ func joinLineWords(line models.HOCRLine) string {
 	return strings.TrimSpace(strings.Join(parts, " "))
 }
 
+func lineAnnotationText(line models.HOCRLine) string {
+	return joinLineWords(line)
+}
+
 func buildLineAnnotations(sessionID, canvasID string, lines []models.HOCRLine) []any {
 	items := make([]any, 0, len(lines))
 	for i, line := range lines {
@@ -442,7 +443,7 @@ func buildLineAnnotations(sessionID, canvasID string, lines []models.HOCRLine) [
 		if width <= 0 || height <= 0 {
 			continue
 		}
-		text := strings.TrimSpace(joinLineWords(line))
+		text := strings.TrimSpace(lineAnnotationText(line))
 		lineID := strings.TrimSpace(line.ID)
 		if lineID == "" {
 			lineID = fmt.Sprintf("line-%d", i+1)
@@ -652,12 +653,7 @@ func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run s
 	if err != nil {
 		return fmt.Errorf("parse hocr lines: %w", err)
 	}
-	words, err := hocr.ParseHOCRWords(hocrXML)
-	if err != nil {
-		return fmt.Errorf("parse hocr words: %w", err)
-	}
-
-	items := append(buildLineAnnotations(annotationScopeID, canvasURI, lines), buildWordAnnotations(annotationScopeID, canvasURI, words)...)
+	items := buildLineAnnotations(annotationScopeID, canvasURI, lines)
 	if _, err := h.persistAnnotationItems(ctx, canvasURI, items); err != nil {
 		return fmt.Errorf("persist annotations: %w", err)
 	}
