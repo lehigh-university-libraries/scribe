@@ -55,7 +55,7 @@ services:
         condition: service_healthy
 
   cantaloupe:
-    image: islandora/cantaloupe:6@sha256:20a60e735293ddbc904f4faf9916585941456432cfe36d6c51d6294ac1c377d6
+    image: islandora/cantaloupe:6@sha256:09b200648f68698f57d16ee32bc884903eead7576dfaadb589fbaf7efb4fbf02
     environment:
       CANTALOUPE_SOURCE_STATIC: FilesystemSource
       CANTALOUPE_FILESYSTEMSOURCE_LOOKUP_STRATEGY: BasicLookupStrategy
