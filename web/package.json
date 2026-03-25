@@ -22,7 +22,7 @@
     "prop-types": "^15.8.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-i18next": "^15.7.0",
+    "react-i18next": "^16.0.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
