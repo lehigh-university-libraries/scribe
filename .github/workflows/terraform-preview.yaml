@@ -31,7 +31,7 @@ jobs:
 
   build-push:
     if: github.event.action != 'closed'
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@c8210d733114d47b7cbb55cefe87466f60b811a5 # main
     permissions:
       contents: read
       packages: write
