@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-push:
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@c8210d733114d47b7cbb55cefe87466f60b811a5 # main
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@60c5d3a7a8f89290bbe0db056a0116855f59bb6c # main
     permissions:
       contents: read
       packages: write

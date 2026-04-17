@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1.22@sha256:4a43a54dd1fedceb30ba47e76cfcf2b47304f4161c0caeac2db1c61804ea3c91
+# syntax=docker/dockerfile:1.23@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
 
-FROM node:24-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114 AS plugin-build
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS plugin-build
 
 WORKDIR /plugin
 COPY mirador-scribe/package*.json ./
@@ -9,7 +9,7 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY mirador-scribe/ ./
 RUN npm run build
 
-FROM node:24-alpine@sha256:7fddd9ddeae8196abf4a3ef2de34e11f7b1a722119f91f28ddf1e99dcafdf114 AS web-build
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS web-build
 
 WORKDIR /app
 RUN mkdir -p /app/mirador-scribe/dist
@@ -27,7 +27,7 @@ RUN mkdir -p /app/web/vendor/mirador-scribe \
     && cp -R /app/mirador-scribe/dist /app/web/vendor/mirador-scribe/dist
 RUN npm run build
 
-FROM golang:1.26-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039 AS builder
+FROM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1 AS builder
 
 WORKDIR /app
 
@@ -42,7 +42,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -o /out/scribe ./cmd/api
 
-FROM alpine:3.23@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 WORKDIR /app
 RUN apk add --no-cache \
     ca-certificates \
