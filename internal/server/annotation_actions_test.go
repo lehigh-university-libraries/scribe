@@ -50,6 +50,36 @@ func TestParseLineAnnotation(t *testing.T) {
 	}
 }
 
+func TestParseLineAnnotation_SelectorArray(t *testing.T) {
+	raw := `{
+		"id": "anno-1",
+		"type": "Annotation",
+		"textGranularity": "line",
+		"motivation": "supplementing",
+		"body": [{"type":"TextualBody","purpose":"supplementing","format":"text/plain","value":"Hello World"}],
+		"target": {
+			"source": {"id":"https://example.org/canvas/1","type":"Canvas"},
+			"selector": [
+				{"type":"CssSelector","value":".ignored"},
+				{"type":"FragmentSelector","conformsTo":"http://www.w3.org/TR/media-frags/","value":"xywh=10,20,200,30"}
+			]
+		}
+	}`
+	_, text, x1, y1, x2, y2, canvas, err := parseLineAnnotation(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if text != "Hello World" {
+		t.Errorf("text: got %q, want %q", text, "Hello World")
+	}
+	if x1 != 10 || y1 != 20 || x2 != 210 || y2 != 50 {
+		t.Errorf("bbox: got (%d,%d,%d,%d), want (10,20,210,50)", x1, y1, x2, y2)
+	}
+	if canvas != testCanvas {
+		t.Errorf("canvas: got %q, want %q", canvas, testCanvas)
+	}
+}
+
 func TestParseLineAnnotation_Errors(t *testing.T) {
 	tests := []struct {
 		name string

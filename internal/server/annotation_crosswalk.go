@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -128,10 +129,17 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 		anno = normalizeAnnotation(anno, "")
 		fragment := extractFragment(anno)
 		if fragment == "" {
+			slog.Info("Crosswalk skipping annotation without fragment",
+				"annotation", annotationDebugSummary(anno),
+			)
 			continue
 		}
 		x1, y1, x2, y2, err := parseXYWH(fragment)
 		if err != nil {
+			slog.Info("Crosswalk skipping annotation with invalid fragment",
+				"annotation", annotationDebugSummary(anno),
+				"error", err,
+			)
 			continue
 		}
 		if x2 > pageW {
@@ -142,6 +150,9 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 		}
 		text := strings.TrimSpace(extractAnnotationText(anno))
 		if text == "" {
+			slog.Info("Crosswalk skipping annotation without text",
+				"annotation", annotationDebugSummary(anno),
+			)
 			continue
 		}
 		granularity := strings.ToLower(strings.TrimSpace(annStringValue(anno, "textGranularity")))
