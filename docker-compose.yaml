@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:v3.6.11@sha256:acfc80650104f0194a15f73dc1648f517561bc1645391a15705332a064cfc33c
+    image: traefik:v3.6.13@sha256:34d5089d0b414945342848518b383f11f5b3a645504ed87b77ffeb9d683d0e48
     command: >-
       --entryPoints.web.address=:80
       --entryPoints.web.forwardedHeaders.trustedIPs=10.0.0.0/8,127.0.0.1/32,172.0.0.0/8
@@ -18,7 +18,7 @@ services:
       - cantaloupe
 
   mariadb:
-    image: mariadb:12.2@sha256:e16f61b8f6ed25111adbb1c5c19bbc2904efc8ed14029999af0cbe1c7ae18bf1
+    image: mariadb:12.2@sha256:e0236fc6386e7eacd9359e59d0a078bd7aa0d18280d36d13061121bedeaee903
     environment:
       MARIADB_DATABASE: ${MARIADB_DATABASE:-scribe}
       MARIADB_USER: ${MARIADB_USER:-scribe}
@@ -55,7 +55,7 @@ services:
         condition: service_healthy
 
   cantaloupe:
-    image: islandora/cantaloupe:6@sha256:09b200648f68698f57d16ee32bc884903eead7576dfaadb589fbaf7efb4fbf02
+    image: islandora/cantaloupe:6@sha256:b247b3ce151fdacc0e03117d01addb3da78a15bb067256dc606d37795b49da5f
     environment:
       CANTALOUPE_SOURCE_STATIC: FilesystemSource
       CANTALOUPE_FILESYSTEMSOURCE_LOOKUP_STRATEGY: BasicLookupStrategy
