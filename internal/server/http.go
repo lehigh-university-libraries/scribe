@@ -1,6 +1,8 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -198,6 +200,7 @@ func NewHandler(
 
 	// IIIF presentation endpoints used by the editor.
 	mux.HandleFunc("GET /v1/items/{item_id}/manifest", handler.handleGetItemIIIFManifest)
+	mux.HandleFunc("GET /v1/items/{item_id}/export", handler.handleExportItem)
 	mux.HandleFunc("GET /v1/items/{item_id}/provider-call-audits", handler.handleListItemProviderCallAudits)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/manifest", handler.handleGetIIIFManifest)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/annotations", handler.handleGetIIIFAnnotations)
@@ -400,6 +403,35 @@ func (h *Handler) handleGetItemIIIFManifest(w http.ResponseWriter, r *http.Reque
 		"label":    map[string]any{"none": []string{item.Name}},
 		"items":    canvases,
 	})
+}
+
+func sanitizeFilenamePart(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_' || r == '.':
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if !lastDash {
+				b.WriteRune('-')
+				lastDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-._")
+	if out == "" {
+		return fallback
+	}
+	return out
 }
 
 func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) {
@@ -1618,58 +1650,21 @@ func writeError(w http.ResponseWriter, statusCode int, message string) {
 	writeJSON(w, statusCode, map[string]string{"error": message})
 }
 
-// handleExportAnnotations exports OCR annotations for an item image in the
-// requested format (hocr, pagexml, alto, or txt).
-func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	idStr := strings.TrimSpace(r.PathValue("item_image_id"))
-	itemImageID, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid item_image_id")
-		return
-	}
-
-	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
-	if format == "" {
-		format = "hocr"
-	}
-	switch format {
-	case "hocr", "pagexml", "alto", "txt":
-		// valid
-	default:
-		writeError(w, http.StatusBadRequest, "format must be one of: hocr, pagexml, alto, txt")
-		return
-	}
-
-	// Fetch or cache the OCR run; returns "item image not found" error when none exists.
+func (h *Handler) exportItemImageContent(ctx context.Context, itemImageID uint64, format string, base string) (string, string, string, error) {
 	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return "", "", "", err
 	}
-
-	// Determine the canvas URI for the item image.
 	img, err := h.items.GetImage(ctx, itemImageID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "item image not found")
-		return
+		return "", "", "", fmt.Errorf("item image not found")
 	}
 
-	// Determine the annotation API base URL.
-	base := resolvePublicBase(os.Getenv("ANNOTATION_API_BASE"), r, "/")
-
-	// Build annotation page JSON: prefer saved annotations over hOCR fallback.
 	var annotationPageJSON string
 	annotationSource := "none"
 	canvasURI := strings.TrimSpace(img.CanvasURI)
 
 	if canvasURI != "" {
-		// First: read enriched/edited annotations from the DB.
 		dbPayloads, dbErr := h.annotations.SearchByCanvas(ctx, canvasURI)
 		slog.Info("Export annotations DB lookup",
 			"item_image_id", itemImageID,
@@ -1705,7 +1700,6 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 				}
 			}
 		}
-		// Fallback: derive from hOCR via the annotation bootstrap endpoint.
 		if annotationPageJSON == "" {
 			items, bootstrapErr := h.bootstrapAnnotationsForCanvas(ctx, canvasURI, base)
 			slog.Info("Export annotations bootstrap fallback",
@@ -1729,7 +1723,6 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Fallback: build annotations inline from hOCR (same as handleGetIIIFAnnotations).
 	if annotationPageJSON == "" {
 		hocrXML := strings.TrimSpace(run.OriginalHOCR)
 		if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
@@ -1739,8 +1732,7 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 			hocrXML = persisted
 		}
 		if hocrXML == "" {
-			writeError(w, http.StatusNotFound, "no annotations available")
-			return
+			return "", "", "", fmt.Errorf("no annotations available")
 		}
 		annotationScopeID := run.SessionID
 		if run.ItemImageID != nil {
@@ -1751,8 +1743,7 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 		internalCanvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
 		lines, parseErr := hocr.ParseHOCRLines(hocrXML)
 		if parseErr != nil {
-			writeError(w, http.StatusInternalServerError, "unable to parse hocr lines")
-			return
+			return "", "", "", fmt.Errorf("unable to parse hocr lines")
 		}
 		annItems := buildLineAnnotations(annotationScopeID, internalCanvasID, lines)
 		page := map[string]any{
@@ -1766,7 +1757,6 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 		annotationSource = "hocr-fallback"
 	}
 
-	// Convert annotation page to the requested format using the crosswalk functions.
 	lines, pageW, pageH, err := annotationPageToHOCRLines(annotationPageJSON)
 	if err != nil {
 		slog.Warn("Export annotations crosswalk failed",
@@ -1776,8 +1766,7 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 			"source", annotationSource,
 			"error", err,
 		)
-		writeError(w, http.StatusNotFound, "no annotations available")
-		return
+		return "", "", "", fmt.Errorf("no annotations available")
 	}
 	slog.Info("Export annotations crosswalk succeeded",
 		"item_image_id", itemImageID,
@@ -1789,34 +1778,149 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 		"page_h", pageH,
 	)
 
-	var content string
-	var mimeType string
-	var ext string
-
 	switch format {
 	case "hocr":
 		converter := hocr.NewConverter()
-		content = converter.ConvertHOCRLinesToXML(lines, pageW, pageH)
-		mimeType = "text/vnd.hocr+html; charset=utf-8"
-		ext = "hocr"
+		return converter.ConvertHOCRLinesToXML(lines, pageW, pageH), "text/vnd.hocr+html; charset=utf-8", "hocr", nil
 	case "pagexml":
-		content = linesToPageXML(lines, pageW, pageH)
-		mimeType = "application/vnd.prima.page+xml; charset=utf-8"
-		ext = "xml"
+		return linesToPageXML(lines, pageW, pageH), "application/vnd.prima.page+xml; charset=utf-8", "xml", nil
 	case "alto":
-		content = linesToALTOXML(lines, pageW, pageH)
-		mimeType = "application/alto+xml; charset=utf-8"
-		ext = "xml"
+		return linesToALTOXML(lines, pageW, pageH), "application/alto+xml; charset=utf-8", "xml", nil
 	case "txt":
-		content = linesToPlainText(lines)
-		mimeType = "text/plain; charset=utf-8"
-		ext = "txt"
+		return linesToPlainText(lines), "text/plain; charset=utf-8", "txt", nil
+	default:
+		return "", "", "", fmt.Errorf("format must be one of: hocr, pagexml, alto, txt")
 	}
+}
 
+// handleExportAnnotations exports OCR annotations for an item image in the
+// requested format (hocr, pagexml, alto, or txt).
+func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	idStr := strings.TrimSpace(r.PathValue("item_image_id"))
+	itemImageID, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid item_image_id")
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if format == "" {
+		format = "hocr"
+	}
+	base := resolvePublicBase(os.Getenv("ANNOTATION_API_BASE"), r, "/")
+	content, mimeType, ext, err := h.exportItemImageContent(ctx, itemImageID, format, base)
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(strings.ToLower(msg), "not found") || strings.Contains(strings.ToLower(msg), "no annotations") {
+			writeError(w, http.StatusNotFound, msg)
+			return
+		}
+		if strings.Contains(strings.ToLower(msg), "format must") {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, msg)
+		return
+	}
 	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"item-%d.%s\"", itemImageID, ext))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(content))
+}
+
+func (h *Handler) handleExportItem(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	itemID := strings.TrimSpace(r.PathValue("item_id"))
+	if itemID == "" {
+		writeError(w, http.StatusBadRequest, "item_id is required")
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if format == "" {
+		format = "hocr"
+	}
+	switch format {
+	case "hocr", "pagexml", "alto", "txt":
+	default:
+		writeError(w, http.StatusBadRequest, "format must be one of: hocr, pagexml, alto, txt")
+		return
+	}
+	item, err := h.items.Get(ctx, itemID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "item not found")
+		return
+	}
+	if len(item.Images) == 0 {
+		writeError(w, http.StatusNotFound, "item has no images")
+		return
+	}
+	base := resolvePublicBase(os.Getenv("ANNOTATION_API_BASE"), r, "/")
+	safeName := sanitizeFilenamePart(item.Name, "item-"+item.ID)
+
+	if len(item.Images) == 1 {
+		content, mimeType, ext, err := h.exportItemImageContent(ctx, item.Images[0].ID, format, base)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", mimeType)
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.%s\"", safeName, ext))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(content))
+		return
+	}
+
+	if format == "txt" {
+		pages := make([]string, 0, len(item.Images))
+		for _, img := range item.Images {
+			content, _, _, err := h.exportItemImageContent(ctx, img.ID, format, base)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			pages = append(pages, strings.TrimSpace(content))
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.txt\"", safeName))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(strings.Join(pages, "\n\n")))
+		return
+	}
+
+	var buf bytes.Buffer
+	archive := zip.NewWriter(&buf)
+	for _, img := range item.Images {
+		content, _, ext, err := h.exportItemImageContent(ctx, img.ID, format, base)
+		if err != nil {
+			_ = archive.Close()
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		entryName := fmt.Sprintf("%s-page-%04d.%s", safeName, img.Sequence, ext)
+		if img.Sequence == 0 {
+			entryName = fmt.Sprintf("%s-image-%d.%s", safeName, img.ID, ext)
+		}
+		f, err := archive.Create(entryName)
+		if err != nil {
+			_ = archive.Close()
+			writeError(w, http.StatusInternalServerError, "failed to create export archive")
+			return
+		}
+		if _, err := f.Write([]byte(content)); err != nil {
+			_ = archive.Close()
+			writeError(w, http.StatusInternalServerError, "failed to write export archive")
+			return
+		}
+	}
+	if err := archive.Close(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to finalize export archive")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s-%s.zip\"", safeName, format))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(buf.Bytes())
 }
 
 // handleGetContextMetrics returns aggregate OCR metrics for a context.

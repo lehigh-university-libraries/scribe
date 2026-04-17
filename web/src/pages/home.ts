@@ -159,12 +159,12 @@ async function waitForAutomaticTranscriptionStart(
   }
 }
 
-function exportHref(itemImageId: string, format: "hocr" | "pagexml" | "alto" | "txt"): string {
-  return `/v1/item-images/${encodeURIComponent(itemImageId)}/export?format=${encodeURIComponent(format)}`;
+function exportHref(itemId: string, format: "hocr" | "pagexml" | "alto" | "txt"): string {
+  return `/v1/items/${encodeURIComponent(itemId)}/export?format=${encodeURIComponent(format)}`;
 }
 
-function renderExportSelect(itemImageId: string): string {
-  return `<select data-export-select="${escHtml(itemImageId)}" class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200">
+function renderExportSelect(itemId: string): string {
+  return `<select data-export-select="${escHtml(itemId)}" class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200">
       <option value="">Select format</option>
       <option value="hocr">hOCR</option>
       <option value="pagexml">PAGE XML</option>
@@ -173,19 +173,11 @@ function renderExportSelect(itemImageId: string): string {
     </select>`;
 }
 
-function renderImageExports(item: Item): string {
+function renderItemExport(item: Item): string {
   if (item.images.length === 0) {
     return `<span class="text-xs text-slate-500">No images</span>`;
   }
-
-  return item.images.map((image) => {
-    const itemImageId = uint64ToString(image.id);
-
-    return `
-      <div class="rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
-        ${renderExportSelect(itemImageId)}
-      </div>`;
-  }).join("");
+  return renderExportSelect(item.id);
 }
 
 function editorHref(itemImageId: string, itemId: string): string {
@@ -194,6 +186,15 @@ function editorHref(itemImageId: string, itemId: string): string {
     params.set("itemId", itemId);
   }
   return `/editor?${params.toString()}`;
+}
+
+function itemEditorHref(item: Item): string {
+  if (item.images.length === 0) {
+    return "";
+  }
+  const firstItemImageId = uint64ToString(item.images[0].id);
+  const useItemManifest = item.images.length > 1 || item.sourceType === "manifest";
+  return editorHref(firstItemImageId, useItemManifest ? item.id : "");
 }
 
 function formatLogTime(timestamp: string): string {
@@ -532,11 +533,7 @@ export async function renderHome(app: HTMLElement): Promise<void> {
             <div class="flex flex-wrap items-center gap-1.5">
               ${item.images.length === 0
                 ? `<span class="text-xs text-slate-500">No images</span>`
-                : item.images.map((image) => {
-                    const itemImageId = uint64ToString(image.id);
-                    const editHref = editorHref(itemImageId, item.sourceType === "manifest" ? item.id : "");
-                    return `<a href="${editHref}" class="rounded border border-slate-600 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-400 hover:bg-slate-800">Edit</a>`;
-                  }).join("")}
+                : `<a href="${itemEditorHref(item)}" class="rounded border border-slate-600 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-400 hover:bg-slate-800">Edit</a>`}
               <button data-logs="${escHtml(item.id)}"
                 class="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-400 hover:bg-slate-800">
                 Logs
@@ -548,9 +545,7 @@ export async function renderHome(app: HTMLElement): Promise<void> {
             </div>
           </td>
           <td class="px-3 py-2">
-            <div class="space-y-2">
-              ${renderImageExports(item)}
-            </div>
+            ${renderItemExport(item)}
           </td>
         </tr>`;
     }).join("");
@@ -593,10 +588,10 @@ export async function renderHome(app: HTMLElement): Promise<void> {
 
     container.querySelectorAll<HTMLSelectElement>("[data-export-select]").forEach((select) => {
       select.addEventListener("change", () => {
-        const itemImageId = select.dataset.exportSelect;
+        const itemId = select.dataset.exportSelect;
         const format = select.value as "" | "hocr" | "pagexml" | "alto" | "txt";
-        if (!itemImageId || !format) return;
-        window.location.href = exportHref(itemImageId, format);
+        if (!itemId || !format) return;
+        window.location.href = exportHref(itemId, format);
         select.value = "";
       });
     });
