@@ -4,22 +4,44 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 )
 
 type AnnotationStore struct {
 	pool *sql.DB
 }
 
+var internalItemImageCanvasPattern = regexp.MustCompile(`(?:https?://[^/]+)?(/v1/item-images/[0-9]+/manifest/canvas/[^?#]+)`)
+
 func NewAnnotationStore(pool *sql.DB) *AnnotationStore {
 	return &AnnotationStore{pool: pool}
 }
 
+func normalizeCanvasURIKey(canvasURI string) string {
+	if matches := internalItemImageCanvasPattern.FindStringSubmatch(canvasURI); len(matches) >= 2 {
+		return matches[1]
+	}
+	return canvasURI
+}
+
 // SearchByCanvas returns all annotation JSON payloads for a canvas URI.
 func (s *AnnotationStore) SearchByCanvas(ctx context.Context, canvasURI string) ([]string, error) {
-	rows, err := s.pool.QueryContext(ctx,
-		`SELECT payload FROM annotations WHERE canvas_uri = ? ORDER BY updated_at ASC`,
-		canvasURI,
+	normalized := normalizeCanvasURIKey(canvasURI)
+	var (
+		rows *sql.Rows
+		err  error
 	)
+	if normalized != canvasURI {
+		rows, err = s.pool.QueryContext(ctx,
+			`SELECT payload FROM annotations WHERE canvas_uri IN (?, ?) ORDER BY updated_at ASC`,
+			canvasURI, normalized,
+		)
+	} else {
+		rows, err = s.pool.QueryContext(ctx,
+			`SELECT payload FROM annotations WHERE canvas_uri = ? ORDER BY updated_at ASC`,
+			canvasURI,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("search annotations: %w", err)
 	}
@@ -49,6 +71,7 @@ func (s *AnnotationStore) Get(ctx context.Context, fullID string) (string, error
 
 // Upsert stores an annotation (insert or update).
 func (s *AnnotationStore) Upsert(ctx context.Context, id, canvasURI, payload string) error {
+	canvasURI = normalizeCanvasURIKey(canvasURI)
 	_, err := s.pool.ExecContext(ctx, `
 INSERT INTO annotations (id, canvas_uri, payload)
 VALUES (?, ?, ?)
@@ -59,6 +82,7 @@ ON DUPLICATE KEY UPDATE canvas_uri=VALUES(canvas_uri), payload=VALUES(payload)
 
 // Update updates an existing annotation. Returns (false, nil) if not found.
 func (s *AnnotationStore) Update(ctx context.Context, id, canvasURI, payload string) (bool, error) {
+	canvasURI = normalizeCanvasURIKey(canvasURI)
 	res, err := s.pool.ExecContext(ctx,
 		`UPDATE annotations SET canvas_uri = ?, payload = ? WHERE id = ?`,
 		canvasURI, payload, id,
