@@ -22,8 +22,8 @@
   "peerDependencies": {
     "@emotion/react": ">=11",
     "@emotion/styled": ">=11",
-    "@mui/material": ">=7",
-    "@mui/system": ">=7",
+    "@mui/material": "^7.0.0",
+    "@mui/system": "^7.0.0",
     "i18next": ">=25",
     "mirador": "^4.0.0",
     "prop-types": "^15.8.1",

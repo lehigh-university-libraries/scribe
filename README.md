@@ -201,6 +201,9 @@ Scribe seeds these system contexts on startup:
   Uses the custom segmentor, crops by detected line, sends each line to the
   configured LLM provider, and assembles the result back into line-level OCR.
 
+When `LLM_PROVIDER=ollama` and `OLLAMA_MODEL` is unset, Scribe defaults to
+`glm-ocr:bf16`.
+
 For images uploaded or supplied without existing hOCR, the default system flow
 is:
 

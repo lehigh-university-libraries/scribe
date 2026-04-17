@@ -2,9 +2,11 @@ import { listItems, createItemFromManifest, uploadItemImages, deleteItem } from 
 import { processImageURL, processImageUpload } from "../api/processing";
 import { listTranscriptionJobs } from "../api/transcription";
 import { subscribeToEvents } from "../api/events";
+import { listContexts } from "../api/context";
 import { TranscriptionJobStatus } from "../proto/scribe/v1/transcription_pb";
 import { uint64ToString, escHtml } from "../lib/util";
 import type { Item } from "../proto/scribe/v1/item_pb";
+import type { Context } from "../proto/scribe/v1/context_pb";
 
 function isPendingStatus(status: TranscriptionJobStatus | string | number): boolean {
   return status === TranscriptionJobStatus.PENDING
@@ -218,6 +220,14 @@ export async function renderHome(app: HTMLElement): Promise<void> {
           <button data-tab="manifest" class="tab-btn px-4 py-2 text-sm font-medium">IIIF Manifest</button>
         </div>
 
+        <!-- Context selector -->
+        <div class="mb-4 flex items-center gap-3">
+          <label for="context-select" class="text-sm text-slate-300">Context:</label>
+          <select id="context-select" class="rounded border border-slate-600 bg-slate-950 px-3 py-1.5 text-sm text-slate-200">
+            <option value="0">Default</option>
+          </select>
+        </div>
+
         <!-- URL tab -->
         <div id="tab-url" class="tab-panel space-y-3">
           <form id="url-form" class="flex gap-2">
@@ -286,6 +296,26 @@ export async function renderHome(app: HTMLElement): Promise<void> {
       </section>
     </main>
   `;
+
+  // Load contexts into the selector
+  const contextSelect = document.getElementById("context-select") as HTMLSelectElement;
+  listContexts().then((contexts: Context[]) => {
+    for (const c of contexts) {
+      if (c.id === BigInt(0)) continue;
+      const opt = document.createElement("option");
+      opt.value = c.id.toString();
+      opt.textContent = c.name || `Context ${c.id}`;
+      if (c.isDefault) {
+        opt.selected = true;
+      }
+      contextSelect.appendChild(opt);
+    }
+  }).catch(() => { /* silently ignore – default context still works */ });
+
+  function selectedContextId(): bigint {
+    const v = contextSelect.value;
+    return v ? BigInt(v) : BigInt(0);
+  }
 
   // Tab switching
   const tabBtns = app.querySelectorAll<HTMLButtonElement>(".tab-btn");
@@ -470,7 +500,7 @@ export async function renderHome(app: HTMLElement): Promise<void> {
         "Starting automatic transcription",
       ]);
       timers = [600, 1800, 3200].map((ms, i) => setTimeout(() => overlay?.advance(i + 1), ms));
-      const result = await processImageURL(imageUrl);
+      const result = await processImageURL(imageUrl, selectedContextId());
       timers.forEach(clearTimeout);
       overlay.advance(3);
       const itemImageId = uint64ToString(result.itemImageId);
@@ -512,7 +542,7 @@ export async function renderHome(app: HTMLElement): Promise<void> {
         "Starting automatic transcription",
       ]);
       timers = [800, 2200, 3600].map((ms, i) => setTimeout(() => overlay?.advance(i + 1), ms));
-      const result = await processImageUpload(file);
+      const result = await processImageUpload(file, selectedContextId());
       timers.forEach(clearTimeout);
       overlay.advance(3);
       const itemImageId = uint64ToString(result.itemImageId);

@@ -1013,7 +1013,7 @@ func effectiveModel(provider, requestModel string) string {
 		if m := strings.TrimSpace(os.Getenv("OLLAMA_MODEL")); m != "" {
 			return m
 		}
-		return "mistral-small3.2:24b"
+		return "glm-ocr:bf16"
 	}
 }
 
@@ -1483,18 +1483,41 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 	canvasURI := strings.TrimSpace(img.CanvasURI)
 
 	if canvasURI != "" {
-		// Try to get annotations from the annotations table (edited state), falling
-		// back to hOCR-derived annotations via bootstrapAnnotationsForCanvas.
-		items, bootstrapErr := h.bootstrapAnnotationsForCanvas(ctx, canvasURI, base)
-		if bootstrapErr == nil {
-			page := map[string]any{
-				"@context": annotationPageContexts(),
-				"id":       annotationPageID(canvasURI),
-				"type":     "AnnotationPage",
-				"items":    items,
+		// First: read enriched/edited annotations from the DB.
+		dbPayloads, dbErr := h.annotations.SearchByCanvas(ctx, canvasURI)
+		if dbErr == nil && len(dbPayloads) > 0 {
+			dbItems := make([]any, 0, len(dbPayloads))
+			for _, p := range dbPayloads {
+				var anno map[string]any
+				if json.Unmarshal([]byte(p), &anno) == nil {
+					dbItems = append(dbItems, anno)
+				}
 			}
-			if b, jsonErr := json.Marshal(page); jsonErr == nil {
-				annotationPageJSON = string(b)
+			if len(dbItems) > 0 {
+				page := map[string]any{
+					"@context": annotationPageContexts(),
+					"id":       annotationPageID(canvasURI),
+					"type":     "AnnotationPage",
+					"items":    dbItems,
+				}
+				if b, jsonErr := json.Marshal(page); jsonErr == nil {
+					annotationPageJSON = string(b)
+				}
+			}
+		}
+		// Fallback: derive from hOCR via the annotation bootstrap endpoint.
+		if annotationPageJSON == "" {
+			items, bootstrapErr := h.bootstrapAnnotationsForCanvas(ctx, canvasURI, base)
+			if bootstrapErr == nil {
+				page := map[string]any{
+					"@context": annotationPageContexts(),
+					"id":       annotationPageID(canvasURI),
+					"type":     "AnnotationPage",
+					"items":    items,
+				}
+				if b, jsonErr := json.Marshal(page); jsonErr == nil {
+					annotationPageJSON = string(b)
+				}
 			}
 		}
 	}

@@ -13,15 +13,16 @@ function client() {
   return createClient(ImageProcessingService, getTransport());
 }
 
-export async function processImageURL(imageUrl: string): Promise<ProcessImageResponse> {
-  return client().processImageURL({ imageUrl });
+export async function processImageURL(imageUrl: string, contextId = BigInt(0)): Promise<ProcessImageResponse> {
+  return client().processImageURL({ imageUrl, contextId });
 }
 
-export async function processImageUpload(file: File): Promise<ProcessImageResponse> {
+export async function processImageUpload(file: File, contextId = BigInt(0)): Promise<ProcessImageResponse> {
   const imageData = await readFileBytes(file);
   return client().processImageUpload({
     imageData,
     filename: file.name,
+    contextId,
   });
 }
 
