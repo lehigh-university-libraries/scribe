@@ -28,11 +28,74 @@ import (
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
 )
 
-type Service struct{}
+type Service struct {
+	auditLogger ProviderCallAuditLogger
+}
+
+type ProviderCallAuditRecord struct {
+	SessionID    string
+	ItemImageID  *uint64
+	ContextID    *uint64
+	Provider     string
+	Model        string
+	Operation    string
+	Prompt       string
+	RequestJSON  string
+	ResponseJSON string
+	ErrorMessage string
+	HTTPStatus   *int
+}
+
+type ProviderCallAuditLogger func(context.Context, ProviderCallAuditRecord)
+
+type providerCallMetadata struct {
+	SessionID   string
+	ItemImageID *uint64
+	ContextID   *uint64
+}
+
+type providerCallMetadataKey struct{}
 
 func NewService() *Service {
 	slog.Info("Initializing hOCR service (Tesseract word detection + LLM transcription)")
 	return &Service{}
+}
+
+func (s *Service) SetProviderCallAuditLogger(logger ProviderCallAuditLogger) {
+	s.auditLogger = logger
+}
+
+func (s *Service) auditProviderCall(ctx context.Context, record ProviderCallAuditRecord) {
+	if s == nil || s.auditLogger == nil {
+		return
+	}
+	meta := providerCallMetadataFromContext(ctx)
+	if record.SessionID == "" {
+		record.SessionID = meta.SessionID
+	}
+	if record.ItemImageID == nil {
+		record.ItemImageID = meta.ItemImageID
+	}
+	if record.ContextID == nil {
+		record.ContextID = meta.ContextID
+	}
+	s.auditLogger(ctx, record)
+}
+
+func WithProviderCallMetadata(ctx context.Context, sessionID string, itemImageID, contextID *uint64) context.Context {
+	return context.WithValue(ctx, providerCallMetadataKey{}, providerCallMetadata{
+		SessionID:   sessionID,
+		ItemImageID: itemImageID,
+		ContextID:   contextID,
+	})
+}
+
+func providerCallMetadataFromContext(ctx context.Context) providerCallMetadata {
+	if ctx == nil {
+		return providerCallMetadata{}
+	}
+	meta, _ := ctx.Value(providerCallMetadataKey{}).(providerCallMetadata)
+	return meta
 }
 
 // ProcessingContext carries the parameters from a store.Context into the
@@ -50,8 +113,11 @@ type ProcessingContext struct {
 
 // ProcessImageWithContext runs the full pipeline using the supplied context and
 // returns the generated hOCR plus the effective provider/model used.
-func (s *Service) ProcessImageWithContext(imagePath string, pctx ProcessingContext) (string, string, string, error) {
-	goCtx := context.Background()
+func (s *Service) ProcessImageWithContext(ctx context.Context, imagePath string, pctx ProcessingContext) (string, string, string, error) {
+	goCtx := ctx
+	if goCtx == nil {
+		goCtx = context.Background()
+	}
 
 	width, height, err := s.getImageDimensions(imagePath)
 	if err != nil {
@@ -291,25 +357,27 @@ func (s *Service) generateHOCRFromDetectedLines(lines [][]worddetection.WordBox,
 }
 
 func (s *Service) TranscribeRegion(imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
+	return s.TranscribeRegionWithContext(context.Background(), imagePath, minX, minY, maxX, maxY, providerOverride, modelOverride)
+}
+
+func (s *Service) TranscribeRegionWithContext(ctx context.Context, imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
 	if maxX <= minX || maxY <= minY {
 		return "", fmt.Errorf("invalid bbox")
 	}
 	if minX == 0 && minY == 0 {
-		return s.transcribeImageFile(imagePath, providerOverride, modelOverride)
+		return s.transcribeImageFile(ctx, imagePath, providerOverride, modelOverride, "transcribe_region")
 	}
-	return s.transcribeRegionFromPath(imagePath, minX, minY, maxX, maxY, providerOverride, modelOverride)
+	return s.transcribeRegionFromPath(ctx, imagePath, minX, minY, maxX, maxY, providerOverride, modelOverride)
 }
 
 func (s *Service) TranscribeImage(imagePath, providerOverride, modelOverride string) (string, error) {
-	return s.transcribeImageFile(imagePath, providerOverride, modelOverride)
+	return s.transcribeImageFile(context.Background(), imagePath, providerOverride, modelOverride, "transcribe_image")
 }
 
-func (s *Service) transcribeRegionFromPath(imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
+func (s *Service) transcribeRegionFromPath(ctx context.Context, imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
 	if maxX <= minX || maxY <= minY {
 		return "", fmt.Errorf("invalid bbox")
 	}
-
-	ctx := context.Background()
 	llmProvider, providerName, err := s.initLLMProvider(providerOverride)
 	if err != nil {
 		return "", fmt.Errorf("failed to initialize LLM provider: %w", err)
@@ -326,12 +394,13 @@ func (s *Service) transcribeRegionFromPath(imagePath string, minX, minY, maxX, m
 	}
 	defer os.Remove(lineImagePath)
 
-	return s.extractTranscriptionFromImage(ctx, llmProvider, providerName, model, lineImagePath)
+	return s.extractTranscriptionFromImageWithOperation(ctx, llmProvider, providerName, model, lineImagePath, "transcribe_region")
 }
 
-func (s *Service) transcribeImageFile(imagePath, providerOverride, modelOverride string) (string, error) {
-
-	ctx := context.Background()
+func (s *Service) transcribeImageFile(ctx context.Context, imagePath, providerOverride, modelOverride, operation string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	llmProvider, providerName, err := s.initLLMProvider(providerOverride)
 	if err != nil {
 		return "", fmt.Errorf("failed to initialize LLM provider: %w", err)
@@ -342,10 +411,14 @@ func (s *Service) transcribeImageFile(imagePath, providerOverride, modelOverride
 		model = s.getModelForProvider(providerName)
 	}
 
-	return s.extractTranscriptionFromImage(ctx, llmProvider, providerName, model, imagePath)
+	return s.extractTranscriptionFromImageWithOperation(ctx, llmProvider, providerName, model, imagePath, operation)
 }
 
 func (s *Service) extractTranscriptionFromImage(ctx context.Context, llmProvider providers.Provider, providerName, model, imagePath string) (string, error) {
+	return s.extractTranscriptionFromImageWithOperation(ctx, llmProvider, providerName, model, imagePath, "transcribe_image")
+}
+
+func (s *Service) extractTranscriptionFromImageWithOperation(ctx context.Context, llmProvider providers.Provider, providerName, model, imagePath, operation string) (string, error) {
 	imageData, err := os.ReadFile(imagePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read image for transcription: %w", err)
@@ -359,7 +432,7 @@ func (s *Service) extractTranscriptionFromImage(ctx context.Context, llmProvider
 		Temperature: 0.0,
 	}
 
-	text, err := s.extractTextWithRetry(ctx, llmProvider, providerName, config, imagePath, imageBase64, prompt)
+	text, err := s.extractTextWithRetry(ctx, llmProvider, providerName, config, imagePath, imageBase64, prompt, operation)
 	if err != nil {
 		return "", fmt.Errorf("failed to transcribe image: %w", err)
 	}
@@ -376,7 +449,7 @@ func (s *Service) extractTextWithRetry(
 	llmProvider providers.Provider,
 	providerName string,
 	config providers.Config,
-	imagePath, imageBase64, prompt string,
+	imagePath, imageBase64, prompt, operation string,
 ) (string, error) {
 	attempts := 1
 	baseDelay := 0 * time.Millisecond
@@ -395,9 +468,9 @@ func (s *Service) extractTextWithRetry(
 		var text string
 		var err error
 		if providerName == "gemini" {
-			text, err = s.extractTextWithGemini(ctx, config.Model, prompt, imageBase64)
+			text, err = s.extractTextWithGemini(ctx, config.Model, prompt, imageBase64, operation)
 		} else {
-			text, _, err = llmProvider.ExtractText(ctx, config, imagePath, imageBase64)
+			text, err = s.extractTextWithProvider(ctx, llmProvider, providerName, config, imagePath, imageBase64, operation)
 		}
 		if err == nil {
 			return text, nil
@@ -426,6 +499,43 @@ func (s *Service) extractTextWithRetry(
 		}
 	}
 	return "", lastErr
+}
+
+func (s *Service) extractTextWithProvider(
+	ctx context.Context,
+	llmProvider providers.Provider,
+	providerName string,
+	config providers.Config,
+	imagePath, imageBase64, operation string,
+) (string, error) {
+	text, rawResponse, err := llmProvider.ExtractText(ctx, config, imagePath, imageBase64)
+	record := ProviderCallAuditRecord{
+		Provider:     providerName,
+		Model:        config.Model,
+		Operation:    operation,
+		Prompt:       config.Prompt,
+		RequestJSON:  fmt.Sprintf(`{"model":%q,"prompt":%q,"temperature":%v}`, config.Model, config.Prompt, config.Temperature),
+		ResponseJSON: providerResponseJSON(rawResponse),
+	}
+	if err != nil {
+		record.ErrorMessage = err.Error()
+	}
+	s.auditProviderCall(ctx, record)
+	return text, err
+}
+
+func providerResponseJSON(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
 }
 
 func isRetriableOllamaError(err error) bool {
@@ -748,9 +858,9 @@ func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBo
 
 		var text string
 		if providerName == "gemini" {
-			text, err = s.extractTextWithGemini(ctx, model, prompt, imageBase64)
+			text, err = s.extractTextWithGemini(ctx, model, prompt, imageBase64, "transcribe_word_batch")
 		} else {
-			text, _, err = provider.ExtractText(ctx, config, stitchedImagePath, imageBase64)
+			text, err = s.extractTextWithProvider(ctx, provider, providerName, config, stitchedImagePath, imageBase64, "transcribe_word_batch")
 		}
 		if err != nil {
 			slog.Warn("Failed to transcribe batch", "batch", batchNum, "error", err)
@@ -904,9 +1014,9 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 
 			var text string
 			if providerName == "gemini" {
-				text, err = s.extractTextWithGemini(ctx, model, prompt, imageBase64)
+				text, err = s.extractTextWithGemini(ctx, model, prompt, imageBase64, "transcribe_line")
 			} else {
-				text, _, err = provider.ExtractText(ctx, config, lineImagePath, imageBase64)
+				text, err = s.extractTextWithProvider(ctx, provider, providerName, config, lineImagePath, imageBase64, "transcribe_line")
 			}
 			_ = os.Remove(lineImagePath)
 			if err != nil {
@@ -1428,7 +1538,7 @@ func (s *Service) getModelForProvider(providerName string) string {
 	}
 }
 
-func (s *Service) extractTextWithGemini(ctx context.Context, model, prompt, imageBase64 string) (string, error) {
+func (s *Service) extractTextWithGemini(ctx context.Context, model, prompt, imageBase64, operation string) (string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
 	if apiKey == "" {
 		return "", fmt.Errorf("GEMINI_API_KEY is required when provider is gemini")
@@ -1459,6 +1569,9 @@ func (s *Service) extractTextWithGemini(ctx context.Context, model, prompt, imag
 		},
 		"generationConfig": map[string]any{
 			"temperature": 0,
+			"thinkingConfig": map[string]any{
+				"includeThoughts": true,
+			},
 		},
 	}
 
@@ -1475,15 +1588,45 @@ func (s *Service) extractTextWithGemini(ctx context.Context, model, prompt, imag
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		s.auditProviderCall(ctx, ProviderCallAuditRecord{
+			Provider:     "gemini",
+			Model:        model,
+			Operation:    operation,
+			Prompt:       prompt,
+			RequestJSON:  string(body),
+			ErrorMessage: err.Error(),
+		})
 		return "", fmt.Errorf("call gemini: %w", err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
+		statusCode := resp.StatusCode
+		s.auditProviderCall(ctx, ProviderCallAuditRecord{
+			Provider:     "gemini",
+			Model:        model,
+			Operation:    operation,
+			Prompt:       prompt,
+			RequestJSON:  string(body),
+			ErrorMessage: err.Error(),
+			HTTPStatus:   &statusCode,
+		})
 		return "", fmt.Errorf("read gemini response: %w", err)
 	}
+	statusCode := resp.StatusCode
+	record := ProviderCallAuditRecord{
+		Provider:     "gemini",
+		Model:        model,
+		Operation:    operation,
+		Prompt:       prompt,
+		RequestJSON:  string(body),
+		ResponseJSON: string(raw),
+		HTTPStatus:   &statusCode,
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		record.ErrorMessage = fmt.Sprintf("gemini returned status %d", resp.StatusCode)
+		s.auditProviderCall(ctx, record)
 		return "", fmt.Errorf("gemini returned status %d: %s", resp.StatusCode, string(raw))
 	}
 
@@ -1497,9 +1640,13 @@ func (s *Service) extractTextWithGemini(ctx context.Context, model, prompt, imag
 		} `json:"candidates"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
+		record.ErrorMessage = fmt.Sprintf("parse gemini response: %v", err)
+		s.auditProviderCall(ctx, record)
 		return "", fmt.Errorf("parse gemini response: %w", err)
 	}
 	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content.Parts) == 0 {
+		record.ErrorMessage = "gemini returned no candidates"
+		s.auditProviderCall(ctx, record)
 		return "", fmt.Errorf("gemini returned no candidates")
 	}
 
@@ -1513,6 +1660,7 @@ func (s *Service) extractTextWithGemini(ctx context.Context, model, prompt, imag
 		}
 		out.WriteString(part.Text)
 	}
+	s.auditProviderCall(ctx, record)
 	return out.String(), nil
 }
 

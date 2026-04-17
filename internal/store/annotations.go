@@ -99,3 +99,9 @@ func (s *AnnotationStore) Delete(ctx context.Context, id string) error {
 	_, err := s.pool.ExecContext(ctx, `DELETE FROM annotations WHERE id = ?`, id)
 	return err
 }
+
+func (s *AnnotationStore) DeleteByCanvas(ctx context.Context, canvasURI string) error {
+	canvasURI = normalizeCanvasURIKey(canvasURI)
+	_, err := s.pool.ExecContext(ctx, `DELETE FROM annotations WHERE canvas_uri = ?`, canvasURI)
+	return err
+}

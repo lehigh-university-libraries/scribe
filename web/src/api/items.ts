@@ -55,3 +55,48 @@ export async function getItem(itemId: string): Promise<Item> {
 export async function deleteItem(itemId: string): Promise<void> {
   await client().deleteItem({ itemId });
 }
+
+export interface ItemProviderCallAudit {
+  id: number;
+  itemId: string;
+  itemImageId?: string;
+  itemImageSequence?: number;
+  itemImageLabel?: string;
+  sessionId?: string;
+  contextId?: string;
+  provider: string;
+  model: string;
+  operation: string;
+  prompt?: string;
+  requestJson?: string;
+  responseJson?: string;
+  errorMessage?: string;
+  httpStatus?: number;
+  createdAt: string;
+}
+
+export async function listItemProviderCallAudits(itemId: string, limit = 100): Promise<ItemProviderCallAudit[]> {
+  const resp = await fetch(`/v1/items/${encodeURIComponent(itemId)}/provider-call-audits?limit=${encodeURIComponent(String(limit))}`);
+  if (!resp.ok) {
+    throw new Error(`failed to load item logs (${resp.status})`);
+  }
+  const body = await resp.json() as { audits?: Array<Record<string, unknown>> };
+  return (body.audits ?? []).map((audit) => ({
+    id: Number(audit.id ?? 0),
+    itemId: String(audit.item_id ?? audit.itemId ?? itemId),
+    itemImageId: audit.item_image_id == null ? undefined : String(audit.item_image_id),
+    itemImageSequence: audit.item_image_sequence == null ? undefined : Number(audit.item_image_sequence),
+    itemImageLabel: typeof audit.item_image_label === "string" ? audit.item_image_label : undefined,
+    sessionId: typeof audit.session_id === "string" ? audit.session_id : undefined,
+    contextId: audit.context_id == null ? undefined : String(audit.context_id),
+    provider: String(audit.provider ?? ""),
+    model: String(audit.model ?? ""),
+    operation: String(audit.operation ?? ""),
+    prompt: typeof audit.prompt === "string" ? audit.prompt : undefined,
+    requestJson: typeof audit.request_json === "string" ? audit.request_json : undefined,
+    responseJson: typeof audit.response_json === "string" ? audit.response_json : undefined,
+    errorMessage: typeof audit.error_message === "string" ? audit.error_message : undefined,
+    httpStatus: audit.http_status == null ? undefined : Number(audit.http_status),
+    createdAt: String(audit.created_at ?? ""),
+  }));
+}

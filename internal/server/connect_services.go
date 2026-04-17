@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -132,6 +134,11 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 	var result *ocrhandlers.ProcessResult
 	var provider, model string
 	runAsync := true
+	var contextID *uint64
+	if resolvedCtx.ID > 0 {
+		v := resolvedCtx.ID
+		contextID = &v
+	}
 
 	seg := strings.ToLower(strings.TrimSpace(resolvedCtx.SegmentationModel))
 	if seg != "" && providerHeader == "" {
@@ -140,7 +147,8 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 		// and the job worker transcribes segment by segment in the background.
 		pctx := processingContextFromStore(resolvedCtx, "")
 		pctx.SegmentOnly = true
-		result, err = h.ocr.ProcessImageURLWithContext(imageURL, pctx)
+		callCtx := hocr.WithProviderCallMetadata(ctx, "", nil, contextID)
+		result, err = h.ocr.ProcessImageURLWithContext(callCtx, imageURL, pctx)
 		runAsync = false
 	} else {
 		// Legacy path: detection-only hOCR + async LLM transcription.
@@ -161,16 +169,11 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 		provider = result.Provider
 		model = result.Model
 	}
-	item, itemImage, err := h.createOCRItemAndImage(ctx, "url", result.ImageURL, imageURL)
+	item, itemImage, err := h.createOCRItemAndImage(ctx, "url", result.ImageURL, imageURL, imageURL, resolvedCtx)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	sessionID := item.ID
-	var contextID *uint64
-	if resolvedCtx.ID > 0 {
-		v := resolvedCtx.ID
-		contextID = &v
-	}
 	if err := h.ocrRuns.Create(ctx, store.OCRRun{
 		SessionID:    sessionID,
 		ItemImageID:  &itemImage.ID,
@@ -245,12 +248,18 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 	var result *ocrhandlers.ProcessResult
 	var provider, model string
 	runAsync := true
+	var contextID *uint64
+	if resolvedCtx.ID > 0 {
+		v := resolvedCtx.ID
+		contextID = &v
+	}
 
 	seg := strings.ToLower(strings.TrimSpace(resolvedCtx.SegmentationModel))
 	if seg != "" && providerHeader == "" {
 		pctx := processingContextFromStore(resolvedCtx, "")
 		pctx.SegmentOnly = true
-		result, err = h.ocr.ProcessImageUploadWithContext(filename, req.Msg.GetImageData(), pctx)
+		callCtx := hocr.WithProviderCallMetadata(ctx, "", nil, contextID)
+		result, err = h.ocr.ProcessImageUploadWithContext(callCtx, filename, req.Msg.GetImageData(), pctx)
 		runAsync = false
 	} else {
 		provider, model, err = h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), "", providerHeader)
@@ -270,16 +279,11 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 		provider = result.Provider
 		model = result.Model
 	}
-	item, itemImage, err := h.createOCRItemAndImage(ctx, "upload", result.ImageURL, "")
+	item, itemImage, err := h.createOCRItemAndImage(ctx, "upload", result.ImageURL, "", filename, resolvedCtx)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	sessionID := item.ID
-	var contextID *uint64
-	if resolvedCtx.ID > 0 {
-		v := resolvedCtx.ID
-		contextID = &v
-	}
 	if err := h.ocrRuns.Create(ctx, store.OCRRun{
 		SessionID:    sessionID,
 		ItemImageID:  &itemImage.ID,
@@ -364,7 +368,12 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid hocr"))
 	}
 
-	item, itemImage, err := h.createOCRItemAndImage(ctx, "hocr", imageURL, "")
+	item, itemImage, err := h.createOCRItemAndImage(ctx, "hocr", imageURL, "", imageURL, store.Context{
+		Name:                  "Imported hOCR",
+		SegmentationModel:     "imported",
+		TranscriptionProvider: "custom",
+		TranscriptionModel:    "custom",
+	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -517,19 +526,54 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[s
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
 	}
 
-	provider, model, err := h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), "", "")
+	img, err := h.items.GetImage(ctx, req.Msg.GetItemImageId())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item image not found"))
 	}
-	result, err := h.ocr.ProcessImageURLWithProviderAndModel(run.ImageURL, provider, model)
+
+	contextIDValue := req.Msg.GetContextId()
+	if contextIDValue == 0 && run.ContextID != nil {
+		contextIDValue = *run.ContextID
+	}
+	resolvedCtx, err := h.resolveContext(ctx, contextIDValue, "")
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	var contextID *uint64
-	if req.Msg.GetContextId() > 0 {
-		v := req.Msg.GetContextId()
+	if resolvedCtx.ID > 0 {
+		v := resolvedCtx.ID
 		contextID = &v
 	}
+
+	pctx := processingContextFromStore(resolvedCtx, "")
+	callCtx := hocr.WithProviderCallMetadata(ctx, run.SessionID, &img.ID, contextID)
+
+	runAsync := true
+	if strings.TrimSpace(pctx.SegmentationModel) != "" {
+		pctx.SegmentOnly = true
+		runAsync = false
+	}
+
+	var (
+		result   *ocrhandlers.ProcessResult
+		provider string
+		model    string
+	)
+	if runAsync {
+		provider = pctx.TranscriptionProvider
+		model = pctx.TranscriptionModel
+		result, err = h.ocr.ProcessImageURLWithProviderAndModel(run.ImageURL, provider, model)
+	} else {
+		result, err = h.ocr.ProcessImageURLWithContext(callCtx, run.ImageURL, pctx)
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	if !runAsync {
+		provider = result.Provider
+		model = result.Model
+	}
+
 	itemImageID := req.Msg.GetItemImageId()
 	if err := h.ocrRuns.Create(ctx, store.OCRRun{
 		SessionID:    run.SessionID,
@@ -546,10 +590,44 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[s
 	if err := writeSessionHOCR(run.SessionID, "original.hocr", result.HOCR); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
 	}
+
+	canvasURI := strings.TrimSpace(img.CanvasURI)
+	if canvasURI == "" {
+		canvasURI = fmt.Sprintf("%s/v1/item-images/%d/manifest/canvas/page-1", h.internalAnnotationBaseURL(), itemImageID)
+		if err := h.items.UpdateImageCanvasURI(ctx, itemImageID, canvasURI); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist canvas uri: %w", err))
+		}
+	}
+	annotationScopeID := run.SessionID
+	if run.ItemImageID != nil {
+		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
+	} else {
+		annotationScopeID = fmt.Sprintf("item-image-%d", itemImageID)
+	}
+	lines, err := hocr.ParseHOCRLines(result.HOCR)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("parse reprocessed hocr: %w", err))
+	}
+	annotationItems := buildLineAnnotations(annotationScopeID, canvasURI, lines)
+	if _, err := h.replaceAnnotationItems(ctx, canvasURI, annotationItems); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("replace annotations: %w", err))
+	}
+	h.publishEvent("dev.scribe.annotations.created", subjectForItemImage(itemImageID), map[string]any{
+		"itemImageId":      itemImageID,
+		"canvasUri":        canvasURI,
+		"annotationCount":  len(annotationItems),
+		"annotationPageId": annotationPageID(canvasURI),
+	})
+	if !runAsync {
+		if _, err := h.transcriptionJobs.Create(ctx, itemImageID, contextID); err != nil {
+			slog.Warn("Failed to enqueue transcription job after reprocess", "item_image_id", itemImageID, "error", err)
+		}
+	}
+
 	return connect.NewResponse(&scribev1.ReprocessItemImageResponse{
 		SessionId:   run.SessionID,
 		ItemImageId: req.Msg.GetItemImageId(),
-		ContextId:   req.Msg.GetContextId(),
+		ContextId:   contextIDValue,
 		ImageUrl:    result.ImageURL,
 		Hocr:        result.HOCR,
 		PlainText:   result.PlainText,
@@ -558,9 +636,59 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[s
 	}), nil
 }
 
-func (h *Handler) createOCRItemAndImage(ctx context.Context, sourceType, imageURL, sourceURL string) (store.Item, store.ItemImage, error) {
+func contextProviderLabel(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gemini":
+		return "Google Gemini"
+	case "openai":
+		return "OpenAI"
+	case "ollama":
+		return "Ollama"
+	case "tesseract":
+		return "Tesseract"
+	default:
+		if provider = strings.TrimSpace(provider); provider != "" {
+			return provider
+		}
+		return "OCR"
+	}
+}
+
+func itemSourceLabel(sourceLabel, imageURL string) string {
+	label := strings.TrimSpace(sourceLabel)
+	if label == "" {
+		label = strings.TrimSpace(imageURL)
+	}
+	if label == "" {
+		return "OCR Item"
+	}
+	if parsed, err := url.Parse(label); err == nil {
+		if base := path.Base(strings.TrimSpace(parsed.Path)); base != "" && base != "." && base != "/" {
+			return base
+		}
+		if host := strings.TrimSpace(parsed.Host); host != "" {
+			return host
+		}
+	}
+	return label
+}
+
+func itemContextLabel(resolvedCtx store.Context) string {
+	provider := contextProviderLabel(resolvedCtx.TranscriptionProvider)
+	segmentation := strings.TrimSpace(resolvedCtx.SegmentationModel)
+	if segmentation == "" {
+		segmentation = "auto"
+	}
+	model := strings.TrimSpace(resolvedCtx.TranscriptionModel)
+	if model == "" {
+		model = "default"
+	}
+	return fmt.Sprintf("%s (%s, %s)", provider, segmentation, model)
+}
+
+func (h *Handler) createOCRItemAndImage(ctx context.Context, sourceType, imageURL, sourceURL, sourceLabel string, resolvedCtx store.Context) (store.Item, store.ItemImage, error) {
 	itemID := fmt.Sprintf("item_%d", time.Now().UnixNano())
-	itemName := "OCR Item " + time.Now().UTC().Format(time.RFC3339)
+	itemName := fmt.Sprintf("%s %s", itemSourceLabel(sourceLabel, imageURL), itemContextLabel(resolvedCtx))
 	item, err := h.items.Create(ctx, db.CreateItemParams{
 		ID:         itemID,
 		UserID:     store.AnonymousUserID,

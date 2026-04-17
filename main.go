@@ -36,13 +36,14 @@ func main() {
 	contextStore := store.NewContextStore(dbPool)
 	annotationStore := store.NewAnnotationStore(dbPool)
 	transcriptionJobStore := store.NewTranscriptionJobStore(dbPool)
+	providerCallAuditStore := store.NewProviderCallAuditStore(dbPool)
 
 	if err := seedSystemContexts(context.Background(), contextStore); err != nil {
 		slog.Error("failed to seed system contexts", "err", err)
 		os.Exit(1)
 	}
 
-	handler := server.NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	handler := server.NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, providerCallAuditStore)
 
 	// Start background transcription job worker.
 	workerCtx, workerCancel := context.WithCancel(context.Background())
