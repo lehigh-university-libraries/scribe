@@ -98,7 +98,7 @@ func defaultContextFromEnv() store.Context {
 	default:
 		model = strings.TrimSpace(os.Getenv("OLLAMA_MODEL"))
 		if model == "" {
-			model = "mistral-small3.2:24b"
+			model = "glm-ocr:bf16"
 		}
 	}
 
@@ -137,6 +137,15 @@ func systemContextsFromEnv() []store.Context {
 			SegmentationModel:     "scribe",
 			TranscriptionProvider: defaultCtx.TranscriptionProvider,
 			TranscriptionModel:    defaultCtx.TranscriptionModel,
+			SystemPrompt:          defaultCtx.SystemPrompt,
+		},
+		{
+			Name:                  "Gemini Pro",
+			Description:           "Uses gemini-3-pro-preview for transcription with Scribe segmentation.",
+			IsDefault:             false,
+			SegmentationModel:     "scribe",
+			TranscriptionProvider: "gemini",
+			TranscriptionModel:    "gemini-3-pro-preview",
 			SystemPrompt:          defaultCtx.SystemPrompt,
 		},
 	}

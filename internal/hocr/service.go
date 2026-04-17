@@ -1408,7 +1408,7 @@ func (s *Service) getModelForProvider(providerName string) string {
 	case "ollama":
 		model := os.Getenv("OLLAMA_MODEL")
 		if model == "" {
-			model = "mistral-small3.2:24b"
+			model = "glm-ocr:bf16"
 		}
 		return model
 	case "openai":
