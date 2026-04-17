@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/db"
+	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
@@ -199,6 +200,13 @@ func (h *Handler) persistAnnotationItems(ctx context.Context, canvasURI string, 
 		payloads = append(payloads, raw)
 	}
 	return payloads, nil
+}
+
+func (h *Handler) replaceAnnotationItems(ctx context.Context, canvasURI string, items []any) ([]string, error) {
+	if err := h.annotations.DeleteByCanvas(ctx, canvasURI); err != nil {
+		return nil, err
+	}
+	return h.persistAnnotationItems(ctx, canvasURI, items)
 }
 
 func (h *Handler) fetchBootstrapAnnotationItems(
@@ -532,6 +540,18 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 		return "", fmt.Errorf("iiif id from canvas: %w", err)
 	}
 
+	var itemImageID *uint64
+	if matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI); len(matches) >= 2 {
+		if parsed, parseErr := strconv.ParseUint(strings.TrimSpace(matches[1]), 10, 64); parseErr == nil {
+			itemImageID = &parsed
+		}
+	}
+	var contextID *uint64
+	if pctx.ID > 0 {
+		contextID = &pctx.ID
+	}
+	ctx = hocr.WithProviderCallMetadata(ctx, "", itemImageID, contextID)
+
 	imagePath, cleanup, err := fetchIIIFRegionToTemp(iiifID, x1, y1, x2, y2)
 	if err != nil {
 		return "", fmt.Errorf("fetch image region: %w", err)
@@ -539,7 +559,7 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 	defer cleanup()
 
 	text, err := h.ocr.TranscribeImageRegion(
-		imagePath, 0, 0, x2-x1, y2-y1,
+		ctx, imagePath, 0, 0, x2-x1, y2-y1,
 		pctx.TranscriptionProvider, pctx.TranscriptionModel,
 	)
 	if err != nil {

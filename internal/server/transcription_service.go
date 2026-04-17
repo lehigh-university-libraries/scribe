@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,22 +120,26 @@ func (h *Handler) StreamTranscriptionJob(
 // StartTranscriptionWorker launches the background job worker. Call once at
 // startup; it runs until ctx is cancelled.
 func (h *Handler) StartTranscriptionWorker(ctx context.Context) {
-	go h.transcriptionWorkerLoop(ctx)
+	workerCount := transcriptionJobWorkerCount()
+	slog.Info("Starting transcription job worker pool", "workers", workerCount)
+	for i := 0; i < workerCount; i++ {
+		go h.transcriptionWorkerLoop(ctx, i+1)
+	}
 }
 
-func (h *Handler) transcriptionWorkerLoop(ctx context.Context) {
-	slog.Info("Transcription job worker started")
+func (h *Handler) transcriptionWorkerLoop(ctx context.Context, workerID int) {
+	slog.Info("Transcription job worker started", "worker_id", workerID)
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("Transcription job worker stopped")
+			slog.Info("Transcription job worker stopped", "worker_id", workerID)
 			return
 		default:
 		}
 
 		job, err := h.transcriptionJobs.ClaimNextPending(ctx)
 		if err != nil {
-			slog.Error("Failed to claim transcription job", "error", err)
+			slog.Error("Failed to claim transcription job", "worker_id", workerID, "error", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -143,9 +148,9 @@ func (h *Handler) transcriptionWorkerLoop(ctx context.Context) {
 			continue
 		}
 
-		slog.Info("Processing transcription job", "job_id", job.ID, "item_image_id", job.ItemImageID)
+		slog.Info("Processing transcription job", "worker_id", workerID, "job_id", job.ID, "item_image_id", job.ItemImageID)
 		if err := h.processTranscriptionJob(ctx, job); err != nil {
-			slog.Error("Transcription job failed", "job_id", job.ID, "error", err)
+			slog.Error("Transcription job failed", "worker_id", workerID, "job_id", job.ID, "error", err)
 			_ = h.transcriptionJobs.Fail(ctx, job.ID, err.Error())
 			h.publishEvent("dev.scribe.transcription.failed", subjectForItemImage(job.ItemImageID), map[string]any{
 				"jobId":       job.ID,
@@ -154,6 +159,19 @@ func (h *Handler) transcriptionWorkerLoop(ctx context.Context) {
 			})
 		}
 	}
+}
+
+func transcriptionJobWorkerCount() int {
+	raw := strings.TrimSpace(os.Getenv("TRANSCRIPTION_JOB_WORKERS"))
+	if raw == "" {
+		return 3
+	}
+	count, err := strconv.Atoi(raw)
+	if err != nil || count < 1 {
+		slog.Warn("Invalid TRANSCRIPTION_JOB_WORKERS, using default", "value", raw, "default", 3)
+		return 3
+	}
+	return count
 }
 
 func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.TranscriptionJob) error {

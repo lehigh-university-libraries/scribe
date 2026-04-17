@@ -1,7 +1,7 @@
 import Mirador from "mirador";
 import scribeMiradorPlugin, { annotationAdapters } from "../../vendor/mirador-scribe/dist/mirador-scribe.es.js";
 import { annotationClient, publishItemImageEdits } from "../api/annotations";
-import { getOCRRun } from "../api/processing";
+import { getOCRRun, reprocessItemImage } from "../api/processing";
 import { listTranscriptionJobs } from "../api/transcription";
 import { subscribeToEvents } from "../api/events";
 import { TranscriptionJobStatus } from "../proto/scribe/v1/transcription_pb";
@@ -34,10 +34,12 @@ function isFailedStatus(status: TranscriptionJobStatus | string | number): boole
 export async function renderEditor(app: HTMLElement): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const itemImageID = params.get("itemImageId") ?? "";
+  const itemID = params.get("itemId") ?? "";
   const autoTranscribe = params.get("autoTranscribe") === "1";
   const jobIdParam = params.get("jobId");
   let hasUnsavedChanges = false;
   let saveSequence = 0;
+  let reprocessInFlight = false;
   let allowHistoryBack = false;
   let leaveAction: "home" | "history-back" = "home";
 
@@ -75,6 +77,30 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     window.location.href = "/";
   }
 
+  async function handleFullReprocess() {
+    if (!itemImageID || reprocessInFlight) return;
+    reprocessInFlight = true;
+    reprocessNav.disabled = true;
+    publishBatchState("Reprocessing page with fresh segmentation...", true);
+    setBatchBanner(
+      "Re-segmenting page",
+      "Scribe is rebuilding page regions and restarting transcription for the new segments.",
+      true,
+    );
+    try {
+      await reprocessItemImage(itemImageID);
+      document.dispatchEvent(new CustomEvent("scribe:reload-annotations", { detail: {} }));
+      publishBatchState("Fresh segmentation complete. Automatic transcription is continuing on the new regions.", true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Reprocess failed.";
+      publishBatchState(`Reprocess failed: ${message}`, false);
+      setBatchBanner("", "", false);
+    } finally {
+      reprocessInFlight = false;
+      reprocessNav.disabled = false;
+    }
+  }
+
   function leaveEditor() {
     closeLeaveDialog();
     if (leaveAction === "history-back") {
@@ -92,6 +118,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
           <a href="/" class="text-lg font-bold tracking-tight">Scribe</a>
           <nav class="flex items-center gap-2 text-sm text-slate-300">
             <button id="home-nav" class="rounded border border-slate-700 px-3 py-2 hover:bg-slate-800">Home</button>
+            <button id="reprocess-nav" class="rounded border border-slate-700 px-3 py-2 hover:bg-slate-800">Resegment + retranscribe</button>
           </nav>
         </div>
         <div class="text-right">
@@ -131,6 +158,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   const batchBannerTitle = document.getElementById("editor-batch-banner-title") as HTMLParagraphElement;
   const batchBannerDetail = document.getElementById("editor-batch-banner-detail") as HTMLParagraphElement;
   const homeNav = document.getElementById("home-nav") as HTMLButtonElement;
+  const reprocessNav = document.getElementById("reprocess-nav") as HTMLButtonElement;
   const leaveDialog = document.getElementById("leave-dialog") as HTMLDivElement;
   const leaveCancel = document.getElementById("leave-cancel") as HTMLButtonElement;
   const leaveDiscard = document.getElementById("leave-discard") as HTMLButtonElement;
@@ -308,6 +336,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   homeNav.addEventListener("click", () => { void handleHomeNavigation(); });
+  reprocessNav.addEventListener("click", () => { void handleFullReprocess(); });
   leaveCancel.addEventListener("click", closeLeaveDialog);
   leaveDiscard.addEventListener("click", leaveEditor);
   leaveSave.addEventListener("click", async () => {
@@ -354,6 +383,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   // IIIF manifest URL. Annotations are auto-registered by the backend when the
   // annotation adapter first calls SearchAnnotations for an unknown canvas.
   if (itemImageID === "") {
+    reprocessNav.classList.add("hidden");
     meta.textContent = "Open a IIIF manifest using the workspace panel (+ button)";
     Mirador.viewer({
       id: "mirador-viewer",
@@ -393,7 +423,9 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   const runItemImageID = uint64ToString(runResp.itemImageId);
-  meta.textContent = `item image ${runItemImageID || "unknown"} | model ${runResp.model}`;
+  meta.textContent = itemID
+    ? `item ${itemID} | image ${runItemImageID || "unknown"} | model ${runResp.model}`
+    : `item image ${runItemImageID || "unknown"} | model ${runResp.model}`;
 
   if (!runResp.imageUrl || runResp.imageUrl.trim() === "") {
     const viewer = document.getElementById("mirador-viewer");
@@ -408,7 +440,9 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     return;
   }
 
-  const manifestURL = `${window.location.origin}/v1/item-images/${encodeURIComponent(runItemImageID)}/manifest`;
+  const manifestURL = itemID
+    ? `${window.location.origin}/v1/items/${encodeURIComponent(itemID)}/manifest`
+    : `${window.location.origin}/v1/item-images/${encodeURIComponent(runItemImageID)}/manifest`;
 
   publishBatchState("Loading editor and checking batch transcription status...", true);
 

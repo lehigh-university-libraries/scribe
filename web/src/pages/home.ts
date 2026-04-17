@@ -1,5 +1,5 @@
-import { listItems, createItemFromManifest, uploadItemImages, deleteItem } from "../api/items";
-import { processImageURL, processImageUpload } from "../api/processing";
+import { listItems, createItemFromManifest, uploadItemImages, deleteItem, listItemProviderCallAudits } from "../api/items";
+import { processImageURL, processImageUpload, reprocessItemImage } from "../api/processing";
 import { listTranscriptionJobs } from "../api/transcription";
 import { subscribeToEvents } from "../api/events";
 import { listContexts } from "../api/context";
@@ -7,6 +7,7 @@ import { TranscriptionJobStatus } from "../proto/scribe/v1/transcription_pb";
 import { uint64ToString, escHtml } from "../lib/util";
 import type { Item } from "../proto/scribe/v1/item_pb";
 import type { Context } from "../proto/scribe/v1/context_pb";
+import type { ItemProviderCallAudit } from "../api/items";
 
 function isPendingStatus(status: TranscriptionJobStatus | string | number): boolean {
   return status === TranscriptionJobStatus.PENDING
@@ -187,6 +188,51 @@ function renderImageExports(item: Item): string {
   }).join("");
 }
 
+function editorHref(itemImageId: string, itemId: string): string {
+  const params = new URLSearchParams({ itemImageId });
+  if (itemId) {
+    params.set("itemId", itemId);
+  }
+  return `/editor?${params.toString()}`;
+}
+
+function formatLogTime(timestamp: string): string {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return timestamp;
+  return date.toLocaleString();
+}
+
+function renderAuditCard(audit: ItemProviderCallAudit): string {
+  const pageLabel = audit.itemImageLabel?.trim()
+    || (audit.itemImageSequence ? `Page ${audit.itemImageSequence}` : audit.itemImageId ? `Image ${audit.itemImageId}` : "Item");
+  const status = audit.httpStatus != null ? `HTTP ${audit.httpStatus}` : audit.errorMessage?.trim() ? "Error" : "OK";
+  const promptBlock = audit.prompt?.trim()
+    ? `<details class="rounded border border-slate-700 bg-slate-950/70 p-2"><summary class="cursor-pointer text-xs text-slate-300">Prompt</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-400">${escHtml(audit.prompt)}</pre></details>`
+    : "";
+  const requestBlock = audit.requestJson?.trim()
+    ? `<details class="rounded border border-slate-700 bg-slate-950/70 p-2"><summary class="cursor-pointer text-xs text-slate-300">Request JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-400">${escHtml(audit.requestJson)}</pre></details>`
+    : "";
+  const responseBlock = audit.responseJson?.trim()
+    ? `<details class="rounded border border-slate-700 bg-slate-950/70 p-2"><summary class="cursor-pointer text-xs text-slate-300">Response JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-400">${escHtml(audit.responseJson)}</pre></details>`
+    : "";
+  return `
+    <article class="rounded-lg border border-slate-700 bg-slate-900/70 p-3">
+      <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+        <span class="rounded border border-slate-600 px-2 py-0.5 text-slate-200">${escHtml(pageLabel)}</span>
+        <span>${escHtml(formatLogTime(audit.createdAt))}</span>
+        <span>${escHtml(status)}</span>
+      </div>
+      <p class="mt-2 text-sm text-slate-100">${escHtml(audit.provider)} ${escHtml(audit.model)} <span class="text-slate-400">(${escHtml(audit.operation)})</span></p>
+      ${audit.errorMessage?.trim() ? `<p class="mt-2 text-xs text-red-300">${escHtml(audit.errorMessage)}</p>` : ""}
+      <div class="mt-3 space-y-2">
+        ${promptBlock}
+        ${requestBlock}
+        ${responseBlock}
+      </div>
+    </article>`;
+}
+
 export async function renderHome(app: HTMLElement): Promise<void> {
   app.innerHTML = `
     <main class="min-h-screen bg-slate-950">
@@ -277,6 +323,23 @@ export async function renderHome(app: HTMLElement): Promise<void> {
               Ingest manifest
             </button>
           </form>
+          <fieldset class="space-y-2 rounded border border-slate-700 bg-slate-950/50 p-3">
+            <legend class="px-1 text-xs uppercase tracking-wide text-slate-400">Manifest OCR Handling</legend>
+            <label class="flex items-start gap-2 text-sm text-slate-200">
+              <input id="manifest-mode-import" type="radio" name="manifest-mode" value="import" checked class="mt-0.5" />
+              <span>
+                <span class="font-medium">Make edits to existing hOCR</span>
+                <span class="block text-xs text-slate-400">Use seeAlso hOCR from the manifest when available and open it directly in the editor.</span>
+              </span>
+            </label>
+            <label class="flex items-start gap-2 text-sm text-slate-200">
+              <input id="manifest-mode-reprocess" type="radio" name="manifest-mode" value="reprocess" class="mt-0.5" />
+              <span>
+                <span class="font-medium">Reprocess imported pages with selected context</span>
+                <span class="block text-xs text-slate-400">Import the manifest, then rerun OCR on every imported page using the context selected above.</span>
+              </span>
+            </label>
+          </fieldset>
           <p id="manifest-status" class="text-xs text-slate-400"></p>
         </div>
       </section>
@@ -293,6 +356,20 @@ export async function renderHome(app: HTMLElement): Promise<void> {
           <p class="text-sm text-slate-400">Loading…</p>
         </div>
       </section>
+      <div id="item-logs-dialog" class="hidden fixed inset-0 z-50 items-center justify-center bg-slate-950/80 p-4">
+        <div class="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+          <div class="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+            <div>
+              <h2 class="text-lg font-semibold">Item logs</h2>
+              <p id="item-logs-title" class="text-xs text-slate-400"></p>
+            </div>
+            <button id="item-logs-close" class="rounded border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800">Close</button>
+          </div>
+          <div id="item-logs-body" class="overflow-y-auto px-5 py-4 text-sm text-slate-300">
+            <p class="text-slate-400">Loading…</p>
+          </div>
+        </div>
+      </div>
       </section>
     </main>
   `;
@@ -335,6 +412,41 @@ export async function renderHome(app: HTMLElement): Promise<void> {
   });
 
   let refreshInFlight = false;
+  const itemLogsDialog = document.getElementById("item-logs-dialog") as HTMLDivElement;
+  const itemLogsTitle = document.getElementById("item-logs-title") as HTMLParagraphElement;
+  const itemLogsBody = document.getElementById("item-logs-body") as HTMLDivElement;
+  const itemLogsClose = document.getElementById("item-logs-close") as HTMLButtonElement;
+
+  function closeItemLogs() {
+    itemLogsDialog.classList.add("hidden");
+    itemLogsDialog.classList.remove("flex");
+    itemLogsTitle.textContent = "";
+    itemLogsBody.innerHTML = `<p class="text-slate-400">Loading…</p>`;
+  }
+
+  async function openItemLogs(item: Item) {
+    itemLogsDialog.classList.remove("hidden");
+    itemLogsDialog.classList.add("flex");
+    itemLogsTitle.textContent = `${item.name || item.id} (${item.id})`;
+    itemLogsBody.innerHTML = `<p class="text-slate-400">Loading logs…</p>`;
+    try {
+      const audits = await listItemProviderCallAudits(item.id, 100);
+      if (audits.length === 0) {
+        itemLogsBody.innerHTML = `<p class="text-slate-400">No provider logs recorded for this item yet.</p>`;
+        return;
+      }
+      itemLogsBody.innerHTML = `<div class="space-y-3">${audits.map(renderAuditCard).join("")}</div>`;
+    } catch (err) {
+      itemLogsBody.innerHTML = `<p class="text-red-300">Failed to load logs: ${escHtml(String(err))}</p>`;
+    }
+  }
+
+  itemLogsClose.addEventListener("click", closeItemLogs);
+  itemLogsDialog.addEventListener("click", (event) => {
+    if (event.target === itemLogsDialog) {
+      closeItemLogs();
+    }
+  });
 
   // Items table renderer
   async function refreshItems(options: { fromPoll?: boolean } = {}): Promise<boolean> {
@@ -422,9 +534,13 @@ export async function renderHome(app: HTMLElement): Promise<void> {
                 ? `<span class="text-xs text-slate-500">No images</span>`
                 : item.images.map((image) => {
                     const itemImageId = uint64ToString(image.id);
-                    const editHref = `/editor?itemImageId=${encodeURIComponent(itemImageId)}`;
+                    const editHref = editorHref(itemImageId, item.sourceType === "manifest" ? item.id : "");
                     return `<a href="${editHref}" class="rounded border border-slate-600 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-400 hover:bg-slate-800">Edit</a>`;
                   }).join("")}
+              <button data-logs="${escHtml(item.id)}"
+                class="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-200 hover:border-slate-400 hover:bg-slate-800">
+                Logs
+              </button>
               <button data-delete="${escHtml(item.id)}"
                 class="rounded border border-slate-700 px-2 py-0.5 text-xs text-red-400 hover:border-red-800 hover:bg-red-900/30">
                 Delete
@@ -464,6 +580,14 @@ export async function renderHome(app: HTMLElement): Promise<void> {
         } catch (err) {
           alert(`Delete failed: ${String(err)}`);
         }
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>("[data-logs]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const item = items.find((entry) => entry.id === btn.dataset.logs);
+        if (!item) return;
+        void openItemLogs(item);
       });
     });
 
@@ -508,7 +632,7 @@ export async function renderHome(app: HTMLElement): Promise<void> {
         overlay.setDetail("Preparing automatic transcription...");
         await waitForAutomaticTranscriptionStart(itemImageId, overlay);
         overlay.complete("Opening editor…");
-        window.location.href = `/editor?itemImageId=${encodeURIComponent(itemImageId)}`;
+        window.location.href = editorHref(itemImageId, "");
       } else {
         overlay.remove();
         urlStatus.textContent = "Done. Refreshing items…";
@@ -550,7 +674,7 @@ export async function renderHome(app: HTMLElement): Promise<void> {
         overlay.setDetail("Preparing automatic transcription...");
         await waitForAutomaticTranscriptionStart(itemImageId, overlay);
         overlay.complete("Opening editor…");
-        window.location.href = `/editor?itemImageId=${encodeURIComponent(itemImageId)}`;
+        window.location.href = editorHref(itemImageId, "");
       } else {
         overlay.remove();
         singleStatus.textContent = "Done. Refreshing items…";
@@ -599,18 +723,40 @@ export async function renderHome(app: HTMLElement): Promise<void> {
   manifestForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const url = (document.getElementById("manifest-url") as HTMLInputElement).value.trim();
+    const manifestMode = (document.querySelector('input[name="manifest-mode"]:checked') as HTMLInputElement | null)?.value || "import";
     if (!url) return;
     try {
-      const { firstItemImageId } = await withProcessingOverlay(
-        ["Fetching IIIF manifest", "Detecting layout", "Building document structure"],
+      const ingestSteps = manifestMode === "reprocess"
+        ? ["Fetching IIIF manifest", "Importing existing hOCR", "Reprocessing imported pages with selected context"]
+        : ["Fetching IIIF manifest", "Importing existing hOCR", "Opening imported transcript"];
+      const manifestResult = await withProcessingOverlay(
+        ingestSteps,
         [900, 2400],
-        () => createItemFromManifest(url),
+        async () => {
+          const result = await createItemFromManifest(url);
+          if (manifestMode === "reprocess") {
+            const imageIds = (result.item.images ?? [])
+              .map((image) => uint64ToString(image.id))
+              .filter((id) => id !== "" && id !== "0");
+            for (const itemImageId of imageIds) {
+              await reprocessItemImage(itemImageId, Number(selectedContextId()));
+            }
+          }
+          return result;
+        },
       );
+      const { firstItemImageId, item } = manifestResult;
       if (firstItemImageId && firstItemImageId !== "0") {
-        window.location.href = `/editor?itemImageId=${encodeURIComponent(firstItemImageId)}`;
+        const redirectParams = new URLSearchParams({ itemImageId: firstItemImageId });
+        redirectParams.set("itemId", item.id);
+        window.location.href = `/editor?${redirectParams.toString()}`;
       } else {
-        manifestStatus.textContent = "Ingested. Refreshing items…";
+        manifestStatus.textContent = manifestMode === "reprocess"
+          ? "Manifest imported, but no pages were available to reprocess. Refreshing items…"
+          : "Ingested. Refreshing items…";
         manifestForm.reset();
+        const importMode = document.getElementById("manifest-mode-import") as HTMLInputElement | null;
+        if (importMode) importMode.checked = true;
         await refreshItems();
       }
     } catch (err) {

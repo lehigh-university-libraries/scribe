@@ -31,6 +31,7 @@ type Handler struct {
 	items             *store.ItemStore
 	contexts          *store.ContextStore
 	annotations       *store.AnnotationStore
+	providerCallAudits *store.ProviderCallAuditStore
 	transcriptionJobs *store.TranscriptionJobStore
 	events            *eventBroker
 	webhookClient     *http.Client
@@ -132,6 +133,7 @@ func NewHandler(
 	contexts *store.ContextStore,
 	annotations *store.AnnotationStore,
 	transcriptionJobs *store.TranscriptionJobStore,
+	auditStores ...*store.ProviderCallAuditStore,
 ) *Handler {
 	webDir := detectWebDir()
 	if webDir == "" {
@@ -140,17 +142,42 @@ func NewHandler(
 		slog.Info("serving web assets", "dir", webDir)
 	}
 
+	var providerCallAudits *store.ProviderCallAuditStore
+	if len(auditStores) > 0 {
+		providerCallAudits = auditStores[0]
+	}
+
 	handler := &Handler{
 		ocrRuns:           ocrRuns,
 		items:             items,
 		contexts:          contexts,
 		annotations:       annotations,
+		providerCallAudits: providerCallAudits,
 		transcriptionJobs: transcriptionJobs,
 		events:            newEventBroker(),
 		webhookClient:     &http.Client{Timeout: 10 * time.Second},
 		webhookURLs:       parseWebhookURLs(os.Getenv("SCRIBE_WEBHOOK_URLS")),
 		webDir:            webDir,
 		ocr:               ocrhandlers.New(),
+	}
+	if providerCallAudits != nil {
+		handler.ocr.SetProviderCallAuditLogger(func(ctx context.Context, record hocr.ProviderCallAuditRecord) {
+			if err := providerCallAudits.Create(ctx, store.ProviderCallAudit{
+				SessionID:    record.SessionID,
+				ItemImageID:  record.ItemImageID,
+				ContextID:    record.ContextID,
+				Provider:     record.Provider,
+				Model:        record.Model,
+				Operation:    record.Operation,
+				Prompt:       record.Prompt,
+				RequestJSON:  record.RequestJSON,
+				ResponseJSON: record.ResponseJSON,
+				ErrorMessage: record.ErrorMessage,
+				HTTPStatus:   record.HTTPStatus,
+			}); err != nil {
+				slog.Warn("failed to persist provider call audit", "error", err, "provider", record.Provider, "model", record.Model, "operation", record.Operation)
+			}
+		})
 	}
 	mux := http.NewServeMux()
 
@@ -170,6 +197,8 @@ func NewHandler(
 	mux.HandleFunc("GET /healthz", handler.handleHealth)
 
 	// IIIF presentation endpoints used by the editor.
+	mux.HandleFunc("GET /v1/items/{item_id}/manifest", handler.handleGetItemIIIFManifest)
+	mux.HandleFunc("GET /v1/items/{item_id}/provider-call-audits", handler.handleListItemProviderCallAudits)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/manifest", handler.handleGetIIIFManifest)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/annotations", handler.handleGetIIIFAnnotations)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/hocr", handler.handleGetHOCR)
@@ -233,6 +262,144 @@ func (h *Handler) handleGetHOCR(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/vnd.hocr+html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(hocrXML))
+}
+
+func (h *Handler) handleListItemProviderCallAudits(w http.ResponseWriter, r *http.Request) {
+	itemID := strings.TrimSpace(r.PathValue("item_id"))
+	if itemID == "" {
+		writeError(w, http.StatusBadRequest, "item_id is required")
+		return
+	}
+	if h.providerCallAudits == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"itemId": itemID, "audits": []any{}})
+		return
+	}
+
+	limit := 100
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 && v <= 500 {
+			limit = v
+		}
+	}
+	audits, err := h.providerCallAudits.ListByItem(r.Context(), itemID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load provider call audits")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"itemId": itemID,
+		"audits": audits,
+	})
+}
+
+func (h *Handler) handleGetItemIIIFManifest(w http.ResponseWriter, r *http.Request) {
+	itemID := strings.TrimSpace(r.PathValue("item_id"))
+	if itemID == "" {
+		writeError(w, http.StatusBadRequest, "item_id is required")
+		return
+	}
+	item, err := h.items.Get(r.Context(), itemID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "item not found")
+		return
+	}
+	if len(item.Images) == 0 {
+		writeError(w, http.StatusNotFound, "item has no images")
+		return
+	}
+
+	apiBase := requestOrigin(r)
+	manifestID := fmt.Sprintf("%s/v1/items/%s/manifest", apiBase, url.PathEscape(item.ID))
+	iiifBase := resolvePublicBase(os.Getenv("CANTALOUPE_IIIF_BASE"), r, "/cantaloupe/iiif/2")
+	canvases := make([]any, 0, len(item.Images))
+
+	for _, image := range item.Images {
+		canvasID := strings.TrimSpace(image.CanvasURI)
+		if canvasID == "" {
+			canvasID = fmt.Sprintf("%s/v1/item-images/%d/manifest/canvas/page-1", apiBase, image.ID)
+			if err := h.items.UpdateImageCanvasURI(r.Context(), image.ID, canvasID); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to persist canvas uri")
+				return
+			}
+		}
+
+		pageW, pageH := 1, 1
+		seeAlso := make([]any, 0, 1)
+		if run, err := h.fetchOrCacheHOCRRun(r.Context(), image.ID); err == nil {
+			hocrXML := strings.TrimSpace(run.OriginalHOCR)
+			if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
+				hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
+			}
+			if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
+				hocrXML = persisted
+			}
+			pageW, pageH = extractPageDimensions(hocrXML)
+			if pageW <= 0 {
+				pageW = 1
+			}
+			if pageH <= 0 {
+				pageH = 1
+			}
+			seeAlso = append(seeAlso, map[string]any{
+				"id":      fmt.Sprintf("%s/v1/item-images/%d/hocr", apiBase, image.ID),
+				"type":    "Text",
+				"format":  "text/vnd.hocr+html",
+				"profile": "http://kba.cloud/hocr-spec",
+				"label":   map[string]any{"none": []string{"hOCR embedded text"}},
+			})
+		}
+
+		canvasLabel := strings.TrimSpace(image.Label)
+		if canvasLabel == "" {
+			canvasLabel = image.ImageURL
+			if iiifID, err := iiifIdentifierFromImageURL(image.ImageURL); err == nil {
+				canvasLabel = iiifID
+			}
+		}
+
+		paintingPageID := fmt.Sprintf("%s/page/painting", canvasID)
+		paintingAnnID := fmt.Sprintf("%s/annotation/painting", canvasID)
+		canvas := map[string]any{
+			"id":     canvasID,
+			"type":   "Canvas",
+			"label":  map[string]any{"none": []string{canvasLabel}},
+			"height": pageH,
+			"width":  pageW,
+			"items": []any{
+				map[string]any{
+					"id":   paintingPageID,
+					"type": "AnnotationPage",
+					"items": []any{
+						map[string]any{
+							"id":         paintingAnnID,
+							"type":       "Annotation",
+							"motivation": "painting",
+							"target":     canvasID,
+							"body":       buildImageBody(image.ImageURL, iiifBase, pageW, pageH),
+						},
+					},
+				},
+			},
+			"annotations": []any{
+				map[string]any{
+					"id":   fmt.Sprintf("%s/v1/item-images/%d/annotations", apiBase, image.ID),
+					"type": "AnnotationPage",
+				},
+			},
+		}
+		if len(seeAlso) > 0 {
+			canvas["seeAlso"] = seeAlso
+		}
+		canvases = append(canvases, canvas)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"@context": "http://iiif.io/api/presentation/3/context.json",
+		"id":       manifestID,
+		"type":     "Manifest",
+		"label":    map[string]any{"none": []string{item.Name}},
+		"items":    canvases,
+	})
 }
 
 func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) {
