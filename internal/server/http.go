@@ -345,6 +345,12 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Request) {
+	itemImageID, err := itemImageIDFromRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	run, manifestPath, annotationsPath, _, err := h.resolveRunAndIIIFPaths(r)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "not found") {
@@ -383,6 +389,18 @@ func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Reques
 	annotationScopeID := run.SessionID
 	if run.ItemImageID != nil {
 		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
+	}
+
+	img, err := h.items.GetImage(r.Context(), itemImageID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "item image not found")
+		return
+	}
+	if strings.TrimSpace(img.CanvasURI) == "" {
+		if err := h.items.UpdateImageCanvasURI(r.Context(), itemImageID, canvasID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to persist canvas uri")
+			return
+		}
 	}
 
 	var items []any
@@ -1480,17 +1498,31 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 
 	// Build annotation page JSON: prefer saved annotations over hOCR fallback.
 	var annotationPageJSON string
+	annotationSource := "none"
 	canvasURI := strings.TrimSpace(img.CanvasURI)
 
 	if canvasURI != "" {
 		// First: read enriched/edited annotations from the DB.
 		dbPayloads, dbErr := h.annotations.SearchByCanvas(ctx, canvasURI)
+		slog.Info("Export annotations DB lookup",
+			"item_image_id", itemImageID,
+			"canvas_uri", canvasURI,
+			"payload_count", len(dbPayloads),
+			"db_error", dbErr,
+		)
 		if dbErr == nil && len(dbPayloads) > 0 {
 			dbItems := make([]any, 0, len(dbPayloads))
-			for _, p := range dbPayloads {
+			for i, p := range dbPayloads {
 				var anno map[string]any
 				if json.Unmarshal([]byte(p), &anno) == nil {
 					dbItems = append(dbItems, anno)
+					if i < 3 {
+						slog.Info("Export annotations DB payload sample",
+							"item_image_id", itemImageID,
+							"index", i,
+							"annotation", annotationDebugSummary(anno),
+						)
+					}
 				}
 			}
 			if len(dbItems) > 0 {
@@ -1502,12 +1534,19 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 				}
 				if b, jsonErr := json.Marshal(page); jsonErr == nil {
 					annotationPageJSON = string(b)
+					annotationSource = "db"
 				}
 			}
 		}
 		// Fallback: derive from hOCR via the annotation bootstrap endpoint.
 		if annotationPageJSON == "" {
 			items, bootstrapErr := h.bootstrapAnnotationsForCanvas(ctx, canvasURI, base)
+			slog.Info("Export annotations bootstrap fallback",
+				"item_image_id", itemImageID,
+				"canvas_uri", canvasURI,
+				"item_count", len(items),
+				"bootstrap_error", bootstrapErr,
+			)
 			if bootstrapErr == nil {
 				page := map[string]any{
 					"@context": annotationPageContexts(),
@@ -1517,6 +1556,7 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 				}
 				if b, jsonErr := json.Marshal(page); jsonErr == nil {
 					annotationPageJSON = string(b)
+					annotationSource = "bootstrap"
 				}
 			}
 		}
@@ -1556,14 +1596,31 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 		}
 		b, _ := json.Marshal(page)
 		annotationPageJSON = string(b)
+		annotationSource = "hocr-fallback"
 	}
 
 	// Convert annotation page to the requested format using the crosswalk functions.
 	lines, pageW, pageH, err := annotationPageToHOCRLines(annotationPageJSON)
 	if err != nil {
+		slog.Warn("Export annotations crosswalk failed",
+			"item_image_id", itemImageID,
+			"format", format,
+			"canvas_uri", canvasURI,
+			"source", annotationSource,
+			"error", err,
+		)
 		writeError(w, http.StatusNotFound, "no annotations available")
 		return
 	}
+	slog.Info("Export annotations crosswalk succeeded",
+		"item_image_id", itemImageID,
+		"format", format,
+		"canvas_uri", canvasURI,
+		"source", annotationSource,
+		"line_count", len(lines),
+		"page_w", pageW,
+		"page_h", pageH,
+	)
 
 	var content string
 	var mimeType string

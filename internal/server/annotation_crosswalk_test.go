@@ -260,6 +260,36 @@ func TestCrosswalkMixedLineAndWordGranularity(t *testing.T) {
 	}
 }
 
+func TestCrosswalkSelectorArray(t *testing.T) {
+	h := &Handler{}
+	pageJSON := `{
+	  "@context": ["http://iiif.io/api/extension/text-granularity/context.json","http://iiif.io/api/presentation/3/context.json"],
+	  "id": "https://example.org/annotations/page-1",
+	  "type": "AnnotationPage",
+	  "items": [
+	    {
+	      "id": "https://example.org/annotations/line-1",
+	      "type": "Annotation",
+	      "textGranularity": "line",
+	      "body": [{"type":"TextualBody","purpose":"supplementing","value":"Hello world","format":"text/plain"}],
+	      "target": {
+	        "source": {"id":"https://example.org/canvas/1","type":"Canvas"},
+	        "selector": [
+	          {"type":"CssSelector","value":".ignored"},
+	          {"type":"FragmentSelector","value":"xywh=10,20,200,30"}
+	        ]
+	      }
+	    }
+	  ]
+	}`
+
+	rec := postCrosswalkHandler(t, h.handleCrosswalkToPlainText, map[string]string{"annotation_page_json": pageJSON})
+	resp := decodeCrosswalkResponse(t, rec)
+	if strings.TrimSpace(resp.Content) != "Hello world" {
+		t.Fatalf("plain text = %q; want %q", resp.Content, "Hello world")
+	}
+}
+
 // buildCrosswalkBody JSON-encodes a crosswalk request with a single string field.
 func buildCrosswalkBody(t *testing.T, key, value string) string {
 	t.Helper()

@@ -522,6 +522,68 @@ func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
 	}
 }
 
+func TestGetIIIFAnnotationsPersistsMissingCanvasURI(t *testing.T) {
+	db := openTestDB(t)
+
+	ocrRunStore := store.NewOCRRunStore(db)
+	itemStore := store.NewItemStore(db)
+	contextStore := store.NewContextStore(db)
+	annotationStore := store.NewAnnotationStore(db)
+	transcriptionJobStore := store.NewTranscriptionJobStore(db)
+
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	appServer := httptest.NewServer(h)
+	t.Cleanup(appServer.Close)
+
+	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
+		ID:         t.Name(),
+		UserID:     store.AnonymousUserID,
+		Name:       "Test Item",
+		SourceType: "upload",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
+		ItemID:   item.ID,
+		Sequence: 1,
+		ImageURL: "https://example.org/image.jpg",
+	})
+	if err != nil {
+		t.Fatalf("add item image: %v", err)
+	}
+	if err := ocrRunStore.Create(context.Background(), store.OCRRun{
+		SessionID:    t.Name() + "-session",
+		ItemImageID:  &img.ID,
+		ImageURL:     img.ImageURL,
+		Provider:     "test",
+		Model:        "test",
+		OriginalHOCR: minimalHOCR,
+		OriginalText: "Course Catalog\n1908-1909",
+	}); err != nil {
+		t.Fatalf("create ocr run: %v", err)
+	}
+
+	annotationsURL := fmt.Sprintf("%s/v1/item-images/%d/annotations", appServer.URL, img.ID)
+	resp, err := http.Get(annotationsURL)
+	if err != nil {
+		t.Fatalf("GET annotations: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("annotations status %d", resp.StatusCode)
+	}
+
+	updated, err := itemStore.GetImage(context.Background(), img.ID)
+	if err != nil {
+		t.Fatalf("get updated item image: %v", err)
+	}
+	want := fmt.Sprintf("http://127.0.0.1/v1/item-images/%d/manifest/canvas/page-1", img.ID)
+	if updated.CanvasURI != want {
+		t.Fatalf("canvas_uri = %q; want %q", updated.CanvasURI, want)
+	}
+}
+
 func TestGetIIIFManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
 	db := openTestDB(t)
 

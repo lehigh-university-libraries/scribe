@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
-	"strconv"
 	"os"
+	"strconv"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -132,6 +133,9 @@ func (h *Handler) CreateAnnotation(ctx context.Context, req *connect.Request[scr
 	if canvasURI == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("annotation target missing canvas uri"))
 	}
+	slog.Info("CreateAnnotation normalized payload",
+		"annotation", annotationDebugSummary(anno),
+	)
 	payload, err := json.Marshal(anno)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -167,6 +171,9 @@ func (h *Handler) UpdateAnnotation(ctx context.Context, req *connect.Request[scr
 	if canvasURI == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("annotation target missing canvas uri"))
 	}
+	slog.Info("UpdateAnnotation normalized payload",
+		"annotation", annotationDebugSummary(anno),
+	)
 	payload, err := json.Marshal(anno)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)

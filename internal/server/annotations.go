@@ -50,7 +50,7 @@ func bindAnnotationToCanvas(anno map[string]any, canvasURI string) map[string]an
 	selector := map[string]any(nil)
 	switch target := anno["target"].(type) {
 	case map[string]any:
-		if s, ok := target["selector"].(map[string]any); ok {
+		if s := fragmentSelectorFromValue(target["selector"]); s != nil {
 			selector = s
 		}
 	case string:
@@ -380,7 +380,7 @@ func normalizeAnnotation(anno map[string]any, defaultCanvasURI string) map[strin
 			fragment = strings.TrimPrefix(on[idx+1:], "xywh=")
 		}
 	case map[string]any:
-		if selector, ok := on["selector"].(map[string]any); ok {
+		if selector := fragmentSelectorFromValue(on["selector"]); selector != nil {
 			fragment = strings.TrimPrefix(strings.TrimSpace(annStringValue(selector, "value")), "xywh=")
 		}
 	}
@@ -595,12 +595,63 @@ func extractFragment(anno map[string]any) string {
 	if target == nil {
 		return ""
 	}
-	selector, _ := target["selector"].(map[string]any)
+	selector := fragmentSelectorFromValue(target["selector"])
 	if selector == nil {
 		return ""
 	}
 	val := strings.TrimSpace(annStringValue(selector, "value"))
 	return strings.TrimPrefix(val, "xywh=")
+}
+
+func fragmentSelectorFromValue(raw any) map[string]any {
+	isFragmentSelector := func(selector map[string]any) bool {
+		if selector == nil {
+			return false
+		}
+		selectorType := strings.TrimSpace(annStringValue(selector, "type"))
+		if strings.EqualFold(selectorType, "FragmentSelector") {
+			return true
+		}
+		value := strings.TrimSpace(annStringValue(selector, "value"))
+		return strings.HasPrefix(value, "xywh=") || strings.Count(value, ",") == 3
+	}
+
+	switch selector := raw.(type) {
+	case map[string]any:
+		if isFragmentSelector(selector) {
+			return selector
+		}
+	case []any:
+		for _, item := range selector {
+			if obj, ok := item.(map[string]any); ok {
+				if isFragmentSelector(obj) {
+					return obj
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func annotationDebugSummary(anno map[string]any) map[string]any {
+	if anno == nil {
+		return map[string]any{"nil": true}
+	}
+	return map[string]any{
+		"id":              strings.TrimSpace(annStringValue(anno, "id")),
+		"textGranularity": strings.TrimSpace(annStringValue(anno, "textGranularity")),
+		"canvasUri":       extractCanvasURI(anno),
+		"fragment":        extractFragment(anno),
+		"text":            strings.TrimSpace(extractAnnotationText(anno)),
+		"targetType":      fmt.Sprintf("%T", anno["target"]),
+		"selectorType": func() string {
+			target, _ := anno["target"].(map[string]any)
+			if target == nil {
+				return ""
+			}
+			return fmt.Sprintf("%T", target["selector"])
+		}(),
+	}
 }
 
 // roundXYWHFragment rounds each float component of an "x,y,w,h" string to the
