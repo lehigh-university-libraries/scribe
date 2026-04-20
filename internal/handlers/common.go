@@ -147,6 +147,10 @@ func (h *Handler) TranscribeImageFile(imagePath, provider, model string) (string
 	return h.hocrService.TranscribeImage(imagePath, provider, model)
 }
 
+func (h *Handler) TranscribeImageFileWithContext(ctx context.Context, imagePath, provider, model string) (string, error) {
+	return h.hocrService.TranscribeImageWithContext(ctx, imagePath, provider, model)
+}
+
 // ProcessImageURLWithContext downloads an image, runs the full segmentation+transcription
 // pipeline defined by pctx, and returns a ProcessResult with complete hOCR.
 // Unlike ProcessImageURLWithProviderAndModel this does not use the detection-only cache

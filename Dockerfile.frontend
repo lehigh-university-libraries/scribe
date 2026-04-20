@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1.23@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS plugin-build
+
+WORKDIR /plugin
+COPY mirador-scribe/package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --ignore-scripts --prefer-offline --no-audit --progress=false
+COPY mirador-scribe/ ./
+RUN npm run build
+
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS web-build
+
+WORKDIR /app
+RUN mkdir -p /app/mirador-scribe/dist
+COPY --from=plugin-build /plugin/package.json /app/mirador-scribe/package.json
+COPY --from=plugin-build /plugin/dist /app/mirador-scribe/dist
+
+WORKDIR /app/web
+COPY web/package*.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm install --ignore-scripts --prefer-offline --no-audit --progress=false
+
+COPY web/ ./
+RUN mkdir -p /app/web/vendor/mirador-scribe \
+    && cp -R /app/mirador-scribe/dist /app/web/vendor/mirador-scribe/dist
+RUN npm run build
+
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f
+
+WORKDIR /app/web
+ENV NODE_ENV=production
+ARG SCRIBE_FRONTEND_BACKEND_ORIGIN=""
+ENV SCRIBE_FRONTEND_BACKEND_ORIGIN=${SCRIBE_FRONTEND_BACKEND_ORIGIN}
+
+COPY --from=web-build /app/web/dist /app/web/dist
+COPY web/server.mjs /app/web/server.mjs
+
+EXPOSE 8080
+CMD ["node", "server.mjs"]

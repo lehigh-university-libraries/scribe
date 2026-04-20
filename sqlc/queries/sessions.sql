@@ -1,13 +1,13 @@
--- name: ListSessions :many
+-- name: ListSessionsManual :many
 SELECT id, name, created_at, updated_at
 FROM sessions
 ORDER BY created_at DESC;
 
--- name: GetSession :one
+-- name: GetSessionManual :one
 SELECT id, name, created_at, updated_at
 FROM sessions
-WHERE id = ?;
+WHERE id = sqlc.arg(id);
 
--- name: CreateSession :exec
+-- name: CreateSessionManual :exec
 INSERT INTO sessions (id, name)
-VALUES (?, ?);
+VALUES (sqlc.arg(id), sqlc.arg(name));

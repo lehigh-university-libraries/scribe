@@ -247,7 +247,7 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	annotationStore := store.NewAnnotationStore(db)
 	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
 	appServer := httptest.NewServer(h)
 	t.Cleanup(appServer.Close)
 	t.Setenv("ANNOTATION_API_BASE", appServer.URL)
@@ -469,13 +469,14 @@ func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
 	annotationStore := store.NewAnnotationStore(db)
 	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
 	appServer := httptest.NewServer(h)
 	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
 		ID:         t.Name(),
 		UserID:     store.AnonymousUserID,
+		WorkspaceID: 1,
 		Name:       "Test Item",
 		SourceType: "upload",
 	})
@@ -531,13 +532,14 @@ func TestGetIIIFAnnotationsPersistsMissingCanvasURI(t *testing.T) {
 	annotationStore := store.NewAnnotationStore(db)
 	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
 	appServer := httptest.NewServer(h)
 	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
 		ID:         t.Name(),
 		UserID:     store.AnonymousUserID,
+		WorkspaceID: 1,
 		Name:       "Test Item",
 		SourceType: "upload",
 	})
@@ -593,13 +595,14 @@ func TestGetIIIFManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
 	annotationStore := store.NewAnnotationStore(db)
 	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
 	appServer := httptest.NewServer(h)
 	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
 		ID:         t.Name(),
 		UserID:     store.AnonymousUserID,
+		WorkspaceID: 1,
 		Name:       "Test Item",
 		SourceType: "manifest",
 	})
@@ -656,7 +659,7 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 	annotationStore := store.NewAnnotationStore(db)
 	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
 	appServer := httptest.NewServer(h)
 	t.Cleanup(appServer.Close)
 	t.Setenv("ANNOTATION_API_BASE", appServer.URL)
@@ -664,6 +667,7 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
 		ID:         t.Name(),
 		UserID:     store.AnonymousUserID,
+		WorkspaceID: 1,
 		Name:       "Test Item",
 		SourceType: "upload",
 	})
@@ -734,7 +738,7 @@ func TestSearchAnnotationsSupportsAllGranularity(t *testing.T) {
 	annotationStore := store.NewAnnotationStore(db)
 	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
 	appServer := httptest.NewServer(h)
 	t.Cleanup(appServer.Close)
 	t.Setenv("ANNOTATION_API_BASE", appServer.URL)
@@ -742,6 +746,7 @@ func TestSearchAnnotationsSupportsAllGranularity(t *testing.T) {
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
 		ID:         t.Name(),
 		UserID:     store.AnonymousUserID,
+		WorkspaceID: 1,
 		Name:       "Test Item",
 		SourceType: "upload",
 	})
@@ -819,7 +824,7 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 	annotationStore := store.NewAnnotationStore(db)
 	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore)
+	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
 	appServer := httptest.NewServer(h)
 	t.Cleanup(appServer.Close)
 	t.Setenv("ANNOTATION_API_BASE", appServer.URL)

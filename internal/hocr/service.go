@@ -22,10 +22,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 	"github.com/lehigh-university-libraries/htr/pkg/ollama"
 	"github.com/lehigh-university-libraries/htr/pkg/openai"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
 
 type Service struct {
@@ -55,6 +56,7 @@ type providerCallMetadata struct {
 }
 
 type providerCallMetadataKey struct{}
+type providerAPIKeyKey struct{}
 
 func NewService() *Service {
 	slog.Info("Initializing hOCR service (Tesseract word detection + LLM transcription)")
@@ -98,10 +100,37 @@ func providerCallMetadataFromContext(ctx context.Context) providerCallMetadata {
 	return meta
 }
 
+func WithProviderAPIKey(ctx context.Context, provider, apiKey string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	apiKey = strings.TrimSpace(apiKey)
+	if provider == "" || apiKey == "" {
+		return ctx
+	}
+	current, _ := ctx.Value(providerAPIKeyKey{}).(map[string]string)
+	next := make(map[string]string, len(current)+1)
+	for key, value := range current {
+		next[key] = value
+	}
+	next[provider] = apiKey
+	return context.WithValue(ctx, providerAPIKeyKey{}, next)
+}
+
+func providerAPIKeyFromContext(ctx context.Context, provider string) string {
+	if ctx == nil {
+		return ""
+	}
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	values, _ := ctx.Value(providerAPIKeyKey{}).(map[string]string)
+	return strings.TrimSpace(values[provider])
+}
+
 // ProcessingContext carries the parameters from a store.Context into the
 // processing pipeline without importing the store package (avoids cycles).
 type ProcessingContext struct {
-	SegmentationModel     string // "tesseract" | "scribe" | "kraken:<model>"
+	SegmentationModel     string // "tesseract" | "scribe" | "kraken" | "kraken:<model>"
 	TranscriptionProvider string
 	TranscriptionModel    string
 	Temperature           *float64
@@ -166,7 +195,7 @@ func (s *Service) ProcessImageWithContext(ctx context.Context, imagePath string,
 		model = s.getModelForProvider(providerName)
 	}
 
-	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, width, height,
+	transcribedWords, err := s.transcribeWords(goCtx, imagePath, selectedWords, width, height,
 		llmProvider, providerName, selectedProvider, lines, model)
 	if err != nil {
 		return "", "", "", fmt.Errorf("transcribe words: %w", err)
@@ -215,26 +244,47 @@ func (s *Service) transcribeTesseractDirect(lines [][]worddetection.WordBox, ima
 	return result
 }
 
+// parseSegmentationModel normalizes the configured segmentation model and
+// preserves the Kraken model identifier suffix exactly as configured.
+func parseSegmentationModel(segModel string) (string, string) {
+	trimmed := strings.TrimSpace(segModel)
+	lower := strings.ToLower(trimmed)
+
+	switch {
+	case lower == "", lower == "auto":
+		return "auto", ""
+	case lower == "tesseract":
+		return "tesseract", ""
+	case lower == "scribe":
+		return "scribe", ""
+	case lower == "kraken":
+		return "kraken", ""
+	case strings.HasPrefix(lower, "kraken:"):
+		return "kraken", strings.TrimSpace(trimmed[len("kraken:"):])
+	default:
+		return "auto", ""
+	}
+}
+
 // detectWithModel selects and runs the appropriate segmentation provider.
-// segModel values: "tesseract", "scribe", "kraken:<model-id>", "auto", ""
+// segModel values: "tesseract", "scribe", "kraken", "kraken:<model-id>", "auto", ""
 // "auto" (or empty string) runs both providers in parallel and picks the one that
 // detects more words; the winning provider name is returned for downstream use.
 func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel string) ([]worddetection.WordBox, string, error) {
-	seg := strings.ToLower(strings.TrimSpace(segModel))
+	kind, modelID := parseSegmentationModel(segModel)
 
-	switch {
-	case seg == "tesseract":
+	switch kind {
+	case "tesseract":
 		p := worddetection.NewTesseract()
 		words, err := p.DetectWords(ctx, imagePath)
 		return words, "tesseract", err
 
-	case seg == "scribe":
+	case "scribe":
 		p := worddetection.NewCustom()
 		words, err := p.DetectWords(ctx, imagePath)
 		return words, "custom", err
 
-	case strings.HasPrefix(seg, "kraken:"):
-		modelID := strings.TrimPrefix(seg, "kraken:")
+	case "kraken":
 		p := worddetection.NewKraken(modelID)
 		words, err := p.DetectWords(ctx, imagePath)
 		return words, "kraken", err
@@ -264,15 +314,19 @@ func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel strin
 }
 
 func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
-	return s.processImageToHOCR(imagePath, "", "")
+	return s.processImageToHOCR(context.Background(), imagePath, "", "")
 }
 
 func (s *Service) ProcessImageToHOCRWithModel(imagePath, modelOverride string) (string, error) {
-	return s.processImageToHOCR(imagePath, "", modelOverride)
+	return s.processImageToHOCR(context.Background(), imagePath, "", modelOverride)
 }
 
 func (s *Service) ProcessImageToHOCRWithProviderAndModel(imagePath, providerOverride, modelOverride string) (string, error) {
-	return s.processImageToHOCR(imagePath, providerOverride, modelOverride)
+	return s.processImageToHOCR(context.Background(), imagePath, providerOverride, modelOverride)
+}
+
+func (s *Service) ProcessImageToHOCRWithContext(ctx context.Context, imagePath, providerOverride, modelOverride string) (string, error) {
+	return s.processImageToHOCR(ctx, imagePath, providerOverride, modelOverride)
 }
 
 func (s *Service) DetectLinesToHOCR(imagePath string) (string, error) {
@@ -374,6 +428,13 @@ func (s *Service) TranscribeImage(imagePath, providerOverride, modelOverride str
 	return s.transcribeImageFile(context.Background(), imagePath, providerOverride, modelOverride, "transcribe_image")
 }
 
+func (s *Service) TranscribeImageWithContext(ctx context.Context, imagePath, providerOverride, modelOverride string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return s.transcribeImageFile(ctx, imagePath, providerOverride, modelOverride, "transcribe_image")
+}
+
 func (s *Service) transcribeRegionFromPath(ctx context.Context, imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
 	if maxX <= minX || maxY <= minY {
 		return "", fmt.Errorf("invalid bbox")
@@ -426,11 +487,7 @@ func (s *Service) extractTranscriptionFromImageWithOperation(ctx context.Context
 	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
 	prompt := "Transcribe the handwritten text in this image. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
-	config := providers.Config{
-		Model:       model,
-		Prompt:      prompt,
-		Temperature: 0.0,
-	}
+	config := s.providerConfig(providerName, model, prompt, 0.0)
 
 	text, err := s.extractTextWithRetry(ctx, llmProvider, providerName, config, imagePath, imageBase64, prompt, operation)
 	if err != nil {
@@ -455,12 +512,9 @@ func (s *Service) extractTextWithRetry(
 	baseDelay := 0 * time.Millisecond
 	maxDelay := 0 * time.Millisecond
 	if providerName == "ollama" {
-		attempts = getIntEnv("OLLAMA_RETRY_ATTEMPTS", 6)
-		baseDelay = time.Duration(getIntEnv("OLLAMA_RETRY_BASE_MS", 1000)) * time.Millisecond
-		maxDelay = time.Duration(getIntEnv("OLLAMA_RETRY_MAX_MS", 30000)) * time.Millisecond
-		if attempts < 1 {
-			attempts = 1
-		}
+		attempts = 6
+		baseDelay = 1000 * time.Millisecond
+		maxDelay = 30000 * time.Millisecond
 	}
 
 	var lastErr error
@@ -499,6 +553,21 @@ func (s *Service) extractTextWithRetry(
 		}
 	}
 	return "", lastErr
+}
+
+func (s *Service) providerConfig(providerName, model, prompt string, temperature float64) providers.Config {
+	cfg := providers.Config{
+		Provider:    providerName,
+		Model:       model,
+		Prompt:      prompt,
+		Temperature: temperature,
+	}
+	if strings.EqualFold(providerName, "ollama") {
+		runtime := config.Get()
+		cfg.BaseURL = strings.TrimSpace(runtime.Config.LLM.Ollama.URL)
+		cfg.Audience = strings.TrimSpace(runtime.Config.LLM.Ollama.Audience)
+	}
+	return cfg
 }
 
 func (s *Service) extractTextWithProvider(
@@ -549,20 +618,10 @@ func isRetriableOllamaError(err error) bool {
 		strings.Contains(msg, "temporarily unavailable")
 }
 
-func getIntEnv(name string, fallback int) int {
-	raw := strings.TrimSpace(os.Getenv(name))
-	if raw == "" {
-		return fallback
+func (s *Service) processImageToHOCR(ctx context.Context, imagePath, providerOverride, modelOverride string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	var v int
-	if _, err := fmt.Sscanf(raw, "%d", &v); err != nil || v < 1 {
-		return fallback
-	}
-	return v
-}
-
-func (s *Service) processImageToHOCR(imagePath, providerOverride, modelOverride string) (string, error) {
-	ctx := context.Background()
 
 	// Step 1: Get image dimensions
 	width, height, err := s.getImageDimensions(imagePath)
@@ -639,7 +698,7 @@ func (s *Service) processImageToHOCR(imagePath, providerOverride, modelOverride 
 	}
 
 	// Step 5: Transcribe words/lines using LLM (line-based if custom provider selected)
-	transcribedWords, err := s.transcribeWords(imagePath, selectedWords, width, height, llmProvider, providerName, selectedProvider, lines, modelOverride)
+	transcribedWords, err := s.transcribeWords(ctx, imagePath, selectedWords, width, height, llmProvider, providerName, selectedProvider, lines, modelOverride)
 	if err != nil {
 		return "", fmt.Errorf("failed to transcribe words: %w", err)
 	}
@@ -705,7 +764,7 @@ type TranscribedWord struct {
 func (s *Service) initLLMProvider(providerOverride string) (providers.Provider, string, error) {
 	providerType := strings.ToLower(strings.TrimSpace(providerOverride))
 	if providerType == "" {
-		providerType = os.Getenv("LLM_PROVIDER")
+		providerType = strings.ToLower(strings.TrimSpace(config.Get().Config.LLM.Provider))
 	}
 	if providerType == "" {
 		providerType = "ollama" // Default to Ollama
@@ -775,8 +834,10 @@ func (s *Service) groupWordsIntoLines(words []worddetection.WordBox) [][]worddet
 // transcribeWords extracts and transcribes words in batches using the LLM provider
 // If detectionProvider is "custom", transcribes entire lines instead of individual words
 // The lines parameter contains pre-filtered lines (filtered in ProcessImageToHOCR)
-func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, providerName, detectionProvider string, lines [][]worddetection.WordBox, modelOverride string) ([]TranscribedWord, error) {
-	ctx := context.Background()
+func (s *Service) transcribeWords(ctx context.Context, imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, providerName, detectionProvider string, lines [][]worddetection.WordBox, modelOverride string) ([]TranscribedWord, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	transcribed := make([]TranscribedWord, 0, len(words))
 
 	model := strings.TrimSpace(modelOverride)
@@ -850,11 +911,7 @@ func (s *Service) transcribeWords(imagePath string, words []worddetection.WordBo
 		// Create prompt for batch transcription
 		prompt := fmt.Sprintf("There are %d words in this image arranged horizontally. Transcribe each word on a separate line. Return ONLY the words, one per line, with no additional text, numbering, or explanation. If a word is not legible, use an empty line for that position.", len(batch))
 
-		config := providers.Config{
-			Model:       model,
-			Prompt:      prompt,
-			Temperature: 0.0,
-		}
+		config := s.providerConfig(providerName, model, prompt, 0.0)
 
 		var text string
 		if providerName == "gemini" {
@@ -1006,11 +1063,7 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 			imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
 			prompt := "Transcribe the handwritten text in this image. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
-			config := providers.Config{
-				Model:       model,
-				Prompt:      prompt,
-				Temperature: 0.0,
-			}
+			config := s.providerConfig(providerName, model, prompt, 0.0)
 
 			var text string
 			if providerName == "gemini" {
@@ -1094,17 +1147,10 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 }
 
 func (s *Service) getLineTranscriptionConcurrency() int {
-	raw := strings.TrimSpace(os.Getenv("LINE_TRANSCRIBE_CONCURRENCY"))
-	if raw == "" {
-		return 5
+	if v := config.Get().Config.LLM.LineTranscribeConcurrency; v > 0 {
+		return v
 	}
-
-	var v int
-	if _, err := fmt.Sscanf(raw, "%d", &v); err != nil || v < 1 {
-		slog.Warn("Invalid LINE_TRANSCRIBE_CONCURRENCY, using default", "value", raw, "default", 5)
-		return 5
-	}
-	return v
+	return 5
 }
 
 // extractLineImage extracts a line region from the image
@@ -1514,40 +1560,41 @@ func (s *Service) isLikelyWordBox(box worddetection.WordBox, imageWidth, imageHe
 
 // getModelForProvider returns the appropriate model for the provider
 func (s *Service) getModelForProvider(providerName string) string {
+	llm := config.Get().Config.LLM
 	switch providerName {
 	case "ollama":
-		model := os.Getenv("OLLAMA_MODEL")
-		if model == "" {
-			model = "glm-ocr:bf16"
+		if llm.Ollama.Model != "" {
+			return llm.Ollama.Model
 		}
-		return model
+		return "glm-ocr:bf16"
 	case "openai":
-		model := os.Getenv("OPENAI_MODEL")
-		if model == "" {
-			model = "gpt-4o"
+		if llm.OpenAI.Model != "" {
+			return llm.OpenAI.Model
 		}
-		return model
+		return "gpt-4o"
 	case "gemini":
-		model := os.Getenv("GEMINI_MODEL")
-		if model == "" {
-			model = "gemini-2.0-flash"
+		if llm.Gemini.Model != "" {
+			return llm.Gemini.Model
 		}
-		return model
+		return "gemini-2.0-flash"
 	default:
 		return ""
 	}
 }
 
 func (s *Service) extractTextWithGemini(ctx context.Context, model, prompt, imageBase64, operation string) (string, error) {
-	apiKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+	apiKey := providerAPIKeyFromContext(ctx, "gemini")
 	if apiKey == "" {
-		return "", fmt.Errorf("GEMINI_API_KEY is required when provider is gemini")
+		apiKey = strings.TrimSpace(config.Get().Secrets.GeminiAPIKey)
+	}
+	if apiKey == "" {
+		return "", fmt.Errorf("gemini api key is required when provider is gemini")
 	}
 	if strings.TrimSpace(model) == "" {
 		model = s.getModelForProvider("gemini")
 	}
 
-	urlTemplate := strings.TrimSpace(os.Getenv("GEMINI_API_URL_TEMPLATE"))
+	urlTemplate := strings.TrimSpace(config.Get().Config.LLM.Gemini.URLTemplate)
 	if urlTemplate == "" {
 		urlTemplate = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s"
 	}
@@ -1664,21 +1711,12 @@ func (s *Service) extractTextWithGemini(ctx context.Context, model, prompt, imag
 	return out.String(), nil
 }
 
-// getBatchSize returns the batch size for word transcription from environment
+// getBatchSize returns the batch size for word transcription.
 func (s *Service) getBatchSize() int {
-	batchSizeStr := os.Getenv("BATCH_SIZE")
-	if batchSizeStr == "" {
-		return 10 // Default batch size
+	if v := config.Get().Config.LLM.BatchSize; v > 0 {
+		return v
 	}
-
-	var batchSize int
-	_, err := fmt.Sscanf(batchSizeStr, "%d", &batchSize)
-	if err != nil || batchSize < 1 {
-		slog.Warn("Invalid BATCH_SIZE, using default", "value", batchSizeStr, "default", 10)
-		return 10
-	}
-
-	return batchSize
+	return 10
 }
 
 // stitchWordImages combines multiple word images horizontally into a single image

@@ -2,13 +2,18 @@ syntax = "proto3";
 
 package scribe.v1;
 
+import "buf/validate/validate.proto";
+
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
 // AnnotationService handles IIIF Presentation 3 annotation storage and
 // annotation enrichment operations on the main API server.
 
 message SearchAnnotationsRequest {
-  string canvas_uri = 1;
+  string canvas_uri = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
 }
 
 message SearchAnnotationsResponse {
@@ -18,7 +23,10 @@ message SearchAnnotationsResponse {
 
 message GetAnnotationRequest {
   // Bare ID suffix (the part after /v1/annotations/3/item/)
-  string id = 1;
+  string id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
 }
 
 message GetAnnotationResponse {
@@ -26,7 +34,10 @@ message GetAnnotationResponse {
 }
 
 message CreateAnnotationRequest {
-  string annotation_json = 1;
+  string annotation_json = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
 }
 
 message CreateAnnotationResponse {
@@ -34,7 +45,10 @@ message CreateAnnotationResponse {
 }
 
 message UpdateAnnotationRequest {
-  string annotation_json = 1;
+  string annotation_json = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
 }
 
 message UpdateAnnotationResponse {
@@ -42,7 +56,10 @@ message UpdateAnnotationResponse {
 }
 
 message DeleteAnnotationRequest {
-  string uri = 1;
+  string uri = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
 }
 
 message DeleteAnnotationResponse {}
@@ -51,9 +68,14 @@ message DeleteAnnotationResponse {}
 // AnnotationPage) to Scribe's transcription service for improvement.
 // The caller provides the raw JSON and specifies the scope.
 message EnrichAnnotationRequest {
+  option (buf.validate.message).cel = {
+    id: "enrich_annotation.scope"
+    message: "scope must be line or page"
+    expression: "(this.scope == 'line' || this.scope == 'page') && this.annotation_json.matches('.*\\\\S.*')"
+  };
   // "line" = single Annotation JSON; "page" = full AnnotationPage JSON
-  string scope           = 1;
-  string annotation_json = 2;
+  string scope           = 1 [(buf.validate.field).string.pattern = ".*\\S.*"];
+  string annotation_json = 2 [(buf.validate.field).string.pattern = ".*\\S.*"];
   // Optional: override context used for transcription
   uint64 context_id      = 3;
 }
@@ -65,7 +87,10 @@ message EnrichAnnotationResponse {
 // Split a line annotation into proportionally-spaced word annotations.
 // If words is empty the line text is tokenised on whitespace.
 message SplitLineIntoWordsRequest {
-  string            annotation_json = 1;
+  string            annotation_json = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
   repeated string   words           = 2;
 }
 
@@ -76,7 +101,10 @@ message SplitLineIntoWordsResponse {
 
 // Split a line annotation into two lines at a word boundary.
 message SplitLineIntoTwoLinesRequest {
-  string annotation_json = 1;
+  string annotation_json = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
   // 0 means split at midpoint.
   int32  split_at_word   = 2;
 }
@@ -87,7 +115,7 @@ message SplitLineIntoTwoLinesResponse {
 
 // Join two or more line annotations into one (union bbox, concatenated text).
 message JoinAnnotationsRequest {
-  repeated string annotation_jsons = 1;
+  repeated string annotation_jsons = 1 [(buf.validate.field).repeated.min_items = 2];
 }
 
 message JoinAnnotationsResponse {
@@ -96,9 +124,14 @@ message JoinAnnotationsResponse {
 
 // Crosswalk: convert an AnnotationPage (or single annotation) to an export format.
 message CrosswalkRequest {
+  option (buf.validate.message).cel = {
+    id: "crosswalk.input"
+    message: "annotation_page_json or annotation_json is required"
+    expression: "this.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')"
+  };
   // Provide one of the two fields; annotation_page_json takes priority.
-  string annotation_page_json = 1;
-  string annotation_json      = 2;
+  string annotation_page_json = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+  string annotation_json      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
 }
 
 message CrosswalkResponse {

@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package scribe.v1;
 
+import "buf/validate/validate.proto";
+import "scribe/v1/options/auth.proto";
+
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
 enum OutputFormat {
@@ -14,27 +17,36 @@ enum OutputFormat {
 // ProcessImageURLRequest is kept for direct URL → hOCR flows that don't
 // need to create a full item first (e.g. Islandora integration).
 message ProcessImageURLRequest {
-  string       image_url     = 1;
+  string       image_url     = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
   OutputFormat output_format = 2;
   // If set, uses this context; otherwise selection engine runs against metadata.
   uint64       context_id    = 3;
   // Optional metadata JSON passed to the selection engine.
-  string       metadata      = 4;
+  string       metadata      = 4 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
 }
 
 message ProcessImageUploadRequest {
-  bytes        image_data    = 1;
-  string       filename      = 2;
+  bytes        image_data    = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).bytes.min_len = 1
+  ];
+  string       filename      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   OutputFormat output_format = 3;
   uint64       context_id    = 4;
 }
 
 message ProcessHOCRRequest {
-  string       hocr          = 1;
-  string       image_url     = 2;
+  string       hocr          = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  string       image_url     = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   OutputFormat output_format = 3;
   bytes        image_data    = 4;
-  string       filename      = 5;
+  string       filename      = 5 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
 }
 
 // ProcessImageResponse returns item/image IDs along with run-scoped OCR data.
@@ -49,8 +61,13 @@ message ProcessImageResponse {
 }
 
 message GetOCRRunRequest {
+  option (buf.validate.message).cel = {
+    id: "get_ocr_run.identifier"
+    message: "session_id or item_image_id is required"
+    expression: "this.item_image_id > 0 || this.session_id.matches('.*\\\\S.*')"
+  };
   // Accept either session_id or item_image_id.
-  string session_id    = 1;
+  string session_id    = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   uint64 item_image_id = 2;
 }
 
@@ -68,9 +85,17 @@ message OCRRun {
 }
 
 message SaveOCREditsRequest {
-  string session_id    = 1;
+  option (buf.validate.message).cel = {
+    id: "save_ocr_edits.identifier"
+    message: "session_id or item_image_id is required"
+    expression: "this.item_image_id > 0 || this.session_id.matches('.*\\\\S.*')"
+  };
+  string session_id    = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   uint64 item_image_id = 2;
-  string corrected_hocr = 3;
+  string corrected_hocr = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
   int32  edit_count    = 4;
 }
 
@@ -84,7 +109,10 @@ message SaveOCREditsResponse {
 }
 
 message ReprocessItemImageRequest {
-  uint64 item_image_id = 1;
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
   uint64 context_id    = 2;
 }
 
@@ -100,10 +128,43 @@ message ReprocessItemImageResponse {
 }
 
 service ImageProcessingService {
-  rpc ProcessImageURL(ProcessImageURLRequest) returns (ProcessImageResponse);
-  rpc ProcessImageUpload(ProcessImageUploadRequest) returns (ProcessImageResponse);
-  rpc ProcessHOCR(ProcessHOCRRequest) returns (ProcessImageResponse);
-  rpc GetOCRRun(GetOCRRunRequest) returns (OCRRun);
-  rpc SaveOCREdits(SaveOCREditsRequest) returns (SaveOCREditsResponse);
-  rpc ReprocessItemImage(ReprocessItemImageRequest) returns (ReprocessItemImageResponse);
+  rpc ProcessImageURL(ProcessImageURLRequest) returns (ProcessImageResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc ProcessImageUpload(ProcessImageUploadRequest) returns (ProcessImageResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc ProcessHOCR(ProcessHOCRRequest) returns (ProcessImageResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc GetOCRRun(GetOCRRunRequest) returns (OCRRun) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "item_image_id"
+    };
+  }
+  rpc SaveOCREdits(SaveOCREditsRequest) returns (SaveOCREditsResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
+    };
+  }
+  rpc ReprocessItemImage(ReprocessItemImageRequest) returns (ReprocessItemImageResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
+    };
+  }
 }

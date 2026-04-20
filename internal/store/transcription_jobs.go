@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	db "github.com/lehigh-university-libraries/scribe/internal/db"
 )
 
 type TranscriptionJobStatus string
@@ -33,61 +35,55 @@ type TranscriptionJob struct {
 }
 
 type TranscriptionJobStore struct {
+	q    *db.Queries
 	pool *sql.DB
 }
 
 func NewTranscriptionJobStore(pool *sql.DB) *TranscriptionJobStore {
-	return &TranscriptionJobStore{pool: pool}
+	return &TranscriptionJobStore{q: db.New(pool), pool: pool}
 }
 
 func (s *TranscriptionJobStore) Create(ctx context.Context, itemImageID uint64, contextID *uint64) (uint64, error) {
-	res, err := s.pool.ExecContext(ctx,
-		`INSERT INTO transcription_jobs (item_image_id, context_id, status) VALUES (?, ?, 'pending')`,
-		itemImageID, contextID,
-	)
+	id, err := s.q.CreateTranscriptionJob(ctx, db.CreateTranscriptionJobParams{
+		ItemImageID: itemImageID,
+		ContextID:   contextID,
+	})
 	if err != nil {
 		return 0, fmt.Errorf("create transcription job: %w", err)
 	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("get job id: %w", err)
-	}
-	return uint64(id), nil
+	return id, nil
 }
 
 func (s *TranscriptionJobStore) Get(ctx context.Context, id uint64) (TranscriptionJob, error) {
-	row := s.pool.QueryRowContext(ctx, `
-		SELECT id, item_image_id, context_id, status,
-		       total_segments, completed_segments, failed_segments,
-		       COALESCE(current_annotation_id, ''), COALESCE(current_annotation_json, ''),
-		       COALESCE(last_result_annotation_json, ''), COALESCE(error_message, ''),
-		       created_at, updated_at
-		FROM transcription_jobs WHERE id = ?`, id)
-	return scanJob(row)
+	row, err := s.q.GetTranscriptionJob(ctx, id)
+	if err != nil {
+		return TranscriptionJob{}, fmt.Errorf("get transcription job: %w", err)
+	}
+	return rowToTranscriptionJob(row), nil
 }
 
 func (s *TranscriptionJobStore) ListByItemImage(ctx context.Context, itemImageID uint64) ([]TranscriptionJob, error) {
-	rows, err := s.pool.QueryContext(ctx, `
-		SELECT id, item_image_id, context_id, status,
-		       total_segments, completed_segments, failed_segments,
-		       COALESCE(current_annotation_id, ''), COALESCE(current_annotation_json, ''),
-		       COALESCE(last_result_annotation_json, ''), COALESCE(error_message, ''),
-		       created_at, updated_at
-		FROM transcription_jobs WHERE item_image_id = ?
-		ORDER BY created_at DESC`, itemImageID)
+	rows, err := s.q.ListTranscriptionJobsByItemImage(ctx, itemImageID)
 	if err != nil {
 		return nil, fmt.Errorf("list transcription jobs: %w", err)
 	}
-	defer rows.Close()
-	var jobs []TranscriptionJob
-	for rows.Next() {
-		j, err := scanJobRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		jobs = append(jobs, j)
+	jobs := make([]TranscriptionJob, 0, len(rows))
+	for _, row := range rows {
+		jobs = append(jobs, rowToTranscriptionJob(row))
 	}
-	return jobs, rows.Err()
+	return jobs, nil
+}
+
+func (s *TranscriptionJobStore) ListByWorkspace(ctx context.Context, workspaceID uint64) ([]TranscriptionJob, error) {
+	rows, err := s.q.ListTranscriptionJobsByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("list transcription jobs by workspace: %w", err)
+	}
+	jobs := make([]TranscriptionJob, 0, len(rows))
+	for _, row := range rows {
+		jobs = append(jobs, rowToTranscriptionJob(row))
+	}
+	return jobs, nil
 }
 
 // ClaimNextPending atomically claims the oldest pending job, marking it as
@@ -99,10 +95,8 @@ func (s *TranscriptionJobStore) ClaimNextPending(ctx context.Context) (*Transcri
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var id uint64
-	err = tx.QueryRowContext(ctx,
-		`SELECT id FROM transcription_jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1 FOR UPDATE`,
-	).Scan(&id)
+	qtx := s.q.WithTx(tx)
+	job, err := qtx.ClaimNextPendingTranscriptionJob(ctx)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -110,27 +104,23 @@ func (s *TranscriptionJobStore) ClaimNextPending(ctx context.Context) (*Transcri
 		return nil, fmt.Errorf("query pending job: %w", err)
 	}
 
-	_, err = tx.ExecContext(ctx,
-		`UPDATE transcription_jobs SET status = 'running', updated_at = NOW() WHERE id = ?`, id)
-	if err != nil {
+	if err := qtx.MarkTranscriptionJobRunning(ctx, job.ID); err != nil {
 		return nil, fmt.Errorf("claim job: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit claim: %w", err)
 	}
 
-	job, err := s.Get(ctx, id)
+	claimed, err := s.Get(ctx, job.ID)
 	if err != nil {
 		return nil, err
 	}
-	return &job, nil
+	return &claimed, nil
 }
 
 // SetTotalSegments sets the total segment count at the start of a job run.
 func (s *TranscriptionJobStore) SetTotalSegments(ctx context.Context, id uint64, total int) error {
-	_, err := s.pool.ExecContext(ctx,
-		`UPDATE transcription_jobs SET total_segments = ?, updated_at = NOW() WHERE id = ?`, total, id)
-	return err
+	return s.q.SetTranscriptionJobTotalSegments(ctx, id, int32(total))
 }
 
 // UpdateProgress records per-segment progress after each annotation is processed.
@@ -138,82 +128,55 @@ func (s *TranscriptionJobStore) UpdateProgress(ctx context.Context, id uint64,
 	completed, failed int,
 	currentAnnotationID, currentAnnotationJSON, lastResultAnnotationJSON string,
 ) error {
-	_, err := s.pool.ExecContext(ctx, `
-		UPDATE transcription_jobs
-		SET completed_segments        = ?,
-		    failed_segments           = ?,
-		    current_annotation_id     = ?,
-		    current_annotation_json   = ?,
-		    last_result_annotation_json = ?,
-		    updated_at                = NOW()
-		WHERE id = ?`,
-		completed, failed,
-		currentAnnotationID, currentAnnotationJSON, lastResultAnnotationJSON,
-		id,
-	)
-	return err
+	return s.q.UpdateTranscriptionJobProgress(ctx, db.UpdateTranscriptionJobProgressParams{
+		ID:                       id,
+		CompletedSegments:        int32(completed),
+		FailedSegments:           int32(failed),
+		CurrentAnnotationID:      currentAnnotationID,
+		CurrentAnnotationJSON:    currentAnnotationJSON,
+		LastResultAnnotationJSON: lastResultAnnotationJSON,
+	})
 }
 
 // Complete marks the job as completed and clears the current-segment fields.
 func (s *TranscriptionJobStore) Complete(ctx context.Context, id uint64) error {
-	_, err := s.pool.ExecContext(ctx, `
-		UPDATE transcription_jobs
-		SET status = 'completed', current_annotation_id = NULL, current_annotation_json = NULL, updated_at = NOW()
-		WHERE id = ?`, id)
-	return err
+	return s.q.CompleteTranscriptionJob(ctx, id)
 }
 
 // Fail marks the job as failed with an error message.
 func (s *TranscriptionJobStore) Fail(ctx context.Context, id uint64, errMsg string) error {
-	_, err := s.pool.ExecContext(ctx, `
-		UPDATE transcription_jobs
-		SET status = 'failed', error_message = ?, current_annotation_id = NULL, current_annotation_json = NULL, updated_at = NOW()
-		WHERE id = ?`, errMsg, id)
-	return err
+	return s.q.FailTranscriptionJob(ctx, id, errMsg)
 }
 
-// --- scanner helpers ---
-
-type rowScanner interface {
-	Scan(dest ...any) error
+func (s *TranscriptionJobStore) WorkspaceOwnsJob(ctx context.Context, workspaceID, jobID uint64) (bool, error) {
+	return s.q.WorkspaceOwnsTranscriptionJob(ctx, workspaceID, jobID)
 }
 
-func scanJob(row rowScanner) (TranscriptionJob, error) {
+func rowToTranscriptionJob(row db.TranscriptionJob) TranscriptionJob {
 	var j TranscriptionJob
-	var contextID sql.NullInt64
-	err := row.Scan(
-		&j.ID, &j.ItemImageID, &contextID, &j.Status,
-		&j.TotalSegments, &j.CompletedSegments, &j.FailedSegments,
-		&j.CurrentAnnotationID, &j.CurrentAnnotationJSON,
-		&j.LastResultAnnotationJSON, &j.ErrorMessage,
-		&j.CreatedAt, &j.UpdatedAt,
-	)
-	if err != nil {
-		return j, fmt.Errorf("scan transcription job: %w", err)
-	}
-	if contextID.Valid {
-		v := uint64(contextID.Int64)
+	j.ID = row.ID
+	j.ItemImageID = row.ItemImageID
+	j.Status = TranscriptionJobStatus(row.Status)
+	j.TotalSegments = int(row.TotalSegments)
+	j.CompletedSegments = int(row.CompletedSegments)
+	j.FailedSegments = int(row.FailedSegments)
+	j.CreatedAt = row.CreatedAt
+	j.UpdatedAt = row.UpdatedAt
+	if row.ContextID.Valid {
+		v := uint64(row.ContextID.Int64)
 		j.ContextID = &v
 	}
-	return j, nil
-}
-
-func scanJobRow(rows *sql.Rows) (TranscriptionJob, error) {
-	var j TranscriptionJob
-	var contextID sql.NullInt64
-	err := rows.Scan(
-		&j.ID, &j.ItemImageID, &contextID, &j.Status,
-		&j.TotalSegments, &j.CompletedSegments, &j.FailedSegments,
-		&j.CurrentAnnotationID, &j.CurrentAnnotationJSON,
-		&j.LastResultAnnotationJSON, &j.ErrorMessage,
-		&j.CreatedAt, &j.UpdatedAt,
-	)
-	if err != nil {
-		return j, fmt.Errorf("scan transcription job row: %w", err)
+	if row.CurrentAnnotationID.Valid {
+		j.CurrentAnnotationID = row.CurrentAnnotationID.String
 	}
-	if contextID.Valid {
-		v := uint64(contextID.Int64)
-		j.ContextID = &v
+	if row.CurrentAnnotationJson.Valid {
+		j.CurrentAnnotationJSON = row.CurrentAnnotationJson.String
 	}
-	return j, nil
+	if row.LastResultAnnotationJson.Valid {
+		j.LastResultAnnotationJSON = row.LastResultAnnotationJson.String
+	}
+	if row.ErrorMessage.Valid {
+		j.ErrorMessage = row.ErrorMessage.String
+	}
+	return j
 }

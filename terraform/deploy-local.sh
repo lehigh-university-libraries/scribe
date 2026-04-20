@@ -5,6 +5,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
+  terraform/deploy-local.sh dev <plan|apply|destroy> [--branch BRANCH]
   terraform/deploy-local.sh prod <plan|apply|destroy>
   terraform/deploy-local.sh preview <plan|apply|destroy> [--branch BRANCH] --pr-number NUMBER
 
@@ -15,13 +16,17 @@ Optional environment:
   TF_STATE_BUCKET      GCS bucket used for Terraform remote state. Defaults to ${GCLOUD_PROJECT}-terraform
   ALLOWED_IPS         Terraform list(string), e.g. ["203.0.113.10/32"]
   ALLOWED_SSH_IPV4    Terraform list(string), e.g. ["203.0.113.10/32"]
-  SCRIBE_API_IMAGE    Exact app image to inject into Terraform app_env
-  SCRIBE_APP_ENV      JSON object merged into TF_VAR_app_env
+  SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
+  SCRIBE_FRONTEND_IMAGE  Exact frontend image to inject into Terraform frontend_image (GHCR, used by the VM compose stack)
+  SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar)
 
 Notes:
+  - Dev mode uses Terraform workspace dev and site name scribe-dev.
   - Preview mode matches GitHub Actions naming only when --pr-number is supplied.
   - Preview images use ghcr.io/lehigh-university-libraries/scribe:<branch>
+  - Preview frontend images use ghcr.io/lehigh-university-libraries/scribe-frontend:<branch>
   - Production uses ghcr.io/lehigh-university-libraries/scribe:main
+  - Production frontend uses ghcr.io/lehigh-university-libraries/scribe-frontend:main
 EOF
 }
 
@@ -36,17 +41,6 @@ sanitize_image_tag() {
   printf '%s' "$1" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}' | tr '[:upper:]' '[:lower:]'
 }
 
-merge_app_env() {
-  local base_env="$1"
-  local image_ref="$2"
-
-  if [ -z "$base_env" ]; then
-    base_env='{}'
-  fi
-
-  jq -cn --argjson base "$base_env" --arg image "$image_ref" '$base + {SCRIBE_API_IMAGE: $image}'
-}
-
 select_workspace() {
   local workspace="$1"
 
@@ -59,8 +53,6 @@ select_workspace() {
 require_cmd git
 require_cmd gcloud
 require_cmd terraform
-require_cmd jq
-
 if [ $# -lt 2 ]; then
   usage
   exit 1
@@ -104,6 +96,13 @@ while [ $# -gt 0 ]; do
 done
 
 case "$environment" in
+  dev)
+    target_workspace="dev"
+    export TF_VAR_name="scribe-dev"
+    export TF_VAR_docker_compose_branch="$branch"
+    export TF_VAR_run_snapshots="false"
+    fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:$(sanitize_image_tag "$branch")"
+    ;;
   prod)
     target_workspace="prod"
     export TF_VAR_name="scribe"
@@ -130,6 +129,8 @@ case "$environment" in
 esac
 
 image_tag="${SCRIBE_API_IMAGE:-$fallback_image_tag}"
+frontend_image_tag="${SCRIBE_FRONTEND_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-frontend:$(printf '%s' "${image_tag##*:}" | tr '[:upper:]' '[:lower:]')}"
+frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-}"
 
 case "$action" in
   plan|apply|destroy) ;;
@@ -142,21 +143,24 @@ esac
 
 cd "$(dirname "$0")"
 
-export TF_VAR_project_id="$GCLOUD_PROJECT"
-export TF_VAR_project_number
-TF_VAR_project_number="$(gcloud projects describe "$GCLOUD_PROJECT" --format='value(projectNumber)')"
-export TF_VAR_project_number
+terraform_vars=(
+  "-var=project_id=${GCLOUD_PROJECT}"
+  "-var=terraform_state_bucket=${TF_STATE_BUCKET}"
+  "-var=name=${TF_VAR_name}"
+  "-var=docker_compose_branch=${TF_VAR_docker_compose_branch}"
+  "-var=run_snapshots=${TF_VAR_run_snapshots}"
+  "-var=api_image=${image_tag}"
+  "-var=frontend_image=${frontend_image_tag}"
+  "-var=frontend_gar_image=${frontend_gar_image_tag}"
+)
 
 if [ -n "${ALLOWED_IPS:-}" ]; then
-  export TF_VAR_allowed_ips="$ALLOWED_IPS"
+  terraform_vars+=("-var=allowed_ips=${ALLOWED_IPS}")
 fi
 
 if [ -n "${ALLOWED_SSH_IPV4:-}" ]; then
-  export TF_VAR_allowed_ssh_ipv4="$ALLOWED_SSH_IPV4"
+  terraform_vars+=("-var=allowed_ssh_ipv4=${ALLOWED_SSH_IPV4}")
 fi
-
-export TF_VAR_app_env
-TF_VAR_app_env="$(merge_app_env "${SCRIBE_APP_ENV:-}" "$image_tag")"
 
 terraform init -upgrade \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -170,12 +174,12 @@ fi
 
 case "$action" in
   plan)
-    terraform plan
+    terraform plan "${terraform_vars[@]}"
     ;;
   apply)
-    terraform apply -auto-approve
+    terraform apply -auto-approve "${terraform_vars[@]}"
     ;;
   destroy)
-    terraform destroy -auto-approve
+    terraform destroy -auto-approve "${terraform_vars[@]}"
     ;;
 esac

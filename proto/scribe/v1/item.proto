@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package scribe.v1;
 
+import "buf/validate/validate.proto";
+import "scribe/v1/options/auth.proto";
+
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
 // ItemImage represents a single image (canvas) within an item.
@@ -38,7 +41,10 @@ message ListItemsResponse {
 }
 
 message GetItemRequest {
-  string item_id = 1;
+  string item_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
 }
 
 message GetItemResponse {
@@ -48,14 +54,19 @@ message GetItemResponse {
 // CreateItemRequest covers URL ingest and manifest ingest.
 // For single/multi file upload use UploadItemImageRequest.
 message CreateItemRequest {
+  option (buf.validate.message).cel = {
+    id: "create_item.source_type"
+    message: "source_type must be empty, url, or manifest"
+    expression: "this.source_type == '' || this.source_type == 'url' || this.source_type == 'manifest'"
+  };
   string name        = 1;
   // source_type: "url" | "manifest"
-  string source_type = 2;
-  string source_url  = 3;
+  string source_type = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+  string source_url  = 3 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   // Optional context to use for processing; if empty, selection engine runs.
   uint64 context_id  = 4;
   // Optional metadata JSON to seed the item (for integrations like Islandora).
-  string metadata    = 5;
+  string metadata    = 5 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
 }
 
 message CreateItemResponse {
@@ -65,10 +76,13 @@ message CreateItemResponse {
 // UploadItemImageRequest handles single or batch file upload.
 // Returns the item after all images are added.
 message UploadItemImageRequest {
-  string item_id    = 1; // if empty, a new item is created
-  string name       = 2; // item name (used when creating)
-  bytes  image_data = 3;
-  string filename   = 4;
+  string item_id    = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"]; // if empty, a new item is created
+  string name       = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"]; // item name (used when creating)
+  bytes  image_data = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).bytes.min_len = 1
+  ];
+  string filename   = 4 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   uint32 sequence   = 5;
   uint64 context_id = 6;
 }
@@ -79,15 +93,46 @@ message UploadItemImageResponse {
 }
 
 message DeleteItemRequest {
-  string item_id = 1;
+  string item_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
 }
 
 message DeleteItemResponse {}
 
 service ItemService {
-  rpc ListItems(ListItemsRequest) returns (ListItemsResponse);
-  rpc GetItem(GetItemRequest) returns (GetItemResponse);
-  rpc CreateItem(CreateItemRequest) returns (CreateItemResponse);
-  rpc UploadItemImage(UploadItemImageRequest) returns (UploadItemImageResponse);
-  rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse);
+  rpc ListItems(ListItemsRequest) returns (ListItemsResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc GetItem(GetItemRequest) returns (GetItemResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_ITEM
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "item_id"
+    };
+  }
+  rpc CreateItem(CreateItemRequest) returns (CreateItemResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc UploadItemImage(UploadItemImageRequest) returns (UploadItemImageResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_ITEM
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_id"
+    };
+  }
+  rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_ITEM
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_id"
+    };
+  }
 }

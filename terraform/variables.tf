@@ -3,9 +3,10 @@ variable "project_id" {
   type        = string
 }
 
-variable "project_number" {
-  description = "GCP project number."
+variable "terraform_state_bucket" {
+  description = "Optional GCS bucket name used for remote Terraform state lookups. Defaults to <project_id>-terraform."
   type        = string
+  default     = ""
 }
 
 variable "name" {
@@ -32,62 +33,34 @@ variable "machine_type" {
   default     = "n4-standard-2"
 }
 
-variable "disk_type" {
-  description = "Disk type for attached disks."
-  type        = string
-  default     = "hyperdisk-balanced"
-}
-
 variable "disk_size_gb" {
   description = "Persistent docker volumes disk size in GB."
   type        = number
   default     = 50
 }
 
-variable "docker_compose_repo" {
-  description = "HTTPS git URL for the Scribe repository the VM will clone."
-  type        = string
-  default     = "https://github.com/lehigh-university-libraries/scribe.git"
-}
-
 variable "docker_compose_branch" {
-  description = "Branch to deploy from the docker compose repository."
+  description = "Branch to deploy from the Scribe repository."
   type        = string
   default     = "main"
 }
 
-variable "docker_compose_init" {
-  description = "Shell command run after cloning and before docker compose up."
-  type        = list(string)
-  default = [
-    "test -f .env || cp sample.env .env",
-    "bash generate-secrets.sh"
-  ]
+variable "api_image" {
+  description = "Backend image deployed to the VM for the api and worker services."
+  type        = string
+  default     = "ghcr.io/lehigh-university-libraries/scribe:main"
 }
 
-variable "app_env" {
-  description = "Sensitive environment variables to merge into the application's .env file."
-  type        = map(string)
-  default     = {}
-  sensitive   = true
+variable "frontend_image" {
+  description = "Frontend image deployed on the VM compose stack (GHCR). The VM pulls from GHCR directly."
+  type        = string
+  default     = "ghcr.io/lehigh-university-libraries/scribe-frontend:main"
 }
 
-variable "docker_compose_up" {
-  description = "Shell command used to start the compose stack."
-  type        = list(string)
-  default = [
-    "git pull",
-    "docker compose pull api",
-    "docker compose up --no-build"
-  ]
-}
-
-variable "docker_compose_down" {
-  description = "Shell command used to stop the compose stack."
-  type        = list(string)
-  default = [
-    "docker compose down"
-  ]
+variable "frontend_gar_image" {
+  description = "Frontend image deployed as the Cloud Run sidecar next to ppb. Must live in GAR or Docker Hub, since Cloud Run cannot pull from GHCR. Leave empty to disable the sidecar."
+  type        = string
+  default     = ""
 }
 
 variable "allowed_ips" {
@@ -118,4 +91,34 @@ variable "run_snapshots" {
   description = "Whether to enable scheduled snapshots for the persistent disks."
   type        = bool
   default     = true
+}
+
+variable "app_domain" {
+  description = "Hostname routed to the main Scribe app backend on the shared load balancer."
+  type        = string
+  default     = ""
+}
+
+variable "cantaloupe_domain" {
+  description = "Hostname routed to the shared Cantaloupe backend on the shared load balancer."
+  type        = string
+  default     = ""
+}
+
+variable "vault_admin_emails" {
+  description = "Email addresses treated as Vault administrators by the Vault Cloud Run deployment module."
+  type        = list(string)
+  default     = []
+}
+
+variable "vault_ci_service_account_emails" {
+  description = "Service account emails allowed to read deployment secrets from Vault through GCP IAM auth."
+  type        = list(string)
+  default     = []
+}
+
+variable "ollama_models" {
+  description = "Shared Ollama model services to build and deploy as private Cloud Run backends. Only created in the prod workspace."
+  type        = set(string)
+  default     = []
 }

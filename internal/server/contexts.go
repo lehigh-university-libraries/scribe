@@ -11,7 +11,7 @@ import (
 
 func (h *Handler) handleListContexts(w http.ResponseWriter, r *http.Request) {
 	systemOnly := strings.EqualFold(r.URL.Query().Get("system_only"), "true")
-	contexts, err := h.contexts.List(r.Context(), systemOnly)
+	contexts, err := h.contexts.ListForWorkspace(r.Context(), h.currentWorkspaceID(r.Context()), systemOnly)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -25,6 +25,10 @@ func (h *Handler) handleCreateContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	userID := h.currentUserID(r.Context())
+	workspaceID := h.currentWorkspaceID(r.Context())
+	c.UserID = &userID
+	c.WorkspaceID = &workspaceID
 	created, err := h.contexts.Create(r.Context(), c)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -39,7 +43,7 @@ func (h *Handler) handleGetContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	c, err := h.contexts.Get(r.Context(), id)
+	c, err := h.contextForRead(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "context not found")
 		return
@@ -59,7 +63,7 @@ func (h *Handler) handleUpdateContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.ID = id
-	updated, err := h.contexts.Update(r.Context(), c)
+	updated, err := h.contexts.UpdateForWorkspace(r.Context(), c, h.currentWorkspaceID(r.Context()), h.currentUserID(r.Context()))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -73,7 +77,7 @@ func (h *Handler) handleDeleteContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.contexts.Delete(r.Context(), id); err != nil {
+	if err := h.contexts.DeleteForWorkspace(r.Context(), id, h.currentWorkspaceID(r.Context())); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -86,7 +90,7 @@ func (h *Handler) handleListRules(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	rules, err := h.contexts.ListRules(r.Context(), id)
+	rules, err := h.contexts.ListRulesForWorkspace(r.Context(), h.currentWorkspaceID(r.Context()), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -106,7 +110,7 @@ func (h *Handler) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule.ContextID = id
-	created, err := h.contexts.CreateRule(r.Context(), rule)
+	created, err := h.contexts.CreateRuleForWorkspace(r.Context(), h.currentWorkspaceID(r.Context()), rule)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -121,7 +125,7 @@ func (h *Handler) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid rule_id")
 		return
 	}
-	if err := h.contexts.DeleteRule(r.Context(), id); err != nil {
+	if err := h.contexts.DeleteRuleForWorkspace(r.Context(), h.currentWorkspaceID(r.Context()), id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -136,7 +140,7 @@ func (h *Handler) handleResolveContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	c, isDefault, err := h.contexts.Resolve(r.Context(), req.Metadata)
+	c, isDefault, err := h.contexts.ResolveForWorkspace(r.Context(), h.currentWorkspaceID(r.Context()), req.Metadata)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

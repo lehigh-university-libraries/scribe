@@ -6,7 +6,7 @@ fixtures
 docs
 renovate.json5
 *.md
-*.yaml
+docker-compose.*
 .env
 uploads/*
 cache/*

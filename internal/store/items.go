@@ -10,11 +10,12 @@ import (
 	db "github.com/lehigh-university-libraries/scribe/internal/db"
 )
 
-const AnonymousUserID uint64 = 0
+const AnonymousUserID uint64 = 1
 
 type Item struct {
 	ID         string         `json:"id"`
 	UserID     uint64         `json:"user_id"`
+	WorkspaceID uint64        `json:"workspace_id"`
 	Name       string         `json:"name"`
 	SourceType string         `json:"source_type"`
 	SourceURL  string         `json:"source_url,omitempty"`
@@ -37,12 +38,11 @@ type ItemImage struct {
 }
 
 type ItemStore struct {
-	q    *db.Queries
-	pool *sql.DB
+	q *db.Queries
 }
 
 func NewItemStore(pool *sql.DB) *ItemStore {
-	return &ItemStore{q: db.New(pool), pool: pool}
+	return &ItemStore{q: db.New(pool)}
 }
 
 func (s *ItemStore) Create(ctx context.Context, params db.CreateItemParams) (Item, error) {
@@ -70,19 +70,41 @@ func (s *ItemStore) Get(ctx context.Context, id string) (Item, error) {
 	return item, nil
 }
 
-func (s *ItemStore) List(ctx context.Context, userID uint64) ([]Item, error) {
-	rows, err := s.q.ListItems(ctx, userID)
+func (s *ItemStore) GetForWorkspace(ctx context.Context, id string, workspaceID uint64) (Item, error) {
+	item, err := s.q.GetItemForWorkspace(ctx, id, workspaceID)
+	if err != nil {
+		return Item{}, fmt.Errorf("get item: %w", err)
+	}
+	storeItem := rowToItem(item)
+
+	imgs, err := s.q.ListItemImages(ctx, storeItem.ID)
+	if err != nil {
+		return storeItem, nil
+	}
+	storeItem.Images = make([]ItemImage, 0, len(imgs))
+	for _, img := range imgs {
+		storeItem.Images = append(storeItem.Images, rowToItemImage(img))
+	}
+	return storeItem, nil
+}
+
+func (s *ItemStore) List(ctx context.Context, workspaceID uint64) ([]Item, error) {
+	rows, err := s.q.ListItems(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("list items: %w", err)
+	}
+	images, err := s.q.ListItemImagesByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("list item images: %w", err)
+	}
+	imagesByItemID := make(map[string][]ItemImage, len(rows))
+	for _, img := range images {
+		imagesByItemID[img.ItemID] = append(imagesByItemID[img.ItemID], rowToItemImage(img))
 	}
 	out := make([]Item, 0, len(rows))
 	for _, row := range rows {
 		it := rowToItem(row)
-		imgs, _ := s.q.ListItemImages(ctx, it.ID)
-		it.Images = make([]ItemImage, 0, len(imgs))
-		for _, img := range imgs {
-			it.Images = append(it.Images, rowToItemImage(img))
-		}
+		it.Images = imagesByItemID[it.ID]
 		out = append(out, it)
 	}
 	return out, nil
@@ -90,6 +112,10 @@ func (s *ItemStore) List(ctx context.Context, userID uint64) ([]Item, error) {
 
 func (s *ItemStore) Delete(ctx context.Context, id string) error {
 	return s.q.DeleteItem(ctx, id)
+}
+
+func (s *ItemStore) DeleteForWorkspace(ctx context.Context, id string, workspaceID uint64) error {
+	return s.q.DeleteItemForWorkspace(ctx, id, workspaceID)
 }
 
 func (s *ItemStore) UpdateMetadata(ctx context.Context, id string, metadata map[string]any) error {
@@ -117,6 +143,14 @@ func (s *ItemStore) GetImage(ctx context.Context, id uint64) (ItemImage, error) 
 	return rowToItemImage(row), nil
 }
 
+func (s *ItemStore) GetImageForWorkspace(ctx context.Context, id uint64, workspaceID uint64) (ItemImage, error) {
+	img, err := s.q.GetItemImageForWorkspace(ctx, id, workspaceID)
+	if err != nil {
+		return ItemImage{}, err
+	}
+	return rowToItemImage(img), nil
+}
+
 func (s *ItemStore) GetImageByCanvasURI(ctx context.Context, canvasURI string) (ItemImage, error) {
 	row, err := s.q.GetItemImageByCanvasURI(ctx, canvasURI)
 	if err != nil {
@@ -125,27 +159,44 @@ func (s *ItemStore) GetImageByCanvasURI(ctx context.Context, canvasURI string) (
 	return rowToItemImage(row), nil
 }
 
+func (s *ItemStore) GetImageByCanvasURIForWorkspace(ctx context.Context, canvasURI string, workspaceID uint64) (ItemImage, error) {
+	img, err := s.q.GetItemImageByCanvasURIForWorkspace(ctx, canvasURI, workspaceID)
+	if err != nil {
+		return ItemImage{}, err
+	}
+	return rowToItemImage(img), nil
+}
+
 func (s *ItemStore) UpdateImageCanvasURI(ctx context.Context, id uint64, canvasURI string) error {
 	return s.q.UpdateItemImageCanvasURI(ctx, id, canvasURI)
+}
+
+func (s *ItemStore) WorkspaceOwnsItem(ctx context.Context, workspaceID uint64, itemID string) (bool, error) {
+	return s.q.WorkspaceOwnsItem(ctx, workspaceID, itemID)
+}
+
+func (s *ItemStore) WorkspaceOwnsItemImage(ctx context.Context, workspaceID uint64, itemImageID uint64) (bool, error) {
+	return s.q.WorkspaceOwnsItemImage(ctx, workspaceID, itemImageID)
 }
 
 // --- helpers ---
 
 func rowToItem(row db.Item) Item {
 	it := Item{
-		ID:         row.ID,
-		UserID:     row.UserID,
-		Name:       row.Name,
-		SourceType: row.SourceType,
-		CreatedAt:  row.CreatedAt,
-		UpdatedAt:  row.UpdatedAt,
+		ID:          row.ID,
+		UserID:      row.UserID,
+		WorkspaceID: row.WorkspaceID,
+		Name:        row.Name,
+		SourceType:  string(row.SourceType),
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
 	}
-	if row.SourceURL.Valid {
-		it.SourceURL = row.SourceURL.String
+	if row.SourceUrl.Valid {
+		it.SourceURL = row.SourceUrl.String
 	}
-	if row.Metadata.Valid && row.Metadata.String != "" {
+	if len(row.Metadata) > 0 {
 		var m map[string]any
-		if err := json.Unmarshal([]byte(row.Metadata.String), &m); err == nil {
+		if err := json.Unmarshal(row.Metadata, &m); err == nil {
 			it.Metadata = m
 		}
 	}
@@ -157,18 +208,18 @@ func rowToItemImage(row db.ItemImage) ItemImage {
 		ID:        row.ID,
 		ItemID:    row.ItemID,
 		Sequence:  row.Sequence,
-		ImageURL:  row.ImageURL,
+		ImageURL:  row.ImageUrl,
 		CreatedAt: row.CreatedAt,
 		UpdatedAt: row.UpdatedAt,
 	}
-	if row.CanvasURI.Valid {
-		img.CanvasURI = row.CanvasURI.String
+	if row.CanvasUri.Valid {
+		img.CanvasURI = row.CanvasUri.String
 	}
 	if row.Label.Valid {
 		img.Label = row.Label.String
 	}
-	if row.HocrURL.Valid {
-		img.HocrURL = row.HocrURL.String
+	if row.HocrUrl.Valid {
+		img.HocrURL = row.HocrUrl.String
 	}
 	return img
 }

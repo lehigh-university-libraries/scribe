@@ -2,9 +2,11 @@
 
 set -eu
 
-if [ -z "${DATABASE_DSN:-}" ] && [ -f /run/secrets/mariadb_password ]; then
-  password="$(tr -d '\n' < /run/secrets/mariadb_password)"
-  export DATABASE_DSN="${MARIADB_USER:-scribe}:${password}@tcp(mariadb:3306)/${MARIADB_DATABASE:-scribe}?parseTime=true"
+# Scribe reads nearly all runtime config from /etc/scribe/config.yaml. The only
+# optional env fallback left is VAULT_TOKEN for local development.
+
+if [ "$#" -gt 0 ]; then
+  exec "$@"
 fi
 
-exec /app/scribe "$@"
+exec /app/scribe-api

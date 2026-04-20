@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -46,7 +48,7 @@ func (h *Handler) resolveTranscriptionConfig(
 	var selectedModel string
 
 	if contextID > 0 {
-		c, err := h.contexts.Get(ctx, contextID)
+		c, err := h.contextForRead(ctx, contextID)
 		if err != nil {
 			return "", "", fmt.Errorf("context not found")
 		}
@@ -60,7 +62,7 @@ func (h *Handler) resolveTranscriptionConfig(
 				return "", "", fmt.Errorf("invalid metadata json")
 			}
 		}
-		c, _, err := h.contexts.Resolve(ctx, metadata)
+			c, _, err := h.contexts.ResolveForWorkspace(ctx, h.currentWorkspaceID(ctx), metadata)
 		if err != nil {
 			return "", "", fmt.Errorf("resolve context: %w", err)
 		}
@@ -83,17 +85,7 @@ func (h *Handler) resolveTranscriptionConfig(
 // resolveContext returns the full store.Context for a request, resolving via
 // explicit context ID or metadata-based selection rules.
 func (h *Handler) resolveContext(ctx context.Context, contextID uint64, metadataJSON string) (store.Context, error) {
-	if contextID > 0 {
-		return h.contexts.Get(ctx, contextID)
-	}
-	var metadata map[string]any
-	if raw := strings.TrimSpace(metadataJSON); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
-			return store.Context{}, fmt.Errorf("invalid metadata json: %w", err)
-		}
-	}
-	c, _, err := h.contexts.Resolve(ctx, metadata)
-	return c, err
+	return h.resolveContextForRequest(ctx, contextID, metadataJSON)
 }
 
 // processingContextFromStore converts a store.Context into an hocr.ProcessingContext.
@@ -205,7 +197,7 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 		finishProgress(progressID, "done", "Completed", "")
 	}
 	if runAsync {
-		h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
+		h.startAsyncTranscription(sessionID, result.ImageURL, provider, model, h.currentWorkspaceID(ctx), h.currentUserIDPtr(ctx))
 	} else {
 		// Segment-only path: enqueue a batch transcription job so the worker
 		// transcribes annotations in the background and the editor can stream progress.
@@ -315,7 +307,7 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 		finishProgress(progressID, "done", "Completed", "")
 	}
 	if runAsync {
-		h.startAsyncTranscription(sessionID, result.ImageURL, provider, model)
+		h.startAsyncTranscription(sessionID, result.ImageURL, provider, model, h.currentWorkspaceID(ctx), h.currentUserIDPtr(ctx))
 	} else {
 		if _, err := h.transcriptionJobs.Create(ctx, itemImage.ID, contextID); err != nil {
 			slog.Warn("Failed to enqueue transcription job", "item_image_id", itemImage.ID, "error", err)
@@ -417,12 +409,15 @@ func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[scribev1.G
 	if req.Msg.GetItemImageId() > 0 {
 		// Use the on-demand fallback: if no OCR run exists but the item_image
 		// has a hocr_url (from a manifest seeAlso), fetch and cache it now.
+		if _, authErr := h.itemImageForRequest(ctx, req.Msg.GetItemImageId()); authErr != nil {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
+		}
 		run, err = h.fetchOrCacheHOCRRun(ctx, req.Msg.GetItemImageId())
 	} else {
-		run, err = h.ocrRuns.Get(ctx, req.Msg.GetSessionId())
+		run, err = h.ocrRunForRequest(ctx, req.Msg.GetSessionId(), 0)
 	}
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "no rows") || strings.Contains(strings.ToLower(err.Error()), "not found") {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -467,16 +462,18 @@ func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[scribev
 	)
 	if req.Msg.GetItemImageId() > 0 {
 		itemImageID = req.Msg.GetItemImageId()
-		run, err = h.ocrRuns.GetByItemImageID(ctx, itemImageID)
-		sessionID = run.SessionID
+		run, err = h.ocrRunForRequest(ctx, "", itemImageID)
+		if err == nil {
+			sessionID = run.SessionID
+		}
 	} else {
-		run, err = h.ocrRuns.Get(ctx, sessionID)
+		run, err = h.ocrRunForRequest(ctx, sessionID, 0)
 		if run.ItemImageID != nil {
 			itemImageID = *run.ItemImageID
 		}
 	}
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "no rows") {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -521,12 +518,12 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[s
 	if req.Msg.GetItemImageId() == 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_image_id is required"))
 	}
-	run, err := h.ocrRuns.GetByItemImageID(ctx, req.Msg.GetItemImageId())
+	run, err := h.ocrRunForRequest(ctx, "", req.Msg.GetItemImageId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
 	}
 
-	img, err := h.items.GetImage(ctx, req.Msg.GetItemImageId())
+	img, err := h.itemImageForRequest(ctx, req.Msg.GetItemImageId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item image not found"))
 	}
@@ -691,7 +688,8 @@ func (h *Handler) createOCRItemAndImage(ctx context.Context, sourceType, imageUR
 	itemName := fmt.Sprintf("%s %s", itemSourceLabel(sourceLabel, imageURL), itemContextLabel(resolvedCtx))
 	item, err := h.items.Create(ctx, db.CreateItemParams{
 		ID:         itemID,
-		UserID:     store.AnonymousUserID,
+		UserID:     h.currentUserID(ctx),
+		WorkspaceID: h.currentWorkspaceID(ctx),
 		Name:       itemName,
 		SourceType: sourceType,
 		SourceURL:  sourceURL,

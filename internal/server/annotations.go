@@ -291,12 +291,13 @@ func (h *Handler) autoIngestManifest(ctx context.Context, manifestURL string) er
 	if label == "" {
 		label = manifestURL
 	}
-	itemID := fmt.Sprintf("auto-%x", sha1.Sum([]byte(manifestURL)))[:20]
+	itemID := fmt.Sprintf("auto-%d-%x", h.currentUserID(ctx), sha1.Sum([]byte(manifestURL)))[:32]
 	it, err := h.items.Create(ctx, db.CreateItemParams{
 		ID:         itemID,
-		UserID:     store.AnonymousUserID,
+		UserID:     h.currentUserID(ctx),
+		WorkspaceID: h.currentWorkspaceID(ctx),
 		Name:       label,
-		SourceType: "iiif_manifest",
+		SourceType: "manifest",
 		SourceURL:  manifestURL,
 	})
 	if err != nil {
@@ -551,6 +552,12 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 		contextID = &pctx.ID
 	}
 	ctx = hocr.WithProviderCallMetadata(ctx, "", itemImageID, contextID)
+	workspaceID := h.currentWorkspaceID(ctx)
+	var userID *uint64
+	if currentUserID := h.currentUserID(ctx); currentUserID > 0 {
+		userID = &currentUserID
+	}
+	ctx = h.contextWithProviderSecret(ctx, workspaceID, userID, pctx.TranscriptionProvider)
 
 	imagePath, cleanup, err := fetchIIIFRegionToTemp(iiifID, x1, y1, x2, y2)
 	if err != nil {

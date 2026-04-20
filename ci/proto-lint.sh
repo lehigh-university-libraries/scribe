@@ -7,4 +7,4 @@ if ! command -v buf >/dev/null 2>&1; then
   exit 0
 fi
 
-(cd proto && buf lint)
+(cd proto && buf dep update . && buf lint)

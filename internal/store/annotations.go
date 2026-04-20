@@ -3,18 +3,21 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
+
+	db "github.com/lehigh-university-libraries/scribe/internal/db"
 )
 
 type AnnotationStore struct {
-	pool *sql.DB
+	q *db.Queries
 }
 
 var internalItemImageCanvasPattern = regexp.MustCompile(`(?:https?://[^/]+)?(/v1/item-images/[0-9]+/manifest/canvas/[^?#]+)`)
 
 func NewAnnotationStore(pool *sql.DB) *AnnotationStore {
-	return &AnnotationStore{pool: pool}
+	return &AnnotationStore{q: db.New(pool)}
 }
 
 func normalizeCanvasURIKey(canvasURI string) string {
@@ -27,81 +30,47 @@ func normalizeCanvasURIKey(canvasURI string) string {
 // SearchByCanvas returns all annotation JSON payloads for a canvas URI.
 func (s *AnnotationStore) SearchByCanvas(ctx context.Context, canvasURI string) ([]string, error) {
 	normalized := normalizeCanvasURIKey(canvasURI)
-	var (
-		rows *sql.Rows
-		err  error
-	)
-	if normalized != canvasURI {
-		rows, err = s.pool.QueryContext(ctx,
-			`SELECT payload FROM annotations WHERE canvas_uri IN (?, ?) ORDER BY updated_at ASC`,
-			canvasURI, normalized,
-		)
-	} else {
-		rows, err = s.pool.QueryContext(ctx,
-			`SELECT payload FROM annotations WHERE canvas_uri = ? ORDER BY updated_at ASC`,
-			canvasURI,
-		)
-	}
+	rows, err := s.q.SearchAnnotationsByCanvas(ctx, canvasURI, normalized)
 	if err != nil {
 		return nil, fmt.Errorf("search annotations: %w", err)
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return nil, err
-		}
-		out = append(out, raw)
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Payload)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // Get returns the payload for a single annotation by its full URI.
 func (s *AnnotationStore) Get(ctx context.Context, fullID string) (string, error) {
-	var raw string
-	err := s.pool.QueryRowContext(ctx,
-		`SELECT payload FROM annotations WHERE id = ?`, fullID,
-	).Scan(&raw)
-	if err == sql.ErrNoRows {
+	row, err := s.q.GetAnnotation(ctx, fullID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("annotation not found: %w", err)
 	}
-	return raw, err
+	if err != nil {
+		return "", err
+	}
+	return row.Payload, nil
 }
 
 // Upsert stores an annotation (insert or update).
 func (s *AnnotationStore) Upsert(ctx context.Context, id, canvasURI, payload string) error {
 	canvasURI = normalizeCanvasURIKey(canvasURI)
-	_, err := s.pool.ExecContext(ctx, `
-INSERT INTO annotations (id, canvas_uri, payload)
-VALUES (?, ?, ?)
-ON DUPLICATE KEY UPDATE canvas_uri=VALUES(canvas_uri), payload=VALUES(payload)
-`, id, canvasURI, payload)
-	return err
+	return s.q.UpsertAnnotation(ctx, id, canvasURI, payload)
 }
 
 // Update updates an existing annotation. Returns (false, nil) if not found.
 func (s *AnnotationStore) Update(ctx context.Context, id, canvasURI, payload string) (bool, error) {
 	canvasURI = normalizeCanvasURIKey(canvasURI)
-	res, err := s.pool.ExecContext(ctx,
-		`UPDATE annotations SET canvas_uri = ?, payload = ? WHERE id = ?`,
-		canvasURI, payload, id,
-	)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	return s.q.UpdateAnnotation(ctx, id, canvasURI, payload)
 }
 
 // Delete removes an annotation by its full URI.
 func (s *AnnotationStore) Delete(ctx context.Context, id string) error {
-	_, err := s.pool.ExecContext(ctx, `DELETE FROM annotations WHERE id = ?`, id)
-	return err
+	return s.q.DeleteAnnotation(ctx, id)
 }
 
 func (s *AnnotationStore) DeleteByCanvas(ctx context.Context, canvasURI string) error {
 	canvasURI = normalizeCanvasURIKey(canvasURI)
-	_, err := s.pool.ExecContext(ctx, `DELETE FROM annotations WHERE canvas_uri = ?`, canvasURI)
-	return err
+	return s.q.DeleteAnnotationsByCanvas(ctx, canvasURI)
 }

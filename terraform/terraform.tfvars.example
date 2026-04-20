@@ -1,0 +1,25 @@
+project_id     = "your-gcp-project-id"
+
+region = "us-east5"
+zone   = "us-east5-b"
+
+# Restrict ingress to your office/VPN/public IPs.
+allowed_ips = [
+  "203.0.113.10/32",
+]
+
+allowed_ssh_ipv4 = [
+  "203.0.113.10/32",
+]
+
+# Example SSH access.
+users = {
+  ops = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIReplaceMeWithARealPublicKey ops@example"
+  ]
+}
+
+# Vault administrators for the shared dev/prod Vault servers.
+vault_admin_emails = [
+  "admin@example.edu",
+]

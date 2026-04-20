@@ -31,12 +31,11 @@ type OCRRun struct {
 }
 
 type OCRRunStore struct {
-	q    *db.Queries
-	pool *sql.DB
+	q *db.Queries
 }
 
 func NewOCRRunStore(pool *sql.DB) *OCRRunStore {
-	return &OCRRunStore{q: db.New(pool), pool: pool}
+	return &OCRRunStore{q: db.New(pool)}
 }
 
 // ContextMetrics holds aggregate statistics for all OCR runs belonging to a context.
@@ -51,22 +50,18 @@ type ContextMetrics struct {
 
 // GetContextMetrics returns aggregate metrics for all OCR runs in the given context.
 func (s *OCRRunStore) GetContextMetrics(ctx context.Context, contextID uint64) (ContextMetrics, error) {
-	var m ContextMetrics
-	m.ContextID = contextID
-	err := s.pool.QueryRowContext(ctx, `
-		SELECT
-			COUNT(*) AS total_runs,
-			COALESCE(SUM(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN 1 ELSE 0 END), 0) AS corrected_runs,
-			COALESCE(AVG(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN levenshtein_distance END), 0) AS avg_lev,
-			COALESCE(AVG(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN edit_count END), 0) AS avg_edit,
-			COALESCE(AVG(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN box_change_score END), 0) AS avg_box
-		FROM ocr_runs
-		WHERE context_id = ?
-	`, contextID).Scan(&m.TotalRuns, &m.CorrectedRuns, &m.AvgLevenshteinDistance, &m.AvgEditCount, &m.AvgBoxChangeScore)
+	metricsRow, err := s.q.GetContextOCRRunMetrics(ctx, contextID)
 	if err != nil {
 		return ContextMetrics{}, fmt.Errorf("get context metrics: %w", err)
 	}
-	return m, nil
+	return ContextMetrics{
+		ContextID:              contextID,
+		TotalRuns:              metricsRow.TotalRuns,
+		CorrectedRuns:          metricsRow.CorrectedRuns,
+		AvgLevenshteinDistance: metricsRow.AvgLevenshteinDistance,
+		AvgEditCount:           metricsRow.AvgEditCount,
+		AvgBoxChangeScore:      metricsRow.AvgBoxChangeScore,
+	}, nil
 }
 
 func (s *OCRRunStore) Create(ctx context.Context, run OCRRun) error {
@@ -96,39 +91,7 @@ func (s *OCRRunStore) Get(ctx context.Context, sessionID string) (OCRRun, error)
 	if err != nil {
 		return OCRRun{}, fmt.Errorf("get ocr run: %w", err)
 	}
-
-	run := OCRRun{
-		SessionID:           row.SessionID,
-		ImageURL:            row.ImageURL,
-		Provider:            row.Provider,
-		Model:               row.Model,
-		OriginalHOCR:        row.OriginalHocr,
-		OriginalText:        row.OriginalText,
-		EditCount:           int(row.EditCount),
-		LevenshteinDistance: int(row.LevenshteinDistance),
-		BoxEditCount:        int(row.BoxEditCount),
-		BoxesAdded:          int(row.BoxesAdded),
-		BoxesDeleted:        int(row.BoxesDeleted),
-		BoxChangeScore:      row.BoxChangeScore,
-		CreatedAt:           row.CreatedAt,
-		UpdatedAt:           row.UpdatedAt,
-	}
-	if row.ItemImageID.Valid && row.ItemImageID.Int64 > 0 {
-		v := uint64(row.ItemImageID.Int64)
-		run.ItemImageID = &v
-	}
-	if row.ContextID.Valid && row.ContextID.Int64 > 0 {
-		v := uint64(row.ContextID.Int64)
-		run.ContextID = &v
-	}
-	if row.CorrectedHocr.Valid {
-		run.CorrectedHOCR = &row.CorrectedHocr.String
-	}
-	if row.CorrectedText.Valid {
-		run.CorrectedText = &row.CorrectedText.String
-	}
-
-	return run, nil
+	return rowToOCRRun(row), nil
 }
 
 func (s *OCRRunStore) GetByItemImageID(ctx context.Context, itemImageID uint64) (OCRRun, error) {
@@ -136,38 +99,7 @@ func (s *OCRRunStore) GetByItemImageID(ctx context.Context, itemImageID uint64) 
 	if err != nil {
 		return OCRRun{}, fmt.Errorf("get ocr run by item image id: %w", err)
 	}
-
-	run := OCRRun{
-		SessionID:           row.SessionID,
-		ImageURL:            row.ImageURL,
-		Provider:            row.Provider,
-		Model:               row.Model,
-		OriginalHOCR:        row.OriginalHocr,
-		OriginalText:        row.OriginalText,
-		EditCount:           int(row.EditCount),
-		LevenshteinDistance: int(row.LevenshteinDistance),
-		BoxEditCount:        int(row.BoxEditCount),
-		BoxesAdded:          int(row.BoxesAdded),
-		BoxesDeleted:        int(row.BoxesDeleted),
-		BoxChangeScore:      row.BoxChangeScore,
-		CreatedAt:           row.CreatedAt,
-		UpdatedAt:           row.UpdatedAt,
-	}
-	if row.ItemImageID.Valid && row.ItemImageID.Int64 > 0 {
-		v := uint64(row.ItemImageID.Int64)
-		run.ItemImageID = &v
-	}
-	if row.ContextID.Valid && row.ContextID.Int64 > 0 {
-		v := uint64(row.ContextID.Int64)
-		run.ContextID = &v
-	}
-	if row.CorrectedHocr.Valid {
-		run.CorrectedHOCR = &row.CorrectedHocr.String
-	}
-	if row.CorrectedText.Valid {
-		run.CorrectedText = &row.CorrectedText.String
-	}
-	return run, nil
+	return rowToOCRRun(row), nil
 }
 
 func (s *OCRRunStore) SaveEdits(
@@ -201,4 +133,38 @@ func uint64ToNullInt64(v *uint64) sql.NullInt64 {
 		Int64: int64(*v),
 		Valid: true,
 	}
+}
+
+func rowToOCRRun(row db.OCRRun) OCRRun {
+	run := OCRRun{
+		SessionID:           row.SessionID,
+		ImageURL:            row.ImageURL,
+		Provider:            row.Provider,
+		Model:               row.Model,
+		OriginalHOCR:        row.OriginalHocr,
+		OriginalText:        row.OriginalText,
+		EditCount:           int(row.EditCount),
+		LevenshteinDistance: int(row.LevenshteinDistance),
+		BoxEditCount:        int(row.BoxEditCount),
+		BoxesAdded:          int(row.BoxesAdded),
+		BoxesDeleted:        int(row.BoxesDeleted),
+		BoxChangeScore:      row.BoxChangeScore,
+		CreatedAt:           row.CreatedAt,
+		UpdatedAt:           row.UpdatedAt,
+	}
+	if row.ItemImageID.Valid && row.ItemImageID.Int64 > 0 {
+		v := uint64(row.ItemImageID.Int64)
+		run.ItemImageID = &v
+	}
+	if row.ContextID.Valid && row.ContextID.Int64 > 0 {
+		v := uint64(row.ContextID.Int64)
+		run.ContextID = &v
+	}
+	if row.CorrectedHocr.Valid {
+		run.CorrectedHOCR = &row.CorrectedHocr.String
+	}
+	if row.CorrectedText.Valid {
+		run.CorrectedText = &row.CorrectedText.String
+	}
+	return run
 }

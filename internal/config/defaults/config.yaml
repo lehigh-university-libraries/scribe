@@ -1,0 +1,65 @@
+listen_addr: ":8080"
+public_base_url: "http://localhost:8080"
+
+auth:
+  cookie_name: scribe_session
+  cookie_domain: ""
+  cookie_secure: auto
+  session_ttl: 24h
+  google_callback_path: /auth/callback/google
+  allowed_domains: []
+  denied_domains: []
+  admin_emails: []
+
+database:
+  dsn_template: "{{.User}}:{{.Password}}@tcp({{.Host}}:{{.Port}})/{{.Name}}?parseTime=true"
+  host: mariadb
+  port: 3306
+  name: scribe
+  user: scribe
+
+llm:
+  provider: ollama
+  default_system_prompt: ""
+  segmentation_model: auto
+  batch_size: 10
+  line_transcribe_concurrency: 5
+  ollama:
+    url: http://localhost:11434
+    audience: ""
+    model: "glm-ocr:bf16"
+    models: ["glm-ocr:bf16", "llava", "bakllava"]
+  openai:
+    model: "gpt-4o"
+    models: ["gpt-4o", "gpt-4.1"]
+  gemini:
+    model: "gemini-2.0-flash"
+    models: ["gemini-2.0-flash", "gemini-1.5-pro"]
+    url_template: "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s"
+
+transcription:
+  job_workers: 3
+
+cantaloupe:
+  iiif_base: /cantaloupe/iiif/2
+  iiif_internal_base: http://cantaloupe:8182/iiif/2
+
+annotation:
+  api_base: /
+  api_internal_base: http://api:8080
+
+drupal:
+  hocr_url_template: ""
+
+webhooks:
+  urls: []
+
+vault:
+  address: ""
+  gcp_auth_role: scribe-app
+  kv_mount: secret
+  paths:
+    google_oauth: scribe/google_oauth
+    openai: scribe/openai
+    gemini: scribe/gemini
+    database: scribe/database

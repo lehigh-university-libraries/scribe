@@ -7,11 +7,10 @@ import (
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/db"
-	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 func (h *Handler) handleListItems(w http.ResponseWriter, r *http.Request) {
-	items, err := h.items.List(r.Context(), store.AnonymousUserID)
+	items, err := h.items.List(r.Context(), h.currentWorkspaceID(r.Context()))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -47,7 +46,8 @@ func (h *Handler) handleCreateItemREST(w http.ResponseWriter, r *http.Request) {
 
 	item, err := h.items.Create(r.Context(), db.CreateItemParams{
 		ID:         itemID,
-		UserID:     store.AnonymousUserID,
+		UserID:     h.currentUserID(r.Context()),
+		WorkspaceID: h.currentWorkspaceID(r.Context()),
 		Name:       req.Name,
 		SourceType: req.SourceType,
 		SourceURL:  req.SourceURL,
@@ -80,7 +80,7 @@ func (h *Handler) handleDeleteItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "item_id is required")
 		return
 	}
-	if err := h.items.Delete(r.Context(), itemID); err != nil {
+	if err := h.items.DeleteForWorkspace(r.Context(), itemID, h.currentWorkspaceID(r.Context())); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

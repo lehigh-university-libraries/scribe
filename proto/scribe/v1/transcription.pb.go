@@ -7,6 +7,8 @@
 package scribev1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -508,7 +510,7 @@ var File_scribe_v1_transcription_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_transcription_proto_rawDesc = "" +
 	"\n" +
-	"\x1dscribe/v1/transcription.proto\x12\tscribe.v1\"\xad\x04\n" +
+	"\x1dscribe/v1/transcription.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cscribe/v1/options/auth.proto\"\xad\x04\n" +
 	"\x10TranscriptionJob\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1d\n" +
@@ -526,32 +528,35 @@ const file_scribe_v1_transcription_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\f \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\r \x01(\tR\tupdatedAt\"b\n" +
-	"\x1dCreateTranscriptionJobRequest\x12\"\n" +
-	"\ritem_image_id\x18\x01 \x01(\x04R\vitemImageId\x12\x1d\n" +
+	"updated_at\x18\r \x01(\tR\tupdatedAt\"n\n" +
+	"\x1dCreateTranscriptionJobRequest\x12.\n" +
+	"\ritem_image_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vitemImageId\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x02 \x01(\x04R\tcontextId\"7\n" +
 	"\x1eCreateTranscriptionJobResponse\x12\x15\n" +
-	"\x06job_id\x18\x01 \x01(\x04R\x05jobId\"3\n" +
-	"\x1aGetTranscriptionJobRequest\x12\x15\n" +
-	"\x06job_id\x18\x01 \x01(\x04R\x05jobId\"B\n" +
+	"\x06job_id\x18\x01 \x01(\x04R\x05jobId\"?\n" +
+	"\x1aGetTranscriptionJobRequest\x12!\n" +
+	"\x06job_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05jobId\"B\n" +
 	"\x1cListTranscriptionJobsRequest\x12\"\n" +
 	"\ritem_image_id\x18\x01 \x01(\x04R\vitemImageId\"P\n" +
 	"\x1dListTranscriptionJobsResponse\x12/\n" +
-	"\x04jobs\x18\x01 \x03(\v2\x1b.scribe.v1.TranscriptionJobR\x04jobs\"6\n" +
-	"\x1dStreamTranscriptionJobRequest\x12\x15\n" +
-	"\x06job_id\x18\x01 \x01(\x04R\x05jobId*\xdb\x01\n" +
+	"\x04jobs\x18\x01 \x03(\v2\x1b.scribe.v1.TranscriptionJobR\x04jobs\"B\n" +
+	"\x1dStreamTranscriptionJobRequest\x12!\n" +
+	"\x06job_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05jobId*\xdb\x01\n" +
 	"\x16TranscriptionJobStatus\x12(\n" +
 	"$TRANSCRIPTION_JOB_STATUS_UNSPECIFIED\x10\x00\x12$\n" +
 	" TRANSCRIPTION_JOB_STATUS_PENDING\x10\x01\x12$\n" +
 	" TRANSCRIPTION_JOB_STATUS_RUNNING\x10\x02\x12&\n" +
 	"\"TRANSCRIPTION_JOB_STATUS_COMPLETED\x10\x03\x12#\n" +
-	"\x1fTRANSCRIPTION_JOB_STATUS_FAILED\x10\x042\xaf\x03\n" +
-	"\x14TranscriptionService\x12m\n" +
-	"\x16CreateTranscriptionJob\x12(.scribe.v1.CreateTranscriptionJobRequest\x1a).scribe.v1.CreateTranscriptionJobResponse\x12Y\n" +
-	"\x13GetTranscriptionJob\x12%.scribe.v1.GetTranscriptionJobRequest\x1a\x1b.scribe.v1.TranscriptionJob\x12j\n" +
-	"\x15ListTranscriptionJobs\x12'.scribe.v1.ListTranscriptionJobsRequest\x1a(.scribe.v1.ListTranscriptionJobsResponse\x12a\n" +
-	"\x16StreamTranscriptionJob\x12(.scribe.v1.StreamTranscriptionJobRequest\x1a\x1b.scribe.v1.TranscriptionJob0\x01B\xb0\x01\n" +
+	"\x1fTRANSCRIPTION_JOB_STATUS_FAILED\x10\x042\x87\x04\n" +
+	"\x14TranscriptionService\x12\x86\x01\n" +
+	"\x16CreateTranscriptionJob\x12(.scribe.v1.CreateTranscriptionJobRequest\x1a).scribe.v1.CreateTranscriptionJobResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12k\n" +
+	"\x13GetTranscriptionJob\x12%.scribe.v1.GetTranscriptionJobRequest\x1a\x1b.scribe.v1.TranscriptionJob\"\x10\x92\xb5\x18\f\x10\x06\x18\x01\"\x06job_id\x12\x83\x01\n" +
+	"\x15ListTranscriptionJobs\x12'.scribe.v1.ListTranscriptionJobsRequest\x1a(.scribe.v1.ListTranscriptionJobsResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12s\n" +
+	"\x16StreamTranscriptionJob\x12(.scribe.v1.StreamTranscriptionJobRequest\x1a\x1b.scribe.v1.TranscriptionJob\"\x10\x92\xb5\x18\f\x10\x06\x18\x01\"\x06job_id0\x01B\xb0\x01\n" +
 	"\rcom.scribe.v1B\x12TranscriptionProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 

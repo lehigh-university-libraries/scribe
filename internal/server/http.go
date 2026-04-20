@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,26 +22,31 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lehigh-university-libraries/scribe/internal/auth"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
-	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
+	"github.com/lehigh-university-libraries/scribe/internal/vaultkv"
 )
 
 type Handler struct {
-	ocrRuns           *store.OCRRunStore
-	items             *store.ItemStore
-	contexts          *store.ContextStore
-	annotations       *store.AnnotationStore
+	ocrRuns            *store.OCRRunStore
+	items              *store.ItemStore
+	contexts           *store.ContextStore
+	annotations        *store.AnnotationStore
 	providerCallAudits *store.ProviderCallAuditStore
-	transcriptionJobs *store.TranscriptionJobStore
-	events            *eventBroker
-	webhookClient     *http.Client
-	webhookURLs       []string
-	mux               http.Handler
-	webDir            string
-	ocr               *ocrhandlers.Handler
+	providerSecrets    *store.ProviderSecretStore
+	transcriptionJobs  *store.TranscriptionJobStore
+	auth               *auth.Manager
+	vault              *vaultkv.Client
+	events             *eventBroker
+	webhookClient      *http.Client
+	webhookURLs        []string
+	mux                http.Handler
+	webDir             string
+	ocr                *ocrhandlers.Handler
 	// baseURL is derived from the first request; used for IIIF IDs.
 	// The annotation handler needs it to build annotation item URLs.
 	annotationBaseURL string
@@ -57,8 +63,8 @@ type processProgress struct {
 }
 
 var (
-	progressMu    sync.RWMutex
-	progressState = map[string]processProgress{}
+	progressMu       sync.RWMutex
+	progressState    = map[string]processProgress{}
 	trustedProxyNets = mustParseCIDRs(
 		"10.0.0.0/8",
 		"172.16.0.0/12",
@@ -135,11 +141,14 @@ func NewHandler(
 	contexts *store.ContextStore,
 	annotations *store.AnnotationStore,
 	transcriptionJobs *store.TranscriptionJobStore,
+	authManager *auth.Manager,
+	providerSecrets *store.ProviderSecretStore,
+	vaultClient *vaultkv.Client,
 	auditStores ...*store.ProviderCallAuditStore,
 ) *Handler {
 	webDir := detectWebDir()
 	if webDir == "" {
-		slog.Warn("web assets directory not found; root path will return 404")
+		slog.Info("web assets directory not found; running in API-only mode")
 	} else {
 		slog.Info("serving web assets", "dir", webDir)
 	}
@@ -150,17 +159,20 @@ func NewHandler(
 	}
 
 	handler := &Handler{
-		ocrRuns:           ocrRuns,
-		items:             items,
-		contexts:          contexts,
-		annotations:       annotations,
+		ocrRuns:            ocrRuns,
+		items:              items,
+		contexts:           contexts,
+		annotations:        annotations,
 		providerCallAudits: providerCallAudits,
-		transcriptionJobs: transcriptionJobs,
-		events:            newEventBroker(),
-		webhookClient:     &http.Client{Timeout: 10 * time.Second},
-		webhookURLs:       parseWebhookURLs(os.Getenv("SCRIBE_WEBHOOK_URLS")),
-		webDir:            webDir,
-		ocr:               ocrhandlers.New(),
+		providerSecrets:    providerSecrets,
+		transcriptionJobs:  transcriptionJobs,
+		auth:               authManager,
+		vault:              vaultClient,
+		events:             newEventBroker(),
+		webhookClient:      &http.Client{Timeout: 10 * time.Second},
+		webhookURLs:        append([]string(nil), config.Get().Config.Webhooks.URLs...),
+		webDir:             webDir,
+		ocr:                ocrhandlers.New(),
 	}
 	if providerCallAudits != nil {
 		handler.ocr.SetProviderCallAuditLogger(func(ctx context.Context, record hocr.ProviderCallAuditRecord) {
@@ -182,18 +194,7 @@ func NewHandler(
 		})
 	}
 	mux := http.NewServeMux()
-
-	// Connect RPC services
-	imageAPIPath, imageAPIHandler := scribev1connect.NewImageProcessingServiceHandler(handler)
-	mux.Handle(imageAPIPath, imageAPIHandler)
-	itemAPIPath, itemAPIHandler := scribev1connect.NewItemServiceHandler(handler)
-	mux.Handle(itemAPIPath, itemAPIHandler)
-	contextAPIPath, contextAPIHandler := scribev1connect.NewContextServiceHandler(handler)
-	mux.Handle(contextAPIPath, contextAPIHandler)
-	annotationAPIPath, annotationAPIHandler := scribev1connect.NewAnnotationServiceHandler(handler)
-	mux.Handle(annotationAPIPath, annotationAPIHandler)
-	transcriptionAPIPath, transcriptionAPIHandler := scribev1connect.NewTranscriptionServiceHandler(handler)
-	mux.Handle(transcriptionAPIPath, transcriptionAPIHandler)
+	registerConnectServices(mux, handler, connectHandlerOptions(authManager)...)
 
 	// Health
 	mux.HandleFunc("GET /healthz", handler.handleHealth)
@@ -212,10 +213,18 @@ func NewHandler(
 	// Context metrics
 	mux.HandleFunc("GET /v1/contexts/{context_id}/metrics", handler.handleGetContextMetrics)
 
+	if authManager != nil {
+		authManager.RegisterRoutes(mux)
+	}
+
 	// Static assets
 	mux.Handle("GET /static/uploads/", http.StripPrefix("/static/uploads/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("/", handler.handleWeb)
-	handler.mux = AccessLogger(mux)
+	var finalMux http.Handler = mux
+	if authManager != nil {
+		finalMux = authManager.Middleware(finalMux)
+	}
+	handler.mux = AccessLogger(finalMux)
 	return handler
 }
 
@@ -224,11 +233,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
 		origin = "*"
+	} else {
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Vary", "Origin")
 	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Accept,Authorization,Connect-Protocol-Version,X-Provider")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Accept,Authorization,Connect-Protocol-Version,X-Provider,X-Scribe-Workspace-ID,X-Scribe-API-Key")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -243,7 +254,7 @@ func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 func (h *Handler) handleGetHOCR(w http.ResponseWriter, r *http.Request) {
 	run, _, _, _, err := h.resolveRunAndIIIFPaths(r)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+		if isNotFoundError(err) || strings.Contains(strings.ToLower(err.Error()), "not found") {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
@@ -271,6 +282,10 @@ func (h *Handler) handleListItemProviderCallAudits(w http.ResponseWriter, r *htt
 	itemID := strings.TrimSpace(r.PathValue("item_id"))
 	if itemID == "" {
 		writeError(w, http.StatusBadRequest, "item_id is required")
+		return
+	}
+	if _, err := h.itemForRequest(r.Context(), itemID); err != nil {
+		writeError(w, http.StatusNotFound, "item not found")
 		return
 	}
 	if h.providerCallAudits == nil {
@@ -301,7 +316,7 @@ func (h *Handler) handleGetItemIIIFManifest(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "item_id is required")
 		return
 	}
-	item, err := h.items.Get(r.Context(), itemID)
+	item, err := h.itemForRequest(r.Context(), itemID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "item not found")
 		return
@@ -313,7 +328,7 @@ func (h *Handler) handleGetItemIIIFManifest(w http.ResponseWriter, r *http.Reque
 
 	apiBase := requestOrigin(r)
 	manifestID := fmt.Sprintf("%s/v1/items/%s/manifest", apiBase, url.PathEscape(item.ID))
-	iiifBase := resolvePublicBase(os.Getenv("CANTALOUPE_IIIF_BASE"), r, "/cantaloupe/iiif/2")
+	iiifBase := resolvePublicBase(config.Get().Config.Cantaloupe.IIIFBase, r, "/cantaloupe/iiif/2")
 	canvases := make([]any, 0, len(item.Images))
 
 	for _, image := range item.Images {
@@ -443,7 +458,7 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 
 	run, manifestPath, annotationsPath, hocrPath, err := h.resolveRunAndIIIFPaths(r)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+		if isNotFoundError(err) || strings.Contains(strings.ToLower(err.Error()), "not found") {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
@@ -474,7 +489,7 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 	annotationPageURI := apiBase + annotationsPath
 	seeAlsoID := apiBase + hocrPath
 
-	img, err := h.items.GetImage(r.Context(), itemImageID)
+	img, err := h.itemImageForRequest(r.Context(), itemImageID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "item image not found")
 		return
@@ -486,7 +501,7 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	iiifBase := resolvePublicBase(os.Getenv("CANTALOUPE_IIIF_BASE"), r, "/cantaloupe/iiif/2")
+	iiifBase := resolvePublicBase(config.Get().Config.Cantaloupe.IIIFBase, r, "/cantaloupe/iiif/2")
 	imageBody := buildImageBody(run.ImageURL, iiifBase, pageW, pageH)
 	canvasLabel := run.ImageURL
 	if iiifID, err := iiifIdentifierFromImageURL(run.ImageURL); err == nil {
@@ -552,7 +567,7 @@ func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Reques
 
 	run, manifestPath, annotationsPath, _, err := h.resolveRunAndIIIFPaths(r)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "not found") {
+		if isNotFoundError(err) || strings.Contains(strings.ToLower(err.Error()), "not found") {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
@@ -590,7 +605,7 @@ func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Reques
 		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
 	}
 
-	img, err := h.items.GetImage(r.Context(), itemImageID)
+	img, err := h.itemImageForRequest(r.Context(), itemImageID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "item image not found")
 		return
@@ -756,21 +771,24 @@ func (h *Handler) fetchOrCacheHOCRRun(ctx context.Context, itemImageID uint64) (
 	if err == nil {
 		return run, nil
 	}
-	if err != sql.ErrNoRows && !strings.Contains(err.Error(), "no rows") {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return store.OCRRun{}, err
 	}
 	// No OCR run yet — try to fetch and cache hOCR from the item_image's hocr_url.
 	img, imgErr := h.items.GetImage(ctx, itemImageID)
 	if imgErr != nil {
-		return store.OCRRun{}, fmt.Errorf("item image not found")
+		if errors.Is(imgErr, sql.ErrNoRows) {
+			return store.OCRRun{}, sql.ErrNoRows
+		}
+		return store.OCRRun{}, imgErr
 	}
 	if img.HocrURL == "" {
-		return store.OCRRun{}, fmt.Errorf("item image not found")
+		return store.OCRRun{}, sql.ErrNoRows
 	}
 	hocrXML, fetchErr := fetchHOCRContent(ctx, img.HocrURL)
 	if fetchErr != nil || strings.TrimSpace(hocrXML) == "" {
 		slog.Warn("on-demand hOCR fetch failed", "item_image_id", itemImageID, "hocr_url", img.HocrURL, "error", fetchErr)
-		return store.OCRRun{}, fmt.Errorf("item image not found")
+		return store.OCRRun{}, sql.ErrNoRows
 	}
 	hocrXML = strings.TrimSpace(hocrXML)
 	sessionID := fmt.Sprintf("hocr-url-%d", itemImageID)
@@ -797,6 +815,9 @@ func (h *Handler) resolveRunAndIIIFPaths(r *http.Request) (store.OCRRun, string,
 	if err != nil {
 		return store.OCRRun{}, "", "", "", err
 	}
+	if _, err := h.itemImageForRequest(ctx, itemImageID); err != nil {
+		return store.OCRRun{}, "", "", "", fmt.Errorf("item image not found")
+	}
 	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
 	if err != nil {
 		return store.OCRRun{}, "", "", "", err
@@ -820,7 +841,10 @@ func itemImageIDFromRequest(r *http.Request) (uint64, error) {
 func (h *Handler) internalAnnotationBaseURL() string {
 	base := strings.TrimRight(strings.TrimSpace(h.annotationBaseURL), "/")
 	if base == "" {
-		base = strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
+		base = strings.TrimRight(strings.TrimSpace(config.Get().Config.Annotation.APIInternalBase), "/")
+	}
+	if base == "" {
+		base = strings.TrimRight(strings.TrimSpace(config.Get().Config.Annotation.APIBase), "/")
 	}
 	if base == "" {
 		base = "http://localhost:8080"
@@ -884,9 +908,9 @@ func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run s
 }
 
 func iiifBaseURL() string {
-	base := strings.TrimRight(strings.TrimSpace(os.Getenv("CANTALOUPE_IIIF_INTERNAL_BASE")), "/")
+	base := strings.TrimRight(strings.TrimSpace(config.Get().Config.Cantaloupe.IIIFInternalBase), "/")
 	if base == "" {
-		base = strings.TrimRight(strings.TrimSpace(os.Getenv("CANTALOUPE_IIIF_BASE")), "/")
+		base = strings.TrimRight(strings.TrimSpace(config.Get().Config.Cantaloupe.IIIFBase), "/")
 	}
 	if base == "" {
 		base = "http://cantaloupe:8182/iiif/2"
@@ -953,9 +977,10 @@ func fetchIIIFRegionToTemp(iiifID string, x1, y1, x2, y2 int) (string, func(), e
 	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
 }
 
-func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model string) {
+func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model string, workspaceID uint64, userID *uint64) {
 	go func() {
 		ctx := context.Background()
+		ctx = h.contextWithProviderSecret(ctx, workspaceID, userID, provider)
 		run, err := h.ocrRuns.Get(ctx, sessionID)
 		if err != nil {
 			slog.Warn("Skipping async transcription; session lookup failed", "session_id", sessionID, "error", err)
@@ -1031,7 +1056,7 @@ func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model s
 					results <- lineResult{idx: job.idx, line: outLine}
 					continue
 				}
-				text, err := h.ocr.TranscribeImageFile(regionPath, provider, model)
+				text, err := h.ocr.TranscribeImageFileWithContext(ctx, regionPath, provider, model)
 				cleanup()
 				if err != nil {
 					slog.Warn("Async line transcription failed", "session_id", sessionID, "line_id", outLine.ID, "error", err)
@@ -1114,15 +1139,10 @@ func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model s
 }
 
 func getAsyncTranscribeConcurrency() int {
-	raw := strings.TrimSpace(os.Getenv("LINE_TRANSCRIBE_CONCURRENCY"))
-	if raw == "" {
-		return 5
+	if v := config.Get().Config.LLM.LineTranscribeConcurrency; v > 0 {
+		return v
 	}
-	v, err := strconv.Atoi(raw)
-	if err != nil || v < 1 {
-		return 5
-	}
-	return v
+	return 5
 }
 
 // buildImageBody returns a IIIF Presentation v3 painting body for the given image URL.
@@ -1208,27 +1228,28 @@ func effectiveModel(provider, requestModel string) string {
 		return strings.TrimSpace(requestModel)
 	}
 
+	cfg := config.Get().Config.LLM
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
-		provider = strings.ToLower(strings.TrimSpace(os.Getenv("LLM_PROVIDER")))
+		provider = strings.ToLower(strings.TrimSpace(cfg.Provider))
 	}
 	if provider == "" {
 		provider = "ollama"
 	}
 	switch provider {
 	case "openai":
-		if m := strings.TrimSpace(os.Getenv("OPENAI_MODEL")); m != "" {
-			return m
+		if cfg.OpenAI.Model != "" {
+			return cfg.OpenAI.Model
 		}
 		return "gpt-4o"
 	case "gemini":
-		if m := strings.TrimSpace(os.Getenv("GEMINI_MODEL")); m != "" {
-			return m
+		if cfg.Gemini.Model != "" {
+			return cfg.Gemini.Model
 		}
 		return "gemini-2.0-flash"
 	default:
-		if m := strings.TrimSpace(os.Getenv("OLLAMA_MODEL")); m != "" {
-			return m
+		if cfg.Ollama.Model != "" {
+			return cfg.Ollama.Model
 		}
 		return "glm-ocr:bf16"
 	}
@@ -1239,9 +1260,8 @@ func effectiveProvider(requestProvider string) string {
 	if p != "" {
 		return p
 	}
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("LLM_PROVIDER")))
-	if env != "" {
-		return env
+	if cfg := strings.ToLower(strings.TrimSpace(config.Get().Config.LLM.Provider)); cfg != "" {
+		return cfg
 	}
 	return "ollama"
 }
@@ -1620,8 +1640,8 @@ func (h *Handler) serveIndexHTML(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runtimeConfig, err := json.Marshal(map[string]string{
-		"ANNOTATION_API_BASE": resolvePublicBase(os.Getenv("ANNOTATION_API_BASE"), r, "/"),
-		"CANTALOUPE_IIIF_BASE": resolvePublicBase(os.Getenv("CANTALOUPE_IIIF_BASE"), r, "/cantaloupe/iiif/2"),
+		"ANNOTATION_API_BASE":  resolvePublicBase(config.Get().Config.Annotation.APIBase, r, "/"),
+		"CANTALOUPE_IIIF_BASE": resolvePublicBase(config.Get().Config.Cantaloupe.IIIFBase, r, "/cantaloupe/iiif/2"),
 	})
 	if err != nil {
 		http.ServeFile(w, r, indexPath)
@@ -1803,11 +1823,15 @@ func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid item_image_id")
 		return
 	}
+	if _, err := h.itemImageForRequest(ctx, itemImageID); err != nil {
+		writeError(w, http.StatusNotFound, "item image not found")
+		return
+	}
 	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
 	if format == "" {
 		format = "hocr"
 	}
-	base := resolvePublicBase(os.Getenv("ANNOTATION_API_BASE"), r, "/")
+	base := resolvePublicBase(config.Get().Config.Annotation.APIBase, r, "/")
 	content, mimeType, ext, err := h.exportItemImageContent(ctx, itemImageID, format, base)
 	if err != nil {
 		msg := err.Error()
@@ -1845,7 +1869,7 @@ func (h *Handler) handleExportItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "format must be one of: hocr, pagexml, alto, txt")
 		return
 	}
-	item, err := h.items.Get(ctx, itemID)
+	item, err := h.itemForRequest(ctx, itemID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "item not found")
 		return
@@ -1854,7 +1878,7 @@ func (h *Handler) handleExportItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "item has no images")
 		return
 	}
-	base := resolvePublicBase(os.Getenv("ANNOTATION_API_BASE"), r, "/")
+	base := resolvePublicBase(config.Get().Config.Annotation.APIBase, r, "/")
 	safeName := sanitizeFilenamePart(item.Name, "item-"+item.ID)
 
 	if len(item.Images) == 1 {
@@ -1933,7 +1957,7 @@ func (h *Handler) handleGetContextMetrics(w http.ResponseWriter, r *http.Request
 	}
 	ctx := r.Context()
 	// Verify context exists.
-	c, err := h.contexts.Get(ctx, id)
+	c, err := h.contextForRead(ctx, id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "context not found")
 		return

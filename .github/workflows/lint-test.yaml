@@ -38,12 +38,16 @@ jobs:
         if: inputs.image_tag != ''
         run: docker pull "${{ inputs.image_tag }}"
 
+      - name: Build local frontend image
+        if: inputs.image_tag != ''
+        run: make build-frontend
+
       - run: make lint
 
       - name: Run tests against published image
         if: inputs.image_tag != ''
         run: |
-          SCRIBE_API_IMAGE="${{ inputs.image_tag }}" COMPOSE_UP_FLAGS="-d" make up test
+          SCRIBE_API_IMAGE="${{ inputs.image_tag }}" SCRIBE_FRONTEND_IMAGE="scribe-frontend:local" COMPOSE_UP_FLAGS="-d" make up test
 
       - name: Build local image and run tests
         if: inputs.image_tag == ''

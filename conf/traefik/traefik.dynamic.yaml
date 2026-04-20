@@ -17,19 +17,19 @@ http:
           - cantaloupe-strip-prefix
           - cantaloupe-custom-request-headers
   services:
-    api:
+    frontend:
       loadBalancer:
         servers:
-          - url: http://api:8080
+          - url: http://frontend:8080
     cantaloupe:
       loadBalancer:
         servers:
           - url: http://cantaloupe:8182
 
   routers:
-    api:
+    frontend:
       rule: PathPrefix(`/`)
-      service: api
+      service: frontend
     cantaloupe:
       rule: PathPrefix(`/cantaloupe`)
       middlewares:
