@@ -83,6 +83,9 @@ jobs:
         with:
           ref: ${{ inputs.checkout_ref }}
 
+      - name: Prepare Terraform artifact directory
+        run: mkdir -p .github-artifacts/terraform
+
       - name: Install Terraform
         uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4
         with:
@@ -108,12 +111,18 @@ jobs:
       - name: Run production Terraform
         id: apply
         if: inputs.mode == 'apply' && inputs.pr_number == ''
-        run: make tf-prod ACTION=apply
+        shell: bash
+        run: |
+          set -o pipefail
+          make tf-prod ACTION=apply 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-apply.log"
 
       - name: Run preview Terraform
         id: apply_preview
         if: inputs.mode == 'apply' && inputs.pr_number != ''
-        run: make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=apply
+        shell: bash
+        run: |
+          set -o pipefail
+          make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=apply 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-apply.log"
 
       - name: Read preview URL
         id: preview_url
@@ -126,12 +135,27 @@ jobs:
       - name: Destroy production Terraform
         id: destroy
         if: inputs.mode == 'destroy' && inputs.pr_number == ''
-        run: make tf-prod ACTION=destroy
+        shell: bash
+        run: |
+          set -o pipefail
+          make tf-prod ACTION=destroy 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log"
 
       - name: Destroy preview Terraform
         id: destroy_preview
         if: inputs.mode == 'destroy' && inputs.pr_number != ''
-        run: make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=destroy
+        shell: bash
+        run: |
+          set -o pipefail
+          make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=destroy 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log"
+
+      - name: Upload Terraform logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-logs-${{ inputs.tf_workspace }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .github-artifacts/terraform
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Capture status
         id: capture
