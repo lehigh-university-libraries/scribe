@@ -66,3 +66,8 @@ output "ollama_services" {
     }
   } : {}
 }
+
+output "internal_artifact_registry_repository" {
+  description = "Shared existing Artifact Registry repository used for Vault and Ollama images."
+  value       = data.google_artifact_registry_repository.internal.id
+}

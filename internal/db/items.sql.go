@@ -205,7 +205,7 @@ SELECT
   name,
   source_type,
   source_url,
-  metadata,
+  COALESCE(metadata, JSON_OBJECT()) AS metadata,
   created_at,
   updated_at
 FROM items
@@ -310,7 +310,7 @@ SELECT
   name,
   source_type,
   source_url,
-  metadata,
+  COALESCE(metadata, JSON_OBJECT()) AS metadata,
   created_at,
   updated_at
 FROM items

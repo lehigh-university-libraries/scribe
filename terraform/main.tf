@@ -22,15 +22,23 @@ data "google_project" "current" {
 }
 
 locals {
-  project_number           = tostring(data.google_project.current.number)
-  disk_type                = "hyperdisk-balanced"
-  terraform_state_bucket   = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
-  is_prod_workspace        = terraform.workspace == "prod"
-  is_dev_workspace         = terraform.workspace == "dev"
-  shared_vault_workspace   = local.is_prod_workspace ? "prod" : "dev"
-  vault_is_owner_workspace = local.is_prod_workspace || local.is_dev_workspace
-  workspace_slug           = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
-  vault_app_role_name      = "scribe-app-${local.workspace_slug}"
+  project_number                      = tostring(data.google_project.current.number)
+  disk_type                           = "hyperdisk-balanced"
+  terraform_state_bucket              = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
+  shared_artifact_registry_location   = "us"
+  shared_artifact_registry_repository = "internal"
+  is_prod_workspace                   = terraform.workspace == "prod"
+  is_dev_workspace                    = terraform.workspace == "dev"
+  shared_vault_workspace              = local.is_prod_workspace ? "prod" : "dev"
+  vault_is_owner_workspace            = local.is_prod_workspace || local.is_dev_workspace
+  workspace_slug                      = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
+  vault_app_role_name                 = "scribe-app-${local.workspace_slug}"
+}
+
+data "google_artifact_registry_repository" "internal" {
+  project       = var.project_id
+  location      = local.shared_artifact_registry_location
+  repository_id = local.shared_artifact_registry_repository
 }
 
 data "terraform_remote_state" "shared_vault" {
@@ -44,7 +52,8 @@ data "terraform_remote_state" "shared_vault" {
 }
 
 locals {
-  vault_url = local.vault_is_owner_workspace ? module.vault[0].vault-url : data.terraform_remote_state.shared_vault[0].outputs.vault_url
+  shared_vault_outputs = local.vault_is_owner_workspace ? {} : data.terraform_remote_state.shared_vault[0].outputs
+  vault_url            = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(local.shared_vault_outputs.vault_url, "")
 
   docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
   compose_env_prefix = (
@@ -68,6 +77,20 @@ locals {
     for cmd in ["docker compose down"] :
     length(regexall("docker compose", cmd)) > 0 ? format("%s %s", local.compose_env_prefix, cmd) : cmd
   ]
+}
+
+check "shared_vault_ready" {
+  assert {
+    condition     = local.vault_is_owner_workspace || trimspace(local.vault_url) != ""
+    error_message = "Shared Vault workspace '${local.shared_vault_workspace}' must be applied first and expose the root output 'vault_url'. Apply the dev workspace before running preview environments."
+  }
+}
+
+check "shared_internal_repository_ready" {
+  assert {
+    condition     = trimspace(data.google_artifact_registry_repository.internal.id) != ""
+    error_message = "Artifact Registry repository '${local.shared_artifact_registry_repository}' in location '${local.shared_artifact_registry_location}' must already exist in project '${var.project_id}'."
+  }
 }
 
 provider "vault" {

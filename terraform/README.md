@@ -130,6 +130,7 @@ Shared dev uses:
 - VM name `scribe-dev`
 - the supplied branch as `docker_compose_branch`
 - the shared dev Vault server
+- must be applied before any `pr-*` preview workspace, because previews read the shared dev Vault URL from remote state
 
 ## Creating the shared Vaults locally
 
@@ -181,6 +182,9 @@ Repeat that with workspace `prod` for production.
   Registry layout, Cantaloupe sizing, Ollama sizing, and the compose bootstrap
   commands are internal defaults in Terraform rather than deployer-facing
   inputs.
+- Vault and Ollama both use the pre-existing shared Artifact Registry
+  repository `projects/<project>/locations/us/repositories/internal`. This
+  root validates that the repo exists; it does not create it.
 - When the frontend sidecar is enabled, the frontend container must know how to reach
   the VM backend. The GitHub deploy workflow builds the frontend image with
   `SCRIBE_FRONTEND_BACKEND_ORIGIN=http://<site>.<zone>.c.<project>.internal`.

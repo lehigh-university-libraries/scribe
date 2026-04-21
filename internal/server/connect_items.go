@@ -65,7 +65,7 @@ func (h *Handler) CreateItem(ctx context.Context, req *connect.Request[scribev1.
 		name = "Untitled Item"
 	}
 
-	itemID := time.Now().UTC().Format("20060102150405")
+	itemID := fmt.Sprintf("item_%d", time.Now().UTC().UnixNano())
 	it, err := h.items.Create(ctx, db.CreateItemParams{
 		ID:         itemID,
 		UserID:     h.currentUserID(ctx),
@@ -103,7 +103,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 				name = "Untitled Item"
 			}
 		}
-		itemID = time.Now().UTC().Format("20060102150405")
+		itemID = fmt.Sprintf("item_%d", time.Now().UTC().UnixNano())
 		if _, err := h.items.Create(ctx, db.CreateItemParams{
 			ID:         itemID,
 			UserID:     h.currentUserID(ctx),

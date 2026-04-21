@@ -2,8 +2,8 @@ locals {
   shared_ollama_services_enabled      = terraform.workspace == "prod" && length(var.ollama_models) > 0
   ollama_preview_iam_enabled          = terraform.workspace != "prod" && length(var.ollama_models) > 0
   ollama_regions                      = ["us-east4"]
-  ollama_artifact_registry_location   = "us"
-  ollama_artifact_registry_repository = "internal"
+  ollama_artifact_registry_location   = local.shared_artifact_registry_location
+  ollama_artifact_registry_repository = local.shared_artifact_registry_repository
   ollama_base_image                   = "ollama/ollama:0.19.0@sha256:bf240c2847a8bc7b2c630b85dab5d1dedcba257b551d5fc9b290ce544d59272a"
   ollama_memory                       = "16Gi"
   ollama_cpu                          = "4000m"
@@ -49,16 +49,6 @@ locals {
   }
 }
 
-resource "google_artifact_registry_repository" "ollama_images" {
-  count = local.shared_ollama_services_enabled ? 1 : 0
-
-  project       = var.project_id
-  location      = local.ollama_artifact_registry_location
-  repository_id = local.ollama_artifact_registry_repository
-  description   = "Model-specific Ollama images for Scribe"
-  format        = "DOCKER"
-}
-
 resource "google_artifact_registry_repository_iam_member" "ollama_cloud_run_reader" {
   count = local.shared_ollama_services_enabled ? 1 : 0
 
@@ -89,7 +79,6 @@ module "ollama_services" {
   invokers                     = local.ollama_invokers
 
   depends_on = [
-    google_artifact_registry_repository.ollama_images,
     google_artifact_registry_repository_iam_member.ollama_cloud_run_reader,
   ]
 }

@@ -108,12 +108,12 @@ SELECT
   description,
   is_default,
   segmentation_model,
-  image_preprocessors,
+  COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
   transcription_provider,
   transcription_model,
   temperature,
   system_prompt,
-  post_processing_steps,
+  COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
   created_at,
   updated_at
 FROM contexts`

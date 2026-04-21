@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -37,7 +38,7 @@ func (h *Handler) handleCreateItemREST(w http.ResponseWriter, r *http.Request) {
 		req.SourceType = "url"
 	}
 
-	itemID := time.Now().UTC().Format("20060102150405")
+	itemID := fmt.Sprintf("item_%d", time.Now().UTC().UnixNano())
 	metaJSON := ""
 	if req.Metadata != nil {
 		b, _ := json.Marshal(req.Metadata)
@@ -45,13 +46,13 @@ func (h *Handler) handleCreateItemREST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	item, err := h.items.Create(r.Context(), db.CreateItemParams{
-		ID:         itemID,
-		UserID:     h.currentUserID(r.Context()),
+		ID:          itemID,
+		UserID:      h.currentUserID(r.Context()),
 		WorkspaceID: h.currentWorkspaceID(r.Context()),
-		Name:       req.Name,
-		SourceType: req.SourceType,
-		SourceURL:  req.SourceURL,
-		Metadata:   metaJSON,
+		Name:        req.Name,
+		SourceType:  req.SourceType,
+		SourceURL:   req.SourceURL,
+		Metadata:    metaJSON,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

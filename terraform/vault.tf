@@ -5,7 +5,7 @@ locals {
   vault_ci_policy_name        = "ci"
   vault_service_name          = local.is_prod_workspace ? "vault-server-prod" : "vault-server-dev"
   vault_init_job_name         = local.is_prod_workspace ? "vault-init-prod" : "vault-init-dev"
-  vault_repository            = local.is_prod_workspace ? "internal-vault-prod" : "internal-vault-dev"
+  vault_repository            = local.shared_artifact_registry_repository
   vault_kms_key_ring_name     = local.is_prod_workspace ? "vault-server-prod" : "vault-server-dev"
   vault_kms_key_name          = "vault"
 }
@@ -13,7 +13,7 @@ locals {
 module "vault" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
-  source = "git::https://github.com/libops/terraform-vault-cloudrun?ref=0.5.0"
+  source = "git::https://github.com/libops/terraform-vault-cloudrun?ref=0.5.1"
   providers = {
     docker      = docker
     google      = google
@@ -27,6 +27,7 @@ module "vault" {
   init_image        = "jcorall/vault-init:0.4.0"
   admin_emails      = var.vault_admin_emails
   repository        = local.vault_repository
+  create_repository = false
   kms_key_ring_name = local.vault_kms_key_ring_name
   kms_key_name      = local.vault_kms_key_name
   public_routes = [

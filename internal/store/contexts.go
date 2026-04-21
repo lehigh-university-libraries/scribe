@@ -202,9 +202,9 @@ func (s *ContextStore) List(ctx context.Context, systemOnly bool) ([]Context, er
 func (s *ContextStore) ListForWorkspace(ctx context.Context, workspaceID uint64, systemOnly bool) ([]Context, error) {
 	query := `
 SELECT id, user_id, workspace_id, name, description, is_default,
-       segmentation_model, image_preprocessors,
+       segmentation_model, COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
        transcription_provider, transcription_model,
-       temperature, system_prompt, post_processing_steps,
+       temperature, system_prompt, COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
        created_at, updated_at
 FROM contexts
 WHERE workspace_id IS NULL`
