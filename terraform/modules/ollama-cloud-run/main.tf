@@ -58,7 +58,7 @@ resource "docker_registry_image" "image" {
 }
 
 module "service" {
-  source = "git::https://github.com/libops/terraform-cloudrun-v2?ref=0.5.1"
+  source = "git::https://github.com/libops/terraform-cloudrun-v2?ref=0.5.2"
 
   name          = local.service_name
   project       = var.project_id

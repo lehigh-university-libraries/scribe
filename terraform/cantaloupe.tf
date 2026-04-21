@@ -70,7 +70,7 @@ resource "google_storage_bucket_iam_member" "cantaloupe_object_admin" {
 module "cantaloupe" {
   count = local.shared_services_enabled ? 1 : 0
 
-  source = "git::https://github.com/libops/terraform-cloudrun-v2?ref=0.3.3"
+  source = "git::https://github.com/libops/terraform-cloudrun-v2?ref=0.5.2"
 
   name          = local.cantaloupe_service_name
   project       = var.project_id
