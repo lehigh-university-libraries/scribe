@@ -22,15 +22,15 @@ data "google_project" "current" {
 }
 
 locals {
-  project_number          = tostring(data.google_project.current.number)
-  disk_type               = "hyperdisk-balanced"
-  terraform_state_bucket  = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
-  is_prod_workspace       = terraform.workspace == "prod"
-  is_dev_workspace        = terraform.workspace == "dev"
-  shared_vault_workspace  = local.is_prod_workspace ? "prod" : "dev"
+  project_number           = tostring(data.google_project.current.number)
+  disk_type                = "hyperdisk-balanced"
+  terraform_state_bucket   = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
+  is_prod_workspace        = terraform.workspace == "prod"
+  is_dev_workspace         = terraform.workspace == "dev"
+  shared_vault_workspace   = local.is_prod_workspace ? "prod" : "dev"
   vault_is_owner_workspace = local.is_prod_workspace || local.is_dev_workspace
-  workspace_slug          = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
-  vault_app_role_name     = "scribe-app-${local.workspace_slug}"
+  workspace_slug           = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
+  vault_app_role_name      = "scribe-app-${local.workspace_slug}"
 }
 
 data "terraform_remote_state" "shared_vault" {
