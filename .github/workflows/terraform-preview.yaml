@@ -53,7 +53,7 @@ jobs:
   build-frontend:
     if: github.event.action != 'closed'
     needs: [prepare-image-tag]
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@0ad0a7d96a7b3a5c05ad811832108d67e3dea92c # main
     permissions:
       id-token: write
       contents: read
