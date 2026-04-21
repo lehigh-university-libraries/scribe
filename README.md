@@ -162,6 +162,20 @@ Preview environments and local dev point at the shared `dev` Vault. Each
 deployment still gets its own Vault GCP auth role, so preview service accounts
 do not need to share a single global role binding.
 
+For local Terraform applies, the Docker provider also needs Artifact Registry
+push credentials because it builds and pushes images itself. Before running
+`make tf-dev`, `make tf-preview`, or `make tf-prod` locally, configure Docker
+for `us-docker.pkg.dev`:
+
+```bash
+gcloud auth login
+gcloud config set project <your-gcp-project-id>
+gcloud auth configure-docker us-docker.pkg.dev
+```
+
+This repo currently reads Docker auth from `~/.docker/config.json`. Your user
+also needs write access to `projects/<project>/locations/us/repositories/internal`.
+
 For Ollama, use `llm.ollama.url` in `config.yaml` instead of `OLLAMA_URL`.
 When that URL points at a private Cloud Run service, Scribe automatically sends
 an ID token if the host is a `*.run.app` service URL. Set

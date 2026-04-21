@@ -48,6 +48,19 @@ make tf-dev BRANCH=google-cloud ACTION=plan
 make tf-dev BRANCH=google-cloud ACTION=apply
 ```
 
+Before a local `apply`, configure Docker auth for Artifact Registry. Terraform's
+Docker provider pushes images to `us-docker.pkg.dev` and reads credentials from
+`~/.docker/config.json`:
+
+```bash
+gcloud auth login
+gcloud config set project "${GCLOUD_PROJECT}"
+gcloud auth configure-docker us-docker.pkg.dev
+```
+
+Your user also needs Artifact Registry write access to
+`projects/${GCLOUD_PROJECT}/locations/us/repositories/internal`.
+
 For production:
 
 ```bash
@@ -104,11 +117,21 @@ Set `TF_STATE_BUCKET` explicitly only if you need a different bucket.
   always-on Vault deployment
 - initialize Terraform with a GCS backend bucket so CI and local runs share state
 
+`vault_ci_service_account_emails` must include the GitHub Actions deploy service
+account used by `secrets.GSA`. Local bootstrap configures a `google-jwt` auth
+backend and `ci` role in Vault for those service accounts, and the GitHub
+Terraform workflows log into Vault with a Google ID token before they run
+Terraform. Those CI service accounts are also merged into the Vault proxy's
+`X-Admin-Token` allow-list so they can reach non-public Vault routes during
+bootstrap and login flows.
+
 ## GitHub workflow
 
 - Open or update a PR against `main` to create or refresh a preview environment.
 - Close the PR to destroy that preview environment.
 - Merge to `main` to deploy production.
+- Run the `Terraform Dev` workflow from GitHub Actions to create, refresh, or
+  destroy the shared `dev` environment from GitHub instead of a local machine.
 
 Preview environments use:
 
@@ -131,6 +154,8 @@ Shared dev uses:
 - the supplied branch as `docker_compose_branch`
 - the shared dev Vault server
 - must be applied before any `pr-*` preview workspace, because previews read the shared dev Vault URL from remote state
+- should be bootstrapped locally once first so Vault itself, the `google-jwt`
+  auth backend, and the `ci` login role exist before GitHub preview/prod runs
 
 ## Creating the shared Vaults locally
 

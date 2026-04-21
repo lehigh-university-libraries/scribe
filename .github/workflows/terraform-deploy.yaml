@@ -107,6 +107,86 @@ jobs:
           workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
           service_account: ${{ secrets.GSA }}
           token_format: access_token
+          access_token_scopes: |-
+            https://www.googleapis.com/auth/cloud-platform
+            https://www.googleapis.com/auth/userinfo.email
+
+      - name: Authenticate Vault admin header token
+        id: auth_vault_access
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/userinfo.email
+          create_credentials_file: false
+
+      - name: Resolve shared Vault address
+        id: vault_addr
+        shell: bash
+        run: |
+          if [ "${{ inputs.tf_workspace }}" = "prod" ]; then
+            vault_service="vault-server-prod"
+          else
+            vault_service="vault-server-dev"
+          fi
+          vault_addr="$(gcloud run services describe "$vault_service" --region us-east5 --format='value(status.url)')"
+          if [ -z "$vault_addr" ]; then
+            echo "Failed to resolve Vault address for $vault_service" >&2
+            exit 1
+          fi
+          echo "vault_addr=$vault_addr" >> "$GITHUB_OUTPUT"
+
+      - name: Compute Vault CI role name
+        id: vault_role
+        shell: bash
+        env:
+          VAULT_GSA: ${{ secrets.GSA }}
+        run: |
+          sanitized="$(printf '%s' "$VAULT_GSA" | sed 's/@/-at-/g; s/\./-/g')"
+          echo "role_name=ci-${sanitized}" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate Google ID token for Vault
+        id: auth_vault_id
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: id_token
+          id_token_audience: ${{ steps.vault_addr.outputs.vault_addr }}
+          id_token_include_email: true
+          create_credentials_file: false
+
+      - name: Login to Vault
+        shell: bash
+        env:
+          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
+          VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
+          VAULT_ID_TOKEN: ${{ steps.auth_vault_id.outputs.id_token }}
+        run: |
+          response_file="$(mktemp)"
+          status_code="$(
+            curl -sS -o "$response_file" -w '%{http_code}' \
+              -X POST \
+              -H "Content-Type: application/json" \
+              -H "X-Admin-Token: ${VAULT_ADMIN_TOKEN}" \
+              --data "$(jq -cn --arg role "${{ steps.vault_role.outputs.role_name }}" --arg jwt "${VAULT_ID_TOKEN}" '{role: $role, jwt: $jwt}')" \
+              "${VAULT_ADDR%/}/v1/auth/google-jwt/login"
+          )"
+          if [ "$status_code" -lt 200 ] || [ "$status_code" -ge 300 ]; then
+            cat "$response_file" >&2
+            exit 1
+          fi
+          vault_token="$(jq -r '.auth.client_token // empty' "$response_file")"
+          if [ -z "$vault_token" ]; then
+            cat "$response_file" >&2
+            echo "Vault login response did not include auth.client_token" >&2
+            exit 1
+          fi
+          {
+            echo "VAULT_ADDR=${VAULT_ADDR}"
+            echo "VAULT_TOKEN=${vault_token}"
+          } >> "$GITHUB_ENV"
 
       - name: Run production Terraform
         id: apply

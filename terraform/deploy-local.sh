@@ -37,6 +37,24 @@ require_cmd() {
   }
 }
 
+decode_base64_file() {
+  local input="$1"
+  local output="$2"
+
+  if base64 --decode <"$input" >"$output" 2>/dev/null; then
+    return 0
+  fi
+  if base64 -d <"$input" >"$output" 2>/dev/null; then
+    return 0
+  fi
+  if base64 -D <"$input" >"$output" 2>/dev/null; then
+    return 0
+  fi
+
+  echo "Failed to base64 decode $input" >&2
+  return 1
+}
+
 sanitize_image_tag() {
   printf '%s' "$1" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}' | tr '[:upper:]' '[:lower:]'
 }
@@ -48,6 +66,95 @@ select_workspace() {
     terraform workspace new "$workspace" || terraform workspace select "$workspace"
   fi
   export TF_WORKSPACE="$workspace"
+}
+
+shared_vault_workspace() {
+  local workspace="$1"
+  if [ "$workspace" = "prod" ]; then
+    printf 'prod'
+    return
+  fi
+  printf 'dev'
+}
+
+shared_vault_service_name() {
+  local workspace="$1"
+  if [ "$workspace" = "prod" ]; then
+    printf 'vault-server-prod'
+    return
+  fi
+  printf 'vault-server-dev'
+}
+
+fetch_vault_root_token() {
+  local shared_workspace="$1"
+  local service_name key_bucket kms_key_ring tmpdir
+
+  service_name="$(shared_vault_service_name "$shared_workspace")"
+  key_bucket="$(printf '%s-%s-key' "$GCLOUD_PROJECT" "$service_name" | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g; s/\./-/g; s/ /-/g')"
+  kms_key_ring="$service_name"
+  tmpdir="$(mktemp -d)"
+
+  if ! gcloud storage cp "gs://${key_bucket}/root-token.enc" "$tmpdir/root-token.enc" >/dev/null 2>&1; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  if ! decode_base64_file "$tmpdir/root-token.enc" "$tmpdir/root-token.ciphertext"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  gcloud kms decrypt \
+    --key=vault \
+    --keyring="$kms_key_ring" \
+    --location=global \
+    --project="$GCLOUD_PROJECT" \
+    --ciphertext-file="$tmpdir/root-token.ciphertext" \
+    --plaintext-file="$tmpdir/root-token" >/dev/null
+
+  export VAULT_TOKEN="$(tr -d '\r\n' < "$tmpdir/root-token")"
+  rm -rf "$tmpdir"
+
+  if [ -z "${VAULT_TOKEN}" ]; then
+    echo "Decrypted Vault token was empty." >&2
+    return 1
+  fi
+}
+
+bootstrap_vault_token() {
+  local target_workspace="$1"
+  local action="$2"
+  local shared_workspace="$3"
+
+  if [ -n "${VAULT_TOKEN:-}" ]; then
+    return 0
+  fi
+
+  if fetch_vault_root_token "$shared_workspace"; then
+    return 0
+  fi
+
+  if [ "$target_workspace" = "$shared_workspace" ] && [ "$action" != "destroy" ]; then
+    echo "Vault root token for workspace ${shared_workspace} not found; bootstrapping Vault first..."
+    terraform apply -auto-approve -target=module.vault "${terraform_vars[@]}"
+
+    echo "Waiting for Vault init to publish the encrypted root token..."
+    for _ in $(seq 1 18); do
+      if fetch_vault_root_token "$shared_workspace"; then
+        return 0
+      fi
+      sleep 10
+    done
+
+    echo "Vault bootstrap finished, but the root token still could not be fetched from GCS/KMS." >&2
+    echo "Ensure the current identity can read gs://${GCLOUD_PROJECT}-$(shared_vault_service_name "$shared_workspace")-key/root-token.enc and decrypt KMS key ring $(shared_vault_service_name "$shared_workspace")/vault." >&2
+    return 1
+  fi
+
+  echo "Vault root token for shared workspace ${shared_workspace} is unavailable." >&2
+  echo "Apply the ${shared_workspace} workspace first, or ensure the current identity can read the shared root token object and decrypt its KMS key." >&2
+  return 1
 }
 
 require_cmd git
@@ -167,6 +274,9 @@ terraform init -upgrade \
   -backend-config="prefix=scribe"
 
 select_workspace "$target_workspace"
+
+shared_vault_workspace_name="$(shared_vault_workspace "$target_workspace")"
+bootstrap_vault_token "$target_workspace" "$action" "$shared_vault_workspace_name"
 
 if [ "$action" != "destroy" ]; then
   terraform validate
