@@ -296,6 +296,9 @@ func (s *ContextStore) DeleteForWorkspace(ctx context.Context, id uint64, worksp
 
 func (s *ContextStore) CreateRule(ctx context.Context, rule ContextSelectionRule) (ContextSelectionRule, error) {
 	condJSON := marshalJSON(rule.Conditions)
+	if condJSON == "" {
+		condJSON = "[]"
+	}
 	id, err := s.q.CreateSelectionRule(ctx, db.CreateSelectionRuleParams{
 		ContextID:  rule.ContextID,
 		Priority:   rule.Priority,

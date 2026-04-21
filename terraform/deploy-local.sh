@@ -113,7 +113,8 @@ fetch_vault_root_token() {
     --ciphertext-file="$tmpdir/root-token.ciphertext" \
     --plaintext-file="$tmpdir/root-token" >/dev/null
 
-  export VAULT_TOKEN="$(tr -d '\r\n' < "$tmpdir/root-token")"
+  VAULT_TOKEN="$(tr -d '\r\n' < "$tmpdir/root-token")"
+  export VAULT_TOKEN
   rm -rf "$tmpdir"
 
   if [ -z "${VAULT_TOKEN}" ]; then

@@ -7,22 +7,13 @@ locals {
   cantaloupe_service_account_id = "scribe-cantaloupe"
   cantaloupe_bucket_location    = "US"
   cantaloupe_regions = [
-    "us-east4",
     "us-east5",
     "us-central1",
-    "us-west3",
-    "us-west1",
-    "us-west4",
     "us-south1",
-    "northamerica-northeast1",
-    "northamerica-northeast2",
-    "northamerica-south1",
-    "australia-southeast1",
-    "australia-southeast2",
   ]
   cantaloupe_image         = "islandora/cantaloupe:6.0.5@sha256:ef30df94fe51001682fb1a4704c8c87058df4ef96e936ab920c930819663ed58"
   cantaloupe_min_instances = "0"
-  cantaloupe_max_instances = "100"
+  cantaloupe_max_instances = "25"
   cantaloupe_memory        = "16Gi"
   cantaloupe_cpu           = "4000m"
 
@@ -132,6 +123,12 @@ module "cantaloupe" {
       bucket    = google_storage_bucket.cantaloupe_data[0].name
       read_only = false
     }
+  ]
+
+  depends_on = [
+    google_service_account.cantaloupe,
+    google_storage_bucket.cantaloupe_data,
+    google_storage_bucket_iam_member.cantaloupe_object_admin,
   ]
 }
 
