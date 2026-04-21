@@ -52,8 +52,7 @@ data "terraform_remote_state" "shared_vault" {
 }
 
 locals {
-  shared_vault_outputs = local.vault_is_owner_workspace ? {} : data.terraform_remote_state.shared_vault[0].outputs
-  vault_url            = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(local.shared_vault_outputs.vault_url, "")
+  vault_url = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
 
   docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
   compose_env_prefix = (
