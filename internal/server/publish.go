@@ -14,10 +14,10 @@ type publishItemImageEditsRequest struct {
 }
 
 type publishItemImageEditsResponse struct {
-	ItemImageID         uint64 `json:"itemImageId"`
-	CanvasURI           string `json:"canvasUri"`
-	AnnotationPageJSON  string `json:"annotationPageJson"`
-	PublishedAt         string `json:"publishedAt"`
+	ItemImageID        uint64 `json:"itemImageId"`
+	CanvasURI          string `json:"canvasUri"`
+	AnnotationPageJSON string `json:"annotationPageJson"`
+	PublishedAt        string `json:"publishedAt"`
 }
 
 func (h *Handler) annotationPageJSONForItemImage(ctx context.Context, itemImageID uint64) (string, string, int, error) {
@@ -28,7 +28,7 @@ func (h *Handler) annotationPageJSONForItemImage(ctx context.Context, itemImageI
 	if err := h.ensureItemImageCanvasAndAnnotations(ctx, run, itemImageID); err != nil {
 		return "", "", 0, err
 	}
-	img, err := h.items.GetImage(ctx, itemImageID)
+	img, err := h.itemImageForRequest(ctx, itemImageID)
 	if err != nil {
 		return "", "", 0, err
 	}
@@ -70,6 +70,10 @@ func (h *Handler) handlePublishItemImageEdits(w http.ResponseWriter, r *http.Req
 	}
 	if req.ItemImageID == 0 {
 		writeError(w, http.StatusBadRequest, "itemImageId is required")
+		return
+	}
+	if _, err := h.itemImageForRequest(r.Context(), req.ItemImageID); err != nil {
+		writeError(w, http.StatusNotFound, "item image not found")
 		return
 	}
 

@@ -2,6 +2,9 @@ syntax = "proto3";
 
 package scribe.v1;
 
+import "buf/validate/validate.proto";
+import "scribe/v1/options/auth.proto";
+
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
 // TranscriptionJobStatus represents the lifecycle state of a batch transcription job.
@@ -40,7 +43,10 @@ message TranscriptionJob {
 // single item image. The backend will process all line-level annotations on
 // that image's canvas, one at a time, using the resolved or supplied context.
 message CreateTranscriptionJobRequest {
-  uint64 item_image_id = 1;
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
   // Optional explicit context; resolved automatically if omitted.
   uint64 context_id    = 2;
 }
@@ -50,7 +56,10 @@ message CreateTranscriptionJobResponse {
 }
 
 message GetTranscriptionJobRequest {
-  uint64 job_id = 1;
+  uint64 job_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
 }
 
 message ListTranscriptionJobsRequest {
@@ -66,20 +75,47 @@ message ListTranscriptionJobsResponse {
 // The server sends a TranscriptionJob message after every segment is processed
 // and once more when the job reaches a terminal state.
 message StreamTranscriptionJobRequest {
-  uint64 job_id = 1;
+  uint64 job_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
 }
 
 service TranscriptionService {
   // CreateTranscriptionJob enqueues a new batch transcription job for an image.
-  rpc CreateTranscriptionJob(CreateTranscriptionJobRequest) returns (CreateTranscriptionJobResponse);
+  rpc CreateTranscriptionJob(CreateTranscriptionJobRequest) returns (CreateTranscriptionJobResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
+    };
+  }
 
   // GetTranscriptionJob returns the current state of a job (for polling).
-  rpc GetTranscriptionJob(GetTranscriptionJobRequest) returns (TranscriptionJob);
+  rpc GetTranscriptionJob(GetTranscriptionJobRequest) returns (TranscriptionJob) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_TRANSCRIPTION_JOB
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "job_id"
+    };
+  }
 
   // ListTranscriptionJobs lists jobs, optionally filtered by item image.
-  rpc ListTranscriptionJobs(ListTranscriptionJobsRequest) returns (ListTranscriptionJobsResponse);
+  rpc ListTranscriptionJobs(ListTranscriptionJobsRequest) returns (ListTranscriptionJobsResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "item_image_id"
+    };
+  }
 
   // StreamTranscriptionJob streams job updates in real time until the job
   // reaches a terminal state (completed or failed).
-  rpc StreamTranscriptionJob(StreamTranscriptionJobRequest) returns (stream TranscriptionJob);
+  rpc StreamTranscriptionJob(StreamTranscriptionJobRequest) returns (stream TranscriptionJob) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_TRANSCRIPTION_JOB
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "job_id"
+    };
+  }
 }

@@ -7,6 +7,8 @@
 package scribev1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -852,27 +854,28 @@ var File_scribe_v1_process_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
-	"\x17scribe/v1/process.proto\x12\tscribe.v1\"\xae\x01\n" +
-	"\x16ProcessImageURLRequest\x12\x1b\n" +
-	"\timage_url\x18\x01 \x01(\tR\bimageUrl\x12<\n" +
+	"\x17scribe/v1/process.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cscribe/v1/options/auth.proto\"\xd2\x01\n" +
+	"\x16ProcessImageURLRequest\x12-\n" +
+	"\timage_url\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\bimageUrl\x12<\n" +
 	"\routput_format\x18\x02 \x01(\x0e2\x17.scribe.v1.OutputFormatR\foutputFormat\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x03 \x01(\x04R\tcontextId\x12\x1a\n" +
-	"\bmetadata\x18\x04 \x01(\tR\bmetadata\"\xb3\x01\n" +
-	"\x19ProcessImageUploadRequest\x12\x1d\n" +
+	"context_id\x18\x03 \x01(\x04R\tcontextId\x12,\n" +
+	"\bmetadata\x18\x04 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bmetadata\"\xd1\x01\n" +
+	"\x19ProcessImageUploadRequest\x12)\n" +
 	"\n" +
-	"image_data\x18\x01 \x01(\fR\timageData\x12\x1a\n" +
-	"\bfilename\x18\x02 \x01(\tR\bfilename\x12<\n" +
+	"image_data\x18\x01 \x01(\fB\n" +
+	"\xbaH\a\xc8\x01\x01z\x02\x10\x01R\timageData\x12,\n" +
+	"\bfilename\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bfilename\x12<\n" +
 	"\routput_format\x18\x03 \x01(\x0e2\x17.scribe.v1.OutputFormatR\foutputFormat\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x04 \x01(\x04R\tcontextId\"\xbe\x01\n" +
-	"\x12ProcessHOCRRequest\x12\x12\n" +
-	"\x04hocr\x18\x01 \x01(\tR\x04hocr\x12\x1b\n" +
-	"\timage_url\x18\x02 \x01(\tR\bimageUrl\x12<\n" +
+	"context_id\x18\x04 \x01(\x04R\tcontextId\"\xf4\x01\n" +
+	"\x12ProcessHOCRRequest\x12$\n" +
+	"\x04hocr\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04hocr\x12-\n" +
+	"\timage_url\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bimageUrl\x12<\n" +
 	"\routput_format\x18\x03 \x01(\x0e2\x17.scribe.v1.OutputFormatR\foutputFormat\x12\x1d\n" +
 	"\n" +
-	"image_data\x18\x04 \x01(\fR\timageData\x12\x1a\n" +
-	"\bfilename\x18\x05 \x01(\tR\bfilename\"\xc2\x01\n" +
+	"image_data\x18\x04 \x01(\fR\timageData\x12,\n" +
+	"\bfilename\x18\x05 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bfilename\"\xc2\x01\n" +
 	"\x14ProcessImageResponse\x12\x17\n" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +
@@ -881,11 +884,12 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
 	"plain_text\x18\x05 \x01(\tR\tplainText\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x06 \x01(\tR\tsessionId\"U\n" +
-	"\x10GetOCRRunRequest\x12\x1d\n" +
+	"session_id\x18\x06 \x01(\tR\tsessionId\"\xef\x01\n" +
+	"\x10GetOCRRunRequest\x12/\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
-	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\"\xe8\x02\n" +
+	"session_id\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\tsessionId\x12\"\n" +
+	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId:\x85\x01\xbaH\x81\x01\x1a\x7f\n" +
+	"\x16get_ocr_run.identifier\x12'session_id or item_image_id is required\x1a<this.item_image_id > 0 || this.session_id.matches('.*\\\\S.*')\"\xe8\x02\n" +
 	"\x06OCRRun\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
@@ -899,14 +903,15 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
 	"edit_count\x18\t \x01(\x05R\teditCount\x121\n" +
 	"\x14levenshtein_distance\x18\n" +
-	" \x01(\x05R\x13levenshteinDistance\"\x9e\x01\n" +
-	"\x13SaveOCREditsRequest\x12\x1d\n" +
+	" \x01(\x05R\x13levenshteinDistance\"\xce\x02\n" +
+	"\x13SaveOCREditsRequest\x12/\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
-	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12%\n" +
-	"\x0ecorrected_hocr\x18\x03 \x01(\tR\rcorrectedHocr\x12\x1d\n" +
+	"session_id\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\tsessionId\x12\"\n" +
+	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x127\n" +
+	"\x0ecorrected_hocr\x18\x03 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\rcorrectedHocr\x12\x1d\n" +
 	"\n" +
-	"edit_count\x18\x04 \x01(\x05R\teditCount\"\x8d\x02\n" +
+	"edit_count\x18\x04 \x01(\x05R\teditCount:\x89\x01\xbaH\x85\x01\x1a\x82\x01\n" +
+	"\x19save_ocr_edits.identifier\x12'session_id or item_image_id is required\x1a<this.item_image_id > 0 || this.session_id.matches('.*\\\\S.*')\"\x8d\x02\n" +
 	"\x14SaveOCREditsResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
@@ -915,9 +920,10 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"edit_count\x18\x03 \x01(\x05R\teditCount\x121\n" +
 	"\x14levenshtein_distance\x18\x04 \x01(\x05R\x13levenshteinDistance\x120\n" +
 	"\x14corrected_plain_text\x18\x05 \x01(\tR\x12correctedPlainText\x12.\n" +
-	"\x13original_plain_text\x18\x06 \x01(\tR\x11originalPlainText\"^\n" +
-	"\x19ReprocessItemImageRequest\x12\"\n" +
-	"\ritem_image_id\x18\x01 \x01(\x04R\vitemImageId\x12\x1d\n" +
+	"\x13original_plain_text\x18\x06 \x01(\tR\x11originalPlainText\"j\n" +
+	"\x19ReprocessItemImageRequest\x12.\n" +
+	"\ritem_image_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vitemImageId\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x02 \x01(\x04R\tcontextId\"\x80\x02\n" +
 	"\x1aReprocessItemImageResponse\x12\x1d\n" +
@@ -936,14 +942,14 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\x19OUTPUT_FORMAT_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12OUTPUT_FORMAT_HOCR\x10\x01\x12\x16\n" +
 	"\x12OUTPUT_FORMAT_TEXT\x10\x02\x12\x1a\n" +
-	"\x16OUTPUT_FORMAT_PAGE_XML\x10\x032\x8c\x04\n" +
-	"\x16ImageProcessingService\x12U\n" +
-	"\x0fProcessImageURL\x12!.scribe.v1.ProcessImageURLRequest\x1a\x1f.scribe.v1.ProcessImageResponse\x12[\n" +
-	"\x12ProcessImageUpload\x12$.scribe.v1.ProcessImageUploadRequest\x1a\x1f.scribe.v1.ProcessImageResponse\x12M\n" +
-	"\vProcessHOCR\x12\x1d.scribe.v1.ProcessHOCRRequest\x1a\x1f.scribe.v1.ProcessImageResponse\x12;\n" +
-	"\tGetOCRRun\x12\x1b.scribe.v1.GetOCRRunRequest\x1a\x11.scribe.v1.OCRRun\x12O\n" +
-	"\fSaveOCREdits\x12\x1e.scribe.v1.SaveOCREditsRequest\x1a\x1f.scribe.v1.SaveOCREditsResponse\x12a\n" +
-	"\x12ReprocessItemImage\x12$.scribe.v1.ReprocessItemImageRequest\x1a%.scribe.v1.ReprocessItemImageResponseB\xaa\x01\n" +
+	"\x16OUTPUT_FORMAT_PAGE_XML\x10\x032\xf5\x04\n" +
+	"\x16ImageProcessingService\x12_\n" +
+	"\x0fProcessImageURL\x12!.scribe.v1.ProcessImageURLRequest\x1a\x1f.scribe.v1.ProcessImageResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12e\n" +
+	"\x12ProcessImageUpload\x12$.scribe.v1.ProcessImageUploadRequest\x1a\x1f.scribe.v1.ProcessImageResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12W\n" +
+	"\vProcessHOCR\x12\x1d.scribe.v1.ProcessHOCRRequest\x1a\x1f.scribe.v1.ProcessImageResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12T\n" +
+	"\tGetOCRRun\x12\x1b.scribe.v1.GetOCRRunRequest\x1a\x11.scribe.v1.OCRRun\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12h\n" +
+	"\fSaveOCREdits\x12\x1e.scribe.v1.SaveOCREditsRequest\x1a\x1f.scribe.v1.SaveOCREditsResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12z\n" +
+	"\x12ReprocessItemImage\x12$.scribe.v1.ReprocessItemImageRequest\x1a%.scribe.v1.ReprocessItemImageResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_idB\xaa\x01\n" +
 	"\rcom.scribe.v1B\fProcessProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 

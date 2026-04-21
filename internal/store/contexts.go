@@ -14,7 +14,8 @@ import (
 // Context is the store representation of a processing context.
 type Context struct {
 	ID                    uint64              `json:"id"`
-	UserID                *uint64             `json:"user_id,omitempty"` // nil = system
+	UserID                *uint64             `json:"user_id,omitempty"`      // creator for non-system contexts
+	WorkspaceID           *uint64             `json:"workspace_id,omitempty"` // nil = system
 	Name                  string              `json:"name"`
 	Description           string              `json:"description,omitempty"`
 	IsDefault             bool                `json:"is_default"`
@@ -52,11 +53,12 @@ type ContextSelectionRule struct {
 }
 
 type ContextStore struct {
-	q *db.Queries
+	q    *db.Queries
+	pool *sql.DB
 }
 
 func NewContextStore(pool *sql.DB) *ContextStore {
-	return &ContextStore{q: db.New(pool)}
+	return &ContextStore{q: db.New(pool), pool: pool}
 }
 
 // EnsureDefault seeds a system default context from env config if none exists.
@@ -72,6 +74,7 @@ func (s *ContextStore) EnsureDefault(ctx context.Context, defaultCtx Context) er
 	postStepsJSON := marshalJSON(defaultCtx.PostProcessingSteps)
 	_, err = s.q.CreateContext(ctx, db.CreateContextParams{
 		UserID:                nil,
+		WorkspaceID:           nil,
 		Name:                  defaultCtx.Name,
 		Description:           defaultCtx.Description,
 		IsDefault:             true,
@@ -138,6 +141,7 @@ func (s *ContextStore) Create(ctx context.Context, c Context) (Context, error) {
 	postStepsJSON := marshalJSON(c.PostProcessingSteps)
 	id, err := s.q.CreateContext(ctx, db.CreateContextParams{
 		UserID:                c.UserID,
+		WorkspaceID:           c.WorkspaceID,
 		Name:                  c.Name,
 		Description:           c.Description,
 		IsDefault:             c.IsDefault,
@@ -163,6 +167,18 @@ func (s *ContextStore) Get(ctx context.Context, id uint64) (Context, error) {
 	return rowToContext(row), nil
 }
 
+func (s *ContextStore) GetForWorkspace(ctx context.Context, id, workspaceID uint64) (Context, error) {
+	row, err := s.q.GetContext(ctx, id)
+	if err != nil {
+		return Context{}, fmt.Errorf("get context: %w", err)
+	}
+	contextValue := rowToContext(row)
+	if contextValue.WorkspaceID == nil || *contextValue.WorkspaceID == workspaceID {
+		return contextValue, nil
+	}
+	return Context{}, sql.ErrNoRows
+}
+
 func (s *ContextStore) GetDefault(ctx context.Context) (Context, error) {
 	row, err := s.q.GetDefaultContext(ctx)
 	if err != nil {
@@ -181,6 +197,45 @@ func (s *ContextStore) List(ctx context.Context, systemOnly bool) ([]Context, er
 		out = append(out, rowToContext(row))
 	}
 	return out, nil
+}
+
+func (s *ContextStore) ListForWorkspace(ctx context.Context, workspaceID uint64, systemOnly bool) ([]Context, error) {
+	query := `
+SELECT id, user_id, workspace_id, name, description, is_default,
+       segmentation_model, COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
+       transcription_provider, transcription_model,
+       temperature, system_prompt, COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
+       created_at, updated_at
+FROM contexts
+WHERE workspace_id IS NULL`
+	args := []any{}
+	if !systemOnly {
+		query += ` OR workspace_id = ?`
+		args = append(args, workspaceID)
+	}
+	query += ` ORDER BY is_default DESC, name ASC`
+
+	rows, err := s.pool.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list contexts: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Context, 0)
+	for rows.Next() {
+		var c db.Context
+		if err := rows.Scan(
+			&c.ID, &c.UserID, &c.WorkspaceID, &c.Name, &c.Description, &c.IsDefault,
+			&c.SegmentationModel, &c.ImagePreprocessors,
+			&c.TranscriptionProvider, &c.TranscriptionModel,
+			&c.Temperature, &c.SystemPrompt, &c.PostProcessingSteps,
+			&c.CreatedAt, &c.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, rowToContext(c))
+	}
+	return out, rows.Err()
 }
 
 func (s *ContextStore) Update(ctx context.Context, c Context) (Context, error) {
@@ -209,10 +264,41 @@ func (s *ContextStore) Delete(ctx context.Context, id uint64) error {
 	return s.q.DeleteContext(ctx, id)
 }
 
+func (s *ContextStore) UpdateForWorkspace(ctx context.Context, c Context, workspaceID uint64, userID uint64) (Context, error) {
+	existing, err := s.Get(ctx, c.ID)
+	if err != nil {
+		return Context{}, err
+	}
+	if existing.WorkspaceID == nil || *existing.WorkspaceID != workspaceID {
+		return Context{}, sql.ErrNoRows
+	}
+	c.UserID = &userID
+	c.WorkspaceID = &workspaceID
+	return s.Update(ctx, c)
+}
+
+func (s *ContextStore) DeleteForWorkspace(ctx context.Context, id uint64, workspaceID uint64) error {
+	res, err := s.pool.ExecContext(ctx, `DELETE FROM contexts WHERE id = ? AND workspace_id = ?`, id, workspaceID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // --- selection rules ---
 
 func (s *ContextStore) CreateRule(ctx context.Context, rule ContextSelectionRule) (ContextSelectionRule, error) {
 	condJSON := marshalJSON(rule.Conditions)
+	if condJSON == "" {
+		condJSON = "[]"
+	}
 	id, err := s.q.CreateSelectionRule(ctx, db.CreateSelectionRuleParams{
 		ContextID:  rule.ContextID,
 		Priority:   rule.Priority,
@@ -245,6 +331,67 @@ func (s *ContextStore) ListRules(ctx context.Context, contextID uint64) ([]Conte
 	return out, nil
 }
 
+func (s *ContextStore) ListRulesForWorkspace(ctx context.Context, workspaceID, contextID uint64) ([]ContextSelectionRule, error) {
+	query := `
+SELECT r.id, r.context_id, r.priority, r.conditions, r.created_at
+FROM context_selection_rules r
+JOIN contexts c ON c.id = r.context_id
+WHERE (c.workspace_id IS NULL OR c.workspace_id = ?)`
+	args := []any{workspaceID}
+	if contextID > 0 {
+		query += ` AND r.context_id = ?`
+		args = append(args, contextID)
+	}
+	query += ` ORDER BY r.priority DESC, r.id ASC`
+
+	rows, err := s.pool.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list selection rules: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]ContextSelectionRule, 0)
+	for rows.Next() {
+		var row db.ContextSelectionRule
+		if err := rows.Scan(&row.ID, &row.ContextID, &row.Priority, &row.Conditions, &row.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, rowToRule(row))
+	}
+	return out, rows.Err()
+}
+
+func (s *ContextStore) CreateRuleForWorkspace(ctx context.Context, workspaceID uint64, rule ContextSelectionRule) (ContextSelectionRule, error) {
+	ok, err := s.WorkspaceCanWriteContext(ctx, workspaceID, rule.ContextID)
+	if err != nil {
+		return ContextSelectionRule{}, err
+	}
+	if !ok {
+		return ContextSelectionRule{}, sql.ErrNoRows
+	}
+	return s.CreateRule(ctx, rule)
+}
+
+func (s *ContextStore) DeleteRuleForWorkspace(ctx context.Context, workspaceID, ruleID uint64) error {
+	res, err := s.pool.ExecContext(ctx, `
+DELETE r
+FROM context_selection_rules r
+JOIN contexts c ON c.id = r.context_id
+WHERE r.id = ? AND c.workspace_id = ?
+`, ruleID, workspaceID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *ContextStore) DeleteRule(ctx context.Context, id uint64) error {
 	return s.q.DeleteSelectionRule(ctx, id)
 }
@@ -267,6 +414,48 @@ func (s *ContextStore) Resolve(ctx context.Context, metadata map[string]any) (Co
 	}
 	def, err := s.GetDefault(ctx)
 	return def, true, err
+}
+
+func (s *ContextStore) ResolveForWorkspace(ctx context.Context, workspaceID uint64, metadata map[string]any) (Context, bool, error) {
+	rules, err := s.ListRulesForWorkspace(ctx, workspaceID, 0)
+	if err != nil {
+		return Context{}, false, err
+	}
+	for _, rule := range rules {
+		if matchesAll(rule.Conditions, metadata) {
+			c, err := s.GetForWorkspace(ctx, rule.ContextID, workspaceID)
+			if err != nil {
+				continue
+			}
+			return c, false, nil
+		}
+	}
+	def, err := s.GetDefault(ctx)
+	return def, true, err
+}
+
+func (s *ContextStore) WorkspaceCanReadContext(ctx context.Context, workspaceID, contextID uint64) (bool, error) {
+	var count int
+	if err := s.pool.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM contexts
+WHERE id = ? AND (workspace_id IS NULL OR workspace_id = ?)
+`, contextID, workspaceID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *ContextStore) WorkspaceCanWriteContext(ctx context.Context, workspaceID, contextID uint64) (bool, error) {
+	var count int
+	if err := s.pool.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM contexts
+WHERE id = ? AND workspace_id = ?
+`, contextID, workspaceID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // matchesAll returns true if all conditions are satisfied by the metadata.
@@ -322,12 +511,16 @@ func rowToContext(row db.Context) Context {
 		uid := uint64(row.UserID.Int64)
 		c.UserID = &uid
 	}
+	if row.WorkspaceID.Valid {
+		workspaceID := uint64(row.WorkspaceID.Int64)
+		c.WorkspaceID = &workspaceID
+	}
 	if row.Description.Valid {
 		c.Description = row.Description.String
 	}
-	if row.ImagePreprocessors.Valid && row.ImagePreprocessors.String != "" {
+	if len(row.ImagePreprocessors) > 0 {
 		var pp []ImagePreprocessor
-		if err := json.Unmarshal([]byte(row.ImagePreprocessors.String), &pp); err == nil {
+		if err := json.Unmarshal(row.ImagePreprocessors, &pp); err == nil {
 			c.ImagePreprocessors = pp
 		}
 	}
@@ -337,9 +530,9 @@ func rowToContext(row db.Context) Context {
 	if row.SystemPrompt.Valid {
 		c.SystemPrompt = row.SystemPrompt.String
 	}
-	if row.PostProcessingSteps.Valid && row.PostProcessingSteps.String != "" {
+	if len(row.PostProcessingSteps) > 0 {
 		var steps []string
-		if err := json.Unmarshal([]byte(row.PostProcessingSteps.String), &steps); err == nil {
+		if err := json.Unmarshal(row.PostProcessingSteps, &steps); err == nil {
 			c.PostProcessingSteps = steps
 		}
 	}
@@ -353,9 +546,9 @@ func rowToRule(row db.ContextSelectionRule) ContextSelectionRule {
 		Priority:  row.Priority,
 		CreatedAt: row.CreatedAt,
 	}
-	if row.Conditions != "" {
+	if len(row.Conditions) > 0 {
 		var conds []RuleCondition
-		if err := json.Unmarshal([]byte(row.Conditions), &conds); err == nil {
+		if err := json.Unmarshal(row.Conditions, &conds); err == nil {
 			r.Conditions = conds
 		}
 	}

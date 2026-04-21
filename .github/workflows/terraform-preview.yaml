@@ -20,22 +20,51 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       image_tag: ${{ steps.image-tag.outputs.image_tag }}
+      frontend_image_tag: ${{ steps.image-tag.outputs.frontend_image_tag }}
+      frontend_gar_image_tag: ${{ steps.image-tag.outputs.frontend_gar_image_tag }}
+      backend_origin: ${{ steps.image-tag.outputs.backend_origin }}
+    env:
+      GCLOUD_PROJECT: ${{ secrets.GCLOUD_PROJECT }}
+      SCRIBE_ZONE: ${{ vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || 'us-east5-b' }}
     steps:
       - name: Sanitize PR image tag
         id: image-tag
         env:
           RAW_TAG: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           TAG=$(echo "$RAW_TAG" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}')
-          echo "image_tag=ghcr.io/lehigh-university-libraries/scribe:$TAG" >> "$GITHUB_OUTPUT"
+          GAR_REPO="us-docker.pkg.dev/${GCLOUD_PROJECT}/internal"
+          {
+            echo "image_tag=ghcr.io/lehigh-university-libraries/scribe:$TAG"
+            echo "frontend_image_tag=ghcr.io/lehigh-university-libraries/scribe-frontend:$TAG"
+            echo "frontend_gar_image_tag=${GAR_REPO}/scribe-frontend:$TAG"
+            echo "backend_origin=http://scribe-pr-${PR_NUMBER}.${SCRIBE_ZONE}.c.${GCLOUD_PROJECT}.internal"
+          } >> "$GITHUB_OUTPUT"
 
   build-push:
     if: github.event.action != 'closed'
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@60c5d3a7a8f89290bbe0db056a0116855f59bb6c # main
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@0ad0a7d96a7b3a5c05ad811832108d67e3dea92c # main
     permissions:
       contents: read
       packages: write
     secrets: inherit
+
+  build-frontend:
+    if: github.event.action != 'closed'
+    needs: [prepare-image-tag]
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      image: scribe-frontend
+      file: Dockerfile.frontend
+      gar_image: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
+      build_args: |
+        SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}
 
   lint-test:
     if: github.event.action != 'closed'
@@ -51,11 +80,12 @@ jobs:
 
   preview:
     if: github.event.action != 'closed'
-    needs: [prepare-image-tag, build-push]
+    needs: [prepare-image-tag, build-push, build-frontend]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
       contents: read
+      packages: write
     secrets: inherit
     with:
       mode: apply
@@ -68,6 +98,8 @@ jobs:
       run_snapshots: "false"
       push_image: false
       image_tag: ${{ needs.prepare-image-tag.outputs.image_tag }}
+      frontend_image_tag: ${{ needs.prepare-image-tag.outputs.frontend_image_tag }}
+      frontend_gar_image_tag: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
 
   preview-comment:
     if: github.event.action != 'closed'
@@ -127,6 +159,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      packages: write
     secrets: inherit
     with:
       mode: destroy

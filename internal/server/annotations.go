@@ -40,7 +40,15 @@ var (
 // bootstrapAnnotationsFromHOCR fetches the hOCR annotation page from the
 // core API for a canvas that has no saved annotations yet.
 func (h *Handler) bootstrapAnnotationsFromHOCR(ctx context.Context, canvasURI, base string) ([]any, error) {
-	return h.bootstrapAnnotationsForGranularities(ctx, canvasURI, base, annotationBootstrapURL, "line", "word")
+	matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI)
+	if len(matches) < 2 {
+		return nil, fmt.Errorf("cannot extract item image reference from canvas uri")
+	}
+	itemImageID, err := strconv.ParseUint(strings.TrimSpace(matches[1]), 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid item image reference in canvas uri: %w", err)
+	}
+	return h.bootstrapStoredAnnotationsForItemImage(ctx, itemImageID, canvasURI, "line", "word")
 }
 
 func bindAnnotationToCanvas(anno map[string]any, canvasURI string) map[string]any {
@@ -113,11 +121,60 @@ func (h *Handler) bootstrapAnnotationsForCanvas(ctx context.Context, canvasURI, 
 		}
 	}
 
-	// Build a bootstrap URL using our internal item-image route.
-	internalBase := base
-	return h.bootstrapAnnotationsForGranularities(ctx, canvasURI, base, func(_ string, _ string) (string, error) {
-		return internalBase + "/v1/item-images/" + fmt.Sprintf("%d", img.ID) + "/annotations", nil
-	}, "line", "word")
+	return h.bootstrapStoredAnnotationsForItemImage(ctx, img.ID, canvasURI, "line", "word")
+}
+
+func (h *Handler) bootstrapStoredAnnotationsForItemImage(
+	ctx context.Context,
+	itemImageID uint64,
+	canvasURI string,
+	granularities ...string,
+) ([]any, error) {
+	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
+	if err != nil {
+		return nil, err
+	}
+
+	hocrXML := strings.TrimSpace(run.OriginalHOCR)
+	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
+		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
+	}
+	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
+		hocrXML = persisted
+	}
+	if hocrXML == "" {
+		return nil, fmt.Errorf("hocr not found")
+	}
+
+	annotationScopeID := run.SessionID
+	if run.ItemImageID != nil {
+		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
+	}
+
+	items := make([]any, 0)
+	for _, granularity := range granularities {
+		switch granularity {
+		case "line":
+			lines, err := hocr.ParseHOCRLines(hocrXML)
+			if err != nil {
+				return nil, fmt.Errorf("parse hocr lines: %w", err)
+			}
+			items = append(items, buildLineAnnotations(annotationScopeID, canvasURI, lines)...)
+		case "word":
+			words, err := hocr.ParseHOCRWords(hocrXML)
+			if err != nil {
+				return nil, fmt.Errorf("parse hocr words: %w", err)
+			}
+			items = append(items, buildWordAnnotations(annotationScopeID, canvasURI, words)...)
+		case "glyph":
+			wordGlyphs, err := hocr.ParseHOCRWordGlyphs(hocrXML)
+			if err != nil {
+				return nil, fmt.Errorf("parse hocr glyphs: %w", err)
+			}
+			items = append(items, buildGlyphAnnotations(annotationScopeID, canvasURI, wordGlyphs)...)
+		}
+	}
+	return items, nil
 }
 
 func (h *Handler) bootstrapAnnotationsForGranularities(
@@ -291,12 +348,13 @@ func (h *Handler) autoIngestManifest(ctx context.Context, manifestURL string) er
 	if label == "" {
 		label = manifestURL
 	}
-	itemID := fmt.Sprintf("auto-%x", sha1.Sum([]byte(manifestURL)))[:20]
+	itemID := fmt.Sprintf("auto-%d-%x", h.currentUserID(ctx), sha1.Sum([]byte(manifestURL)))[:32]
 	it, err := h.items.Create(ctx, db.CreateItemParams{
 		ID:         itemID,
-		UserID:     store.AnonymousUserID,
+		UserID:     h.currentUserID(ctx),
+		WorkspaceID: h.currentWorkspaceID(ctx),
 		Name:       label,
-		SourceType: "iiif_manifest",
+		SourceType: "manifest",
 		SourceURL:  manifestURL,
 	})
 	if err != nil {
@@ -551,6 +609,12 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 		contextID = &pctx.ID
 	}
 	ctx = hocr.WithProviderCallMetadata(ctx, "", itemImageID, contextID)
+	workspaceID := h.currentWorkspaceID(ctx)
+	var userID *uint64
+	if currentUserID := h.currentUserID(ctx); currentUserID > 0 {
+		userID = &currentUserID
+	}
+	ctx = h.contextWithProviderSecret(ctx, workspaceID, userID, pctx.TranscriptionProvider)
 
 	imagePath, cleanup, err := fetchIIIFRegionToTemp(iiifID, x1, y1, x2, y2)
 	if err != nil {

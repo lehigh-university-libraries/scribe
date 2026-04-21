@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/lehigh-university-libraries/scribe/internal/auth"
 )
 
 type cloudEvent struct {
@@ -92,16 +95,6 @@ func (h *Handler) publishEvent(eventType, subject string, data map[string]any) {
 	h.deliverWebhooks(evt)
 }
 
-func parseWebhookURLs(raw string) []string {
-	var urls []string
-	for _, part := range strings.Split(raw, ",") {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			urls = append(urls, trimmed)
-		}
-	}
-	return urls
-}
-
 func (h *Handler) deliverWebhooks(evt cloudEvent) {
 	if len(h.webhookURLs) == 0 || h.webhookClient == nil {
 		return
@@ -152,6 +145,12 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
+	if h.auth != nil {
+		if principal, ok := auth.PrincipalFromContext(r.Context()); !ok || principal.Anonymous() {
+			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+	}
 
 	query := r.URL.Query()
 	types := parseEventTypes(query["type"])
@@ -165,6 +164,7 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		subjectPrefix = fmt.Sprintf("item-images/%s", itemImageID)
 	}
 
+	workspaceID := h.currentWorkspaceID(r.Context())
 	filter := func(evt cloudEvent) bool {
 		if len(types) > 0 {
 			if _, ok := types[evt.Type]; !ok {
@@ -172,6 +172,9 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if subjectPrefix != "" && !strings.HasPrefix(evt.Subject, subjectPrefix) {
+			return false
+		}
+		if !h.eventVisibleToWorkspace(r.Context(), workspaceID, evt) {
 			return false
 		}
 		return true
@@ -216,4 +219,67 @@ func subjectForItemImage(itemImageID uint64) string {
 
 func subjectForAnnotation(itemImageID uint64, annotationID string) string {
 	return fmt.Sprintf("item-images/%d/annotations/%s", itemImageID, annotationID)
+}
+
+func (h *Handler) eventVisibleToWorkspace(ctx context.Context, workspaceID uint64, evt cloudEvent) bool {
+	if itemImageID, ok := eventItemImageID(evt); ok {
+		allowed, err := h.items.WorkspaceOwnsItemImage(ctx, workspaceID, itemImageID)
+		return err == nil && allowed
+	}
+	if itemID, ok := eventItemID(evt); ok {
+		allowed, err := h.items.WorkspaceOwnsItem(ctx, workspaceID, itemID)
+		return err == nil && allowed
+	}
+	return false
+}
+
+func eventItemImageID(evt cloudEvent) (uint64, bool) {
+	for _, key := range []string{"itemImageId", "item_image_id"} {
+		if value, ok := evt.Data[key]; ok {
+			if itemImageID, ok := toUint64(value); ok {
+				return itemImageID, true
+			}
+		}
+	}
+	if strings.HasPrefix(evt.Subject, "item-images/") {
+		remainder := strings.TrimPrefix(evt.Subject, "item-images/")
+		itemImageIDPart := remainder
+		if slash := strings.Index(itemImageIDPart, "/"); slash >= 0 {
+			itemImageIDPart = itemImageIDPart[:slash]
+		}
+		if itemImageID, err := strconv.ParseUint(strings.TrimSpace(itemImageIDPart), 10, 64); err == nil {
+			return itemImageID, true
+		}
+	}
+	return 0, false
+}
+
+func eventItemID(evt cloudEvent) (string, bool) {
+	for _, key := range []string{"itemId", "item_id"} {
+		if value, ok := evt.Data[key]; ok {
+			switch typed := value.(type) {
+			case string:
+				typed = strings.TrimSpace(typed)
+				if typed != "" {
+					return typed, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+func toUint64(value any) (uint64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return uint64(typed), true
+	case string:
+		parsed, err := strconv.ParseUint(strings.TrimSpace(typed), 10, 64)
+		return parsed, err == nil
+	case json.Number:
+		parsed, err := strconv.ParseUint(typed.String(), 10, 64)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
 }

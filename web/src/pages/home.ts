@@ -3,6 +3,7 @@ import { processImageURL, processImageUpload, reprocessItemImage } from "../api/
 import { listTranscriptionJobs } from "../api/transcription";
 import { subscribeToEvents } from "../api/events";
 import { listContexts } from "../api/context";
+import { getAuthMe, logout } from "../api/auth";
 import { TranscriptionJobStatus } from "../proto/scribe/v1/transcription_pb";
 import { uint64ToString, escHtml } from "../lib/util";
 import type { Item } from "../proto/scribe/v1/item_pb";
@@ -246,7 +247,10 @@ export async function renderHome(app: HTMLElement): Promise<void> {
               <a href="/contexts" class="rounded border border-slate-700 px-3 py-2 hover:bg-slate-800">Contexts</a>
             </nav>
           </div>
-          <p class="text-sm text-slate-300">Generate IIIF annotations for images.</p>
+          <div class="flex items-center gap-4">
+            <p class="text-sm text-slate-300">Generate IIIF annotations for images.</p>
+            <div id="auth-summary" class="text-sm text-slate-400"></div>
+          </div>
         </div>
       </header>
       <section class="mx-auto max-w-5xl p-8">
@@ -374,6 +378,28 @@ export async function renderHome(app: HTMLElement): Promise<void> {
       </section>
     </main>
   `;
+
+  const authSummary = document.getElementById("auth-summary") as HTMLDivElement;
+  void getAuthMe().then((authState) => {
+    if (authState.authenticated && authState.user) {
+      const displayName = authState.user.name || authState.user.email || "Signed in";
+      authSummary.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-slate-300">${escHtml(displayName)}</span>
+          <button id="logout-btn" class="rounded border border-slate-700 px-3 py-1.5 text-xs hover:bg-slate-800">Logout</button>
+        </div>`;
+      const logoutBtn = document.getElementById("logout-btn") as HTMLButtonElement | null;
+      logoutBtn?.addEventListener("click", async () => {
+        await logout();
+        window.location.reload();
+      });
+      return;
+    }
+    const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+    authSummary.innerHTML = `<a class="rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800" href="${escHtml(authState.loginUrl)}?redirect=${redirect}">Sign in with Google</a>`;
+  }).catch(() => {
+    authSummary.textContent = "Auth unavailable";
+  });
 
   // Load contexts into the selector
   const contextSelect = document.getElementById("context-select") as HTMLSelectElement;

@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 
 	"connectrpc.com/connect"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
@@ -19,9 +19,14 @@ import (
 
 func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[scribev1.SearchAnnotationsRequest]) (*connect.Response[scribev1.SearchAnnotationsResponse], error) {
 	canvasURI, granularity := parseSearchAnnotationsCanvasURI(req.Msg.GetCanvasUri())
+	if canvasURI != "" {
+		if err := h.authorizeCanvasRead(ctx, canvasURI); err != nil {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation page not found"))
+		}
+	}
 	base := h.annotationBaseURL
 	if base == "" {
-		base = strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
+		base = strings.TrimRight(strings.TrimSpace(config.Get().Config.Annotation.APIBase), "/")
 	}
 	if base == "" {
 		base = "http://localhost:8080"
@@ -114,6 +119,9 @@ func (h *Handler) GetAnnotation(ctx context.Context, req *connect.Request[scribe
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
 	}
+	if err := h.authorizeAnnotationJSON(ctx, raw); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
+	}
 	return connect.NewResponse(&scribev1.GetAnnotationResponse{AnnotationJson: raw}), nil
 }
 
@@ -132,6 +140,9 @@ func (h *Handler) CreateAnnotation(ctx context.Context, req *connect.Request[scr
 	canvasURI := extractCanvasURI(anno)
 	if canvasURI == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("annotation target missing canvas uri"))
+	}
+	if err := h.authorizeCanvasRead(ctx, canvasURI); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation target missing canvas uri"))
 	}
 	slog.Info("CreateAnnotation normalized payload",
 		"annotation", annotationDebugSummary(anno),
@@ -171,6 +182,9 @@ func (h *Handler) UpdateAnnotation(ctx context.Context, req *connect.Request[scr
 	if canvasURI == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("annotation target missing canvas uri"))
 	}
+	if err := h.authorizeCanvasRead(ctx, canvasURI); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation target missing canvas uri"))
+	}
 	slog.Info("UpdateAnnotation normalized payload",
 		"annotation", annotationDebugSummary(anno),
 	)
@@ -194,6 +208,13 @@ func (h *Handler) DeleteAnnotation(ctx context.Context, req *connect.Request[scr
 	uri := strings.TrimSpace(req.Msg.GetUri())
 	if uri == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("uri is required"))
+	}
+	raw, err := h.annotations.Get(ctx, uri)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
+	}
+	if err := h.authorizeAnnotationJSON(ctx, raw); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
 	}
 	if err := h.annotations.Delete(ctx, uri); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -388,6 +409,9 @@ func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scr
 	if annotationJSON == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("annotation_json is required"))
 	}
+	if err := h.authorizeAnnotationJSON(ctx, annotationJSON); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
+	}
 	scope := strings.ToLower(strings.TrimSpace(req.Msg.GetScope()))
 	if scope == "" {
 		scope = "line"
@@ -397,7 +421,7 @@ func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scr
 	var enrichErr error
 
 	if req.Msg.GetContextId() > 0 {
-		c, err := h.contexts.Get(ctx, req.Msg.GetContextId())
+		c, err := h.contextForRead(ctx, req.Msg.GetContextId())
 		if err != nil {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
 		}
@@ -407,7 +431,7 @@ func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scr
 			enriched, enrichErr = h.enrichSingleAnnotation(ctx, annotationJSON, c)
 		}
 	} else {
-		c, _, err := h.contexts.Resolve(ctx, nil)
+		c, _, err := h.contexts.ResolveForWorkspace(ctx, h.currentWorkspaceID(ctx), nil)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve context: %w", err))
 		}

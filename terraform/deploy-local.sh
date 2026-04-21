@@ -5,6 +5,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
+  terraform/deploy-local.sh dev <plan|apply|destroy> [--branch BRANCH]
   terraform/deploy-local.sh prod <plan|apply|destroy>
   terraform/deploy-local.sh preview <plan|apply|destroy> [--branch BRANCH] --pr-number NUMBER
 
@@ -15,13 +16,17 @@ Optional environment:
   TF_STATE_BUCKET      GCS bucket used for Terraform remote state. Defaults to ${GCLOUD_PROJECT}-terraform
   ALLOWED_IPS         Terraform list(string), e.g. ["203.0.113.10/32"]
   ALLOWED_SSH_IPV4    Terraform list(string), e.g. ["203.0.113.10/32"]
-  SCRIBE_API_IMAGE    Exact app image to inject into Terraform app_env
-  SCRIBE_APP_ENV      JSON object merged into TF_VAR_app_env
+  SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
+  SCRIBE_FRONTEND_IMAGE  Exact frontend image to inject into Terraform frontend_image (GHCR, used by the VM compose stack)
+  SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar)
 
 Notes:
+  - Dev mode uses Terraform workspace dev and site name scribe-dev.
   - Preview mode matches GitHub Actions naming only when --pr-number is supplied.
   - Preview images use ghcr.io/lehigh-university-libraries/scribe:<branch>
+  - Preview frontend images use ghcr.io/lehigh-university-libraries/scribe-frontend:<branch>
   - Production uses ghcr.io/lehigh-university-libraries/scribe:main
+  - Production frontend uses ghcr.io/lehigh-university-libraries/scribe-frontend:main
 EOF
 }
 
@@ -32,19 +37,26 @@ require_cmd() {
   }
 }
 
-sanitize_image_tag() {
-  printf '%s' "$1" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}' | tr '[:upper:]' '[:lower:]'
-}
+decode_base64_file() {
+  local input="$1"
+  local output="$2"
 
-merge_app_env() {
-  local base_env="$1"
-  local image_ref="$2"
-
-  if [ -z "$base_env" ]; then
-    base_env='{}'
+  if base64 --decode <"$input" >"$output" 2>/dev/null; then
+    return 0
+  fi
+  if base64 -d <"$input" >"$output" 2>/dev/null; then
+    return 0
+  fi
+  if base64 -D <"$input" >"$output" 2>/dev/null; then
+    return 0
   fi
 
-  jq -cn --argjson base "$base_env" --arg image "$image_ref" '$base + {SCRIBE_API_IMAGE: $image}'
+  echo "Failed to base64 decode $input" >&2
+  return 1
+}
+
+sanitize_image_tag() {
+  printf '%s' "$1" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}' | tr '[:upper:]' '[:lower:]'
 }
 
 select_workspace() {
@@ -56,11 +68,99 @@ select_workspace() {
   export TF_WORKSPACE="$workspace"
 }
 
+shared_vault_workspace() {
+  local workspace="$1"
+  if [ "$workspace" = "prod" ]; then
+    printf 'prod'
+    return
+  fi
+  printf 'dev'
+}
+
+shared_vault_service_name() {
+  local workspace="$1"
+  if [ "$workspace" = "prod" ]; then
+    printf 'vault-server-prod'
+    return
+  fi
+  printf 'vault-server-dev'
+}
+
+fetch_vault_root_token() {
+  local shared_workspace="$1"
+  local service_name key_bucket kms_key_ring tmpdir
+
+  service_name="$(shared_vault_service_name "$shared_workspace")"
+  key_bucket="$(printf '%s-%s-key' "$GCLOUD_PROJECT" "$service_name" | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g; s/\./-/g; s/ /-/g')"
+  kms_key_ring="$service_name"
+  tmpdir="$(mktemp -d)"
+
+  if ! gcloud storage cp "gs://${key_bucket}/root-token.enc" "$tmpdir/root-token.enc" >/dev/null 2>&1; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  if ! decode_base64_file "$tmpdir/root-token.enc" "$tmpdir/root-token.ciphertext"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  gcloud kms decrypt \
+    --key=vault \
+    --keyring="$kms_key_ring" \
+    --location=global \
+    --project="$GCLOUD_PROJECT" \
+    --ciphertext-file="$tmpdir/root-token.ciphertext" \
+    --plaintext-file="$tmpdir/root-token" >/dev/null
+
+  VAULT_TOKEN="$(tr -d '\r\n' < "$tmpdir/root-token")"
+  export VAULT_TOKEN
+  rm -rf "$tmpdir"
+
+  if [ -z "${VAULT_TOKEN}" ]; then
+    echo "Decrypted Vault token was empty." >&2
+    return 1
+  fi
+}
+
+bootstrap_vault_token() {
+  local target_workspace="$1"
+  local action="$2"
+  local shared_workspace="$3"
+
+  if [ -n "${VAULT_TOKEN:-}" ]; then
+    return 0
+  fi
+
+  if fetch_vault_root_token "$shared_workspace"; then
+    return 0
+  fi
+
+  if [ "$target_workspace" = "$shared_workspace" ] && [ "$action" != "destroy" ]; then
+    echo "Vault root token for workspace ${shared_workspace} not found; bootstrapping Vault first..."
+    terraform apply -auto-approve -target=module.vault "${terraform_vars[@]}"
+
+    echo "Waiting for Vault init to publish the encrypted root token..."
+    for _ in $(seq 1 18); do
+      if fetch_vault_root_token "$shared_workspace"; then
+        return 0
+      fi
+      sleep 10
+    done
+
+    echo "Vault bootstrap finished, but the root token still could not be fetched from GCS/KMS." >&2
+    echo "Ensure the current identity can read gs://${GCLOUD_PROJECT}-$(shared_vault_service_name "$shared_workspace")-key/root-token.enc and decrypt KMS key ring $(shared_vault_service_name "$shared_workspace")/vault." >&2
+    return 1
+  fi
+
+  echo "Vault root token for shared workspace ${shared_workspace} is unavailable." >&2
+  echo "Apply the ${shared_workspace} workspace first, or ensure the current identity can read the shared root token object and decrypt its KMS key." >&2
+  return 1
+}
+
 require_cmd git
 require_cmd gcloud
 require_cmd terraform
-require_cmd jq
-
 if [ $# -lt 2 ]; then
   usage
   exit 1
@@ -104,6 +204,13 @@ while [ $# -gt 0 ]; do
 done
 
 case "$environment" in
+  dev)
+    target_workspace="dev"
+    export TF_VAR_name="scribe-dev"
+    export TF_VAR_docker_compose_branch="$branch"
+    export TF_VAR_run_snapshots="false"
+    fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:$(sanitize_image_tag "$branch")"
+    ;;
   prod)
     target_workspace="prod"
     export TF_VAR_name="scribe"
@@ -130,6 +237,8 @@ case "$environment" in
 esac
 
 image_tag="${SCRIBE_API_IMAGE:-$fallback_image_tag}"
+frontend_image_tag="${SCRIBE_FRONTEND_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-frontend:$(printf '%s' "${image_tag##*:}" | tr '[:upper:]' '[:lower:]')}"
+frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-}"
 
 case "$action" in
   plan|apply|destroy) ;;
@@ -142,21 +251,24 @@ esac
 
 cd "$(dirname "$0")"
 
-export TF_VAR_project_id="$GCLOUD_PROJECT"
-export TF_VAR_project_number
-TF_VAR_project_number="$(gcloud projects describe "$GCLOUD_PROJECT" --format='value(projectNumber)')"
-export TF_VAR_project_number
+terraform_vars=(
+  "-var=project_id=${GCLOUD_PROJECT}"
+  "-var=terraform_state_bucket=${TF_STATE_BUCKET}"
+  "-var=name=${TF_VAR_name}"
+  "-var=docker_compose_branch=${TF_VAR_docker_compose_branch}"
+  "-var=run_snapshots=${TF_VAR_run_snapshots}"
+  "-var=api_image=${image_tag}"
+  "-var=frontend_image=${frontend_image_tag}"
+  "-var=frontend_gar_image=${frontend_gar_image_tag}"
+)
 
 if [ -n "${ALLOWED_IPS:-}" ]; then
-  export TF_VAR_allowed_ips="$ALLOWED_IPS"
+  terraform_vars+=("-var=allowed_ips=${ALLOWED_IPS}")
 fi
 
 if [ -n "${ALLOWED_SSH_IPV4:-}" ]; then
-  export TF_VAR_allowed_ssh_ipv4="$ALLOWED_SSH_IPV4"
+  terraform_vars+=("-var=allowed_ssh_ipv4=${ALLOWED_SSH_IPV4}")
 fi
-
-export TF_VAR_app_env
-TF_VAR_app_env="$(merge_app_env "${SCRIBE_APP_ENV:-}" "$image_tag")"
 
 terraform init -upgrade \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -164,18 +276,21 @@ terraform init -upgrade \
 
 select_workspace "$target_workspace"
 
+shared_vault_workspace_name="$(shared_vault_workspace "$target_workspace")"
+bootstrap_vault_token "$target_workspace" "$action" "$shared_vault_workspace_name"
+
 if [ "$action" != "destroy" ]; then
   terraform validate
 fi
 
 case "$action" in
   plan)
-    terraform plan
+    terraform plan "${terraform_vars[@]}"
     ;;
   apply)
-    terraform apply -auto-approve
+    terraform apply -auto-approve "${terraform_vars[@]}"
     ;;
   destroy)
-    terraform destroy -auto-approve
+    terraform destroy -auto-approve "${terraform_vars[@]}"
     ;;
 esac

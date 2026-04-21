@@ -19,7 +19,7 @@ import (
 // --- ItemService Connect handlers ---
 
 func (h *Handler) ListItems(ctx context.Context, _ *connect.Request[scribev1.ListItemsRequest]) (*connect.Response[scribev1.ListItemsResponse], error) {
-	items, err := h.items.List(ctx, store.AnonymousUserID)
+	items, err := h.items.List(ctx, h.currentWorkspaceID(ctx))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -33,7 +33,7 @@ func (h *Handler) ListItems(ctx context.Context, _ *connect.Request[scribev1.Lis
 }
 
 func (h *Handler) GetItem(ctx context.Context, req *connect.Request[scribev1.GetItemRequest]) (*connect.Response[scribev1.GetItemResponse], error) {
-	it, err := h.items.Get(ctx, req.Msg.GetItemId())
+	it, err := h.itemForRequest(ctx, req.Msg.GetItemId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
 	}
@@ -65,10 +65,11 @@ func (h *Handler) CreateItem(ctx context.Context, req *connect.Request[scribev1.
 		name = "Untitled Item"
 	}
 
-	itemID := time.Now().UTC().Format("20060102150405")
+	itemID := fmt.Sprintf("item_%d", time.Now().UTC().UnixNano())
 	it, err := h.items.Create(ctx, db.CreateItemParams{
 		ID:         itemID,
-		UserID:     store.AnonymousUserID,
+		UserID:     h.currentUserID(ctx),
+		WorkspaceID: h.currentWorkspaceID(ctx),
 		Name:       name,
 		SourceType: srcType,
 		SourceURL:  manifestURL,
@@ -85,7 +86,7 @@ func (h *Handler) CreateItem(ctx context.Context, req *connect.Request[scribev1.
 		} else {
 			_, _ = h.ingestManifest(ctx, it.ID, manifestURL)
 		}
-		it, _ = h.items.Get(ctx, it.ID)
+		it, _ = h.itemForRequest(ctx, it.ID)
 	}
 
 	return connect.NewResponse(&scribev1.CreateItemResponse{Item: storeItemToProto(it)}), nil
@@ -102,15 +103,18 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 				name = "Untitled Item"
 			}
 		}
-		itemID = time.Now().UTC().Format("20060102150405")
+		itemID = fmt.Sprintf("item_%d", time.Now().UTC().UnixNano())
 		if _, err := h.items.Create(ctx, db.CreateItemParams{
 			ID:         itemID,
-			UserID:     store.AnonymousUserID,
+			UserID:     h.currentUserID(ctx),
+			WorkspaceID: h.currentWorkspaceID(ctx),
 			Name:       name,
 			SourceType: "upload",
 		}); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
+	} else if _, err := h.itemForRequest(ctx, itemID); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
 	}
 
 	filename := strings.TrimSpace(req.Msg.GetFilename())
@@ -131,7 +135,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	it, _ := h.items.Get(ctx, itemID)
+	it, _ := h.itemForRequest(ctx, itemID)
 	return connect.NewResponse(&scribev1.UploadItemImageResponse{
 		Item:  storeItemToProto(it),
 		Image: storeItemImageToProto(img),
@@ -139,7 +143,10 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 }
 
 func (h *Handler) DeleteItem(ctx context.Context, req *connect.Request[scribev1.DeleteItemRequest]) (*connect.Response[scribev1.DeleteItemResponse], error) {
-	if err := h.items.Delete(ctx, req.Msg.GetItemId()); err != nil {
+	if err := h.items.DeleteForWorkspace(ctx, req.Msg.GetItemId(), h.currentWorkspaceID(ctx)); err != nil {
+		if isNotFoundError(err) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&scribev1.DeleteItemResponse{}), nil

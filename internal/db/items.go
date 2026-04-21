@@ -1,116 +1,89 @@
 package db
 
+// Compatibility wrappers in this file preserve the older store-facing API while
+// delegating SQL execution to sqlc-generated queries in items.sql.
+
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"time"
 )
 
-// Item maps to the items table.
-type Item struct {
-	ID         string
-	UserID     uint64
-	Name       string
-	SourceType string
-	SourceURL  sql.NullString
-	Metadata   sql.NullString // JSON blob
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-}
-
-// ItemImage maps to the item_images table.
-type ItemImage struct {
-	ID        uint64
-	ItemID    string
-	Sequence  uint32
-	ImageURL  string
-	CanvasURI sql.NullString
-	Label     sql.NullString
-	HocrURL   sql.NullString
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-// --- items ---
-
 type CreateItemParams struct {
-	ID         string
-	UserID     uint64
-	Name       string
-	SourceType string
-	SourceURL  string
-	Metadata   string // JSON; empty string means NULL
+	ID          string
+	UserID      uint64
+	WorkspaceID uint64
+	Name        string
+	SourceType  string
+	SourceURL   string
+	Metadata    string
 }
 
 func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) error {
-	var srcURL sql.NullString
-	if arg.SourceURL != "" {
-		srcURL = sql.NullString{String: arg.SourceURL, Valid: true}
-	}
-	var meta sql.NullString
-	if arg.Metadata != "" {
-		meta = sql.NullString{String: arg.Metadata, Valid: true}
-	}
-	_, err := q.db.ExecContext(ctx, `
-INSERT INTO items (id, user_id, name, source_type, source_url, metadata)
-VALUES (?, ?, ?, ?, ?, ?)
-`, arg.ID, arg.UserID, arg.Name, arg.SourceType, srcURL, meta)
-	return err
+	return q.CreateItemManual(ctx, CreateItemManualParams{
+		ID:          arg.ID,
+		UserID:      arg.UserID,
+		WorkspaceID: arg.WorkspaceID,
+		Name:        arg.Name,
+		SourceType:  ItemsSourceType(arg.SourceType),
+		SourceUrl:   compatNullableString(arg.SourceURL),
+		Metadata:    compatRawJSON(arg.Metadata),
+	})
 }
 
 func (q *Queries) GetItem(ctx context.Context, id string) (Item, error) {
-	var it Item
-	err := q.db.QueryRowContext(ctx, `
-SELECT id, user_id, name, source_type, source_url, metadata, created_at, updated_at
-FROM items WHERE id = ?
-`, id).Scan(
-		&it.ID, &it.UserID, &it.Name, &it.SourceType,
-		&it.SourceURL, &it.Metadata, &it.CreatedAt, &it.UpdatedAt,
-	)
-	return it, err
+	row, err := q.GetItemManual(ctx, id)
+	if err != nil {
+		return Item{}, err
+	}
+	return Item{
+		ID:          row.ID,
+		UserID:      row.UserID,
+		WorkspaceID: row.WorkspaceID,
+		Name:        row.Name,
+		SourceType:  row.SourceType,
+		SourceUrl:   row.SourceUrl,
+		Metadata:    row.Metadata,
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
+	}, nil
 }
 
-func (q *Queries) ListItems(ctx context.Context, userID uint64) ([]Item, error) {
-	rows, err := q.db.QueryContext(ctx, `
-SELECT id, user_id, name, source_type, source_url, metadata, created_at, updated_at
-FROM items WHERE user_id = ?
-ORDER BY created_at DESC
-`, userID)
+func (q *Queries) ListItems(ctx context.Context, workspaceID uint64) ([]Item, error) {
+	rows, err := q.ListItemsManual(ctx, workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []Item
-	for rows.Next() {
-		var it Item
-		if err := rows.Scan(
-			&it.ID, &it.UserID, &it.Name, &it.SourceType,
-			&it.SourceURL, &it.Metadata, &it.CreatedAt, &it.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		out = append(out, it)
+	out := make([]Item, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, Item{
+			ID:          row.ID,
+			UserID:      row.UserID,
+			WorkspaceID: row.WorkspaceID,
+			Name:        row.Name,
+			SourceType:  row.SourceType,
+			SourceUrl:   row.SourceUrl,
+			Metadata:    row.Metadata,
+			CreatedAt:   row.CreatedAt,
+			UpdatedAt:   row.UpdatedAt,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (q *Queries) DeleteItem(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, `DELETE FROM items WHERE id = ?`, id)
-	return err
+	return q.DeleteItemManual(ctx, id)
 }
 
-// UpdateItemMetadata merges the given metadata JSON into the item's metadata bag.
 func (q *Queries) UpdateItemMetadata(ctx context.Context, id string, metadata map[string]any) error {
-	b, err := json.Marshal(metadata)
+	body, err := json.Marshal(metadata)
 	if err != nil {
 		return err
 	}
-	_, err = q.db.ExecContext(ctx, `UPDATE items SET metadata = ? WHERE id = ?`, string(b), id)
-	return err
+	return q.UpdateItemMetadataManual(ctx, UpdateItemMetadataManualParams{
+		ID:       id,
+		Metadata: body,
+	})
 }
-
-// --- item_images ---
 
 type CreateItemImageParams struct {
 	ItemID    string
@@ -122,27 +95,14 @@ type CreateItemImageParams struct {
 }
 
 func (q *Queries) CreateItemImage(ctx context.Context, arg CreateItemImageParams) (uint64, error) {
-	var canvasURI sql.NullString
-	if arg.CanvasURI != "" {
-		canvasURI = sql.NullString{String: arg.CanvasURI, Valid: true}
-	}
-	var label sql.NullString
-	if arg.Label != "" {
-		label = sql.NullString{String: arg.Label, Valid: true}
-	}
-	var hocrURL sql.NullString
-	if arg.HocrURL != "" {
-		hocrURL = sql.NullString{String: arg.HocrURL, Valid: true}
-	}
-	res, err := q.db.ExecContext(ctx, `
-INSERT INTO item_images (item_id, sequence, image_url, canvas_uri, label, hocr_url)
-VALUES (?, ?, ?, ?, ?, ?)
-ON DUPLICATE KEY UPDATE
-  image_url  = VALUES(image_url),
-  canvas_uri = VALUES(canvas_uri),
-  label      = VALUES(label),
-  hocr_url   = VALUES(hocr_url)
-`, arg.ItemID, arg.Sequence, arg.ImageURL, canvasURI, label, hocrURL)
+	res, err := q.CreateItemImageManual(ctx, CreateItemImageManualParams{
+		ItemID:    arg.ItemID,
+		Sequence:  arg.Sequence,
+		ImageUrl:  arg.ImageURL,
+		CanvasUri: compatNullableString(arg.CanvasURI),
+		Label:     compatNullableString(arg.Label),
+		HocrUrl:   compatNullableString(arg.HocrURL),
+	})
 	if err != nil {
 		return 0, err
 	}
@@ -151,54 +111,66 @@ ON DUPLICATE KEY UPDATE
 }
 
 func (q *Queries) GetItemImage(ctx context.Context, id uint64) (ItemImage, error) {
-	var img ItemImage
-	err := q.db.QueryRowContext(ctx, `
-SELECT id, item_id, sequence, image_url, canvas_uri, label, hocr_url, created_at, updated_at
-FROM item_images WHERE id = ?
-`, id).Scan(
-		&img.ID, &img.ItemID, &img.Sequence, &img.ImageURL,
-		&img.CanvasURI, &img.Label, &img.HocrURL, &img.CreatedAt, &img.UpdatedAt,
-	)
-	return img, err
+	row, err := q.GetItemImageManual(ctx, id)
+	if err != nil {
+		return ItemImage{}, err
+	}
+	return ItemImage{
+		ID:        row.ID,
+		ItemID:    row.ItemID,
+		Sequence:  row.Sequence,
+		ImageUrl:  row.ImageUrl,
+		CanvasUri: row.CanvasUri,
+		Label:     row.Label,
+		HocrUrl:   row.HocrUrl,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}, nil
 }
 
 func (q *Queries) ListItemImages(ctx context.Context, itemID string) ([]ItemImage, error) {
-	rows, err := q.db.QueryContext(ctx, `
-SELECT id, item_id, sequence, image_url, canvas_uri, label, hocr_url, created_at, updated_at
-FROM item_images WHERE item_id = ?
-ORDER BY sequence ASC
-`, itemID)
+	rows, err := q.ListItemImagesManual(ctx, itemID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []ItemImage
-	for rows.Next() {
-		var img ItemImage
-		if err := rows.Scan(
-			&img.ID, &img.ItemID, &img.Sequence, &img.ImageURL,
-			&img.CanvasURI, &img.Label, &img.HocrURL, &img.CreatedAt, &img.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		out = append(out, img)
+	out := make([]ItemImage, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ItemImage{
+			ID:        row.ID,
+			ItemID:    row.ItemID,
+			Sequence:  row.Sequence,
+			ImageUrl:  row.ImageUrl,
+			CanvasUri: row.CanvasUri,
+			Label:     row.Label,
+			HocrUrl:   row.HocrUrl,
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (q *Queries) GetItemImageByCanvasURI(ctx context.Context, canvasURI string) (ItemImage, error) {
-	var img ItemImage
-	err := q.db.QueryRowContext(ctx, `
-SELECT id, item_id, sequence, image_url, canvas_uri, label, hocr_url, created_at, updated_at
-FROM item_images WHERE canvas_uri = ? LIMIT 1
-`, canvasURI).Scan(
-		&img.ID, &img.ItemID, &img.Sequence, &img.ImageURL,
-		&img.CanvasURI, &img.Label, &img.HocrURL, &img.CreatedAt, &img.UpdatedAt,
-	)
-	return img, err
+	row, err := q.GetItemImageByCanvasURIManual(ctx, compatNullableString(canvasURI))
+	if err != nil {
+		return ItemImage{}, err
+	}
+	return ItemImage{
+		ID:        row.ID,
+		ItemID:    row.ItemID,
+		Sequence:  row.Sequence,
+		ImageUrl:  row.ImageUrl,
+		CanvasUri: row.CanvasUri,
+		Label:     row.Label,
+		HocrUrl:   row.HocrUrl,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+	}, nil
 }
 
 func (q *Queries) UpdateItemImageCanvasURI(ctx context.Context, id uint64, canvasURI string) error {
-	_, err := q.db.ExecContext(ctx, `UPDATE item_images SET canvas_uri = ? WHERE id = ?`, canvasURI, id)
-	return err
+	return q.UpdateItemImageCanvasURIManual(ctx, UpdateItemImageCanvasURIManualParams{
+		ID:        id,
+		CanvasUri: compatNullableString(canvasURI),
+	})
 }

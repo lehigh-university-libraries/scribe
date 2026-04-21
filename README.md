@@ -4,8 +4,10 @@
 
 Scribe is a web-based OCR correction tool. Upload images or point it at a IIIF manifest, run OCR, then fix the results visually in an image-aligned text editor. All data is stored per-user and the API is defined end-to-end in protobuf with Connect RPC.
 
-The application now runs as a single Go API server on port `8080`. That server
-hosts Connect RPC, annotation and IIIF HTTP routes, and the static web app.
+The application now runs as separate `frontend`, `api`, and `worker` processes.
+The frontend serves the web app and proxies backend routes. The API hosts
+Connect RPC, annotation, and IIIF HTTP routes. The worker consumes background
+transcription jobs.
 
 ## Direction
 
@@ -24,7 +26,7 @@ That means:
 - the API exposes annotation and text-editing actions that editor plugins can
   call directly rather than reimplementing split/join/transcription logic in
   the browser
-- the same backend also serves a standalone web app for item ingestion,
+- the same project also ships a standalone web app for item ingestion,
   management, OCR generation, and QA editing
 
 The editor is designed as a custom text-first OCR correction workflow built on
@@ -43,6 +45,7 @@ docker compose up --build
 | Web app | http://localhost |
 | API + Annotation API | http://localhost |
 | IIIF image server (Cantaloupe) | http://localhost/cantaloupe |
+| Worker health | `docker compose logs worker` or `http://worker:8080/healthz` inside the compose network |
 
 ## Creating items
 
@@ -61,7 +64,9 @@ correct line and word text against the image.
 ## Architecture
 
 ```
-cmd/api/            Single Go binary (Connect RPC + annotation/IIIF REST + web)
+cmd/api/            HTTP API process
+cmd/worker/         Background transcription worker process
+web/server.mjs      Frontend runtime that serves the SPA and proxies backend paths
 internal/
   server/           Connect handlers, canonical AnnotationPage routes, crosswalk routes
   store/            MariaDB access via sqlc
@@ -100,6 +105,7 @@ API/editor contract:
 # Backend
 make lint
 make test
+make build
 
 # Regenerate proto stubs and SQL
 make proto
@@ -109,16 +115,71 @@ make generate
 # Frontend (from web/)
 npm install
 npm run build
+npm run serve
+
+# Frontend container
+make build-frontend
 ```
 
-## Key environment variables
+SQL query definitions live under [sqlc/queries](/workspace/sqlc/queries). The
+checked-in [internal/db](/workspace/internal/db) package mirrors those queries
+today and should be refreshed from them with `make sqlc` when the tool is
+available in the development environment.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ANNOTATION_API_BASE` | `/` | Public base URL used when generating annotation item/page IDs; path values are expanded against the incoming request host |
-| `CANTALOUPE_IIIF_BASE` | `/cantaloupe/iiif/2` | IIIF image base URL used in manifests; path values are expanded against the incoming request host |
-| `SCRIBE_WEBHOOK_URLS` | empty | Comma-separated webhook endpoints that receive all emitted Scribe CloudEvents |
-| `VITE_ANNOTATION_API_BASE` | `/` | Annotation API base for viewer/editor integration; runtime HTML injection takes precedence when available |
+## Runtime config
+
+Non-secret runtime settings live in [config.yaml](/workspace/config.yaml). The
+container bakes in embedded defaults and then reads `/etc/scribe/config.yaml`
+at startup when it is mounted by Docker Compose or Terraform-managed runtime
+deployment.
+
+Secrets do not live in `.env` or `config.yaml`. They are loaded from Vault on
+startup using the paths configured under `vault.paths` in `config.yaml`. The
+Vault address itself is non-secret and also lives in `config.yaml` as
+`vault.address`.
+
+On deployed GCP VMs, Scribe authenticates to Vault with the GCP auth method.
+It first tries a mounted service-account credential file and then falls back to
+the VM metadata service if that file is not available. A static Vault token is
+only needed as an optional local-development fallback.
+
+The only optional runtime bootstrap environment variable is:
+
+| Variable | Description |
+|----------|-------------|
+| `VAULT_TOKEN` | Optional local-development Vault token fallback |
+
+For local Docker Compose only, [sample.env](/workspace/sample.env) also defines
+`SCRIBE_API_IMAGE` and `SCRIBE_FRONTEND_IMAGE` so the stack can pin or override
+image tags cleanly.
+
+Use `make vault-secrets` to list, read, or update the required app secrets in
+Vault. The helper prompts for `dev` vs `prod`, defaults to your current
+`gcloud auth print-access-token`, and only writes fields you actually enter.
+
+Terraform now treats Vault as two long-lived servers: shared `dev` and `prod`.
+Preview environments and local dev point at the shared `dev` Vault. Each
+deployment still gets its own Vault GCP auth role, so preview service accounts
+do not need to share a single global role binding.
+
+For local Terraform applies, the Docker provider also needs Artifact Registry
+push credentials because it builds and pushes images itself. Before running
+`make tf-dev`, `make tf-preview`, or `make tf-prod` locally, configure Docker
+for `us-docker.pkg.dev`:
+
+```bash
+gcloud auth login
+gcloud config set project <your-gcp-project-id>
+gcloud auth configure-docker us-docker.pkg.dev
+```
+
+This repo currently reads Docker auth from `~/.docker/config.json`. Your user
+also needs write access to `projects/<project>/locations/us/repositories/internal`.
+
+For Ollama, use `llm.ollama.url` in `config.yaml` instead of `OLLAMA_URL`.
+When that URL points at a private Cloud Run service, Scribe automatically sends
+an ID token if the host is a `*.run.app` service URL. Set
+`llm.ollama.audience` only when the Cloud Run service uses a custom audience.
 
 ## IIIF endpoints
 
@@ -127,6 +188,15 @@ GET  /v1/item-images/{id}/manifest        IIIF Presentation v3 manifest
 GET  /v1/item-images/{id}/hocr            Current persisted hOCR document
 GET  /v1/item-images/{id}/annotations     IIIF annotation page bootstrap/export
 GET  /v1/events                           Server-sent event stream for job + annotation lifecycle events
+GET  /auth/me                             Current auth/session state
+GET  /auth/google                         Google OAuth login
+GET  /auth/callback/google                Google OAuth callback
+GET  /auth/api-keys                       List API keys for the active workspace
+POST /auth/api-keys                       Create a workspace-scoped API key
+DELETE /auth/api-keys/{key_id}            Revoke a workspace-scoped API key
+GET  /auth/provider-secrets               List Vault-backed provider secrets visible in the active workspace
+POST /auth/provider-secrets               Create a workspace- or user-scoped provider secret
+DELETE /auth/provider-secrets/{secret_id} Delete a provider secret
 ```
 
 The application API is proto-first. New API operations should be defined in
@@ -147,11 +217,47 @@ reason not to use RPC. The `GET /v1/item-images/{id}/manifest`,
 routes are examples of that exception: they expose dereferenceable IIIF/OCR
 documents that external viewers and IIIF clients fetch directly.
 
+## Auth model
+
+Google OAuth is the only interactive login path. The shipped runtime does not
+support anonymous mode, local username/password auth, or an auth toggle.
+
+Every authenticated request runs inside a workspace. Browser sessions default
+to the caller's personal workspace, and can target another workspace membership
+with `X-Scribe-Workspace-ID`. API keys are pinned to exactly one workspace and
+ignore any workspace override header.
+
+API keys are intended for scoped frontend and integration use cases such as a
+Drupal-hosted Mirador plugin calling Scribe to create items, edit annotations,
+or save OCR output. They are created by workspace admins via `/auth/api-keys`
+and may be limited by both a workspace role (`admin`, `write`, `create`,
+`read`) and optional scopes such as `items:*`, `annotations:write`, or
+`transcription:read`.
+
+Provider API keys are stored separately from the relational DB. Scribe stores
+only provider-secret metadata in MariaDB and writes the actual secret material
+to Vault. The contexts page can create personal or workspace-scoped provider
+secrets. Runtime resolution prefers a personal secret over a workspace secret
+for the same provider. Gemini is wired end-to-end today for enrichment,
+background transcription, and other context-driven OCR paths.
+
+Connect and HTTP clients may authenticate with either:
+
+```text
+Authorization: Bearer <api-key>
+X-Scribe-API-Key: <api-key>
+```
+
+For browser or plugin code in this repo, [web/src/api/transport.ts](/workspace/web/src/api/transport.ts)
+exports `createScribeTransport(...)`, which can attach API key and workspace
+headers to a Connect transport.
+
 ## Events and webhooks
 
 Scribe emits a small CloudEvents-style event set from the backend. Clients can
-consume those events either through `GET /v1/events` over SSE or by configuring
-`SCRIBE_WEBHOOK_URLS` to fan out each event as `application/cloudevents+json`.
+consume those events either through `GET /v1/events` over SSE or by setting
+`webhooks.urls` in [config.yaml](/workspace/config.yaml) to fan out each event
+as `application/cloudevents+json`.
 
 Current event types:
 
@@ -167,6 +273,24 @@ Use `transcription.task.completed` to drive per-line progress in the UI. Use
 as Islandora. Save does not publish: `annotations.published` is emitted only
 after the explicit `POST /scribe.v1.AnnotationService/PublishItemImageEdits`
 action.
+
+## Deployment direction
+
+The current deployment/auth refactor plan lives in
+[docs/infra-auth-plan.md](/workspace/docs/infra-auth-plan.md). The current
+deployment shape is:
+
+- separate `frontend`, `api`, and `worker` deployments
+- backend Go image stays on the VM
+- frontend image is deployed as the optional `frontend` Cloud Run sidecar next
+  to ppb and proxies backend paths back to the VM
+- shared production Cantaloupe managed from this repo's Terraform
+- shared private Ollama model services managed from this repo's Terraform
+- a shared production HTTPS load balancer for the app and Cantaloupe
+- a self-hosted Vault deployment managed from this repo's Terraform
+- Google OAuth plus Connect interceptor-based authorization
+- Vault-backed storage for user-supplied provider keys
+- session hOCR state persisted in the database instead of local disk
 
 Editor-oriented annotation operations are exposed on `AnnotationService` so
 plugins can delegate structural OCR edits to the backend:
@@ -200,9 +324,20 @@ Scribe seeds these system contexts on startup:
 - `Scribe Custom`
   Uses the custom segmentor, crops by detected line, sends each line to the
   configured LLM provider, and assembles the result back into line-level OCR.
+- `Kraken BLLA`
+  Uses Kraken page segmentation with its default BLLA model, then crops by
+  detected line and sends each line to the configured LLM provider.
 
-When `LLM_PROVIDER=ollama` and `OLLAMA_MODEL` is unset, Scribe defaults to
-`glm-ocr:bf16`.
+Set a context segmentation model to `kraken` to use the default Kraken BLLA
+segmenter, or `kraken:<model-id>` to pin a specific Kraken model.
+
+When `config.yaml` sets `llm.provider: ollama` and `llm.ollama.model` is left
+at its default, Scribe uses `glm-ocr:bf16`.
+
+When `llm.ollama.url` targets a private Cloud Run Ollama deployment, the shared
+`htr` provider client now attaches a Google identity token automatically. The
+default audience is the Cloud Run service URL; `llm.ollama.audience` exists for
+the rare case where you configured a custom audience explicitly.
 
 For images uploaded or supplied without existing hOCR, the default system flow
 is:

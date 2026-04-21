@@ -6,9 +6,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 )
 
 // DrupalFileObject represents a single file object from Drupal
@@ -56,9 +57,9 @@ func (h *Handler) createSessionFromDrupalNode(nid string) (string, error) {
 }
 
 func (h *Handler) fetchDrupalData(nid string) (DrupalHOCRData, error) {
-	drupalURL := os.Getenv("DRUPAL_HOCR_URL")
+	drupalURL := config.Get().Config.Drupal.HOCRURLTemplate
 	if drupalURL == "" {
-		return nil, fmt.Errorf("DRUPAL_HOCR_URL environment variable not set")
+		return nil, fmt.Errorf("drupal.hocr_url_template is not configured")
 	}
 
 	requestURL := fmt.Sprintf(drupalURL, nid)
@@ -110,7 +111,7 @@ func (h *Handler) extractDrupalFiles(drupalData DrupalHOCRData) (*DrupalFileObje
 }
 
 func (h *Handler) buildDrupalURLs(serviceFile, hocrFile *DrupalFileObject, nid string) (string, string) {
-	drupalURL := os.Getenv("DRUPAL_HOCR_URL")
+	drupalURL := config.Get().Config.Drupal.HOCRURLTemplate
 	baseUrl := strings.Replace(drupalURL, "/node/%s/hocr", "", 1)
 
 	imageURL := baseUrl + serviceFile.ViewNode + serviceFile.URI

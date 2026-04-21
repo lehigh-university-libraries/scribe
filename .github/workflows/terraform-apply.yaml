@@ -7,12 +7,41 @@ on:
       - main
 
 jobs:
+  prepare-backend-origin:
+    runs-on: ubuntu-24.04
+    outputs:
+      backend_origin: ${{ steps.vars.outputs.backend_origin }}
+      frontend_gar_image_tag: ${{ steps.vars.outputs.frontend_gar_image_tag }}
+    env:
+      GCLOUD_PROJECT: ${{ secrets.GCLOUD_PROJECT }}
+      SCRIBE_ZONE: ${{ vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || 'us-east5-b' }}
+    steps:
+      - id: vars
+        run: |
+          echo "backend_origin=http://scribe.${SCRIBE_ZONE}.c.${GCLOUD_PROJECT}.internal" >> "$GITHUB_OUTPUT"
+          echo "frontend_gar_image_tag=us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:main" >> "$GITHUB_OUTPUT"
+
   build-push:
     uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@60c5d3a7a8f89290bbe0db056a0116855f59bb6c # main
     permissions:
       contents: read
       packages: write
     secrets: inherit
+
+  build-frontend:
+    needs: [prepare-backend-origin]
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@main
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      image: scribe-frontend
+      file: Dockerfile.frontend
+      gar_image: ${{ needs.prepare-backend-origin.outputs.frontend_gar_image_tag }}
+      build_args: |
+        SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-backend-origin.outputs.backend_origin }}
 
   lint-test:
     needs: [build-push]
@@ -26,11 +55,12 @@ jobs:
       image_tag: ghcr.io/lehigh-university-libraries/scribe:main
 
   terraform-apply:
-    needs: [build-push]
+    needs: [prepare-backend-origin, build-push, build-frontend]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
       contents: read
+      packages: write
     secrets: inherit
     with:
       mode: apply
@@ -42,3 +72,5 @@ jobs:
       run_snapshots: "true"
       push_image: false
       image_tag: ghcr.io/lehigh-university-libraries/scribe:main
+      frontend_image_tag: ghcr.io/lehigh-university-libraries/scribe-frontend:main
+      frontend_gar_image_tag: ${{ needs.prepare-backend-origin.outputs.frontend_gar_image_tag }}

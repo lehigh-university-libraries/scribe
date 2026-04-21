@@ -30,6 +30,26 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true
       },
+      "/scribe.v1.": {
+        target: "http://localhost:8080",
+        changeOrigin: true
+      },
+      "/auth": {
+        target: "http://localhost:8080",
+        changeOrigin: true
+      },
+      "/logout": {
+        target: "http://localhost:8080",
+        changeOrigin: true
+      },
+      "/static/uploads": {
+        target: "http://localhost:8080",
+        changeOrigin: true
+      },
+      "/cantaloupe": {
+        target: "http://localhost",
+        changeOrigin: true
+      },
       "/healthz": {
         target: "http://localhost:8080",
         changeOrigin: true

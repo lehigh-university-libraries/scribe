@@ -5,15 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
-	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 // Ensure Handler implements the TranscriptionService interface.
@@ -32,6 +31,9 @@ func (h *Handler) CreateTranscriptionJob(
 
 	var contextID *uint64
 	if req.Msg.GetContextId() > 0 {
+		if _, err := h.contextForRead(ctx, req.Msg.GetContextId()); err != nil {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
+		}
 		v := req.Msg.GetContextId()
 		contextID = &v
 	}
@@ -60,6 +62,14 @@ func (h *Handler) ListTranscriptionJobs(
 	req *connect.Request[scribev1.ListTranscriptionJobsRequest],
 ) (*connect.Response[scribev1.ListTranscriptionJobsResponse], error) {
 	jobs, err := h.transcriptionJobs.ListByItemImage(ctx, req.Msg.GetItemImageId())
+	if req.Msg.GetItemImageId() == 0 {
+		jobs, err = h.transcriptionJobs.ListByWorkspace(ctx, h.currentWorkspaceID(ctx))
+	} else {
+		if _, err := h.itemImageForRequest(ctx, req.Msg.GetItemImageId()); err != nil {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item image not found"))
+		}
+		jobs, err = h.transcriptionJobs.ListByItemImage(ctx, req.Msg.GetItemImageId())
+	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -79,6 +89,13 @@ func (h *Handler) StreamTranscriptionJob(
 	stream *connect.ServerStream[scribev1.TranscriptionJob],
 ) error {
 	jobID := req.Msg.GetJobId()
+	allowed, err := h.transcriptionJobs.WorkspaceOwnsJob(ctx, h.currentWorkspaceID(ctx), jobID)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, err)
+	}
+	if !allowed {
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("job not found"))
+	}
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -162,34 +179,44 @@ func (h *Handler) transcriptionWorkerLoop(ctx context.Context, workerID int) {
 }
 
 func transcriptionJobWorkerCount() int {
-	raw := strings.TrimSpace(os.Getenv("TRANSCRIPTION_JOB_WORKERS"))
-	if raw == "" {
-		return 3
+	if v := config.Get().Config.Transcription.JobWorkers; v > 0 {
+		return v
 	}
-	count, err := strconv.Atoi(raw)
-	if err != nil || count < 1 {
-		slog.Warn("Invalid TRANSCRIPTION_JOB_WORKERS, using default", "value", raw, "default", 3)
-		return 3
+	return 3
+}
+
+func (h *Handler) resolveTranscriptionJobContext(ctx context.Context, job *store.TranscriptionJob) (store.Context, uint64, *uint64, error) {
+	img, err := h.items.GetImage(ctx, job.ItemImageID)
+	if err != nil {
+		return store.Context{}, 0, nil, fmt.Errorf("get item image %d: %w", job.ItemImageID, err)
 	}
-	return count
+	item, err := h.items.Get(ctx, img.ItemID)
+	if err != nil {
+		return store.Context{}, 0, nil, fmt.Errorf("get item %s: %w", img.ItemID, err)
+	}
+	itemUserID := item.UserID
+	itemUserIDPtr := &itemUserID
+	if job.ContextID != nil && *job.ContextID > 0 {
+		contextValue, err := h.contexts.GetForWorkspace(ctx, *job.ContextID, item.WorkspaceID)
+		if err != nil {
+			return store.Context{}, 0, nil, fmt.Errorf("get context %d: %w", *job.ContextID, err)
+		}
+		return contextValue, item.WorkspaceID, itemUserIDPtr, nil
+	}
+	contextValue, _, err := h.contexts.ResolveForWorkspace(ctx, item.WorkspaceID, nil)
+	if err != nil {
+		return store.Context{}, 0, nil, fmt.Errorf("resolve context: %w", err)
+	}
+	return contextValue, item.WorkspaceID, itemUserIDPtr, nil
 }
 
 func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.TranscriptionJob) error {
 	// Resolve the context (transcription model/provider).
-	var pctx store.Context
-	if job.ContextID != nil && *job.ContextID > 0 {
-		c, err := h.contexts.Get(ctx, *job.ContextID)
-		if err != nil {
-			return fmt.Errorf("get context %d: %w", *job.ContextID, err)
-		}
-		pctx = c
-	} else {
-		c, _, err := h.contexts.Resolve(ctx, nil)
-		if err != nil {
-			return fmt.Errorf("resolve context: %w", err)
-		}
-		pctx = c
+	pctx, workspaceID, ownerUserID, err := h.resolveTranscriptionJobContext(ctx, job)
+	if err != nil {
+		return err
 	}
+	ctx = h.contextWithProviderSecret(ctx, workspaceID, ownerUserID, pctx.TranscriptionProvider)
 
 	// Wait for the canvas URI and annotations to be populated by Mirador loading
 	// the manifest. This happens shortly after the editor page loads, so we poll
@@ -217,13 +244,7 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 				return fmt.Errorf("search annotations for canvas %s: %w", img.CanvasURI, searchErr)
 			}
 			if len(payloads) == 0 {
-				base := h.annotationBaseURL
-				if base == "" {
-					base = strings.TrimRight(strings.TrimSpace(os.Getenv("ANNOTATION_API_BASE")), "/")
-				}
-				if base == "" {
-					base = "http://localhost:8080"
-				}
+				base := h.internalAnnotationBaseURL()
 				bootstrap, bootstrapErr := h.bootstrapAnnotationsForCanvas(ctx, img.CanvasURI, base)
 				if bootstrapErr == nil {
 					payloads, searchErr = h.persistAnnotationItems(ctx, img.CanvasURI, bootstrap)

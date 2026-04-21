@@ -7,6 +7,7 @@
 package scribev1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -960,51 +961,55 @@ var File_scribe_v1_annotation_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_annotation_proto_rawDesc = "" +
 	"\n" +
-	"\x1ascribe/v1/annotation.proto\x12\tscribe.v1\"9\n" +
-	"\x18SearchAnnotationsRequest\x12\x1d\n" +
+	"\x1ascribe/v1/annotation.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\"K\n" +
+	"\x18SearchAnnotationsRequest\x12/\n" +
 	"\n" +
-	"canvas_uri\x18\x01 \x01(\tR\tcanvasUri\"M\n" +
+	"canvas_uri\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\tcanvasUri\"M\n" +
 	"\x19SearchAnnotationsResponse\x120\n" +
-	"\x14annotation_page_json\x18\x01 \x01(\tR\x12annotationPageJson\"&\n" +
-	"\x14GetAnnotationRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"@\n" +
+	"\x14annotation_page_json\x18\x01 \x01(\tR\x12annotationPageJson\"8\n" +
+	"\x14GetAnnotationRequest\x12 \n" +
+	"\x02id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x02id\"@\n" +
 	"\x15GetAnnotationResponse\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"B\n" +
-	"\x17CreateAnnotationRequest\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"C\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"T\n" +
+	"\x17CreateAnnotationRequest\x129\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x0eannotationJson\"C\n" +
 	"\x18CreateAnnotationResponse\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"B\n" +
-	"\x17UpdateAnnotationRequest\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"C\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"T\n" +
+	"\x17UpdateAnnotationRequest\x129\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x0eannotationJson\"C\n" +
 	"\x18UpdateAnnotationResponse\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"+\n" +
-	"\x17DeleteAnnotationRequest\x12\x10\n" +
-	"\x03uri\x18\x01 \x01(\tR\x03uri\"\x1a\n" +
-	"\x18DeleteAnnotationResponse\"w\n" +
-	"\x17EnrichAnnotationRequest\x12\x14\n" +
-	"\x05scope\x18\x01 \x01(\tR\x05scope\x12'\n" +
-	"\x0fannotation_json\x18\x02 \x01(\tR\x0eannotationJson\x12\x1d\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"=\n" +
+	"\x17DeleteAnnotationRequest\x12\"\n" +
+	"\x03uri\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x03uri\"\x1a\n" +
+	"\x18DeleteAnnotationResponse\"\xaf\x02\n" +
+	"\x17EnrichAnnotationRequest\x12#\n" +
+	"\x05scope\x18\x01 \x01(\tB\r\xbaH\n" +
+	"r\b2\x06.*\\S.*R\x05scope\x126\n" +
+	"\x0fannotation_json\x18\x02 \x01(\tB\r\xbaH\n" +
+	"r\b2\x06.*\\S.*R\x0eannotationJson\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x03 \x01(\x04R\tcontextId\"C\n" +
+	"context_id\x18\x03 \x01(\x04R\tcontextId:\x97\x01\xbaH\x93\x01\x1a\x90\x01\n" +
+	"\x17enrich_annotation.scope\x12\x1ascope must be line or page\x1aY(this.scope == 'line' || this.scope == 'page') && this.annotation_json.matches('.*\\\\S.*')\"C\n" +
 	"\x18EnrichAnnotationResponse\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"Z\n" +
-	"\x19SplitLineIntoWordsRequest\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\x12\x14\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"l\n" +
+	"\x19SplitLineIntoWordsRequest\x129\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x0eannotationJson\x12\x14\n" +
 	"\x05words\x18\x02 \x03(\tR\x05words\"N\n" +
 	"\x1aSplitLineIntoWordsResponse\x120\n" +
-	"\x14annotation_page_json\x18\x01 \x01(\tR\x12annotationPageJson\"k\n" +
-	"\x1cSplitLineIntoTwoLinesRequest\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\x12\"\n" +
+	"\x14annotation_page_json\x18\x01 \x01(\tR\x12annotationPageJson\"}\n" +
+	"\x1cSplitLineIntoTwoLinesRequest\x129\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x0eannotationJson\x12\"\n" +
 	"\rsplit_at_word\x18\x02 \x01(\x05R\vsplitAtWord\"J\n" +
 	"\x1dSplitLineIntoTwoLinesResponse\x12)\n" +
-	"\x10annotation_jsons\x18\x01 \x03(\tR\x0fannotationJsons\"C\n" +
-	"\x16JoinAnnotationsRequest\x12)\n" +
-	"\x10annotation_jsons\x18\x01 \x03(\tR\x0fannotationJsons\"B\n" +
+	"\x10annotation_jsons\x18\x01 \x03(\tR\x0fannotationJsons\"M\n" +
+	"\x16JoinAnnotationsRequest\x123\n" +
+	"\x10annotation_jsons\x18\x01 \x03(\tB\b\xbaH\x05\x92\x01\x02\b\x02R\x0fannotationJsons\"B\n" +
 	"\x17JoinAnnotationsResponse\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"m\n" +
-	"\x10CrosswalkRequest\x120\n" +
-	"\x14annotation_page_json\x18\x01 \x01(\tR\x12annotationPageJson\x12'\n" +
-	"\x0fannotation_json\x18\x02 \x01(\tR\x0eannotationJson\"E\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"\xba\x02\n" +
+	"\x10CrosswalkRequest\x12B\n" +
+	"\x14annotation_page_json\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x12annotationPageJson\x129\n" +
+	"\x0fannotation_json\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x0eannotationJson:\xa6\x01\xbaH\xa2\x01\x1a\x9f\x01\n" +
+	"\x0fcrosswalk.input\x123annotation_page_json or annotation_json is required\x1aWthis.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')\"E\n" +
 	"\x11CrosswalkResponse\x12\x16\n" +
 	"\x06format\x18\x01 \x01(\tR\x06format\x12\x18\n" +
 	"\acontent\x18\x02 \x01(\tR\acontent2\xfd\t\n" +

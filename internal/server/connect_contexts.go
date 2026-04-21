@@ -14,7 +14,7 @@ import (
 // --- ContextService Connect handlers ---
 
 func (h *Handler) ListContexts(ctx context.Context, req *connect.Request[scribev1.ListContextsRequest]) (*connect.Response[scribev1.ListContextsResponse], error) {
-	contexts, err := h.contexts.List(ctx, req.Msg.GetSystemOnly())
+	contexts, err := h.contexts.ListForWorkspace(ctx, h.currentWorkspaceID(ctx), req.Msg.GetSystemOnly())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -28,7 +28,7 @@ func (h *Handler) ListContexts(ctx context.Context, req *connect.Request[scribev
 }
 
 func (h *Handler) GetContext(ctx context.Context, req *connect.Request[scribev1.GetContextRequest]) (*connect.Response[scribev1.GetContextResponse], error) {
-	c, err := h.contexts.Get(ctx, req.Msg.GetContextId())
+	c, err := h.contextForRead(ctx, req.Msg.GetContextId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
 	}
@@ -36,7 +36,12 @@ func (h *Handler) GetContext(ctx context.Context, req *connect.Request[scribev1.
 }
 
 func (h *Handler) CreateContext(ctx context.Context, req *connect.Request[scribev1.CreateContextRequest]) (*connect.Response[scribev1.CreateContextResponse], error) {
-	c, err := h.contexts.Create(ctx, protoContextToStore(req.Msg.GetContext()))
+	contextValue := protoContextToStore(req.Msg.GetContext())
+	userID := h.currentUserID(ctx)
+	workspaceID := h.currentWorkspaceID(ctx)
+	contextValue.UserID = &userID
+	contextValue.WorkspaceID = &workspaceID
+	c, err := h.contexts.Create(ctx, contextValue)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -44,7 +49,7 @@ func (h *Handler) CreateContext(ctx context.Context, req *connect.Request[scribe
 }
 
 func (h *Handler) UpdateContext(ctx context.Context, req *connect.Request[scribev1.UpdateContextRequest]) (*connect.Response[scribev1.UpdateContextResponse], error) {
-	c, err := h.contexts.Update(ctx, protoContextToStore(req.Msg.GetContext()))
+	c, err := h.contexts.UpdateForWorkspace(ctx, protoContextToStore(req.Msg.GetContext()), h.currentWorkspaceID(ctx), h.currentUserID(ctx))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -52,14 +57,14 @@ func (h *Handler) UpdateContext(ctx context.Context, req *connect.Request[scribe
 }
 
 func (h *Handler) DeleteContext(ctx context.Context, req *connect.Request[scribev1.DeleteContextRequest]) (*connect.Response[scribev1.DeleteContextResponse], error) {
-	if err := h.contexts.Delete(ctx, req.Msg.GetContextId()); err != nil {
+	if err := h.contexts.DeleteForWorkspace(ctx, req.Msg.GetContextId(), h.currentWorkspaceID(ctx)); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&scribev1.DeleteContextResponse{}), nil
 }
 
 func (h *Handler) ListSelectionRules(ctx context.Context, req *connect.Request[scribev1.ListSelectionRulesRequest]) (*connect.Response[scribev1.ListSelectionRulesResponse], error) {
-	rules, err := h.contexts.ListRules(ctx, req.Msg.GetContextId())
+	rules, err := h.contexts.ListRulesForWorkspace(ctx, h.currentWorkspaceID(ctx), req.Msg.GetContextId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -73,7 +78,7 @@ func (h *Handler) ListSelectionRules(ctx context.Context, req *connect.Request[s
 }
 
 func (h *Handler) CreateSelectionRule(ctx context.Context, req *connect.Request[scribev1.CreateSelectionRuleRequest]) (*connect.Response[scribev1.CreateSelectionRuleResponse], error) {
-	r, err := h.contexts.CreateRule(ctx, protoRuleToStore(req.Msg.GetRule()))
+	r, err := h.contexts.CreateRuleForWorkspace(ctx, h.currentWorkspaceID(ctx), protoRuleToStore(req.Msg.GetRule()))
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -81,7 +86,7 @@ func (h *Handler) CreateSelectionRule(ctx context.Context, req *connect.Request[
 }
 
 func (h *Handler) DeleteSelectionRule(ctx context.Context, req *connect.Request[scribev1.DeleteSelectionRuleRequest]) (*connect.Response[scribev1.DeleteSelectionRuleResponse], error) {
-	if err := h.contexts.DeleteRule(ctx, req.Msg.GetRuleId()); err != nil {
+	if err := h.contexts.DeleteRuleForWorkspace(ctx, h.currentWorkspaceID(ctx), req.Msg.GetRuleId()); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&scribev1.DeleteSelectionRuleResponse{}), nil
@@ -94,7 +99,7 @@ func (h *Handler) ResolveContext(ctx context.Context, req *connect.Request[scrib
 			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid metadata json"))
 		}
 	}
-	c, isDefault, err := h.contexts.Resolve(ctx, metadata)
+	c, isDefault, err := h.contexts.ResolveForWorkspace(ctx, h.currentWorkspaceID(ctx), metadata)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

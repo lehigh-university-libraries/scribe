@@ -7,6 +7,8 @@
 package scribev1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -732,7 +734,7 @@ var File_scribe_v1_item_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_item_proto_rawDesc = "" +
 	"\n" +
-	"\x14scribe/v1/item.proto\x12\tscribe.v1\"\xa2\x01\n" +
+	"\x14scribe/v1/item.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cscribe/v1/options/auth.proto\"\xa2\x01\n" +
 	"\tItemImage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12\x1a\n" +
@@ -757,45 +759,47 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"updated_at\x18\t \x01(\tR\tupdatedAt\"\x12\n" +
 	"\x10ListItemsRequest\":\n" +
 	"\x11ListItemsResponse\x12%\n" +
-	"\x05items\x18\x01 \x03(\v2\x0f.scribe.v1.ItemR\x05items\")\n" +
-	"\x0eGetItemRequest\x12\x17\n" +
-	"\aitem_id\x18\x01 \x01(\tR\x06itemId\"6\n" +
+	"\x05items\x18\x01 \x03(\v2\x0f.scribe.v1.ItemR\x05items\";\n" +
+	"\x0eGetItemRequest\x12)\n" +
+	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\"6\n" +
 	"\x0fGetItemResponse\x12#\n" +
-	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xa2\x01\n" +
+	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xff\x02\n" +
 	"\x11CreateItemRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1f\n" +
-	"\vsource_type\x18\x02 \x01(\tR\n" +
-	"sourceType\x12\x1d\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
+	"\vsource_type\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\n" +
+	"sourceType\x12/\n" +
 	"\n" +
-	"source_url\x18\x03 \x01(\tR\tsourceUrl\x12\x1d\n" +
+	"source_url\x18\x03 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\tsourceUrl\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x04 \x01(\x04R\tcontextId\x12\x1a\n" +
-	"\bmetadata\x18\x05 \x01(\tR\bmetadata\"9\n" +
+	"context_id\x18\x04 \x01(\x04R\tcontextId\x12,\n" +
+	"\bmetadata\x18\x05 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bmetadata:\xa4\x01\xbaH\xa0\x01\x1a\x9d\x01\n" +
+	"\x17create_item.source_type\x12+source_type must be empty, url, or manifest\x1aUthis.source_type == '' || this.source_type == 'url' || this.source_type == 'manifest'\"9\n" +
 	"\x12CreateItemResponse\x12#\n" +
-	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xbb\x01\n" +
-	"\x16UploadItemImageRequest\x12\x17\n" +
-	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
+	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xfd\x01\n" +
+	"\x16UploadItemImageRequest\x12)\n" +
+	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x06itemId\x12$\n" +
+	"\x04name\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x04name\x12)\n" +
 	"\n" +
-	"image_data\x18\x03 \x01(\fR\timageData\x12\x1a\n" +
-	"\bfilename\x18\x04 \x01(\tR\bfilename\x12\x1a\n" +
+	"image_data\x18\x03 \x01(\fB\n" +
+	"\xbaH\a\xc8\x01\x01z\x02\x10\x01R\timageData\x12,\n" +
+	"\bfilename\x18\x04 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bfilename\x12\x1a\n" +
 	"\bsequence\x18\x05 \x01(\rR\bsequence\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x06 \x01(\x04R\tcontextId\"j\n" +
 	"\x17UploadItemImageResponse\x12#\n" +
 	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\x12*\n" +
-	"\x05image\x18\x02 \x01(\v2\x14.scribe.v1.ItemImageR\x05image\",\n" +
-	"\x11DeleteItemRequest\x12\x17\n" +
-	"\aitem_id\x18\x01 \x01(\tR\x06itemId\"\x14\n" +
-	"\x12DeleteItemResponse2\x87\x03\n" +
-	"\vItemService\x12F\n" +
-	"\tListItems\x12\x1b.scribe.v1.ListItemsRequest\x1a\x1c.scribe.v1.ListItemsResponse\x12@\n" +
-	"\aGetItem\x12\x19.scribe.v1.GetItemRequest\x1a\x1a.scribe.v1.GetItemResponse\x12I\n" +
+	"\x05image\x18\x02 \x01(\v2\x14.scribe.v1.ItemImageR\x05image\">\n" +
+	"\x11DeleteItemRequest\x12)\n" +
+	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\"\x14\n" +
+	"\x12DeleteItemResponse2\xd4\x03\n" +
+	"\vItemService\x12P\n" +
+	"\tListItems\x12\x1b.scribe.v1.ListItemsRequest\x1a\x1c.scribe.v1.ListItemsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12S\n" +
+	"\aGetItem\x12\x19.scribe.v1.GetItemRequest\x1a\x1a.scribe.v1.GetItemResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x01\"\aitem_id\x12S\n" +
 	"\n" +
-	"CreateItem\x12\x1c.scribe.v1.CreateItemRequest\x1a\x1d.scribe.v1.CreateItemResponse\x12X\n" +
-	"\x0fUploadItemImage\x12!.scribe.v1.UploadItemImageRequest\x1a\".scribe.v1.UploadItemImageResponse\x12I\n" +
+	"CreateItem\x12\x1c.scribe.v1.CreateItemRequest\x1a\x1d.scribe.v1.CreateItemResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12k\n" +
+	"\x0fUploadItemImage\x12!.scribe.v1.UploadItemImageRequest\x1a\".scribe.v1.UploadItemImageResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x02\"\aitem_id\x12\\\n" +
 	"\n" +
-	"DeleteItem\x12\x1c.scribe.v1.DeleteItemRequest\x1a\x1d.scribe.v1.DeleteItemResponseB\xa7\x01\n" +
+	"DeleteItem\x12\x1c.scribe.v1.DeleteItemRequest\x1a\x1d.scribe.v1.DeleteItemResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x02\"\aitem_idB\xa7\x01\n" +
 	"\rcom.scribe.v1B\tItemProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 

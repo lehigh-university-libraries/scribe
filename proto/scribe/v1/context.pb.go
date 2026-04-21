@@ -7,6 +7,8 @@
 package scribev1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -80,7 +82,7 @@ func (x *ImagePreprocessor) GetParams() string {
 type Context struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	// user_id=0 means system context
+	// Creator user for workspace-owned contexts; 0 means system context.
 	UserId      uint64 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Name        string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
@@ -363,7 +365,7 @@ func (x *ContextSelectionRule) GetConditions() []*RuleCondition {
 
 type ListContextsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// If true, only return system contexts (user_id=0).
+	// If true, only return system contexts.
 	SystemOnly    bool `protobuf:"varint,1,opt,name=system_only,json=systemOnly,proto3" json:"system_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1153,92 +1155,102 @@ var File_scribe_v1_context_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_context_proto_rawDesc = "" +
 	"\n" +
-	"\x17scribe/v1/context.proto\x12\tscribe.v1\"?\n" +
-	"\x11ImagePreprocessor\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12\x16\n" +
-	"\x06params\x18\x02 \x01(\tR\x06params\"\xa6\x04\n" +
+	"\x17scribe/v1/context.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cscribe/v1/options/auth.proto\"c\n" +
+	"\x11ImagePreprocessor\x12$\n" +
+	"\x04type\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04type\x12(\n" +
+	"\x06params\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x06params\"\x92\x05\n" +
 	"\aContext\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x04 \x01(\tR\vdescription\x12\x1d\n" +
+	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12$\n" +
+	"\x04name\x18\x03 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04name\x122\n" +
+	"\vdescription\x18\x04 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\vdescription\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x05 \x01(\bR\tisDefault\x12-\n" +
-	"\x12segmentation_model\x18\x06 \x01(\tR\x11segmentationModel\x12M\n" +
-	"\x13image_preprocessors\x18\a \x03(\v2\x1c.scribe.v1.ImagePreprocessorR\x12imagePreprocessors\x125\n" +
-	"\x16transcription_provider\x18\b \x01(\tR\x15transcriptionProvider\x12/\n" +
-	"\x13transcription_model\x18\t \x01(\tR\x12transcriptionModel\x12 \n" +
+	"is_default\x18\x05 \x01(\bR\tisDefault\x12?\n" +
+	"\x12segmentation_model\x18\x06 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x11segmentationModel\x12M\n" +
+	"\x13image_preprocessors\x18\a \x03(\v2\x1c.scribe.v1.ImagePreprocessorR\x12imagePreprocessors\x12G\n" +
+	"\x16transcription_provider\x18\b \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x15transcriptionProvider\x12A\n" +
+	"\x13transcription_model\x18\t \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x12transcriptionModel\x12 \n" +
 	"\vtemperature\x18\n" +
-	" \x01(\x01R\vtemperature\x12#\n" +
-	"\rsystem_prompt\x18\v \x01(\tR\fsystemPrompt\x122\n" +
+	" \x01(\x01R\vtemperature\x125\n" +
+	"\rsystem_prompt\x18\v \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\fsystemPrompt\x122\n" +
 	"\x15post_processing_steps\x18\f \x03(\tR\x13postProcessingSteps\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\r \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x0e \x01(\tR\tupdatedAt\"W\n" +
-	"\rRuleCondition\x12\x14\n" +
-	"\x05field\x18\x01 \x01(\tR\x05field\x12\x1a\n" +
-	"\boperator\x18\x02 \x01(\tR\boperator\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\tR\x05value\"\x9b\x01\n" +
+	"updated_at\x18\x0e \x01(\tR\tupdatedAt\"\x89\x03\n" +
+	"\rRuleCondition\x12&\n" +
+	"\x05field\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x05field\x12,\n" +
+	"\boperator\x18\x02 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\boperator\x12&\n" +
+	"\x05value\x18\x03 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x05value:\xf9\x01\xbaH\xf5\x01\x1a\xf2\x01\n" +
+	"\x17rule_condition.operator\x12Doperator must be one of eq, neq, contains, starts_with, or ends_with\x1a\x90\x01this.operator == 'eq' || this.operator == 'neq' || this.operator == 'contains' || this.operator == 'starts_with' || this.operator == 'ends_with'\"\xb1\x01\n" +
 	"\x14ContextSelectionRule\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1d\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12)\n" +
 	"\n" +
-	"context_id\x18\x02 \x01(\x04R\tcontextId\x12\x1a\n" +
-	"\bpriority\x18\x03 \x01(\x05R\bpriority\x128\n" +
+	"context_id\x18\x02 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\tcontextId\x12\x1a\n" +
+	"\bpriority\x18\x03 \x01(\x05R\bpriority\x12B\n" +
 	"\n" +
-	"conditions\x18\x04 \x03(\v2\x18.scribe.v1.RuleConditionR\n" +
+	"conditions\x18\x04 \x03(\v2\x18.scribe.v1.RuleConditionB\b\xbaH\x05\x92\x01\x02\b\x01R\n" +
 	"conditions\"6\n" +
 	"\x13ListContextsRequest\x12\x1f\n" +
 	"\vsystem_only\x18\x01 \x01(\bR\n" +
 	"systemOnly\"F\n" +
 	"\x14ListContextsResponse\x12.\n" +
-	"\bcontexts\x18\x01 \x03(\v2\x12.scribe.v1.ContextR\bcontexts\"2\n" +
-	"\x11GetContextRequest\x12\x1d\n" +
+	"\bcontexts\x18\x01 \x03(\v2\x12.scribe.v1.ContextR\bcontexts\">\n" +
+	"\x11GetContextRequest\x12)\n" +
 	"\n" +
-	"context_id\x18\x01 \x01(\x04R\tcontextId\"B\n" +
+	"context_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\tcontextId\"B\n" +
 	"\x12GetContextResponse\x12,\n" +
-	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\"D\n" +
-	"\x14CreateContextRequest\x12,\n" +
-	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\"E\n" +
+	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\"L\n" +
+	"\x14CreateContextRequest\x124\n" +
+	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextB\x06\xbaH\x03\xc8\x01\x01R\acontext\"E\n" +
 	"\x15CreateContextResponse\x12,\n" +
-	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\"D\n" +
-	"\x14UpdateContextRequest\x12,\n" +
-	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\"E\n" +
+	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\"\xa8\x01\n" +
+	"\x14UpdateContextRequest\x124\n" +
+	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextB\x06\xbaH\x03\xc8\x01\x01R\acontext:Z\xbaHW\x1aU\n" +
+	"\x11update_context.id\x12\x16context.id is required\x1a(has(this.context) && this.context.id > 0\"E\n" +
 	"\x15UpdateContextResponse\x12,\n" +
-	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\"5\n" +
-	"\x14DeleteContextRequest\x12\x1d\n" +
+	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\"A\n" +
+	"\x14DeleteContextRequest\x12)\n" +
 	"\n" +
-	"context_id\x18\x01 \x01(\x04R\tcontextId\"\x17\n" +
+	"context_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\tcontextId\"\x17\n" +
 	"\x15DeleteContextResponse\":\n" +
 	"\x19ListSelectionRulesRequest\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x01 \x01(\x04R\tcontextId\"S\n" +
 	"\x1aListSelectionRulesResponse\x125\n" +
-	"\x05rules\x18\x01 \x03(\v2\x1f.scribe.v1.ContextSelectionRuleR\x05rules\"Q\n" +
-	"\x1aCreateSelectionRuleRequest\x123\n" +
-	"\x04rule\x18\x01 \x01(\v2\x1f.scribe.v1.ContextSelectionRuleR\x04rule\"R\n" +
+	"\x05rules\x18\x01 \x03(\v2\x1f.scribe.v1.ContextSelectionRuleR\x05rules\"Y\n" +
+	"\x1aCreateSelectionRuleRequest\x12;\n" +
+	"\x04rule\x18\x01 \x01(\v2\x1f.scribe.v1.ContextSelectionRuleB\x06\xbaH\x03\xc8\x01\x01R\x04rule\"R\n" +
 	"\x1bCreateSelectionRuleResponse\x123\n" +
-	"\x04rule\x18\x01 \x01(\v2\x1f.scribe.v1.ContextSelectionRuleR\x04rule\"5\n" +
-	"\x1aDeleteSelectionRuleRequest\x12\x17\n" +
-	"\arule_id\x18\x01 \x01(\x04R\x06ruleId\"\x1d\n" +
+	"\x04rule\x18\x01 \x01(\v2\x1f.scribe.v1.ContextSelectionRuleR\x04rule\"A\n" +
+	"\x1aDeleteSelectionRuleRequest\x12#\n" +
+	"\arule_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\x06ruleId\"\x1d\n" +
 	"\x1bDeleteSelectionRuleResponse\"<\n" +
 	"\x15ResolveContextRequest\x12#\n" +
 	"\rmetadata_json\x18\x01 \x01(\tR\fmetadataJson\"e\n" +
 	"\x16ResolveContextResponse\x12,\n" +
 	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x02 \x01(\bR\tisDefault2\xae\x06\n" +
-	"\x0eContextService\x12O\n" +
-	"\fListContexts\x12\x1e.scribe.v1.ListContextsRequest\x1a\x1f.scribe.v1.ListContextsResponse\x12I\n" +
+	"is_default\x18\x02 \x01(\bR\tisDefault2\xc9\a\n" +
+	"\x0eContextService\x12Y\n" +
+	"\fListContexts\x12\x1e.scribe.v1.ListContextsRequest\x1a\x1f.scribe.v1.ListContextsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12_\n" +
 	"\n" +
-	"GetContext\x12\x1c.scribe.v1.GetContextRequest\x1a\x1d.scribe.v1.GetContextResponse\x12R\n" +
-	"\rCreateContext\x12\x1f.scribe.v1.CreateContextRequest\x1a .scribe.v1.CreateContextResponse\x12R\n" +
-	"\rUpdateContext\x12\x1f.scribe.v1.UpdateContextRequest\x1a .scribe.v1.UpdateContextResponse\x12R\n" +
-	"\rDeleteContext\x12\x1f.scribe.v1.DeleteContextRequest\x1a .scribe.v1.DeleteContextResponse\x12a\n" +
-	"\x12ListSelectionRules\x12$.scribe.v1.ListSelectionRulesRequest\x1a%.scribe.v1.ListSelectionRulesResponse\x12d\n" +
-	"\x13CreateSelectionRule\x12%.scribe.v1.CreateSelectionRuleRequest\x1a&.scribe.v1.CreateSelectionRuleResponse\x12d\n" +
-	"\x13DeleteSelectionRule\x12%.scribe.v1.DeleteSelectionRuleRequest\x1a&.scribe.v1.DeleteSelectionRuleResponse\x12U\n" +
-	"\x0eResolveContext\x12 .scribe.v1.ResolveContextRequest\x1a!.scribe.v1.ResolveContextResponseB\xaa\x01\n" +
+	"GetContext\x12\x1c.scribe.v1.GetContextRequest\x1a\x1d.scribe.v1.GetContextResponse\"\x14\x92\xb5\x18\x10\x10\x05\x18\x01\"\n" +
+	"context_id\x12\\\n" +
+	"\rCreateContext\x12\x1f.scribe.v1.CreateContextRequest\x1a .scribe.v1.CreateContextResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12h\n" +
+	"\rUpdateContext\x12\x1f.scribe.v1.UpdateContextRequest\x1a .scribe.v1.UpdateContextResponse\"\x14\x92\xb5\x18\x10\x10\x05\x18\x02\"\n" +
+	"context.id\x12h\n" +
+	"\rDeleteContext\x12\x1f.scribe.v1.DeleteContextRequest\x1a .scribe.v1.DeleteContextResponse\"\x14\x92\xb5\x18\x10\x10\x05\x18\x02\"\n" +
+	"context_id\x12w\n" +
+	"\x12ListSelectionRules\x12$.scribe.v1.ListSelectionRulesRequest\x1a%.scribe.v1.ListSelectionRulesResponse\"\x14\x92\xb5\x18\x10\x10\x05\x18\x01\"\n" +
+	"context_id\x12\x7f\n" +
+	"\x13CreateSelectionRule\x12%.scribe.v1.CreateSelectionRuleRequest\x1a&.scribe.v1.CreateSelectionRuleResponse\"\x19\x92\xb5\x18\x15\x10\x05\x18\x02\"\x0frule.context_id\x12n\n" +
+	"\x13DeleteSelectionRule\x12%.scribe.v1.DeleteSelectionRuleRequest\x1a&.scribe.v1.DeleteSelectionRuleResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12_\n" +
+	"\x0eResolveContext\x12 .scribe.v1.ResolveContextRequest\x1a!.scribe.v1.ResolveContextResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01B\xaa\x01\n" +
 	"\rcom.scribe.v1B\fContextProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 

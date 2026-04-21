@@ -1,5 +1,13 @@
 import { create } from "@bufbuild/protobuf";
 import { createContext, getContextMetrics, listContexts, type ContextMetrics } from "../api/context";
+import {
+  createProviderSecret,
+  deleteProviderSecret,
+  getAuthMe,
+  listProviderSecrets,
+  logout,
+  type ProviderSecretRecord,
+} from "../api/auth";
 import { escHtml } from "../lib/util";
 import { ContextSchema, type Context } from "../proto/scribe/v1/context_pb";
 
@@ -65,6 +73,47 @@ function renderContextCard(ctx: Context, metrics: ContextMetrics): string {
     </article>`;
 }
 
+function renderProviderSecrets(secrets: ProviderSecretRecord[]): string {
+  if (secrets.length === 0) {
+    return `<p class="text-sm text-slate-400">No workspace or personal provider secrets saved yet.</p>`;
+  }
+
+  return `
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-left text-sm">
+        <thead class="text-xs uppercase tracking-wide text-slate-500">
+          <tr>
+            <th class="px-3 py-2">Provider</th>
+            <th class="px-3 py-2">Name</th>
+            <th class="px-3 py-2">Scope</th>
+            <th class="px-3 py-2">Key</th>
+            <th class="px-3 py-2">Updated</th>
+            <th class="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${secrets.map((secret) => `
+            <tr class="border-t border-slate-800">
+              <td class="px-3 py-3 text-slate-200">${escHtml(secret.provider)}</td>
+              <td class="px-3 py-3 text-slate-200">${escHtml(secret.name)}</td>
+              <td class="px-3 py-3 text-slate-300">${escHtml(secret.scope)}</td>
+              <td class="px-3 py-3 font-mono text-xs text-slate-400">${secret.key_hint ? `****${escHtml(secret.key_hint)}` : "Stored"}</td>
+              <td class="px-3 py-3 text-slate-400">${escHtml(new Date(secret.updated_at).toLocaleString())}</td>
+              <td class="px-3 py-3 text-right">
+                <button
+                  type="button"
+                  class="rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800"
+                  data-provider-secret-delete="${escHtml(String(secret.id))}"
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+
 export async function renderContexts(app: HTMLElement): Promise<void> {
   app.innerHTML = `
     <main class="min-h-screen bg-slate-950">
@@ -77,7 +126,10 @@ export async function renderContexts(app: HTMLElement): Promise<void> {
               <a href="/contexts" class="rounded border border-slate-600 bg-slate-800 px-3 py-2">Contexts</a>
             </nav>
           </div>
-          <a href="/" class="text-sm text-slate-400 hover:text-slate-200">Back to dashboard</a>
+          <div class="flex items-center gap-4">
+            <a href="/" class="text-sm text-slate-400 hover:text-slate-200">Back to dashboard</a>
+            <div id="auth-summary" class="text-sm text-slate-400"></div>
+          </div>
         </div>
       </header>
       <section class="mx-auto max-w-6xl p-8">
@@ -133,14 +185,74 @@ export async function renderContexts(app: HTMLElement): Promise<void> {
             <p id="create-context-status" class="md:col-span-2 text-sm text-slate-400"></p>
           </form>
         </section>
+
+        <section class="rounded-xl border border-slate-700 bg-slate-900/60 p-6">
+          <div class="mb-4">
+            <h2 class="text-xl font-semibold">Provider secrets</h2>
+            <p class="mt-1 text-sm text-slate-400">Store workspace or personal provider API keys in Vault. User-scoped keys override workspace keys for the same provider.</p>
+          </div>
+          <form id="provider-secret-form" class="grid gap-4 md:grid-cols-4">
+            <label class="block">
+              <span class="mb-1 block text-sm text-slate-300">Provider</span>
+              <select id="provider-secret-provider" class="w-full rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm">
+                <option value="gemini">gemini</option>
+              </select>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-sm text-slate-300">Name</span>
+              <input id="provider-secret-name" required class="w-full rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm" />
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-sm text-slate-300">Scope</span>
+              <select id="provider-secret-scope" class="w-full rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm">
+                <option value="user">Personal</option>
+                <option value="workspace">Workspace</option>
+              </select>
+            </label>
+            <label class="block md:col-span-4">
+              <span class="mb-1 block text-sm text-slate-300">API key</span>
+              <input id="provider-secret-api-key" type="password" required class="w-full rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm" />
+            </label>
+            <div class="md:col-span-4 flex items-center gap-3">
+              <button type="submit" class="rounded bg-brand-500 px-4 py-2 text-sm font-medium hover:bg-brand-600">Save provider secret</button>
+              <p id="provider-secret-status" class="text-sm text-slate-400"></p>
+            </div>
+          </form>
+          <div id="provider-secrets-container" class="mt-6"></div>
+        </section>
       </section>
     </main>
   `;
+
+  const authSummary = document.getElementById("auth-summary") as HTMLDivElement;
+  void getAuthMe().then((authState) => {
+    if (authState.authenticated && authState.user) {
+      const displayName = authState.user.name || authState.user.email || "Signed in";
+      authSummary.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-slate-300">${escHtml(displayName)}</span>
+          <button id="logout-btn" class="rounded border border-slate-700 px-3 py-1.5 text-xs hover:bg-slate-800">Logout</button>
+        </div>`;
+      const logoutBtn = document.getElementById("logout-btn") as HTMLButtonElement | null;
+      logoutBtn?.addEventListener("click", async () => {
+        await logout();
+        window.location.href = "/";
+      });
+      return;
+    }
+    const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+    authSummary.innerHTML = `<a class="rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-800" href="${escHtml(authState.loginUrl)}?redirect=${redirect}">Sign in with Google</a>`;
+  }).catch(() => {
+    authSummary.textContent = "Auth unavailable";
+  });
 
   const container = document.getElementById("contexts-container")!;
   const summary = document.getElementById("contexts-summary")!;
   const createForm = document.getElementById("create-context-form") as HTMLFormElement;
   const createStatus = document.getElementById("create-context-status")!;
+  const providerSecretForm = document.getElementById("provider-secret-form") as HTMLFormElement;
+  const providerSecretStatus = document.getElementById("provider-secret-status")!;
+  const providerSecretsContainer = document.getElementById("provider-secrets-container")!;
 
   async function handleCreateContext(event: Event) {
     event.preventDefault();
@@ -239,7 +351,66 @@ export async function renderContexts(app: HTMLElement): Promise<void> {
       .join("")}</div>`;
   }
 
+  async function refreshProviderSecrets() {
+    providerSecretsContainer.innerHTML = `<p class="text-sm text-slate-400">Loading…</p>`;
+    try {
+      const secrets = await listProviderSecrets();
+      providerSecretsContainer.innerHTML = renderProviderSecrets(secrets);
+    } catch (err) {
+      providerSecretsContainer.innerHTML = `<p class="text-sm text-red-400">Failed to load provider secrets: ${escHtml(String(err))}</p>`;
+    }
+  }
+
+  async function handleCreateProviderSecret(event: Event) {
+    event.preventDefault();
+    providerSecretStatus.textContent = "Saving provider secret…";
+
+    const provider = (document.getElementById("provider-secret-provider") as HTMLSelectElement).value.trim();
+    const name = (document.getElementById("provider-secret-name") as HTMLInputElement).value.trim();
+    const apiKey = (document.getElementById("provider-secret-api-key") as HTMLInputElement).value.trim();
+    const scope = (document.getElementById("provider-secret-scope") as HTMLSelectElement).value.trim() as "user" | "workspace";
+
+    if (!name || !apiKey) {
+      providerSecretStatus.textContent = "Name and API key are required.";
+      return;
+    }
+
+    try {
+      await createProviderSecret({
+        provider,
+        name,
+        apiKey,
+        scope,
+      });
+      providerSecretForm.reset();
+      (document.getElementById("provider-secret-provider") as HTMLSelectElement).value = "gemini";
+      (document.getElementById("provider-secret-scope") as HTMLSelectElement).value = "user";
+      providerSecretStatus.textContent = "Provider secret saved.";
+      await refreshProviderSecrets();
+    } catch (err) {
+      providerSecretStatus.textContent = `Save failed: ${String(err)}`;
+    }
+  }
+
   document.getElementById("refresh-contexts")!.addEventListener("click", () => void refreshContexts());
   createForm.addEventListener("submit", (event) => { void handleCreateContext(event); });
+  providerSecretForm.addEventListener("submit", (event) => { void handleCreateProviderSecret(event); });
+  providerSecretsContainer.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement | null;
+    const secretID = target?.getAttribute("data-provider-secret-delete");
+    if (!secretID) {
+      return;
+    }
+    providerSecretStatus.textContent = "Deleting provider secret…";
+    void deleteProviderSecret(secretID)
+      .then(async () => {
+        providerSecretStatus.textContent = "Provider secret deleted.";
+        await refreshProviderSecrets();
+      })
+      .catch((err) => {
+        providerSecretStatus.textContent = `Delete failed: ${String(err)}`;
+      });
+  });
   void refreshContexts();
+  void refreshProviderSecrets();
 }

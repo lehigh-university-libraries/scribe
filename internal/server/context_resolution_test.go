@@ -272,3 +272,69 @@ func TestContextResolution_PriorityOrder(t *testing.T) {
 		t.Errorf("resolved.TranscriptionModel = %q; want %q", resolved.TranscriptionModel, "high-model")
 	}
 }
+
+func TestContextResolution_ResolveForWorkspaceIgnoresOtherWorkspacesRules(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	s := store.NewContextStore(db)
+
+	ownerUserID := createTestUser(t, db, uniqueName("context-owner"))
+	otherUserID := createTestUser(t, db, uniqueName("context-other"))
+	ownerWorkspaceID := createTestWorkspace(t, db, ownerUserID, uniqueName("context-owner-workspace"))
+	otherWorkspaceID := createTestWorkspace(t, db, otherUserID, uniqueName("context-other-workspace"))
+
+	defaultCtx, err := s.Create(ctx, store.Context{
+		Name:                  uniqueName("user-scoped-default"),
+		IsDefault:             true,
+		SegmentationModel:     "scribe",
+		TranscriptionProvider: "ollama",
+		TranscriptionModel:    "default-model",
+	})
+	if err != nil {
+		t.Fatalf("Create default context: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Delete(context.Background(), defaultCtx.ID)
+	})
+
+	otherContextUserID := otherUserID
+	otherCtx, err := s.Create(ctx, store.Context{
+		UserID:                &otherContextUserID,
+		WorkspaceID:           &otherWorkspaceID,
+		Name:                  uniqueName("other-user-context"),
+		SegmentationModel:     "kraken",
+		TranscriptionProvider: "ollama",
+		TranscriptionModel:    "other-user-model",
+	})
+	if err != nil {
+		t.Fatalf("Create other user context: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Delete(context.Background(), otherCtx.ID)
+	})
+
+	rule, err := s.CreateRuleForWorkspace(ctx, otherWorkspaceID, store.ContextSelectionRule{
+		ContextID: otherCtx.ID,
+		Priority:  100,
+	})
+	if err != nil {
+		t.Fatalf("CreateRuleForWorkspace: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.DeleteRule(context.Background(), rule.ID)
+	})
+
+	resolved, isDefault, err := s.ResolveForWorkspace(ctx, ownerWorkspaceID, nil)
+	if err != nil {
+		t.Fatalf("ResolveForWorkspace: %v", err)
+	}
+	if !isDefault {
+		t.Fatalf("isDefault = false, want true when only another user's rule matches")
+	}
+	if !resolved.IsDefault {
+		t.Fatalf("resolved.IsDefault = false, want true when only another user's rule matches")
+	}
+	if resolved.ID == otherCtx.ID {
+		t.Fatalf("resolved.ID = %d; ResolveForWorkspace should ignore another workspace's rules", resolved.ID)
+	}
+}

@@ -1,49 +1,17 @@
 package server
 
-import (
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
-)
+// Session hOCR is persisted in the ocr_runs table. The older filesystem cache
+// is intentionally disabled so API and worker instances do not depend on local
+// disk for session state.
 
-var sessionIDSanitizer = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-
-func safeSessionID(sessionID string) string {
-	clean := strings.TrimSpace(sessionID)
-	if clean == "" {
-		return "unknown"
-	}
-	return sessionIDSanitizer.ReplaceAllString(clean, "_")
+func writeSessionHOCR(_ string, _ string, _ string) error {
+	return nil
 }
 
-func sessionHOCRDir(sessionID string) string {
-	return filepath.Join("cache", "sessions", safeSessionID(sessionID))
+func readSessionHOCR(_ string, _ string) (string, bool) {
+	return "", false
 }
 
-func writeSessionHOCR(sessionID, filename, body string) error {
-	dir := sessionHOCRDir(sessionID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, filename), []byte(body), 0o644)
-}
-
-func readSessionHOCR(sessionID, filename string) (string, bool) {
-	b, err := os.ReadFile(filepath.Join(sessionHOCRDir(sessionID), filename))
-	if err != nil {
-		return "", false
-	}
-	s := strings.TrimSpace(string(b))
-	if s == "" {
-		return "", false
-	}
-	return s, true
-}
-
-func readPreferredSessionHOCR(sessionID string) (string, bool) {
-	if corrected, ok := readSessionHOCR(sessionID, "corrected.hocr"); ok {
-		return corrected, true
-	}
-	return readSessionHOCR(sessionID, "original.hocr")
+func readPreferredSessionHOCR(_ string) (string, bool) {
+	return "", false
 }

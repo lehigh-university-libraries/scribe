@@ -2,32 +2,47 @@ syntax = "proto3";
 
 package scribe.v1;
 
+import "buf/validate/validate.proto";
+import "scribe/v1/options/auth.proto";
+
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
 // ImagePreprocessor is a single image pre-processing step.
 message ImagePreprocessor {
   // type: resize | contrast | binarize | invert
-  string type  = 1;
+  string type  = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
   // JSON-encoded parameters, e.g. {"px":2000} for resize
-  string params = 2;
+  string params = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
 }
 
 // Context bundles all processing parameters for a pipeline run.
 message Context {
   uint64                   id                     = 1;
-  // user_id=0 means system context
+  // Creator user for workspace-owned contexts; 0 means system context.
   uint64                   user_id                = 2;
-  string                   name                   = 3;
-  string                   description            = 4;
+  string                   name                   = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  string                   description            = 4 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   bool                     is_default             = 5;
   // Segmentation model: "tesseract" | "scribe" | "kraken:<model-id>"
-  string                   segmentation_model     = 6;
+  string                   segmentation_model     = 6 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
   repeated ImagePreprocessor image_preprocessors  = 7;
-  string                   transcription_provider = 8;
-  string                   transcription_model    = 9;
+  string                   transcription_provider = 8 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  string                   transcription_model    = 9 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   // -1 means "use provider default"
   double                   temperature            = 10;
-  string                   system_prompt          = 11;
+  string                   system_prompt          = 11 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   repeated string          post_processing_steps  = 12;
   string                   created_at             = 13;
   string                   updated_at             = 14;
@@ -35,10 +50,24 @@ message Context {
 
 // RuleCondition is a single AND-clause predicate.
 message RuleCondition {
-  string field    = 1;
+  option (buf.validate.message).cel = {
+    id: "rule_condition.operator"
+    message: "operator must be one of eq, neq, contains, starts_with, or ends_with"
+    expression: "this.operator == 'eq' || this.operator == 'neq' || this.operator == 'contains' || this.operator == 'starts_with' || this.operator == 'ends_with'"
+  };
+  string field    = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
   // eq | neq | contains | starts_with | ends_with
-  string operator = 2;
-  string value    = 3;
+  string operator = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  string value    = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
 }
 
 // ContextSelectionRule maps a set of AND conditions to a context.
@@ -46,15 +75,18 @@ message RuleCondition {
 // fully-matching rule wins. If no rule matches, the default context is used.
 message ContextSelectionRule {
   uint64             id         = 1;
-  uint64             context_id = 2;
+  uint64             context_id = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
   int32              priority   = 3;
-  repeated RuleCondition conditions = 4;
+  repeated RuleCondition conditions = 4 [(buf.validate.field).repeated.min_items = 1];
 }
 
 // --- requests / responses ---
 
 message ListContextsRequest {
-  // If true, only return system contexts (user_id=0).
+  // If true, only return system contexts.
   bool system_only = 1;
 }
 
@@ -63,7 +95,10 @@ message ListContextsResponse {
 }
 
 message GetContextRequest {
-  uint64 context_id = 1;
+  uint64 context_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
 }
 
 message GetContextResponse {
@@ -71,7 +106,7 @@ message GetContextResponse {
 }
 
 message CreateContextRequest {
-  Context context = 1;
+  Context context = 1 [(buf.validate.field).required = true];
 }
 
 message CreateContextResponse {
@@ -79,7 +114,12 @@ message CreateContextResponse {
 }
 
 message UpdateContextRequest {
-  Context context = 1;
+  option (buf.validate.message).cel = {
+    id: "update_context.id"
+    message: "context.id is required"
+    expression: "has(this.context) && this.context.id > 0"
+  };
+  Context context = 1 [(buf.validate.field).required = true];
 }
 
 message UpdateContextResponse {
@@ -87,7 +127,10 @@ message UpdateContextResponse {
 }
 
 message DeleteContextRequest {
-  uint64 context_id = 1;
+  uint64 context_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
 }
 
 message DeleteContextResponse {}
@@ -102,7 +145,7 @@ message ListSelectionRulesResponse {
 }
 
 message CreateSelectionRuleRequest {
-  ContextSelectionRule rule = 1;
+  ContextSelectionRule rule = 1 [(buf.validate.field).required = true];
 }
 
 message CreateSelectionRuleResponse {
@@ -110,7 +153,10 @@ message CreateSelectionRuleResponse {
 }
 
 message DeleteSelectionRuleRequest {
-  uint64 rule_id = 1;
+  uint64 rule_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
 }
 
 message DeleteSelectionRuleResponse {}
@@ -127,15 +173,65 @@ message ResolveContextResponse {
 }
 
 service ContextService {
-  rpc ListContexts(ListContextsRequest) returns (ListContextsResponse);
-  rpc GetContext(GetContextRequest) returns (GetContextResponse);
-  rpc CreateContext(CreateContextRequest) returns (CreateContextResponse);
-  rpc UpdateContext(UpdateContextRequest) returns (UpdateContextResponse);
-  rpc DeleteContext(DeleteContextRequest) returns (DeleteContextResponse);
+  rpc ListContexts(ListContextsRequest) returns (ListContextsResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc GetContext(GetContextRequest) returns (GetContextResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_CONTEXT
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "context_id"
+    };
+  }
+  rpc CreateContext(CreateContextRequest) returns (CreateContextResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc UpdateContext(UpdateContextRequest) returns (UpdateContextResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_CONTEXT
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "context.id"
+    };
+  }
+  rpc DeleteContext(DeleteContextRequest) returns (DeleteContextResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_CONTEXT
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "context_id"
+    };
+  }
 
-  rpc ListSelectionRules(ListSelectionRulesRequest) returns (ListSelectionRulesResponse);
-  rpc CreateSelectionRule(CreateSelectionRuleRequest) returns (CreateSelectionRuleResponse);
-  rpc DeleteSelectionRule(DeleteSelectionRuleRequest) returns (DeleteSelectionRuleResponse);
+  rpc ListSelectionRules(ListSelectionRulesRequest) returns (ListSelectionRulesResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_CONTEXT
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "context_id"
+    };
+  }
+  rpc CreateSelectionRule(CreateSelectionRuleRequest) returns (CreateSelectionRuleResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_CONTEXT
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "rule.context_id"
+    };
+  }
+  rpc DeleteSelectionRule(DeleteSelectionRuleRequest) returns (DeleteSelectionRuleResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
 
-  rpc ResolveContext(ResolveContextRequest) returns (ResolveContextResponse);
+  rpc ResolveContext(ResolveContextRequest) returns (ResolveContextResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
 }
