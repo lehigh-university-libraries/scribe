@@ -21,7 +21,9 @@ The same Terraform root can also manage shared production edge services:
 - deploys the backend VM compose stack without a local frontend proxy; the
   Cloud Run frontend image talks straight to the backend API on port 80
 - runs `bash generate-secrets.sh` on first boot to create any missing docker
-  secret files under `./secrets/`
+  secret files under `./secrets/`, except for externally managed credentials
+  such as `./secrets/GOOGLE_APPLICATION_CREDENTIALS` where local/CI runs may use
+  a placeholder file until infra provides the real value
 - patches `config.yaml` on the VM with non-secret runtime values such as the
   Vault address
 - pulls the configured API image from GHCR, then starts Scribe with the
@@ -216,6 +218,14 @@ Repeat that with workspace `prod` for production.
 - Vault and Ollama both use the pre-existing shared Artifact Registry
   repository `projects/<project>/locations/us/repositories/internal`. This
   root validates that the repo exists; it does not create it.
+- The Vault Cloud Run service account must be able to verify app/VM service
+  account JWTs for the `auth/gcp` backend. This root now grants that runtime
+  identity `roles/iam.serviceAccountViewer` and
+  `roles/iam.serviceAccountKeyAdmin` in the owning Vault workspace.
+- The Vault proxy now also allows `/v1/secret/` through without
+  `X-Admin-Token` so Scribe can read and write its KV mount using only the
+  Vault client token obtained from `auth/gcp`. Vault ACLs still apply on that
+  mount; this only removes the proxy's outer admin-header requirement.
 - The frontend image is built with
   `SCRIBE_FRONTEND_BACKEND_ORIGIN=http://<site>.<zone>.c.<project>.internal`
   so the ppb Cloud Run proxy talks straight to the backend API on the VM.

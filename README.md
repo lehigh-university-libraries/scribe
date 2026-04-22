@@ -157,6 +157,13 @@ by the local override stack. Copy
 to `docker-compose.override.yaml` to run the local frontend on `:80` while the
 API stays on `:8080`.
 
+The backend containers now expect a Docker Compose secret file at
+`./secrets/GOOGLE_APPLICATION_CREDENTIALS`, mounted in-container at
+`/run/secrets/GOOGLE_APPLICATION_CREDENTIALS`. That file is provisioned
+externally in deployed environments. For local/CI compose runs,
+`generate-secrets.sh` creates a `{}` placeholder when the file is missing so
+the secret mount exists without fabricating real credentials.
+
 Use `make vault-secrets` to list, read, or update the required app secrets in
 Vault. The helper prompts for `dev` vs `prod`, uses your current
 `gcloud auth print-access-token` for the proxy's `X-Admin-Token`, and then

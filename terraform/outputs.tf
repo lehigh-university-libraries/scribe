@@ -43,6 +43,11 @@ output "vault_url" {
   value       = local.vault_url
 }
 
+output "vault_gsa" {
+  description = "Cloud Run service account email for the self-hosted Vault deployment."
+  value       = local.vault_is_owner_workspace ? module.vault[0].gsa : ""
+}
+
 output "vault_workspace" {
   description = "Terraform workspace that owns the Vault server used by this deployment."
   value       = local.shared_vault_workspace

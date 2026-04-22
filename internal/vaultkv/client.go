@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	defaultCredentialsPath = "/run/secrets/scribe/GOOGLE_APPLICATION_CREDENTIALS"
+	defaultCredentialsPath = "/run/secrets/GOOGLE_APPLICATION_CREDENTIALS"
 	defaultGCPAuthMount    = "gcp"
 	defaultGCPAuthRole     = "scribe-app"
 )

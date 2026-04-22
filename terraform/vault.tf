@@ -36,8 +36,25 @@ module "vault" {
   public_routes = [
     "/.well-known/",
     "/v1/auth/gcp/",
+    "/v1/secret/",
     "/v1/sys/health",
   ]
+}
+
+resource "google_project_iam_member" "vault_gcp_auth_service_account_viewer" {
+  count = local.vault_is_owner_workspace ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/iam.serviceAccountViewer"
+  member  = "serviceAccount:${module.vault[0].gsa}"
+}
+
+resource "google_project_iam_member" "vault_gcp_auth_service_account_key_admin" {
+  count = local.vault_is_owner_workspace ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/iam.serviceAccountKeyAdmin"
+  member  = "serviceAccount:${module.vault[0].gsa}"
 }
 
 resource "vault_mount" "secret" {
