@@ -18,8 +18,8 @@ The same Terraform root can also manage shared production edge services:
 
 - creates a GCE VM and persistent disks
 - clones the Scribe repo onto the VM
-- deploys the frontend image on the VM compose stack and, unless
-  `frontend_image = ""`, also attaches it as a sidecar next to ppb
+- deploys the backend VM compose stack without a local frontend proxy; the
+  Cloud Run frontend image talks straight to the backend API on port 80
 - runs `bash generate-secrets.sh` on first boot to create any missing docker
   secret files under `./secrets/`
 - patches `config.yaml` on the VM with non-secret runtime values such as the
@@ -87,7 +87,7 @@ GitHub deploy workflow's variable setup for:
 - `TF_VAR_allowed_ips`
 - `TF_VAR_allowed_ssh_ipv4`
 - `TF_VAR_api_image`
-- `TF_VAR_frontend_image`
+- `TF_VAR_frontend_image` (retained for local compose/build parity)
 - Terraform workspace selection
 
 Unlike plain `TF_VAR_*` environment variables, the local script passes the
@@ -109,8 +109,8 @@ Set `TF_STATE_BUCKET` explicitly only if you need a different bucket.
 - set `docker_compose_branch` to the branch you want the VM to run
 - optionally set `app_domain` and `cantaloupe_domain` if production should use
   the shared edge
-- set `frontend_image = ""` only if you intentionally want to disable the ppb
-  frontend sidecar; otherwise the default split-frontend deployment is used
+- set `frontend_image` only if you still want the GHCR frontend image available
+  for local compose builds; the VM itself no longer runs that service
 - optionally set `ollama_models` to build and deploy one or more private Ollama
   Cloud Run services keyed by model string
 - set `vault_admin_emails` and `vault_ci_service_account_emails` for the
@@ -216,9 +216,9 @@ Repeat that with workspace `prod` for production.
 - Vault and Ollama both use the pre-existing shared Artifact Registry
   repository `projects/<project>/locations/us/repositories/internal`. This
   root validates that the repo exists; it does not create it.
-- When the frontend sidecar is enabled, the frontend container must know how to reach
-  the VM backend. The GitHub deploy workflow builds the frontend image with
-  `SCRIBE_FRONTEND_BACKEND_ORIGIN=http://<site>.<zone>.c.<project>.internal`.
+- The frontend image is built with
+  `SCRIBE_FRONTEND_BACKEND_ORIGIN=http://<site>.<zone>.c.<project>.internal`
+  so the ppb Cloud Run proxy talks straight to the backend API on the VM.
   Local Docker Compose instead sets `SCRIBE_FRONTEND_BACKEND_ORIGIN=http://api:8080`.
 - If the Ollama Cloud Run service uses its default `run.app` URL, Scribe can
   derive the ID token audience automatically. Set `llm.ollama.audience` only
@@ -233,9 +233,10 @@ Repeat that with workspace `prod` for production.
   production Vault. Preview workspaces do not create their own Vault servers;
   they read the shared dev Vault URL from remote state and create a
   workspace-specific GCP auth role there.
-- Preview and production deploys push backend and frontend images to GHCR, then
-  inject those exact image references into `TF_VAR_api_image` and
-  `TF_VAR_frontend_image`.
+- Preview and production deploys push backend and frontend images to GHCR. The
+  backend image is injected into `TF_VAR_api_image`; `TF_VAR_frontend_image` is
+  retained only for local compose/build parity while the Cloud Run frontend
+  sidecar uses `frontend_gar_image`.
 - MariaDB passwords are now generated into docker secret files by
   `generate-secrets.sh` instead of being stored directly in `.env`.
 - The PR preview comment includes the Cloud Run ingress URL from

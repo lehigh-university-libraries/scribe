@@ -36,6 +36,7 @@ top of canonical IIIF annotation state.
 
 ```bash
 cp sample.env .env
+cp docker-compose.override-example.yaml docker-compose.override.yaml
 bash generate-secrets.sh
 docker compose up --build
 ```
@@ -43,7 +44,7 @@ docker compose up --build
 | Service | URL |
 |---------|-----|
 | Web app | http://localhost |
-| API + Annotation API | http://localhost |
+| API + Annotation API | http://localhost:8080 |
 | IIIF image server (Cantaloupe) | http://localhost/cantaloupe |
 | Worker health | `docker compose logs worker` or `http://worker:8080/healthz` inside the compose network |
 
@@ -149,9 +150,12 @@ The only optional runtime bootstrap environment variable is:
 |----------|-------------|
 | `VAULT_TOKEN` | Optional local-development Vault token fallback |
 
-For local Docker Compose only, [sample.env](/workspace/sample.env) also defines
-`SCRIBE_API_IMAGE` and `SCRIBE_FRONTEND_IMAGE` so the stack can pin or override
-image tags cleanly.
+For local Docker Compose only, [sample.env](/workspace/sample.env) defines
+`SCRIBE_API_IMAGE`, `SCRIBE_FRONTEND_IMAGE`, and the published host ports used
+by the local override stack. Copy
+[docker-compose.override-example.yaml](/workspace/docker-compose.override-example.yaml)
+to `docker-compose.override.yaml` to run the local frontend on `:80` while the
+API stays on `:8080`.
 
 Use `make vault-secrets` to list, read, or update the required app secrets in
 Vault. The helper prompts for `dev` vs `prod`, uses your current

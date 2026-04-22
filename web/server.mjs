@@ -4,7 +4,7 @@ import path from "node:path";
 import { createReadStream, promises as fs } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const port = parseInt(process.env.PORT || process.env.SCRIBE_FRONTEND_PORT || "8080", 10);
+const port = 8888;
 const backendOriginRaw = (process.env.SCRIBE_FRONTEND_BACKEND_ORIGIN || "").trim();
 const backendOrigin = backendOriginRaw ? new URL(backendOriginRaw) : null;
 const rootDir = path.dirname(fileURLToPath(import.meta.url));

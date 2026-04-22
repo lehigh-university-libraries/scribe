@@ -35,5 +35,5 @@ ENV SCRIBE_FRONTEND_BACKEND_ORIGIN=${SCRIBE_FRONTEND_BACKEND_ORIGIN}
 COPY --from=web-build /app/web/dist /app/web/dist
 COPY web/server.mjs /app/web/server.mjs
 
-EXPOSE 8080
+EXPOSE 8888
 CMD ["node", "server.mjs"]

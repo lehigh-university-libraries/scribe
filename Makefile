@@ -21,6 +21,7 @@ build-frontend: ## Build the frontend Docker image
 
 up: ## Start services in detached mode
 	@test -f .env || cp sample.env .env
+	@test -f docker-compose.override.yaml || cp docker-compose.override-example.yaml docker-compose.override.yaml
 	@bash generate-secrets.sh
 	@docker compose up $(COMPOSE_UP_FLAGS)
 

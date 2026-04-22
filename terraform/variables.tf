@@ -52,7 +52,7 @@ variable "api_image" {
 }
 
 variable "frontend_image" {
-  description = "Frontend image deployed on the VM compose stack (GHCR). The VM pulls from GHCR directly."
+  description = "Reserved GHCR frontend image reference kept for local compose/build parity. The VM bootstrap no longer runs a local frontend container."
   type        = string
   default     = "ghcr.io/lehigh-university-libraries/scribe-frontend:main"
 }

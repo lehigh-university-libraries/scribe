@@ -52,23 +52,22 @@ data "terraform_remote_state" "shared_vault" {
 }
 
 locals {
-  vault_url = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
+  vault_url                       = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
+  shared_cantaloupe_url           = local.shared_services_enabled ? try(module.cantaloupe[0].urls[var.region], try(module.cantaloupe[0].urls[local.cantaloupe_regions[0]], "")) : ""
+  shared_cantaloupe_internal_base = trimspace(local.shared_cantaloupe_url) == "" ? "" : format("%s/iiif/2", trimsuffix(local.shared_cantaloupe_url, "/"))
+  docker_compose_services         = concat(["mariadb", "api", "worker"], local.shared_services_enabled ? [] : ["cantaloupe"])
 
   docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
-  compose_env_prefix = (
-    trimspace(var.frontend_image) == ""
-    ? format("SCRIBE_API_IMAGE=%s", var.api_image)
-    : format("SCRIBE_API_IMAGE=%s SCRIBE_FRONTEND_IMAGE=%s", var.api_image, var.frontend_image)
-  )
+  compose_env_prefix  = format("SCRIBE_API_IMAGE=%s", var.api_image)
   docker_compose_init = [
     "bash generate-secrets.sh",
-    format("bash /home/cloud-compose/configure-scribe-config.sh config.yaml %q %q", local.vault_url, local.vault_app_role_name),
+    format("bash /home/cloud-compose/configure-scribe-config.sh config.yaml %q %q %q", local.vault_url, local.vault_app_role_name, local.shared_cantaloupe_internal_base),
   ]
   docker_compose_up = [
     for cmd in [
       "git pull",
-      "docker compose pull api worker frontend",
-      "docker compose up --no-build",
+      "docker compose pull api worker",
+      format("docker compose up --no-build %s", join(" ", local.docker_compose_services)),
     ] :
     length(regexall("docker compose", cmd)) > 0 ? format("%s %s", local.compose_env_prefix, cmd) : cmd
   ]
@@ -124,5 +123,6 @@ module "scribe" {
   rootfs                = "${path.module}/rootfs"
   frontend = trimspace(var.frontend_gar_image) == "" ? null : {
     image = var.frontend_gar_image
+    port  = 8888
   }
 }

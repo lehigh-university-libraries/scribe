@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -212,6 +213,11 @@ func NewHandler(
 
 	// Context metrics
 	mux.HandleFunc("GET /v1/contexts/{context_id}/metrics", handler.handleGetContextMetrics)
+
+	// IIIF image passthrough keeps the frontend talking only to the backend
+	// origin while the backend can still use a shared or local Cantaloupe.
+	mux.Handle("/cantaloupe", http.HandlerFunc(handler.handleProxyCantaloupe))
+	mux.Handle("/cantaloupe/", http.HandlerFunc(handler.handleProxyCantaloupe))
 
 	if authManager != nil {
 		authManager.RegisterRoutes(mux)
@@ -916,6 +922,51 @@ func iiifBaseURL() string {
 		base = "http://cantaloupe:8182/iiif/2"
 	}
 	return base
+}
+
+func rewriteCantaloupeProxyPath(requestPath, targetBasePath string) string {
+	path := strings.TrimPrefix(requestPath, "/cantaloupe")
+	if path == "" || path == "/" {
+		if targetBasePath == "" {
+			return "/"
+		}
+		return targetBasePath
+	}
+	if targetBasePath != "" && !strings.HasPrefix(path, targetBasePath) {
+		path = strings.TrimRight(targetBasePath, "/") + "/" + strings.TrimLeft(path, "/")
+	}
+	return path
+}
+
+func (h *Handler) handleProxyCantaloupe(w http.ResponseWriter, r *http.Request) {
+	targetBase := iiifBaseURL()
+	target, err := url.Parse(targetBase)
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		slog.Warn("invalid cantaloupe proxy target", "target", targetBase, "error", err)
+		http.Error(w, "cantaloupe is not configured", http.StatusBadGateway)
+		return
+	}
+
+	proxyPath := rewriteCantaloupeProxyPath(r.URL.Path, target.Path)
+	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
+		Scheme: target.Scheme,
+		Host:   target.Host,
+	})
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.URL.Scheme = target.Scheme
+		req.URL.Host = target.Host
+		req.URL.Path = proxyPath
+		req.URL.RawPath = ""
+		req.URL.RawQuery = r.URL.RawQuery
+		req.Host = target.Host
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		slog.Warn("cantaloupe proxy failed", "target", targetBase, "path", r.URL.Path, "error", err)
+		http.Error(w, "cantaloupe proxy failed", http.StatusBadGateway)
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 func fetchIIIFImageToTemp(iiifID string) (string, func(), error) {

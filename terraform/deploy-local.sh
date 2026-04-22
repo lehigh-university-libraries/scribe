@@ -17,7 +17,7 @@ Optional environment:
   ALLOWED_IPS         Terraform list(string), e.g. ["203.0.113.10/32"]
   ALLOWED_SSH_IPV4    Terraform list(string), e.g. ["203.0.113.10/32"]
   SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
-  SCRIBE_FRONTEND_IMAGE  Exact frontend image to inject into Terraform frontend_image (GHCR, used by the VM compose stack)
+  SCRIBE_FRONTEND_IMAGE  Optional GHCR frontend image reference to inject into Terraform frontend_image for local parity
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar)
 
 Notes:
