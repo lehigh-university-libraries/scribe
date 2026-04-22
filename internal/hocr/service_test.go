@@ -1,6 +1,11 @@
 package hocr
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/lehigh-university-libraries/scribe/internal/config"
+)
 
 func TestParseSegmentationModel(t *testing.T) {
 	t.Parallel()
@@ -30,5 +35,32 @@ func TestParseSegmentationModel(t *testing.T) {
 				t.Fatalf("parseSegmentationModel(%q) = (%q, %q), want (%q, %q)", tt.input, gotKind, gotModel, tt.wantKind, tt.wantModel)
 			}
 		})
+	}
+}
+
+func TestProviderConfigWithContextOverridesOllamaEndpoint(t *testing.T) {
+	config.Init(config.Runtime{
+		Config: config.Config{
+			LLM: config.LLMConfig{
+				Ollama: config.OllamaConfig{
+					URL:      "http://default-ollama:11434",
+					Audience: "https://default.run.app",
+				},
+			},
+		},
+	})
+	t.Cleanup(func() {
+		config.Init(config.Runtime{})
+	})
+
+	svc := NewService()
+	ctx := WithProviderConfigOverrides(context.Background(), "https://glm-ocr.run.app", "")
+	cfg := svc.providerConfigWithContext(ctx, "ollama", "glm-ocr:bf16", "prompt", 0)
+
+	if cfg.BaseURL != "https://glm-ocr.run.app" {
+		t.Fatalf("cfg.BaseURL = %q, want override", cfg.BaseURL)
+	}
+	if cfg.Audience != "https://default.run.app" {
+		t.Fatalf("cfg.Audience = %q, want runtime fallback", cfg.Audience)
 	}
 }

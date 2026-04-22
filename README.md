@@ -179,9 +179,12 @@ This repo currently reads Docker auth from `~/.docker/config.json`. Your user
 also needs write access to `projects/<project>/locations/us/repositories/internal`.
 
 For Ollama, use `llm.ollama.url` in `config.yaml` instead of `OLLAMA_URL`.
-When that URL points at a private Cloud Run service, Scribe automatically sends
-an ID token if the host is a `*.run.app` service URL. Set
-`llm.ollama.audience` only when the Cloud Run service uses a custom audience.
+Contexts can optionally override that global URL and audience, which is the
+recommended setup when each model is deployed as its own cached Cloud Run
+service. When the selected Ollama URL points at a private Cloud Run service,
+Scribe automatically sends an ID token if the host is a `*.run.app` service
+URL. Set `llm.ollama.audience` or the context-specific audience only when the
+Cloud Run service uses a custom audience.
 
 ## IIIF endpoints
 

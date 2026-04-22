@@ -18,6 +18,8 @@ type CreateContextParams struct {
 	ImagePreprocessors    string
 	TranscriptionProvider string
 	TranscriptionModel    string
+	TranscriptionBaseURL  string
+	TranscriptionAudience string
 	Temperature           *float64
 	SystemPrompt          string
 	PostProcessingSteps   string
@@ -34,6 +36,8 @@ func (q *Queries) CreateContext(ctx context.Context, arg CreateContextParams) (u
 		ImagePreprocessors:    compatRawJSON(arg.ImagePreprocessors),
 		TranscriptionProvider: arg.TranscriptionProvider,
 		TranscriptionModel:    arg.TranscriptionModel,
+		TranscriptionBaseUrl:  compatNullableString(arg.TranscriptionBaseURL),
+		TranscriptionAudience: compatNullableString(arg.TranscriptionAudience),
 		Temperature: func() sql.NullFloat64 {
 			if arg.Temperature == nil {
 				return sql.NullFloat64{}
@@ -66,6 +70,8 @@ func (q *Queries) GetContext(ctx context.Context, id uint64) (Context, error) {
 		ImagePreprocessors:    row.ImagePreprocessors,
 		TranscriptionProvider: row.TranscriptionProvider,
 		TranscriptionModel:    row.TranscriptionModel,
+		TranscriptionBaseUrl:  row.TranscriptionBaseUrl,
+		TranscriptionAudience: row.TranscriptionAudience,
 		Temperature:           row.Temperature,
 		SystemPrompt:          row.SystemPrompt,
 		PostProcessingSteps:   row.PostProcessingSteps,
@@ -90,6 +96,8 @@ func (q *Queries) GetDefaultContext(ctx context.Context) (Context, error) {
 		ImagePreprocessors:    row.ImagePreprocessors,
 		TranscriptionProvider: row.TranscriptionProvider,
 		TranscriptionModel:    row.TranscriptionModel,
+		TranscriptionBaseUrl:  row.TranscriptionBaseUrl,
+		TranscriptionAudience: row.TranscriptionAudience,
 		Temperature:           row.Temperature,
 		SystemPrompt:          row.SystemPrompt,
 		PostProcessingSteps:   row.PostProcessingSteps,
@@ -111,6 +119,8 @@ SELECT
   COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
   transcription_provider,
   transcription_model,
+  transcription_base_url,
+  transcription_audience,
   temperature,
   system_prompt,
   COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
@@ -142,6 +152,8 @@ FROM contexts`
 			&row.ImagePreprocessors,
 			&row.TranscriptionProvider,
 			&row.TranscriptionModel,
+			&row.TranscriptionBaseUrl,
+			&row.TranscriptionAudience,
 			&row.Temperature,
 			&row.SystemPrompt,
 			&row.PostProcessingSteps,
@@ -164,6 +176,8 @@ type UpdateContextParams struct {
 	ImagePreprocessors    string
 	TranscriptionProvider string
 	TranscriptionModel    string
+	TranscriptionBaseURL  string
+	TranscriptionAudience string
 	Temperature           *float64
 	SystemPrompt          string
 	PostProcessingSteps   string
@@ -179,6 +193,8 @@ func (q *Queries) UpdateContext(ctx context.Context, arg UpdateContextParams) er
 		ImagePreprocessors:    compatRawJSON(arg.ImagePreprocessors),
 		TranscriptionProvider: arg.TranscriptionProvider,
 		TranscriptionModel:    arg.TranscriptionModel,
+		TranscriptionBaseUrl:  compatNullableString(arg.TranscriptionBaseURL),
+		TranscriptionAudience: compatNullableString(arg.TranscriptionAudience),
 		Temperature: func() sql.NullFloat64 {
 			if arg.Temperature == nil {
 				return sql.NullFloat64{}

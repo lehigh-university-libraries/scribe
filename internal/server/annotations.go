@@ -350,12 +350,12 @@ func (h *Handler) autoIngestManifest(ctx context.Context, manifestURL string) er
 	}
 	itemID := fmt.Sprintf("auto-%d-%x", h.currentUserID(ctx), sha1.Sum([]byte(manifestURL)))[:32]
 	it, err := h.items.Create(ctx, db.CreateItemParams{
-		ID:         itemID,
-		UserID:     h.currentUserID(ctx),
+		ID:          itemID,
+		UserID:      h.currentUserID(ctx),
 		WorkspaceID: h.currentWorkspaceID(ctx),
-		Name:       label,
-		SourceType: "manifest",
-		SourceURL:  manifestURL,
+		Name:        label,
+		SourceType:  "manifest",
+		SourceURL:   manifestURL,
 	})
 	if err != nil {
 		return fmt.Errorf("create item: %w", err)
@@ -623,7 +623,8 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 	defer cleanup()
 
 	text, err := h.ocr.TranscribeImageRegion(
-		ctx, imagePath, 0, 0, x2-x1, y2-y1,
+		hocr.WithProviderConfigOverrides(ctx, pctx.TranscriptionBaseURL, pctx.TranscriptionAudience),
+		imagePath, 0, 0, x2-x1, y2-y1,
 		pctx.TranscriptionProvider, pctx.TranscriptionModel,
 	)
 	if err != nil {

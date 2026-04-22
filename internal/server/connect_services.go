@@ -62,7 +62,7 @@ func (h *Handler) resolveTranscriptionConfig(
 				return "", "", fmt.Errorf("invalid metadata json")
 			}
 		}
-			c, _, err := h.contexts.ResolveForWorkspace(ctx, h.currentWorkspaceID(ctx), metadata)
+		c, _, err := h.contexts.ResolveForWorkspace(ctx, h.currentWorkspaceID(ctx), metadata)
 		if err != nil {
 			return "", "", fmt.Errorf("resolve context: %w", err)
 		}
@@ -100,6 +100,8 @@ func processingContextFromStore(c store.Context, providerOverride string) hocr.P
 		SegmentationModel:     c.SegmentationModel,
 		TranscriptionProvider: effectiveProvider(provider),
 		TranscriptionModel:    effectiveModel(effectiveProvider(provider), model),
+		TranscriptionBaseURL:  c.TranscriptionBaseURL,
+		TranscriptionAudience: c.TranscriptionAudience,
 		Temperature:           c.Temperature,
 		SystemPrompt:          c.SystemPrompt,
 	}
@@ -687,12 +689,12 @@ func (h *Handler) createOCRItemAndImage(ctx context.Context, sourceType, imageUR
 	itemID := fmt.Sprintf("item_%d", time.Now().UnixNano())
 	itemName := fmt.Sprintf("%s %s", itemSourceLabel(sourceLabel, imageURL), itemContextLabel(resolvedCtx))
 	item, err := h.items.Create(ctx, db.CreateItemParams{
-		ID:         itemID,
-		UserID:     h.currentUserID(ctx),
+		ID:          itemID,
+		UserID:      h.currentUserID(ctx),
 		WorkspaceID: h.currentWorkspaceID(ctx),
-		Name:       itemName,
-		SourceType: sourceType,
-		SourceURL:  sourceURL,
+		Name:        itemName,
+		SourceType:  sourceType,
+		SourceURL:   sourceURL,
 	})
 	if err != nil {
 		return store.Item{}, store.ItemImage{}, fmt.Errorf("create item: %w", err)

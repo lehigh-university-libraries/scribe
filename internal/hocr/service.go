@@ -133,11 +133,47 @@ type ProcessingContext struct {
 	SegmentationModel     string // "tesseract" | "scribe" | "kraken" | "kraken:<model>"
 	TranscriptionProvider string
 	TranscriptionModel    string
+	TranscriptionBaseURL  string
+	TranscriptionAudience string
 	Temperature           *float64
 	SystemPrompt          string
 	// SegmentOnly skips LLM transcription and returns hOCR with line bounding
 	// boxes only. Used when the client will handle transcription via a batch job.
 	SegmentOnly bool
+}
+
+type providerConfigOverridesKey struct{}
+
+type providerConfigOverrides struct {
+	BaseURL  string
+	Audience string
+}
+
+// WithProviderConfigOverrides stores optional provider config overrides, such
+// as a per-context Ollama endpoint and Cloud Run audience.
+func WithProviderConfigOverrides(ctx context.Context, baseURL, audience string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	baseURL = strings.TrimSpace(baseURL)
+	audience = strings.TrimSpace(audience)
+	if baseURL == "" && audience == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, providerConfigOverridesKey{}, providerConfigOverrides{
+		BaseURL:  baseURL,
+		Audience: audience,
+	})
+}
+
+func providerConfigOverridesFromContext(ctx context.Context) providerConfigOverrides {
+	if ctx == nil {
+		return providerConfigOverrides{}
+	}
+	overrides, _ := ctx.Value(providerConfigOverridesKey{}).(providerConfigOverrides)
+	overrides.BaseURL = strings.TrimSpace(overrides.BaseURL)
+	overrides.Audience = strings.TrimSpace(overrides.Audience)
+	return overrides
 }
 
 // ProcessImageWithContext runs the full pipeline using the supplied context and
@@ -147,6 +183,7 @@ func (s *Service) ProcessImageWithContext(ctx context.Context, imagePath string,
 	if goCtx == nil {
 		goCtx = context.Background()
 	}
+	goCtx = WithProviderConfigOverrides(goCtx, pctx.TranscriptionBaseURL, pctx.TranscriptionAudience)
 
 	width, height, err := s.getImageDimensions(imagePath)
 	if err != nil {
@@ -487,7 +524,7 @@ func (s *Service) extractTranscriptionFromImageWithOperation(ctx context.Context
 	imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
 	prompt := "Transcribe the handwritten text in this image. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
-	config := s.providerConfig(providerName, model, prompt, 0.0)
+	config := s.providerConfigWithContext(ctx, providerName, model, prompt, 0.0)
 
 	text, err := s.extractTextWithRetry(ctx, llmProvider, providerName, config, imagePath, imageBase64, prompt, operation)
 	if err != nil {
@@ -566,6 +603,21 @@ func (s *Service) providerConfig(providerName, model, prompt string, temperature
 		runtime := config.Get()
 		cfg.BaseURL = strings.TrimSpace(runtime.Config.LLM.Ollama.URL)
 		cfg.Audience = strings.TrimSpace(runtime.Config.LLM.Ollama.Audience)
+	}
+	return cfg
+}
+
+func (s *Service) providerConfigWithContext(ctx context.Context, providerName, model, prompt string, temperature float64) providers.Config {
+	cfg := s.providerConfig(providerName, model, prompt, temperature)
+	if !strings.EqualFold(providerName, "ollama") {
+		return cfg
+	}
+	overrides := providerConfigOverridesFromContext(ctx)
+	if overrides.BaseURL != "" {
+		cfg.BaseURL = overrides.BaseURL
+	}
+	if overrides.Audience != "" {
+		cfg.Audience = overrides.Audience
 	}
 	return cfg
 }
@@ -911,7 +963,7 @@ func (s *Service) transcribeWords(ctx context.Context, imagePath string, words [
 		// Create prompt for batch transcription
 		prompt := fmt.Sprintf("There are %d words in this image arranged horizontally. Transcribe each word on a separate line. Return ONLY the words, one per line, with no additional text, numbering, or explanation. If a word is not legible, use an empty line for that position.", len(batch))
 
-		config := s.providerConfig(providerName, model, prompt, 0.0)
+		config := s.providerConfigWithContext(ctx, providerName, model, prompt, 0.0)
 
 		var text string
 		if providerName == "gemini" {
@@ -1063,7 +1115,7 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 			imageBase64 := base64.StdEncoding.EncodeToString(imageData)
 
 			prompt := "Transcribe the handwritten text in this image. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
-			config := s.providerConfig(providerName, model, prompt, 0.0)
+			config := s.providerConfigWithContext(ctx, providerName, model, prompt, 0.0)
 
 			var text string
 			if providerName == "gemini" {

@@ -120,6 +120,8 @@ func storeContextToProto(c store.Context) *scribev1.Context {
 		SegmentationModel:     c.SegmentationModel,
 		TranscriptionProvider: c.TranscriptionProvider,
 		TranscriptionModel:    c.TranscriptionModel,
+		TranscriptionBaseUrl:  c.TranscriptionBaseURL,
+		TranscriptionAudience: c.TranscriptionAudience,
 		SystemPrompt:          c.SystemPrompt,
 		PostProcessingSteps:   c.PostProcessingSteps,
 		CreatedAt:             timestamppb.New(c.CreatedAt).AsTime().String(),
@@ -154,6 +156,8 @@ func protoContextToStore(p *scribev1.Context) store.Context {
 		SegmentationModel:     p.GetSegmentationModel(),
 		TranscriptionProvider: p.GetTranscriptionProvider(),
 		TranscriptionModel:    p.GetTranscriptionModel(),
+		TranscriptionBaseURL:  p.GetTranscriptionBaseUrl(),
+		TranscriptionAudience: p.GetTranscriptionAudience(),
 		SystemPrompt:          p.GetSystemPrompt(),
 		PostProcessingSteps:   p.GetPostProcessingSteps(),
 	}

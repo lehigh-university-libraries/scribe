@@ -40,6 +40,8 @@ message Context {
     (buf.validate.field).string.pattern = ".*\\S.*"
   ];
   string                   transcription_model    = 9 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+  string                   transcription_base_url = 15 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+  string                   transcription_audience = 16 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   // -1 means "use provider default"
   double                   temperature            = 10;
   string                   system_prompt          = 11 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];

@@ -25,9 +25,16 @@ jobs:
       frontend_gar_image_tag: ${{ steps.image-tag.outputs.frontend_gar_image_tag }}
       backend_origin: ${{ steps.image-tag.outputs.backend_origin }}
     env:
-      GCLOUD_PROJECT: ${{ secrets.GCLOUD_PROJECT }}
+      GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
       SCRIBE_ZONE: ${{ vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || 'us-east5-b' }}
     steps:
+      - name: Validate workflow variables
+        shell: bash
+        run: |
+          if [ -z "$GCLOUD_PROJECT" ]; then
+            echo "GitHub Actions variable GCLOUD_PROJECT must be set." >&2
+            exit 1
+          fi
       - name: Sanitize PR image tag
         id: image-tag
         env:

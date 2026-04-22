@@ -23,10 +23,14 @@ INSERT INTO contexts (
   image_preprocessors,
   transcription_provider,
   transcription_model,
+  transcription_base_url,
+  transcription_audience,
   temperature,
   system_prompt,
   post_processing_steps
 ) VALUES (
+  ?,
+  ?,
   ?,
   ?,
   ?,
@@ -52,6 +56,8 @@ type CreateContextManualParams struct {
 	ImagePreprocessors    json.RawMessage `json:"image_preprocessors"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
+	TranscriptionBaseUrl  sql.NullString  `json:"transcription_base_url"`
+	TranscriptionAudience sql.NullString  `json:"transcription_audience"`
 	Temperature           sql.NullFloat64 `json:"temperature"`
 	SystemPrompt          sql.NullString  `json:"system_prompt"`
 	PostProcessingSteps   json.RawMessage `json:"post_processing_steps"`
@@ -68,6 +74,8 @@ func (q *Queries) CreateContextManual(ctx context.Context, arg CreateContextManu
 		arg.ImagePreprocessors,
 		arg.TranscriptionProvider,
 		arg.TranscriptionModel,
+		arg.TranscriptionBaseUrl,
+		arg.TranscriptionAudience,
 		arg.Temperature,
 		arg.SystemPrompt,
 		arg.PostProcessingSteps,
@@ -128,6 +136,8 @@ SELECT
   COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
   transcription_provider,
   transcription_model,
+  transcription_base_url,
+  transcription_audience,
   temperature,
   system_prompt,
   COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
@@ -148,6 +158,8 @@ type GetContextManualRow struct {
 	ImagePreprocessors    json.RawMessage `json:"image_preprocessors"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
+	TranscriptionBaseUrl  sql.NullString  `json:"transcription_base_url"`
+	TranscriptionAudience sql.NullString  `json:"transcription_audience"`
 	Temperature           sql.NullFloat64 `json:"temperature"`
 	SystemPrompt          sql.NullString  `json:"system_prompt"`
 	PostProcessingSteps   json.RawMessage `json:"post_processing_steps"`
@@ -169,6 +181,8 @@ func (q *Queries) GetContextManual(ctx context.Context, id uint64) (GetContextMa
 		&i.ImagePreprocessors,
 		&i.TranscriptionProvider,
 		&i.TranscriptionModel,
+		&i.TranscriptionBaseUrl,
+		&i.TranscriptionAudience,
 		&i.Temperature,
 		&i.SystemPrompt,
 		&i.PostProcessingSteps,
@@ -190,6 +204,8 @@ SELECT
   COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
   transcription_provider,
   transcription_model,
+  transcription_base_url,
+  transcription_audience,
   temperature,
   system_prompt,
   COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
@@ -212,6 +228,8 @@ type GetDefaultContextManualRow struct {
 	ImagePreprocessors    json.RawMessage `json:"image_preprocessors"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
+	TranscriptionBaseUrl  sql.NullString  `json:"transcription_base_url"`
+	TranscriptionAudience sql.NullString  `json:"transcription_audience"`
 	Temperature           sql.NullFloat64 `json:"temperature"`
 	SystemPrompt          sql.NullString  `json:"system_prompt"`
 	PostProcessingSteps   json.RawMessage `json:"post_processing_steps"`
@@ -233,6 +251,8 @@ func (q *Queries) GetDefaultContextManual(ctx context.Context) (GetDefaultContex
 		&i.ImagePreprocessors,
 		&i.TranscriptionProvider,
 		&i.TranscriptionModel,
+		&i.TranscriptionBaseUrl,
+		&i.TranscriptionAudience,
 		&i.Temperature,
 		&i.SystemPrompt,
 		&i.PostProcessingSteps,
@@ -268,6 +288,8 @@ SELECT
   COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
   transcription_provider,
   transcription_model,
+  transcription_base_url,
+  transcription_audience,
   temperature,
   system_prompt,
   COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
@@ -289,6 +311,8 @@ type ListContextsManualRow struct {
 	ImagePreprocessors    json.RawMessage `json:"image_preprocessors"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
+	TranscriptionBaseUrl  sql.NullString  `json:"transcription_base_url"`
+	TranscriptionAudience sql.NullString  `json:"transcription_audience"`
 	Temperature           sql.NullFloat64 `json:"temperature"`
 	SystemPrompt          sql.NullString  `json:"system_prompt"`
 	PostProcessingSteps   json.RawMessage `json:"post_processing_steps"`
@@ -316,6 +340,8 @@ func (q *Queries) ListContextsManual(ctx context.Context) ([]ListContextsManualR
 			&i.ImagePreprocessors,
 			&i.TranscriptionProvider,
 			&i.TranscriptionModel,
+			&i.TranscriptionBaseUrl,
+			&i.TranscriptionAudience,
 			&i.Temperature,
 			&i.SystemPrompt,
 			&i.PostProcessingSteps,
@@ -391,6 +417,8 @@ SET
   image_preprocessors = ?,
   transcription_provider = ?,
   transcription_model = ?,
+  transcription_base_url = ?,
+  transcription_audience = ?,
   temperature = ?,
   system_prompt = ?,
   post_processing_steps = ?
@@ -405,6 +433,8 @@ type UpdateContextManualParams struct {
 	ImagePreprocessors    json.RawMessage `json:"image_preprocessors"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
+	TranscriptionBaseUrl  sql.NullString  `json:"transcription_base_url"`
+	TranscriptionAudience sql.NullString  `json:"transcription_audience"`
 	Temperature           sql.NullFloat64 `json:"temperature"`
 	SystemPrompt          sql.NullString  `json:"system_prompt"`
 	PostProcessingSteps   json.RawMessage `json:"post_processing_steps"`
@@ -420,6 +450,8 @@ func (q *Queries) UpdateContextManual(ctx context.Context, arg UpdateContextManu
 		arg.ImagePreprocessors,
 		arg.TranscriptionProvider,
 		arg.TranscriptionModel,
+		arg.TranscriptionBaseUrl,
+		arg.TranscriptionAudience,
 		arg.Temperature,
 		arg.SystemPrompt,
 		arg.PostProcessingSteps,

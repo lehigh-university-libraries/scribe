@@ -59,6 +59,39 @@ func TestContextResolution_DefaultWhenNoRules(t *testing.T) {
 	_ = resolved
 }
 
+func TestContextStore_PreservesTranscriptionEndpointOverrides(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	s := store.NewContextStore(db)
+
+	created, err := s.Create(ctx, store.Context{
+		Name:                  uniqueName("test-context-endpoint"),
+		IsDefault:             false,
+		SegmentationModel:     "scribe",
+		TranscriptionProvider: "ollama",
+		TranscriptionModel:    "glm-ocr:bf16",
+		TranscriptionBaseURL:  "https://glm-ocr.run.app",
+		TranscriptionAudience: "https://glm-ocr-audience",
+	})
+	if err != nil {
+		t.Fatalf("Create context: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Delete(context.Background(), created.ID)
+	})
+
+	got, err := s.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get context: %v", err)
+	}
+	if got.TranscriptionBaseURL != created.TranscriptionBaseURL {
+		t.Fatalf("got.TranscriptionBaseURL = %q, want %q", got.TranscriptionBaseURL, created.TranscriptionBaseURL)
+	}
+	if got.TranscriptionAudience != created.TranscriptionAudience {
+		t.Fatalf("got.TranscriptionAudience = %q, want %q", got.TranscriptionAudience, created.TranscriptionAudience)
+	}
+}
+
 // TestContextResolution_ExactMatchRule verifies that Resolve returns context B
 // when a selection rule for B matches the supplied metadata.
 func TestContextResolution_ExactMatchRule(t *testing.T) {

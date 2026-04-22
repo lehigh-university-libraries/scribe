@@ -281,6 +281,8 @@ type Context struct {
 	CreatedAt             time.Time       `json:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at"`
 	WorkspaceID           sql.NullInt64   `json:"workspace_id"`
+	TranscriptionBaseUrl  sql.NullString  `json:"transcription_base_url"`
+	TranscriptionAudience sql.NullString  `json:"transcription_audience"`
 }
 
 type ContextSelectionRule struct {

@@ -92,6 +92,8 @@ type Context struct {
 	ImagePreprocessors    []*ImagePreprocessor `protobuf:"bytes,7,rep,name=image_preprocessors,json=imagePreprocessors,proto3" json:"image_preprocessors,omitempty"`
 	TranscriptionProvider string               `protobuf:"bytes,8,opt,name=transcription_provider,json=transcriptionProvider,proto3" json:"transcription_provider,omitempty"`
 	TranscriptionModel    string               `protobuf:"bytes,9,opt,name=transcription_model,json=transcriptionModel,proto3" json:"transcription_model,omitempty"`
+	TranscriptionBaseUrl  string               `protobuf:"bytes,15,opt,name=transcription_base_url,json=transcriptionBaseUrl,proto3" json:"transcription_base_url,omitempty"`
+	TranscriptionAudience string               `protobuf:"bytes,16,opt,name=transcription_audience,json=transcriptionAudience,proto3" json:"transcription_audience,omitempty"`
 	// -1 means "use provider default"
 	Temperature         float64  `protobuf:"fixed64,10,opt,name=temperature,proto3" json:"temperature,omitempty"`
 	SystemPrompt        string   `protobuf:"bytes,11,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
@@ -191,6 +193,20 @@ func (x *Context) GetTranscriptionProvider() string {
 func (x *Context) GetTranscriptionModel() string {
 	if x != nil {
 		return x.TranscriptionModel
+	}
+	return ""
+}
+
+func (x *Context) GetTranscriptionBaseUrl() string {
+	if x != nil {
+		return x.TranscriptionBaseUrl
+	}
+	return ""
+}
+
+func (x *Context) GetTranscriptionAudience() string {
+	if x != nil {
+		return x.TranscriptionAudience
 	}
 	return ""
 }
@@ -1158,7 +1174,7 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\x17scribe/v1/context.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cscribe/v1/options/auth.proto\"c\n" +
 	"\x11ImagePreprocessor\x12$\n" +
 	"\x04type\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04type\x12(\n" +
-	"\x06params\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x06params\"\x92\x05\n" +
+	"\x06params\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x06params\"\xa3\x06\n" +
 	"\aContext\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12$\n" +
@@ -1169,7 +1185,9 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\x12segmentation_model\x18\x06 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x11segmentationModel\x12M\n" +
 	"\x13image_preprocessors\x18\a \x03(\v2\x1c.scribe.v1.ImagePreprocessorR\x12imagePreprocessors\x12G\n" +
 	"\x16transcription_provider\x18\b \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x15transcriptionProvider\x12A\n" +
-	"\x13transcription_model\x18\t \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x12transcriptionModel\x12 \n" +
+	"\x13transcription_model\x18\t \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x12transcriptionModel\x12F\n" +
+	"\x16transcription_base_url\x18\x0f \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x14transcriptionBaseUrl\x12G\n" +
+	"\x16transcription_audience\x18\x10 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x15transcriptionAudience\x12 \n" +
 	"\vtemperature\x18\n" +
 	" \x01(\x01R\vtemperature\x125\n" +
 	"\rsystem_prompt\x18\v \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\fsystemPrompt\x122\n" +

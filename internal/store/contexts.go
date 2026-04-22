@@ -23,6 +23,8 @@ type Context struct {
 	ImagePreprocessors    []ImagePreprocessor `json:"image_preprocessors,omitempty"`
 	TranscriptionProvider string              `json:"transcription_provider"`
 	TranscriptionModel    string              `json:"transcription_model"`
+	TranscriptionBaseURL  string              `json:"transcription_base_url,omitempty"`
+	TranscriptionAudience string              `json:"transcription_audience,omitempty"`
 	Temperature           *float64            `json:"temperature,omitempty"`
 	SystemPrompt          string              `json:"system_prompt,omitempty"`
 	PostProcessingSteps   []string            `json:"post_processing_steps,omitempty"`
@@ -82,6 +84,8 @@ func (s *ContextStore) EnsureDefault(ctx context.Context, defaultCtx Context) er
 		ImagePreprocessors:    preprocessorsJSON,
 		TranscriptionProvider: defaultCtx.TranscriptionProvider,
 		TranscriptionModel:    defaultCtx.TranscriptionModel,
+		TranscriptionBaseURL:  defaultCtx.TranscriptionBaseURL,
+		TranscriptionAudience: defaultCtx.TranscriptionAudience,
 		Temperature:           defaultCtx.Temperature,
 		SystemPrompt:          defaultCtx.SystemPrompt,
 		PostProcessingSteps:   postStepsJSON,
@@ -149,6 +153,8 @@ func (s *ContextStore) Create(ctx context.Context, c Context) (Context, error) {
 		ImagePreprocessors:    preprocessorsJSON,
 		TranscriptionProvider: c.TranscriptionProvider,
 		TranscriptionModel:    c.TranscriptionModel,
+		TranscriptionBaseURL:  c.TranscriptionBaseURL,
+		TranscriptionAudience: c.TranscriptionAudience,
 		Temperature:           c.Temperature,
 		SystemPrompt:          c.SystemPrompt,
 		PostProcessingSteps:   postStepsJSON,
@@ -203,7 +209,7 @@ func (s *ContextStore) ListForWorkspace(ctx context.Context, workspaceID uint64,
 	query := `
 SELECT id, user_id, workspace_id, name, description, is_default,
        segmentation_model, COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
-       transcription_provider, transcription_model,
+       transcription_provider, transcription_model, transcription_base_url, transcription_audience,
        temperature, system_prompt, COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
        created_at, updated_at
 FROM contexts
@@ -227,7 +233,7 @@ WHERE workspace_id IS NULL`
 		if err := rows.Scan(
 			&c.ID, &c.UserID, &c.WorkspaceID, &c.Name, &c.Description, &c.IsDefault,
 			&c.SegmentationModel, &c.ImagePreprocessors,
-			&c.TranscriptionProvider, &c.TranscriptionModel,
+			&c.TranscriptionProvider, &c.TranscriptionModel, &c.TranscriptionBaseUrl, &c.TranscriptionAudience,
 			&c.Temperature, &c.SystemPrompt, &c.PostProcessingSteps,
 			&c.CreatedAt, &c.UpdatedAt,
 		); err != nil {
@@ -250,6 +256,8 @@ func (s *ContextStore) Update(ctx context.Context, c Context) (Context, error) {
 		ImagePreprocessors:    preprocessorsJSON,
 		TranscriptionProvider: c.TranscriptionProvider,
 		TranscriptionModel:    c.TranscriptionModel,
+		TranscriptionBaseURL:  c.TranscriptionBaseURL,
+		TranscriptionAudience: c.TranscriptionAudience,
 		Temperature:           c.Temperature,
 		SystemPrompt:          c.SystemPrompt,
 		PostProcessingSteps:   postStepsJSON,
@@ -504,6 +512,8 @@ func rowToContext(row db.Context) Context {
 		SegmentationModel:     row.SegmentationModel,
 		TranscriptionProvider: row.TranscriptionProvider,
 		TranscriptionModel:    row.TranscriptionModel,
+		TranscriptionBaseURL:  row.TranscriptionBaseUrl.String,
+		TranscriptionAudience: row.TranscriptionAudience.String,
 		CreatedAt:             row.CreatedAt,
 		UpdatedAt:             row.UpdatedAt,
 	}

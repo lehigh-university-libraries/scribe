@@ -47,6 +47,10 @@ function renderContextCard(ctx: Context, metrics: ContextMetrics): string {
           <dt class="text-xs uppercase tracking-wide text-slate-500">Segmentation</dt>
           <dd class="mt-1 truncate font-mono text-xs text-slate-200" title="${escHtml(ctx.segmentationModel || "")}">${escHtml(ctx.segmentationModel || "—")}</dd>
         </div>
+        <div class="rounded-lg bg-slate-800/70 px-3 py-2 sm:col-span-2">
+          <dt class="text-xs uppercase tracking-wide text-slate-500">Endpoint</dt>
+          <dd class="mt-1 truncate font-mono text-xs text-slate-200" title="${escHtml(ctx.transcriptionBaseUrl || "")}">${escHtml(ctx.transcriptionBaseUrl || "Global config default")}</dd>
+        </div>
         <div class="rounded-lg bg-slate-800/70 px-3 py-2">
           <dt class="text-xs uppercase tracking-wide text-slate-500">Runs with edits</dt>
           <dd class="mt-1 text-sm text-slate-200">${correctedRuns} / ${totalRuns} <span class="text-slate-500">(${correctedPct}%)</span></dd>
@@ -172,6 +176,14 @@ export async function renderContexts(app: HTMLElement): Promise<void> {
               <input id="context-segmentation" value="tesseract" class="w-full rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm" />
             </label>
             <label class="block md:col-span-2">
+              <span class="mb-1 block text-sm text-slate-300">Transcription URL</span>
+              <input id="context-base-url" placeholder="https://<service>.run.app" class="w-full rounded border border-slate-600 bg-slate-950 px-3 py-2 font-mono text-sm" />
+            </label>
+            <label class="block md:col-span-2">
+              <span class="mb-1 block text-sm text-slate-300">Transcription audience</span>
+              <input id="context-audience" placeholder="Optional custom Cloud Run audience" class="w-full rounded border border-slate-600 bg-slate-950 px-3 py-2 font-mono text-sm" />
+            </label>
+            <label class="block md:col-span-2">
               <span class="mb-1 block text-sm text-slate-300">System prompt</span>
               <textarea id="context-system-prompt" rows="4" class="w-full rounded border border-slate-600 bg-slate-950 px-3 py-2 text-sm"></textarea>
             </label>
@@ -262,6 +274,8 @@ export async function renderContexts(app: HTMLElement): Promise<void> {
     const provider = (document.getElementById("context-provider") as HTMLInputElement).value.trim();
     const model = (document.getElementById("context-model") as HTMLInputElement).value.trim();
     const segmentationModel = (document.getElementById("context-segmentation") as HTMLInputElement).value.trim();
+    const transcriptionBaseUrl = (document.getElementById("context-base-url") as HTMLInputElement).value.trim();
+    const transcriptionAudience = (document.getElementById("context-audience") as HTMLInputElement).value.trim();
     const description = (document.getElementById("context-description") as HTMLTextAreaElement).value.trim();
     const systemPrompt = (document.getElementById("context-system-prompt") as HTMLTextAreaElement).value.trim();
     const isDefault = (document.getElementById("context-default") as HTMLInputElement).checked;
@@ -279,6 +293,8 @@ export async function renderContexts(app: HTMLElement): Promise<void> {
         segmentationModel: segmentationModel || "tesseract",
         transcriptionProvider: provider || "ollama",
         transcriptionModel: model,
+        transcriptionBaseUrl,
+        transcriptionAudience,
         temperature: -1,
         systemPrompt,
       }));
