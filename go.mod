@@ -3,8 +3,8 @@ module github.com/lehigh-university-libraries/scribe
 go 1.24.4
 
 require (
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.9-20250912141014-52f32327d4b0.1
-	connectrpc.com/connect v1.19.1
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1
+	connectrpc.com/connect v1.19.2
 	connectrpc.com/validate v0.6.0
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/lehigh-university-libraries/htr v0.18.0

@@ -8,7 +8,7 @@ on:
 jobs:
   release:
     if: github.event.pull_request.merged == true && !contains(github.event.pull_request.title, 'skip-release')
-    uses: lehigh-university-libraries/gha/.github/workflows/bump-release.yaml@60c5d3a7a8f89290bbe0db056a0116855f59bb6c # main
+    uses: lehigh-university-libraries/gha/.github/workflows/bump-release.yaml@0ad0a7d96a7b3a5c05ad811832108d67e3dea92c # main
     with:
       workflow_file: goreleaser.yaml
     permissions:
