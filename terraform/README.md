@@ -119,7 +119,8 @@ Set `TF_STATE_BUCKET` explicitly only if you need a different bucket.
 
 `vault_ci_service_account_emails` must include the GitHub Actions deploy service
 account used by `secrets.GSA`. Local bootstrap configures a `google-jwt` auth
-backend and `ci` role in Vault for those service accounts, and the GitHub
+backend, per-admin `admin-*` roles for `vault_admin_emails`, and `ci` roles for
+those service accounts. The GitHub
 Terraform workflows log into Vault with a Google ID token before they run
 Terraform. Those CI service accounts are also merged into the Vault proxy's
 `X-Admin-Token` allow-list so they can reach non-public Vault routes during
@@ -155,7 +156,8 @@ Shared dev uses:
 - the shared dev Vault server
 - must be applied before any `pr-*` preview workspace, because previews read the shared dev Vault URL from remote state
 - should be bootstrapped locally once first so Vault itself, the `google-jwt`
-  auth backend, and the `ci` login role exist before GitHub preview/prod runs
+  auth backend, the admin login roles, and the `ci` login roles exist before
+  GitHub preview/prod runs
 
 ## Creating the shared Vaults locally
 
@@ -182,18 +184,18 @@ make tf-prod ACTION=apply
 ```
 
 If you only want the Vault/bootstrap resources first, select the workspace and
-do it in two steps so the Vault provider has a concrete URL to talk to:
+do it in two steps so the Vault provider has a concrete URL to talk to. The
+second apply must be a normal apply, not a narrow target list, so Terraform can
+create the `google-jwt` backend, the per-admin `admin-*` login roles from
+`vault_admin_emails`, and the per-service-account `ci` login roles from
+`vault_ci_service_account_emails`:
 
 ```bash
 cd terraform
 terraform init -backend-config="bucket=${GCLOUD_PROJECT}-terraform" -backend-config="prefix=scribe"
 terraform workspace select dev || terraform workspace new dev
 terraform apply -target=module.vault
-terraform apply \
-  -target=vault_mount.secret \
-  -target=vault_mount.keys \
-  -target=vault_policy.vault \
-  -target=vault_auth_backend.gcp
+terraform apply
 ```
 
 Repeat that with workspace `prod` for production.

@@ -2,8 +2,10 @@ locals {
   vault_policy_files          = fileset("${path.module}/policies/vault", "*.hcl")
   vault_gcp_auth_backend_path = "gcp"
   vault_jwt_auth_backend_path = "google-jwt"
+  vault_admin_policy_name     = "admin"
   vault_app_policy_name       = "app"
   vault_ci_policy_name        = "ci"
+  vault_gcloud_client_id      = "32555940559.apps.googleusercontent.com"
   vault_proxy_admin_emails    = distinct(concat(var.vault_admin_emails, var.vault_ci_service_account_emails))
   vault_service_name          = local.is_prod_workspace ? "vault-server-prod" : "vault-server-dev"
   vault_init_job_name         = local.is_prod_workspace ? "vault-init-prod" : "vault-init-dev"
@@ -96,6 +98,33 @@ resource "vault_jwt_auth_backend_role" "ci" {
   }
   token_policies = [
     local.vault_ci_policy_name,
+  ]
+  token_ttl     = 300
+  token_max_ttl = 900
+
+  depends_on = [
+    vault_policy.vault,
+  ]
+}
+
+resource "vault_jwt_auth_backend_role" "admin" {
+  for_each = local.vault_is_owner_workspace ? {
+    for email in var.vault_admin_emails : replace(replace(email, "@", "-at-"), ".", "-") => email
+  } : {}
+
+  backend    = vault_jwt_auth_backend.google_jwt[0].path
+  role_name  = "admin-${each.key}"
+  role_type  = "jwt"
+  user_claim = "email"
+  bound_audiences = [
+    module.vault[0].vault-url,
+    local.vault_gcloud_client_id,
+  ]
+  bound_claims = {
+    email = each.value
+  }
+  token_policies = [
+    local.vault_admin_policy_name,
   ]
   token_ttl     = 300
   token_max_ttl = 900

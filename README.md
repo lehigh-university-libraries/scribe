@@ -154,8 +154,10 @@ For local Docker Compose only, [sample.env](/workspace/sample.env) also defines
 image tags cleanly.
 
 Use `make vault-secrets` to list, read, or update the required app secrets in
-Vault. The helper prompts for `dev` vs `prod`, defaults to your current
-`gcloud auth print-access-token`, and only writes fields you actually enter.
+Vault. The helper prompts for `dev` vs `prod`, uses your current
+`gcloud auth print-access-token` for the proxy's `X-Admin-Token`, and then
+logs into Vault through the `google-jwt` admin role for your active gcloud
+account unless you explicitly override `VAULT_TOKEN`.
 
 Terraform now treats Vault as two long-lived servers: shared `dev` and `prod`.
 Preview environments and local dev point at the shared `dev` Vault. Each

@@ -21,6 +21,7 @@ jobs:
     outputs:
       image_tag: ${{ steps.image-tag.outputs.image_tag }}
       frontend_image_tag: ${{ steps.image-tag.outputs.frontend_image_tag }}
+      frontend_gar_image: ${{ steps.image-tag.outputs.frontend_gar_image }}
       frontend_gar_image_tag: ${{ steps.image-tag.outputs.frontend_gar_image_tag }}
       backend_origin: ${{ steps.image-tag.outputs.backend_origin }}
     env:
@@ -38,6 +39,7 @@ jobs:
           {
             echo "image_tag=ghcr.io/lehigh-university-libraries/scribe:$TAG"
             echo "frontend_image_tag=ghcr.io/lehigh-university-libraries/scribe-frontend:$TAG"
+            echo "frontend_gar_image=${GAR_REPO}/scribe-frontend"
             echo "frontend_gar_image_tag=${GAR_REPO}/scribe-frontend:$TAG"
             echo "backend_origin=http://scribe-pr-${PR_NUMBER}.${SCRIBE_ZONE}.c.${GCLOUD_PROJECT}.internal"
           } >> "$GITHUB_OUTPUT"
@@ -62,7 +64,7 @@ jobs:
     with:
       image: scribe-frontend
       file: Dockerfile.frontend
-      gar_image: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
+      gar_image: ${{ needs.prepare-image-tag.outputs.frontend_gar_image }}
       build_args: |
         SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}
 

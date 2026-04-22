@@ -111,6 +111,18 @@ jobs:
             https://www.googleapis.com/auth/cloud-platform
             https://www.googleapis.com/auth/userinfo.email
 
+      - name: Configure gcloud
+        run: |
+          gcloud config set project ${{ secrets.GCLOUD_PROJECT }}
+          gcloud config set disable_prompts true
+
+      - name: "GAR login"
+        uses: "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9" # v3
+        with:
+          registry: "us-docker.pkg.dev"
+          username: "oauth2accesstoken"
+          password: "${{ steps.auth.outputs.access_token }}"
+
       - name: Authenticate Vault admin header token
         id: auth_vault_access
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
@@ -131,11 +143,16 @@ jobs:
             vault_service="vault-server-dev"
           fi
           vault_addr="$(gcloud run services describe "$vault_service" --region us-east5 --format='value(status.url)')"
+          vault_audience="$(gcloud run services describe "$vault_service" --region us-east5 --format='value(uri)')"
           if [ -z "$vault_addr" ]; then
             echo "Failed to resolve Vault address for $vault_service" >&2
             exit 1
           fi
+          if [ -z "$vault_audience" ]; then
+            vault_audience="$vault_addr"
+          fi
           echo "vault_addr=$vault_addr" >> "$GITHUB_OUTPUT"
+          echo "vault_audience=$vault_audience" >> "$GITHUB_OUTPUT"
 
       - name: Compute Vault CI role name
         id: vault_role
@@ -153,7 +170,7 @@ jobs:
           workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
           service_account: ${{ secrets.GSA }}
           token_format: id_token
-          id_token_audience: ${{ steps.vault_addr.outputs.vault_addr }}
+          id_token_audience: ${{ steps.vault_addr.outputs.vault_audience }}
           id_token_include_email: true
           create_credentials_file: false
 
@@ -164,23 +181,26 @@ jobs:
           VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
           VAULT_ID_TOKEN: ${{ steps.auth_vault_id.outputs.id_token }}
         run: |
+          vault_role='${{ steps.vault_role.outputs.role_name }}'
           response_file="$(mktemp)"
           status_code="$(
             curl -sS -o "$response_file" -w '%{http_code}' \
               -X POST \
               -H "Content-Type: application/json" \
               -H "X-Admin-Token: ${VAULT_ADMIN_TOKEN}" \
-              --data "$(jq -cn --arg role "${{ steps.vault_role.outputs.role_name }}" --arg jwt "${VAULT_ID_TOKEN}" '{role: $role, jwt: $jwt}')" \
+              --data "$(jq -cn --arg role "${vault_role}" --arg jwt "${VAULT_ID_TOKEN}" '{role: $role, jwt: $jwt}')" \
               "${VAULT_ADDR%/}/v1/auth/google-jwt/login"
           )"
           if [ "$status_code" -lt 200 ] || [ "$status_code" -ge 300 ]; then
+            echo "Vault login failed (HTTP ${status_code}) for role ${vault_role} at ${VAULT_ADDR}." >&2
+            echo "Common causes: secrets.GSA is missing from vault_ci_service_account_emails, the owning workspace Vault bootstrap has not been re-applied since that change, or the Vault URL/audience no longer matches the configured role." >&2
             cat "$response_file" >&2
             exit 1
           fi
           vault_token="$(jq -r '.auth.client_token // empty' "$response_file")"
           if [ -z "$vault_token" ]; then
             cat "$response_file" >&2
-            echo "Vault login response did not include auth.client_token" >&2
+            echo "Vault login response did not include auth.client_token for role ${vault_role}" >&2
             exit 1
           fi
           {
