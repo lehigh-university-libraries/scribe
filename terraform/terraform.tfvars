@@ -10,3 +10,6 @@ vault_admin_emails = [
   "jjc223@lehigh.edu",
 ]
 
+ollama_models = [
+  "glm-ocr:bf16"
+]
