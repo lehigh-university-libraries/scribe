@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -39,10 +40,10 @@ func TestNewManagerWithPartialGoogleSecretsFails(t *testing.T) {
 	}
 }
 
-func TestNewManagerRequiresPublicBaseURL(t *testing.T) {
+func TestNewManagerWithoutPublicBaseURLEnablesAuth(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewManager(config.Config{
+	manager, err := NewManager(config.Config{
 		Auth: config.AuthConfig{
 			CookieName:         "scribe_session",
 			GoogleCallbackPath: "/auth/callback/google",
@@ -51,8 +52,11 @@ func TestNewManagerRequiresPublicBaseURL(t *testing.T) {
 		GoogleOAuthClientID:     "client-id",
 		GoogleOAuthClientSecret: "client-secret",
 	}, nil, nil, nil, nil, nil, nil, nil)
-	if err == nil {
-		t.Fatal("NewManager succeeded without public base URL")
+	if err != nil {
+		t.Fatalf("NewManager returned error without public base URL: %v", err)
+	}
+	if !manager.Enabled() {
+		t.Fatal("manager.Enabled() = false, want true without public base URL")
 	}
 }
 
@@ -98,6 +102,25 @@ func TestRequestedWorkspaceIDRejectsInvalidHeader(t *testing.T) {
 	req.Header.Set("X-Scribe-Workspace-ID", "bad")
 	if _, err := requestedWorkspaceID(req); err == nil {
 		t.Fatal("requestedWorkspaceID succeeded with invalid header")
+	}
+}
+
+func TestGoogleCallbackURLUsesForwardedOrigin(t *testing.T) {
+	t.Parallel()
+
+	manager := &Manager{
+		auth: config.AuthConfig{
+			GoogleCallbackPath: "/auth/callback/google",
+		},
+		publicBaseURL: "http://localhost:8080",
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/auth/google", nil)
+	req.Host = "internal-service"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "scribe.example")
+
+	if got := manager.googleCallbackURL(req); got != "https://scribe.example/auth/callback/google" {
+		t.Fatalf("googleCallbackURL = %q, want %q", got, "https://scribe.example/auth/callback/google")
 	}
 }
 

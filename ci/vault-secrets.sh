@@ -66,7 +66,7 @@ prompt_secret() {
   local label="$1"
   local answer=""
   read -r -s -p "$label: " answer || true
-  echo
+  printf '\n' >&2
   printf '%s' "$(trim "${answer:-}")"
 }
 

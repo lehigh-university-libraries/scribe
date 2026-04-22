@@ -177,6 +177,33 @@ fi
 
 TF_STATE_BUCKET="${TF_STATE_BUCKET:-${GCLOUD_PROJECT}-terraform}"
 export TF_STATE_BUCKET
+target_set="${TF_TARGET_SET:-}"
+
+terraform_targets=()
+case "$target_set" in
+  "")
+    ;;
+  vault)
+    terraform_targets+=(
+      "-target=module.vault"
+      "-target=google_project_iam_member.vault_gcp_auth_service_account_viewer"
+      "-target=google_project_iam_member.vault_gcp_auth_service_account_key_admin"
+      "-target=vault_mount.secret"
+      "-target=vault_mount.keys"
+      "-target=vault_policy.vault"
+      "-target=vault_auth_backend.gcp"
+      "-target=vault_jwt_auth_backend.google_jwt"
+      "-target=vault_jwt_auth_backend_role.ci"
+      "-target=vault_jwt_auth_backend_role.admin"
+      "-target=vault_gcp_auth_backend_role.app"
+      "-target=vault_gcp_auth_backend_role.ci"
+    )
+    ;;
+  *)
+    echo "Unknown TF_TARGET_SET: ${target_set}" >&2
+    exit 1
+    ;;
+esac
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
 pr_number=""
@@ -285,12 +312,12 @@ fi
 
 case "$action" in
   plan)
-    terraform plan "${terraform_vars[@]}"
+    terraform plan "${terraform_vars[@]}" "${terraform_targets[@]}"
     ;;
   apply)
-    terraform apply -auto-approve "${terraform_vars[@]}"
+    terraform apply -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"
     ;;
   destroy)
-    terraform destroy -auto-approve "${terraform_vars[@]}"
+    terraform destroy -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"
     ;;
 esac

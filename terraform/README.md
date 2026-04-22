@@ -135,6 +135,9 @@ bootstrap and login flows.
 - Merge to `main` to deploy production.
 - Run the `Terraform Dev` workflow from GitHub Actions to create, refresh, or
   destroy the shared `dev` environment from GitHub instead of a local machine.
+- PR preview runs also reapply the shared `dev` Vault owner resources from the
+  PR branch before they apply the `pr-*` workspace, so Vault policy/auth
+  changes land on the shared dev Vault during preview deploys.
 - Configure `GCLOUD_PROJECT` as a GitHub Actions variable, not a secret. The
   deploy workflows use it in job outputs and reusable-workflow inputs, and
   GitHub suppresses secret-derived job outputs with a

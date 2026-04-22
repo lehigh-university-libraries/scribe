@@ -75,6 +75,78 @@ jobs:
       build_args: |
         SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}
 
+  sync-dev-vault:
+    if: github.event.action != 'closed'
+    needs: [prepare-image-tag]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: terraform-preview-dev-vault
+      cancel-in-progress: false
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    env:
+      GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      ALLOWED_IPS: ${{ vars.ALLOWED_IPS }}
+      ALLOWED_SSH_IPV4: ${{ vars.ALLOWED_SSH_IPV4 }}
+      SCRIBE_API_IMAGE: ${{ needs.prepare-image-tag.outputs.image_tag }}
+      SCRIBE_FRONTEND_IMAGE: ${{ needs.prepare-image-tag.outputs.frontend_image_tag }}
+      SCRIBE_FRONTEND_GAR_IMAGE: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
+    steps:
+      - name: Validate workflow variables
+        shell: bash
+        run: |
+          if [ -z "$GCLOUD_PROJECT" ]; then
+            echo "GitHub Actions variable GCLOUD_PROJECT must be set." >&2
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4
+        with:
+          terraform_version: 1.5.7
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: latest
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: access_token
+          access_token_scopes: |-
+            https://www.googleapis.com/auth/cloud-platform
+            https://www.googleapis.com/auth/userinfo.email
+
+      - name: Configure gcloud
+        run: |
+          gcloud config set project "${GCLOUD_PROJECT}"
+          gcloud config set disable_prompts true
+
+      - name: "GAR login"
+        uses: "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9" # v3
+        with:
+          registry: "us-docker.pkg.dev"
+          username: "oauth2accesstoken"
+          password: "${{ steps.auth.outputs.access_token }}"
+
+      - name: Sync shared dev Vault owner resources
+        shell: bash
+        run: |
+          set -o pipefail
+          make tf-dev-vault BRANCH=${{ github.event.pull_request.head.ref }} ACTION=apply
+
   lint-test:
     if: github.event.action != 'closed'
     needs: [prepare-image-tag, build-push]
@@ -89,7 +161,7 @@ jobs:
 
   preview:
     if: github.event.action != 'closed'
-    needs: [prepare-image-tag, build-push, build-frontend]
+    needs: [prepare-image-tag, sync-dev-vault, build-push, build-frontend]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write

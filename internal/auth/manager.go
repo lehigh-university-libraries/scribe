@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -23,16 +24,17 @@ import (
 )
 
 type Manager struct {
-	auth         config.AuthConfig
-	cookieSecure bool
-	identities   *store.IdentityStore
-	apiKeys      *store.APIKeyStore
+	auth            config.AuthConfig
+	publicBaseURL   string
+	cookieSecure    bool
+	identities      *store.IdentityStore
+	apiKeys         *store.APIKeyStore
 	providerSecrets *store.ProviderSecretStore
-	items        *store.ItemStore
-	contexts     *store.ContextStore
-	jobs         *store.TranscriptionJobStore
-	google       *GoogleOAuthManager
-	vault        vaultClient
+	items           *store.ItemStore
+	contexts        *store.ContextStore
+	jobs            *store.TranscriptionJobStore
+	google          *GoogleOAuthManager
+	vault           vaultClient
 }
 
 type vaultClient interface {
@@ -54,6 +56,7 @@ func NewManager(
 ) (*Manager, error) {
 	manager := &Manager{
 		auth:            cfg.Auth,
+		publicBaseURL:   cfg.PublicBaseURL,
 		cookieSecure:    cfg.CookieSecureResolved(),
 		identities:      identities,
 		apiKeys:         apiKeys,
@@ -63,13 +66,12 @@ func NewManager(
 		jobs:            jobs,
 		vault:           vault,
 	}
-	callbackURL := cfg.GoogleCallbackURL()
 	clientID := strings.TrimSpace(secrets.GoogleOAuthClientID)
 	clientSecret := strings.TrimSpace(secrets.GoogleOAuthClientSecret)
-	if clientID == "" || clientSecret == "" || callbackURL == "" {
-		return nil, fmt.Errorf("google oauth requires public_base_url plus client id and client secret in Vault")
+	if clientID == "" || clientSecret == "" {
+		return nil, fmt.Errorf("google oauth requires client id and client secret in Vault")
 	}
-	googleManager, err := NewGoogleOAuthManager(secrets.GoogleOAuthClientID, secrets.GoogleOAuthClientSecret, callbackURL)
+	googleManager, err := NewGoogleOAuthManager(secrets.GoogleOAuthClientID, secrets.GoogleOAuthClientSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +182,7 @@ func (m *Manager) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	if redirectPath == "" {
 		redirectPath = "/"
 	}
-	authURL, err := m.google.BeginAuth(redirectPath)
+	authURL, err := m.google.BeginAuth(m.googleCallbackURL(r), redirectPath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("start google oauth: %v", err), http.StatusInternalServerError)
 		return
@@ -199,7 +201,7 @@ func (m *Manager) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing OAuth code or state", http.StatusBadRequest)
 		return
 	}
-	profile, stateValue, err := m.google.CompleteAuth(r.Context(), code, state)
+	profile, stateValue, err := m.google.CompleteAuth(r.Context(), m.googleCallbackURL(r), code, state)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("complete google oauth: %v", err), http.StatusUnauthorized)
 		return
@@ -228,7 +230,7 @@ func (m *Manager) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("create auth session: %v", err), http.StatusInternalServerError)
 		return
 	}
-	m.setSessionCookie(w, token)
+	m.setSessionCookie(w, r, token)
 	http.Redirect(w, r, safeRedirectPath(stateValue.RedirectPath), http.StatusFound)
 }
 
@@ -236,7 +238,7 @@ func (m *Manager) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(m.auth.CookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
 		_ = m.identities.DeleteSession(r.Context(), cookie.Value)
 	}
-	m.clearSessionCookie(w)
+	m.clearSessionCookie(w, r)
 	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "application/json") {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
@@ -805,7 +807,68 @@ func scopeListAllows(scopes []string, permission string) bool {
 	return false
 }
 
-func (m *Manager) setSessionCookie(w http.ResponseWriter, token string) {
+func (m *Manager) googleCallbackURL(r *http.Request) string {
+	baseURL := requestPublicBaseURL(r, m.publicBaseURL)
+	if baseURL == "" {
+		return ""
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	u.Path = strings.TrimRight(u.Path, "/") + m.auth.GoogleCallbackPath
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
+}
+
+func requestPublicBaseURL(r *http.Request, fallback string) string {
+	if r != nil {
+		host := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
+		if host == "" {
+			host = strings.TrimSpace(r.Host)
+		}
+		if host != "" {
+			scheme := firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))
+			if scheme == "" {
+				switch {
+				case r.URL != nil && strings.TrimSpace(r.URL.Scheme) != "":
+					scheme = strings.TrimSpace(r.URL.Scheme)
+				case r.TLS != nil:
+					scheme = "https"
+				default:
+					scheme = "http"
+				}
+			}
+			return (&url.URL{Scheme: scheme, Host: host}).String()
+		}
+	}
+	return strings.TrimRight(strings.TrimSpace(fallback), "/")
+}
+
+func firstForwardedValue(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	return strings.TrimSpace(strings.Split(raw, ",")[0])
+}
+
+func requestIsSecure(r *http.Request, fallback bool) bool {
+	if r != nil {
+		switch strings.ToLower(firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))) {
+		case "https":
+			return true
+		case "http":
+			return false
+		}
+		if r.TLS != nil {
+			return true
+		}
+	}
+	return fallback
+}
+
+func (m *Manager) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.auth.CookieName,
 		Value:    token,
@@ -813,12 +876,12 @@ func (m *Manager) setSessionCookie(w http.ResponseWriter, token string) {
 		Domain:   m.auth.CookieDomain,
 		MaxAge:   maxAgeSeconds(m.auth.SessionTTL),
 		HttpOnly: true,
-		Secure:   m.cookieSecure,
+		Secure:   requestIsSecure(r, m.cookieSecure),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
 
-func (m *Manager) clearSessionCookie(w http.ResponseWriter) {
+func (m *Manager) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.auth.CookieName,
 		Value:    "",
@@ -826,7 +889,7 @@ func (m *Manager) clearSessionCookie(w http.ResponseWriter) {
 		Domain:   m.auth.CookieDomain,
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   m.cookieSecure,
+		Secure:   requestIsSecure(r, m.cookieSecure),
 		SameSite: http.SameSiteLaxMode,
 	})
 }
