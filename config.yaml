@@ -1,5 +1,5 @@
 listen_addr: ":8080"
-public_base_url: "http://localhost:8080"
+public_base_url: "${PUBLIC_BASE_URL:-http://localhost:8080}"
 
 auth:
   cookie_name: scribe_session
@@ -25,8 +25,8 @@ llm:
   batch_size: 10
   line_transcribe_concurrency: 5
   ollama:
-    url: http://localhost:11434
-    audience: ""
+    url: "${OLLAMA_URL:-http://localhost:11434}"
+    audience: "${OLLAMA_AUDIENCE:-}"
     model: "glm-ocr:bf16"
     models: ["glm-ocr:bf16", "llava", "bakllava"]
   openai:
@@ -42,7 +42,7 @@ transcription:
 
 cantaloupe:
   iiif_base: /cantaloupe/iiif/2
-  iiif_internal_base: http://cantaloupe:8182/iiif/2
+  iiif_internal_base: "${CANTALOUPE_IIIF_INTERNAL_BASE:-http://cantaloupe:8182/iiif/2}"
 
 annotation:
   api_base: /
@@ -55,8 +55,8 @@ webhooks:
   urls: []
 
 vault:
-  address: ""
-  gcp_auth_role: scribe-app
+  address: "${VAULT_ADDRESS:-}"
+  gcp_auth_role: "${VAULT_GCP_AUTH_ROLE:-scribe-app}"
   kv_mount: secret
   paths:
     google_oauth: scribe/google_oauth

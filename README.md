@@ -132,7 +132,8 @@ available in the development environment.
 Non-secret runtime settings live in [config.yaml](/workspace/config.yaml). The
 container bakes in embedded defaults and then reads `/etc/scribe/config.yaml`
 at startup when it is mounted by Docker Compose or Terraform-managed runtime
-deployment.
+deployment. Selected string values in that YAML support `${VAR}` and
+`${VAR:-default}` interpolation from the container environment.
 
 Secrets do not live in `.env` or `config.yaml`. They are loaded from Vault on
 startup using the paths configured under `vault.paths` in `config.yaml`. The
@@ -143,12 +144,6 @@ On deployed GCP VMs, Scribe authenticates to Vault with the GCP auth method.
 It first tries a mounted service-account credential file and then falls back to
 the VM metadata service if that file is not available. A static Vault token is
 only needed as an optional local-development fallback.
-
-The only optional runtime bootstrap environment variable is:
-
-| Variable | Description |
-|----------|-------------|
-| `VAULT_TOKEN` | Optional local-development Vault token fallback |
 
 For local Docker Compose only, [sample.env](/workspace/sample.env) defines
 `SCRIBE_API_IMAGE`, `SCRIBE_FRONTEND_IMAGE`, and the published host ports used
@@ -189,9 +184,14 @@ gcloud auth configure-docker us-docker.pkg.dev
 This repo currently reads Docker auth from `~/.docker/config.json`. Your user
 also needs write access to `projects/<project>/locations/us/repositories/internal`.
 
-For Ollama, use `llm.ollama.url` in `config.yaml` instead of `OLLAMA_URL`.
-Contexts can optionally override that global URL and audience, which is the
-recommended setup when each model is deployed as its own cached Cloud Run
+Global runtime values such as `PUBLIC_BASE_URL`, `VAULT_ADDRESS`,
+`VAULT_GCP_AUTH_ROLE`, `CANTALOUPE_IIIF_INTERNAL_BASE`, `OLLAMA_URL`,
+`OLLAMA_AUDIENCE`, and `VAULT_TOKEN` are now intended to be injected as
+container env vars and resolved by `config.yaml` interpolation rather than by
+rewriting the mounted file on disk.
+
+Contexts can optionally override the global Ollama URL and audience, which is
+the recommended setup when each model is deployed as its own cached Cloud Run
 service. When the selected Ollama URL points at a private Cloud Run service,
 Scribe automatically sends an ID token if the host is a `*.run.app` service
 URL. Set `llm.ollama.audience` or the context-specific audience only when the

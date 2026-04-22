@@ -30,6 +30,7 @@ locals {
   is_prod_workspace                   = terraform.workspace == "prod"
   is_dev_workspace                    = terraform.workspace == "dev"
   shared_vault_workspace              = local.is_prod_workspace ? "prod" : "dev"
+  shared_ollama_workspace             = "prod"
   vault_is_owner_workspace            = local.is_prod_workspace || local.is_dev_workspace
   workspace_slug                      = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
   vault_app_role_name                 = "scribe-app-${local.workspace_slug}"
@@ -51,17 +52,44 @@ data "terraform_remote_state" "shared_vault" {
   workspace = local.shared_vault_workspace
 }
 
+data "terraform_remote_state" "shared_ollama" {
+  count   = local.shared_ollama_services_enabled || length(var.ollama_models) == 0 ? 0 : 1
+  backend = "gcs"
+  config = {
+    bucket = local.terraform_state_bucket
+    prefix = "scribe"
+  }
+  workspace = local.shared_ollama_workspace
+}
+
 locals {
   vault_url                       = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
   shared_cantaloupe_url           = local.shared_services_enabled ? try(module.cantaloupe[0].urls[var.region], try(module.cantaloupe[0].urls[local.cantaloupe_regions[0]], "")) : ""
   shared_cantaloupe_internal_base = trimspace(local.shared_cantaloupe_url) == "" ? "" : format("%s/iiif/2", trimsuffix(local.shared_cantaloupe_url, "/"))
-  docker_compose_services         = concat(["mariadb", "api", "worker"], local.shared_services_enabled ? [] : ["cantaloupe"])
+  public_base_url                 = trimspace(var.app_domain) != "" ? format("https://%s", trimspace(var.app_domain)) : try(module.scribe.urls[var.region], "")
+  default_ollama_model            = "glm-ocr:bf16"
+  default_ollama_url = !contains(var.ollama_models, local.default_ollama_model) ? "" : (
+    local.shared_ollama_services_enabled ? module.ollama_services[local.default_ollama_model].primary_url :
+    try(data.terraform_remote_state.shared_ollama[0].outputs.ollama_services[local.default_ollama_model].primary_url, "")
+  )
+  default_ollama_audience = !contains(var.ollama_models, local.default_ollama_model) ? "" : (
+    local.shared_ollama_services_enabled ? module.ollama_services[local.default_ollama_model].audience :
+    try(data.terraform_remote_state.shared_ollama[0].outputs.ollama_services[local.default_ollama_model].audience, "")
+  )
+  docker_compose_services = concat(["mariadb", "api", "worker"], local.shared_services_enabled ? [] : ["cantaloupe"])
 
   docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
-  compose_env_prefix  = format("SCRIBE_API_IMAGE=%s", var.api_image)
+  compose_env_prefix = join(" ", [
+    format("CANTALOUPE_IIIF_INTERNAL_BASE=%q", local.shared_cantaloupe_internal_base),
+    format("OLLAMA_AUDIENCE=%q", local.default_ollama_audience),
+    format("OLLAMA_URL=%q", local.default_ollama_url),
+    format("PUBLIC_BASE_URL=%q", local.public_base_url),
+    format("SCRIBE_API_IMAGE=%q", var.api_image),
+    format("VAULT_ADDRESS=%q", local.vault_url),
+    format("VAULT_GCP_AUTH_ROLE=%q", local.vault_app_role_name),
+  ])
   docker_compose_init = [
     "bash generate-secrets.sh",
-    format("bash /home/cloud-compose/configure-scribe-config.sh config.yaml %q %q %q", local.vault_url, local.vault_app_role_name, local.shared_cantaloupe_internal_base),
   ]
   docker_compose_up = [
     for cmd in [

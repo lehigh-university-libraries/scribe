@@ -24,6 +24,12 @@ services:
       - "${SCRIBE_API_PORT:-80}:8080"
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      VAULT_ADDRESS: ${VAULT_ADDRESS:-}
+      VAULT_GCP_AUTH_ROLE: ${VAULT_GCP_AUTH_ROLE:-scribe-app}
+      CANTALOUPE_IIIF_INTERNAL_BASE: ${CANTALOUPE_IIIF_INTERNAL_BASE:-http://cantaloupe:8182/iiif/2}
+      OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
+      OLLAMA_AUDIENCE: ${OLLAMA_AUDIENCE:-}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     volumes:
       - ./config.yaml:/etc/scribe/config.yaml:ro
@@ -41,6 +47,12 @@ services:
     command: ["/app/scribe-worker"]
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      VAULT_ADDRESS: ${VAULT_ADDRESS:-}
+      VAULT_GCP_AUTH_ROLE: ${VAULT_GCP_AUTH_ROLE:-scribe-app}
+      CANTALOUPE_IIIF_INTERNAL_BASE: ${CANTALOUPE_IIIF_INTERNAL_BASE:-http://cantaloupe:8182/iiif/2}
+      OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
+      OLLAMA_AUDIENCE: ${OLLAMA_AUDIENCE:-}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     volumes:
       - ./config.yaml:/etc/scribe/config.yaml:ro

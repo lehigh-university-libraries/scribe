@@ -2,8 +2,9 @@
 
 set -eu
 
-# Scribe reads nearly all runtime config from /etc/scribe/config.yaml. The only
-# optional env fallback left is VAULT_TOKEN for local development.
+# Scribe reads runtime config from /etc/scribe/config.yaml. That YAML may
+# interpolate selected container env vars such as PUBLIC_BASE_URL,
+# VAULT_ADDRESS, OLLAMA_URL, and VAULT_TOKEN.
 
 if [ "$#" -gt 0 ]; then
   exec "$@"

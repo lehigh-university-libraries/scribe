@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,8 @@ const ConfigPath = "/etc/scribe/config.yaml"
 
 //go:embed defaults/config.yaml
 var embeddedDefaults []byte
+
+var configEnvPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
 
 // Config mirrors the YAML file shape.
 type Config struct {
@@ -144,6 +147,7 @@ func Load() (Config, error) {
 	} else if !os.IsNotExist(err) {
 		return Config{}, fmt.Errorf("read %s: %w", ConfigPath, err)
 	}
+	raw = expandConfigEnv(raw)
 
 	var cfg Config
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
@@ -172,6 +176,28 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func expandConfigEnv(raw []byte) []byte {
+	expanded := configEnvPattern.ReplaceAllStringFunc(string(raw), func(expr string) string {
+		match := configEnvPattern.FindStringSubmatch(expr)
+		if len(match) < 2 {
+			return expr
+		}
+		name := match[1]
+		value, ok := os.LookupEnv(name)
+		if ok && value != "" {
+			return value
+		}
+		if len(match) >= 3 && match[2] != "" {
+			return match[3]
+		}
+		if ok {
+			return value
+		}
+		return ""
+	})
+	return []byte(expanded)
 }
 
 // GoogleCallbackURL returns the absolute callback URL constructed from

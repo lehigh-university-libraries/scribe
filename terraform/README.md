@@ -24,8 +24,9 @@ The same Terraform root can also manage shared production edge services:
   secret files under `./secrets/`, except for externally managed credentials
   such as `./secrets/GOOGLE_APPLICATION_CREDENTIALS` where local/CI runs may use
   a placeholder file until infra provides the real value
-- patches `config.yaml` on the VM with non-secret runtime values such as the
-  Vault address
+- injects non-secret runtime config into the compose services as environment
+  variables, which `config.yaml` resolves via `${VAR}` / `${VAR:-default}`
+  interpolation at process startup
 - pulls the configured API image from GHCR, then starts Scribe with the
   pinned compose commands defined in the root module
 
@@ -212,8 +213,12 @@ Repeat that with workspace `prod` for production.
 ## Notes
 
 - The checked-in [config.yaml](/workspace/config.yaml) is the source of truth
-  for non-secret runtime config. To point Scribe at a shared Ollama Cloud Run
-  service, set `llm.ollama.url` to the Terraform output for the desired model.
+  for non-secret runtime config, but selected values are now resolved from
+  compose-injected environment variables such as `PUBLIC_BASE_URL`,
+  `VAULT_ADDRESS`, `OLLAMA_URL`, and `OLLAMA_AUDIENCE` at process startup.
+  Production injects the shared `glm-ocr:bf16` Ollama Cloud Run URL
+  automatically, and non-prod workspaces read that shared URL from the `prod`
+  Terraform state when `ollama_models` includes that model.
 - The root module is intentionally opinionated. Service names, Artifact
   Registry layout, Cantaloupe sizing, Ollama sizing, and the compose bootstrap
   commands are internal defaults in Terraform rather than deployer-facing
