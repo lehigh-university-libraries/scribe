@@ -24,7 +24,7 @@ jobs:
           echo "frontend_gar_image_tag=us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:main" >> "$GITHUB_OUTPUT"
 
   build-push:
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@60c5d3a7a8f89290bbe0db056a0116855f59bb6c # main
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@0ad0a7d96a7b3a5c05ad811832108d67e3dea92c # main
     permissions:
       contents: read
       packages: write
