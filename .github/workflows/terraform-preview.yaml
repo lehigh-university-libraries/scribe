@@ -75,12 +75,12 @@ jobs:
       build_args: |
         SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}
 
-  sync-dev-vault:
+  sync-dev-shared:
     if: github.event.action != 'closed'
     needs: [prepare-image-tag]
     runs-on: ubuntu-24.04
     concurrency:
-      group: terraform-preview-dev-vault
+      group: terraform-preview-dev-shared
       cancel-in-progress: false
     permissions:
       id-token: write
@@ -141,11 +141,12 @@ jobs:
           username: "oauth2accesstoken"
           password: "${{ steps.auth.outputs.access_token }}"
 
-      - name: Sync shared dev Vault owner resources
+      - name: Sync shared dev owner resources
         shell: bash
         run: |
           set -o pipefail
           make tf-dev-vault BRANCH=${{ github.event.pull_request.head.ref }} ACTION=apply
+          make tf-dev-ocr BRANCH=${{ github.event.pull_request.head.ref }} ACTION=apply
 
   lint-test:
     if: github.event.action != 'closed'
@@ -161,7 +162,7 @@ jobs:
 
   preview:
     if: github.event.action != 'closed'
-    needs: [prepare-image-tag, sync-dev-vault, build-push, build-frontend]
+    needs: [prepare-image-tag, sync-dev-shared, build-push, build-frontend]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write

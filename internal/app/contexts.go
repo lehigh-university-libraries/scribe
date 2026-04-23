@@ -13,6 +13,8 @@ func defaultContext(cfg config.Config) store.Context {
 	provider := cfg.LLM.Provider
 	var model string
 	switch provider {
+	case "kraken":
+		model = cfg.LLM.Kraken.Model
 	case "openai":
 		model = cfg.LLM.OpenAI.Model
 	case "gemini":
@@ -73,6 +75,15 @@ func systemContexts(cfg config.Config) []store.Context {
 			SegmentationModel:     "scribe",
 			TranscriptionProvider: "gemini",
 			TranscriptionModel:    "gemini-3-pro-preview",
+			SystemPrompt:          defaultCtx.SystemPrompt,
+		},
+		{
+			Name:                  "Kraken CATMuS",
+			Description:           "Uses Scribe segmentation with Kraken transcription through the shared OCR service.",
+			IsDefault:             false,
+			SegmentationModel:     "scribe",
+			TranscriptionProvider: "kraken",
+			TranscriptionModel:    cfg.LLM.Kraken.Model,
 			SystemPrompt:          defaultCtx.SystemPrompt,
 		},
 	}

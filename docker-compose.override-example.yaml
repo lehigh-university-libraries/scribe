@@ -1,4 +1,28 @@
 services:
+  api:
+    environment:
+      SEGMENTATION_SERVICE_URL: http://segmentor:8080
+      SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
+      IMAGE_SERVICE_URL: http://image-service:8080
+      KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
+    depends_on:
+      segmentor:
+        condition: service_started
+      image-service:
+        condition: service_started
+
+  worker:
+    environment:
+      SEGMENTATION_SERVICE_URL: http://segmentor:8080
+      SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
+      IMAGE_SERVICE_URL: http://image-service:8080
+      KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
+    depends_on:
+      segmentor:
+        condition: service_started
+      image-service:
+        condition: service_started
+
   frontend:
     image: ${SCRIBE_FRONTEND_IMAGE:-scribe-frontend:local}
     build:
@@ -11,3 +35,13 @@ services:
     depends_on:
       api:
         condition: service_started
+
+  segmentor:
+    build:
+      context: .
+      dockerfile: Dockerfile.segmentor
+
+  image-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.image-service

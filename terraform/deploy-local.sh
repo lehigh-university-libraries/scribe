@@ -201,6 +201,16 @@ case "$target_set" in
       "-target=vault_gcp_auth_backend_role.ci"
     )
     ;;
+  ocr)
+    terraform_targets+=(
+      "-target=module.ocr_services"
+      "-target=google_artifact_registry_repository_iam_member.cloud_run_reader"
+      "-target=google_service_account.ocr_service"
+      "-target=google_project_iam_member.ocr_service_user"
+      "-target=docker_image.ocr_service"
+      "-target=docker_registry_image.ocr_service"
+    )
+    ;;
   *)
     echo "Unknown TF_TARGET_SET: ${target_set}" >&2
     exit 1

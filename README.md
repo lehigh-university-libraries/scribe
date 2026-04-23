@@ -41,6 +41,11 @@ bash generate-secrets.sh
 docker compose up --build
 ```
 
+The local override starts the standalone `segmentor` and `image-service`
+containers. The main `api` and `worker` image is now the lean remote-service
+build by default and expects those helper services to exist for OCR and image
+manipulation work.
+
 | Service | URL |
 |---------|-----|
 | Web app | http://localhost |
@@ -100,6 +105,78 @@ API/editor contract:
 - this keeps plugin implementations thinner and makes the same API usable from
   Mirador or other IIIF-capable editors
 
+```mermaid
+flowchart TD
+  browser([Client / Browser])
+
+  subgraph edge[Edge]
+      frontend[Cloud Run Frontend<br/>static UI + proxy]
+  end
+
+  subgraph vm[Backend VM]
+      ingress[VM host :80]
+      api[API]
+      worker[Worker]
+      db[(MariaDB)]
+      files[(Uploads / Cache)]
+
+      ingress --> api
+      api --> db
+      worker --> db
+      api --> files
+      worker --> files
+  end
+
+  subgraph shared[Shared / Private Services]
+      vault[Vault]
+      cantaloupe[Shared Cantaloupe]
+      imageSvc[Image Service<br/>normalize / crop / stitch]
+      genericSeg[Generic Segmentor<br/>auto / scribe / tesseract]
+      krakenSeg[Kraken Segmentors<br/>one Cloud Run service per segmentation model]
+      ollama[Ollama OCR Services<br/>one Cloud Run service per model]
+      krakenOCR[Kraken OCR Services<br/>one Cloud Run service per transcription model]
+  end
+
+  subgraph external[External Providers]
+      openai[OpenAI]
+      gemini[Gemini]
+  end
+
+  context{Resolved context<br/>segmentation_model<br/>transcription_provider<br/>transcription_model<br/>optional endpoint override}
+
+  browser -->|loads app + API calls| frontend
+  frontend -->|proxy to backend origin| ingress
+
+  browser -->|IIIF/image requests| frontend
+  frontend -->|/cantaloupe via backend| ingress
+  api -->|reverse proxy| cantaloupe
+
+  api -->|startup secret reads| vault
+  worker -->|startup secret reads| vault
+
+  api -->|create item / save edits / enqueue jobs| db
+  worker -->|read jobs / persist OCR results| db
+
+  api -->|store source images / hOCR cache| files
+  worker -->|read source images / write outputs| files
+
+  api -->|normalize / crop / stitch when needed| imageSvc
+  worker -->|normalize / crop / stitch when needed| imageSvc
+
+  api -.->|resolve request context| context
+  worker -.->|resolve job context| context
+
+  context -->|segmentation_model = auto / scribe / tesseract| genericSeg
+  context -->|segmentation_model = kraken or kraken:*| krakenSeg
+
+  context -->|transcription_provider = ollama| ollama
+  context -->|transcription_provider = kraken| krakenOCR
+  context -->|transcription_provider = openai| openai
+  context -->|transcription_provider = gemini| gemini
+
+  context -.->|explicit context URL/audience overrides win| ollama
+  context -.->|explicit context URL/audience overrides win| krakenOCR
+```
 ## Build and test
 
 ```bash
@@ -186,16 +263,27 @@ also needs write access to `projects/<project>/locations/us/repositories/interna
 
 Global runtime values such as `PUBLIC_BASE_URL`, `VAULT_ADDRESS`,
 `VAULT_GCP_AUTH_ROLE`, `CANTALOUPE_IIIF_INTERNAL_BASE`, `OLLAMA_URL`,
-`OLLAMA_AUDIENCE`, and `VAULT_TOKEN` are now intended to be injected as
-container env vars and resolved by `config.yaml` interpolation rather than by
-rewriting the mounted file on disk.
+`OLLAMA_AUDIENCE`, `OLLAMA_MODEL_ENDPOINTS_JSON`, `SEGMENTATION_SERVICE_URL`, `IMAGE_SERVICE_URL`,
+`SEGMENTATION_MODEL_ENDPOINTS_JSON`, `KRAKEN_URL`, `KRAKEN_AUDIENCE`,
+`KRAKEN_MODEL`, `KRAKEN_MODEL_ENDPOINTS_JSON`, and `VAULT_TOKEN` are now
+intended to be injected as container env vars and resolved by `config.yaml`
+interpolation or startup parsing rather than by rewriting the mounted file on
+disk.
 
 Contexts can optionally override the global Ollama URL and audience, which is
 the recommended setup when each model is deployed as its own cached Cloud Run
 service. When the selected Ollama URL points at a private Cloud Run service,
 Scribe automatically sends an ID token if the host is a `*.run.app` service
 URL. Set `llm.ollama.audience` or the context-specific audience only when the
-Cloud Run service uses a custom audience.
+Cloud Run service uses a custom audience. When no explicit context override is
+set, Ollama model routing now falls back to `OLLAMA_MODEL_ENDPOINTS_JSON`
+keyed by `transcription_model`.
+
+Kraken now follows the same one-service-per-model topology. Segmentation routes
+by the context `segmentation_model` through `SEGMENTATION_MODEL_ENDPOINTS_JSON`,
+and Kraken transcription routes by `transcription_model` through
+`KRAKEN_MODEL_ENDPOINTS_JSON`. Contexts can still override the Kraken
+transcription URL and audience directly when needed.
 
 ## IIIF endpoints
 

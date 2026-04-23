@@ -15,8 +15,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -26,6 +24,7 @@ import (
 	"github.com/lehigh-university-libraries/htr/pkg/openai"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/segmentor"
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
 
@@ -303,12 +302,47 @@ func parseSegmentationModel(segModel string) (string, string) {
 	}
 }
 
+func normalizeDetectionProvider(provider string) string {
+	normalized := strings.ToLower(strings.TrimSpace(provider))
+	switch {
+	case normalized == "scribe" || normalized == "custom":
+		return "custom"
+	case normalized == "kraken" || strings.HasPrefix(normalized, "kraken:"):
+		return "kraken"
+	case normalized == "tesseract":
+		return "tesseract"
+	default:
+		return normalized
+	}
+}
+
 // detectWithModel selects and runs the appropriate segmentation provider.
 // segModel values: "tesseract", "scribe", "kraken", "kraken:<model-id>", "auto", ""
 // "auto" (or empty string) runs both providers in parallel and picks the one that
 // detects more words; the winning provider name is returned for downstream use.
 func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel string) ([]worddetection.WordBox, string, error) {
 	kind, modelID := parseSegmentationModel(segModel)
+	requested := strings.TrimSpace(segModel)
+	if requested == "" {
+		requested = kind
+	}
+	if kind == "kraken" && modelID != "" {
+		requested = "kraken:" + modelID
+	}
+
+	if kind == "kraken" {
+		if client := segmentor.NewSegmentationModelClient(requested); client.Enabled() {
+			words, provider, err := client.DetectWords(ctx, imagePath, requested)
+			return words, normalizeDetectionProvider(provider), err
+		}
+		if client := segmentor.NewClient(); client.Enabled() {
+			words, provider, err := client.DetectWords(ctx, imagePath, requested)
+			return words, normalizeDetectionProvider(provider), err
+		}
+	} else if client := segmentor.NewClient(); client.Enabled() {
+		words, provider, err := client.DetectWords(ctx, imagePath, requested)
+		return words, normalizeDetectionProvider(provider), err
+	}
 
 	switch kind {
 	case "tesseract":
@@ -374,34 +408,13 @@ func (s *Service) DetectLinesToHOCR(imagePath string) (string, error) {
 		return "", fmt.Errorf("failed to get image dimensions: %w", err)
 	}
 
-	tesseractProvider := worddetection.NewTesseract()
-	customProvider := worddetection.NewCustom()
-
-	tesseractWords, tesseractErr := tesseractProvider.DetectWords(ctx, imagePath)
-	customWords, customErr := customProvider.DetectWords(ctx, imagePath)
-
-	if tesseractErr != nil && customErr != nil {
-		return "", fmt.Errorf("both detection methods failed - tesseract: %v, custom: %v", tesseractErr, customErr)
-	}
-
-	var selectedWords []worddetection.WordBox
-	var selectedProvider string
-	if tesseractErr != nil {
-		selectedWords = customWords
-		selectedProvider = "custom"
-	} else if customErr != nil {
-		selectedWords = tesseractWords
-		selectedProvider = "tesseract"
-	} else if len(tesseractWords) >= len(customWords) {
-		selectedWords = tesseractWords
-		selectedProvider = "tesseract"
-	} else {
-		selectedWords = customWords
-		selectedProvider = "custom"
+	selectedWords, selectedProvider, err := s.detectWithModel(ctx, imagePath, "auto")
+	if err != nil {
+		return "", fmt.Errorf("detect lines: %w", err)
 	}
 
 	lines := s.groupWordsIntoLines(selectedWords)
-	if selectedProvider == "custom" {
+	if selectedProvider == "custom" || selectedProvider == "kraken" {
 		lines = s.filterValidLines(lines, width)
 		lines = s.removeOverlappingLines(lines)
 	}
@@ -560,6 +573,8 @@ func (s *Service) extractTextWithRetry(
 		var err error
 		if providerName == "gemini" {
 			text, err = s.extractTextWithGemini(ctx, config.Model, prompt, imageBase64, operation)
+		} else if providerName == "kraken" {
+			text, err = s.extractTextWithKraken(ctx, config.Model, imagePath, operation)
 		} else {
 			text, err = s.extractTextWithProvider(ctx, llmProvider, providerName, config, imagePath, imageBase64, operation)
 		}
@@ -601,15 +616,24 @@ func (s *Service) providerConfig(providerName, model, prompt string, temperature
 	}
 	if strings.EqualFold(providerName, "ollama") {
 		runtime := config.Get()
-		cfg.BaseURL = strings.TrimSpace(runtime.Config.LLM.Ollama.URL)
-		cfg.Audience = strings.TrimSpace(runtime.Config.LLM.Ollama.Audience)
+		cfg.BaseURL, cfg.Audience = runtime.Config.LLM.Ollama.ResolveForModel(model)
+		if cfg.BaseURL == "" {
+			cfg.BaseURL = strings.TrimSpace(runtime.Config.LLM.Ollama.URL)
+		}
+		if cfg.Audience == "" {
+			cfg.Audience = strings.TrimSpace(runtime.Config.LLM.Ollama.Audience)
+		}
+	} else if strings.EqualFold(providerName, "kraken") {
+		runtime := config.Get()
+		cfg.BaseURL = strings.TrimSpace(runtime.Config.LLM.Kraken.URL)
+		cfg.Audience = strings.TrimSpace(runtime.Config.LLM.Kraken.Audience)
 	}
 	return cfg
 }
 
 func (s *Service) providerConfigWithContext(ctx context.Context, providerName, model, prompt string, temperature float64) providers.Config {
 	cfg := s.providerConfig(providerName, model, prompt, temperature)
-	if !strings.EqualFold(providerName, "ollama") {
+	if !strings.EqualFold(providerName, "ollama") && !strings.EqualFold(providerName, "kraken") {
 		return cfg
 	}
 	overrides := providerConfigOverridesFromContext(ctx)
@@ -681,40 +705,9 @@ func (s *Service) processImageToHOCR(ctx context.Context, imagePath, providerOve
 		return "", fmt.Errorf("failed to get image dimensions: %w", err)
 	}
 
-	// Step 2: Run both word detection providers in parallel
-	tesseractProvider := worddetection.NewTesseract()
-	customProvider := worddetection.NewCustom()
-
-	tesseractWords, tesseractErr := tesseractProvider.DetectWords(ctx, imagePath)
-	customWords, customErr := customProvider.DetectWords(ctx, imagePath)
-
-	// Log results from both providers
-	slog.Info("Word detection results",
-		"tesseract_count", len(tesseractWords),
-		"tesseract_error", tesseractErr,
-		"custom_count", len(customWords),
-		"custom_error", customErr)
-
-	// Pick the provider with more valid words
-	var selectedWords []worddetection.WordBox
-	var selectedProvider string
-
-	if tesseractErr != nil && customErr != nil {
-		return "", fmt.Errorf("both detection methods failed - tesseract: %v, custom: %v", tesseractErr, customErr)
-	}
-
-	if tesseractErr != nil {
-		selectedWords = customWords
-		selectedProvider = "custom"
-	} else if customErr != nil {
-		selectedWords = tesseractWords
-		selectedProvider = "tesseract"
-	} else if len(tesseractWords) >= len(customWords) {
-		selectedWords = tesseractWords
-		selectedProvider = "tesseract"
-	} else {
-		selectedWords = customWords
-		selectedProvider = "custom"
+	selectedWords, selectedProvider, err := s.detectWithModel(ctx, imagePath, "auto")
+	if err != nil {
+		return "", fmt.Errorf("word detection failed: %w", err)
 	}
 
 	slog.Info("Selected word detection provider",
@@ -725,8 +718,8 @@ func (s *Service) processImageToHOCR(ctx context.Context, imagePath, providerOve
 	lines := s.groupWordsIntoLines(selectedWords)
 	slog.Info("Grouped words into lines", "line_count", len(lines))
 
-	// Step 3b: For custom provider (handwritten text), filter out anomalously small lines
-	if selectedProvider == "custom" {
+	// Step 3b: For custom and kraken line providers, filter out anomalously small lines.
+	if selectedProvider == "custom" || selectedProvider == "kraken" {
 		originalLineCount := len(lines)
 		lines = s.filterValidLines(lines, width)
 		slog.Info("Filtered lines for custom provider",
@@ -764,42 +757,17 @@ func (s *Service) processImageToHOCR(ctx context.Context, imagePath, providerOve
 }
 
 func (s *Service) getImageDimensions(imagePath string) (int, int, error) {
-	parse := func(raw []byte) (int, int, error) {
-		var width, height int
-		if _, err := fmt.Sscanf(strings.TrimSpace(string(raw)), "%d %d", &width, &height); err != nil {
-			return 0, 0, err
-		}
-		if width <= 0 || height <= 0 {
-			return 0, 0, fmt.Errorf("invalid dimensions %d x %d", width, height)
-		}
-		return width, height, nil
-	}
-
-	// Prefer ImageMagick v7 style.
-	if out, err := exec.Command("magick", "identify", "-format", "%w %h", imagePath).Output(); err == nil {
-		if w, h, parseErr := parse(out); parseErr == nil {
-			return w, h, nil
-		}
-	}
-	// Fallback to ImageMagick v6 style.
-	if out, err := exec.Command("identify", "-format", "%w %h", imagePath).Output(); err == nil {
-		if w, h, parseErr := parse(out); parseErr == nil {
-			return w, h, nil
-		}
-	}
-
-	// Final fallback: decode image config directly in Go.
 	f, err := os.Open(imagePath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("open image for dimension fallback: %w", err)
+		return 0, 0, fmt.Errorf("open image for dimension lookup: %w", err)
 	}
 	defer f.Close()
-	cfg, _, err := image.DecodeConfig(f)
+	cfg, format, err := image.DecodeConfig(f)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get image dimensions via identify and decode-config: %w", err)
+		return 0, 0, fmt.Errorf("decode image config: %w", err)
 	}
 	if cfg.Width <= 0 || cfg.Height <= 0 {
-		return 0, 0, fmt.Errorf("invalid dimensions from decode-config %d x %d", cfg.Width, cfg.Height)
+		return 0, 0, fmt.Errorf("invalid %s dimensions %d x %d", format, cfg.Width, cfg.Height)
 	}
 	return cfg.Width, cfg.Height, nil
 }
@@ -831,8 +799,10 @@ func (s *Service) initLLMProvider(providerOverride string) (providers.Provider, 
 		return openai.New(), providerType, nil
 	case "gemini":
 		return nil, providerType, nil
+	case "kraken":
+		return nil, providerType, nil
 	default:
-		return nil, "", fmt.Errorf("unsupported LLM provider: %s (must be 'ollama', 'openai', or 'gemini')", providerType)
+		return nil, "", fmt.Errorf("unsupported transcription provider: %s (must be 'ollama', 'openai', 'gemini', or 'kraken')", providerType)
 	}
 }
 
@@ -883,9 +853,10 @@ func (s *Service) groupWordsIntoLines(words []worddetection.WordBox) [][]worddet
 	return lines
 }
 
-// transcribeWords extracts and transcribes words in batches using the LLM provider
-// If detectionProvider is "custom", transcribes entire lines instead of individual words
-// The lines parameter contains pre-filtered lines (filtered in ProcessImageToHOCR)
+// transcribeWords extracts and transcribes words in batches using the configured
+// transcription provider. For line-level detectors such as the custom Scribe
+// segmentor and Kraken, it transcribes whole lines instead of individual words.
+// The lines parameter contains pre-filtered lines.
 func (s *Service) transcribeWords(ctx context.Context, imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, providerName, detectionProvider string, lines [][]worddetection.WordBox, modelOverride string) ([]TranscribedWord, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -898,9 +869,9 @@ func (s *Service) transcribeWords(ctx context.Context, imagePath string, words [
 	}
 	batchSize := s.getBatchSize()
 
-	// For custom provider (handwritten text), transcribe pre-filtered lines
-	if detectionProvider == "custom" {
-		slog.Info("Using line-based transcription for custom provider", "provider", providerName, "model", model, "line_count", len(lines))
+	// For line-level detectors, transcribe pre-filtered lines instead of individual words.
+	if detectionProvider == "custom" || detectionProvider == "kraken" {
+		slog.Info("Using line-based transcription for line detector", "provider", providerName, "model", model, "line_count", len(lines), "detection_provider", detectionProvider)
 		return s.transcribeLinesForCustomProvider(ctx, imagePath, lines, imageWidth, imageHeight, provider, providerName, model, batchSize)
 	}
 
@@ -1008,10 +979,10 @@ func (s *Service) transcribeWords(ctx context.Context, imagePath string, words [
 	return transcribed, nil
 }
 
-// transcribeLinesForCustomProvider transcribes entire lines for handwritten text.
-// This is used when the custom provider is selected (indicating handwritten text).
-// The lines parameter should be pre-filtered (filtering happens in ProcessImageToHOCR).
-// Lines are processed independently with bounded concurrency.
+// transcribeLinesForCustomProvider transcribes whole detected lines for
+// line-level detectors such as the custom Scribe segmentor and Kraken. The
+// lines parameter should be pre-filtered. Lines are processed independently
+// with bounded concurrency.
 func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePath string, lines [][]worddetection.WordBox, imageWidth, imageHeight int, provider providers.Provider, providerName, model string, batchSize int) ([]TranscribedWord, error) {
 	if len(lines) == 0 {
 		slog.Info("No lines to transcribe for custom provider")
@@ -1120,6 +1091,8 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 			var text string
 			if providerName == "gemini" {
 				text, err = s.extractTextWithGemini(ctx, model, prompt, imageBase64, "transcribe_line")
+			} else if providerName == "kraken" {
+				text, err = s.extractTextWithKraken(ctx, model, lineImagePath, "transcribe_line")
 			} else {
 				text, err = s.extractTextWithProvider(ctx, provider, providerName, config, lineImagePath, imageBase64, "transcribe_line")
 			}
@@ -1203,38 +1176,6 @@ func (s *Service) getLineTranscriptionConcurrency() int {
 		return v
 	}
 	return 5
-}
-
-// extractLineImage extracts a line region from the image
-func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lineIndex int) (string, error) {
-	width := maxX - minX
-	height := maxY - minY
-
-	// Validate dimensions
-	if width <= 0 || height <= 0 {
-		return "", fmt.Errorf("invalid dimensions: width=%d, height=%d", width, height)
-	}
-
-	// Add padding for better context
-	padding := 10
-	cropX := max(0, minX-padding)
-	cropY := max(0, minY-padding)
-	cropWidth := width + 2*padding
-	cropHeight := height + 2*padding
-
-	outputPath := filepath.Join("/tmp", fmt.Sprintf("line_%d_%d.png", lineIndex, time.Now().UnixNano()))
-
-	// Extract line region
-	cmd := exec.Command("magick", imagePath,
-		"-crop", fmt.Sprintf("%dx%d+%d+%d", cropWidth, cropHeight, cropX, cropY),
-		"+repage",
-		outputPath)
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to extract line image: %w", err)
-	}
-
-	return outputPath, nil
 }
 
 // truncateString truncates a string to maxLen characters, adding "..." if truncated
@@ -1619,6 +1560,11 @@ func (s *Service) getModelForProvider(providerName string) string {
 			return llm.Ollama.Model
 		}
 		return "glm-ocr:bf16"
+	case "kraken":
+		if llm.Kraken.Model != "" {
+			return llm.Kraken.Model
+		}
+		return "catmus-print-fondue-large.mlmodel"
 	case "openai":
 		if llm.OpenAI.Model != "" {
 			return llm.OpenAI.Model
@@ -1632,6 +1578,34 @@ func (s *Service) getModelForProvider(providerName string) string {
 	default:
 		return ""
 	}
+}
+
+func (s *Service) extractTextWithKraken(ctx context.Context, model, imagePath, operation string) (string, error) {
+	if strings.TrimSpace(model) == "" {
+		model = s.getModelForProvider("kraken")
+	}
+	overrides := providerConfigOverridesFromContext(ctx)
+	text, resolvedModel, err := segmentor.NewKrakenClient(model, overrides.BaseURL, overrides.Audience).Transcribe(ctx, imagePath, model)
+	record := ProviderCallAuditRecord{
+		Provider:    "kraken",
+		Model:       model,
+		Operation:   operation,
+		RequestJSON: fmt.Sprintf(`{"model":%q}`, model),
+	}
+	if resolvedModel != "" {
+		record.Model = resolvedModel
+	}
+	if err != nil {
+		record.ErrorMessage = err.Error()
+		s.auditProviderCall(ctx, record)
+		return "", err
+	}
+	record.ResponseJSON = providerResponseJSON(map[string]string{
+		"text":  text,
+		"model": resolvedModel,
+	})
+	s.auditProviderCall(ctx, record)
+	return text, nil
 }
 
 func (s *Service) extractTextWithGemini(ctx context.Context, model, prompt, imageBase64, operation string) (string, error) {
@@ -1771,50 +1745,14 @@ func (s *Service) getBatchSize() int {
 	return 10
 }
 
-// stitchWordImages combines multiple word images horizontally into a single image
-func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordBox) (string, error) {
-	if len(words) == 0 {
-		return "", fmt.Errorf("no words to stitch")
-	}
-
-	// Create output path
-	outputPath := filepath.Join("/tmp", fmt.Sprintf("stitched_%d.png", time.Now().UnixNano()))
-
-	// Build ImageMagick command to extract and stitch words horizontally
-	// We'll use multiple -crop operations and +append to combine horizontally
-	args := []string{imagePath}
-
-	for _, word := range words {
-		// Add crop for each word with padding
-		padding := 5
-		cropX := max(0, word.X-padding)
-		cropY := max(0, word.Y-padding)
-		cropWidth := word.Width + 2*padding
-		cropHeight := word.Height + 2*padding
-
-		args = append(args, "(", "-clone", "0",
-			"-crop", fmt.Sprintf("%dx%d+%d+%d", cropWidth, cropHeight, cropX, cropY),
-			"+repage", ")")
-	}
-
-	// Remove original image and append all cropped images horizontally
-	args = append(args, "-delete", "0", "+append", outputPath)
-
-	cmd := exec.Command("magick", args...)
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to stitch word images: %w", err)
-	}
-
-	return outputPath, nil
-}
-
-// generateHOCRFromWords generates hOCR output from transcribed words and detected lines
-// If detectionProvider is "custom", each transcribedWord represents a full line
+// generateHOCRFromWords generates hOCR output from transcribed words and
+// detected lines. For line-level detectors, each TranscribedWord represents a
+// full line.
 func (s *Service) generateHOCRFromWords(transcribedWords []TranscribedWord, lines [][]worddetection.WordBox, width, height int, detectionProvider string) string {
 	var hocrLines []string
 
-	// For custom provider, each TranscribedWord is a full line
-	if detectionProvider == "custom" {
+	// For line-level detectors, each TranscribedWord is a full line.
+	if detectionProvider == "custom" || detectionProvider == "kraken" {
 		type customLine struct {
 			text       string
 			confidence float64

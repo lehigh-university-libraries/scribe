@@ -72,6 +72,54 @@ output "ollama_services" {
   } : {}
 }
 
+output "ocr_services" {
+  description = "Shared private OCR helper services keyed by service role."
+  value = local.shared_ocr_services_enabled ? {
+    for name, service in module.ocr_services : name => {
+      route_type            = local.ocr_services[name].route_type
+      route_key             = local.ocr_services[name].route_key
+      service_name          = local.ocr_services[name].service_name
+      service_account_email = google_service_account.ocr_service[name].email
+      primary_url           = try(service.urls[var.region], try(service.urls[local.ocr_service_regions[0]], ""))
+      audience              = try(service.urls[var.region], try(service.urls[local.ocr_service_regions[0]], ""))
+      urls                  = service.urls
+      image                 = "${docker_image.ocr_service[name].name}@${docker_registry_image.ocr_service[name].sha256_digest}"
+    }
+  } : {}
+}
+
+output "kraken_segmentation_services" {
+  description = "Kraken segmentation Cloud Run services keyed by the context segmentation_model value."
+  value = local.shared_ocr_services_enabled ? {
+    for name, service in module.ocr_services :
+    local.ocr_services[name].route_key => {
+      service_name          = local.ocr_services[name].service_name
+      service_account_email = google_service_account.ocr_service[name].email
+      primary_url           = try(service.urls[var.region], try(service.urls[local.ocr_service_regions[0]], ""))
+      audience              = try(service.urls[var.region], try(service.urls[local.ocr_service_regions[0]], ""))
+      urls                  = service.urls
+      image                 = "${docker_image.ocr_service[name].name}@${docker_registry_image.ocr_service[name].sha256_digest}"
+    }
+    if local.ocr_services[name].route_type == "kraken-segmentation"
+  } : {}
+}
+
+output "kraken_transcription_services" {
+  description = "Kraken transcription Cloud Run services keyed by the context transcription_model value."
+  value = local.shared_ocr_services_enabled ? {
+    for name, service in module.ocr_services :
+    local.ocr_services[name].route_key => {
+      service_name          = local.ocr_services[name].service_name
+      service_account_email = google_service_account.ocr_service[name].email
+      primary_url           = try(service.urls[var.region], try(service.urls[local.ocr_service_regions[0]], ""))
+      audience              = try(service.urls[var.region], try(service.urls[local.ocr_service_regions[0]], ""))
+      urls                  = service.urls
+      image                 = "${docker_image.ocr_service[name].name}@${docker_registry_image.ocr_service[name].sha256_digest}"
+    }
+    if local.ocr_services[name].route_type == "kraken-transcription"
+  } : {}
+}
+
 output "internal_artifact_registry_repository" {
   description = "Shared existing Artifact Registry repository used for Vault and Ollama images."
   value       = data.google_artifact_registry_repository.internal.id

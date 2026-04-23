@@ -9,6 +9,7 @@ The same Terraform root can also manage shared production edge services:
 - a frontend Cloud Run sidecar image attached to the app ingress
 - a shared Cantaloupe Cloud Run deployment
 - shared private Ollama model services built from a single generic module
+- shared private OCR helper services for segmentation and image manipulation
 - a shared external HTTPS load balancer that routes hostnames to the main app
   ingress and the shared Cantaloupe backend
 - a self-hosted Vault Cloud Run deployment with bootstrapped mounts,
@@ -116,6 +117,13 @@ Set `TF_STATE_BUCKET` explicitly only if you need a different bucket.
   for local compose builds; the VM itself no longer runs that service
 - optionally set `ollama_models` to build and deploy one or more private Ollama
   Cloud Run services keyed by model string
+- optionally set `kraken_segmentation_models` to build one private Cloud Run
+  Kraken segmentation service per context `segmentation_model` key
+- optionally set `kraken_transcription_models` to build one private Cloud Run
+  Kraken transcription service per context `transcription_model` key
+- optionally set `kraken_default_transcription_model` to choose which Kraken
+  transcription model the app should treat as the global default
+- optionally override `kraken_pip_spec` to pin a different Kraken runtime
 - set `vault_admin_emails` and `vault_ci_service_account_emails` for the
   always-on Vault deployment
 - initialize Terraform with a GCS backend bucket so CI and local runs share state
@@ -136,9 +144,10 @@ bootstrap and login flows.
 - Merge to `main` to deploy production.
 - Run the `Terraform Dev` workflow from GitHub Actions to create, refresh, or
   destroy the shared `dev` environment from GitHub instead of a local machine.
-- PR preview runs also reapply the shared `dev` Vault owner resources from the
+- PR preview runs also reapply the shared `dev` owner resources from the
   PR branch before they apply the `pr-*` workspace, so Vault policy/auth
-  changes land on the shared dev Vault during preview deploys.
+  changes and shared OCR helper service changes land on the shared dev
+  environment during preview deploys.
 - Configure `GCLOUD_PROJECT` as a GitHub Actions variable, not a secret. The
   deploy workflows use it in job outputs and reusable-workflow inputs, and
   GitHub suppresses secret-derived job outputs with a
@@ -215,10 +224,14 @@ Repeat that with workspace `prod` for production.
 - The checked-in [config.yaml](/workspace/config.yaml) is the source of truth
   for non-secret runtime config, but selected values are now resolved from
   compose-injected environment variables such as `PUBLIC_BASE_URL`,
-  `VAULT_ADDRESS`, `OLLAMA_URL`, and `OLLAMA_AUDIENCE` at process startup.
-  Production injects the shared `glm-ocr:bf16` Ollama Cloud Run URL
-  automatically, and non-prod workspaces read that shared URL from the `prod`
-  Terraform state when `ollama_models` includes that model.
+  `VAULT_ADDRESS`, `OLLAMA_URL`, `OLLAMA_AUDIENCE`,
+  `OLLAMA_MODEL_ENDPOINTS_JSON`,
+  `SEGMENTATION_SERVICE_URL`, `SEGMENTATION_MODEL_ENDPOINTS_JSON`,
+  `IMAGE_SERVICE_URL`, `KRAKEN_URL`, `KRAKEN_MODEL`, and
+  `KRAKEN_MODEL_ENDPOINTS_JSON` at process startup. Production injects the
+  shared `glm-ocr:bf16` Ollama Cloud Run URL automatically, plus model-keyed
+  Ollama and Kraken endpoint maps. Non-prod workspaces read those shared URLs
+  from remote Terraform state.
 - The root module is intentionally opinionated. Service names, Artifact
   Registry layout, Cantaloupe sizing, Ollama sizing, and the compose bootstrap
   commands are internal defaults in Terraform rather than deployer-facing

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -260,41 +258,6 @@ func (h *Handler) createSessionFromURL(imageURL string) (string, error) {
 
 	slog.Info("Session created from URL", "session_id", sessionID, "url", imageURL)
 	return sessionID, nil
-}
-
-// convertImageViaHoudini converts JP2/TIFF images to JPG using Houdini service
-func (h *Handler) convertImageViaHoudini(imageData []byte, contentType string) ([]byte, error) {
-
-	hash := md5.Sum(imageData)
-	cacheKey := hex.EncodeToString(hash[:])
-	cacheFilename := cacheKey + "_converted.jpg"
-	cacheDir := "cache/houdini"
-	cachePath := filepath.Join(cacheDir, cacheFilename)
-
-	// Check cache first
-	if cachedData, err := os.ReadFile(cachePath); err == nil {
-		slog.Info("Using cached Houdini conversion", "cache_key", cacheKey)
-		return cachedData, nil
-	}
-	// Create cache directory
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		slog.Warn("Failed to create Houdini cache directory", "error", err)
-	}
-
-	// Convert to grayscale, enhance contrast, and apply morphological operations
-	cmd := exec.Command("magick", "-", cachePath)
-	cmd.Stdin = bytes.NewReader(imageData)
-	slog.Info("Converting image", "cmd", cmd.String())
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("imagemagick preprocessing failed: %w", err)
-	}
-
-	convertedData, err := os.ReadFile(cachePath)
-	if err != nil {
-		return nil, err
-	}
-
-	return convertedData, nil
 }
 
 // needsHoudiniConversion checks if the image format requires Houdini conversion

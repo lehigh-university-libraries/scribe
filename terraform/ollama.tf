@@ -51,8 +51,8 @@ locals {
   }
 }
 
-resource "google_artifact_registry_repository_iam_member" "ollama_cloud_run_reader" {
-  count = local.shared_ollama_services_enabled ? 1 : 0
+resource "google_artifact_registry_repository_iam_member" "cloud_run_reader" {
+  count = local.shared_ollama_services_enabled || local.shared_ocr_services_enabled ? 1 : 0
 
   project    = var.project_id
   location   = local.ollama_artifact_registry_location
@@ -81,7 +81,7 @@ module "ollama_services" {
   invokers                     = local.ollama_invokers
 
   depends_on = [
-    google_artifact_registry_repository_iam_member.ollama_cloud_run_reader,
+    google_artifact_registry_repository_iam_member.cloud_run_reader,
   ]
 }
 

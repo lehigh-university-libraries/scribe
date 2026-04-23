@@ -122,3 +122,43 @@ variable "ollama_models" {
   type        = set(string)
   default     = []
 }
+
+variable "kraken_pip_spec" {
+  description = "Pinned kraken Python package spec installed into the segmentor Cloud Run image."
+  type        = string
+  default     = "kraken==7.0"
+}
+
+variable "kraken_segmentation_models" {
+  description = "Kraken segmentation services keyed by the context segmentation_model value. Each entry builds a dedicated Cloud Run service."
+  type = map(object({
+    doi  = string
+    file = string
+  }))
+  default = {
+    kraken = {
+      doi  = ""
+      file = "blla.mlmodel"
+    }
+  }
+}
+
+variable "kraken_transcription_models" {
+  description = "Kraken transcription services keyed by the context transcription_model value. Each entry builds a dedicated Cloud Run service."
+  type = map(object({
+    doi  = string
+    file = string
+  }))
+  default = {
+    "catmus-print-fondue-large.mlmodel" = {
+      doi  = "10.5281/zenodo.10592716"
+      file = "catmus-print-fondue-large.mlmodel"
+    }
+  }
+}
+
+variable "kraken_default_transcription_model" {
+  description = "Default Kraken transcription model to inject into config for system contexts."
+  type        = string
+  default     = "catmus-print-fondue-large.mlmodel"
+}

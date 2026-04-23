@@ -61,3 +61,38 @@ func TestExpandConfigEnvWithoutDefaultUsesEmptyString(t *testing.T) {
 		t.Fatalf("expandConfigEnv() = %q, want %q", got, `value: ""`)
 	}
 }
+
+func TestLoadModelEndpointMapEnv(t *testing.T) {
+	t.Setenv("KRAKEN_MODEL_ENDPOINTS_JSON", `{
+		"catmus-print-fondue-large.mlmodel": {
+			"url": "https://kraken-catmus.example",
+			"audience": "https://kraken-catmus.example"
+		}
+	}`)
+
+	got, err := loadModelEndpointMapEnv("KRAKEN_MODEL_ENDPOINTS_JSON")
+	if err != nil {
+		t.Fatalf("loadModelEndpointMapEnv() error = %v", err)
+	}
+	if got == nil {
+		t.Fatalf("loadModelEndpointMapEnv() returned nil")
+	}
+	endpoint, ok := got["catmus-print-fondue-large.mlmodel"]
+	if !ok {
+		t.Fatalf("expected catmus-print-fondue-large.mlmodel endpoint, got %v", got)
+	}
+	if endpoint.URL != "https://kraken-catmus.example" {
+		t.Fatalf("endpoint.URL = %q", endpoint.URL)
+	}
+	if endpoint.Audience != "https://kraken-catmus.example" {
+		t.Fatalf("endpoint.Audience = %q", endpoint.Audience)
+	}
+}
+
+func TestLoadModelEndpointMapEnvRejectsInvalidJSON(t *testing.T) {
+	t.Setenv("OLLAMA_MODEL_ENDPOINTS_JSON", `{not-json`)
+
+	if _, err := loadModelEndpointMapEnv("OLLAMA_MODEL_ENDPOINTS_JSON"); err == nil {
+		t.Fatal("expected error for invalid endpoint map json")
+	}
+}

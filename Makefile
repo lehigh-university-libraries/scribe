@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build build-frontend fmt lint test proto proto-lint sqlc generate install-tools up logs sequelace tf-dev tf-dev-vault tf-prod tf-preview vault-secrets
+.PHONY: build build-frontend fmt lint test proto proto-lint sqlc generate install-tools up logs sequelace tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
@@ -76,6 +76,14 @@ tf-dev-vault: ## Reapply only the shared dev Vault owner resources. Usage: make 
 	branch_arg=""; \
 	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
 	TF_TARGET_SET="vault" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
+
+tf-dev-ocr: ## Reapply only the shared dev OCR helper services. Usage: make tf-dev-ocr [BRANCH=name] ACTION=plan|apply
+	@set -eu; \
+	action="${ACTION}"; \
+	if [ -z "$$action" ]; then action="plan"; fi; \
+	branch_arg=""; \
+	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
+	TF_TARGET_SET="ocr" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
 
 tf-prod: ## Run local Terraform for production. Usage: make tf-prod ACTION=plan|apply|destroy
 	@set -eu; \
