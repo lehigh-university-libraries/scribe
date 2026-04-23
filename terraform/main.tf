@@ -78,30 +78,39 @@ locals {
   )
   docker_compose_services = concat(["mariadb", "api", "worker"], local.shared_services_enabled ? [] : ["cantaloupe"])
 
-  docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
-  compose_env_prefix = join(" ", [
-    format("CANTALOUPE_IIIF_INTERNAL_BASE=%q", local.shared_cantaloupe_internal_base),
-    format("OLLAMA_AUDIENCE=%q", local.default_ollama_audience),
-    format("OLLAMA_URL=%q", local.default_ollama_url),
-    format("PUBLIC_BASE_URL=%q", local.public_base_url),
-    format("SCRIBE_API_IMAGE=%q", var.api_image),
-    format("VAULT_ADDRESS=%q", local.vault_url),
-    format("VAULT_GCP_AUTH_ROLE=%q", local.vault_app_role_name),
-  ])
+  docker_compose_repo   = "https://github.com/lehigh-university-libraries/scribe.git"
+  compose_env_file_name = ".scribe-runtime.env"
+  compose_env_lines = [
+    format("CANTALOUPE_IIIF_INTERNAL_BASE=%s", local.shared_cantaloupe_internal_base),
+    format("OLLAMA_AUDIENCE=%s", local.default_ollama_audience),
+    format("OLLAMA_URL=%s", local.default_ollama_url),
+    format("PUBLIC_BASE_URL=%s", local.public_base_url),
+    format("SCRIBE_API_IMAGE=%s", var.api_image),
+    format("VAULT_ADDRESS=%s", local.vault_url),
+    format("VAULT_GCP_AUTH_ROLE=%s", local.vault_app_role_name),
+  ]
+  compose_env_line_args = [
+    for line in local.compose_env_lines :
+    format("'%s'", replace(line, "'", "'\"'\"'"))
+  ]
+  compose_env_write_command = format(
+    "printf '%%s\\n' %s > %s",
+    join(" ", local.compose_env_line_args),
+    local.compose_env_file_name,
+  )
   docker_compose_init = [
     "bash generate-secrets.sh",
+    local.compose_env_write_command,
   ]
   docker_compose_up = [
-    for cmd in [
-      "git pull",
-      "docker compose pull api worker",
-      format("docker compose up --no-build %s", join(" ", local.docker_compose_services)),
-    ] :
-    length(regexall("docker compose", cmd)) > 0 ? format("%s %s", local.compose_env_prefix, cmd) : cmd
+    local.compose_env_write_command,
+    "git pull",
+    format("docker compose --env-file %s pull api worker", local.compose_env_file_name),
+    format("docker compose --env-file %s up --no-build %s", local.compose_env_file_name, join(" ", local.docker_compose_services)),
   ]
   docker_compose_down = [
-    for cmd in ["docker compose down"] :
-    length(regexall("docker compose", cmd)) > 0 ? format("%s %s", local.compose_env_prefix, cmd) : cmd
+    local.compose_env_write_command,
+    format("docker compose --env-file %s down", local.compose_env_file_name),
   ]
 }
 
@@ -128,7 +137,7 @@ provider "vault" {
 }
 
 module "scribe" {
-  source = "git::https://github.com/libops/cloud-compose?ref=f74adaebad82193c613df23434d3c4c9d444a837"
+  source = "git::https://github.com/libops/cloud-compose?ref=0.6.1"
 
   project_id            = var.project_id
   project_number        = local.project_number

@@ -2,6 +2,7 @@ import { createClient } from "@connectrpc/connect";
 import { ItemService } from "../proto/scribe/v1/item_connect";
 import { type Item } from "../proto/scribe/v1/item_pb";
 import { getTransport } from "./transport";
+import { scribeFetch, scribePath } from "./http";
 import { readFileBytes, uint64ToString } from "../lib/util";
 
 function client() {
@@ -76,7 +77,7 @@ export interface ItemProviderCallAudit {
 }
 
 export async function listItemProviderCallAudits(itemId: string, limit = 100): Promise<ItemProviderCallAudit[]> {
-  const resp = await fetch(`/v1/items/${encodeURIComponent(itemId)}/provider-call-audits?limit=${encodeURIComponent(String(limit))}`);
+  const resp = await scribeFetch(scribePath(`/v1/items/${encodeURIComponent(itemId)}/provider-call-audits?limit=${encodeURIComponent(String(limit))}`));
   if (!resp.ok) {
     throw new Error(`failed to load item logs (${resp.status})`);
   }

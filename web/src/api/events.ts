@@ -1,3 +1,5 @@
+import { scribePath } from "./http";
+
 export interface CloudEvent<T = Record<string, unknown>> {
   specversion: string;
   id: string;
@@ -28,7 +30,7 @@ export function subscribeToEvents(
   for (const type of options.types ?? []) {
     params.append("type", type);
   }
-  const url = `/v1/events${params.toString() ? `?${params.toString()}` : ""}`;
+  const url = scribePath(`/v1/events${params.toString() ? `?${params.toString()}` : ""}`);
   const source = new EventSource(url);
 
   source.onmessage = (message) => {

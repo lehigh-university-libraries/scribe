@@ -9,3 +9,4 @@ web/dist
 internal/server/cache/sessions/*/original.hocr
 docker-compose.override.yaml
 .bin
+.tools

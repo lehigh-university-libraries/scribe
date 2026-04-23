@@ -25,7 +25,7 @@ func connectHandlerOptions(authManager *auth.Manager) []connect.HandlerOption {
 	return []connect.HandlerOption{connect.WithInterceptors(interceptors...)}
 }
 
-func registerConnectServices(mux *http.ServeMux, handler *Handler, opts ...connect.HandlerOption) {
+func registerConnectServices(mux *http.ServeMux, handler *Handler, authManager *auth.Manager, opts ...connect.HandlerOption) {
 	services := []struct {
 		register func(*Handler, ...connect.HandlerOption) (string, http.Handler)
 	}{
@@ -47,6 +47,10 @@ func registerConnectServices(mux *http.ServeMux, handler *Handler, opts ...conne
 	}
 	for _, service := range services {
 		path, svcHandler := service.register(handler, opts...)
+		mux.Handle(path, svcHandler)
+	}
+	if authManager != nil {
+		path, svcHandler := scribev1connect.NewWorkspaceServiceHandler(authManager, opts...)
 		mux.Handle(path, svcHandler)
 	}
 }

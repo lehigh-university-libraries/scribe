@@ -19,6 +19,10 @@ locals {
 
   image_name  = "${var.artifact_registry_location}-docker.pkg.dev/${var.project_id}/${var.artifact_registry_repository}/${local.service_name}:${var.image_tag}"
   primary_url = try(module.service.urls[var.regions[0]], "")
+  image_dir_sha = sha1(join("", [
+    for f in fileset(path.module, "image/**") :
+    filesha1("${path.module}/${f}")
+  ]))
 }
 
 resource "google_service_account" "service" {
@@ -38,11 +42,17 @@ resource "docker_image" "image" {
 
   build {
     context    = "${path.module}/image"
-    dockerfile = "${path.module}/image/Dockerfile"
+    dockerfile = "Dockerfile"
     build_args = {
       OLLAMA_BASE_IMAGE = var.base_image
       OLLAMA_MODEL      = var.model
     }
+  }
+
+  triggers = {
+    dir_sha = local.image_dir_sha
+    base    = var.base_image
+    model   = var.model
   }
 
   keep_locally = false
@@ -53,7 +63,9 @@ resource "docker_registry_image" "image" {
   keep_remotely = true
 
   triggers = {
-    image_id = docker_image.image.image_id
+    dir_sha = local.image_dir_sha
+    base    = var.base_image
+    model   = var.model
   }
 }
 

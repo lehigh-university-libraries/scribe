@@ -1,5 +1,6 @@
 import { createClient } from "@connectrpc/connect";
 import { AnnotationService } from "../proto/scribe/v1/annotation_connect";
+import { scribeFetch } from "./http";
 import { getTransport } from "./transport";
 
 function client() {
@@ -31,7 +32,7 @@ export async function deleteAnnotation(uri: string): Promise<void> {
 }
 
 export async function publishItemImageEdits(itemImageId: string): Promise<{ itemImageId: string; canvasUri: string; annotationPageJson: string; publishedAt: string }> {
-  const resp = await fetch("/scribe.v1.AnnotationService/PublishItemImageEdits", {
+  const resp = await scribeFetch("/scribe.v1.AnnotationService/PublishItemImageEdits", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

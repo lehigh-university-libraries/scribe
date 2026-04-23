@@ -195,7 +195,7 @@ func NewHandler(
 		})
 	}
 	mux := http.NewServeMux()
-	registerConnectServices(mux, handler, connectHandlerOptions(authManager)...)
+	registerConnectServices(mux, handler, authManager, connectHandlerOptions(authManager)...)
 
 	// Health
 	mux.HandleFunc("GET /healthz", handler.handleHealth)

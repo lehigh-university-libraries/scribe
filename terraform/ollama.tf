@@ -10,6 +10,8 @@ locals {
   ollama_gpu_count                    = 1
   ollama_min_instances                = 0
   ollama_max_instances                = 1
+  scribe_vm_gsa_email                 = format("vm-%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
+  scribe_app_gsa_email                = format("%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
 
   ollama_service_names = {
     for model in var.ollama_models :
@@ -25,13 +27,13 @@ locals {
   }
 
   ollama_invokers = [
-    "serviceAccount:${module.scribe.instance.gsa.email}",
-    "serviceAccount:${module.scribe.appGsa.email}",
+    "serviceAccount:${local.scribe_vm_gsa_email}",
+    "serviceAccount:${local.scribe_app_gsa_email}",
   ]
 
   ollama_preview_invoker_gsas = local.ollama_preview_iam_enabled ? [
-    module.scribe.instance.gsa.email,
-    module.scribe.appGsa.email,
+    local.scribe_vm_gsa_email,
+    local.scribe_app_gsa_email,
   ] : []
 
   ollama_preview_iam_bindings = {

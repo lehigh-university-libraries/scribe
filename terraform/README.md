@@ -254,7 +254,9 @@ Repeat that with workspace `prod` for production.
 - Preview and production deploys push backend and frontend images to GHCR. The
   backend image is injected into `TF_VAR_api_image`; `TF_VAR_frontend_image` is
   retained only for local compose/build parity while the Cloud Run frontend
-  sidecar uses `frontend_gar_image`.
+  sidecar uses `frontend_gar_image`. GitHub Actions resolves that GAR tag to an
+  immutable `@sha256:` digest before Terraform apply so Cloud Run rolls the
+  frontend sidecar when the image contents change.
 - MariaDB passwords are now generated into docker secret files by
   `generate-secrets.sh` instead of being stored directly in `.env`.
 - The PR preview comment includes the Cloud Run ingress URL from

@@ -1,3 +1,5 @@
+import { scribeFetch } from "./http";
+
 export interface AuthMeResponse {
   authenticated: boolean;
   authType?: string;
@@ -60,7 +62,7 @@ export interface CreateProviderSecretRequest {
 }
 
 export async function getAuthMe(): Promise<AuthMeResponse> {
-  const response = await fetch("/auth/me", { credentials: "include" });
+  const response = await scribeFetch("/auth/me");
   if (!response.ok) {
     throw new Error(`failed to load auth state (${response.status})`);
   }
@@ -68,9 +70,8 @@ export async function getAuthMe(): Promise<AuthMeResponse> {
 }
 
 export async function logout(): Promise<void> {
-  const response = await fetch("/logout", {
+  const response = await scribeFetch("/logout", {
     method: "POST",
-    credentials: "include",
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
@@ -79,8 +80,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function listAPIKeys(): Promise<APIKeyRecord[]> {
-  const response = await fetch("/auth/api-keys", {
-    credentials: "include",
+  const response = await scribeFetch("/auth/api-keys", {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
@@ -91,9 +91,8 @@ export async function listAPIKeys(): Promise<APIKeyRecord[]> {
 }
 
 export async function createAPIKey(input: CreateAPIKeyRequest): Promise<{ apiKey: APIKeyRecord; key: string }> {
-  const response = await fetch("/auth/api-keys", {
+  const response = await scribeFetch("/auth/api-keys", {
     method: "POST",
-    credentials: "include",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -107,9 +106,8 @@ export async function createAPIKey(input: CreateAPIKeyRequest): Promise<{ apiKey
 }
 
 export async function deleteAPIKey(keyID: number | string): Promise<void> {
-  const response = await fetch(`/auth/api-keys/${keyID}`, {
+  const response = await scribeFetch(`/auth/api-keys/${keyID}`, {
     method: "DELETE",
-    credentials: "include",
   });
   if (!response.ok) {
     throw new Error(`failed to delete api key (${response.status})`);
@@ -117,8 +115,7 @@ export async function deleteAPIKey(keyID: number | string): Promise<void> {
 }
 
 export async function listProviderSecrets(): Promise<ProviderSecretRecord[]> {
-  const response = await fetch("/auth/provider-secrets", {
-    credentials: "include",
+  const response = await scribeFetch("/auth/provider-secrets", {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
@@ -129,9 +126,8 @@ export async function listProviderSecrets(): Promise<ProviderSecretRecord[]> {
 }
 
 export async function createProviderSecret(input: CreateProviderSecretRequest): Promise<ProviderSecretRecord> {
-  const response = await fetch("/auth/provider-secrets", {
+  const response = await scribeFetch("/auth/provider-secrets", {
     method: "POST",
-    credentials: "include",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
@@ -149,9 +145,8 @@ export async function createProviderSecret(input: CreateProviderSecretRequest): 
 }
 
 export async function deleteProviderSecret(secretID: number | string): Promise<void> {
-  const response = await fetch(`/auth/provider-secrets/${secretID}`, {
+  const response = await scribeFetch(`/auth/provider-secrets/${secretID}`, {
     method: "DELETE",
-    credentials: "include",
   });
   if (!response.ok) {
     throw new Error(`failed to delete provider secret (${response.status})`);

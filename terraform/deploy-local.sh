@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -264,8 +266,9 @@ case "$environment" in
 esac
 
 image_tag="${SCRIBE_API_IMAGE:-$fallback_image_tag}"
-frontend_image_tag="${SCRIBE_FRONTEND_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-frontend:$(printf '%s' "${image_tag##*:}" | tr '[:upper:]' '[:lower:]')}"
-frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-}"
+frontend_tag="$(printf '%s' "${image_tag##*:}" | tr '[:upper:]' '[:lower:]')"
+frontend_image_tag="${SCRIBE_FRONTEND_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-frontend:${frontend_tag}}"
+frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:${frontend_tag}}"
 
 case "$action" in
   plan|apply|destroy) ;;
@@ -275,6 +278,10 @@ case "$action" in
     exit 1
     ;;
 esac
+
+if [ "$action" != "destroy" ] && [ -n "$frontend_gar_image_tag" ]; then
+  frontend_gar_image_tag="$("$repo_root/ci/resolve-gar-image.sh" "$frontend_gar_image_tag")"
+fi
 
 cd "$(dirname "$0")"
 

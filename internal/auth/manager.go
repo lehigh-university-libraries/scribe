@@ -616,6 +616,9 @@ func (m *Manager) apiKeyPrincipal(ctx context.Context, rawKey string) (Principal
 func requestedWorkspaceID(r *http.Request) (uint64, error) {
 	raw := strings.TrimSpace(r.Header.Get("X-Scribe-Workspace-ID"))
 	if raw == "" {
+		raw = strings.TrimSpace(r.URL.Query().Get("workspace_id"))
+	}
+	if raw == "" {
 		return 0, nil
 	}
 	value, err := strconv.ParseUint(raw, 10, 64)
@@ -682,6 +685,22 @@ func (m *Manager) authorizeResource(ctx context.Context, principal Principal, pr
 			return false, nil
 		}
 		return m.jobs.WorkspaceOwnsJob(ctx, principal.WorkspaceID, jobID)
+	case optionsv1.ResourceType_RESOURCE_TYPE_WORKSPACE:
+		workspaceID, err := strconv.ParseUint(resourceID, 10, 64)
+		if err != nil {
+			return false, nil
+		}
+		access, err := m.identities.GetWorkspaceAccess(ctx, principal.UserID, workspaceID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
+		}
+		if level >= optionsv1.AccessLevel_ACCESS_LEVEL_ADMIN {
+			return workspaceRoleAllowsPermission(access.Role, "workspaces:admin"), nil
+		}
+		return workspaceRoleAllowsPermission(access.Role, "workspaces:read"), nil
 	default:
 		return true, nil
 	}
@@ -689,6 +708,12 @@ func (m *Manager) authorizeResource(ctx context.Context, principal Principal, pr
 
 func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLevel) string {
 	switch procedure {
+	case "/scribe.v1.WorkspaceService/ListWorkspaceMembers", "/scribe.v1.WorkspaceService/UpdateWorkspace", "/scribe.v1.WorkspaceService/AddWorkspaceMember", "/scribe.v1.WorkspaceService/UpdateWorkspaceMember", "/scribe.v1.WorkspaceService/DeleteWorkspaceMember":
+		return ""
+	case "/scribe.v1.WorkspaceService/ListWorkspaces":
+		return "workspaces:read"
+	case "/scribe.v1.WorkspaceService/CreateWorkspace":
+		return ""
 	case "/scribe.v1.ItemService/ListItems", "/scribe.v1.ItemService/GetItem", "/scribe.v1.ImageProcessingService/GetOCRRun":
 		return "items:read"
 	case "/scribe.v1.ItemService/CreateItem", "/scribe.v1.ImageProcessingService/ProcessImageURL", "/scribe.v1.ImageProcessingService/ProcessImageUpload", "/scribe.v1.ImageProcessingService/ProcessHOCR":

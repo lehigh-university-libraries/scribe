@@ -17,7 +17,7 @@ locals {
 module "vault" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
-  source = "git::https://github.com/libops/terraform-vault-cloudrun?ref=0.5.1"
+  source = "git::https://github.com/libops/terraform-vault-cloudrun?ref=0.5.2"
   providers = {
     docker      = docker
     google      = google

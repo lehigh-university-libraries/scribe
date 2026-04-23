@@ -1,5 +1,6 @@
 import { createConnectTransport } from "@connectrpc/connect-web";
 import type { Transport } from "@connectrpc/connect";
+import { getCurrentWorkspaceId } from "../lib/workspace";
 
 let _transport: Transport | null = null;
 
@@ -15,7 +16,7 @@ export function createScribeTransport(options: ScribeTransportOptions = {}): Tra
     apiKey,
     baseUrl = window.location.origin,
     credentials = "include",
-    workspaceId,
+    workspaceId: explicitWorkspaceId,
   } = options;
   return createConnectTransport({
     baseUrl,
@@ -24,6 +25,7 @@ export function createScribeTransport(options: ScribeTransportOptions = {}): Tra
       if (apiKey) {
         headers.set("X-Scribe-API-Key", apiKey);
       }
+      const workspaceId = explicitWorkspaceId ?? getCurrentWorkspaceId();
       if (workspaceId !== undefined && workspaceId !== null && `${workspaceId}` !== "") {
         headers.set("X-Scribe-Workspace-ID", `${workspaceId}`);
       }

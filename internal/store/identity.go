@@ -55,11 +55,15 @@ type IdentitySession struct {
 }
 
 type IdentityStore struct {
-	q *db.Queries
+	pool *sql.DB
+	q    *db.Queries
 }
 
 func NewIdentityStore(pool *sql.DB) *IdentityStore {
-	return &IdentityStore{q: db.New(pool)}
+	return &IdentityStore{
+		pool: pool,
+		q:    db.New(pool),
+	}
 }
 
 func (s *IdentityStore) EnsureGoogleUser(ctx context.Context, profile GoogleProfile) (User, Workspace, error) {

@@ -1,0 +1,136 @@
+syntax = "proto3";
+
+package scribe.v1;
+
+import "scribe/v1/options/auth.proto";
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
+
+message UserProfile {
+  uint64 id          = 1;
+  string name        = 2;
+  string email       = 3;
+  string picture_url = 4;
+  bool   is_admin    = 5;
+}
+
+message Workspace {
+  uint64 id            = 1;
+  string name          = 2;
+  string slug          = 3;
+  bool   is_personal   = 4;
+  uint64 owner_user_id = 5;
+  string created_at    = 6;
+  string updated_at    = 7;
+}
+
+message WorkspaceAccess {
+  Workspace workspace = 1;
+  string    role      = 2;
+}
+
+message WorkspaceMember {
+  uint64      workspace_id = 1;
+  UserProfile user         = 2;
+  string      role         = 3;
+  string      created_at   = 4;
+}
+
+message ListWorkspacesRequest {}
+
+message ListWorkspacesResponse {
+  repeated WorkspaceAccess workspaces = 1;
+}
+
+message CreateWorkspaceRequest {
+  string name = 1;
+}
+
+message CreateWorkspaceResponse {
+  WorkspaceAccess workspace = 1;
+}
+
+message UpdateWorkspaceRequest {
+  uint64 workspace_id = 1;
+  string name = 2;
+}
+
+message UpdateWorkspaceResponse {
+  Workspace workspace = 1;
+}
+
+message ListWorkspaceMembersRequest {
+  uint64 workspace_id = 1;
+}
+
+message ListWorkspaceMembersResponse {
+  Workspace                workspace = 1;
+  repeated WorkspaceMember members   = 2;
+}
+
+message AddWorkspaceMemberRequest {
+  uint64 workspace_id = 1;
+  string email = 2;
+  string role = 3;
+}
+
+message AddWorkspaceMemberResponse {
+  WorkspaceMember member = 1;
+}
+
+message UpdateWorkspaceMemberRequest {
+  uint64 workspace_id = 1;
+  uint64 user_id      = 2;
+  string role = 3;
+}
+
+message UpdateWorkspaceMemberResponse {
+  WorkspaceMember member = 1;
+}
+
+message DeleteWorkspaceMemberRequest {
+  uint64 workspace_id = 1;
+  uint64 user_id      = 2;
+}
+
+message DeleteWorkspaceMemberResponse {}
+
+service WorkspaceService {
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse) {}
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (CreateWorkspaceResponse) {}
+  rpc UpdateWorkspace(UpdateWorkspaceRequest) returns (UpdateWorkspaceResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_WORKSPACE
+      level: ACCESS_LEVEL_ADMIN
+      resource_id_field: "workspace_id"
+    };
+  }
+  rpc ListWorkspaceMembers(ListWorkspaceMembersRequest) returns (ListWorkspaceMembersResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_WORKSPACE
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "workspace_id"
+    };
+  }
+  rpc AddWorkspaceMember(AddWorkspaceMemberRequest) returns (AddWorkspaceMemberResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_WORKSPACE
+      level: ACCESS_LEVEL_ADMIN
+      resource_id_field: "workspace_id"
+    };
+  }
+  rpc UpdateWorkspaceMember(UpdateWorkspaceMemberRequest) returns (UpdateWorkspaceMemberResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_WORKSPACE
+      level: ACCESS_LEVEL_ADMIN
+      resource_id_field: "workspace_id"
+    };
+  }
+  rpc DeleteWorkspaceMember(DeleteWorkspaceMemberRequest) returns (DeleteWorkspaceMemberResponse) {
+    option (scribe.v1.options.authz) = {
+      resource: RESOURCE_TYPE_WORKSPACE
+      level: ACCESS_LEVEL_ADMIN
+      resource_id_field: "workspace_id"
+    };
+  }
+}

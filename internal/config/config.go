@@ -155,7 +155,16 @@ func Load() (Config, error) {
 	}
 
 	cfg.Vault.Address = strings.TrimSpace(cfg.Vault.Address)
+	if cfg.Vault.Address == "" {
+		cfg.Vault.Address = strings.TrimSpace(os.Getenv("VAULT_ADDRESS"))
+	}
+	if cfg.Vault.Address == "" {
+		cfg.Vault.Address = strings.TrimSpace(os.Getenv("VAULT_ADDR"))
+	}
 	cfg.Vault.GCPAuthRole = strings.TrimSpace(cfg.Vault.GCPAuthRole)
+	if cfg.Vault.GCPAuthRole == "" {
+		cfg.Vault.GCPAuthRole = strings.TrimSpace(os.Getenv("VAULT_GCP_AUTH_ROLE"))
+	}
 	cfg.Vault.Token = strings.TrimSpace(os.Getenv("VAULT_TOKEN"))
 
 	cfg.PublicBaseURL = strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")

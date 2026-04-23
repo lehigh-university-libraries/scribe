@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: terraform-apply-${{ github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   prepare-backend-origin:
     runs-on: ubuntu-24.04

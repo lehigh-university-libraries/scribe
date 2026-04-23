@@ -4,6 +4,8 @@ import { annotationClient, publishItemImageEdits } from "../api/annotations";
 import { getOCRRun, reprocessItemImage } from "../api/processing";
 import { listTranscriptionJobs } from "../api/transcription";
 import { subscribeToEvents } from "../api/events";
+import { scribePath } from "../api/http";
+import { syncWorkspaceSelectionFromLocation, workspaceAwarePath } from "../lib/workspace";
 import { TranscriptionJobStatus } from "../proto/scribe/v1/transcription_pb";
 import { uint64ToString } from "../lib/util";
 
@@ -32,6 +34,7 @@ function isFailedStatus(status: TranscriptionJobStatus | string | number): boole
 }
 
 export async function renderEditor(app: HTMLElement): Promise<void> {
+  syncWorkspaceSelectionFromLocation();
   const params = new URLSearchParams(window.location.search);
   const itemImageID = params.get("itemImageId") ?? "";
   const itemID = params.get("itemId") ?? "";
@@ -74,7 +77,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   function navigateHome() {
-    window.location.href = "/";
+    window.location.href = workspaceAwarePath("/");
   }
 
   async function handleFullReprocess() {
@@ -441,8 +444,8 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   const manifestURL = itemID
-    ? `${window.location.origin}/v1/items/${encodeURIComponent(itemID)}/manifest`
-    : `${window.location.origin}/v1/item-images/${encodeURIComponent(runItemImageID)}/manifest`;
+    ? `${window.location.origin}${scribePath(`/v1/items/${encodeURIComponent(itemID)}/manifest`)}`
+    : `${window.location.origin}${scribePath(`/v1/item-images/${encodeURIComponent(runItemImageID)}/manifest`)}`;
 
   publishBatchState("Loading editor and checking batch transcription status...", true);
 

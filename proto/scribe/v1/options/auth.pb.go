@@ -32,6 +32,7 @@ const (
 	ResourceType_RESOURCE_TYPE_ITEM_IMAGE        ResourceType = 4
 	ResourceType_RESOURCE_TYPE_CONTEXT           ResourceType = 5
 	ResourceType_RESOURCE_TYPE_TRANSCRIPTION_JOB ResourceType = 6
+	ResourceType_RESOURCE_TYPE_WORKSPACE         ResourceType = 7
 )
 
 // Enum value maps for ResourceType.
@@ -44,6 +45,7 @@ var (
 		4: "RESOURCE_TYPE_ITEM_IMAGE",
 		5: "RESOURCE_TYPE_CONTEXT",
 		6: "RESOURCE_TYPE_TRANSCRIPTION_JOB",
+		7: "RESOURCE_TYPE_WORKSPACE",
 	}
 	ResourceType_value = map[string]int32{
 		"RESOURCE_TYPE_UNSPECIFIED":       0,
@@ -53,6 +55,7 @@ var (
 		"RESOURCE_TYPE_ITEM_IMAGE":        4,
 		"RESOURCE_TYPE_CONTEXT":           5,
 		"RESOURCE_TYPE_TRANSCRIPTION_JOB": 6,
+		"RESOURCE_TYPE_WORKSPACE":         7,
 	}
 )
 
@@ -229,7 +232,7 @@ const file_scribe_v1_options_auth_proto_rawDesc = "" +
 	"\x0fallow_anonymous\x18\x01 \x01(\bR\x0eallowAnonymous\x12;\n" +
 	"\bresource\x18\x02 \x01(\x0e2\x1f.scribe.v1.options.ResourceTypeR\bresource\x124\n" +
 	"\x05level\x18\x03 \x01(\x0e2\x1e.scribe.v1.options.AccessLevelR\x05level\x12*\n" +
-	"\x11resource_id_field\x18\x04 \x01(\tR\x0fresourceIdField*\xd5\x01\n" +
+	"\x11resource_id_field\x18\x04 \x01(\tR\x0fresourceIdField*\xf2\x01\n" +
 	"\fResourceType\x12\x1d\n" +
 	"\x19RESOURCE_TYPE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14RESOURCE_TYPE_SYSTEM\x10\x01\x12\x16\n" +
@@ -237,7 +240,8 @@ const file_scribe_v1_options_auth_proto_rawDesc = "" +
 	"\x12RESOURCE_TYPE_ITEM\x10\x03\x12\x1c\n" +
 	"\x18RESOURCE_TYPE_ITEM_IMAGE\x10\x04\x12\x19\n" +
 	"\x15RESOURCE_TYPE_CONTEXT\x10\x05\x12#\n" +
-	"\x1fRESOURCE_TYPE_TRANSCRIPTION_JOB\x10\x06*r\n" +
+	"\x1fRESOURCE_TYPE_TRANSCRIPTION_JOB\x10\x06\x12\x1b\n" +
+	"\x17RESOURCE_TYPE_WORKSPACE\x10\a*r\n" +
 	"\vAccessLevel\x12\x1c\n" +
 	"\x18ACCESS_LEVEL_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11ACCESS_LEVEL_READ\x10\x01\x12\x16\n" +

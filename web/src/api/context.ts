@@ -4,6 +4,7 @@ import {
   type Context,
   type ContextSelectionRule,
 } from "../proto/scribe/v1/context_pb";
+import { scribeFetch, scribePath } from "./http";
 import { getTransport } from "./transport";
 
 export interface ContextMetrics {
@@ -68,7 +69,7 @@ export async function resolveContext(metadataJson: string): Promise<{ context: C
 }
 
 export async function getContextMetrics(contextId: string): Promise<ContextMetrics> {
-  const resp = await fetch(`/v1/contexts/${encodeURIComponent(contextId)}/metrics`);
+  const resp = await scribeFetch(scribePath(`/v1/contexts/${encodeURIComponent(contextId)}/metrics`));
   if (!resp.ok) {
     throw new Error(`metrics request failed: ${resp.status}`);
   }

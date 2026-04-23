@@ -6,7 +6,7 @@ terraform {
   required_providers {
     docker = {
       source  = "kreuzwerker/docker"
-      version = "~> 3.6"
+      version = "~> 4.2"
     }
     google = {
       source  = "hashicorp/google"
