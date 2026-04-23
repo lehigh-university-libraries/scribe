@@ -72,6 +72,54 @@ output "ollama_services" {
   } : {}
 }
 
+output "ocr_services" {
+  description = "OCR Cloud Run services keyed by service role."
+  value = {
+    for name, service in module.kraken : name => {
+      route_type            = service.route_type
+      route_key             = service.route_key
+      service_name          = service.service_name
+      service_account_email = service.service_account_email
+      primary_url           = service.primary_url
+      audience              = service.audience
+      urls                  = service.urls
+      image                 = service.image
+    }
+  }
+}
+
+output "kraken_segmentation_services" {
+  description = "Kraken segmentation Cloud Run services keyed by the context segmentation_model value."
+  value = {
+    for name, service in module.kraken :
+    service.route_key => {
+      service_name          = service.service_name
+      service_account_email = service.service_account_email
+      primary_url           = service.primary_url
+      audience              = service.audience
+      urls                  = service.urls
+      image                 = service.image
+    }
+    if service.route_type == "kraken-segmentation"
+  }
+}
+
+output "kraken_transcription_services" {
+  description = "Kraken transcription Cloud Run services keyed by the context transcription_model value."
+  value = {
+    for name, service in module.kraken :
+    service.route_key => {
+      service_name          = service.service_name
+      service_account_email = service.service_account_email
+      primary_url           = service.primary_url
+      audience              = service.audience
+      urls                  = service.urls
+      image                 = service.image
+    }
+    if service.route_type == "kraken-transcription"
+  }
+}
+
 output "internal_artifact_registry_repository" {
   description = "Shared existing Artifact Registry repository used for Vault and Ollama images."
   value       = data.google_artifact_registry_repository.internal.id

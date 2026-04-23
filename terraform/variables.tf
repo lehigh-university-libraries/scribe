@@ -117,8 +117,8 @@ variable "vault_ci_service_account_emails" {
   default     = []
 }
 
-variable "ollama_models" {
-  description = "Shared Ollama model services to build and deploy as private Cloud Run backends. Only created in the prod workspace."
-  type        = set(string)
-  default     = []
+variable "ocr_service_images" {
+  description = "Map of OCR service key (e.g. \"segmentor\", \"kraken-ocr/<model>\", \"ollama/<model>\") to a fully digest-pinned GAR image reference. Populated by the build-ocr GitHub Actions workflow (or generate-ocr-images-map.sh locally) from config.yaml's ocr section."
+  type        = map(string)
+  default     = {}
 }

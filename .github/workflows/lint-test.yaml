@@ -6,10 +6,6 @@ on:
         required: false
         type: string
         default: ""
-      image_tag:
-        required: false
-        type: string
-        default: ""
   workflow_dispatch:
 
 permissions:
@@ -26,29 +22,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
 
-      - name: Log in to GHCR
-        if: inputs.image_tag != ''
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull published app image
-        if: inputs.image_tag != ''
-        run: docker pull "${{ inputs.image_tag }}"
-
-      - name: Build local frontend image
-        if: inputs.image_tag != ''
-        run: make build-frontend
-
       - run: make lint
 
-      - name: Run tests against published image
-        if: inputs.image_tag != ''
-        run: |
-          SCRIBE_API_IMAGE="${{ inputs.image_tag }}" SCRIBE_FRONTEND_IMAGE="scribe-frontend:local" COMPOSE_UP_FLAGS="-d" make up test
+      - name: Start test database
+        run: make up-db
 
-      - name: Build local image and run tests
-        if: inputs.image_tag == ''
-        run: make build up test
+      - name: Run tests
+        run: make test
+
+      - name: Tear down test services
+        if: always()
+        run: make down

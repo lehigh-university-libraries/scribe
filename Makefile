@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build build-frontend fmt lint test proto proto-lint sqlc generate install-tools up logs sequelace tf-dev tf-dev-vault tf-prod tf-preview vault-secrets
+.PHONY: build build-frontend fmt lint test proto proto-lint sqlc generate install-tools up up-db down logs sequelace tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
@@ -24,6 +24,14 @@ up: ## Start services in detached mode
 	@test -f docker-compose.override.yaml || cp docker-compose.override-example.yaml docker-compose.override.yaml
 	@bash generate-secrets.sh
 	@docker compose up $(COMPOSE_UP_FLAGS)
+
+up-db: ## Start only MariaDB for DB-backed integration tests
+	@test -f .env || cp sample.env .env
+	@bash generate-secrets.sh
+	@docker compose up -d mariadb
+
+down: ## Stop compose services and remove orphans
+	@docker compose down --remove-orphans
 
 logs: ## Follow logs for the API
 	@docker compose logs api --tail 20 -f
@@ -58,7 +66,7 @@ install-tools: ## Install required development tools
 	@go install github.com/google/gnostic/cmd/protoc-gen-openapi@v0.7.0
 	@go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
 
-test: ## Run Go tests (integration tests run automatically if 'make up' is active)
+test: ## Run Go tests (integration tests run automatically if MariaDB is active via make up-db or make up)
 	@./ci/test.sh
 
 tf-dev: ## Run local Terraform for the shared dev environment. Usage: make tf-dev [BRANCH=name] ACTION=plan|apply|destroy
@@ -76,6 +84,14 @@ tf-dev-vault: ## Reapply only the shared dev Vault owner resources. Usage: make 
 	branch_arg=""; \
 	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
 	TF_TARGET_SET="vault" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
+
+tf-dev-ocr: ## Reapply only the shared dev OCR helper services. Usage: make tf-dev-ocr [BRANCH=name] ACTION=plan|apply
+	@set -eu; \
+	action="${ACTION}"; \
+	if [ -z "$$action" ]; then action="plan"; fi; \
+	branch_arg=""; \
+	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
+	TF_TARGET_SET="ocr" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
 
 tf-prod: ## Run local Terraform for production. Usage: make tf-prod ACTION=plan|apply|destroy
 	@set -eu; \

@@ -3,26 +3,16 @@ FROM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d273950
 
 WORKDIR /app
 
-RUN apk add --no-cache \
-    build-base \
-    tesseract-ocr-dev \
-    leptonica-dev
-
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux go build -o /out/scribe-api ./cmd/api \
-    && CGO_ENABLED=1 GOOS=linux go build -o /out/scribe-worker ./cmd/worker
+RUN CGO_ENABLED=0 GOOS=linux go build -tags remoteocr -o /out/scribe-api ./cmd/api \
+    && CGO_ENABLED=0 GOOS=linux go build -tags remoteocr -o /out/scribe-worker ./cmd/worker
 
 FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 WORKDIR /app
-RUN apk add --no-cache \
-    ca-certificates \
-    imagemagick \
-    tesseract-ocr \
-    tesseract-ocr-data-eng \
-    libstdc++
+RUN apk add --no-cache ca-certificates
 RUN adduser -D -u 10001 appuser
 COPY --from=builder /out/scribe-api /app/scribe-api
 COPY --from=builder /out/scribe-worker /app/scribe-worker

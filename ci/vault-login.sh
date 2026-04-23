@@ -21,7 +21,7 @@ status_code_file="$(mktemp)"
 trap 'rm -f "$response_file" "$status_code_file"' EXIT
 
 payload="$(jq -cn --arg role "${VAULT_ROLE}" --arg jwt "${VAULT_ID_TOKEN}" '{role: $role, jwt: $jwt}')"
-max_attempts="${VAULT_LOGIN_MAX_ATTEMPTS:-5}"
+max_attempts="${VAULT_LOGIN_MAX_ATTEMPTS:-10}"
 attempt=1
 delay_seconds="${VAULT_LOGIN_INITIAL_DELAY_SECONDS:-1}"
 

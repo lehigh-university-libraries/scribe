@@ -387,6 +387,8 @@ function renderAuditCard(audit: ItemProviderCallAudit): string {
 }
 
 function renderContextCard(context: Context, metrics: ContextMetrics): string {
+  const endpointLabel = context.transcriptionBaseUrl
+    || (context.transcriptionProvider === "kraken" ? "Model-routed from config" : "Global config default");
   return `
     <article class="shell-section">
       <div class="flex items-start justify-between gap-4">
@@ -411,7 +413,7 @@ function renderContextCard(context: Context, metrics: ContextMetrics): string {
         </div>
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Endpoint</dt>
-          <dd class="mt-1 truncate font-mono text-xs text-slate-700">${escHtml(context.transcriptionBaseUrl || "Global config default")}</dd>
+          <dd class="mt-1 truncate font-mono text-xs text-slate-700">${escHtml(endpointLabel)}</dd>
         </div>
       </dl>
       <div class="mt-5 grid gap-3 sm:grid-cols-3">
@@ -1126,7 +1128,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           <div>
             <p class="shell-caption">Contexts</p>
             <h2 class="mt-2 text-3xl font-semibold tracking-tight text-slate-950">OCR context library</h2>
-            <p class="mt-3 max-w-xl text-sm text-slate-500">Contexts are workspace-scoped profiles for OCR segmentation, transcription, and model endpoint routing.</p>
+            <p class="mt-3 max-w-xl text-sm text-slate-500">Contexts are workspace-scoped profiles for OCR segmentation, transcription, and model-routed helper service selection.</p>
           </div>
           <button id="shell-panel-close" class="shell-icon-button" type="button" title="Close">
             ${ICONS.close}
@@ -1186,7 +1188,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           ` : `
             <section class="shell-hero-card !mx-0 !max-w-none">
               <h3 class="text-2xl font-semibold text-slate-950">Sign in to manage contexts</h3>
-              <p class="mx-auto mt-3 max-w-xl text-sm text-slate-500">Contexts let you point a workspace at different OCR providers, model IDs, and dedicated Cloud Run endpoints.</p>
+              <p class="mx-auto mt-3 max-w-xl text-sm text-slate-500">Contexts let you point a workspace at different OCR providers, model IDs, and dedicated Cloud Run helper services.</p>
               <a href="${escHtml(loginHref)}" class="shell-button-primary mt-6">Sign in with Google</a>
             </section>
           `}

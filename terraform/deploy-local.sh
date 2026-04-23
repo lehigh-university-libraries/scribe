@@ -21,6 +21,8 @@ Optional environment:
   SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
   SCRIBE_FRONTEND_IMAGE  Optional GHCR frontend image reference to inject into Terraform frontend_image for local parity
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar)
+  SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. When unset (and the action is not destroy), deploy-local.sh calls ci/generate-ocr-images-map.sh to resolve the digests from existing GAR tags.
+  SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to main for prod and the branch slug otherwise.
 
 Notes:
   - Dev mode uses Terraform workspace dev and site name scribe-dev.
@@ -201,6 +203,12 @@ case "$target_set" in
       "-target=vault_gcp_auth_backend_role.ci"
     )
     ;;
+  ocr)
+    terraform_targets+=(
+      "-target=module.kraken"
+      "-target=google_artifact_registry_repository_iam_member.cloud_run_reader"
+    )
+    ;;
   *)
     echo "Unknown TF_TARGET_SET: ${target_set}" >&2
     exit 1
@@ -239,6 +247,7 @@ case "$environment" in
     export TF_VAR_docker_compose_branch="$branch"
     export TF_VAR_run_snapshots="false"
     fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:$(sanitize_image_tag "$branch")"
+    ocr_image_tag_default="$(sanitize_image_tag "$branch")"
     ;;
   prod)
     target_workspace="prod"
@@ -246,6 +255,7 @@ case "$environment" in
     export TF_VAR_docker_compose_branch="main"
     export TF_VAR_run_snapshots="true"
     fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:main"
+    ocr_image_tag_default="main"
     ;;
   preview)
     if [ -z "$pr_number" ]; then
@@ -257,6 +267,7 @@ case "$environment" in
     export TF_VAR_docker_compose_branch="$branch"
     export TF_VAR_run_snapshots="false"
     fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:$(sanitize_image_tag "$branch")"
+    ocr_image_tag_default="$(sanitize_image_tag "$branch")"
     ;;
   *)
     echo "Unknown environment: $environment" >&2
@@ -285,6 +296,16 @@ fi
 
 cd "$(dirname "$0")"
 
+ocr_images_json="${SCRIBE_OCR_IMAGES_JSON:-}"
+if [ "$action" != "destroy" ] && [ -z "$ocr_images_json" ]; then
+  export WORKSPACE_SLUG="$target_workspace"
+  export IMAGE_TAG="${SCRIBE_OCR_IMAGE_TAG:-$ocr_image_tag_default}"
+  ocr_images_json="$("$repo_root/ci/generate-ocr-images-map.sh")"
+fi
+if [ -z "$ocr_images_json" ]; then
+  ocr_images_json='{}'
+fi
+
 terraform_vars=(
   "-var=project_id=${GCLOUD_PROJECT}"
   "-var=terraform_state_bucket=${TF_STATE_BUCKET}"
@@ -294,6 +315,7 @@ terraform_vars=(
   "-var=api_image=${image_tag}"
   "-var=frontend_image=${frontend_image_tag}"
   "-var=frontend_gar_image=${frontend_gar_image_tag}"
+  "-var=ocr_service_images=${ocr_images_json}"
 )
 
 if [ -n "${ALLOWED_IPS:-}" ]; then

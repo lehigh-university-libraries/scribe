@@ -1,0 +1,127 @@
+name: Build OCR Images
+
+on:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        required: true
+        type: string
+      workspace_slug:
+        description: Terraform workspace slug passed through to OCR matrix generation for deploy parity.
+        required: true
+        type: string
+      image_tag:
+        description: Tag applied to every built OCR image.
+        required: true
+        type: string
+    outputs:
+      images_json:
+        description: JSON map of service_key -> fully qualified image@sha256 reference.
+        value: ${{ jobs.aggregate.outputs.images_json }}
+
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Install yq
+        env:
+          YQ_VERSION: v4.44.3
+        run: |
+          sudo curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Generate matrix
+        id: gen
+        env:
+          GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+          WORKSPACE_SLUG: ${{ inputs.workspace_slug }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if [ -z "$GCLOUD_PROJECT" ]; then
+            echo "GCLOUD_PROJECT is required" >&2
+            exit 1
+          fi
+          matrix="$(./ci/ocr-matrix.sh)"
+          echo "matrix<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$matrix" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.key }}
+    needs: [matrix]
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
+    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@0ad0a7d96a7b3a5c05ad811832108d67e3dea92c # main
+    secrets: inherit
+    with:
+      image: ${{ matrix.ghcr_image }}
+      context: ${{ matrix.context }}
+      runners: '["ubuntu-24.04"]'
+      gar_image: ${{ matrix.gar_image }}
+      file: ${{ matrix.file }}
+      build_args: ${{ matrix.build_args }}
+
+  aggregate:
+    needs: [build]
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      images_json: ${{ steps.images.outputs.images_json }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Install yq
+        env:
+          YQ_VERSION: v4.44.3
+        run: |
+          sudo curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: latest
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+
+      - name: Configure gcloud
+        run: |
+          gcloud config set project "${{ vars.GCLOUD_PROJECT }}"
+          gcloud config set disable_prompts true
+
+      - name: Resolve OCR digest map
+        id: images
+        env:
+          GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+          WORKSPACE_SLUG: ${{ inputs.workspace_slug }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          images_json="$(./ci/generate-ocr-images-map.sh)"
+          if [ -z "$images_json" ] || [ "$images_json" = "null" ]; then
+            echo "No OCR image digests resolved" >&2
+            exit 1
+          fi
+          echo "images_json=$images_json" >> "$GITHUB_OUTPUT"
+          echo "$images_json" | jq .

@@ -4,7 +4,7 @@ variable "project_id" {
 }
 
 variable "model" {
-  description = "Ollama model identifier to bake into the image and deploy, for example glm-ocr:bf16."
+  description = "Ollama model identifier baked into the deployed image, for example glm-ocr:bf16."
   type        = string
 }
 
@@ -20,28 +20,14 @@ variable "regions" {
   default     = ["us-east4"]
 }
 
-variable "artifact_registry_location" {
-  description = "Artifact Registry location for the Ollama image repository."
+variable "image" {
+  description = "Pre-built, digest-pinned container image reference (name@sha256:...) to deploy."
   type        = string
-  default     = "us"
-}
 
-variable "artifact_registry_repository" {
-  description = "Artifact Registry repository used for built Ollama model images."
-  type        = string
-  default     = "internal"
-}
-
-variable "image_tag" {
-  description = "Tag to apply to the built Ollama image."
-  type        = string
-  default     = "main"
-}
-
-variable "base_image" {
-  description = "Base Ollama image used to build the model-specific container."
-  type        = string
-  default     = "ollama/ollama:0.19.0@sha256:bf240c2847a8bc7b2c630b85dab5d1dedcba257b551d5fc9b290ce544d59272a"
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.image))
+    error_message = "image must be digest-pinned (ends with @sha256:<64 hex>)."
+  }
 }
 
 variable "memory" {

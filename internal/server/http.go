@@ -1055,11 +1055,6 @@ func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model s
 			return
 		}
 
-		iiifID, err := iiifIdentifierFromImageURL(imageURL)
-		if err != nil {
-			slog.Warn("Skipping async transcription; invalid IIIF identifier", "session_id", sessionID, "error", err)
-			return
-		}
 		slog.Info(
 			"Starting async session transcription",
 			"session_id", sessionID,
@@ -1100,7 +1095,7 @@ func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model s
 					continue
 				}
 
-				regionPath, cleanup, err := fetchIIIFRegionToTemp(iiifID, outLine.BBox.X1, outLine.BBox.Y1, outLine.BBox.X2, outLine.BBox.Y2)
+				regionPath, cleanup, err := fetchImageRegionToTemp(imageURL, outLine.BBox.X1, outLine.BBox.Y1, outLine.BBox.X2, outLine.BBox.Y2)
 				if err != nil {
 					slog.Warn("Async line fetch failed", "session_id", sessionID, "line_id", outLine.ID, "error", err)
 					outLine.Words = nil
@@ -1288,6 +1283,11 @@ func effectiveModel(provider, requestModel string) string {
 		provider = "ollama"
 	}
 	switch provider {
+	case "kraken":
+		if cfg.Kraken.Model != "" {
+			return cfg.Kraken.Model
+		}
+		return "catmus-print-fondue-large.mlmodel"
 	case "openai":
 		if cfg.OpenAI.Model != "" {
 			return cfg.OpenAI.Model

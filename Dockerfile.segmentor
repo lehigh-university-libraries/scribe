@@ -1,0 +1,54 @@
+# syntax=docker/dockerfile:1.23@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
+FROM golang:1.24.4-bookworm@sha256:10f549dc8489597aa7ed2b62008199bb96717f52a8e8434ea035d5b44368f8a6 AS builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libleptonica-dev \
+    libtesseract-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux go build -o /out/scribe-segmentor ./cmd/segmentor
+
+FROM python:3.12-slim-bookworm@sha256:58525e1a8dada8e72d6f8a11a0ddff8d981fd888549108db52455d577f927f77
+
+ARG KRAKEN_PIP_SPEC=kraken==7.0
+ARG KRAKEN_RECOGNITION_MODEL_DOI=10.5281/zenodo.10592716
+ARG KRAKEN_RECOGNITION_MODEL_FILE=catmus-print-fondue-large.mlmodel
+ARG KRAKEN_SEGMENTATION_MODEL_DOI=
+ARG KRAKEN_SEGMENTATION_MODEL_FILE=
+
+ENV KRAKEN_MODEL_DIR=/models/kraken \
+    KRAKEN_TRANSCRIPTION_MODEL=${KRAKEN_RECOGNITION_MODEL_FILE} \
+    KRAKEN_SEGMENTATION_MODEL=${KRAKEN_SEGMENTATION_MODEL_FILE}
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    imagemagick \
+    libgomp1 \
+    libleptonica-dev \
+    libtesseract-dev \
+    tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir "${KRAKEN_PIP_SPEC}"
+
+COPY scripts/install-kraken-models.sh /usr/local/bin/install-kraken-models
+RUN chmod +x /usr/local/bin/install-kraken-models && install-kraken-models
+
+COPY --from=builder /out/scribe-segmentor /app/scribe-segmentor
+
+RUN useradd --create-home --uid 10001 appuser && \
+    chown -R appuser:appuser /app /models
+
+USER appuser
+EXPOSE 8080
+ENTRYPOINT ["/app/scribe-segmentor"]

@@ -643,6 +643,8 @@ func contextProviderLabel(provider string) string {
 		return "OpenAI"
 	case "ollama":
 		return "Ollama"
+	case "kraken":
+		return "Kraken"
 	case "tesseract":
 		return "Tesseract"
 	default:
