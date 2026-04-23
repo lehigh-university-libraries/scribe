@@ -131,7 +131,7 @@ jobs:
           gcloud config set disable_prompts true
 
       - name: "GAR login"
-        uses: "docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9" # v3
+        uses: "docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121" # v4
         with:
           registry: "us-docker.pkg.dev"
           username: "oauth2accesstoken"
@@ -249,7 +249,7 @@ jobs:
 
       - name: Upload Terraform logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: terraform-logs-${{ inputs.tf_workspace }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: .github-artifacts/terraform
