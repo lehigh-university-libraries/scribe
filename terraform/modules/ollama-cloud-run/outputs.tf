@@ -15,7 +15,7 @@ output "service_account_email" {
 
 output "image" {
   description = "Fully-qualified container image reference deployed to Cloud Run."
-  value       = "${local.image_name}@${docker_registry_image.image.sha256_digest}"
+  value       = var.image
 }
 
 output "urls" {

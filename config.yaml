@@ -29,6 +29,11 @@ llm:
     audience: "${OLLAMA_AUDIENCE:-}"
     model: "glm-ocr:bf16"
     models: ["glm-ocr:bf16", "llava", "bakllava"]
+  kraken:
+    url: "${KRAKEN_URL:-}"
+    audience: "${KRAKEN_AUDIENCE:-}"
+    model: "${KRAKEN_MODEL:-catmus-print-fondue-large.mlmodel}"
+    models: ["catmus-print-fondue-large.mlmodel"]
   openai:
     model: "gpt-4o"
     models: ["gpt-4o", "gpt-4.1"]
@@ -43,6 +48,14 @@ transcription:
 cantaloupe:
   iiif_base: /cantaloupe/iiif/2
   iiif_internal_base: "${CANTALOUPE_IIIF_INTERNAL_BASE:-http://cantaloupe:8182/iiif/2}"
+
+segmentation_service:
+  url: "${SEGMENTATION_SERVICE_URL:-}"
+  audience: "${SEGMENTATION_SERVICE_AUDIENCE:-}"
+
+image_service:
+  url: "${IMAGE_SERVICE_URL:-}"
+  audience: "${IMAGE_SERVICE_AUDIENCE:-}"
 
 annotation:
   api_base: /
@@ -63,3 +76,24 @@ vault:
     openai: scribe/openai
     gemini: scribe/gemini
     database: scribe/database
+
+# Deploy-time metadata for OCR Cloud Run services. Consumed by GitHub Actions
+# (ci/ocr-matrix.sh) and Terraform (terraform/kraken.tf, terraform/ollama.tf)
+# only. The runtime Go config ignores this section.
+ocr:
+  kraken:
+    pip_spec: "kraken==7.0"
+    default_segmentation_model: kraken
+    default_transcription_model: catmus-print-fondue-large.mlmodel
+    segmentation_models:
+      kraken:
+        file: blla.mlmodel
+        doi: ""
+    transcription_models:
+      catmus-print-fondue-large.mlmodel:
+        file: catmus-print-fondue-large.mlmodel
+        doi: "10.5281/zenodo.10592716"
+  ollama:
+    base_image: "ollama/ollama:0.19.0@sha256:bf240c2847a8bc7b2c630b85dab5d1dedcba257b551d5fc9b290ce544d59272a"
+    models:
+      - glm-ocr:bf16

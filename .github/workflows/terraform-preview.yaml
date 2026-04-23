@@ -19,6 +19,7 @@ jobs:
     if: github.event.action != 'closed'
     runs-on: ubuntu-24.04
     outputs:
+      tag: ${{ steps.image-tag.outputs.tag }}
       image_tag: ${{ steps.image-tag.outputs.image_tag }}
       frontend_image_tag: ${{ steps.image-tag.outputs.frontend_image_tag }}
       frontend_gar_image: ${{ steps.image-tag.outputs.frontend_gar_image }}
@@ -44,6 +45,7 @@ jobs:
           TAG=$(echo "$RAW_TAG" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}')
           GAR_REPO="us-docker.pkg.dev/${GCLOUD_PROJECT}/internal"
           {
+            echo "tag=$TAG"
             echo "image_tag=ghcr.io/lehigh-university-libraries/scribe:$TAG"
             echo "frontend_image_tag=ghcr.io/lehigh-university-libraries/scribe-frontend:$TAG"
             echo "frontend_gar_image=${GAR_REPO}/scribe-frontend"
@@ -75,12 +77,26 @@ jobs:
       build_args: |
         SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}
 
-  sync-dev-vault:
+  build-ocr:
     if: github.event.action != 'closed'
     needs: [prepare-image-tag]
+    uses: ./.github/workflows/build-ocr.yaml
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      checkout_ref: ${{ github.event.pull_request.head.sha }}
+      workspace_slug: pr-${{ github.event.pull_request.number }}
+      image_tag: ${{ needs.prepare-image-tag.outputs.tag }}
+
+  sync-dev-shared:
+    if: github.event.action != 'closed'
+    needs: [prepare-image-tag, build-ocr]
     runs-on: ubuntu-24.04
     concurrency:
-      group: terraform-preview-dev-vault
+      group: terraform-preview-dev-shared
       cancel-in-progress: false
     permissions:
       id-token: write
@@ -94,6 +110,7 @@ jobs:
       SCRIBE_API_IMAGE: ${{ needs.prepare-image-tag.outputs.image_tag }}
       SCRIBE_FRONTEND_IMAGE: ${{ needs.prepare-image-tag.outputs.frontend_image_tag }}
       SCRIBE_FRONTEND_GAR_IMAGE: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
+      SCRIBE_OCR_IMAGES_JSON: ${{ needs.build-ocr.outputs.images_json }}
     steps:
       - name: Validate workflow variables
         shell: bash
@@ -141,27 +158,25 @@ jobs:
           username: "oauth2accesstoken"
           password: "${{ steps.auth.outputs.access_token }}"
 
-      - name: Sync shared dev Vault owner resources
+      - name: Sync shared dev owner resources
         shell: bash
         run: |
           set -o pipefail
           make tf-dev-vault BRANCH=${{ github.event.pull_request.head.ref }} ACTION=apply
+          make tf-dev-ocr BRANCH=${{ github.event.pull_request.head.ref }} ACTION=apply
 
   lint-test:
     if: github.event.action != 'closed'
-    needs: [prepare-image-tag, build-push]
     uses: ./.github/workflows/lint-test.yaml
     permissions:
       contents: read
-      packages: write
     secrets: inherit
     with:
       checkout_ref: ${{ github.event.pull_request.head.sha }}
-      image_tag: ${{ needs.prepare-image-tag.outputs.image_tag }}
 
   preview:
     if: github.event.action != 'closed'
-    needs: [prepare-image-tag, sync-dev-vault, build-push, build-frontend]
+    needs: [prepare-image-tag, sync-dev-shared, build-push, build-frontend, build-ocr]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
@@ -181,6 +196,7 @@ jobs:
       image_tag: ${{ needs.prepare-image-tag.outputs.image_tag }}
       frontend_image_tag: ${{ needs.prepare-image-tag.outputs.frontend_image_tag }}
       frontend_gar_image_tag: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
+      ocr_images_json: ${{ needs.build-ocr.outputs.images_json }}
 
   preview-comment:
     if: github.event.action != 'closed'

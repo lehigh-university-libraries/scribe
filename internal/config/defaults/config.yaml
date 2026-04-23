@@ -29,6 +29,11 @@ llm:
     audience: "${OLLAMA_AUDIENCE:-}"
     model: "glm-ocr:bf16"
     models: ["glm-ocr:bf16", "llava", "bakllava"]
+  kraken:
+    url: "${KRAKEN_URL:-}"
+    audience: "${KRAKEN_AUDIENCE:-}"
+    model: "${KRAKEN_MODEL:-catmus-print-fondue-large.mlmodel}"
+    models: ["catmus-print-fondue-large.mlmodel"]
   openai:
     model: "gpt-4o"
     models: ["gpt-4o", "gpt-4.1"]
@@ -43,6 +48,14 @@ transcription:
 cantaloupe:
   iiif_base: /cantaloupe/iiif/2
   iiif_internal_base: "${CANTALOUPE_IIIF_INTERNAL_BASE:-http://cantaloupe:8182/iiif/2}"
+
+segmentation_service:
+  url: "${SEGMENTATION_SERVICE_URL:-}"
+  audience: "${SEGMENTATION_SERVICE_AUDIENCE:-}"
+
+image_service:
+  url: "${IMAGE_SERVICE_URL:-}"
+  audience: "${IMAGE_SERVICE_AUDIENCE:-}"
 
 annotation:
   api_base: /

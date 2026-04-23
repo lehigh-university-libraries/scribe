@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	_ "embed"
 	"fmt"
 	"net/url"
@@ -27,15 +28,17 @@ type Config struct {
 	ListenAddr    string `yaml:"listen_addr"`
 	PublicBaseURL string `yaml:"public_base_url"`
 
-	Auth          AuthConfig          `yaml:"auth"`
-	Database      DatabaseConfig      `yaml:"database"`
-	LLM           LLMConfig           `yaml:"llm"`
-	Transcription TranscriptionConfig `yaml:"transcription"`
-	Cantaloupe    CantaloupeConfig    `yaml:"cantaloupe"`
-	Annotation    AnnotationConfig    `yaml:"annotation"`
-	Drupal        DrupalConfig        `yaml:"drupal"`
-	Webhooks      WebhooksConfig      `yaml:"webhooks"`
-	Vault         VaultConfig         `yaml:"vault"`
+	Auth          AuthConfig            `yaml:"auth"`
+	Database      DatabaseConfig        `yaml:"database"`
+	LLM           LLMConfig             `yaml:"llm"`
+	Transcription TranscriptionConfig   `yaml:"transcription"`
+	Cantaloupe    CantaloupeConfig      `yaml:"cantaloupe"`
+	Segmentation  ServiceEndpointConfig `yaml:"segmentation_service"`
+	ImageService  ServiceEndpointConfig `yaml:"image_service"`
+	Annotation    AnnotationConfig      `yaml:"annotation"`
+	Drupal        DrupalConfig          `yaml:"drupal"`
+	Webhooks      WebhooksConfig        `yaml:"webhooks"`
+	Vault         VaultConfig           `yaml:"vault"`
 
 	// DatabaseDSN is resolved at load time from Vault + Database config.
 	DatabaseDSN string `yaml:"-"`
@@ -67,20 +70,35 @@ type LLMConfig struct {
 	BatchSize                 int          `yaml:"batch_size"`
 	LineTranscribeConcurrency int          `yaml:"line_transcribe_concurrency"`
 	Ollama                    OllamaConfig `yaml:"ollama"`
+	Kraken                    KrakenConfig `yaml:"kraken"`
 	OpenAI                    OpenAIConfig `yaml:"openai"`
 	Gemini                    GeminiConfig `yaml:"gemini"`
 }
 
 type OllamaConfig struct {
-	URL      string   `yaml:"url"`
-	Audience string   `yaml:"audience"`
-	Model    string   `yaml:"model"`
-	Models   []string `yaml:"models"`
+	URL            string                   `yaml:"url"`
+	Audience       string                   `yaml:"audience"`
+	Model          string                   `yaml:"model"`
+	Models         []string                 `yaml:"models"`
+	ModelEndpoints map[string]ModelEndpoint `yaml:"-"`
+}
+
+type ModelEndpoint struct {
+	URL      string `json:"url"`
+	Audience string `json:"audience"`
 }
 
 type OpenAIConfig struct {
 	Model  string   `yaml:"model"`
 	Models []string `yaml:"models"`
+}
+
+type KrakenConfig struct {
+	URL            string                   `yaml:"url"`
+	Audience       string                   `yaml:"audience"`
+	Model          string                   `yaml:"model"`
+	Models         []string                 `yaml:"models"`
+	ModelEndpoints map[string]ModelEndpoint `yaml:"-"`
 }
 
 type GeminiConfig struct {
@@ -96,6 +114,12 @@ type TranscriptionConfig struct {
 type CantaloupeConfig struct {
 	IIIFBase         string `yaml:"iiif_base"`
 	IIIFInternalBase string `yaml:"iiif_internal_base"`
+}
+
+type ServiceEndpointConfig struct {
+	URL            string                   `yaml:"url"`
+	Audience       string                   `yaml:"audience"`
+	ModelEndpoints map[string]ModelEndpoint `yaml:"-"`
 }
 
 type AnnotationConfig struct {
@@ -166,6 +190,37 @@ func Load() (Config, error) {
 		cfg.Vault.GCPAuthRole = strings.TrimSpace(os.Getenv("VAULT_GCP_AUTH_ROLE"))
 	}
 	cfg.Vault.Token = strings.TrimSpace(os.Getenv("VAULT_TOKEN"))
+	var err error
+	cfg.LLM.Ollama.URL = strings.TrimSpace(cfg.LLM.Ollama.URL)
+	cfg.LLM.Ollama.Audience = strings.TrimSpace(cfg.LLM.Ollama.Audience)
+	cfg.LLM.Ollama.ModelEndpoints, err = loadModelEndpointMapEnv("OLLAMA_MODEL_ENDPOINTS_JSON")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Segmentation.URL = strings.TrimSpace(cfg.Segmentation.URL)
+	cfg.Segmentation.Audience = strings.TrimSpace(cfg.Segmentation.Audience)
+	cfg.Segmentation.ModelEndpoints, err = loadModelEndpointMapEnv("SEGMENTATION_MODEL_ENDPOINTS_JSON")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.ImageService.URL = strings.TrimSpace(cfg.ImageService.URL)
+	cfg.ImageService.Audience = strings.TrimSpace(cfg.ImageService.Audience)
+	cfg.LLM.Kraken.URL = strings.TrimSpace(cfg.LLM.Kraken.URL)
+	cfg.LLM.Kraken.Audience = strings.TrimSpace(cfg.LLM.Kraken.Audience)
+	cfg.LLM.Kraken.Model = strings.TrimSpace(cfg.LLM.Kraken.Model)
+	cfg.LLM.Kraken.ModelEndpoints, err = loadModelEndpointMapEnv("KRAKEN_MODEL_ENDPOINTS_JSON")
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.LLM.Kraken.URL == "" {
+		cfg.LLM.Kraken.URL = cfg.Segmentation.URL
+	}
+	if cfg.LLM.Kraken.Audience == "" {
+		cfg.LLM.Kraken.Audience = cfg.Segmentation.Audience
+	}
+	if cfg.LLM.Kraken.Model == "" {
+		cfg.LLM.Kraken.Model = "catmus-print-fondue-large.mlmodel"
+	}
 
 	cfg.PublicBaseURL = strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
 	if cfg.Auth.CookieName == "" {
@@ -207,6 +262,64 @@ func expandConfigEnv(raw []byte) []byte {
 		return ""
 	})
 	return []byte(expanded)
+}
+
+func loadModelEndpointMapEnv(name string) (map[string]ModelEndpoint, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return nil, nil
+	}
+
+	var parsed map[string]ModelEndpoint
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", name, err)
+	}
+
+	normalized := make(map[string]ModelEndpoint, len(parsed))
+	for key, endpoint := range parsed {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		endpoint.URL = strings.TrimSpace(endpoint.URL)
+		endpoint.Audience = strings.TrimSpace(endpoint.Audience)
+		if endpoint.URL == "" {
+			continue
+		}
+		normalized[trimmedKey] = endpoint
+	}
+	if len(normalized) == 0 {
+		return nil, nil
+	}
+	return normalized, nil
+}
+
+func resolveModelEndpoint(endpoints map[string]ModelEndpoint, key string) (string, string) {
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" || len(endpoints) == 0 {
+		return "", ""
+	}
+	if endpoint, ok := endpoints[trimmedKey]; ok {
+		return endpoint.URL, endpoint.Audience
+	}
+	for candidate, endpoint := range endpoints {
+		if strings.EqualFold(strings.TrimSpace(candidate), trimmedKey) {
+			return endpoint.URL, endpoint.Audience
+		}
+	}
+	return "", ""
+}
+
+func (c ServiceEndpointConfig) ResolveForModel(model string) (string, string) {
+	return resolveModelEndpoint(c.ModelEndpoints, model)
+}
+
+func (c KrakenConfig) ResolveForModel(model string) (string, string) {
+	return resolveModelEndpoint(c.ModelEndpoints, model)
+}
+
+func (c OllamaConfig) ResolveForModel(model string) (string, string) {
+	return resolveModelEndpoint(c.ModelEndpoints, model)
 }
 
 // GoogleCallbackURL returns the absolute callback URL constructed from

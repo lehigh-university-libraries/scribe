@@ -45,6 +45,12 @@ func TestProviderConfigWithContextOverridesOllamaEndpoint(t *testing.T) {
 				Ollama: config.OllamaConfig{
 					URL:      "http://default-ollama:11434",
 					Audience: "https://default.run.app",
+					ModelEndpoints: map[string]config.ModelEndpoint{
+						"glm-ocr:bf16": {
+							URL:      "https://ollama-glm.run.app",
+							Audience: "https://ollama-glm.run.app",
+						},
+					},
 				},
 			},
 		},
@@ -61,6 +67,98 @@ func TestProviderConfigWithContextOverridesOllamaEndpoint(t *testing.T) {
 		t.Fatalf("cfg.BaseURL = %q, want override", cfg.BaseURL)
 	}
 	if cfg.Audience != "https://default.run.app" {
+		t.Fatalf("cfg.Audience = %q, want runtime fallback", cfg.Audience)
+	}
+}
+
+func TestProviderConfigUsesOllamaModelEndpointMap(t *testing.T) {
+	config.Init(config.Runtime{
+		Config: config.Config{
+			LLM: config.LLMConfig{
+				Ollama: config.OllamaConfig{
+					URL:      "http://default-ollama:11434",
+					Audience: "https://default.run.app",
+					ModelEndpoints: map[string]config.ModelEndpoint{
+						"glm-ocr:bf16": {
+							URL:      "https://ollama-glm.run.app",
+							Audience: "https://ollama-glm.run.app",
+						},
+					},
+				},
+			},
+		},
+	})
+	t.Cleanup(func() {
+		config.Init(config.Runtime{})
+	})
+
+	svc := NewService()
+	cfg := svc.providerConfigWithContext(context.Background(), "ollama", "glm-ocr:bf16", "prompt", 0)
+
+	if cfg.BaseURL != "https://ollama-glm.run.app" {
+		t.Fatalf("cfg.BaseURL = %q, want model-routed URL", cfg.BaseURL)
+	}
+	if cfg.Audience != "https://ollama-glm.run.app" {
+		t.Fatalf("cfg.Audience = %q, want model-routed audience", cfg.Audience)
+	}
+}
+
+func TestProviderConfigWithContextOverridesOnlyAudience(t *testing.T) {
+	config.Init(config.Runtime{
+		Config: config.Config{
+			LLM: config.LLMConfig{
+				Ollama: config.OllamaConfig{
+					URL:      "http://default-ollama:11434",
+					Audience: "https://default.run.app",
+					ModelEndpoints: map[string]config.ModelEndpoint{
+						"glm-ocr:bf16": {
+							URL:      "https://ollama-glm.run.app",
+							Audience: "https://ollama-glm.run.app",
+						},
+					},
+				},
+			},
+		},
+	})
+	t.Cleanup(func() {
+		config.Init(config.Runtime{})
+	})
+
+	svc := NewService()
+	ctx := WithProviderConfigOverrides(context.Background(), "", "https://workspace-override-audience")
+	cfg := svc.providerConfigWithContext(ctx, "ollama", "glm-ocr:bf16", "prompt", 0)
+
+	if cfg.BaseURL != "https://ollama-glm.run.app" {
+		t.Fatalf("cfg.BaseURL = %q, want model-routed URL", cfg.BaseURL)
+	}
+	if cfg.Audience != "https://workspace-override-audience" {
+		t.Fatalf("cfg.Audience = %q, want override audience", cfg.Audience)
+	}
+}
+
+func TestProviderConfigWithContextOverridesKrakenEndpoint(t *testing.T) {
+	config.Init(config.Runtime{
+		Config: config.Config{
+			LLM: config.LLMConfig{
+				Kraken: config.KrakenConfig{
+					URL:      "https://default-segmentor.run.app",
+					Audience: "https://default-segmentor.run.app",
+				},
+			},
+		},
+	})
+	t.Cleanup(func() {
+		config.Init(config.Runtime{})
+	})
+
+	svc := NewService()
+	ctx := WithProviderConfigOverrides(context.Background(), "https://workspace-segmentor.run.app", "")
+	cfg := svc.providerConfigWithContext(ctx, "kraken", "catmus-print-fondue-large.mlmodel", "prompt", 0)
+
+	if cfg.BaseURL != "https://workspace-segmentor.run.app" {
+		t.Fatalf("cfg.BaseURL = %q, want override", cfg.BaseURL)
+	}
+	if cfg.Audience != "https://default-segmentor.run.app" {
 		t.Fatalf("cfg.Audience = %q, want runtime fallback", cfg.Audience)
 	}
 }

@@ -592,17 +592,18 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 		return "", fmt.Errorf("parse fragment: %w", err)
 	}
 
-	// Extract IIIF identifier from canvas URI → manifest → image.
-	iiifID, err := h.iiifIDFromCanvasURI(ctx, canvasURI)
-	if err != nil {
-		return "", fmt.Errorf("iiif id from canvas: %w", err)
-	}
-
 	var itemImageID *uint64
 	if matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI); len(matches) >= 2 {
 		if parsed, parseErr := strconv.ParseUint(strings.TrimSpace(matches[1]), 10, 64); parseErr == nil {
 			itemImageID = &parsed
 		}
+	}
+	if itemImageID == nil {
+		return "", fmt.Errorf("resolve source image from canvas: cannot extract item image reference from canvas uri %q", canvasURI)
+	}
+	run, err := h.ocrRuns.GetByItemImageID(ctx, *itemImageID)
+	if err != nil {
+		return "", fmt.Errorf("lookup run by item image id %d: %w", *itemImageID, err)
 	}
 	var contextID *uint64
 	if pctx.ID > 0 {
@@ -616,15 +617,15 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 	}
 	ctx = h.contextWithProviderSecret(ctx, workspaceID, userID, pctx.TranscriptionProvider)
 
-	imagePath, cleanup, err := fetchIIIFRegionToTemp(iiifID, x1, y1, x2, y2)
+	imagePath, cleanup, err := fetchImageRegionToTemp(run.ImageURL, x1, y1, x2, y2)
 	if err != nil {
 		return "", fmt.Errorf("fetch image region: %w", err)
 	}
 	defer cleanup()
 
-	text, err := h.ocr.TranscribeImageRegion(
+	text, err := h.ocr.TranscribeImageFileWithContext(
 		hocr.WithProviderConfigOverrides(ctx, pctx.TranscriptionBaseURL, pctx.TranscriptionAudience),
-		imagePath, 0, 0, x2-x1, y2-y1,
+		imagePath,
 		pctx.TranscriptionProvider, pctx.TranscriptionModel,
 	)
 	if err != nil {

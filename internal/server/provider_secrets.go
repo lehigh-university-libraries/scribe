@@ -14,7 +14,7 @@ func (h *Handler) contextWithProviderSecret(ctx context.Context, workspaceID uin
 		return ctx
 	}
 	provider = strings.ToLower(strings.TrimSpace(provider))
-	if provider == "" || provider == "ollama" || provider == "tesseract" {
+	if provider == "" || provider == "ollama" || provider == "kraken" || provider == "tesseract" {
 		return ctx
 	}
 	secret, err := h.providerSecrets.ResolvePreferred(ctx, workspaceID, userID, provider)
