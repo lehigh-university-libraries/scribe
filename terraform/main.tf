@@ -222,7 +222,10 @@ locals {
       ),
     )
   ]
-  docker_compose_init = concat(["bash generate-secrets.sh"], local.compose_env_update_commands)
+  docker_compose_init = concat(local.compose_env_update_commands, [
+    "bash /home/cloud-compose/rotate-keys-app.sh",
+    "bash generate-secrets.sh",
+  ])
   docker_compose_up = concat(local.compose_env_update_commands, [
     "git pull",
     "docker compose pull api worker",

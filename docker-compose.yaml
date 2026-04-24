@@ -93,6 +93,28 @@ services:
       - uploads-data:/uploads:ro
       - cantaloupe-data:/data
 
+  vault-init:
+    image: alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+    profiles: ["init"]
+    environment:
+      VAULT_ADDRESS: ${VAULT_ADDRESS:-}
+      VAULT_GCP_AUTH_ROLE: ${VAULT_GCP_AUTH_ROLE:-scribe-app}
+      VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
+      VAULT_DATABASE_PATH: ${VAULT_DATABASE_PATH:-scribe/database}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
+      OUT_DIR: /out
+      HOST_UID: ${HOST_UID:-}
+      HOST_GID: ${HOST_GID:-}
+    secrets:
+      - GOOGLE_APPLICATION_CREDENTIALS
+    volumes:
+      - ./secrets:/out
+      - ./scripts/vault-init.sh:/usr/local/bin/vault-init.sh:ro
+    entrypoint:
+      - /bin/sh
+      - /usr/local/bin/vault-init.sh
+    restart: "no"
+
 volumes:
   mariadb-data:
   uploads-data:

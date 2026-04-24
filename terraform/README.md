@@ -25,6 +25,12 @@ The same Terraform root can also manage shared production edge services:
   secret files under `./secrets/`, except for externally managed credentials
   such as `./secrets/GOOGLE_APPLICATION_CREDENTIALS` where local/CI runs may use
   a placeholder file until infra provides the real value
+- when `VAULT_ADDRESS` is configured, rewrites the MariaDB Docker secret files
+  from Vault before `docker compose up` so MariaDB and the app share the same
+  database password source. The init-only `vault-init` Compose service signs
+  into Vault from the rotated `./secrets/GOOGLE_APPLICATION_CREDENTIALS` file
+  rather than the metadata server, because Docker traffic to metadata is
+  blocked on the VM
 - injects non-secret runtime config into the compose services as environment
   variables, which `config.yaml` resolves via `${VAR}` / `${VAR:-default}`
   interpolation at process startup
@@ -52,9 +58,10 @@ make tf-dev BRANCH=google-cloud ACTION=plan
 make tf-dev BRANCH=google-cloud ACTION=apply
 ```
 
-Before a local `apply`, configure Docker auth for Artifact Registry. Terraform's
-Docker provider pushes images to `us-docker.pkg.dev` and reads credentials from
-`~/.docker/config.json`:
+Before a local `apply`, configure Docker auth for Artifact Registry. When the
+expected frontend/OCR GAR tags are missing, `terraform/deploy-local.sh`
+auto-builds and pushes the missing images to `us-docker.pkg.dev` before it
+runs Terraform:
 
 ```bash
 gcloud auth login
@@ -63,7 +70,9 @@ gcloud auth configure-docker us-docker.pkg.dev
 ```
 
 Your user also needs Artifact Registry write access to
-`projects/${GCLOUD_PROJECT}/locations/us/repositories/internal`.
+`projects/${GCLOUD_PROJECT}/locations/us/repositories/internal`. Local
+`ACTION=plan` stays read-only; if a required GAR tag is missing it fails with
+the image reference so you can publish it first or rerun with `ACTION=apply`.
 
 For production:
 
@@ -118,8 +127,10 @@ Set `TF_STATE_BUCKET` explicitly only if you need a different bucket.
 - edit the `ocr:` section of `config.yaml` to declare the Ollama and Kraken
   Cloud Run services to deploy. Terraform reads that section directly at plan
   time; image builds happen in GitHub Actions (see `.github/workflows/build-ocr.yaml`)
-  or locally via `ci/generate-ocr-images-map.sh`, and the digest map is passed
-  in through `ocr_service_images`
+  or are auto-published locally during `ACTION=apply`, and the digest map is
+  passed in through `ocr_service_images`. Non-prod local applies skip the
+  prod-only Ollama images because those services are only deployed from the
+  `prod` workspace
 - set `vault_admin_emails` and `vault_ci_service_account_emails` for the
   always-on Vault deployment
 - initialize Terraform with a GCS backend bucket so CI and local runs share state
@@ -260,6 +271,9 @@ Repeat that with workspace `prod` for production.
   production Vault. Preview workspaces do not create their own Vault servers;
   they read the shared dev Vault URL from remote state and create a
   workspace-specific GCP auth role there.
+- The upstream Vault module bakes the seal config into the Vault server image,
+  so this root pins the Vault GAR image name per environment (`vault-server-dev`
+  vs `vault-server-prod`) to avoid cross-workspace image drift.
 - Preview and production deploys push backend and frontend images to GHCR. The
   backend image is injected into `TF_VAR_api_image`; `TF_VAR_frontend_image` is
   retained only for local compose/build parity while the Cloud Run frontend

@@ -24,10 +24,23 @@ locals {
     )
   }
 
-  ollama_invokers = [
-    "serviceAccount:${local.scribe_vm_gsa_email}",
-    "serviceAccount:${local.scribe_app_gsa_email}",
+  ollama_invoker_gsas = [
+    local.scribe_vm_gsa_email,
+    local.scribe_app_gsa_email,
   ]
+
+  ollama_service_iam_bindings = local.shared_ollama_services_enabled ? {
+    for triple in setproduct(
+      local.ollama_models,
+      local.ollama_regions,
+      local.ollama_invoker_gsas,
+    ) :
+    "${triple[0]}|${triple[1]}|${triple[2]}" => {
+      region  = triple[1]
+      gsa     = triple[2]
+      service = local.ollama_service_names[triple[0]]
+    }
+  } : {}
 
   ollama_preview_invoker_gsas = local.ollama_preview_iam_enabled ? [
     local.scribe_vm_gsa_email,
@@ -41,7 +54,6 @@ locals {
       local.ollama_preview_invoker_gsas,
     ) :
     "${triple[0]}|${triple[1]}|${triple[2]}" => {
-      model   = triple[0]
       region  = triple[1]
       gsa     = triple[2]
       service = local.ollama_service_names[triple[0]]
@@ -78,10 +90,25 @@ module "ollama_services" {
   gpu_count     = local.ollama_gpu_count
   min_instances = local.ollama_min_instances
   max_instances = local.ollama_max_instances
-  invokers      = local.ollama_invokers
+  invokers      = []
 
   depends_on = [
     google_artifact_registry_repository_iam_member.cloud_run_reader,
+  ]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "ollama_invoker" {
+  for_each = local.ollama_service_iam_bindings
+
+  project  = var.project_id
+  location = each.value.region
+  name     = each.value.service
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${each.value.gsa}"
+
+  depends_on = [
+    module.ollama_services,
+    module.scribe,
   ]
 }
 
@@ -93,4 +120,8 @@ resource "google_cloud_run_v2_service_iam_member" "ollama_preview_invoker" {
   name     = each.value.service
   role     = "roles/run.invoker"
   member   = "serviceAccount:${each.value.gsa}"
+
+  depends_on = [
+    module.scribe,
+  ]
 }

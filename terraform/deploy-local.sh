@@ -20,9 +20,10 @@ Optional environment:
   ALLOWED_SSH_IPV4    Terraform list(string), e.g. ["203.0.113.10/32"]
   SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
   SCRIBE_FRONTEND_IMAGE  Optional GHCR frontend image reference to inject into Terraform frontend_image for local parity
-  SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar)
+  SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar). When unset, local apply resolves the default tag and auto-builds it if missing.
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. When unset (and the action is not destroy), deploy-local.sh calls ci/generate-ocr-images-map.sh to resolve the digests from existing GAR tags.
   SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to main for prod and the branch slug otherwise.
+  SCRIBE_ZONE            Optional zone override used when locally building the frontend GAR sidecar. Falls back to TF_VAR_zone, terraform/terraform.tfvars, then us-east5-b.
 
 Notes:
   - Dev mode uses Terraform workspace dev and site name scribe-dev.
@@ -31,6 +32,7 @@ Notes:
   - Preview frontend images use ghcr.io/lehigh-university-libraries/scribe-frontend:<branch>
   - Production uses ghcr.io/lehigh-university-libraries/scribe:main
   - Production frontend uses ghcr.io/lehigh-university-libraries/scribe-frontend:main
+  - Local apply auto-builds missing frontend/OCR GAR images needed by the selected workspace.
 EOF
 }
 
@@ -61,6 +63,69 @@ decode_base64_file() {
 
 sanitize_image_tag() {
   printf '%s' "$1" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}' | tr '[:upper:]' '[:lower:]'
+}
+
+resolve_terraform_zone() {
+  local tfvars_path="$repo_root/terraform/terraform.tfvars"
+  local from_tfvars=""
+
+  if [ -n "${SCRIBE_ZONE:-}" ]; then
+    printf '%s\n' "$SCRIBE_ZONE"
+    return 0
+  fi
+
+  if [ -n "${TF_VAR_zone:-}" ]; then
+    printf '%s\n' "$TF_VAR_zone"
+    return 0
+  fi
+
+  if [ -f "$tfvars_path" ]; then
+    from_tfvars="$(sed -nE 's/^[[:space:]]*zone[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' "$tfvars_path" | tail -n1)"
+    if [ -n "$from_tfvars" ]; then
+      printf '%s\n' "$from_tfvars"
+      return 0
+    fi
+  fi
+
+  printf 'us-east5-b\n'
+}
+
+build_frontend_gar_image() {
+  local image_ref="$1"
+  local zone backend_origin
+
+  zone="$(resolve_terraform_zone)"
+  backend_origin="http://${TF_VAR_name}.${zone}.c.${GCLOUD_PROJECT}.internal"
+
+  echo "GAR image missing for frontend sidecar; building and pushing ${image_ref} with backend origin ${backend_origin}..." >&2
+  "${repo_root}/ci/build-push-gar-image.sh" \
+    --image "$image_ref" \
+    --context "$repo_root" \
+    --file "${repo_root}/Dockerfile.frontend" \
+    --platform "linux/amd64" \
+    --build-arg "SCRIBE_FRONTEND_BACKEND_ORIGIN=${backend_origin}"
+}
+
+resolve_frontend_gar_image() {
+  local image_ref="$1"
+  local action="$2"
+  local resolved=""
+
+  if resolved="$("${repo_root}/ci/resolve-gar-image.sh" "$image_ref" 2>&1)"; then
+    printf '%s\n' "$resolved"
+    return 0
+  fi
+
+  echo "$resolved" >&2
+
+  if [ "$action" != "apply" ]; then
+    echo "Missing frontend GAR image: ${image_ref}" >&2
+    echo "Rerun with ACTION=apply to auto-build it locally, or set SCRIBE_FRONTEND_GAR_IMAGE to an existing tag/digest." >&2
+    return 1
+  fi
+
+  build_frontend_gar_image "$image_ref"
+  "${repo_root}/ci/resolve-gar-image.sh" "$image_ref"
 }
 
 select_workspace() {
@@ -184,10 +249,14 @@ export TF_STATE_BUCKET
 target_set="${TF_TARGET_SET:-}"
 
 terraform_targets=()
+needs_frontend_gar_image=true
+needs_ocr_images=true
 case "$target_set" in
   "")
     ;;
   vault)
+    needs_frontend_gar_image=false
+    needs_ocr_images=false
     terraform_targets+=(
       "-target=module.vault"
       "-target=google_project_iam_member.vault_gcp_auth_service_account_viewer"
@@ -204,6 +273,7 @@ case "$target_set" in
     )
     ;;
   ocr)
+    needs_frontend_gar_image=false
     terraform_targets+=(
       "-target=module.kraken"
       "-target=google_artifact_registry_repository_iam_member.cloud_run_reader"
@@ -280,6 +350,9 @@ image_tag="${SCRIBE_API_IMAGE:-$fallback_image_tag}"
 frontend_tag="$(printf '%s' "${image_tag##*:}" | tr '[:upper:]' '[:lower:]')"
 frontend_image_tag="${SCRIBE_FRONTEND_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-frontend:${frontend_tag}}"
 frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:${frontend_tag}}"
+if [ "$needs_frontend_gar_image" != "true" ]; then
+  frontend_gar_image_tag=""
+fi
 
 case "$action" in
   plan|apply|destroy) ;;
@@ -290,17 +363,31 @@ case "$action" in
     ;;
 esac
 
-if [ "$action" != "destroy" ] && [ -n "$frontend_gar_image_tag" ]; then
-  frontend_gar_image_tag="$("$repo_root/ci/resolve-gar-image.sh" "$frontend_gar_image_tag")"
+if [ "$action" != "destroy" ] && [ "$needs_frontend_gar_image" = "true" ] && [ -n "$frontend_gar_image_tag" ]; then
+  frontend_gar_image_tag="$(resolve_frontend_gar_image "$frontend_gar_image_tag" "$action")"
 fi
 
 cd "$(dirname "$0")"
 
 ocr_images_json="${SCRIBE_OCR_IMAGES_JSON:-}"
-if [ "$action" != "destroy" ] && [ -z "$ocr_images_json" ]; then
-  export WORKSPACE_SLUG="$target_workspace"
-  export IMAGE_TAG="${SCRIBE_OCR_IMAGE_TAG:-$ocr_image_tag_default}"
-  ocr_images_json="$("$repo_root/ci/generate-ocr-images-map.sh")"
+if [ "$needs_ocr_images" != "true" ]; then
+  ocr_images_json='{}'
+elif [ "$action" != "destroy" ] && [ -z "$ocr_images_json" ]; then
+  include_ollama="false"
+  if [ "$environment" = "prod" ]; then
+    include_ollama="true"
+  fi
+  ocr_auto_build_missing="false"
+  if [ "$action" = "apply" ]; then
+    ocr_auto_build_missing="true"
+  fi
+  ocr_images_json="$(
+    WORKSPACE_SLUG="$target_workspace" \
+    IMAGE_TAG="${SCRIBE_OCR_IMAGE_TAG:-$ocr_image_tag_default}" \
+    INCLUDE_OLLAMA="$include_ollama" \
+    AUTO_BUILD_MISSING="$ocr_auto_build_missing" \
+    "$repo_root/ci/generate-ocr-images-map.sh"
+  )"
 fi
 if [ -z "$ocr_images_json" ]; then
   ocr_images_json='{}'
