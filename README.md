@@ -236,6 +236,15 @@ externally in deployed environments. For local/CI compose runs,
 `generate-secrets.sh` creates a `{}` placeholder when the file is missing so
 the secret mount exists without fabricating real credentials.
 
+When `VAULT_ADDRESS` is configured, `generate-secrets.sh` also rewrites
+`./secrets/mariadb_password` and `./secrets/mariadb_root_password` from the
+Vault `secret/scribe/database` secret before Docker Compose starts MariaDB, so
+the database container and the app use the same credentials source. It does
+that through the init-only `vault-init` Compose service, which signs into Vault
+from `./secrets/GOOGLE_APPLICATION_CREDENTIALS` inside Docker rather than
+calling the metadata server, so it still works when Docker traffic to metadata
+is blocked.
+
 Use `make vault-secrets` to list, read, or update the required app secrets in
 Vault. The helper prompts for `dev` vs `prod`, uses your current
 `gcloud auth print-access-token` for the proxy's `X-Admin-Token`, and then

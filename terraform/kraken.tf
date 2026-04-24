@@ -10,9 +10,9 @@ locals {
   kraken_default_segmentation_key   = trimspace(try(local.kraken_config.default_segmentation_model, try(sort(keys(local.kraken_segmentation_models))[0], "")))
   kraken_default_segmentation_spec  = try(local.kraken_segmentation_models[local.kraken_default_segmentation_key], null)
 
-  ocr_invokers = [
-    "serviceAccount:${local.scribe_vm_gsa_email}",
-    "serviceAccount:${local.scribe_app_gsa_email}",
+  ocr_invoker_gsas = [
+    local.scribe_vm_gsa_email,
+    local.scribe_app_gsa_email,
   ]
 
   ws_short = trimsuffix(substr(local.workspace_slug, 0, 15), "-")
@@ -93,6 +93,19 @@ locals {
     local.kraken_segmentation_service_defs,
     local.kraken_transcription_service_defs,
   )
+
+  kraken_invoker_bindings = {
+    for triple in setproduct(
+      keys(local.ocr_services),
+      local.ocr_service_regions,
+      local.ocr_invoker_gsas,
+    ) :
+    "${triple[0]}|${triple[1]}|${triple[2]}" => {
+      region  = triple[1]
+      gsa     = triple[2]
+      service = local.ocr_services[triple[0]].service_name
+    }
+  }
 }
 
 
@@ -123,10 +136,25 @@ module "kraken" {
   memory         = each.value.memory
   min_instances  = each.value.min_instances
   max_instances  = each.value.max_instances
-  invokers       = local.ocr_invokers
+  invokers       = []
 
   depends_on_iam = [google_artifact_registry_repository_iam_member.cloud_run_reader]
   depends_on     = [google_service_account.kraken]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "kraken_invoker" {
+  for_each = local.kraken_invoker_bindings
+
+  project  = var.project_id
+  location = each.value.region
+  name     = each.value.service
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${each.value.gsa}"
+
+  depends_on = [
+    module.kraken,
+    module.scribe,
+  ]
 }
 
 check "kraken_default_models_present" {

@@ -25,6 +25,12 @@ The same Terraform root can also manage shared production edge services:
   secret files under `./secrets/`, except for externally managed credentials
   such as `./secrets/GOOGLE_APPLICATION_CREDENTIALS` where local/CI runs may use
   a placeholder file until infra provides the real value
+- when `VAULT_ADDRESS` is configured, rewrites the MariaDB Docker secret files
+  from Vault before `docker compose up` so MariaDB and the app share the same
+  database password source. The init-only `vault-init` Compose service signs
+  into Vault from the rotated `./secrets/GOOGLE_APPLICATION_CREDENTIALS` file
+  rather than the metadata server, because Docker traffic to metadata is
+  blocked on the VM
 - injects non-secret runtime config into the compose services as environment
   variables, which `config.yaml` resolves via `${VAR}` / `${VAR:-default}`
   interpolation at process startup
