@@ -15,6 +15,7 @@ readonly DEFAULT_VAULT_KV_MOUNT='secret'
 readonly DEFAULT_VAULT_DATABASE_PATH='scribe/database'
 
 sync_database_secrets_from_vault() {
+  # shellcheck disable=SC1091
   source .env
   local vault_addr vault_role vault_kv_mount vault_database_path host_uid host_gid
 
