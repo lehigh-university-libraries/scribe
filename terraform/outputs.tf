@@ -23,11 +23,6 @@ output "backend" {
   value       = module.scribe.backend
 }
 
-output "cantaloupe_urls" {
-  description = "Cloud Run service URLs for the shared Cantaloupe deployment."
-  value       = local.shared_services_enabled ? module.cantaloupe[0].urls : {}
-}
-
 output "shared_lb_ipv4" {
   description = "IPv4 address of the shared external HTTPS load balancer."
   value       = local.shared_lb_enabled ? module.shared_lb[0].ipv4_address : ""

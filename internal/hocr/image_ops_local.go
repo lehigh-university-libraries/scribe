@@ -6,10 +6,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
+	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
 	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
@@ -44,10 +44,13 @@ func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lin
 	cropHeight := height + 2*padding
 
 	outputPath := filepath.Join("/tmp", fmt.Sprintf("line_%d_%d.png", lineIndex, time.Now().UnixNano()))
-	cmd := exec.Command("magick", imagePath,
+	cmd, err := imagemagick.ConvertCommand(imagePath,
 		"-crop", fmt.Sprintf("%dx%d+%d+%d", cropWidth, cropHeight, cropX, cropY),
 		"+repage",
 		outputPath)
+	if err != nil {
+		return "", err
+	}
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("failed to extract line image: %w", err)
 	}
@@ -94,7 +97,10 @@ func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordB
 	}
 	args = append(args, "-delete", "0", "+append", outputPath)
 
-	cmd := exec.Command("magick", args...)
+	cmd, err := imagemagick.ConvertCommand(args...)
+	if err != nil {
+		return "", err
+	}
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("failed to stitch word images: %w", err)
 	}

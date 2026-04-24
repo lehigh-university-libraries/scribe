@@ -13,9 +13,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
 )
 
 func NewHandler() http.Handler {
@@ -27,6 +28,8 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("POST /v1/crop", handleCrop)
 	mux.HandleFunc("POST /v1/stitch-horizontal", handleStitchHorizontal)
 	mux.HandleFunc("POST /v1/normalize", handleNormalize)
+	mux.Handle("/iiif/2/", http.HandlerFunc(handleIIIF))
+	mux.Handle("/iiif/3/", http.HandlerFunc(handleIIIF))
 	return mux
 }
 
@@ -213,7 +216,10 @@ func normalizeWithMagick(imageData []byte, contentType string) ([]byte, error) {
 		return nil, fmt.Errorf("close temp input: %w", err)
 	}
 
-	cmd := exec.Command("magick", inputPath, outputPath)
+	cmd, err := imagemagick.ConvertCommand(inputPath, outputPath)
+	if err != nil {
+		return nil, err
+	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("imagemagick normalize failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}

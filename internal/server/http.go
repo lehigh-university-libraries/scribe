@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -214,11 +213,6 @@ func NewHandler(
 	// Context metrics
 	mux.HandleFunc("GET /v1/contexts/{context_id}/metrics", handler.handleGetContextMetrics)
 
-	// IIIF image passthrough keeps the frontend talking only to the backend
-	// origin while the backend can still use a shared or local Cantaloupe.
-	mux.Handle("/cantaloupe", http.HandlerFunc(handler.handleProxyCantaloupe))
-	mux.Handle("/cantaloupe/", http.HandlerFunc(handler.handleProxyCantaloupe))
-
 	if authManager != nil {
 		authManager.RegisterRoutes(mux)
 	}
@@ -334,7 +328,7 @@ func (h *Handler) handleGetItemIIIFManifest(w http.ResponseWriter, r *http.Reque
 
 	apiBase := requestOrigin(r)
 	manifestID := fmt.Sprintf("%s/v1/items/%s/manifest", apiBase, url.PathEscape(item.ID))
-	iiifBase := resolvePublicBase(config.Get().Config.Cantaloupe.IIIFBase, r, "/cantaloupe/iiif/2")
+	iiifBase := resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/2")
 	canvases := make([]any, 0, len(item.Images))
 
 	for _, image := range item.Images {
@@ -507,7 +501,7 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	iiifBase := resolvePublicBase(config.Get().Config.Cantaloupe.IIIFBase, r, "/cantaloupe/iiif/2")
+	iiifBase := resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/2")
 	imageBody := buildImageBody(run.ImageURL, iiifBase, pageW, pageH)
 	canvasLabel := run.ImageURL
 	if iiifID, err := iiifIdentifierFromImageURL(run.ImageURL); err == nil {
@@ -913,119 +907,18 @@ func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run s
 	return nil
 }
 
-func iiifBaseURL() string {
-	base := strings.TrimRight(strings.TrimSpace(config.Get().Config.Cantaloupe.IIIFInternalBase), "/")
-	if base == "" {
-		base = strings.TrimRight(strings.TrimSpace(config.Get().Config.Cantaloupe.IIIFBase), "/")
-	}
-	if base == "" {
-		base = "http://cantaloupe:8182/iiif/2"
-	}
-	return base
-}
-
-func rewriteCantaloupeProxyPath(requestPath, targetBasePath string) string {
-	path := strings.TrimPrefix(requestPath, "/cantaloupe")
-	if path == "" || path == "/" {
-		if targetBasePath == "" {
-			return "/"
-		}
-		return targetBasePath
-	}
-	if targetBasePath != "" && !strings.HasPrefix(path, targetBasePath) {
-		path = strings.TrimRight(targetBasePath, "/") + "/" + strings.TrimLeft(path, "/")
-	}
-	return path
-}
-
-func (h *Handler) handleProxyCantaloupe(w http.ResponseWriter, r *http.Request) {
-	targetBase := iiifBaseURL()
-	target, err := url.Parse(targetBase)
-	if err != nil || target.Scheme == "" || target.Host == "" {
-		slog.Warn("invalid cantaloupe proxy target", "target", targetBase, "error", err)
-		http.Error(w, "cantaloupe is not configured", http.StatusBadGateway)
-		return
-	}
-
-	proxyPath := rewriteCantaloupeProxyPath(r.URL.Path, target.Path)
-	proxy := httputil.NewSingleHostReverseProxy(&url.URL{
-		Scheme: target.Scheme,
-		Host:   target.Host,
-	})
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		req.URL.Scheme = target.Scheme
-		req.URL.Host = target.Host
-		req.URL.Path = proxyPath
-		req.URL.RawPath = ""
-		req.URL.RawQuery = r.URL.RawQuery
-		req.Host = target.Host
-	}
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		slog.Warn("cantaloupe proxy failed", "target", targetBase, "path", r.URL.Path, "error", err)
-		http.Error(w, "cantaloupe proxy failed", http.StatusBadGateway)
-	}
-	proxy.ServeHTTP(w, r)
-}
-
-func fetchIIIFImageToTemp(iiifID string) (string, func(), error) {
-	imageURL := fmt.Sprintf("%s/%s/full/full/0/default.jpg", iiifBaseURL(), iiifID)
-	resp, err := http.Get(imageURL) // #nosec G107 - IIIF base comes from trusted environment config
-	if err != nil {
-		return "", func() {}, fmt.Errorf("fetch iiif image: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", func() {}, fmt.Errorf("fetch iiif image: status %d", resp.StatusCode)
-	}
-
-	f, err := os.CreateTemp("", "scribe-image-*.jpg")
-	if err != nil {
-		return "", func() {}, fmt.Errorf("create temp image file: %w", err)
-	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		_ = f.Close()
-		_ = os.Remove(f.Name())
-		return "", func() {}, fmt.Errorf("write temp image file: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(f.Name())
-		return "", func() {}, fmt.Errorf("close temp image file: %w", err)
-	}
-	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
-}
-
 func fetchIIIFRegionToTemp(iiifID string, x1, y1, x2, y2 int) (string, func(), error) {
 	width := x2 - x1
 	height := y2 - y1
 	if width <= 0 || height <= 0 {
 		return "", func() {}, fmt.Errorf("invalid bbox")
 	}
-	cropURL := fmt.Sprintf("%s/%s/%d,%d,%d,%d/full/0/default.jpg", iiifBaseURL(), iiifID, x1, y1, width, height)
-	resp, err := http.Get(cropURL) // #nosec G107 - IIIF base comes from trusted environment config
-	if err != nil {
-		return "", func() {}, fmt.Errorf("fetch iiif crop: %w", err)
+	base := strings.TrimRight(strings.TrimSpace(config.Get().Config.IIIF.InternalBase), "/")
+	if base == "" {
+		return "", func() {}, fmt.Errorf("iiif.internal_base is not configured")
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", func() {}, fmt.Errorf("fetch iiif crop: status %d", resp.StatusCode)
-	}
-
-	f, err := os.CreateTemp("", "scribe-region-*.jpg")
-	if err != nil {
-		return "", func() {}, fmt.Errorf("create temp crop file: %w", err)
-	}
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		_ = f.Close()
-		_ = os.Remove(f.Name())
-		return "", func() {}, fmt.Errorf("write temp crop file: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(f.Name())
-		return "", func() {}, fmt.Errorf("close temp crop file: %w", err)
-	}
-	return f.Name(), func() { _ = os.Remove(f.Name()) }, nil
+	cropURL := fmt.Sprintf("%s/%s/%d,%d,%d,%d/full/0/default.jpg", base, iiifID, x1, y1, width, height)
+	return fetchImageURLToTemp(cropURL, "scribe-region-*.jpg")
 }
 
 func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model string, workspaceID uint64, userID *uint64) {
@@ -1202,18 +1095,14 @@ func buildImageBody(imageURL, iiifBase string, pageW, pageH int) map[string]any 
 		"width":  pageW,
 	}
 
-	// Local upload: use our own Cantaloupe IIIF service.
+	// Local upload: use the standalone IIIF image service.
 	if strings.HasPrefix(imageURL, "/static/uploads/") {
 		iiifID, err := iiifIdentifierFromImageURL(imageURL)
 		if err == nil {
 			serviceID := iiifBase + "/" + iiifID
 			body["id"] = serviceID + "/full/full/0/default.jpg"
 			body["format"] = "image/jpeg"
-			body["service"] = []any{map[string]any{
-				"id":      serviceID,
-				"type":    "ImageService2",
-				"profile": "http://iiif.io/api/image/2/level2.json",
-			}}
+			body["service"] = []any{iiifServiceDescriptor(serviceID)}
 			return body
 		}
 	}
@@ -1222,13 +1111,24 @@ func buildImageBody(imageURL, iiifBase string, pageW, pageH int) map[string]any 
 	body["id"] = imageURL
 	body["format"] = "image/jpeg"
 	if serviceID := iiifServiceFromImageURL(imageURL); serviceID != "" {
-		body["service"] = []any{map[string]any{
-			"id":      serviceID,
-			"type":    "ImageService2",
-			"profile": "http://iiif.io/api/image/2/level2.json",
-		}}
+		body["service"] = []any{iiifServiceDescriptor(serviceID)}
 	}
 	return body
+}
+
+func iiifServiceDescriptor(serviceID string) map[string]any {
+	if strings.Contains(serviceID, "/iiif/3/") {
+		return map[string]any{
+			"id":      serviceID,
+			"type":    "ImageService3",
+			"profile": "level2",
+		}
+	}
+	return map[string]any{
+		"id":      serviceID,
+		"type":    "ImageService2",
+		"profile": "http://iiif.io/api/image/2/level2.json",
+	}
 }
 
 // iiifServiceFromImageURL extracts the IIIF image service base URL from a full
@@ -1691,8 +1591,8 @@ func (h *Handler) serveIndexHTML(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runtimeConfig, err := json.Marshal(map[string]string{
-		"ANNOTATION_API_BASE":  resolvePublicBase(config.Get().Config.Annotation.APIBase, r, "/"),
-		"CANTALOUPE_IIIF_BASE": resolvePublicBase(config.Get().Config.Cantaloupe.IIIFBase, r, "/cantaloupe/iiif/2"),
+		"ANNOTATION_API_BASE": resolvePublicBase(config.Get().Config.Annotation.APIBase, r, "/"),
+		"IIIF_BASE":           resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/2"),
 	})
 	if err != nil {
 		http.ServeFile(w, r, indexPath)

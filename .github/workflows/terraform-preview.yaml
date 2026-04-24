@@ -76,6 +76,7 @@ jobs:
       gar_image: ${{ needs.prepare-image-tag.outputs.frontend_gar_image }}
       build_args: |
         SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}
+        SCRIBE_FRONTEND_IIIF_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}:8081
 
   build-ocr:
     if: github.event.action != 'closed'

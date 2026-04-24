@@ -92,18 +92,20 @@ resolve_terraform_zone() {
 
 build_frontend_gar_image() {
   local image_ref="$1"
-  local zone backend_origin
+  local zone backend_origin iiif_origin
 
   zone="$(resolve_terraform_zone)"
   backend_origin="http://${TF_VAR_name}.${zone}.c.${GCLOUD_PROJECT}.internal"
+  iiif_origin="${backend_origin}:8081"
 
-  echo "GAR image missing for frontend sidecar; building and pushing ${image_ref} with backend origin ${backend_origin}..." >&2
+  echo "GAR image missing for frontend sidecar; building and pushing ${image_ref} with backend origin ${backend_origin} and IIIF origin ${iiif_origin}..." >&2
   "${repo_root}/ci/build-push-gar-image.sh" \
     --image "$image_ref" \
     --context "$repo_root" \
     --file "${repo_root}/Dockerfile.frontend" \
     --platform "linux/amd64" \
-    --build-arg "SCRIBE_FRONTEND_BACKEND_ORIGIN=${backend_origin}"
+    --build-arg "SCRIBE_FRONTEND_BACKEND_ORIGIN=${backend_origin}" \
+    --build-arg "SCRIBE_FRONTEND_IIIF_ORIGIN=${iiif_origin}"
 }
 
 resolve_frontend_gar_image() {

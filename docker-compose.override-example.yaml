@@ -32,6 +32,7 @@ services:
       - "80:8888"
     environment:
       SCRIBE_FRONTEND_BACKEND_ORIGIN: http://api:8080
+      SCRIBE_FRONTEND_IIIF_ORIGIN: http://image-service:8080
     depends_on:
       api:
         condition: service_started

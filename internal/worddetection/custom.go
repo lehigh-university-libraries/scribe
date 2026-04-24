@@ -11,11 +11,12 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
 )
 
 // CustomProvider implements word detection using custom flood-fill algorithm
@@ -72,13 +73,16 @@ func (p *CustomProvider) preprocessImage(imagePath string) (string, error) {
 	processedPath := filepath.Join(tempDir, fmt.Sprintf("processed_custom_%s_%d.jpg", baseName, time.Now().Unix()))
 
 	// Preprocess: grayscale, enhance contrast, sharpen, threshold
-	cmd := exec.Command("magick", imagePath,
+	cmd, err := imagemagick.ConvertCommand(imagePath,
 		"-colorspace", "Gray",
 		"-contrast-stretch", "0.15x0.05%",
 		"-sharpen", "0x1",
 		"-morphology", "close", "rectangle:2x1",
 		"-threshold", "75%",
 		processedPath)
+	if err != nil {
+		return "", err
+	}
 
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("imagemagick preprocessing failed: %w", err)

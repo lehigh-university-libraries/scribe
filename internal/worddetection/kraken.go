@@ -40,12 +40,15 @@ func (p *KrakenProvider) DetectWords(ctx context.Context, imagePath string) ([]W
 		fmt.Sprintf("kraken_seg_%d.json", time.Now().UnixNano()))
 	defer os.Remove(outputPath)
 
-	// kraken -i <input> <output> segment -m <model>
+	// kraken -i <input> <output> segment -bl -i <model>
+	// `-bl` selects baseline (BLLA) segmentation; without it, `-i` is read as
+	// the legacy box-segmentation model and `-m` becomes --maxcolseps (int).
 	// The JSON output format is requested with the .json extension.
 	args := []string{
 		"-i", imagePath, outputPath,
 		"segment",
-		"-m", p.modelID,
+		"-bl",
+		"-i", p.modelID,
 	}
 	cmd := exec.CommandContext(ctx, "kraken", args...)
 	out, err := cmd.CombinedOutput()

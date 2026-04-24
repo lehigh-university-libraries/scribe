@@ -46,8 +46,8 @@ export default defineConfig({
         target: "http://localhost:8080",
         changeOrigin: true
       },
-      "/cantaloupe": {
-        target: "http://localhost",
+      "/iiif": {
+        target: "http://localhost:8081",
         changeOrigin: true
       },
       "/healthz": {

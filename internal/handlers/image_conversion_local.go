@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 
+	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
 	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
 )
 
@@ -43,7 +43,10 @@ func (h *Handler) convertImageViaHoudini(imageData []byte, contentType string) (
 		slog.Warn("Remote image normalization failed; falling back to local ImageMagick", "error", err)
 	}
 
-	cmd := exec.Command("magick", "-", cachePath)
+	cmd, err := imagemagick.ConvertCommand("-", cachePath)
+	if err != nil {
+		return nil, err
+	}
 	cmd.Stdin = bytes.NewReader(imageData)
 	slog.Info("Converting image", "cmd", cmd.String(), "content_type", contentType)
 	if err := cmd.Run(); err != nil {

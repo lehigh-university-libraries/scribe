@@ -50,7 +50,7 @@ manipulation work.
 |---------|-----|
 | Web app | http://localhost |
 | API + Annotation API | http://localhost:8080 |
-| IIIF image server (Cantaloupe) | http://localhost/cantaloupe |
+| IIIF image API compatibility path | http://localhost:8081/iiif/2 |
 | Worker health | `docker compose logs worker` or `http://worker:8080/healthz` inside the compose network |
 
 ## Creating items
@@ -148,8 +148,8 @@ flowchart TD
   frontend -->|proxy to backend origin| ingress
 
   browser -->|IIIF/image requests| frontend
-  frontend -->|/cantaloupe via backend| ingress
-  api -->|reverse proxy| cantaloupe
+  frontend -->|/iiif via image-service| imageSvc
+  imageSvc -->|reads shared uploads| api
 
   api -->|startup secret reads| vault
   worker -->|startup secret reads| vault
@@ -271,7 +271,7 @@ This repo currently reads Docker auth from `~/.docker/config.json`. Your user
 also needs write access to `projects/<project>/locations/us/repositories/internal`.
 
 Global runtime values such as `PUBLIC_BASE_URL`, `VAULT_ADDRESS`,
-`VAULT_GCP_AUTH_ROLE`, `CANTALOUPE_IIIF_INTERNAL_BASE`, `OLLAMA_URL`,
+`VAULT_GCP_AUTH_ROLE`, `OLLAMA_URL`,
 `OLLAMA_AUDIENCE`, `OLLAMA_MODEL_ENDPOINTS_JSON`, `SEGMENTATION_SERVICE_URL`, `IMAGE_SERVICE_URL`,
 `SEGMENTATION_MODEL_ENDPOINTS_JSON`, `KRAKEN_URL`, `KRAKEN_AUDIENCE`,
 `KRAKEN_MODEL`, `KRAKEN_MODEL_ENDPOINTS_JSON`, and `VAULT_TOKEN` are now

@@ -99,12 +99,6 @@ variable "app_domain" {
   default     = ""
 }
 
-variable "cantaloupe_domain" {
-  description = "Hostname routed to the shared Cantaloupe backend on the shared load balancer."
-  type        = string
-  default     = ""
-}
-
 variable "vault_admin_emails" {
   description = "Email addresses treated as Vault administrators by the Vault Cloud Run deployment module."
   type        = list(string)
