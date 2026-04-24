@@ -1,16 +1,23 @@
 package utils
 
 import (
+	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
-	"strconv"
+	"path/filepath"
 	"strings"
+
+	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
 )
 
 func CalculateFileMD5(filePath string) (string, error) {
@@ -45,21 +52,58 @@ func RespondWithError(w http.ResponseWriter, message string, statusCode int) {
 }
 
 func GetImageDimensions(imagePath string) (int, int) {
-	cmd := exec.Command("identify", "-format", "%w %h", imagePath)
-	output, err := cmd.Output()
+	file, err := os.Open(imagePath)
+	if err == nil {
+		cfg, _, decodeErr := image.DecodeConfig(file)
+		_ = file.Close()
+		if decodeErr == nil {
+			return cfg.Width, cfg.Height
+		}
+		slog.Warn("Failed to decode image dimensions directly", "path", imagePath, "error", decodeErr)
+	} else {
+		slog.Warn("Failed to open image for dimensions", "path", imagePath, "error", err)
+	}
+
+	data, err := os.ReadFile(imagePath)
 	if err != nil {
-		slog.Warn("Failed to get image dimensions", "error", err)
+		slog.Warn("Failed to read image for dimension fallback", "path", imagePath, "error", err)
 		return 1000, 1400
 	}
 
-	parts := strings.Fields(strings.TrimSpace(string(output)))
-	if len(parts) >= 2 {
-		if width, err := strconv.Atoi(parts[0]); err == nil {
-			if height, err := strconv.Atoi(parts[1]); err == nil {
-				return width, height
+	client := imageservice.New()
+	if client.Enabled() {
+		normalized, normalizeErr := client.Normalize(context.Background(), data, detectImageContentType(imagePath, data))
+		if normalizeErr != nil {
+			slog.Warn("Failed to normalize image for dimensions", "path", imagePath, "error", normalizeErr)
+		} else {
+			cfg, _, decodeErr := image.DecodeConfig(bytes.NewReader(normalized))
+			if decodeErr == nil {
+				return cfg.Width, cfg.Height
 			}
+			slog.Warn("Failed to decode normalized image dimensions", "path", imagePath, "error", decodeErr)
 		}
 	}
 
 	return 1000, 1400
+}
+
+func detectImageContentType(imagePath string, data []byte) string {
+	contentType := http.DetectContentType(data)
+	if contentType != "application/octet-stream" {
+		return contentType
+	}
+	switch strings.ToLower(filepath.Ext(imagePath)) {
+	case ".jp2", ".j2k", ".jpx":
+		return "image/jp2"
+	case ".tif", ".tiff":
+		return "image/tiff"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
 }

@@ -48,6 +48,11 @@ on:
         required: false
         type: string
         default: "{}"
+      vm_compose_images_json:
+        description: JSON map of service_key -> digest-pinned GHCR image reference for images pulled directly by the VM docker-compose stack.
+        required: false
+        type: string
+        default: "{}"
     outputs:
       status:
         description: Workflow status for the terraform action.
@@ -77,6 +82,7 @@ jobs:
       SCRIBE_FRONTEND_IMAGE: ${{ inputs.frontend_image_tag }}
       SCRIBE_FRONTEND_GAR_IMAGE: ${{ inputs.frontend_gar_image_tag }}
       SCRIBE_OCR_IMAGES_JSON: ${{ inputs.ocr_images_json }}
+      SCRIBE_VM_COMPOSE_IMAGES_JSON: ${{ inputs.vm_compose_images_json }}
 
     outputs:
       status: ${{ steps.capture.outputs.status }}

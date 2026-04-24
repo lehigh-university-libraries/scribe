@@ -32,7 +32,7 @@ type Config struct {
 	Database      DatabaseConfig        `yaml:"database"`
 	LLM           LLMConfig             `yaml:"llm"`
 	Transcription TranscriptionConfig   `yaml:"transcription"`
-	Cantaloupe    CantaloupeConfig      `yaml:"cantaloupe"`
+	IIIF          IIIFConfig            `yaml:"iiif"`
 	Segmentation  ServiceEndpointConfig `yaml:"segmentation_service"`
 	ImageService  ServiceEndpointConfig `yaml:"image_service"`
 	Annotation    AnnotationConfig      `yaml:"annotation"`
@@ -111,9 +111,9 @@ type TranscriptionConfig struct {
 	JobWorkers int `yaml:"job_workers"`
 }
 
-type CantaloupeConfig struct {
-	IIIFBase         string `yaml:"iiif_base"`
-	IIIFInternalBase string `yaml:"iiif_internal_base"`
+type IIIFConfig struct {
+	Base         string `yaml:"base"`
+	InternalBase string `yaml:"internal_base"`
 }
 
 type ServiceEndpointConfig struct {

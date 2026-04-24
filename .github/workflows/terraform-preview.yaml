@@ -76,6 +76,7 @@ jobs:
       gar_image: ${{ needs.prepare-image-tag.outputs.frontend_gar_image }}
       build_args: |
         SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}
+        SCRIBE_FRONTEND_IIIF_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}:8081
 
   build-ocr:
     if: github.event.action != 'closed'
@@ -197,6 +198,7 @@ jobs:
       frontend_image_tag: ${{ needs.prepare-image-tag.outputs.frontend_image_tag }}
       frontend_gar_image_tag: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
       ocr_images_json: ${{ needs.build-ocr.outputs.images_json }}
+      vm_compose_images_json: ${{ needs.build-ocr.outputs.vm_images_json }}
 
   preview-comment:
     if: github.event.action != 'closed'

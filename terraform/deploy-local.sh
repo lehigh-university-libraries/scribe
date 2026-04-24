@@ -23,6 +23,7 @@ Optional environment:
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar). When unset, local apply resolves the default tag and auto-builds it if missing.
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. When unset (and the action is not destroy), deploy-local.sh calls ci/generate-ocr-images-map.sh to resolve the digests from existing GAR tags.
   SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to main for prod and the branch slug otherwise.
+  SCRIBE_VM_COMPOSE_IMAGES_JSON  Pre-resolved JSON map of service_key -> GHCR digest ref for images pulled directly by the VM (e.g. image-service). When unset (and the action is not destroy), deploy-local.sh calls ci/generate-vm-images-map.sh to resolve digests from existing GHCR tags.
   SCRIBE_ZONE            Optional zone override used when locally building the frontend GAR sidecar. Falls back to TF_VAR_zone, terraform/terraform.tfvars, then us-east5-b.
 
 Notes:
@@ -92,18 +93,20 @@ resolve_terraform_zone() {
 
 build_frontend_gar_image() {
   local image_ref="$1"
-  local zone backend_origin
+  local zone backend_origin iiif_origin
 
   zone="$(resolve_terraform_zone)"
   backend_origin="http://${TF_VAR_name}.${zone}.c.${GCLOUD_PROJECT}.internal"
+  iiif_origin="${backend_origin}:8081"
 
-  echo "GAR image missing for frontend sidecar; building and pushing ${image_ref} with backend origin ${backend_origin}..." >&2
+  echo "GAR image missing for frontend sidecar; building and pushing ${image_ref} with backend origin ${backend_origin} and IIIF origin ${iiif_origin}..." >&2
   "${repo_root}/ci/build-push-gar-image.sh" \
     --image "$image_ref" \
     --context "$repo_root" \
     --file "${repo_root}/Dockerfile.frontend" \
     --platform "linux/amd64" \
-    --build-arg "SCRIBE_FRONTEND_BACKEND_ORIGIN=${backend_origin}"
+    --build-arg "SCRIBE_FRONTEND_BACKEND_ORIGIN=${backend_origin}" \
+    --build-arg "SCRIBE_FRONTEND_IIIF_ORIGIN=${iiif_origin}"
 }
 
 resolve_frontend_gar_image() {
@@ -393,6 +396,20 @@ if [ -z "$ocr_images_json" ]; then
   ocr_images_json='{}'
 fi
 
+vm_compose_images_json="${SCRIBE_VM_COMPOSE_IMAGES_JSON:-}"
+if [ "$needs_ocr_images" != "true" ]; then
+  vm_compose_images_json='{}'
+elif [ "$action" != "destroy" ] && [ -z "$vm_compose_images_json" ]; then
+  vm_compose_images_json="$(
+    WORKSPACE_SLUG="$target_workspace" \
+    IMAGE_TAG="${SCRIBE_OCR_IMAGE_TAG:-$ocr_image_tag_default}" \
+    "$repo_root/ci/generate-vm-images-map.sh"
+  )"
+fi
+if [ -z "$vm_compose_images_json" ]; then
+  vm_compose_images_json='{}'
+fi
+
 terraform_vars=(
   "-var=project_id=${GCLOUD_PROJECT}"
   "-var=terraform_state_bucket=${TF_STATE_BUCKET}"
@@ -403,6 +420,7 @@ terraform_vars=(
   "-var=frontend_image=${frontend_image_tag}"
   "-var=frontend_gar_image=${frontend_gar_image_tag}"
   "-var=ocr_service_images=${ocr_images_json}"
+  "-var=vm_compose_images=${vm_compose_images_json}"
 )
 
 if [ -n "${ALLOWED_IPS:-}" ]; then

@@ -27,15 +27,16 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       VAULT_ADDRESS: ${VAULT_ADDRESS:-}
       VAULT_GCP_AUTH_ROLE: ${VAULT_GCP_AUTH_ROLE:-scribe-app}
-      CANTALOUPE_IIIF_INTERNAL_BASE: ${CANTALOUPE_IIIF_INTERNAL_BASE:-http://cantaloupe:8182/iiif/2}
       OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
       OLLAMA_AUDIENCE: ${OLLAMA_AUDIENCE:-}
       OLLAMA_MODEL_ENDPOINTS_JSON: ${OLLAMA_MODEL_ENDPOINTS_JSON:-}
       SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:-}
       SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:-}
       SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:-}
-      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
+      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-http://image-service:8080}
       IMAGE_SERVICE_AUDIENCE: ${IMAGE_SERVICE_AUDIENCE:-}
+      IIIF_BASE: ${IIIF_BASE:-http://localhost:8081/iiif/2}
+      IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://image-service:8080/iiif/2}
       KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     volumes:
@@ -47,6 +48,8 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+      image-service:
+        condition: service_started
 
   worker:
     image: ${SCRIBE_API_IMAGE:-ghcr.io/lehigh-university-libraries/scribe:main}
@@ -57,15 +60,16 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       VAULT_ADDRESS: ${VAULT_ADDRESS:-}
       VAULT_GCP_AUTH_ROLE: ${VAULT_GCP_AUTH_ROLE:-scribe-app}
-      CANTALOUPE_IIIF_INTERNAL_BASE: ${CANTALOUPE_IIIF_INTERNAL_BASE:-http://cantaloupe:8182/iiif/2}
       OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
       OLLAMA_AUDIENCE: ${OLLAMA_AUDIENCE:-}
       OLLAMA_MODEL_ENDPOINTS_JSON: ${OLLAMA_MODEL_ENDPOINTS_JSON:-}
       SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:-}
       SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:-}
       SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:-}
-      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
+      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-http://image-service:8080}
       IMAGE_SERVICE_AUDIENCE: ${IMAGE_SERVICE_AUDIENCE:-}
+      IIIF_BASE: ${IIIF_BASE:-http://localhost:8081/iiif/2}
+      IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://image-service:8080/iiif/2}
       KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     volumes:
@@ -79,19 +83,17 @@ services:
         condition: service_healthy
       api:
         condition: service_started
+      image-service:
+        condition: service_started
 
-  cantaloupe:
-    image: islandora/cantaloupe:6@sha256:8716969a1cc952210f0ef42f01f2c6e13175c15a449ac15d6652a5b44fc39e86
+  image-service:
+    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-scribe-image-service:local}
+    ports:
+      - "${SCRIBE_IMAGE_SERVICE_PORT:-8081}:8080"
     environment:
-      CANTALOUPE_SOURCE_STATIC: FilesystemSource
-      CANTALOUPE_FILESYSTEMSOURCE_LOOKUP_STRATEGY: BasicLookupStrategy
-      CANTALOUPE_FILESYSTEMSOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: /uploads/
-      CANTALOUPE_ENDPOINT_IIIF_2_ENABLED: "true"
-      CANTALOUPE_ENDPOINT_IIIF_3_ENABLED: "true"
-      CANTALOUPE_HTTP_PORT: "8182"
+      IMAGE_SERVICE_UPLOADS_DIR: /app/uploads
     volumes:
-      - uploads-data:/uploads:ro
-      - cantaloupe-data:/data
+      - uploads-data:/app/uploads
 
   vault-init:
     image: alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
@@ -119,7 +121,6 @@ volumes:
   mariadb-data:
   uploads-data:
   cache-data:
-  cantaloupe-data:
 
 secrets:
   GOOGLE_APPLICATION_CREDENTIALS:

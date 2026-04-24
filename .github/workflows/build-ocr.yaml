@@ -18,6 +18,9 @@ on:
       images_json:
         description: JSON map of service_key -> fully qualified image@sha256 reference.
         value: ${{ jobs.aggregate.outputs.images_json }}
+      vm_images_json:
+        description: JSON map of service_key -> GHCR image@sha256 reference for images pulled directly by the VM docker-compose stack.
+        value: ${{ jobs.aggregate.outputs.vm_images_json }}
 
 jobs:
   matrix:
@@ -80,6 +83,7 @@ jobs:
       contents: read
     outputs:
       images_json: ${{ steps.images.outputs.images_json }}
+      vm_images_json: ${{ steps.vm_images.outputs.vm_images_json }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -125,3 +129,17 @@ jobs:
           fi
           echo "images_json=$images_json" >> "$GITHUB_OUTPUT"
           echo "$images_json" | jq .
+
+      - name: Resolve VM compose GHCR digest map
+        id: vm_images
+        env:
+          GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+          WORKSPACE_SLUG: ${{ inputs.workspace_slug }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          vm_images_json="$(./ci/generate-vm-images-map.sh)"
+          if [ -z "$vm_images_json" ] || [ "$vm_images_json" = "null" ]; then
+            vm_images_json='{}'
+          fi
+          echo "vm_images_json=$vm_images_json" >> "$GITHUB_OUTPUT"
+          echo "$vm_images_json" | jq .

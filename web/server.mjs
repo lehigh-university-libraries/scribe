@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 const port = 8888;
 const backendOriginRaw = (process.env.SCRIBE_FRONTEND_BACKEND_ORIGIN || "").trim();
 const backendOrigin = backendOriginRaw ? new URL(backendOriginRaw) : null;
+const iiifOriginRaw = (process.env.SCRIBE_FRONTEND_IIIF_ORIGIN || "").trim();
+const iiifOrigin = iiifOriginRaw ? new URL(iiifOriginRaw) : null;
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(rootDir, "dist");
 const indexPath = path.join(distDir, "index.html");
@@ -36,7 +38,7 @@ const proxyMatchers = [
   (pathname) => pathname === "/v1" || pathname.startsWith("/v1/"),
   (pathname) => pathname.startsWith("/scribe.v1."),
   (pathname) => pathname === "/static/uploads" || pathname.startsWith("/static/uploads/"),
-  (pathname) => pathname === "/cantaloupe" || pathname.startsWith("/cantaloupe/"),
+  (pathname) => pathname === "/iiif" || pathname.startsWith("/iiif/"),
 ];
 
 function isProxyPath(pathname) {
@@ -70,14 +72,23 @@ function appendForwardedFor(existing, remoteAddress) {
   return `${existing}, ${remoteAddress}`;
 }
 
+function targetOriginForPath(pathname) {
+  if (pathname === "/iiif" || pathname.startsWith("/iiif/")) {
+    return iiifOrigin || backendOrigin;
+  }
+  return backendOrigin;
+}
+
 function proxyRequest(req, res) {
-  if (!backendOrigin) {
+  const url = new URL(req.url || "/", "http://frontend.local");
+  const targetOrigin = targetOriginForPath(decodeURIComponent(url.pathname));
+  if (!targetOrigin) {
     res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
-    res.end("frontend backend origin is not configured");
+    res.end("frontend upstream origin is not configured");
     return;
   }
 
-  const targetURL = new URL(req.url || "/", backendOrigin);
+  const targetURL = new URL(req.url || "/", targetOrigin);
   const client = targetURL.protocol === "https:" ? https : http;
   const headers = stripHopByHopHeaders(req.headers);
   const forwardedProto = req.headers["x-forwarded-proto"] || (req.socket.encrypted ? "https" : "http");
@@ -189,5 +200,8 @@ server.listen(port, "0.0.0.0", () => {
   console.log(`frontend listening on :${port}`);
   if (backendOrigin) {
     console.log(`frontend proxying backend paths to ${backendOrigin.toString()}`);
+  }
+  if (iiifOrigin) {
+    console.log(`frontend proxying IIIF paths to ${iiifOrigin.toString()}`);
   }
 });

@@ -99,12 +99,6 @@ variable "app_domain" {
   default     = ""
 }
 
-variable "cantaloupe_domain" {
-  description = "Hostname routed to the shared Cantaloupe backend on the shared load balancer."
-  type        = string
-  default     = ""
-}
-
 variable "vault_admin_emails" {
   description = "Email addresses treated as Vault administrators by the Vault Cloud Run deployment module."
   type        = list(string)
@@ -119,6 +113,12 @@ variable "vault_ci_service_account_emails" {
 
 variable "ocr_service_images" {
   description = "Map of OCR service key (e.g. \"segmentor\", \"kraken-ocr/<model>\", \"ollama/<model>\") to a fully digest-pinned GAR image reference. Populated by the build-ocr GitHub Actions workflow (or generate-ocr-images-map.sh locally) from config.yaml's ocr section."
+  type        = map(string)
+  default     = {}
+}
+
+variable "vm_compose_images" {
+  description = "Map of service key to a fully digest-pinned GHCR image reference for images pulled directly by the VM docker-compose stack (e.g. \"image-service\"). Populated by the build-ocr workflow (or generate-vm-images-map.sh locally)."
   type        = map(string)
   default     = {}
 }

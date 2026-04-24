@@ -63,11 +63,9 @@ data "terraform_remote_state" "shared_ollama" {
 }
 
 locals {
-  vault_url                       = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
-  shared_cantaloupe_url           = local.shared_services_enabled ? try(module.cantaloupe[0].urls[var.region], try(module.cantaloupe[0].urls[local.cantaloupe_regions[0]], "")) : ""
-  shared_cantaloupe_internal_base = trimspace(local.shared_cantaloupe_url) == "" ? "" : format("%s/iiif/2", trimsuffix(local.shared_cantaloupe_url, "/"))
-  public_base_url                 = trimspace(var.app_domain) != "" ? format("https://%s", trimspace(var.app_domain)) : try(module.scribe.urls[var.region], "")
-  default_ollama_model            = "glm-ocr:bf16"
+  vault_url            = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
+  public_base_url      = trimspace(var.app_domain) != "" ? format("https://%s", trimspace(var.app_domain)) : try(module.scribe.urls[var.region], "")
+  default_ollama_model = "glm-ocr:bf16"
   default_ollama_url = !contains(local.ollama_models, local.default_ollama_model) ? "" : (
     local.shared_ollama_services_enabled ? module.ollama_services[local.default_ollama_model].primary_url :
     try(data.terraform_remote_state.shared_ollama[0].outputs.ollama_services[local.default_ollama_model].primary_url, "")
@@ -93,8 +91,15 @@ locals {
   }
   segmentor_url          = try(module.kraken["segmentor"].urls[var.region], try(module.kraken["segmentor"].urls[local.ocr_service_regions[0]], ""))
   segmentor_audience     = local.segmentor_url
-  image_service_url      = try(module.kraken["image-service"].urls[var.region], try(module.kraken["image-service"].urls[local.ocr_service_regions[0]], ""))
-  image_service_audience = local.image_service_url
+  image_service_url      = "http://image-service:8080"
+  image_service_audience = ""
+  iiif_base              = "/iiif/2"
+  iiif_internal_base     = "http://image-service:8080/iiif/2"
+  image_service_compose_image = lookup(
+    var.vm_compose_images,
+    "image-service",
+    "MISSING_IMAGE_FOR_image-service@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  )
   kraken_segmentation_services = {
     for name, service in module.kraken :
     service.route_key => {
@@ -129,14 +134,10 @@ locals {
   }
   default_kraken_url      = try(local.kraken_transcription_services[local.kraken_default_transcription_key].primary_url, "")
   default_kraken_audience = try(local.kraken_transcription_services[local.kraken_default_transcription_key].audience, "")
-  docker_compose_services = concat(["mariadb", "api", "worker"], local.shared_services_enabled ? [] : ["cantaloupe"])
+  docker_compose_services = ["mariadb", "image-service", "api", "worker"]
 
   docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
   compose_env_vars = [
-    {
-      name  = "CANTALOUPE_IIIF_INTERNAL_BASE"
-      value = local.shared_cantaloupe_internal_base
-    },
     {
       name  = "OLLAMA_AUDIENCE"
       value = local.default_ollama_audience
@@ -170,6 +171,18 @@ locals {
       value = local.image_service_audience
     },
     {
+      name  = "IIIF_BASE"
+      value = local.iiif_base
+    },
+    {
+      name  = "IIIF_INTERNAL_BASE"
+      value = local.iiif_internal_base
+    },
+    {
+      name  = "SCRIBE_FRONTEND_IIIF_ORIGIN"
+      value = local.image_service_url
+    },
+    {
       name  = "KRAKEN_URL"
       value = local.default_kraken_url
     },
@@ -192,6 +205,10 @@ locals {
     {
       name  = "SCRIBE_API_IMAGE"
       value = var.api_image
+    },
+    {
+      name  = "SCRIBE_IMAGE_SERVICE_IMAGE"
+      value = local.image_service_compose_image
     },
     {
       name  = "VAULT_ADDRESS"
@@ -228,7 +245,7 @@ locals {
   ])
   docker_compose_up = concat(local.compose_env_update_commands, [
     "git pull",
-    "docker compose pull api worker",
+    "docker compose pull api worker image-service",
     format("docker compose up --no-build %s", join(" ", local.docker_compose_services)),
   ])
   docker_compose_down = concat(local.compose_env_update_commands, [
