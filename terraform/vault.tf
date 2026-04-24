@@ -17,7 +17,7 @@ locals {
 module "vault" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
-  source = "git::https://github.com/libops/terraform-vault-cloudrun?ref=0.5.2"
+  source = "git::https://github.com/libops/terraform-vault-cloudrun?ref=0.5.3"
   providers = {
     docker      = docker
     google      = google
@@ -27,6 +27,7 @@ module "vault" {
   project           = var.project_id
   region            = var.region
   name              = local.vault_service_name
+  image_name        = local.vault_service_name
   init_job_name     = local.vault_init_job_name
   admin_emails      = local.vault_proxy_admin_emails
   repository        = local.vault_repository

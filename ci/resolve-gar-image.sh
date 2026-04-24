@@ -22,7 +22,17 @@ case "$image_ref" in
     ;;
 esac
 
-digest="$(gcloud artifacts docker images describe "$image_ref" --format='value(image_summary.digest)')"
+stderr_file="$(mktemp)"
+trap 'rm -f "$stderr_file"' EXIT
+
+if ! digest="$(gcloud artifacts docker images describe "$image_ref" --format='value(image_summary.digest)' 2>"$stderr_file")"; then
+  err_output="$(cat "$stderr_file")"
+  if [ -n "$err_output" ]; then
+    echo "$err_output" >&2
+  fi
+  echo "failed to resolve Artifact Registry digest for: $image_ref" >&2
+  exit 1
+fi
 
 if [ -z "$digest" ]; then
   echo "failed to resolve digest for Artifact Registry image: $image_ref" >&2

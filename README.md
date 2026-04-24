@@ -247,10 +247,10 @@ Preview environments and local dev point at the shared `dev` Vault. Each
 deployment still gets its own Vault GCP auth role, so preview service accounts
 do not need to share a single global role binding.
 
-For local Terraform applies, the Docker provider also needs Artifact Registry
-push credentials because it builds and pushes images itself. Before running
-`make tf-dev`, `make tf-preview`, or `make tf-prod` locally, configure Docker
-for `us-docker.pkg.dev`:
+For local Terraform applies, the local deploy helper may need Artifact Registry
+push credentials so it can publish missing frontend/OCR GAR images before
+Terraform runs. Before running `make tf-dev`, `make tf-preview`, or
+`make tf-prod` locally, configure Docker for `us-docker.pkg.dev`:
 
 ```bash
 gcloud auth login
