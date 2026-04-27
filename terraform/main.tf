@@ -89,12 +89,15 @@ locals {
     }
     if trimspace(try(service.primary_url, "")) != ""
   }
-  segmentor_url          = try(module.kraken["segmentor"].urls[var.region], try(module.kraken["segmentor"].urls[local.ocr_service_regions[0]], ""))
-  segmentor_audience     = local.segmentor_url
-  image_service_url      = "http://image-service:8080"
-  image_service_audience = ""
-  iiif_base              = "/iiif/2"
-  iiif_internal_base     = "http://image-service:8080/iiif/2"
+  segmentor_url                      = try(module.kraken["segmentor"].urls[var.region], try(module.kraken["segmentor"].urls[local.ocr_service_regions[0]], ""))
+  segmentor_audience                 = local.segmentor_url
+  image_service_url                  = "http://image-service:8080"
+  image_service_audience             = ""
+  iiif_base                          = "/iiif/3"
+  iiif_internal_base                 = "http://image-service:8080/iiif/3"
+  triplet_presentation_base          = ""
+  triplet_presentation_internal_base = ""
+  triplet_presentation_write_token   = ""
   image_service_compose_image = lookup(
     var.vm_compose_images,
     "image-service",
@@ -177,6 +180,18 @@ locals {
     {
       name  = "IIIF_INTERNAL_BASE"
       value = local.iiif_internal_base
+    },
+    {
+      name  = "TRIPLET_PRESENTATION_BASE"
+      value = local.triplet_presentation_base
+    },
+    {
+      name  = "TRIPLET_PRESENTATION_INTERNAL_BASE"
+      value = local.triplet_presentation_internal_base
+    },
+    {
+      name  = "TRIPLET_PRESENTATION_WRITE_TOKEN"
+      value = local.triplet_presentation_write_token
     },
     {
       name  = "SCRIBE_FRONTEND_IIIF_ORIGIN"

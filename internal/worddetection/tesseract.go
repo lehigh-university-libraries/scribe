@@ -1,4 +1,4 @@
-//go:build !remoteocr
+//go:build localocr && !remoteocr
 
 package worddetection
 

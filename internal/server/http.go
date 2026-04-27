@@ -328,7 +328,7 @@ func (h *Handler) handleGetItemIIIFManifest(w http.ResponseWriter, r *http.Reque
 
 	apiBase := requestOrigin(r)
 	manifestID := fmt.Sprintf("%s/v1/items/%s/manifest", apiBase, url.PathEscape(item.ID))
-	iiifBase := resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/2")
+	iiifBase := resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/3")
 	canvases := make([]any, 0, len(item.Images))
 
 	for _, image := range item.Images {
@@ -501,7 +501,7 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	iiifBase := resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/2")
+	iiifBase := resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/3")
 	imageBody := buildImageBody(run.ImageURL, iiifBase, pageW, pageH)
 	canvasLabel := run.ImageURL
 	if iiifID, err := iiifIdentifierFromImageURL(run.ImageURL); err == nil {
@@ -917,7 +917,7 @@ func fetchIIIFRegionToTemp(iiifID string, x1, y1, x2, y2 int) (string, func(), e
 	if base == "" {
 		return "", func() {}, fmt.Errorf("iiif.internal_base is not configured")
 	}
-	cropURL := fmt.Sprintf("%s/%s/%d,%d,%d,%d/full/0/default.jpg", base, iiifID, x1, y1, width, height)
+	cropURL := fmt.Sprintf("%s/%s/%d,%d,%d,%d/max/0/default.jpg", base, iiifID, x1, y1, width, height)
 	return fetchImageURLToTemp(cropURL, "scribe-region-*.jpg")
 }
 
@@ -1100,7 +1100,7 @@ func buildImageBody(imageURL, iiifBase string, pageW, pageH int) map[string]any 
 		iiifID, err := iiifIdentifierFromImageURL(imageURL)
 		if err == nil {
 			serviceID := iiifBase + "/" + iiifID
-			body["id"] = serviceID + "/full/full/0/default.jpg"
+			body["id"] = serviceID + "/full/max/0/default.jpg"
 			body["format"] = "image/jpeg"
 			body["service"] = []any{iiifServiceDescriptor(serviceID)}
 			return body
@@ -1592,7 +1592,7 @@ func (h *Handler) serveIndexHTML(w http.ResponseWriter, r *http.Request) {
 
 	runtimeConfig, err := json.Marshal(map[string]string{
 		"ANNOTATION_API_BASE": resolvePublicBase(config.Get().Config.Annotation.APIBase, r, "/"),
-		"IIIF_BASE":           resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/2"),
+		"IIIF_BASE":           resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/3"),
 	})
 	if err != nil {
 		http.ServeFile(w, r, indexPath)

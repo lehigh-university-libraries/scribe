@@ -46,11 +46,16 @@ containers. The main `api` and `worker` image is now the lean remote-service
 build by default and expects those helper services to exist for OCR and image
 manipulation work.
 
+The main API/worker binaries build without CGO or local OCR libraries. Local
+Tesseract/Leptonica support is isolated to the standalone segmentor image,
+which opts in with the `localocr` build tag; API/worker production builds use
+the `remoteocr` tag and call that service over HTTP.
+
 | Service | URL |
 |---------|-----|
 | Web app | http://localhost |
 | API + Annotation API | http://localhost:8080 |
-| IIIF image API compatibility path | http://localhost:8081/iiif/2 |
+| IIIF image API path | http://localhost:8081/iiif/3 |
 | Worker health | `docker compose logs worker` or `http://worker:8080/healthz` inside the compose network |
 
 ## Creating items

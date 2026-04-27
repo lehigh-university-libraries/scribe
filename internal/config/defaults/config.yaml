@@ -46,8 +46,8 @@ transcription:
   job_workers: 3
 
 iiif:
-  base: "${IIIF_BASE:-/iiif/2}"
-  internal_base: "${IIIF_INTERNAL_BASE:-http://image-service:8080/iiif/2}"
+  base: "${IIIF_BASE:-/iiif/3}"
+  internal_base: "${IIIF_INTERNAL_BASE:-http://image-service:8080/iiif/3}"
 
 segmentation_service:
   url: "${SEGMENTATION_SERVICE_URL:-}"
@@ -60,6 +60,9 @@ image_service:
 annotation:
   api_base: /
   api_internal_base: http://localhost:8080
+  triplet_presentation_base: "${TRIPLET_PRESENTATION_BASE:-}"
+  triplet_presentation_internal_base: "${TRIPLET_PRESENTATION_INTERNAL_BASE:-}"
+  triplet_presentation_write_token: "${TRIPLET_PRESENTATION_WRITE_TOKEN:-}"
 
 drupal:
   hocr_url_template: ""

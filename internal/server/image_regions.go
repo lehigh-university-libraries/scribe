@@ -83,7 +83,7 @@ func fetchIIIFServiceRegionToTemp(serviceID string, x1, y1, x2, y2 int) (string,
 	if width <= 0 || height <= 0 {
 		return "", func() {}, fmt.Errorf("invalid bbox")
 	}
-	cropURL := fmt.Sprintf("%s/%d,%d,%d,%d/full/0/default.jpg", strings.TrimRight(serviceID, "/"), x1, y1, width, height)
+	cropURL := fmt.Sprintf("%s/%d,%d,%d,%d/max/0/default.jpg", strings.TrimRight(serviceID, "/"), x1, y1, width, height)
 	path, cleanup, err := fetchImageURLToTemp(cropURL, "scribe-region-*.jpg")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("fetch iiif crop: %w", err)

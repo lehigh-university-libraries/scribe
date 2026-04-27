@@ -43,6 +43,7 @@ export default class ScribeAnnotationAdapter {
   }
 
   async delete(annotationId) {
+    await this.all();
     await this.deleteOne(annotationId);
     return this.all();
   }
@@ -52,7 +53,16 @@ export default class ScribeAnnotationAdapter {
   }
 
   async get(annotationId) {
-    return this.requireClient('get').getAnnotation(annotationId);
+    try {
+      return await this.requireClient('get').getAnnotation(annotationId);
+    } catch (error) {
+      const page = await this.all();
+      const match = page.items.find((annotation) => annotation?.id === annotationId || annotation?.['@id'] === annotationId);
+      if (match) {
+        return match;
+      }
+      throw error;
+    }
   }
 
   async all() {

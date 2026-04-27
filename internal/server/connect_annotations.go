@@ -34,32 +34,17 @@ func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[sc
 
 	var items []any
 	if canvasURI != "" {
-		payloads, err := h.annotations.SearchByCanvas(ctx, canvasURI)
+		var err error
+		items, err = h.currentAnnotationItems(ctx, canvasURI, base)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-		for _, raw := range payloads {
-			var obj map[string]any
-			if err := json.Unmarshal([]byte(raw), &obj); err != nil {
-				continue
-			}
-			items = append(items, normalizeAnnotation(obj, canvasURI))
-		}
-		if len(items) == 0 {
-			bootstrap, err := h.bootstrapAnnotationsForCanvas(ctx, canvasURI, base)
-			if err == nil {
-				items = bootstrap
-				if _, persistErr := h.persistAnnotationItems(ctx, canvasURI, bootstrap); persistErr != nil {
-					return nil, connect.NewError(connect.CodeInternal, persistErr)
-				}
-			}
 		}
 	}
 	items = filterAnnotationsByGranularity(items, granularity)
 
 	page := map[string]any{
 		"@context": annotationPageContexts(),
-		"id":       annotationPageID(canvasURI),
+		"id":       h.tripletAnnotationPageID(canvasURI),
 		"type":     "AnnotationPage",
 		"items":    items,
 	}
@@ -117,6 +102,19 @@ func (h *Handler) GetAnnotation(ctx context.Context, req *connect.Request[scribe
 	}
 	raw, err := h.annotations.Get(ctx, id)
 	if err != nil {
+		if canvasURI := canvasURIFromAnnotationID(id); canvasURI != "" {
+			items, loadErr := h.currentAnnotationItems(ctx, canvasURI, h.internalAnnotationBaseURL())
+			if loadErr != nil {
+				return nil, connect.NewError(connect.CodeInternal, loadErr)
+			}
+			if anno := annotationItemByID(items, id); anno != nil {
+				b, marshalErr := json.Marshal(anno)
+				if marshalErr != nil {
+					return nil, connect.NewError(connect.CodeInternal, marshalErr)
+				}
+				return connect.NewResponse(&scribev1.GetAnnotationResponse{AnnotationJson: string(b)}), nil
+			}
+		}
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
 	}
 	if err := h.authorizeAnnotationJSON(ctx, raw); err != nil {
@@ -151,7 +149,13 @@ func (h *Handler) CreateAnnotation(ctx context.Context, req *connect.Request[scr
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := h.annotations.Upsert(ctx, id, canvasURI, string(payload)); err != nil {
+	base := h.internalAnnotationBaseURL()
+	items, err := h.currentAnnotationItems(ctx, canvasURI, base)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	items = upsertAnnotationItem(items, anno)
+	if _, err := h.saveAnnotationPage(ctx, canvasURI, items); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI); len(matches) >= 2 {
@@ -192,14 +196,14 @@ func (h *Handler) UpdateAnnotation(ctx context.Context, req *connect.Request[scr
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	found, err := h.annotations.Update(ctx, id, canvasURI, string(payload))
+	base := h.internalAnnotationBaseURL()
+	items, err := h.currentAnnotationItems(ctx, canvasURI, base)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if !found {
-		if err := h.annotations.Upsert(ctx, id, canvasURI, string(payload)); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
+	items = upsertAnnotationItem(items, anno)
+	if _, err := h.saveAnnotationPage(ctx, canvasURI, items); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&scribev1.UpdateAnnotationResponse{AnnotationJson: string(payload)}), nil
 }
@@ -211,12 +215,39 @@ func (h *Handler) DeleteAnnotation(ctx context.Context, req *connect.Request[scr
 	}
 	raw, err := h.annotations.Get(ctx, uri)
 	if err != nil {
+		if canvasURI := canvasURIFromAnnotationID(uri); canvasURI != "" {
+			items, loadErr := h.currentAnnotationItems(ctx, canvasURI, h.internalAnnotationBaseURL())
+			if loadErr != nil {
+				return nil, connect.NewError(connect.CodeInternal, loadErr)
+			}
+			if annotationItemByID(items, uri) == nil {
+				return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
+			}
+			items = deleteAnnotationItem(items, uri)
+			if _, saveErr := h.saveAnnotationPage(ctx, canvasURI, items); saveErr != nil {
+				return nil, connect.NewError(connect.CodeInternal, saveErr)
+			}
+			return connect.NewResponse(&scribev1.DeleteAnnotationResponse{}), nil
+		}
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
 	}
 	if err := h.authorizeAnnotationJSON(ctx, raw); err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
 	}
-	if err := h.annotations.Delete(ctx, uri); err != nil {
+	canvasURI := extractCanvasURIFromRawAnnotation(raw)
+	if canvasURI == "" {
+		if err := h.annotations.Delete(ctx, uri); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		return connect.NewResponse(&scribev1.DeleteAnnotationResponse{}), nil
+	}
+	base := h.internalAnnotationBaseURL()
+	items, err := h.currentAnnotationItems(ctx, canvasURI, base)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	items = deleteAnnotationItem(items, uri)
+	if _, err := h.saveAnnotationPage(ctx, canvasURI, items); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	return connect.NewResponse(&scribev1.DeleteAnnotationResponse{}), nil

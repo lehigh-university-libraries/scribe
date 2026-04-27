@@ -33,10 +33,13 @@ services:
       SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:-}
       SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:-}
       SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:-}
-      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-http://image-service:8080}
+      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
       IMAGE_SERVICE_AUDIENCE: ${IMAGE_SERVICE_AUDIENCE:-}
-      IIIF_BASE: ${IIIF_BASE:-http://localhost:8081/iiif/2}
-      IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://image-service:8080/iiif/2}
+      IIIF_BASE: ${IIIF_BASE:-http://localhost:8081/iiif/3}
+      IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://triplet:8080/iiif/3}
+      TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE:-http://localhost:8081/presentation/v3}
+      TRIPLET_PRESENTATION_INTERNAL_BASE: ${TRIPLET_PRESENTATION_INTERNAL_BASE:-http://triplet:8080/presentation/v3}
+      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
       KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     volumes:
@@ -48,7 +51,7 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
-      image-service:
+      triplet:
         condition: service_started
 
   worker:
@@ -66,10 +69,13 @@ services:
       SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:-}
       SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:-}
       SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:-}
-      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-http://image-service:8080}
+      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
       IMAGE_SERVICE_AUDIENCE: ${IMAGE_SERVICE_AUDIENCE:-}
-      IIIF_BASE: ${IIIF_BASE:-http://localhost:8081/iiif/2}
-      IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://image-service:8080/iiif/2}
+      IIIF_BASE: ${IIIF_BASE:-http://localhost:8081/iiif/3}
+      IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://triplet:8080/iiif/3}
+      TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE:-http://localhost:8081/presentation/v3}
+      TRIPLET_PRESENTATION_INTERNAL_BASE: ${TRIPLET_PRESENTATION_INTERNAL_BASE:-http://triplet:8080/presentation/v3}
+      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
       KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     volumes:
@@ -83,17 +89,21 @@ services:
         condition: service_healthy
       api:
         condition: service_started
-      image-service:
+      triplet:
         condition: service_started
 
-  image-service:
-    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-scribe-image-service:local}
+  triplet:
+    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:main}
     ports:
       - "${SCRIBE_IMAGE_SERVICE_PORT:-8081}:8080"
     environment:
-      IMAGE_SERVICE_UPLOADS_DIR: /app/uploads
+      TRIPLET_PUBLIC_BASE_URL: ${TRIPLET_PUBLIC_BASE_URL:-http://localhost:8081}
+      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
     volumes:
-      - uploads-data:/app/uploads
+      - ./triplet.config.yaml:/etc/triplet/config.yaml:ro
+      - uploads-data:/var/lib/triplet/images
+      - triplet-presentation-data:/var/lib/triplet/presentation
+      - triplet-cache-data:/var/lib/triplet/cache
 
   vault-init:
     image: alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
@@ -121,6 +131,8 @@ volumes:
   mariadb-data:
   uploads-data:
   cache-data:
+  triplet-presentation-data:
+  triplet-cache-data:
 
 secrets:
   GOOGLE_APPLICATION_CREDENTIALS:

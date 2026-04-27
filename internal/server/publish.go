@@ -37,21 +37,13 @@ func (h *Handler) annotationPageJSONForItemImage(ctx context.Context, itemImageI
 		return "", "", 0, fmt.Errorf("item image %d canvas URI is not set", itemImageID)
 	}
 
-	payloads, err := h.annotations.SearchByCanvas(ctx, canvasURI)
+	items, err := h.currentAnnotationItems(ctx, canvasURI, h.internalAnnotationBaseURL())
 	if err != nil {
 		return "", "", 0, err
 	}
-	items := make([]any, 0, len(payloads))
-	for _, raw := range payloads {
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(raw), &obj); err != nil {
-			continue
-		}
-		items = append(items, normalizeAnnotation(obj, canvasURI))
-	}
 	page := map[string]any{
 		"@context": annotationPageContexts(),
-		"id":       annotationPageID(canvasURI),
+		"id":       h.tripletAnnotationPageID(canvasURI),
 		"type":     "AnnotationPage",
 		"items":    items,
 	}

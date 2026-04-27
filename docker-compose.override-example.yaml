@@ -3,24 +3,30 @@ services:
     environment:
       SEGMENTATION_SERVICE_URL: http://segmentor:8080
       SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
-      IMAGE_SERVICE_URL: http://image-service:8080
+      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
+      IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
+      TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
+      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
       KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
     depends_on:
       segmentor:
         condition: service_started
-      image-service:
+      triplet:
         condition: service_started
 
   worker:
     environment:
       SEGMENTATION_SERVICE_URL: http://segmentor:8080
       SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
-      IMAGE_SERVICE_URL: http://image-service:8080
+      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
+      IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
+      TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
+      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
       KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
     depends_on:
       segmentor:
         condition: service_started
-      image-service:
+      triplet:
         condition: service_started
 
   frontend:
@@ -32,7 +38,7 @@ services:
       - "80:8888"
     environment:
       SCRIBE_FRONTEND_BACKEND_ORIGIN: http://api:8080
-      SCRIBE_FRONTEND_IIIF_ORIGIN: http://image-service:8080
+      SCRIBE_FRONTEND_IIIF_ORIGIN: http://triplet:8080
     depends_on:
       api:
         condition: service_started
@@ -42,7 +48,5 @@ services:
       context: .
       dockerfile: Dockerfile.segmentor
 
-  image-service:
-    build:
-      context: .
-      dockerfile: Dockerfile.image-service
+  triplet:
+    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:main}

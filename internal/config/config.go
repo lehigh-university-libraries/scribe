@@ -1,8 +1,8 @@
 package config
 
 import (
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -123,8 +123,11 @@ type ServiceEndpointConfig struct {
 }
 
 type AnnotationConfig struct {
-	APIBase         string `yaml:"api_base"`
-	APIInternalBase string `yaml:"api_internal_base"`
+	APIBase                         string `yaml:"api_base"`
+	APIInternalBase                 string `yaml:"api_internal_base"`
+	TripletPresentationBase         string `yaml:"triplet_presentation_base"`
+	TripletPresentationInternalBase string `yaml:"triplet_presentation_internal_base"`
+	TripletPresentationWriteToken   string `yaml:"triplet_presentation_write_token"`
 }
 
 type DrupalConfig struct {
@@ -205,6 +208,9 @@ func Load() (Config, error) {
 	}
 	cfg.ImageService.URL = strings.TrimSpace(cfg.ImageService.URL)
 	cfg.ImageService.Audience = strings.TrimSpace(cfg.ImageService.Audience)
+	cfg.Annotation.TripletPresentationBase = strings.TrimRight(strings.TrimSpace(cfg.Annotation.TripletPresentationBase), "/")
+	cfg.Annotation.TripletPresentationInternalBase = strings.TrimRight(strings.TrimSpace(cfg.Annotation.TripletPresentationInternalBase), "/")
+	cfg.Annotation.TripletPresentationWriteToken = strings.TrimSpace(cfg.Annotation.TripletPresentationWriteToken)
 	cfg.LLM.Kraken.URL = strings.TrimSpace(cfg.LLM.Kraken.URL)
 	cfg.LLM.Kraken.Audience = strings.TrimSpace(cfg.LLM.Kraken.Audience)
 	cfg.LLM.Kraken.Model = strings.TrimSpace(cfg.LLM.Kraken.Model)

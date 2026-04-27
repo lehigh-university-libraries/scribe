@@ -1,0 +1,52 @@
+server:
+  listen: ":8080"
+  read_timeout: 30s
+  write_timeout: 120s
+  public_base_url: "${TRIPLET_PUBLIC_BASE_URL:-http://localhost:8081}"
+
+logging:
+  level: info
+  format: json
+
+vips:
+  concurrency: 0
+  cache_max_mem: 0
+  cache_max_files: 0
+  report_leaks: false
+  block_untrusted: true
+
+iiif:
+  allowed_origins:
+    - "*"
+  image:
+    enabled: true
+    prefix: /iiif/3
+    max_output_pixels: 100000000
+    max_source_pixels: 250000000
+    max_source_bytes: 1073741824
+    max_derivative_bytes: 536870912
+    max_concurrent_transforms: 4
+    color_management: preserve
+    load_access: auto
+    info_dimension_cache: true
+  presentation:
+    enabled: true
+    prefix: /presentation/v3
+    root: /var/lib/triplet/presentation
+    write_enabled: true
+    write_token: "${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}"
+  search:
+    enabled: false
+    prefix: /search/v2
+  auth:
+    enabled: false
+    prefix: /auth/v2
+
+sources:
+  default: file
+  file:
+    root: /var/lib/triplet/images
+
+cache:
+  root: /var/lib/triplet/cache
+  max_bytes: 1073741824

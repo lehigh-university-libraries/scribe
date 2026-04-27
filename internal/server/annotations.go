@@ -232,38 +232,22 @@ func (h *Handler) bootstrapAnnotationsForGranularities(
 }
 
 func (h *Handler) persistAnnotationItems(ctx context.Context, canvasURI string, items []any) ([]string, error) {
-	payloads := make([]string, 0, len(items))
+	current, err := h.currentAnnotationItems(ctx, canvasURI, h.internalAnnotationBaseURL())
+	if err != nil {
+		return nil, err
+	}
 	for _, item := range items {
 		anno, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
-		anno = normalizeAnnotation(anno, canvasURI)
-		id := strings.TrimSpace(annStringValue(anno, "id"))
-		if id == "" {
-			id = strings.TrimSpace(annStringValue(anno, "@id"))
-		}
-		if id == "" {
-			continue
-		}
-		b, err := json.Marshal(anno)
-		if err != nil {
-			return nil, err
-		}
-		raw := string(b)
-		if err := h.annotations.Upsert(ctx, id, canvasURI, raw); err != nil {
-			return nil, err
-		}
-		payloads = append(payloads, raw)
+		current = upsertAnnotationItem(current, normalizeAnnotation(anno, canvasURI))
 	}
-	return payloads, nil
+	return h.saveAnnotationPage(ctx, canvasURI, current)
 }
 
 func (h *Handler) replaceAnnotationItems(ctx context.Context, canvasURI string, items []any) ([]string, error) {
-	if err := h.annotations.DeleteByCanvas(ctx, canvasURI); err != nil {
-		return nil, err
-	}
-	return h.persistAnnotationItems(ctx, canvasURI, items)
+	return h.saveAnnotationPage(ctx, canvasURI, items)
 }
 
 func (h *Handler) fetchBootstrapAnnotationItems(

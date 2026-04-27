@@ -35,6 +35,6 @@ docker run --rm \
   golang:1.24-alpine \
   sh -lc '
     export PATH="/usr/local/go/bin:$PATH"
-    apk add --no-cache build-base tesseract-ocr-dev leptonica-dev >/dev/null
+    apk add --no-cache build-base >/dev/null
     go test -v -race ./...
   '
