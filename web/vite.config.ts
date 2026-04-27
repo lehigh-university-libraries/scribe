@@ -1,30 +1,52 @@
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  plugins: [react()],
   resolve: {
     alias: {
+      "@": path.resolve(__dirname, "src"),
+      "mirador-scribe": path.resolve(__dirname, "../mirador-scribe/src/index.js"),
       react: path.resolve(__dirname, "node_modules/react"),
       "react-dom": path.resolve(__dirname, "node_modules/react-dom"),
       "@emotion/react": path.resolve(__dirname, "node_modules/@emotion/react"),
       "@emotion/styled": path.resolve(__dirname, "node_modules/@emotion/styled"),
+      "@mui/icons-material": path.resolve(__dirname, "node_modules/@mui/icons-material"),
       "@mui/material": path.resolve(__dirname, "node_modules/@mui/material"),
-      "@mui/system": path.resolve(__dirname, "node_modules/@mui/system")
+      "@mui/system": path.resolve(__dirname, "node_modules/@mui/system"),
+      i18next: path.resolve(__dirname, "node_modules/i18next"),
+      mirador: path.resolve(__dirname, "node_modules/mirador"),
+      openseadragon: path.resolve(__dirname, "node_modules/openseadragon"),
+      "prop-types": path.resolve(__dirname, "node_modules/prop-types"),
+      "react-i18next": path.resolve(__dirname, "node_modules/react-i18next")
     },
     dedupe: [
       "react",
       "react-dom",
       "@emotion/react",
       "@emotion/styled",
+      "@mui/icons-material",
       "@mui/material",
-      "@mui/system"
+      "@mui/system",
+      "i18next",
+      "mirador",
+      "openseadragon",
+      "prop-types",
+      "react-i18next"
     ]
   },
   server: {
     port: 5173,
+    fs: {
+      allow: [
+        __dirname,
+        path.resolve(__dirname, "../mirador-scribe/src")
+      ]
+    },
     proxy: {
       "/v1": {
         target: "http://localhost:8080",

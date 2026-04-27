@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
   --color-brand-500: #18181b;
   --color-brand-600: #09090b;
@@ -7,340 +9,93 @@
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
 }
 
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
 @layer base {
   :root {
     color-scheme: light;
-    --shell-page-bg: #ffffff;
-    --shell-body-background: #ffffff;
-    --shell-sidebar-bg: #fafafa;
-    --shell-panel-bg: #ffffff;
-    --shell-card-bg: #ffffff;
-    --shell-card-hover: #fafafa;
-    --shell-input-bg: #ffffff;
-    --shell-button-bg: #ffffff;
-    --shell-button-hover: #f4f4f5;
-    --shell-chip-bg: #f4f4f5;
-    --shell-border: #e4e4e7;
-    --shell-border-strong: #d4d4d8;
-    --shell-text: #09090b;
-    --shell-muted: #71717a;
-    --shell-soft: #a1a1aa;
-    --shell-accent: #18181b;
-    --shell-accent-soft: #f4f4f5;
-    --shell-focus: rgba(24, 24, 27, 0.12);
-    --shell-danger: #dc2626;
-    --shell-danger-soft: #fef2f2;
-    --shell-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+    --radius: 0.5rem;
+    --background: #ffffff;
+    --foreground: #09090b;
+    --card: #ffffff;
+    --card-foreground: #09090b;
+    --popover: #ffffff;
+    --popover-foreground: #09090b;
+    --primary: #18181b;
+    --primary-foreground: #ffffff;
+    --secondary: #f4f4f5;
+    --secondary-foreground: #18181b;
+    --muted: #f4f4f5;
+    --muted-foreground: #71717a;
+    --accent: #f4f4f5;
+    --accent-foreground: #18181b;
+    --destructive: #dc2626;
+    --border: #e4e4e7;
+    --input: #d4d4d8;
+    --ring: #18181b;
   }
 
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --shell-page-bg: #09090b;
-    --shell-body-background: #09090b;
-    --shell-sidebar-bg: #18181b;
-    --shell-panel-bg: #09090b;
-    --shell-card-bg: #18181b;
-    --shell-card-hover: #27272a;
-    --shell-input-bg: #18181b;
-    --shell-button-bg: #18181b;
-    --shell-button-hover: #27272a;
-    --shell-chip-bg: #27272a;
-    --shell-border: #27272a;
-    --shell-border-strong: #3f3f46;
-    --shell-text: #fafafa;
-    --shell-muted: #a1a1aa;
-    --shell-soft: #71717a;
-    --shell-accent: #fafafa;
-    --shell-accent-soft: #27272a;
-    --shell-focus: rgba(250, 250, 250, 0.16);
-    --shell-danger: #f87171;
-    --shell-danger-soft: rgba(248, 113, 113, 0.1);
-    --shell-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
-  }
-
-  :root[data-theme="dark"] .text-slate-950,
-  :root[data-theme="dark"] .text-slate-900 {
-    color: var(--shell-text) !important;
-  }
-
-  :root[data-theme="dark"] .text-slate-700,
-  :root[data-theme="dark"] .text-slate-600,
-  :root[data-theme="dark"] .text-slate-500,
-  :root[data-theme="dark"] .text-slate-400 {
-    color: var(--shell-muted) !important;
-  }
-
-  :root[data-theme="dark"] .bg-white,
-  :root[data-theme="dark"] .bg-slate-50 {
-    background-color: var(--shell-card-bg) !important;
-  }
-
-  :root[data-theme="dark"] .border-slate-200 {
-    border-color: var(--shell-border) !important;
-  }
-
-  :root[data-theme="dark"] .bg-slate-950\/30 {
-    background-color: rgba(0, 0, 0, 0.55) !important;
+    --background: #09090b;
+    --foreground: #fafafa;
+    --card: #18181b;
+    --card-foreground: #fafafa;
+    --popover: #18181b;
+    --popover-foreground: #fafafa;
+    --primary: #fafafa;
+    --primary-foreground: #09090b;
+    --secondary: #27272a;
+    --secondary-foreground: #fafafa;
+    --muted: #27272a;
+    --muted-foreground: #a1a1aa;
+    --accent: #27272a;
+    --accent-foreground: #fafafa;
+    --destructive: #f87171;
+    --border: #27272a;
+    --input: #3f3f46;
+    --ring: #d4d4d8;
   }
 
   html {
-    background: var(--shell-page-bg);
-    color: var(--shell-text);
+    background: var(--background);
+    color: var(--foreground);
     font-family: var(--font-sans);
     font-size: 14px;
   }
 
   body {
     min-height: 100vh;
-    background: var(--shell-body-background);
-    color: var(--shell-text);
+    background: var(--background);
+    color: var(--foreground);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-}
 
-@layer components {
-  .shell-page {
-    @apply min-h-screen;
-    color: var(--shell-text);
-  }
-
-  .shell-layout {
-    @apply mx-auto flex min-h-screen w-full;
-  }
-
-  .shell-sidebar {
-    @apply flex w-full max-w-[260px] flex-col border-r px-3 py-4;
-    background: var(--shell-sidebar-bg);
-    border-color: var(--shell-border);
-  }
-
-  .shell-main {
-    @apply min-w-0 flex-1;
-    background: var(--shell-panel-bg);
-  }
-
-  .shell-topbar {
-    @apply flex items-center border-b px-6 py-3;
-    border-color: var(--shell-border);
-    min-height: 56px;
-  }
-
-  .shell-main-body {
-    @apply px-6 py-6;
-  }
-
-  .shell-section {
-    @apply rounded-lg border p-5;
-    background: var(--shell-card-bg);
-    border-color: var(--shell-border);
-    box-shadow: var(--shell-shadow);
-  }
-
-  .shell-composer {
-    @apply rounded-lg border p-5;
-    background: var(--shell-card-bg);
-    border-color: var(--shell-border);
-    box-shadow: var(--shell-shadow);
-  }
-
-  .shell-subtle-section {
-    @apply rounded-md border px-4 py-4;
-    background: var(--shell-card-bg);
-    border-color: var(--shell-border);
-  }
-
-  .shell-input,
-  .shell-select,
-  .shell-textarea,
-  .shell-file-input,
-  .shell-workspace-select {
-    @apply w-full rounded-md border px-3 py-2 text-sm outline-none transition;
-    background: var(--shell-input-bg);
-    border-color: var(--shell-border-strong);
-    color: var(--shell-text);
-  }
-
-  .shell-workspace-select {
-    @apply appearance-none pr-9 text-sm font-medium;
-  }
-
-  .shell-file-input {
-    @apply px-3 py-2;
-  }
-
-  .shell-input::placeholder,
-  .shell-textarea::placeholder {
-    color: var(--shell-muted);
-  }
-
-  .shell-input:focus,
-  .shell-select:focus,
-  .shell-textarea:focus,
-  .shell-file-input:focus,
-  .shell-workspace-select:focus {
-    border-color: var(--shell-accent);
-    box-shadow: 0 0 0 3px var(--shell-focus);
-  }
-
-  .shell-select-inline {
-    @apply min-w-[140px] max-w-[180px] py-1.5 text-xs;
-  }
-
-  .shell-button-primary {
-    @apply inline-flex items-center gap-2 rounded-md px-3.5 py-2 text-sm font-medium transition;
-    background: var(--shell-accent);
-    color: #ffffff;
-  }
-
-  :root[data-theme="dark"] .shell-button-primary {
-    color: #09090b;
-  }
-
-  .shell-button-primary:hover {
-    opacity: 0.9;
-  }
-
-  .shell-button-secondary {
-    @apply inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-sm font-medium transition;
-    background: var(--shell-button-bg);
-    border-color: var(--shell-border-strong);
-    color: var(--shell-text);
-  }
-
-  .shell-button-secondary:hover {
-    background: var(--shell-button-hover);
-  }
-
-  .shell-button-danger {
-    @apply inline-flex items-center gap-2 rounded-md border px-3.5 py-2 text-sm font-medium transition;
-    background: transparent;
-    border-color: var(--shell-border-strong);
-    color: var(--shell-danger);
-  }
-
-  .shell-button-danger:hover {
-    background: var(--shell-danger-soft);
-  }
-
-  .shell-icon-button {
-    @apply inline-flex h-9 w-9 items-center justify-center rounded-md border transition;
-    background: transparent;
-    border-color: transparent;
-    color: var(--shell-muted);
-  }
-
-  .shell-icon-button:hover {
-    background: var(--shell-button-hover);
-    color: var(--shell-text);
-  }
-
-  .shell-icon-button svg {
-    @apply h-4 w-4;
-  }
-
-  .shell-icon-button-sm {
-    @apply h-8 w-8;
-  }
-
-  .shell-caption {
-    @apply text-[11px] font-medium uppercase tracking-wider;
-    color: var(--shell-soft);
-  }
-
-  .shell-chip {
-    @apply inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium;
-    background: var(--shell-chip-bg);
-    border-color: var(--shell-border);
-    color: var(--shell-muted);
-  }
-
-  .shell-chip-active {
-    background: var(--shell-accent);
-    border-color: var(--shell-accent);
-    color: #ffffff;
-  }
-
-  :root[data-theme="dark"] .shell-chip-active {
-    color: #09090b;
-  }
-
-  .shell-item-card {
-    @apply rounded-md border px-3 py-2.5 transition;
-    background: transparent;
-    border-color: transparent;
-  }
-
-  .shell-item-card:hover {
-    background: var(--shell-button-hover);
-    border-color: var(--shell-border);
-  }
-
-  .shell-drawer-backdrop {
-    @apply fixed inset-0 z-40;
-    background: rgba(0, 0, 0, 0.4);
-  }
-
-  .shell-drawer {
-    @apply fixed bottom-0 right-0 top-0 z-50 w-full max-w-[640px] border-l px-6 py-5 transition-transform duration-200;
-    background: var(--shell-panel-bg);
-    border-color: var(--shell-border);
-    box-shadow: -4px 0 16px -8px rgba(0, 0, 0, 0.1);
-  }
-
-  .shell-drawer-body {
-    @apply h-full overflow-y-auto pb-10 pr-1;
-  }
-
-  .shell-account-fab {
-    @apply inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 transition;
-    background: var(--shell-button-bg);
-    border-color: var(--shell-border);
-    color: var(--shell-text);
-  }
-
-  .shell-account-fab:hover {
-    background: var(--shell-button-hover);
-  }
-
-  .shell-account-avatar {
-    @apply flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold;
-    background: var(--shell-accent);
-    color: #ffffff;
-  }
-
-  :root[data-theme="dark"] .shell-account-avatar {
-    color: #09090b;
-  }
-
-  .shell-account-avatar svg {
-    @apply h-4 w-4;
-  }
-
-  .shell-hero-card {
-    @apply mx-auto w-full max-w-2xl px-6 py-10 text-center;
-  }
-
-  .shell-stat {
-    @apply rounded-md border px-3 py-1.5 text-xs;
-    background: var(--shell-card-bg);
-    border-color: var(--shell-border);
-    color: var(--shell-muted);
-  }
-
-  .shell-divider {
-    @apply border-t;
-    border-color: var(--shell-border);
-  }
-
-  .shell-sidebar-group {
-    @apply mb-4;
-  }
-
-  .shell-flat-note {
-    @apply rounded-md border px-3 py-2.5 text-sm;
-    background: var(--shell-card-bg);
-    border-color: var(--shell-border);
-    color: var(--shell-muted);
+  * {
+    @apply border-border outline-ring/50;
   }
 }

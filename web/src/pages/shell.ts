@@ -62,6 +62,7 @@ type LibraryTab = "url" | "single" | "multi" | "manifest";
 interface ShellState {
   auth: AuthMeResponse | null;
   authError: string;
+  dataError: string;
   panel: ShellPanel;
   search: string;
   theme: ThemeMode;
@@ -215,25 +216,25 @@ function avatarInitials(auth: AuthMeResponse | null): string {
 
 function createProcessingOverlay(steps: string[]): ProcessingOverlay {
   const el = document.createElement("div");
-  el.className = "fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/15 px-4 backdrop-blur-sm";
+  el.className = "fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/15 px-4 backdrop-blur-sm";
   el.innerHTML = `
-    <div class="w-full max-w-md rounded-[32px] border border-slate-200 bg-white px-8 py-9 text-center shadow-2xl shadow-slate-900/10">
+    <div class="w-full max-w-md rounded-lg border border-border bg-card px-8 py-9 text-center shadow-2xl shadow-black/10">
       <div>
-        <p class="text-xs font-semibold uppercase tracking-[0.34em] text-slate-400">Scribe</p>
-        <p class="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Preparing your annotation</p>
+        <p class="text-xs font-semibold uppercase tracking-[0.34em] text-muted-foreground">Scribe</p>
+        <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">Preparing your annotation</p>
       </div>
       <div class="mt-6 flex justify-center">
-        <div class="h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
+        <div class="size-12 animate-spin rounded-full border-4 border-border border-t-primary"></div>
       </div>
-      <ul class="mt-8 space-y-3 text-left text-sm">
+      <ul class="mt-8 flex flex-col gap-3 text-left text-sm">
         ${steps.map((label, index) => `
-          <li id="proc-step-${index}" class="flex items-center gap-3 text-slate-400 transition-colors duration-300">
-            <span id="proc-icon-${index}" class="flex h-5 w-5 flex-shrink-0 items-center justify-center text-xs">·</span>
+          <li id="proc-step-${index}" class="flex items-center gap-3 text-muted-foreground transition-colors duration-300">
+            <span id="proc-icon-${index}" class="flex size-5 flex-shrink-0 items-center justify-center text-xs">·</span>
             <span>${escHtml(label)}</span>
           </li>
         `).join("")}
       </ul>
-      <p id="proc-detail" class="mt-6 text-xs text-slate-500"></p>
+      <p id="proc-detail" class="mt-6 text-xs text-muted-foreground"></p>
     </div>
   `;
   document.body.appendChild(el);
@@ -246,11 +247,11 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
       const icon = document.getElementById(`proc-icon-${i}`);
       if (!item || !icon) continue;
       if (i < step) {
-        item.className = "flex items-center gap-3 text-slate-700 transition-colors duration-300";
-        icon.innerHTML = `<span class="h-4 w-4 text-blue-600">${ICONS.check}</span>`;
+        item.className = "flex items-center gap-3 text-muted-foreground transition-colors duration-300";
+        icon.innerHTML = `<span class="size-4 text-primary">${ICONS.check}</span>`;
       } else {
-        item.className = "flex items-center gap-3 text-slate-950 transition-colors duration-300";
-        icon.innerHTML = `<span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600"></span>`;
+        item.className = "flex items-center gap-3 text-foreground transition-colors duration-300";
+        icon.innerHTML = `<span class="inline-block size-3 animate-spin rounded-full border-2 border-border border-t-primary"></span>`;
       }
     }
     activeStep = step;
@@ -265,8 +266,8 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
         const item = document.getElementById(`proc-step-${i}`);
         const icon = document.getElementById(`proc-icon-${i}`);
         if (!item || !icon) continue;
-        item.className = "flex items-center gap-3 text-slate-700 transition-colors duration-300";
-        icon.innerHTML = `<span class="h-4 w-4 text-blue-600">${ICONS.check}</span>`;
+        item.className = "flex items-center gap-3 text-muted-foreground transition-colors duration-300";
+        icon.innerHTML = `<span class="size-4 text-primary">${ICONS.check}</span>`;
       }
       const detailEl = document.getElementById("proc-detail");
       if (detailEl) detailEl.textContent = detail;
@@ -369,18 +370,18 @@ function renderAuditCard(audit: ItemProviderCallAudit): string {
     || (audit.itemImageSequence ? `Page ${audit.itemImageSequence}` : audit.itemImageId ? `Image ${audit.itemImageId}` : "Item");
   const status = audit.httpStatus != null ? `HTTP ${audit.httpStatus}` : audit.errorMessage?.trim() ? "Error" : "OK";
   return `
-    <article class="shell-section">
-      <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <span class="shell-chip">${escHtml(pageLabel)}</span>
+    <article class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
+      <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${escHtml(pageLabel)}</span>
         <span>${escHtml(formatDateTime(audit.createdAt))}</span>
         <span>${escHtml(status)}</span>
       </div>
-      <p class="mt-3 text-sm font-medium text-slate-950">${escHtml(audit.provider)} ${escHtml(audit.model)} <span class="text-slate-500">(${escHtml(audit.operation)})</span></p>
-      ${audit.errorMessage?.trim() ? `<p class="mt-3 text-xs text-rose-600">${escHtml(audit.errorMessage)}</p>` : ""}
-      <div class="mt-4 space-y-3">
-        ${audit.prompt?.trim() ? `<details class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><summary class="cursor-pointer text-xs font-medium text-slate-700">Prompt</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-500">${escHtml(audit.prompt)}</pre></details>` : ""}
-        ${audit.requestJson?.trim() ? `<details class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><summary class="cursor-pointer text-xs font-medium text-slate-700">Request JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-500">${escHtml(audit.requestJson)}</pre></details>` : ""}
-        ${audit.responseJson?.trim() ? `<details class="rounded-2xl border border-slate-200 bg-slate-50 p-3"><summary class="cursor-pointer text-xs font-medium text-slate-700">Response JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-slate-500">${escHtml(audit.responseJson)}</pre></details>` : ""}
+      <p class="mt-3 text-sm font-medium text-foreground">${escHtml(audit.provider)} ${escHtml(audit.model)} <span class="text-muted-foreground">(${escHtml(audit.operation)})</span></p>
+      ${audit.errorMessage?.trim() ? `<p class="mt-3 text-xs text-destructive">${escHtml(audit.errorMessage)}</p>` : ""}
+      <div class="mt-4 flex flex-col gap-3">
+        ${audit.prompt?.trim() ? `<details class="rounded-lg border border-border bg-muted p-3"><summary class="cursor-pointer text-xs font-medium text-muted-foreground">Prompt</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">${escHtml(audit.prompt)}</pre></details>` : ""}
+        ${audit.requestJson?.trim() ? `<details class="rounded-lg border border-border bg-muted p-3"><summary class="cursor-pointer text-xs font-medium text-muted-foreground">Request JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">${escHtml(audit.requestJson)}</pre></details>` : ""}
+        ${audit.responseJson?.trim() ? `<details class="rounded-lg border border-border bg-muted p-3"><summary class="cursor-pointer text-xs font-medium text-muted-foreground">Response JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">${escHtml(audit.responseJson)}</pre></details>` : ""}
       </div>
     </article>
   `;
@@ -390,44 +391,44 @@ function renderContextCard(context: Context, metrics: ContextMetrics): string {
   const endpointLabel = context.transcriptionBaseUrl
     || (context.transcriptionProvider === "kraken" ? "Model-routed from config" : "Global config default");
   return `
-    <article class="shell-section">
+    <article class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <h3 class="text-lg font-semibold text-slate-950">${escHtml(context.name)}</h3>
-          <p class="mt-2 text-sm text-slate-500">${escHtml(context.description || "No description.")}</p>
+          <h3 class="text-lg font-semibold text-foreground">${escHtml(context.name)}</h3>
+          <p class="mt-2 text-sm text-muted-foreground">${escHtml(context.description || "No description.")}</p>
         </div>
-        ${context.isDefault ? `<span class="shell-chip shell-chip-active">Default</span>` : ""}
+        ${context.isDefault ? `<span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">Default</span>` : ""}
       </div>
       <dl class="mt-5 grid gap-3 sm:grid-cols-2">
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Provider</dt>
-          <dd class="mt-1 text-sm text-slate-900">${escHtml(context.transcriptionProvider || "—")}</dd>
+        <div class="rounded-lg border border-border bg-muted p-3">
+          <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Provider</dt>
+          <dd class="mt-1 text-sm text-foreground">${escHtml(context.transcriptionProvider || "—")}</dd>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Model</dt>
-          <dd class="mt-1 truncate font-mono text-xs text-slate-700">${escHtml(context.transcriptionModel || "—")}</dd>
+        <div class="rounded-lg border border-border bg-muted p-3">
+          <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Model</dt>
+          <dd class="mt-1 truncate font-mono text-xs text-muted-foreground">${escHtml(context.transcriptionModel || "—")}</dd>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Segmentation</dt>
-          <dd class="mt-1 truncate font-mono text-xs text-slate-700">${escHtml(context.segmentationModel || "—")}</dd>
+        <div class="rounded-lg border border-border bg-muted p-3">
+          <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Segmentation</dt>
+          <dd class="mt-1 truncate font-mono text-xs text-muted-foreground">${escHtml(context.segmentationModel || "—")}</dd>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Endpoint</dt>
-          <dd class="mt-1 truncate font-mono text-xs text-slate-700">${escHtml(endpointLabel)}</dd>
+        <div class="rounded-lg border border-border bg-muted p-3">
+          <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Endpoint</dt>
+          <dd class="mt-1 truncate font-mono text-xs text-muted-foreground">${escHtml(endpointLabel)}</dd>
         </div>
       </dl>
       <div class="mt-5 grid gap-3 sm:grid-cols-3">
-        <div class="rounded-2xl border border-slate-200 bg-white p-3">
-          <p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Tracked runs</p>
-          <p class="mt-2 text-2xl font-semibold text-slate-950">${metrics.total_runs}</p>
+        <div class="rounded-lg border border-border bg-card p-3">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Tracked runs</p>
+          <p class="mt-2 text-2xl font-semibold text-foreground">${metrics.total_runs}</p>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-white p-3">
-          <p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Runs with edits</p>
-          <p class="mt-2 text-2xl font-semibold text-slate-950">${metrics.corrected_runs}</p>
+        <div class="rounded-lg border border-border bg-card p-3">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Runs with edits</p>
+          <p class="mt-2 text-2xl font-semibold text-foreground">${metrics.corrected_runs}</p>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-white p-3">
-          <p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Avg Levenshtein</p>
-          <p class="mt-2 text-2xl font-semibold text-slate-950">${metrics.avg_levenshtein_distance.toFixed(1)}</p>
+        <div class="rounded-lg border border-border bg-card p-3">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Avg Levenshtein</p>
+          <p class="mt-2 text-2xl font-semibold text-foreground">${metrics.avg_levenshtein_distance.toFixed(1)}</p>
         </div>
       </div>
     </article>
@@ -436,12 +437,12 @@ function renderContextCard(context: Context, metrics: ContextMetrics): string {
 
 function renderProviderSecrets(secrets: ProviderSecretRecord[]): string {
   if (secrets.length === 0) {
-    return `<p class="text-sm text-slate-500">No provider keys saved yet.</p>`;
+    return `<p class="text-sm text-muted-foreground">No provider keys saved yet.</p>`;
   }
   return `
     <div class="overflow-x-auto">
       <table class="min-w-full text-left text-sm">
-        <thead class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+        <thead class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
           <tr>
             <th class="px-3 py-2">Provider</th>
             <th class="px-3 py-2">Name</th>
@@ -453,14 +454,14 @@ function renderProviderSecrets(secrets: ProviderSecretRecord[]): string {
         </thead>
         <tbody>
           ${secrets.map((secret) => `
-            <tr class="border-t border-slate-200">
-              <td class="px-3 py-3 text-slate-900">${escHtml(secret.provider)}</td>
-              <td class="px-3 py-3 text-slate-900">${escHtml(secret.name)}</td>
-              <td class="px-3 py-3 text-slate-600">${escHtml(secret.scope)}</td>
-              <td class="px-3 py-3 font-mono text-xs text-slate-500">${secret.key_hint ? `****${escHtml(secret.key_hint)}` : "Stored"}</td>
-              <td class="px-3 py-3 text-slate-500">${escHtml(formatDateTime(secret.updated_at))}</td>
+            <tr class="border-t border-border">
+              <td class="px-3 py-3 text-foreground">${escHtml(secret.provider)}</td>
+              <td class="px-3 py-3 text-foreground">${escHtml(secret.name)}</td>
+              <td class="px-3 py-3 text-muted-foreground">${escHtml(secret.scope)}</td>
+              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${secret.key_hint ? `****${escHtml(secret.key_hint)}` : "Stored"}</td>
+              <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(secret.updated_at))}</td>
               <td class="px-3 py-3 text-right">
-                <button data-provider-secret-delete="${escHtml(String(secret.id))}" class="shell-button-secondary !px-3 !py-1.5 !text-xs">Delete</button>
+                <button data-provider-secret-delete="${escHtml(String(secret.id))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Delete</button>
               </td>
             </tr>
           `).join("")}
@@ -472,12 +473,12 @@ function renderProviderSecrets(secrets: ProviderSecretRecord[]): string {
 
 function renderAPIKeys(keys: APIKeyRecord[]): string {
   if (keys.length === 0) {
-    return `<p class="text-sm text-slate-500">No workspace API keys created yet.</p>`;
+    return `<p class="text-sm text-muted-foreground">No workspace API keys created yet.</p>`;
   }
   return `
     <div class="overflow-x-auto">
       <table class="min-w-full text-left text-sm">
-        <thead class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+        <thead class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
           <tr>
             <th class="px-3 py-2">Name</th>
             <th class="px-3 py-2">Role</th>
@@ -488,13 +489,13 @@ function renderAPIKeys(keys: APIKeyRecord[]): string {
         </thead>
         <tbody>
           ${keys.map((key) => `
-            <tr class="border-t border-slate-200">
-              <td class="px-3 py-3 text-slate-900">${escHtml(key.name)}</td>
-              <td class="px-3 py-3 text-slate-600">${escHtml(key.role)}</td>
-              <td class="px-3 py-3 font-mono text-xs text-slate-500">${escHtml(key.key_prefix)}</td>
-              <td class="px-3 py-3 text-slate-500">${escHtml(formatDateTime(key.updated_at))}</td>
+            <tr class="border-t border-border">
+              <td class="px-3 py-3 text-foreground">${escHtml(key.name)}</td>
+              <td class="px-3 py-3 text-muted-foreground">${escHtml(key.role)}</td>
+              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${escHtml(key.key_prefix)}</td>
+              <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(key.updated_at))}</td>
               <td class="px-3 py-3 text-right">
-                <button data-api-key-delete="${escHtml(String(key.id))}" class="shell-button-secondary !px-3 !py-1.5 !text-xs">Delete</button>
+                <button data-api-key-delete="${escHtml(String(key.id))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Delete</button>
               </td>
             </tr>
           `).join("")}
@@ -508,25 +509,25 @@ function renderRecentItemCard(item: Item): string {
   const openHref = editorHrefForItem(item);
   const pageLabel = `${item.images.length} page${item.images.length === 1 ? "" : "s"}`;
   return `
-    <article class="shell-item-card">
+    <article class="rounded-md border border-transparent px-3 py-2.5 transition hover:border-border hover:bg-accent hover:text-accent-foreground">
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
-          <p class="truncate text-base font-semibold text-slate-950">${escHtml(item.name || item.id)}</p>
-          <p class="mt-1 truncate text-xs text-slate-500">${escHtml(item.id)}</p>
+          <p class="truncate text-base font-semibold text-foreground">${escHtml(item.name || item.id)}</p>
+          <p class="mt-1 truncate text-xs text-muted-foreground">${escHtml(item.id)}</p>
         </div>
-        <span class="shell-chip">${escHtml(item.sourceType)}</span>
+        <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${escHtml(item.sourceType)}</span>
       </div>
-      <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+      <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>${escHtml(pageLabel)}</span>
         <span>•</span>
         <span>${escHtml(formatDate(item.createdAt))}</span>
       </div>
       <div class="mt-5 flex flex-wrap items-center gap-2">
-        ${openHref ? `<a href="${openHref}" class="shell-button-primary">Open editor</a>` : `<span class="shell-chip">No images</span>`}
-        <button data-item-logs="${escHtml(item.id)}" class="shell-button-secondary">Logs</button>
-        <button data-item-delete="${escHtml(item.id)}" class="shell-button-danger">Delete</button>
+        ${openHref ? `<a href="${openHref}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">Open editor</a>` : `<span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">No images</span>`}
+        <button data-item-logs="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Logs</button>
+        <button data-item-delete="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">Delete</button>
         ${openHref ? `
-          <select data-item-export="${escHtml(item.id)}" class="shell-select shell-select-inline">
+          <select data-item-export="${escHtml(item.id)}" class="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 min-w-[140px] max-w-[180px] py-1.5 text-xs">
             <option value="">Export</option>
             <option value="hocr">hOCR</option>
             <option value="pagexml">PAGE XML</option>
@@ -545,6 +546,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   const state: ShellState = {
     auth: null,
     authError: "",
+    dataError: "",
     panel: initialView === "library" ? null : initialView,
     search: "",
     theme: readStoredTheme(),
@@ -562,30 +564,30 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   applyTheme(state.theme);
 
   app.innerHTML = `
-    <div class="shell-page">
-      <div class="shell-layout">
-        <aside id="shell-sidebar" class="shell-sidebar"></aside>
-        <main class="shell-main">
-          <div id="shell-topbar" class="shell-topbar"></div>
-          <div id="shell-content" class="shell-main-body"></div>
+    <div class="min-h-screen text-foreground">
+      <div class="mx-auto flex min-h-screen w-full">
+        <aside id="shell-sidebar" class="flex w-full max-w-[260px] flex-col border-r border-border bg-muted/40 px-3 py-4"></aside>
+        <main class="min-w-0 flex-1 bg-background">
+          <div id="shell-topbar" class="flex min-h-14 items-center border-b border-border px-6 py-3"></div>
+          <div id="shell-content" class="px-6 py-6"></div>
         </main>
       </div>
 
       <div id="shell-account-fab" class="fixed bottom-4 right-4 z-30"></div>
 
-      <div id="shell-drawer-backdrop" class="shell-drawer-backdrop hidden"></div>
-      <aside id="shell-drawer" class="shell-drawer translate-x-full"></aside>
+      <div id="shell-drawer-backdrop" class="fixed inset-0 z-40 bg-foreground/20 hidden"></div>
+      <aside id="shell-drawer" class="fixed bottom-0 right-0 top-0 z-50 w-full max-w-[640px] border-l border-border bg-background px-6 py-5 shadow-lg transition-transform duration-200 translate-x-full"></aside>
 
-      <div id="shell-modal" class="hidden fixed inset-0 z-50 items-center justify-center bg-slate-950/30 p-4 backdrop-blur-sm">
-        <div class="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-[32px] border border-slate-200 bg-white shadow-2xl shadow-slate-900/10">
-          <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+      <div id="shell-modal" class="hidden fixed inset-0 z-50 items-center justify-center bg-foreground/20 p-4 backdrop-blur-sm">
+        <div class="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg border border-border bg-card shadow-2xl shadow-black/10">
+          <div class="flex items-center justify-between border-b border-border px-6 py-4">
             <div>
-              <h2 class="text-lg font-semibold text-slate-950">Item logs</h2>
-              <p id="shell-modal-title" class="text-xs text-slate-500"></p>
+              <h2 class="text-lg font-semibold text-foreground">Item logs</h2>
+              <p id="shell-modal-title" class="text-xs text-muted-foreground"></p>
             </div>
-            <button id="shell-modal-close" class="shell-button-secondary">Close</button>
+            <button id="shell-modal-close" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Close</button>
           </div>
-          <div id="shell-modal-body" class="overflow-y-auto px-6 py-5 text-sm text-slate-700"></div>
+          <div id="shell-modal-body" class="overflow-y-auto px-6 py-5 text-sm text-muted-foreground"></div>
         </div>
       </div>
     </div>
@@ -630,14 +632,14 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     modal.classList.remove("hidden");
     modal.classList.add("flex");
     modalTitle.textContent = `${item.name || item.id} (${item.id})`;
-    modalBody.innerHTML = `<p class="text-slate-500">Loading logs…</p>`;
+    modalBody.innerHTML = `<p class="text-muted-foreground">Loading logs…</p>`;
     try {
       const audits = await listItemProviderCallAudits(item.id, 100);
       modalBody.innerHTML = audits.length === 0
-        ? `<p class="text-slate-500">No provider logs recorded for this item yet.</p>`
-        : `<div class="space-y-3">${audits.map(renderAuditCard).join("")}</div>`;
+        ? `<p class="text-muted-foreground">No provider logs recorded for this item yet.</p>`
+        : `<div class="flex flex-col gap-3">${audits.map(renderAuditCard).join("")}</div>`;
     } catch (error) {
-      modalBody.innerHTML = `<p class="text-rose-600">Failed to load logs: ${escHtml(String(error))}</p>`;
+      modalBody.innerHTML = `<p class="text-destructive">Failed to load logs: ${escHtml(String(error))}</p>`;
     }
   }
 
@@ -678,20 +680,20 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     topbar.innerHTML = `
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0">
-          <p class="text-sm font-medium text-slate-500">${escHtml(workspace?.name || state.auth?.workspace?.name || "Workspace")}</p>
-          <h1 class="mt-1 text-3xl font-semibold tracking-tight text-slate-950">${state.auth?.authenticated ? "Create new annotation" : "Welcome to Scribe"}</h1>
-          <p class="mt-2 max-w-2xl text-sm text-slate-500">${escHtml(
+          <p class="text-sm font-medium text-muted-foreground">${escHtml(workspace?.name || state.auth?.workspace?.name || "Workspace")}</p>
+          <h1 class="mt-1 text-3xl font-semibold tracking-tight text-foreground">${state.auth?.authenticated ? "Create new annotation" : "Welcome to Scribe"}</h1>
+          <p class="mt-2 max-w-2xl text-sm text-muted-foreground">${escHtml(
             state.auth?.authenticated
               ? "Start from an image, upload a batch, or import a IIIF manifest. Existing annotations stay on the left like a conversation list."
               : "Sign in to work with your workspace, manage contexts, and keep your documents organized."
           )}</p>
         </div>
         <div class="flex items-center gap-2">
-          <button id="shell-contexts-button" class="shell-button-secondary" type="button" title="Manage contexts">
-            <span class="inline-flex h-5 w-5 items-center justify-center">${ICONS.sparkles}</span>
+          <button id="shell-contexts-button" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50" type="button" title="Manage contexts">
+            <span class="inline-flex size-5 items-center justify-center">${ICONS.sparkles}</span>
             <span>Contexts</span>
           </button>
-          <button id="shell-theme-toggle" class="shell-icon-button" type="button" title="Toggle theme">
+          <button id="shell-theme-toggle" class="inline-flex size-9 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:bg-accent hover:text-accent-foreground" type="button" title="Toggle theme">
             ${state.theme === "light" ? ICONS.moon : ICONS.sun}
           </button>
         </div>
@@ -713,77 +715,77 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const items = filteredItems();
     const loginHref = buildLoginHref(state.auth);
     sidebar.innerHTML = `
-      <div class="shell-sidebar-group">
+      <div class="mb-4">
         ${state.auth?.authenticated ? `
           <div class="flex items-end gap-2">
             <div class="min-w-0 flex-1">
-              <label class="shell-caption" for="sidebar-workspace-select">Workspace</label>
+              <label class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground" for="sidebar-workspace-select">Workspace</label>
               <div class="relative mt-2">
-                <select id="sidebar-workspace-select" class="shell-workspace-select">
+                <select id="sidebar-workspace-select" class="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm font-medium text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50">
                   ${state.workspaces.map((entry) => {
                     const id = uint64ToString(entry.workspace?.id ?? 0n);
                     const selected = id === state.currentWorkspaceId ? " selected" : "";
                     return `<option value="${escHtml(id)}"${selected}>${escHtml(entry.workspace?.name || "Workspace")}</option>`;
                   }).join("")}
                 </select>
-                <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-slate-400">${ICONS.chevron}</span>
+                <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-muted-foreground">${ICONS.chevron}</span>
               </div>
-              <p class="mt-2 text-xs text-slate-500">${escHtml(currentWorkspaceRole(state) || state.auth?.workspace?.role || "")}</p>
+              <p class="mt-2 text-xs text-muted-foreground">${escHtml(currentWorkspaceRole(state) || state.auth?.workspace?.role || "")}</p>
             </div>
-            <button id="sidebar-create-workspace" class="shell-icon-button shell-icon-button-sm" type="button" title="Create workspace">
+            <button id="sidebar-create-workspace" class="inline-flex size-8 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:bg-accent hover:text-accent-foreground" type="button" title="Create workspace">
               ${ICONS.plus}
             </button>
           </div>
         ` : `
           <div>
-            <p class="shell-caption">Workspace</p>
-            <h2 class="mt-2 text-2xl font-semibold text-slate-950">Scribe</h2>
-            <p class="mt-3 text-sm text-slate-500">${escHtml(state.authError || "Sign in to manage workspaces, members, contexts, and saved provider keys.")}</p>
-            <a href="${escHtml(loginHref)}" class="shell-button-primary mt-4">Sign in with Google</a>
+            <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Workspace</p>
+            <h2 class="mt-2 text-2xl font-semibold text-foreground">Scribe</h2>
+            <p class="mt-3 text-sm text-muted-foreground">${escHtml(state.authError || "Sign in to manage workspaces, members, contexts, and saved provider keys.")}</p>
+            <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 mt-4">Sign in with Google</a>
           </div>
         `}
       </div>
 
-      <button id="sidebar-new-annotation" class="shell-button-primary w-full justify-center"${state.auth?.authenticated ? "" : " disabled"}>
-        <span class="inline-flex h-5 w-5 items-center justify-center">${ICONS.plus}</span>
+      <button id="sidebar-new-annotation" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 w-full justify-center"${state.auth?.authenticated ? "" : " disabled"}>
+        <span class="inline-flex size-5 items-center justify-center">${ICONS.plus}</span>
         <span>New annotation</span>
       </button>
 
       <div class="relative mt-4">
-        <span class="pointer-events-none absolute inset-y-0 left-4 flex items-center text-slate-400">${ICONS.search}</span>
+        <span class="pointer-events-none absolute inset-y-0 left-4 flex items-center text-muted-foreground">${ICONS.search}</span>
         <input
           id="sidebar-search"
           value="${escHtml(state.search)}"
           placeholder="Search annotations"
-          class="shell-input pl-12"
+          class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 pl-12"
           ${state.auth?.authenticated ? "" : "disabled"}
         />
       </div>
 
       <div class="mt-5 min-h-0 flex-1 overflow-y-auto">
         <div class="mb-3 flex items-center justify-between">
-          <p class="shell-caption">Annotations</p>
-          <span class="text-xs text-slate-500">${items.length}</span>
+          <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Annotations</p>
+          <span class="text-xs text-muted-foreground">${items.length}</span>
         </div>
-        <div class="space-y-2">
+        <div class="flex flex-col gap-2">
           ${items.length === 0 ? `
-            <div class="shell-flat-note">
+            <div class="rounded-md border bg-card px-3 py-2.5 text-sm text-muted-foreground">
               ${state.auth?.authenticated ? "No annotations in this workspace yet." : "Sign in to load annotations."}
             </div>
           ` : items.map((item) => {
             const openHref = editorHrefForItem(item);
             return `
-              <article class="shell-item-card">
+              <article class="rounded-md border border-transparent px-3 py-2.5 transition hover:border-border hover:bg-accent hover:text-accent-foreground">
                 ${openHref ? `
                   <a href="${openHref}" class="block">
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
-                        <p class="truncate text-sm font-semibold text-slate-950">${escHtml(item.name || item.id)}</p>
-                        <p class="mt-1 truncate text-xs text-slate-500">${escHtml(item.id)}</p>
+                        <p class="truncate text-sm font-semibold text-foreground">${escHtml(item.name || item.id)}</p>
+                        <p class="mt-1 truncate text-xs text-muted-foreground">${escHtml(item.id)}</p>
                       </div>
-                      <span class="shell-chip">${item.images.length}</span>
+                      <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${item.images.length}</span>
                     </div>
-                    <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <span>${escHtml(item.sourceType)}</span>
                       <span>•</span>
                       <span>${escHtml(formatDate(item.createdAt))}</span>
@@ -791,14 +793,14 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
                   </a>
                 ` : `
                   <div>
-                    <p class="truncate text-sm font-semibold text-slate-950">${escHtml(item.name || item.id)}</p>
-                    <p class="mt-1 truncate text-xs text-slate-500">${escHtml(item.id)}</p>
-                    <div class="mt-3 text-xs text-slate-500">No images yet</div>
+                    <p class="truncate text-sm font-semibold text-foreground">${escHtml(item.name || item.id)}</p>
+                    <p class="mt-1 truncate text-xs text-muted-foreground">${escHtml(item.id)}</p>
+                    <div class="mt-3 text-xs text-muted-foreground">No images yet</div>
                   </div>
                 `}
                 <div class="mt-4 flex flex-wrap items-center gap-2">
-                  <button data-item-logs="${escHtml(item.id)}" class="shell-button-secondary !px-3 !py-1.5 !text-xs">Logs</button>
-                  <button data-item-delete="${escHtml(item.id)}" class="shell-button-danger !px-3 !py-1.5 !text-xs">Delete</button>
+                  <button data-item-logs="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Logs</button>
+                  <button data-item-delete="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">Delete</button>
                 </div>
               </article>
             `;
@@ -862,12 +864,12 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     if (!state.auth?.authenticated) {
       content.innerHTML = `
         <section class="mx-auto flex min-h-[68vh] max-w-4xl items-center">
-          <div class="shell-hero-card">
-            <p class="shell-caption text-center">Get Started</p>
-            <h2 class="mt-4 text-5xl font-semibold tracking-tight text-slate-950">Create annotations with your workspace</h2>
-            <p class="mx-auto mt-4 max-w-2xl text-base text-slate-500">Sign in to import images, manage workspace members, bring your own model keys, and open existing annotations from the left sidebar.</p>
+          <div class="mx-auto w-full max-w-2xl px-6 py-10 text-center">
+            <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground text-center">Get Started</p>
+            <h2 class="mt-4 text-5xl font-semibold tracking-tight text-foreground">Create annotations with your workspace</h2>
+            <p class="mx-auto mt-4 max-w-2xl text-base text-muted-foreground">Sign in to import images, manage workspace members, bring your own model keys, and open existing annotations from the left sidebar.</p>
             <div class="mt-8 flex justify-center">
-              <a href="${escHtml(loginHref)}" class="shell-button-primary">Sign in with Google</a>
+              <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">Sign in with Google</a>
             </div>
           </div>
         </section>
@@ -877,13 +879,18 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
 
     content.innerHTML = `
       <section class="mx-auto flex w-full max-w-5xl flex-col gap-6">
+        ${state.dataError ? `
+          <div class="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            ${escHtml(state.dataError)}
+          </div>
+        ` : ""}
         <div class="pt-6 text-center">
-          <p class="shell-caption text-center">Create</p>
-          <h2 class="mt-4 text-4xl font-semibold tracking-tight text-slate-950">What do you want to annotate?</h2>
-          <p class="mx-auto mt-3 max-w-2xl text-sm text-slate-500">This workspace behaves like a modern docs or chat shell: your annotations live on the left, and the center stays focused on starting the next document.</p>
+          <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground text-center">Create</p>
+          <h2 class="mt-4 text-4xl font-semibold tracking-tight text-foreground">What do you want to annotate?</h2>
+          <p class="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">This workspace behaves like a modern docs or chat shell: your annotations live on the left, and the center stays focused on starting the next document.</p>
         </div>
 
-        <section class="shell-composer mx-auto w-full max-w-3xl">
+        <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs mx-auto w-full max-w-3xl">
           <div class="flex flex-wrap justify-center gap-2">
             ${([
               ["url", "Image URL", ICONS.link],
@@ -891,21 +898,21 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
               ["multi", "Batch upload", ICONS.grid],
               ["manifest", "IIIF manifest", ICONS.file],
             ] as Array<[LibraryTab, string, string]>).map(([tab, label, icon]) => `
-              <button data-library-tab="${tab}" class="${state.activeLibraryTab === tab ? "shell-chip shell-chip-active" : "shell-chip"}" type="button">
-                <span class="inline-flex h-4 w-4 items-center justify-center">${icon}</span>
+              <button data-library-tab="${tab}" class="${state.activeLibraryTab === tab ? "inline-flex items-center gap-1 rounded-full border border-transparent bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground" : "inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground"}" type="button">
+                <span class="inline-flex size-4 items-center justify-center">${icon}</span>
                 <span>${label}</span>
               </button>
             `).join("")}
           </div>
 
           <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
-            <div class="flex items-center gap-2 text-sm text-slate-500">
-              <span class="shell-stat">${escHtml(workspace?.name || "Workspace")}</span>
-              <span class="shell-stat">${escHtml(currentWorkspaceRole(state) || "workspace")}</span>
+            <div class="flex items-center gap-2 text-sm text-muted-foreground">
+              <span class="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">${escHtml(workspace?.name || "Workspace")}</span>
+              <span class="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">${escHtml(currentWorkspaceRole(state) || "workspace")}</span>
             </div>
             <div class="flex items-center gap-2">
-              <label for="library-context-select" class="text-sm font-medium text-slate-600">Context</label>
-              <select id="library-context-select" class="shell-select min-w-[220px] !rounded-full !py-2.5">
+              <label for="library-context-select" class="text-sm font-medium text-muted-foreground">Context</label>
+              <select id="library-context-select" class="w-full min-w-[220px] appearance-none rounded-full border border-input bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50">
                 <option value="0">Default</option>
                 ${contextOptionMarkup(state.contexts)}
               </select>
@@ -913,75 +920,75 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           </div>
 
           <div class="mt-6">
-            <form id="library-form-url" class="${state.activeLibraryTab === "url" ? "space-y-4" : "hidden space-y-4"}">
-              <input id="library-image-url" type="url" required placeholder="https://example.org/image.jpg" class="shell-input text-base" />
+            <form id="library-form-url" class="${state.activeLibraryTab === "url" ? "flex flex-col gap-4" : "hidden flex-col gap-4"}">
+              <input id="library-image-url" type="url" required placeholder="https://example.org/image.jpg" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 text-base" />
               <div class="flex flex-wrap items-center gap-3">
-                <button class="shell-button-primary" type="submit">Process URL</button>
-                <p id="library-url-status" class="text-sm text-slate-500"></p>
+                <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit">Process URL</button>
+                <p id="library-url-status" class="text-sm text-muted-foreground"></p>
               </div>
             </form>
 
-            <form id="library-form-single" class="${state.activeLibraryTab === "single" ? "space-y-4" : "hidden space-y-4"}">
-              <input id="library-single-file" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.jp2,.jpx,.j2k,.tif,.tiff" class="shell-file-input" />
+            <form id="library-form-single" class="${state.activeLibraryTab === "single" ? "flex flex-col gap-4" : "hidden flex-col gap-4"}">
+              <input id="library-single-file" type="file" accept=".jpg,.jpeg,.png,.gif,.webp,.jp2,.jpx,.j2k,.tif,.tiff" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50" />
               <div class="flex flex-wrap items-center gap-3">
-                <button class="shell-button-primary" type="submit">Upload and process</button>
-                <p id="library-single-status" class="text-sm text-slate-500"></p>
+                <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit">Upload and process</button>
+                <p id="library-single-status" class="text-sm text-muted-foreground"></p>
               </div>
             </form>
 
-            <form id="library-form-multi" class="${state.activeLibraryTab === "multi" ? "space-y-4" : "hidden space-y-4"}">
-              <input id="library-multi-files" type="file" multiple accept=".jpg,.jpeg,.png,.gif,.webp,.jp2,.jpx,.j2k,.tif,.tiff" class="shell-file-input" />
+            <form id="library-form-multi" class="${state.activeLibraryTab === "multi" ? "flex flex-col gap-4" : "hidden flex-col gap-4"}">
+              <input id="library-multi-files" type="file" multiple accept=".jpg,.jpeg,.png,.gif,.webp,.jp2,.jpx,.j2k,.tif,.tiff" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50" />
               <div class="flex flex-wrap items-center gap-3">
-                <button class="shell-button-primary" type="submit">Upload batch</button>
-                <p id="library-multi-status" class="text-sm text-slate-500"></p>
+                <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit">Upload batch</button>
+                <p id="library-multi-status" class="text-sm text-muted-foreground"></p>
               </div>
             </form>
 
-            <form id="library-form-manifest" class="${state.activeLibraryTab === "manifest" ? "space-y-4" : "hidden space-y-4"}">
-              <input id="library-manifest-url" type="url" required placeholder="https://example.org/manifest.json" class="shell-input text-base" />
-              <fieldset class="shell-subtle-section">
-                <legend class="px-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Manifest OCR handling</legend>
-                <label class="mt-2 flex items-start gap-3 text-sm text-slate-700">
+            <form id="library-form-manifest" class="${state.activeLibraryTab === "manifest" ? "flex flex-col gap-4" : "hidden flex-col gap-4"}">
+              <input id="library-manifest-url" type="url" required placeholder="https://example.org/manifest.json" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 text-base" />
+              <fieldset class="rounded-md border bg-card px-4 py-4 text-card-foreground">
+                <legend class="px-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Manifest OCR handling</legend>
+                <label class="mt-2 flex items-start gap-3 text-sm text-muted-foreground">
                   <input type="radio" name="library-manifest-mode" value="import" checked class="mt-1" />
                   <span>
-                    <span class="font-medium text-slate-950">Edit imported hOCR directly</span>
-                    <span class="mt-1 block text-xs text-slate-500">Use manifest seeAlso hOCR when available and open it in the editor.</span>
+                    <span class="font-medium text-foreground">Edit imported hOCR directly</span>
+                    <span class="mt-1 block text-xs text-muted-foreground">Use manifest seeAlso hOCR when available and open it in the editor.</span>
                   </span>
                 </label>
-                <label class="mt-4 flex items-start gap-3 text-sm text-slate-700">
+                <label class="mt-4 flex items-start gap-3 text-sm text-muted-foreground">
                   <input type="radio" name="library-manifest-mode" value="reprocess" class="mt-1" />
                   <span>
-                    <span class="font-medium text-slate-950">Reprocess imported pages</span>
-                    <span class="mt-1 block text-xs text-slate-500">Import the manifest, then rerun OCR on each page with the selected context.</span>
+                    <span class="font-medium text-foreground">Reprocess imported pages</span>
+                    <span class="mt-1 block text-xs text-muted-foreground">Import the manifest, then rerun OCR on each page with the selected context.</span>
                   </span>
                 </label>
               </fieldset>
               <div class="flex flex-wrap items-center gap-3">
-                <button class="shell-button-primary" type="submit">Ingest manifest</button>
-                <p id="library-manifest-status" class="text-sm text-slate-500"></p>
+                <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit">Ingest manifest</button>
+                <p id="library-manifest-status" class="text-sm text-muted-foreground"></p>
               </div>
             </form>
           </div>
         </section>
 
         <section class="flex flex-wrap justify-center gap-2">
-          <span class="shell-stat">Items ${state.items.length}</span>
-          <span class="shell-stat">Contexts ${state.contexts.length}</span>
-          <span class="shell-stat">Members ${state.members.length}</span>
+          <span class="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">Items ${state.items.length}</span>
+          <span class="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">Contexts ${state.contexts.length}</span>
+          <span class="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">Members ${state.members.length}</span>
         </section>
 
         <section class="pt-2">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p class="shell-caption">Recent</p>
-              <h3 class="mt-2 text-2xl font-semibold text-slate-950">Recent annotations</h3>
+              <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Recent</p>
+              <h3 class="mt-2 text-2xl font-semibold text-foreground">Recent annotations</h3>
             </div>
-            <button id="library-refresh" class="shell-button-secondary" type="button">Refresh</button>
+            <button id="library-refresh" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50" type="button">Refresh</button>
           </div>
-          <div class="shell-divider mt-5"></div>
+          <div class="mt-5 h-px bg-border"></div>
           <div class="mt-5">
             ${recentItems.length === 0
-              ? `<div class="shell-flat-note px-5 py-10 text-center">No matching annotations yet. Use the composer above to create one.</div>`
+              ? `<div class="rounded-md border bg-card px-3 py-2.5 text-sm text-muted-foreground px-5 py-10 text-center">No matching annotations yet. Use the composer above to create one.</div>`
               : `<div class="grid gap-3 lg:grid-cols-2">${recentItems.map(renderRecentItemCard).join("")}</div>`}
           </div>
         </section>
@@ -1126,70 +1133,70 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       <div class="flex h-full flex-col">
         <div class="mb-5 flex items-start justify-between gap-4">
           <div>
-            <p class="shell-caption">Contexts</p>
-            <h2 class="mt-2 text-3xl font-semibold tracking-tight text-slate-950">OCR context library</h2>
-            <p class="mt-3 max-w-xl text-sm text-slate-500">Contexts are workspace-scoped profiles for OCR segmentation, transcription, and model-routed helper service selection.</p>
+            <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Contexts</p>
+            <h2 class="mt-2 text-3xl font-semibold tracking-tight text-foreground">OCR context library</h2>
+            <p class="mt-3 max-w-xl text-sm text-muted-foreground">Contexts are workspace-scoped profiles for OCR segmentation, transcription, and model-routed helper service selection.</p>
           </div>
-          <button id="shell-panel-close" class="shell-icon-button" type="button" title="Close">
+          <button id="shell-panel-close" class="inline-flex size-9 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:bg-accent hover:text-accent-foreground" type="button" title="Close">
             ${ICONS.close}
           </button>
         </div>
 
-        <div class="shell-drawer-body">
+        <div class="h-full overflow-y-auto pb-10 pr-1">
           ${state.auth?.authenticated ? `
             <section class="grid gap-3 sm:grid-cols-3">
-              <div class="shell-section">
-                <p class="shell-caption">Contexts</p>
-                <p class="mt-3 text-3xl font-semibold text-slate-950">${state.contexts.length}</p>
+              <div class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
+                <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Contexts</p>
+                <p class="mt-3 text-3xl font-semibold text-foreground">${state.contexts.length}</p>
               </div>
-              <div class="shell-section">
-                <p class="shell-caption">Runs tracked</p>
-                <p class="mt-3 text-3xl font-semibold text-slate-950">${totalRuns}</p>
+              <div class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
+                <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Runs tracked</p>
+                <p class="mt-3 text-3xl font-semibold text-foreground">${totalRuns}</p>
               </div>
-              <div class="shell-section">
-                <p class="shell-caption">With edits</p>
-                <p class="mt-3 text-3xl font-semibold text-slate-950">${contextsWithEdits}</p>
+              <div class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
+                <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">With edits</p>
+                <p class="mt-3 text-3xl font-semibold text-foreground">${contextsWithEdits}</p>
               </div>
             </section>
 
-            <section class="shell-section mt-4">
+            <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs mt-4">
               <div class="mb-5 flex items-center justify-between gap-4">
                 <div>
-                  <p class="shell-caption">Create</p>
-                  <h3 class="mt-2 text-2xl font-semibold text-slate-950">New context</h3>
+                  <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Create</p>
+                  <h3 class="mt-2 text-2xl font-semibold text-foreground">New context</h3>
                 </div>
-                <button id="contexts-refresh" class="shell-button-secondary" type="button">Refresh</button>
+                <button id="contexts-refresh" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50" type="button">Refresh</button>
               </div>
               <form id="contexts-create-form" class="grid gap-4 sm:grid-cols-2">
-                <input id="contexts-name" placeholder="Name" class="shell-input" />
-                <input id="contexts-provider" value="ollama" placeholder="Provider" class="shell-input" />
-                <textarea id="contexts-description" rows="2" placeholder="Description" class="shell-textarea sm:col-span-2"></textarea>
-                <input id="contexts-model" placeholder="Transcription model" class="shell-input" />
-                <input id="contexts-segmentation" value="tesseract" placeholder="Segmentation model" class="shell-input" />
-                <input id="contexts-base-url" placeholder="https://service.run.app" class="shell-input font-mono text-xs sm:col-span-2" />
-                <input id="contexts-audience" placeholder="Optional Cloud Run audience" class="shell-input font-mono text-xs sm:col-span-2" />
-                <textarea id="contexts-system-prompt" rows="4" placeholder="System prompt" class="shell-textarea sm:col-span-2"></textarea>
-                <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+                <input id="contexts-name" placeholder="Name" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50" />
+                <input id="contexts-provider" value="ollama" placeholder="Provider" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50" />
+                <textarea id="contexts-description" rows="2" placeholder="Description" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2"></textarea>
+                <input id="contexts-model" placeholder="Transcription model" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50" />
+                <input id="contexts-segmentation" value="tesseract" placeholder="Segmentation model" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50" />
+                <input id="contexts-base-url" placeholder="https://service.run.app" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 font-mono text-xs sm:col-span-2" />
+                <input id="contexts-audience" placeholder="Optional Cloud Run audience" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 font-mono text-xs sm:col-span-2" />
+                <textarea id="contexts-system-prompt" rows="4" placeholder="System prompt" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2"></textarea>
+                <label class="inline-flex items-center gap-2 text-sm text-muted-foreground">
                   <input id="contexts-default" type="checkbox" />
                   <span>Set as default system context</span>
                 </label>
                 <div class="flex items-center gap-3 sm:col-span-2">
-                  <button class="shell-button-primary" type="submit">Create context</button>
-                  <p id="contexts-status" class="text-sm text-slate-500"></p>
+                  <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit">Create context</button>
+                  <p id="contexts-status" class="text-sm text-muted-foreground"></p>
                 </div>
               </form>
             </section>
 
-            <section class="mt-4 space-y-3">
+            <section class="mt-4 flex flex-col gap-3">
               ${state.contexts.length === 0
-                ? `<div class="shell-section text-sm text-slate-500">No contexts in this workspace yet.</div>`
+                ? `<div class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs text-sm text-muted-foreground">No contexts in this workspace yet.</div>`
                 : state.contexts.map((context, index) => renderContextCard(context, metricsResults[index])).join("")}
             </section>
           ` : `
-            <section class="shell-hero-card !mx-0 !max-w-none">
-              <h3 class="text-2xl font-semibold text-slate-950">Sign in to manage contexts</h3>
-              <p class="mx-auto mt-3 max-w-xl text-sm text-slate-500">Contexts let you point a workspace at different OCR providers, model IDs, and dedicated Cloud Run helper services.</p>
-              <a href="${escHtml(loginHref)}" class="shell-button-primary mt-6">Sign in with Google</a>
+            <section class="w-full px-6 py-10 text-center">
+              <h3 class="text-2xl font-semibold text-foreground">Sign in to manage contexts</h3>
+              <p class="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">Contexts let you point a workspace at different OCR providers, model IDs, and dedicated Cloud Run helper services.</p>
+              <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 mt-6">Sign in with Google</a>
             </section>
           `}
         </div>
@@ -1253,74 +1260,74 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       <div class="flex h-full flex-col">
         <div class="mb-5 flex items-start justify-between gap-4">
           <div>
-            <p class="shell-caption">Account</p>
-            <h2 class="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Workspace and account settings</h2>
-            <p class="mt-3 max-w-xl text-sm text-slate-500">Manage members, workspace metadata, provider keys, and API tokens from one place.</p>
+            <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Account</p>
+            <h2 class="mt-2 text-3xl font-semibold tracking-tight text-foreground">Workspace and account settings</h2>
+            <p class="mt-3 max-w-xl text-sm text-muted-foreground">Manage members, workspace metadata, provider keys, and API tokens from one place.</p>
           </div>
-          <button id="shell-panel-close" class="shell-icon-button" type="button" title="Close">
+          <button id="shell-panel-close" class="inline-flex size-9 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:bg-accent hover:text-accent-foreground" type="button" title="Close">
             ${ICONS.close}
           </button>
         </div>
 
-        <div class="shell-drawer-body">
+        <div class="h-full overflow-y-auto pb-10 pr-1">
           ${state.auth?.authenticated ? `
-            <section class="shell-section">
+            <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
               <div class="flex flex-wrap items-center justify-between gap-4">
                 <div class="flex items-center gap-4">
-                  <span class="shell-account-avatar !h-14 !w-14 !text-base">${escHtml(avatarInitials(state.auth))}</span>
+                  <span class="flex size-14 items-center justify-center rounded-full bg-primary text-base font-semibold text-primary-foreground">${escHtml(avatarInitials(state.auth))}</span>
                   <div>
-                    <h3 class="text-xl font-semibold text-slate-950">${escHtml(state.auth.user?.name || state.auth.user?.email || "Account")}</h3>
-                    <p class="mt-1 text-sm text-slate-500">${escHtml(state.auth.user?.email || "")}</p>
+                    <h3 class="text-xl font-semibold text-foreground">${escHtml(state.auth.user?.name || state.auth.user?.email || "Account")}</h3>
+                    <p class="mt-1 text-sm text-muted-foreground">${escHtml(state.auth.user?.email || "")}</p>
                   </div>
                 </div>
-                <button id="settings-logout" class="shell-button-secondary" type="button">
-                  <span class="inline-flex h-5 w-5 items-center justify-center">${ICONS.logout}</span>
+                <button id="settings-logout" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50" type="button">
+                  <span class="inline-flex size-5 items-center justify-center">${ICONS.logout}</span>
                   <span>Logout</span>
                 </button>
               </div>
               <dl class="mt-5 grid gap-3 sm:grid-cols-3">
-                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <dt class="shell-caption">Default workspace</dt>
-                  <dd class="mt-2 text-sm text-slate-950">${escHtml(state.auth.workspace?.name || "")}</dd>
+                <div class="rounded-lg border border-border bg-muted p-4">
+                  <dt class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Default workspace</dt>
+                  <dd class="mt-2 text-sm text-foreground">${escHtml(state.auth.workspace?.name || "")}</dd>
                 </div>
-                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <dt class="shell-caption">Workspace role</dt>
-                  <dd class="mt-2 text-sm text-slate-950">${escHtml(workspaceAccess?.role || "")}</dd>
+                <div class="rounded-lg border border-border bg-muted p-4">
+                  <dt class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Workspace role</dt>
+                  <dd class="mt-2 text-sm text-foreground">${escHtml(workspaceAccess?.role || "")}</dd>
                 </div>
-                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <dt class="shell-caption">Admin</dt>
-                  <dd class="mt-2 text-sm text-slate-950">${state.auth.user?.isAdmin ? "Yes" : "No"}</dd>
+                <div class="rounded-lg border border-border bg-muted p-4">
+                  <dt class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Admin</dt>
+                  <dd class="mt-2 text-sm text-foreground">${state.auth.user?.isAdmin ? "Yes" : "No"}</dd>
                 </div>
               </dl>
             </section>
 
-            <section class="shell-section mt-4">
-              <p class="shell-caption">Workspace</p>
-              <h3 class="mt-2 text-2xl font-semibold text-slate-950">${escHtml(workspace?.name || "Workspace")}</h3>
-              <p class="mt-3 text-sm text-slate-500">${workspace?.isPersonal ? "Personal workspaces are created automatically for each user." : "Rename this workspace or create another one."}</p>
+            <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs mt-4">
+              <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Workspace</p>
+              <h3 class="mt-2 text-2xl font-semibold text-foreground">${escHtml(workspace?.name || "Workspace")}</h3>
+              <p class="mt-3 text-sm text-muted-foreground">${workspace?.isPersonal ? "Personal workspaces are created automatically for each user." : "Rename this workspace or create another one."}</p>
               <form id="settings-rename-workspace" class="mt-5 flex flex-col gap-3 sm:flex-row">
-                <input id="settings-workspace-name" value="${escHtml(workspace?.name || "")}" class="shell-input flex-1" ${admin && !workspace?.isPersonal ? "" : "disabled"} />
-                <button class="shell-button-primary" type="submit"${admin && !workspace?.isPersonal ? "" : " disabled"}>Rename</button>
+                <input id="settings-workspace-name" value="${escHtml(workspace?.name || "")}" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 flex-1" ${admin && !workspace?.isPersonal ? "" : "disabled"} />
+                <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit"${admin && !workspace?.isPersonal ? "" : " disabled"}>Rename</button>
               </form>
-              <p id="settings-workspace-status" class="mt-3 text-sm text-slate-500"></p>
+              <p id="settings-workspace-status" class="mt-3 text-sm text-muted-foreground"></p>
               <form id="settings-create-workspace" class="mt-6 flex flex-col gap-3 sm:flex-row">
-                <input id="settings-new-workspace-name" placeholder="Create a new workspace" class="shell-input flex-1" />
-                <button class="shell-button-secondary" type="submit">Create workspace</button>
+                <input id="settings-new-workspace-name" placeholder="Create a new workspace" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 flex-1" />
+                <button class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50" type="submit">Create workspace</button>
               </form>
             </section>
 
-            <section class="shell-section mt-4">
+            <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs mt-4">
               <div class="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p class="shell-caption">Members</p>
-                  <h3 class="mt-2 text-2xl font-semibold text-slate-950">Workspace members</h3>
+                  <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Members</p>
+                  <h3 class="mt-2 text-2xl font-semibold text-foreground">Workspace members</h3>
                 </div>
-                <span class="shell-chip">${escHtml(workspaceAccess?.role || "")}</span>
+                <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${escHtml(workspaceAccess?.role || "")}</span>
               </div>
               <div class="mt-5 overflow-x-auto">
-                ${state.members.length === 0 ? `<p class="text-sm text-slate-500">No members found.</p>` : `
+                ${state.members.length === 0 ? `<p class="text-sm text-muted-foreground">No members found.</p>` : `
                   <table class="min-w-full text-left text-sm">
-                    <thead class="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+                    <thead class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                       <tr>
                         <th class="px-3 py-2">User</th>
                         <th class="px-3 py-2">Role</th>
@@ -1330,21 +1337,21 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
                     </thead>
                     <tbody>
                       ${state.members.map((member) => `
-                        <tr class="border-t border-slate-200">
+                        <tr class="border-t border-border">
                           <td class="px-3 py-3">
-                            <p class="text-slate-900">${escHtml(member.user?.name || member.user?.email || `User ${member.user?.id || ""}`)}</p>
-                            <p class="mt-1 text-xs text-slate-500">${escHtml(member.user?.email || "")}</p>
+                            <p class="text-foreground">${escHtml(member.user?.name || member.user?.email || `User ${member.user?.id || ""}`)}</p>
+                            <p class="mt-1 text-xs text-muted-foreground">${escHtml(member.user?.email || "")}</p>
                           </td>
                           <td class="px-3 py-3">
-                            <select data-member-role="${escHtml(uint64ToString(member.user?.id ?? 0n))}" class="shell-select !w-[140px] !py-2 !text-xs"${admin && !workspace?.isPersonal ? "" : " disabled"}>
+                            <select data-member-role="${escHtml(uint64ToString(member.user?.id ?? 0n))}" class="w-[140px] appearance-none rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>
                               ${["admin", "write", "create", "read"].map((role) => `<option value="${role}"${member.role === role ? " selected" : ""}>${role}</option>`).join("")}
                             </select>
                           </td>
-                          <td class="px-3 py-3 text-slate-500">${escHtml(formatDateTime(member.createdAt))}</td>
+                          <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(member.createdAt))}</td>
                           <td class="px-3 py-3 text-right">
                             <div class="flex justify-end gap-2">
-                              <button data-member-save="${escHtml(uint64ToString(member.user?.id ?? 0n))}" class="shell-button-secondary !px-3 !py-1.5 !text-xs"${admin && !workspace?.isPersonal ? "" : " disabled"}>Save</button>
-                              <button data-member-remove="${escHtml(uint64ToString(member.user?.id ?? 0n))}" class="shell-button-danger !px-3 !py-1.5 !text-xs"${admin && !workspace?.isPersonal ? "" : " disabled"}>Remove</button>
+                              <button data-member-save="${escHtml(uint64ToString(member.user?.id ?? 0n))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>Save</button>
+                              <button data-member-remove="${escHtml(uint64ToString(member.user?.id ?? 0n))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>Remove</button>
                             </div>
                           </td>
                         </tr>
@@ -1354,72 +1361,72 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
                 `}
               </div>
               <form id="settings-add-member" class="mt-6 grid gap-3 sm:grid-cols-[1.2fr_0.5fr_auto]">
-                <input id="settings-member-email" placeholder="user@example.edu" class="shell-input"${admin && !workspace?.isPersonal ? "" : " disabled"} />
-                <select id="settings-member-role" class="shell-select"${admin && !workspace?.isPersonal ? "" : " disabled"}>
+                <input id="settings-member-email" placeholder="user@example.edu" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"} />
+                <select id="settings-member-role" class="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>
                   <option value="read">read</option>
                   <option value="create">create</option>
                   <option value="write">write</option>
                   <option value="admin">admin</option>
                 </select>
-                <button class="shell-button-primary" type="submit"${admin && !workspace?.isPersonal ? "" : " disabled"}>Add member</button>
+                <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit"${admin && !workspace?.isPersonal ? "" : " disabled"}>Add member</button>
               </form>
-              <p id="settings-members-status" class="mt-3 text-sm text-slate-500"></p>
+              <p id="settings-members-status" class="mt-3 text-sm text-muted-foreground"></p>
             </section>
 
-            <section class="shell-section mt-4">
-              <p class="shell-caption">Bring Your Own Keys</p>
-              <h3 class="mt-2 text-2xl font-semibold text-slate-950">Provider secrets</h3>
-              <p class="mt-3 text-sm text-slate-500">Save personal or workspace-scoped provider keys. These are stored server-side and referenced by the app when needed.</p>
+            <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs mt-4">
+              <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Bring Your Own Keys</p>
+              <h3 class="mt-2 text-2xl font-semibold text-foreground">Provider secrets</h3>
+              <p class="mt-3 text-sm text-muted-foreground">Save personal or workspace-scoped provider keys. These are stored server-side and referenced by the app when needed.</p>
               <form id="settings-provider-secret-form" class="mt-5 grid gap-3">
                 <div class="grid gap-3 sm:grid-cols-3">
-                  <select id="settings-provider-secret-provider" class="shell-select"${canManageSecrets ? "" : " disabled"}>
+                  <select id="settings-provider-secret-provider" class="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"${canManageSecrets ? "" : " disabled"}>
                     <option value="gemini">gemini</option>
                   </select>
-                  <input id="settings-provider-secret-name" placeholder="Name" class="shell-input"${canManageSecrets ? "" : " disabled"} />
-                  <select id="settings-provider-secret-scope" class="shell-select"${canManageSecrets ? "" : " disabled"}>
+                  <input id="settings-provider-secret-name" placeholder="Name" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"${canManageSecrets ? "" : " disabled"} />
+                  <select id="settings-provider-secret-scope" class="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"${canManageSecrets ? "" : " disabled"}>
                     <option value="user">Personal</option>
                     <option value="workspace">Workspace</option>
                   </select>
                 </div>
-                <input id="settings-provider-secret-api-key" type="password" placeholder="API key" class="shell-input"${canManageSecrets ? "" : " disabled"} />
+                <input id="settings-provider-secret-api-key" type="password" placeholder="API key" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"${canManageSecrets ? "" : " disabled"} />
                 <div class="flex flex-wrap items-center gap-3">
-                  <button class="shell-button-primary" type="submit"${canManageSecrets ? "" : " disabled"}>Save provider key</button>
-                  <p id="settings-provider-secret-status" class="text-sm text-slate-500"></p>
+                  <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit"${canManageSecrets ? "" : " disabled"}>Save provider key</button>
+                  <p id="settings-provider-secret-status" class="text-sm text-muted-foreground"></p>
                 </div>
               </form>
-              ${canManageSecrets ? "" : `<p class="mt-3 text-sm text-slate-500">Editing provider secrets requires a workspace write role.</p>`}
+              ${canManageSecrets ? "" : `<p class="mt-3 text-sm text-muted-foreground">Editing provider secrets requires a workspace write role.</p>`}
               <div class="mt-5">${renderProviderSecrets(state.providerSecrets)}</div>
             </section>
 
-            <section class="shell-section mt-4">
+            <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs mt-4">
               <div class="flex items-end justify-between gap-4">
                 <div>
-                  <p class="shell-caption">API Keys</p>
-                  <h3 class="mt-2 text-2xl font-semibold text-slate-950">Workspace tokens</h3>
+                  <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">API Keys</p>
+                  <h3 class="mt-2 text-2xl font-semibold text-foreground">Workspace tokens</h3>
                 </div>
               </div>
               ${canManageAPIKeys ? `
                 <form id="settings-api-key-form" class="mt-5 grid gap-3 sm:grid-cols-[1fr_0.5fr_auto]">
-                  <input id="settings-api-key-name" placeholder="Token name" class="shell-input" />
-                  <select id="settings-api-key-role" class="shell-select">
+                  <input id="settings-api-key-name" placeholder="Token name" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50" />
+                  <select id="settings-api-key-role" class="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50">
                     <option value="read">read</option>
                     <option value="create">create</option>
                     <option value="write">write</option>
                     <option value="admin">admin</option>
                   </select>
-                  <button class="shell-button-primary" type="submit">Create key</button>
+                  <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit">Create key</button>
                 </form>
               ` : `
-                <p class="mt-5 rounded-[24px] border border-dashed border-slate-200 px-4 py-5 text-sm text-slate-500">Workspace tokens are limited to workspace admins.</p>
+                <p class="mt-5 rounded-lg border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">Workspace tokens are limited to workspace admins.</p>
               `}
-              <p id="settings-api-key-status" class="mt-3 text-sm text-slate-500"></p>
+              <p id="settings-api-key-status" class="mt-3 text-sm text-muted-foreground"></p>
               <div class="mt-5">${canManageAPIKeys ? renderAPIKeys(state.apiKeys) : ""}</div>
             </section>
           ` : `
-            <section class="shell-hero-card !mx-0 !max-w-none">
-              <h3 class="text-2xl font-semibold text-slate-950">Sign in to manage your workspace</h3>
-              <p class="mx-auto mt-3 max-w-xl text-sm text-slate-500">Workspace members, organization settings, provider keys, and account-level controls live here.</p>
-              <a href="${escHtml(loginHref)}" class="shell-button-primary mt-6">Sign in with Google</a>
+            <section class="w-full px-6 py-10 text-center">
+              <h3 class="text-2xl font-semibold text-foreground">Sign in to manage your workspace</h3>
+              <p class="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">Workspace members, organization settings, provider keys, and account-level controls live here.</p>
+              <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 mt-6">Sign in with Google</a>
             </section>
           `}
         </div>
@@ -1613,11 +1620,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const loginHref = buildLoginHref(state.auth);
     if (state.auth?.authenticated && state.auth.user) {
       accountFab.innerHTML = `
-        <button id="shell-account-button" class="shell-account-fab" type="button">
-          <span class="shell-account-avatar">${escHtml(avatarInitials(state.auth))}</span>
+        <button id="shell-account-button" class="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground" type="button">
+          <span class="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">${escHtml(avatarInitials(state.auth))}</span>
           <span class="hidden text-left sm:block">
-            <span class="block text-sm font-medium text-slate-950">${escHtml(state.auth.user.name || state.auth.user.email || "Account")}</span>
-            <span class="block text-xs text-slate-500">${escHtml(currentWorkspaceRole(state) || "Settings")}</span>
+            <span class="block text-sm font-medium text-foreground">${escHtml(state.auth.user.name || state.auth.user.email || "Account")}</span>
+            <span class="block text-xs text-muted-foreground">${escHtml(currentWorkspaceRole(state) || "Settings")}</span>
           </span>
         </button>
       `;
@@ -1628,11 +1635,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     }
 
     accountFab.innerHTML = `
-      <a href="${escHtml(loginHref)}" class="shell-account-fab">
-        <span class="shell-account-avatar">${ICONS.user}</span>
+      <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground">
+        <span class="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">${ICONS.user}</span>
         <span class="hidden text-left sm:block">
-          <span class="block text-sm font-medium text-slate-950">Sign in</span>
-          <span class="block text-xs text-slate-500">Workspace access</span>
+          <span class="block text-sm font-medium text-foreground">Sign in</span>
+          <span class="block text-xs text-muted-foreground">Workspace access</span>
         </span>
       </a>
     `;
@@ -1663,17 +1670,24 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     }
   }
 
-  async function refreshWorkspaces() {
+  async function refreshWorkspaces(): Promise<boolean> {
     if (!state.auth?.authenticated) {
       state.workspaces = [];
-      return;
+      return true;
     }
-    state.workspaces = await listWorkspaces();
+    try {
+      state.workspaces = await listWorkspaces();
+    } catch (error) {
+      state.workspaces = [];
+      state.dataError = `Workspace data could not be loaded: ${String(error)}`;
+      return false;
+    }
     const availableIds = new Set(state.workspaces.map((entry) => uint64ToString(entry.workspace?.id ?? 0n)));
     if (!availableIds.has(state.currentWorkspaceId)) {
       const fallback = workspaceIdString(state.workspaces[0]?.workspace?.id);
       state.currentWorkspaceId = applyWorkspaceToLocation(fallback);
     }
+    return true;
   }
 
   async function refreshMembers() {
@@ -1682,7 +1696,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       state.members = [];
       return;
     }
-    state.members = (await listWorkspaceMembers(workspaceId)).members;
+    try {
+      state.members = (await listWorkspaceMembers(workspaceId)).members;
+    } catch {
+      state.members = [];
+    }
   }
 
   async function refreshContextMetrics() {
@@ -1712,17 +1730,32 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       state.apiKeys = [];
       return;
     }
-    const [items, contexts] = await Promise.all([
+    const [items, contexts] = await Promise.allSettled([
       listItems(),
       listContexts(),
     ]);
-    state.items = [...items].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    state.contexts = [...contexts].sort((a, b) => {
-      if (a.isDefault !== b.isDefault) {
-        return a.isDefault ? -1 : 1;
-      }
-      return (a.name || "").localeCompare(b.name || "");
-    });
+    if (items.status === "fulfilled") {
+      state.items = [...items.value].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } else {
+      state.items = [];
+    }
+    if (contexts.status === "fulfilled") {
+      state.contexts = [...contexts.value].sort((a, b) => {
+        if (a.isDefault !== b.isDefault) {
+          return a.isDefault ? -1 : 1;
+        }
+        return (a.name || "").localeCompare(b.name || "");
+      });
+    } else {
+      state.contexts = [];
+    }
+    const failures = [
+      items.status === "rejected" ? `items (${String(items.reason)})` : "",
+      contexts.status === "rejected" ? `contexts (${String(contexts.reason)})` : "",
+    ].filter(Boolean);
+    if (failures.length > 0) {
+      state.dataError = `Some workspace data could not be loaded: ${failures.join(", ")}`;
+    }
     await refreshMembers();
   }
 
@@ -1771,8 +1804,12 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   });
 
   await refreshAuth();
-  await refreshWorkspaces();
+  state.dataError = "";
+  const workspacesLoaded = await refreshWorkspaces();
   await refreshWorkspaceScopedData();
+  if (!workspacesLoaded && !state.dataError) {
+    state.dataError = "Workspace data could not be loaded.";
+  }
   if (state.panel) {
     await ensurePanelData(state.panel);
   }

@@ -8,6 +8,9 @@ renovate.json5
 *.md
 docker-compose.*
 .env
+**/node_modules
+web/dist
+mirador-scribe/dist
 uploads/*
 cache/*
 terraform/*

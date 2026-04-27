@@ -21,6 +21,7 @@ export default {
         /^@emotion\/react(\/.*)?$/,
         /^@emotion\/styled(\/.*)?$/,
         /^mirador(\/.*)?$/,
+        /^openseadragon(\/.*)?$/,
         'i18next',
         'react-i18next',
       ],

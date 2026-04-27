@@ -76,28 +76,55 @@ export interface ItemProviderCallAudit {
   createdAt: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  if (value == null) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseAudit(value: unknown, fallbackItemId: string): ItemProviderCallAudit {
+  if (!isRecord(value)) {
+    throw new Error("invalid provider call audit response");
+  }
+  const id = Number(value.id ?? 0);
+  const httpStatus = optionalNumber(value.http_status);
+  const itemImageSequence = optionalNumber(value.item_image_sequence);
+  return {
+    id: Number.isFinite(id) ? id : 0,
+    itemId: String(value.item_id ?? value.itemId ?? fallbackItemId),
+    itemImageId: value.item_image_id == null ? undefined : String(value.item_image_id),
+    itemImageSequence,
+    itemImageLabel: optionalString(value.item_image_label),
+    sessionId: optionalString(value.session_id),
+    contextId: value.context_id == null ? undefined : String(value.context_id),
+    provider: String(value.provider ?? ""),
+    model: String(value.model ?? ""),
+    operation: String(value.operation ?? ""),
+    prompt: optionalString(value.prompt),
+    requestJson: optionalString(value.request_json),
+    responseJson: optionalString(value.response_json),
+    errorMessage: optionalString(value.error_message),
+    httpStatus,
+    createdAt: String(value.created_at ?? ""),
+  };
+}
+
 export async function listItemProviderCallAudits(itemId: string, limit = 100): Promise<ItemProviderCallAudit[]> {
   const resp = await scribeFetch(scribePath(`/v1/items/${encodeURIComponent(itemId)}/provider-call-audits?limit=${encodeURIComponent(String(limit))}`));
   if (!resp.ok) {
     throw new Error(`failed to load item logs (${resp.status})`);
   }
-  const body = await resp.json() as { audits?: Array<Record<string, unknown>> };
-  return (body.audits ?? []).map((audit) => ({
-    id: Number(audit.id ?? 0),
-    itemId: String(audit.item_id ?? audit.itemId ?? itemId),
-    itemImageId: audit.item_image_id == null ? undefined : String(audit.item_image_id),
-    itemImageSequence: audit.item_image_sequence == null ? undefined : Number(audit.item_image_sequence),
-    itemImageLabel: typeof audit.item_image_label === "string" ? audit.item_image_label : undefined,
-    sessionId: typeof audit.session_id === "string" ? audit.session_id : undefined,
-    contextId: audit.context_id == null ? undefined : String(audit.context_id),
-    provider: String(audit.provider ?? ""),
-    model: String(audit.model ?? ""),
-    operation: String(audit.operation ?? ""),
-    prompt: typeof audit.prompt === "string" ? audit.prompt : undefined,
-    requestJson: typeof audit.request_json === "string" ? audit.request_json : undefined,
-    responseJson: typeof audit.response_json === "string" ? audit.response_json : undefined,
-    errorMessage: typeof audit.error_message === "string" ? audit.error_message : undefined,
-    httpStatus: audit.http_status == null ? undefined : Number(audit.http_status),
-    createdAt: String(audit.created_at ?? ""),
-  }));
+  const body: unknown = await resp.json();
+  if (!isRecord(body) || !Array.isArray(body.audits)) {
+    throw new Error("invalid provider call audits response");
+  }
+  return body.audits.map((audit) => parseAudit(audit, itemId));
 }

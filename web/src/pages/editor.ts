@@ -1,5 +1,5 @@
 import Mirador from "mirador";
-import scribeMiradorPlugin, { annotationAdapters } from "../../vendor/mirador-scribe/dist/mirador-scribe.es.js";
+import scribeMiradorPlugin, { annotationAdapters } from "mirador-scribe";
 import { annotationClient, publishItemImageEdits } from "../api/annotations";
 import { getOCRRun, reprocessItemImage } from "../api/processing";
 import { listTranscriptionJobs } from "../api/transcription";
@@ -31,6 +31,23 @@ function isFailedStatus(status: TranscriptionJobStatus | string | number): boole
   return status === TranscriptionJobStatus.FAILED
     || status === "TRANSCRIPTION_JOB_STATUS_FAILED"
     || status === "failed";
+}
+
+function eventBigInt(value: unknown): bigint {
+  if (typeof value === "bigint" || typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
+    try {
+      return BigInt(value);
+    } catch {
+      return 0n;
+    }
+  }
+  return 0n;
+}
+
+function eventNumber(value: unknown): number {
+  return typeof value === "number" || typeof value === "string" || typeof value === "bigint" || typeof value === "boolean"
+    ? Number(value)
+    : 0;
 }
 
 export async function renderEditor(app: HTMLElement): Promise<void> {
@@ -115,40 +132,40 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   app.innerHTML = `
-    <main class="h-screen w-screen overflow-hidden bg-slate-950">
-      <header class="flex items-center justify-between border-b border-slate-800 bg-slate-950/95 px-4 py-2">
+    <main class="h-screen w-screen overflow-hidden bg-background text-foreground">
+      <header class="flex items-center justify-between border-b border-border bg-background/95 px-4 py-2">
         <div class="flex items-center gap-4">
           <a href="/" class="text-lg font-bold tracking-tight">Scribe</a>
-          <nav class="flex items-center gap-2 text-sm text-slate-300">
-            <button id="home-nav" class="rounded border border-slate-700 px-3 py-2 hover:bg-slate-800">Home</button>
-            <button id="reprocess-nav" class="rounded border border-slate-700 px-3 py-2 hover:bg-slate-800">Resegment + retranscribe</button>
+          <nav class="flex items-center gap-2 text-sm text-muted-foreground">
+            <button id="home-nav" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Home</button>
+            <button id="reprocess-nav" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Resegment + retranscribe</button>
           </nav>
         </div>
         <div class="text-right">
           <h1 class="text-xl font-bold">Editor</h1>
-          <p id="editor-meta" class="text-xs text-slate-300"></p>
-          <p id="editor-transcription-status" class="mt-1 text-xs text-amber-300"></p>
+          <p id="editor-meta" class="text-xs text-muted-foreground"></p>
+          <p id="editor-transcription-status" class="mt-1 text-xs text-destructive"></p>
         </div>
       </header>
       <section class="relative h-[calc(100vh-56px)]">
         <div id="editor-batch-banner" class="hidden pointer-events-none absolute inset-x-0 top-0 z-40 px-4 py-4">
-          <div class="mx-auto flex max-w-6xl items-start justify-between gap-4 rounded-xl border border-amber-500/30 bg-slate-950/92 px-4 py-3 shadow-2xl backdrop-blur">
+          <div class="mx-auto flex max-w-6xl items-start justify-between gap-4 rounded-lg border border-destructive/30 bg-background/95 px-4 py-3 shadow-2xl backdrop-blur">
             <div>
-              <p id="editor-batch-banner-title" class="text-sm font-semibold text-amber-200"></p>
-              <p id="editor-batch-banner-detail" class="mt-1 text-sm text-amber-100/80"></p>
+              <p id="editor-batch-banner-title" class="text-sm font-semibold text-destructive"></p>
+              <p id="editor-batch-banner-detail" class="mt-1 text-sm text-destructive/80"></p>
             </div>
           </div>
         </div>
         <div id="mirador-viewer" class="h-full w-full"></div>
       </section>
-      <div id="leave-dialog" class="hidden fixed inset-0 z-50 items-center justify-center bg-slate-950/70">
-        <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+      <div id="leave-dialog" class="hidden fixed inset-0 z-50 items-center justify-center bg-foreground/20">
+        <div class="w-full max-w-md rounded-lg border border-border bg-card p-6 text-card-foreground shadow-2xl">
           <h2 class="text-lg font-semibold">Leave editor?</h2>
-          <p class="mt-2 text-sm text-slate-300">You have unsaved changes. Save before returning home?</p>
+          <p class="mt-2 text-sm text-muted-foreground">You have unsaved changes. Save before returning home?</p>
           <div class="mt-5 flex justify-end gap-2">
-            <button id="leave-cancel" class="rounded border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800">Cancel</button>
-            <button id="leave-discard" class="rounded border border-amber-800 px-3 py-2 text-sm text-amber-300 hover:bg-amber-950/40">Discard</button>
-            <button id="leave-save" class="rounded bg-brand-500 px-3 py-2 text-sm font-medium hover:bg-brand-600">Save</button>
+            <button id="leave-cancel" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Cancel</button>
+            <button id="leave-discard" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">Discard</button>
+            <button id="leave-save" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">Save</button>
           </div>
         </div>
       </div>
@@ -259,6 +276,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     status: TranscriptionJobStatus | string | number;
     completedSegments: number;
     totalSegments: number;
+    failedSegments?: number;
     currentAnnotationId?: string;
     currentAnnotationJson?: string;
     lastResultAnnotationJson?: string;
@@ -433,7 +451,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   if (!runResp.imageUrl || runResp.imageUrl.trim() === "") {
     const viewer = document.getElementById("mirador-viewer");
     if (viewer) {
-      viewer.innerHTML = `<div class="flex h-full items-center justify-center text-sm text-slate-400">No image is available for this OCR run.</div>`;
+      viewer.innerHTML = `<div class="flex h-full items-center justify-center text-sm text-muted-foreground">No image is available for this OCR run.</div>`;
     }
     return;
   }
@@ -521,11 +539,11 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
           const annotationJson = typeof data.annotationJson === "string" ? data.annotationJson : "";
           const annotationId = typeof data.annotationId === "string" ? data.annotationId : "";
           applyJobUpdate({
-            id: BigInt(data.jobId ?? 0),
+            id: eventBigInt(data.jobId),
             status: TranscriptionJobStatus.RUNNING,
-            completedSegments: Number(data.completedSegments ?? 0),
-            failedSegments: Number(data.failedSegments ?? 0),
-            totalSegments: Number(data.totalSegments ?? 0),
+            completedSegments: eventNumber(data.completedSegments),
+            failedSegments: eventNumber(data.failedSegments),
+            totalSegments: eventNumber(data.totalSegments),
             currentAnnotationId: annotationId,
             currentAnnotationJson: annotationJson,
             updatedAt: typeof event.time === "string" ? event.time : "",
@@ -534,11 +552,11 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
         }
         case "dev.scribe.transcription.task.completed": {
           const annotationJson = typeof data.annotationJson === "string" ? data.annotationJson : "";
-          const completedSegments = Number(data.completedSegments ?? 0);
-          const failedSegments = Number(data.failedSegments ?? 0);
-          const totalSegments = Number(data.totalSegments ?? 0);
+          const completedSegments = eventNumber(data.completedSegments);
+          const failedSegments = eventNumber(data.failedSegments);
+          const totalSegments = eventNumber(data.totalSegments);
           applyJobUpdate({
-            id: BigInt(data.jobId ?? 0),
+            id: eventBigInt(data.jobId),
             status: TranscriptionJobStatus.RUNNING,
             completedSegments,
             failedSegments,
@@ -550,21 +568,21 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
         }
         case "dev.scribe.transcription.completed":
           applyJobUpdate({
-            id: BigInt(data.jobId ?? 0),
+            id: eventBigInt(data.jobId),
             status: TranscriptionJobStatus.COMPLETED,
-            completedSegments: Number(data.completedSegments ?? 0),
-            failedSegments: Number(data.failedSegments ?? 0),
-            totalSegments: Number(data.totalSegments ?? 0),
+            completedSegments: eventNumber(data.completedSegments),
+            failedSegments: eventNumber(data.failedSegments),
+            totalSegments: eventNumber(data.totalSegments),
             updatedAt: typeof event.time === "string" ? event.time : "",
           });
           break;
         case "dev.scribe.transcription.failed":
           applyJobUpdate({
-            id: BigInt(data.jobId ?? 0),
+            id: eventBigInt(data.jobId),
             status: TranscriptionJobStatus.FAILED,
-            completedSegments: Number(data.completedSegments ?? 0),
-            failedSegments: Number(data.failedSegments ?? 0),
-            totalSegments: Number(data.totalSegments ?? 0),
+            completedSegments: eventNumber(data.completedSegments),
+            failedSegments: eventNumber(data.failedSegments),
+            totalSegments: eventNumber(data.totalSegments),
             updatedAt: typeof event.time === "string" ? event.time : "",
             errorMessage: typeof data.error === "string" ? data.error : "",
           });

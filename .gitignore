@@ -5,6 +5,8 @@ uploads
 secrets
 web/node_modules
 web/dist
+mirador-scribe/node_modules
+mirador-scribe/dist
 /db
 internal/server/cache/sessions/*/original.hocr
 docker-compose.override.yaml

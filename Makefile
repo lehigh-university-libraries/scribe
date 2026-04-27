@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build build-frontend fmt lint test proto proto-lint sqlc generate install-tools up up-db down logs sequelace tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-preview vault-secrets
+.PHONY: build build-frontend fmt lint test test-frontend proto proto-lint sqlc generate install-tools up up-db down logs sequelace tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
@@ -68,6 +68,9 @@ install-tools: ## Install required development tools
 
 test: ## Run Go tests (integration tests run automatically if MariaDB is active via make up-db or make up)
 	@./ci/test.sh
+
+test-frontend: ## Run frontend tests and production build checks
+	@bash ./ci/test-frontend.sh
 
 tf-dev: ## Run local Terraform for the shared dev environment. Usage: make tf-dev [BRANCH=name] ACTION=plan|apply|destroy
 	@set -eu; \

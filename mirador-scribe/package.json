@@ -26,16 +26,18 @@
     "@mui/system": "^7.0.0",
     "i18next": ">=25",
     "mirador": "^4.0.0",
+    "openseadragon": ">=5",
     "prop-types": "^15.8.1",
     "react": ">=19",
     "react-dom": ">=19",
     "react-i18next": ">=15"
   },
   "dependencies": {
-    "@mui/icons-material": "^7.3.2"
+    "@mui/icons-material": "7.3.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "5.2.0",
+    "openseadragon": "5.0.1",
     "vite": "7.3.2"
   }
 }

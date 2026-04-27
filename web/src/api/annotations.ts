@@ -7,6 +7,22 @@ function client() {
   return createClient(AnnotationService, getTransport());
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringValue(value: unknown, field: string): string {
+  if (typeof value === "string") return value;
+  throw new Error(`invalid ${field} in annotation response`);
+}
+
+function idString(value: unknown, field: string): string {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "bigint") {
+    return `${value}`;
+  }
+  throw new Error(`invalid ${field} in annotation response`);
+}
+
 export async function searchAnnotations(canvasUri: string): Promise<unknown> {
   const resp = await client().searchAnnotations({ canvasUri });
   return JSON.parse(resp.annotationPageJson);
@@ -37,12 +53,21 @@ export async function publishItemImageEdits(itemImageId: string): Promise<{ item
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ itemImageId: Number(itemImageId) }),
+    body: JSON.stringify({ itemImageId }),
   });
   if (!resp.ok) {
     throw new Error(`publish failed: ${resp.status}`);
   }
-  return resp.json() as Promise<{ itemImageId: string; canvasUri: string; annotationPageJson: string; publishedAt: string }>;
+  const body: unknown = await resp.json();
+  if (!isRecord(body)) {
+    throw new Error("invalid publish response");
+  }
+  return {
+    itemImageId: idString(body.itemImageId, "itemImageId"),
+    canvasUri: stringValue(body.canvasUri, "canvasUri"),
+    annotationPageJson: stringValue(body.annotationPageJson, "annotationPageJson"),
+    publishedAt: stringValue(body.publishedAt, "publishedAt"),
+  };
 }
 
 export async function enrichAnnotation(

@@ -22,7 +22,17 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
 
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
       - run: make lint
+
+      - name: Run frontend tests
+        run: make test-frontend
 
       - name: Start test database
         run: make up-db
