@@ -8,7 +8,7 @@ package scribev1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -1171,7 +1171,7 @@ var File_scribe_v1_context_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_context_proto_rawDesc = "" +
 	"\n" +
-	"\x17scribe/v1/context.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cscribe/v1/options/auth.proto\"c\n" +
+	"\x17scribe/v1/context.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"c\n" +
 	"\x11ImagePreprocessor\x12$\n" +
 	"\x04type\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04type\x12(\n" +
 	"\x06params\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x06params\"\xa3\x06\n" +
@@ -1253,7 +1253,7 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\x16ResolveContextResponse\x12,\n" +
 	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x02 \x01(\bR\tisDefault2\xc9\a\n" +
+	"is_default\x18\x02 \x01(\bR\tisDefault2\xbd\a\n" +
 	"\x0eContextService\x12Y\n" +
 	"\fListContexts\x12\x1e.scribe.v1.ListContextsRequest\x1a\x1f.scribe.v1.ListContextsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12_\n" +
 	"\n" +
@@ -1263,9 +1263,8 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\rUpdateContext\x12\x1f.scribe.v1.UpdateContextRequest\x1a .scribe.v1.UpdateContextResponse\"\x14\x92\xb5\x18\x10\x10\x05\x18\x02\"\n" +
 	"context.id\x12h\n" +
 	"\rDeleteContext\x12\x1f.scribe.v1.DeleteContextRequest\x1a .scribe.v1.DeleteContextResponse\"\x14\x92\xb5\x18\x10\x10\x05\x18\x02\"\n" +
-	"context_id\x12w\n" +
-	"\x12ListSelectionRules\x12$.scribe.v1.ListSelectionRulesRequest\x1a%.scribe.v1.ListSelectionRulesResponse\"\x14\x92\xb5\x18\x10\x10\x05\x18\x01\"\n" +
-	"context_id\x12\x7f\n" +
+	"context_id\x12k\n" +
+	"\x12ListSelectionRules\x12$.scribe.v1.ListSelectionRulesRequest\x1a%.scribe.v1.ListSelectionRulesResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12\x7f\n" +
 	"\x13CreateSelectionRule\x12%.scribe.v1.CreateSelectionRuleRequest\x1a&.scribe.v1.CreateSelectionRuleResponse\"\x19\x92\xb5\x18\x15\x10\x05\x18\x02\"\x0frule.context_id\x12n\n" +
 	"\x13DeleteSelectionRule\x12%.scribe.v1.DeleteSelectionRuleRequest\x1a&.scribe.v1.DeleteSelectionRuleResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12_\n" +
 	"\x0eResolveContext\x12 .scribe.v1.ResolveContextRequest\x1a!.scribe.v1.ResolveContextResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01B\xaa\x01\n" +

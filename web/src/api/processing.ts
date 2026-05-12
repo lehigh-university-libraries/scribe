@@ -1,8 +1,10 @@
 import { createClient } from "@connectrpc/connect";
 import { ImageProcessingService } from "../proto/scribe/v1/process_connect";
 import {
-  type OCRRun,
-  type ProcessImageResponse,
+  type GetOCRRunResponse,
+  type ProcessHOCRResponse,
+  type ProcessImageURLResponse,
+  type ProcessImageUploadResponse,
   type ReprocessItemImageResponse,
   type SaveOCREditsResponse,
 } from "../proto/scribe/v1/process_pb";
@@ -13,11 +15,11 @@ function client() {
   return createClient(ImageProcessingService, getTransport());
 }
 
-export async function processImageURL(imageUrl: string, contextId = BigInt(0)): Promise<ProcessImageResponse> {
+export async function processImageURL(imageUrl: string, contextId = BigInt(0)): Promise<ProcessImageURLResponse> {
   return client().processImageURL({ imageUrl, contextId });
 }
 
-export async function processImageUpload(file: File, contextId = BigInt(0)): Promise<ProcessImageResponse> {
+export async function processImageUpload(file: File, contextId = BigInt(0)): Promise<ProcessImageUploadResponse> {
   const imageData = await readFileBytes(file);
   return client().processImageUpload({
     imageData,
@@ -26,19 +28,18 @@ export async function processImageUpload(file: File, contextId = BigInt(0)): Pro
   });
 }
 
-export async function processHOCR(hocr: string, imageUrl = "", imageData?: Uint8Array, filename = ""): Promise<ProcessImageResponse> {
+export async function processHOCR(hocr: string, imageUrl = "", imageData?: Uint8Array, filename = ""): Promise<ProcessHOCRResponse> {
   return client().processHOCR({ hocr, imageUrl, imageData, filename });
 }
 
-export async function getOCRRun(itemImageId: string): Promise<OCRRun> {
+export async function getOCRRun(itemImageId: string): Promise<GetOCRRunResponse> {
   return client().getOCRRun({
     itemImageId: BigInt(itemImageId),
   });
 }
 
-export async function saveOCREdits(sessionId: string, itemImageId: string, correctedHocr: string, editCount: number): Promise<SaveOCREditsResponse> {
+export async function saveOCREdits(itemImageId: string, correctedHocr: string, editCount: number): Promise<SaveOCREditsResponse> {
   return client().saveOCREdits({
-    sessionId,
     itemImageId: BigInt(itemImageId),
     correctedHocr,
     editCount,

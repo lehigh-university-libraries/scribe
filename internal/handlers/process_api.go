@@ -1,8 +1,8 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -30,12 +30,16 @@ func (h *Handler) ProcessImageURLWithModel(imageURL, model string) (*ProcessResu
 }
 
 func (h *Handler) ProcessImageURLWithProviderAndModel(imageURL, provider, model string) (*ProcessResult, error) {
-	result, err := h.processImageFromURLWithProviderAndModel(imageURL, provider, model)
+	return h.ProcessImageURLWithProviderAndModelContext(context.Background(), imageURL, provider, model)
+}
+
+func (h *Handler) ProcessImageURLWithProviderAndModelContext(ctx context.Context, imageURL, provider, model string) (*ProcessResult, error) {
+	result, err := h.processImageFromURLWithContext(ctx, imageURL, provider, model)
 	if err != nil {
 		return nil, err
 	}
 
-	filename := h.extractFilenameFromURL(imageURL, result.MD5Hash)
+	filename := h.extractFilenameFromURL(imageURL, result.ContentHash)
 	sessionID := fmt.Sprintf("%s_%d", filename, time.Now().Unix())
 	session := h.createImageSession(sessionID, result, SessionConfig{Model: model})
 	h.sessionStore.Set(sessionID, session)
@@ -74,16 +78,18 @@ func (h *Handler) StoreUploadedImage(filename string, fileData []byte) (string, 
 	if err := h.ensureUploadsDir(); err != nil {
 		return "", fmt.Errorf("create uploads dir: %w", err)
 	}
+	if err := validateUploadedImageData(fileData); err != nil {
+		return "", err
+	}
 
-	md5Hash := utils.CalculateDataMD5(fileData)
-	ext := filepath.Ext(filename)
+	contentHash := utils.CalculateDataHash(fileData)
+	ext := safeImageExtension(filepath.Ext(filename))
 	if ext == "" {
 		ext = ".jpg"
 	}
 
-	imageFilename := md5Hash + ext
-	imageFilePath := filepath.Join("uploads", imageFilename)
-	if err := os.WriteFile(imageFilePath, fileData, 0644); err != nil {
+	imageFilename := contentHash + ext
+	if _, err := h.saveUploadedImageBytes(context.Background(), imageFilename, fileData, ""); err != nil {
 		return "", fmt.Errorf("save uploaded image: %w", err)
 	}
 

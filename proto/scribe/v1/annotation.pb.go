@@ -8,6 +8,7 @@ package scribev1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -763,27 +764,27 @@ func (x *SplitLineIntoTwoLinesResponse) GetAnnotationJsons() []string {
 }
 
 // Join two or more line annotations into one (union bbox, concatenated text).
-type JoinAnnotationsRequest struct {
+type JoinLinesRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	AnnotationJsons []string               `protobuf:"bytes,1,rep,name=annotation_jsons,json=annotationJsons,proto3" json:"annotation_jsons,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *JoinAnnotationsRequest) Reset() {
-	*x = JoinAnnotationsRequest{}
+func (x *JoinLinesRequest) Reset() {
+	*x = JoinLinesRequest{}
 	mi := &file_scribe_v1_annotation_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *JoinAnnotationsRequest) String() string {
+func (x *JoinLinesRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*JoinAnnotationsRequest) ProtoMessage() {}
+func (*JoinLinesRequest) ProtoMessage() {}
 
-func (x *JoinAnnotationsRequest) ProtoReflect() protoreflect.Message {
+func (x *JoinLinesRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_scribe_v1_annotation_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -795,39 +796,39 @@ func (x *JoinAnnotationsRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use JoinAnnotationsRequest.ProtoReflect.Descriptor instead.
-func (*JoinAnnotationsRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use JoinLinesRequest.ProtoReflect.Descriptor instead.
+func (*JoinLinesRequest) Descriptor() ([]byte, []int) {
 	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{16}
 }
 
-func (x *JoinAnnotationsRequest) GetAnnotationJsons() []string {
+func (x *JoinLinesRequest) GetAnnotationJsons() []string {
 	if x != nil {
 		return x.AnnotationJsons
 	}
 	return nil
 }
 
-type JoinAnnotationsResponse struct {
+type JoinLinesResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	AnnotationJson string                 `protobuf:"bytes,1,opt,name=annotation_json,json=annotationJson,proto3" json:"annotation_json,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
-func (x *JoinAnnotationsResponse) Reset() {
-	*x = JoinAnnotationsResponse{}
+func (x *JoinLinesResponse) Reset() {
+	*x = JoinLinesResponse{}
 	mi := &file_scribe_v1_annotation_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *JoinAnnotationsResponse) String() string {
+func (x *JoinLinesResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*JoinAnnotationsResponse) ProtoMessage() {}
+func (*JoinLinesResponse) ProtoMessage() {}
 
-func (x *JoinAnnotationsResponse) ProtoReflect() protoreflect.Message {
+func (x *JoinLinesResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_scribe_v1_annotation_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -839,12 +840,100 @@ func (x *JoinAnnotationsResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use JoinAnnotationsResponse.ProtoReflect.Descriptor instead.
-func (*JoinAnnotationsResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use JoinLinesResponse.ProtoReflect.Descriptor instead.
+func (*JoinLinesResponse) Descriptor() ([]byte, []int) {
 	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{17}
 }
 
-func (x *JoinAnnotationsResponse) GetAnnotationJson() string {
+func (x *JoinLinesResponse) GetAnnotationJson() string {
+	if x != nil {
+		return x.AnnotationJson
+	}
+	return ""
+}
+
+type JoinWordsIntoLineRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AnnotationJsons []string               `protobuf:"bytes,1,rep,name=annotation_jsons,json=annotationJsons,proto3" json:"annotation_jsons,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *JoinWordsIntoLineRequest) Reset() {
+	*x = JoinWordsIntoLineRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinWordsIntoLineRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinWordsIntoLineRequest) ProtoMessage() {}
+
+func (x *JoinWordsIntoLineRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinWordsIntoLineRequest.ProtoReflect.Descriptor instead.
+func (*JoinWordsIntoLineRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *JoinWordsIntoLineRequest) GetAnnotationJsons() []string {
+	if x != nil {
+		return x.AnnotationJsons
+	}
+	return nil
+}
+
+type JoinWordsIntoLineResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AnnotationJson string                 `protobuf:"bytes,1,opt,name=annotation_json,json=annotationJson,proto3" json:"annotation_json,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *JoinWordsIntoLineResponse) Reset() {
+	*x = JoinWordsIntoLineResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JoinWordsIntoLineResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JoinWordsIntoLineResponse) ProtoMessage() {}
+
+func (x *JoinWordsIntoLineResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JoinWordsIntoLineResponse.ProtoReflect.Descriptor instead.
+func (*JoinWordsIntoLineResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *JoinWordsIntoLineResponse) GetAnnotationJson() string {
 	if x != nil {
 		return x.AnnotationJson
 	}
@@ -852,7 +941,7 @@ func (x *JoinAnnotationsResponse) GetAnnotationJson() string {
 }
 
 // Crosswalk: convert an AnnotationPage (or single annotation) to an export format.
-type CrosswalkRequest struct {
+type CrosswalkToPlainTextRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Provide one of the two fields; annotation_page_json takes priority.
 	AnnotationPageJson string `protobuf:"bytes,1,opt,name=annotation_page_json,json=annotationPageJson,proto3" json:"annotation_page_json,omitempty"`
@@ -861,21 +950,21 @@ type CrosswalkRequest struct {
 	sizeCache          protoimpl.SizeCache
 }
 
-func (x *CrosswalkRequest) Reset() {
-	*x = CrosswalkRequest{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
+func (x *CrosswalkToPlainTextRequest) Reset() {
+	*x = CrosswalkToPlainTextRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CrosswalkRequest) String() string {
+func (x *CrosswalkToPlainTextRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CrosswalkRequest) ProtoMessage() {}
+func (*CrosswalkToPlainTextRequest) ProtoMessage() {}
 
-func (x *CrosswalkRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
+func (x *CrosswalkToPlainTextRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -886,26 +975,26 @@ func (x *CrosswalkRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CrosswalkRequest.ProtoReflect.Descriptor instead.
-func (*CrosswalkRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{18}
+// Deprecated: Use CrosswalkToPlainTextRequest.ProtoReflect.Descriptor instead.
+func (*CrosswalkToPlainTextRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *CrosswalkRequest) GetAnnotationPageJson() string {
+func (x *CrosswalkToPlainTextRequest) GetAnnotationPageJson() string {
 	if x != nil {
 		return x.AnnotationPageJson
 	}
 	return ""
 }
 
-func (x *CrosswalkRequest) GetAnnotationJson() string {
+func (x *CrosswalkToPlainTextRequest) GetAnnotationJson() string {
 	if x != nil {
 		return x.AnnotationJson
 	}
 	return ""
 }
 
-type CrosswalkResponse struct {
+type CrosswalkToPlainTextResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Format        string                 `protobuf:"bytes,1,opt,name=format,proto3" json:"format,omitempty"` // MIME type of the exported content
 	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
@@ -913,21 +1002,21 @@ type CrosswalkResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CrosswalkResponse) Reset() {
-	*x = CrosswalkResponse{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
+func (x *CrosswalkToPlainTextResponse) Reset() {
+	*x = CrosswalkToPlainTextResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CrosswalkResponse) String() string {
+func (x *CrosswalkToPlainTextResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CrosswalkResponse) ProtoMessage() {}
+func (*CrosswalkToPlainTextResponse) ProtoMessage() {}
 
-func (x *CrosswalkResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
+func (x *CrosswalkToPlainTextResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -938,19 +1027,334 @@ func (x *CrosswalkResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CrosswalkResponse.ProtoReflect.Descriptor instead.
-func (*CrosswalkResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{19}
+// Deprecated: Use CrosswalkToPlainTextResponse.ProtoReflect.Descriptor instead.
+func (*CrosswalkToPlainTextResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{21}
 }
 
-func (x *CrosswalkResponse) GetFormat() string {
+func (x *CrosswalkToPlainTextResponse) GetFormat() string {
 	if x != nil {
 		return x.Format
 	}
 	return ""
 }
 
-func (x *CrosswalkResponse) GetContent() string {
+func (x *CrosswalkToPlainTextResponse) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+type CrosswalkToHOCRRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Provide one of the two fields; annotation_page_json takes priority.
+	AnnotationPageJson string `protobuf:"bytes,1,opt,name=annotation_page_json,json=annotationPageJson,proto3" json:"annotation_page_json,omitempty"`
+	AnnotationJson     string `protobuf:"bytes,2,opt,name=annotation_json,json=annotationJson,proto3" json:"annotation_json,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CrosswalkToHOCRRequest) Reset() {
+	*x = CrosswalkToHOCRRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CrosswalkToHOCRRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrosswalkToHOCRRequest) ProtoMessage() {}
+
+func (x *CrosswalkToHOCRRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrosswalkToHOCRRequest.ProtoReflect.Descriptor instead.
+func (*CrosswalkToHOCRRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *CrosswalkToHOCRRequest) GetAnnotationPageJson() string {
+	if x != nil {
+		return x.AnnotationPageJson
+	}
+	return ""
+}
+
+func (x *CrosswalkToHOCRRequest) GetAnnotationJson() string {
+	if x != nil {
+		return x.AnnotationJson
+	}
+	return ""
+}
+
+type CrosswalkToHOCRResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Format        string                 `protobuf:"bytes,1,opt,name=format,proto3" json:"format,omitempty"` // MIME type of the exported content
+	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CrosswalkToHOCRResponse) Reset() {
+	*x = CrosswalkToHOCRResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CrosswalkToHOCRResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrosswalkToHOCRResponse) ProtoMessage() {}
+
+func (x *CrosswalkToHOCRResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrosswalkToHOCRResponse.ProtoReflect.Descriptor instead.
+func (*CrosswalkToHOCRResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *CrosswalkToHOCRResponse) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *CrosswalkToHOCRResponse) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+type CrosswalkToPageXMLRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Provide one of the two fields; annotation_page_json takes priority.
+	AnnotationPageJson string `protobuf:"bytes,1,opt,name=annotation_page_json,json=annotationPageJson,proto3" json:"annotation_page_json,omitempty"`
+	AnnotationJson     string `protobuf:"bytes,2,opt,name=annotation_json,json=annotationJson,proto3" json:"annotation_json,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CrosswalkToPageXMLRequest) Reset() {
+	*x = CrosswalkToPageXMLRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CrosswalkToPageXMLRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrosswalkToPageXMLRequest) ProtoMessage() {}
+
+func (x *CrosswalkToPageXMLRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrosswalkToPageXMLRequest.ProtoReflect.Descriptor instead.
+func (*CrosswalkToPageXMLRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *CrosswalkToPageXMLRequest) GetAnnotationPageJson() string {
+	if x != nil {
+		return x.AnnotationPageJson
+	}
+	return ""
+}
+
+func (x *CrosswalkToPageXMLRequest) GetAnnotationJson() string {
+	if x != nil {
+		return x.AnnotationJson
+	}
+	return ""
+}
+
+type CrosswalkToPageXMLResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Format        string                 `protobuf:"bytes,1,opt,name=format,proto3" json:"format,omitempty"` // MIME type of the exported content
+	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CrosswalkToPageXMLResponse) Reset() {
+	*x = CrosswalkToPageXMLResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CrosswalkToPageXMLResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrosswalkToPageXMLResponse) ProtoMessage() {}
+
+func (x *CrosswalkToPageXMLResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrosswalkToPageXMLResponse.ProtoReflect.Descriptor instead.
+func (*CrosswalkToPageXMLResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *CrosswalkToPageXMLResponse) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *CrosswalkToPageXMLResponse) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+type CrosswalkToALTOXMLRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Provide one of the two fields; annotation_page_json takes priority.
+	AnnotationPageJson string `protobuf:"bytes,1,opt,name=annotation_page_json,json=annotationPageJson,proto3" json:"annotation_page_json,omitempty"`
+	AnnotationJson     string `protobuf:"bytes,2,opt,name=annotation_json,json=annotationJson,proto3" json:"annotation_json,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CrosswalkToALTOXMLRequest) Reset() {
+	*x = CrosswalkToALTOXMLRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CrosswalkToALTOXMLRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrosswalkToALTOXMLRequest) ProtoMessage() {}
+
+func (x *CrosswalkToALTOXMLRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrosswalkToALTOXMLRequest.ProtoReflect.Descriptor instead.
+func (*CrosswalkToALTOXMLRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *CrosswalkToALTOXMLRequest) GetAnnotationPageJson() string {
+	if x != nil {
+		return x.AnnotationPageJson
+	}
+	return ""
+}
+
+func (x *CrosswalkToALTOXMLRequest) GetAnnotationJson() string {
+	if x != nil {
+		return x.AnnotationJson
+	}
+	return ""
+}
+
+type CrosswalkToALTOXMLResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Format        string                 `protobuf:"bytes,1,opt,name=format,proto3" json:"format,omitempty"` // MIME type of the exported content
+	Content       string                 `protobuf:"bytes,2,opt,name=content,proto3" json:"content,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CrosswalkToALTOXMLResponse) Reset() {
+	*x = CrosswalkToALTOXMLResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CrosswalkToALTOXMLResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CrosswalkToALTOXMLResponse) ProtoMessage() {}
+
+func (x *CrosswalkToALTOXMLResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CrosswalkToALTOXMLResponse.ProtoReflect.Descriptor instead.
+func (*CrosswalkToALTOXMLResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *CrosswalkToALTOXMLResponse) GetFormat() string {
+	if x != nil {
+		return x.Format
+	}
+	return ""
+}
+
+func (x *CrosswalkToALTOXMLResponse) GetContent() string {
 	if x != nil {
 		return x.Content
 	}
@@ -961,7 +1365,7 @@ var File_scribe_v1_annotation_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_annotation_proto_rawDesc = "" +
 	"\n" +
-	"\x1ascribe/v1/annotation.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\"K\n" +
+	"\x1ascribe/v1/annotation.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"K\n" +
 	"\x18SearchAnnotationsRequest\x12/\n" +
 	"\n" +
 	"canvas_uri\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\tcanvasUri\"M\n" +
@@ -1001,33 +1405,58 @@ const file_scribe_v1_annotation_proto_rawDesc = "" +
 	"\x0fannotation_json\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x0eannotationJson\x12\"\n" +
 	"\rsplit_at_word\x18\x02 \x01(\x05R\vsplitAtWord\"J\n" +
 	"\x1dSplitLineIntoTwoLinesResponse\x12)\n" +
-	"\x10annotation_jsons\x18\x01 \x03(\tR\x0fannotationJsons\"M\n" +
-	"\x16JoinAnnotationsRequest\x123\n" +
-	"\x10annotation_jsons\x18\x01 \x03(\tB\b\xbaH\x05\x92\x01\x02\b\x02R\x0fannotationJsons\"B\n" +
-	"\x17JoinAnnotationsResponse\x12'\n" +
-	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"\xba\x02\n" +
-	"\x10CrosswalkRequest\x12B\n" +
+	"\x10annotation_jsons\x18\x01 \x03(\tR\x0fannotationJsons\"G\n" +
+	"\x10JoinLinesRequest\x123\n" +
+	"\x10annotation_jsons\x18\x01 \x03(\tB\b\xbaH\x05\x92\x01\x02\b\x02R\x0fannotationJsons\"<\n" +
+	"\x11JoinLinesResponse\x12'\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"O\n" +
+	"\x18JoinWordsIntoLineRequest\x123\n" +
+	"\x10annotation_jsons\x18\x01 \x03(\tB\b\xbaH\x05\x92\x01\x02\b\x02R\x0fannotationJsons\"D\n" +
+	"\x19JoinWordsIntoLineResponse\x12'\n" +
+	"\x0fannotation_json\x18\x01 \x01(\tR\x0eannotationJson\"\xc5\x02\n" +
+	"\x1bCrosswalkToPlainTextRequest\x12B\n" +
 	"\x14annotation_page_json\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x12annotationPageJson\x129\n" +
 	"\x0fannotation_json\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x0eannotationJson:\xa6\x01\xbaH\xa2\x01\x1a\x9f\x01\n" +
-	"\x0fcrosswalk.input\x123annotation_page_json or annotation_json is required\x1aWthis.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')\"E\n" +
-	"\x11CrosswalkResponse\x12\x16\n" +
+	"\x0fcrosswalk.input\x123annotation_page_json or annotation_json is required\x1aWthis.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')\"P\n" +
+	"\x1cCrosswalkToPlainTextResponse\x12\x16\n" +
 	"\x06format\x18\x01 \x01(\tR\x06format\x12\x18\n" +
-	"\acontent\x18\x02 \x01(\tR\acontent2\xfd\t\n" +
-	"\x11AnnotationService\x12^\n" +
-	"\x11SearchAnnotations\x12#.scribe.v1.SearchAnnotationsRequest\x1a$.scribe.v1.SearchAnnotationsResponse\x12R\n" +
-	"\rGetAnnotation\x12\x1f.scribe.v1.GetAnnotationRequest\x1a .scribe.v1.GetAnnotationResponse\x12[\n" +
-	"\x10CreateAnnotation\x12\".scribe.v1.CreateAnnotationRequest\x1a#.scribe.v1.CreateAnnotationResponse\x12[\n" +
-	"\x10UpdateAnnotation\x12\".scribe.v1.UpdateAnnotationRequest\x1a#.scribe.v1.UpdateAnnotationResponse\x12[\n" +
-	"\x10DeleteAnnotation\x12\".scribe.v1.DeleteAnnotationRequest\x1a#.scribe.v1.DeleteAnnotationResponse\x12[\n" +
-	"\x10EnrichAnnotation\x12\".scribe.v1.EnrichAnnotationRequest\x1a#.scribe.v1.EnrichAnnotationResponse\x12a\n" +
-	"\x12SplitLineIntoWords\x12$.scribe.v1.SplitLineIntoWordsRequest\x1a%.scribe.v1.SplitLineIntoWordsResponse\x12j\n" +
-	"\x15SplitLineIntoTwoLines\x12'.scribe.v1.SplitLineIntoTwoLinesRequest\x1a(.scribe.v1.SplitLineIntoTwoLinesResponse\x12R\n" +
-	"\tJoinLines\x12!.scribe.v1.JoinAnnotationsRequest\x1a\".scribe.v1.JoinAnnotationsResponse\x12Z\n" +
-	"\x11JoinWordsIntoLine\x12!.scribe.v1.JoinAnnotationsRequest\x1a\".scribe.v1.JoinAnnotationsResponse\x12Q\n" +
-	"\x14CrosswalkToPlainText\x12\x1b.scribe.v1.CrosswalkRequest\x1a\x1c.scribe.v1.CrosswalkResponse\x12L\n" +
-	"\x0fCrosswalkToHOCR\x12\x1b.scribe.v1.CrosswalkRequest\x1a\x1c.scribe.v1.CrosswalkResponse\x12O\n" +
-	"\x12CrosswalkToPageXML\x12\x1b.scribe.v1.CrosswalkRequest\x1a\x1c.scribe.v1.CrosswalkResponse\x12O\n" +
-	"\x12CrosswalkToALTOXML\x12\x1b.scribe.v1.CrosswalkRequest\x1a\x1c.scribe.v1.CrosswalkResponseB\xad\x01\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\"\xc0\x02\n" +
+	"\x16CrosswalkToHOCRRequest\x12B\n" +
+	"\x14annotation_page_json\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x12annotationPageJson\x129\n" +
+	"\x0fannotation_json\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x0eannotationJson:\xa6\x01\xbaH\xa2\x01\x1a\x9f\x01\n" +
+	"\x0fcrosswalk.input\x123annotation_page_json or annotation_json is required\x1aWthis.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')\"K\n" +
+	"\x17CrosswalkToHOCRResponse\x12\x16\n" +
+	"\x06format\x18\x01 \x01(\tR\x06format\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\"\xc3\x02\n" +
+	"\x19CrosswalkToPageXMLRequest\x12B\n" +
+	"\x14annotation_page_json\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x12annotationPageJson\x129\n" +
+	"\x0fannotation_json\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x0eannotationJson:\xa6\x01\xbaH\xa2\x01\x1a\x9f\x01\n" +
+	"\x0fcrosswalk.input\x123annotation_page_json or annotation_json is required\x1aWthis.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')\"N\n" +
+	"\x1aCrosswalkToPageXMLResponse\x12\x16\n" +
+	"\x06format\x18\x01 \x01(\tR\x06format\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent\"\xc3\x02\n" +
+	"\x19CrosswalkToALTOXMLRequest\x12B\n" +
+	"\x14annotation_page_json\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x12annotationPageJson\x129\n" +
+	"\x0fannotation_json\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x0eannotationJson:\xa6\x01\xbaH\xa2\x01\x1a\x9f\x01\n" +
+	"\x0fcrosswalk.input\x123annotation_page_json or annotation_json is required\x1aWthis.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')\"N\n" +
+	"\x1aCrosswalkToALTOXMLResponse\x12\x16\n" +
+	"\x06format\x18\x01 \x01(\tR\x06format\x12\x18\n" +
+	"\acontent\x18\x02 \x01(\tR\acontent2\xc7\v\n" +
+	"\x11AnnotationService\x12h\n" +
+	"\x11SearchAnnotations\x12#.scribe.v1.SearchAnnotationsRequest\x1a$.scribe.v1.SearchAnnotationsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12\\\n" +
+	"\rGetAnnotation\x12\x1f.scribe.v1.GetAnnotationRequest\x1a .scribe.v1.GetAnnotationResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12e\n" +
+	"\x10CreateAnnotation\x12\".scribe.v1.CreateAnnotationRequest\x1a#.scribe.v1.CreateAnnotationResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12e\n" +
+	"\x10UpdateAnnotation\x12\".scribe.v1.UpdateAnnotationRequest\x1a#.scribe.v1.UpdateAnnotationResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12e\n" +
+	"\x10DeleteAnnotation\x12\".scribe.v1.DeleteAnnotationRequest\x1a#.scribe.v1.DeleteAnnotationResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12e\n" +
+	"\x10EnrichAnnotation\x12\".scribe.v1.EnrichAnnotationRequest\x1a#.scribe.v1.EnrichAnnotationResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12k\n" +
+	"\x12SplitLineIntoWords\x12$.scribe.v1.SplitLineIntoWordsRequest\x1a%.scribe.v1.SplitLineIntoWordsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12t\n" +
+	"\x15SplitLineIntoTwoLines\x12'.scribe.v1.SplitLineIntoTwoLinesRequest\x1a(.scribe.v1.SplitLineIntoTwoLinesResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12P\n" +
+	"\tJoinLines\x12\x1b.scribe.v1.JoinLinesRequest\x1a\x1c.scribe.v1.JoinLinesResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12h\n" +
+	"\x11JoinWordsIntoLine\x12#.scribe.v1.JoinWordsIntoLineRequest\x1a$.scribe.v1.JoinWordsIntoLineResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12q\n" +
+	"\x14CrosswalkToPlainText\x12&.scribe.v1.CrosswalkToPlainTextRequest\x1a'.scribe.v1.CrosswalkToPlainTextResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12b\n" +
+	"\x0fCrosswalkToHOCR\x12!.scribe.v1.CrosswalkToHOCRRequest\x1a\".scribe.v1.CrosswalkToHOCRResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12k\n" +
+	"\x12CrosswalkToPageXML\x12$.scribe.v1.CrosswalkToPageXMLRequest\x1a%.scribe.v1.CrosswalkToPageXMLResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12k\n" +
+	"\x12CrosswalkToALTOXML\x12$.scribe.v1.CrosswalkToALTOXMLRequest\x1a%.scribe.v1.CrosswalkToALTOXMLResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01B\xad\x01\n" +
 	"\rcom.scribe.v1B\x0fAnnotationProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 
@@ -1043,7 +1472,7 @@ func file_scribe_v1_annotation_proto_rawDescGZIP() []byte {
 	return file_scribe_v1_annotation_proto_rawDescData
 }
 
-var file_scribe_v1_annotation_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_scribe_v1_annotation_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_scribe_v1_annotation_proto_goTypes = []any{
 	(*SearchAnnotationsRequest)(nil),      // 0: scribe.v1.SearchAnnotationsRequest
 	(*SearchAnnotationsResponse)(nil),     // 1: scribe.v1.SearchAnnotationsResponse
@@ -1061,10 +1490,18 @@ var file_scribe_v1_annotation_proto_goTypes = []any{
 	(*SplitLineIntoWordsResponse)(nil),    // 13: scribe.v1.SplitLineIntoWordsResponse
 	(*SplitLineIntoTwoLinesRequest)(nil),  // 14: scribe.v1.SplitLineIntoTwoLinesRequest
 	(*SplitLineIntoTwoLinesResponse)(nil), // 15: scribe.v1.SplitLineIntoTwoLinesResponse
-	(*JoinAnnotationsRequest)(nil),        // 16: scribe.v1.JoinAnnotationsRequest
-	(*JoinAnnotationsResponse)(nil),       // 17: scribe.v1.JoinAnnotationsResponse
-	(*CrosswalkRequest)(nil),              // 18: scribe.v1.CrosswalkRequest
-	(*CrosswalkResponse)(nil),             // 19: scribe.v1.CrosswalkResponse
+	(*JoinLinesRequest)(nil),              // 16: scribe.v1.JoinLinesRequest
+	(*JoinLinesResponse)(nil),             // 17: scribe.v1.JoinLinesResponse
+	(*JoinWordsIntoLineRequest)(nil),      // 18: scribe.v1.JoinWordsIntoLineRequest
+	(*JoinWordsIntoLineResponse)(nil),     // 19: scribe.v1.JoinWordsIntoLineResponse
+	(*CrosswalkToPlainTextRequest)(nil),   // 20: scribe.v1.CrosswalkToPlainTextRequest
+	(*CrosswalkToPlainTextResponse)(nil),  // 21: scribe.v1.CrosswalkToPlainTextResponse
+	(*CrosswalkToHOCRRequest)(nil),        // 22: scribe.v1.CrosswalkToHOCRRequest
+	(*CrosswalkToHOCRResponse)(nil),       // 23: scribe.v1.CrosswalkToHOCRResponse
+	(*CrosswalkToPageXMLRequest)(nil),     // 24: scribe.v1.CrosswalkToPageXMLRequest
+	(*CrosswalkToPageXMLResponse)(nil),    // 25: scribe.v1.CrosswalkToPageXMLResponse
+	(*CrosswalkToALTOXMLRequest)(nil),     // 26: scribe.v1.CrosswalkToALTOXMLRequest
+	(*CrosswalkToALTOXMLResponse)(nil),    // 27: scribe.v1.CrosswalkToALTOXMLResponse
 }
 var file_scribe_v1_annotation_proto_depIdxs = []int32{
 	0,  // 0: scribe.v1.AnnotationService.SearchAnnotations:input_type -> scribe.v1.SearchAnnotationsRequest
@@ -1075,12 +1512,12 @@ var file_scribe_v1_annotation_proto_depIdxs = []int32{
 	10, // 5: scribe.v1.AnnotationService.EnrichAnnotation:input_type -> scribe.v1.EnrichAnnotationRequest
 	12, // 6: scribe.v1.AnnotationService.SplitLineIntoWords:input_type -> scribe.v1.SplitLineIntoWordsRequest
 	14, // 7: scribe.v1.AnnotationService.SplitLineIntoTwoLines:input_type -> scribe.v1.SplitLineIntoTwoLinesRequest
-	16, // 8: scribe.v1.AnnotationService.JoinLines:input_type -> scribe.v1.JoinAnnotationsRequest
-	16, // 9: scribe.v1.AnnotationService.JoinWordsIntoLine:input_type -> scribe.v1.JoinAnnotationsRequest
-	18, // 10: scribe.v1.AnnotationService.CrosswalkToPlainText:input_type -> scribe.v1.CrosswalkRequest
-	18, // 11: scribe.v1.AnnotationService.CrosswalkToHOCR:input_type -> scribe.v1.CrosswalkRequest
-	18, // 12: scribe.v1.AnnotationService.CrosswalkToPageXML:input_type -> scribe.v1.CrosswalkRequest
-	18, // 13: scribe.v1.AnnotationService.CrosswalkToALTOXML:input_type -> scribe.v1.CrosswalkRequest
+	16, // 8: scribe.v1.AnnotationService.JoinLines:input_type -> scribe.v1.JoinLinesRequest
+	18, // 9: scribe.v1.AnnotationService.JoinWordsIntoLine:input_type -> scribe.v1.JoinWordsIntoLineRequest
+	20, // 10: scribe.v1.AnnotationService.CrosswalkToPlainText:input_type -> scribe.v1.CrosswalkToPlainTextRequest
+	22, // 11: scribe.v1.AnnotationService.CrosswalkToHOCR:input_type -> scribe.v1.CrosswalkToHOCRRequest
+	24, // 12: scribe.v1.AnnotationService.CrosswalkToPageXML:input_type -> scribe.v1.CrosswalkToPageXMLRequest
+	26, // 13: scribe.v1.AnnotationService.CrosswalkToALTOXML:input_type -> scribe.v1.CrosswalkToALTOXMLRequest
 	1,  // 14: scribe.v1.AnnotationService.SearchAnnotations:output_type -> scribe.v1.SearchAnnotationsResponse
 	3,  // 15: scribe.v1.AnnotationService.GetAnnotation:output_type -> scribe.v1.GetAnnotationResponse
 	5,  // 16: scribe.v1.AnnotationService.CreateAnnotation:output_type -> scribe.v1.CreateAnnotationResponse
@@ -1089,12 +1526,12 @@ var file_scribe_v1_annotation_proto_depIdxs = []int32{
 	11, // 19: scribe.v1.AnnotationService.EnrichAnnotation:output_type -> scribe.v1.EnrichAnnotationResponse
 	13, // 20: scribe.v1.AnnotationService.SplitLineIntoWords:output_type -> scribe.v1.SplitLineIntoWordsResponse
 	15, // 21: scribe.v1.AnnotationService.SplitLineIntoTwoLines:output_type -> scribe.v1.SplitLineIntoTwoLinesResponse
-	17, // 22: scribe.v1.AnnotationService.JoinLines:output_type -> scribe.v1.JoinAnnotationsResponse
-	17, // 23: scribe.v1.AnnotationService.JoinWordsIntoLine:output_type -> scribe.v1.JoinAnnotationsResponse
-	19, // 24: scribe.v1.AnnotationService.CrosswalkToPlainText:output_type -> scribe.v1.CrosswalkResponse
-	19, // 25: scribe.v1.AnnotationService.CrosswalkToHOCR:output_type -> scribe.v1.CrosswalkResponse
-	19, // 26: scribe.v1.AnnotationService.CrosswalkToPageXML:output_type -> scribe.v1.CrosswalkResponse
-	19, // 27: scribe.v1.AnnotationService.CrosswalkToALTOXML:output_type -> scribe.v1.CrosswalkResponse
+	17, // 22: scribe.v1.AnnotationService.JoinLines:output_type -> scribe.v1.JoinLinesResponse
+	19, // 23: scribe.v1.AnnotationService.JoinWordsIntoLine:output_type -> scribe.v1.JoinWordsIntoLineResponse
+	21, // 24: scribe.v1.AnnotationService.CrosswalkToPlainText:output_type -> scribe.v1.CrosswalkToPlainTextResponse
+	23, // 25: scribe.v1.AnnotationService.CrosswalkToHOCR:output_type -> scribe.v1.CrosswalkToHOCRResponse
+	25, // 26: scribe.v1.AnnotationService.CrosswalkToPageXML:output_type -> scribe.v1.CrosswalkToPageXMLResponse
+	27, // 27: scribe.v1.AnnotationService.CrosswalkToALTOXML:output_type -> scribe.v1.CrosswalkToALTOXMLResponse
 	14, // [14:28] is the sub-list for method output_type
 	0,  // [0:14] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
@@ -1113,7 +1550,7 @@ func file_scribe_v1_annotation_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_annotation_proto_rawDesc), len(file_scribe_v1_annotation_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

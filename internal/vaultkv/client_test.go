@@ -1,6 +1,7 @@
 package vaultkv
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -9,6 +10,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -73,6 +76,48 @@ func TestSignServiceAccountJWT(t *testing.T) {
 	sum := sha256.Sum256([]byte(signingInput))
 	if err := rsa.VerifyPKCS1v15(&privateKey.PublicKey, crypto.SHA256, sum[:], signature); err != nil {
 		t.Fatalf("verify signature: %v", err)
+	}
+}
+
+func TestRenewSelfExtendsCachedToken(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	var renewCalled bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/auth/token/renew-self" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if got := r.Header.Get("X-Vault-Token"); got != "old-token" {
+			t.Fatalf("X-Vault-Token = %q", got)
+		}
+		renewCalled = true
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"auth": map[string]any{
+				"client_token":   "renewed-token",
+				"lease_duration": 300,
+				"renewable":      true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, "", "secret", "scribe-app")
+	client.now = func() time.Time { return now }
+	client.cachedToken = "old-token"
+	client.expiresAt = now.Add(20 * time.Second)
+	client.renewable = true
+
+	token, err := client.authToken(context.Background())
+	if err != nil {
+		t.Fatalf("authToken returned error: %v", err)
+	}
+	if token != "renewed-token" {
+		t.Fatalf("token = %q, want renewed-token", token)
+	}
+	if !renewCalled {
+		t.Fatal("renew endpoint was not called")
+	}
+	if !client.expiresAt.Equal(now.Add(300 * time.Second)) {
+		t.Fatalf("expiresAt = %s, want %s", client.expiresAt, now.Add(300*time.Second))
 	}
 }
 

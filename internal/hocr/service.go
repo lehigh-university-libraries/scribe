@@ -24,6 +24,7 @@ import (
 	"github.com/lehigh-university-libraries/htr/pkg/openai"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/segmentor"
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
@@ -423,12 +424,7 @@ func (s *Service) DetectLinesToHOCR(imagePath string) (string, error) {
 }
 
 func (s *Service) generateHOCRFromDetectedLines(lines [][]worddetection.WordBox, width, height int) string {
-	type lineRange struct {
-		lineID int
-		y1     int
-		y2     int
-	}
-	ranges := make([]lineRange, 0, len(lines))
+	boxes := make([]lineVerticalBox, 0, len(lines))
 	for i, line := range lines {
 		if len(line) == 0 {
 			continue
@@ -443,12 +439,7 @@ func (s *Service) generateHOCRFromDetectedLines(lines [][]worddetection.WordBox,
 				maxY = word.Y + word.Height
 			}
 		}
-		ranges = append(ranges, lineRange{lineID: i, y1: minY, y2: maxY})
-	}
-
-	boxes := make([]lineVerticalBox, 0, len(ranges))
-	for _, r := range ranges {
-		boxes = append(boxes, lineVerticalBox{lineID: r.lineID, y1: r.y1, y2: r.y2})
+		boxes = append(boxes, lineVerticalBox{lineID: i, y1: minY, y2: maxY})
 	}
 	boxes = normalizeLineVerticalBoxes(boxes, height)
 
@@ -525,12 +516,8 @@ func (s *Service) transcribeImageFile(ctx context.Context, imagePath, providerOv
 	return s.extractTranscriptionFromImageWithOperation(ctx, llmProvider, providerName, model, imagePath, operation)
 }
 
-func (s *Service) extractTranscriptionFromImage(ctx context.Context, llmProvider providers.Provider, providerName, model, imagePath string) (string, error) {
-	return s.extractTranscriptionFromImageWithOperation(ctx, llmProvider, providerName, model, imagePath, "transcribe_image")
-}
-
 func (s *Service) extractTranscriptionFromImageWithOperation(ctx context.Context, llmProvider providers.Provider, providerName, model, imagePath, operation string) (string, error) {
-	imageData, err := os.ReadFile(imagePath)
+	imageData, err := safefile.ReadFile(imagePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read image for transcription: %w", err)
 	}
@@ -571,11 +558,12 @@ func (s *Service) extractTextWithRetry(
 	for attempt := 1; attempt <= attempts; attempt++ {
 		var text string
 		var err error
-		if providerName == "gemini" {
+		switch providerName {
+		case "gemini":
 			text, err = s.extractTextWithGemini(ctx, config.Model, prompt, imageBase64, operation)
-		} else if providerName == "kraken" {
+		case "kraken":
 			text, err = s.extractTextWithKraken(ctx, config.Model, imagePath, operation)
-		} else {
+		default:
 			text, err = s.extractTextWithProvider(ctx, llmProvider, providerName, config, imagePath, imageBase64, operation)
 		}
 		if err == nil {
@@ -768,7 +756,7 @@ func (s *Service) processImageToHOCR(ctx context.Context, imagePath, providerOve
 }
 
 func (s *Service) getImageDimensions(imagePath string) (int, int, error) {
-	f, err := os.Open(imagePath)
+	f, err := safefile.Open(imagePath)
 	if err != nil {
 		return 0, 0, fmt.Errorf("open image for dimension lookup: %w", err)
 	}
@@ -935,7 +923,7 @@ func (s *Service) transcribeWords(ctx context.Context, imagePath string, words [
 		defer os.Remove(stitchedImagePath)
 
 		// Convert to base64
-		imageData, err := os.ReadFile(stitchedImagePath)
+		imageData, err := safefile.ReadFile(stitchedImagePath)
 		if err != nil {
 			slog.Warn("Failed to read stitched image", "batch", batchNum, "error", err)
 			continue
@@ -1088,7 +1076,7 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 				continue
 			}
 
-			imageData, err := os.ReadFile(lineImagePath)
+			imageData, err := safefile.ReadFile(lineImagePath)
 			if err != nil {
 				_ = os.Remove(lineImagePath)
 				slog.Warn("Failed to read line image", "line_index", region.lineID, "error", err)
@@ -1100,11 +1088,12 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 			config := s.providerConfigWithContext(ctx, providerName, model, prompt, 0.0)
 
 			var text string
-			if providerName == "gemini" {
+			switch providerName {
+			case "gemini":
 				text, err = s.extractTextWithGemini(ctx, model, prompt, imageBase64, "transcribe_line")
-			} else if providerName == "kraken" {
+			case "kraken":
 				text, err = s.extractTextWithKraken(ctx, model, lineImagePath, "transcribe_line")
-			} else {
+			default:
 				text, err = s.extractTextWithProvider(ctx, provider, providerName, config, lineImagePath, imageBase64, "transcribe_line")
 			}
 			_ = os.Remove(lineImagePath)

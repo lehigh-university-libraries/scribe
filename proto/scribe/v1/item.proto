@@ -3,7 +3,7 @@ syntax = "proto3";
 package scribe.v1;
 
 import "buf/validate/validate.proto";
-import "scribe/v1/options/auth.proto";
+import "scribe/v1/options/v1/auth.proto";
 
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
@@ -51,16 +51,15 @@ message GetItemResponse {
   Item item = 1;
 }
 
-// CreateItemRequest covers URL ingest and manifest ingest.
-// For single/multi file upload use UploadItemImageRequest.
+// CreateItemRequest covers URL ingest, manifest ingest, and upload containers.
 message CreateItemRequest {
   option (buf.validate.message).cel = {
     id: "create_item.source_type"
-    message: "source_type must be empty, url, or manifest"
-    expression: "this.source_type == '' || this.source_type == 'url' || this.source_type == 'manifest'"
+    message: "source_type must be empty, url, manifest, or upload"
+    expression: "this.source_type == '' || this.source_type == 'url' || this.source_type == 'manifest' || this.source_type == 'upload'"
   };
   string name        = 1;
-  // source_type: "url" | "manifest"
+  // source_type: "url" | "manifest" | "upload"
   string source_type = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   string source_url  = 3 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
   // Optional context to use for processing; if empty, selection engine runs.
@@ -73,11 +72,13 @@ message CreateItemResponse {
   Item item = 1;
 }
 
-// UploadItemImageRequest handles single or batch file upload.
+// UploadItemImageRequest adds a single uploaded image to an existing item.
 // Returns the item after all images are added.
 message UploadItemImageRequest {
-  string item_id    = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"]; // if empty, a new item is created
-  string name       = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"]; // item name (used when creating)
+  string item_id    = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
   bytes  image_data = 3 [
     (buf.validate.field).required = true,
     (buf.validate.field).bytes.min_len = 1
@@ -103,33 +104,33 @@ message DeleteItemResponse {}
 
 service ItemService {
   rpc ListItems(ListItemsRequest) returns (ListItemsResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_READ
     };
   }
   rpc GetItem(GetItemRequest) returns (GetItemResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_ITEM
       level: ACCESS_LEVEL_READ
       resource_id_field: "item_id"
     };
   }
   rpc CreateItem(CreateItemRequest) returns (CreateItemResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_WRITE
     };
   }
   rpc UploadItemImage(UploadItemImageRequest) returns (UploadItemImageResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_ITEM
       level: ACCESS_LEVEL_WRITE
       resource_id_field: "item_id"
     };
   }
   rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_ITEM
       level: ACCESS_LEVEL_WRITE
       resource_id_field: "item_id"

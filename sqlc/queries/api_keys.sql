@@ -77,6 +77,11 @@ ORDER BY created_at DESC;
 DELETE FROM api_keys
 WHERE id = sqlc.arg(id);
 
+-- name: DeleteAPIKeyForWorkspaceManual :execresult
+DELETE FROM api_keys
+WHERE id = sqlc.arg(id)
+  AND workspace_id = sqlc.arg(workspace_id);
+
 -- name: TouchAPIKeyManual :exec
 UPDATE api_keys
 SET last_used_at = NOW()

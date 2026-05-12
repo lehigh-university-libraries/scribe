@@ -103,14 +103,12 @@ func rowToProviderSecret(row db.ProviderSecret) ProviderSecret {
 		UpdatedAt: row.UpdatedAt,
 		Scope:     "workspace",
 	}
-	if row.UserID.Valid {
-		userID := uint64(row.UserID.Int64)
-		secret.UserID = &userID
+	if userID, ok := uint64PtrFromNullInt64(row.UserID); ok {
+		secret.UserID = userID
 		secret.Scope = "user"
 	}
-	if row.WorkspaceID.Valid {
-		workspaceID := uint64(row.WorkspaceID.Int64)
-		secret.WorkspaceID = &workspaceID
+	if workspaceID, ok := uint64PtrFromNullInt64(row.WorkspaceID); ok {
+		secret.WorkspaceID = workspaceID
 	}
 	if row.KeyHint.Valid {
 		secret.KeyHint = row.KeyHint.String

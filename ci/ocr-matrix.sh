@@ -12,10 +12,6 @@
 #   ghcr_image    GHCR image name segment passed to the shared build workflow.
 #   gar_image     GAR image repository path without the tag suffix.
 #   image         Full GAR image reference with tag (no digest).
-#   vm_image      Optional full GHCR image reference with tag for images pulled
-#                 directly by the VM docker-compose stack. Present only on
-#                 entries consumed by the VM (e.g. "image-service"). Resolved to
-#                 a digest by ci/generate-vm-images-map.sh.
 #   context       Docker build context, relative to the repo root.
 #   dockerfile    Dockerfile path, relative to the build context.
 #   file          Dockerfile path relative to the repo root.
@@ -144,13 +140,12 @@ append_entry "$(jq -n \
   --arg ghcr_image "$image_service" \
   --arg gar_image "${gar_repo}/${image_service}" \
   --arg image "$(gar_image "$image_service")" \
-  --arg vm_image "ghcr.io/lehigh-university-libraries/${image_service}:${IMAGE_TAG}" \
   --arg context "." \
   --arg dockerfile "Dockerfile.image-service" \
   --arg file "Dockerfile.image-service" \
   --arg platform "linux/amd64" \
   --argjson build_args "$(build_args_json)" \
-  '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, vm_image:$vm_image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
+  '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
 
 # Kraken segmentation services: one per entry in ocr.kraken.segmentation_models.
 while IFS= read -r seg_key; do

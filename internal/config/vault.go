@@ -38,6 +38,5 @@ func LoadSecrets(ctx context.Context, cfg Config) (Secrets, error) {
 		OpenAIAPIKey:            openai["api_key"],
 		GeminiAPIKey:            gemini["api_key"],
 		DatabasePassword:        db["password"],
-		DatabaseRootPassword:    db["root_password"],
 	}, nil
 }

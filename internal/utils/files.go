@@ -3,7 +3,7 @@ package utils
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"image"
@@ -13,21 +13,21 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 )
 
-func CalculateFileMD5(filePath string) (string, error) {
-	file, err := os.Open(filePath)
+func CalculateFileHash(filePath string) (string, error) {
+	file, err := safefile.Open(filePath)
 	if err != nil {
 		return "", err
 	}
 	defer file.Close()
 
-	hash := md5.New()
+	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return "", err
 	}
@@ -35,8 +35,8 @@ func CalculateFileMD5(filePath string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func CalculateDataMD5(data []byte) string {
-	hash := md5.New()
+func CalculateDataHash(data []byte) string {
+	hash := sha256.New()
 	hash.Write(data)
 	return hex.EncodeToString(hash.Sum(nil))
 }
@@ -52,7 +52,7 @@ func RespondWithError(w http.ResponseWriter, message string, statusCode int) {
 }
 
 func GetImageDimensions(imagePath string) (int, int) {
-	file, err := os.Open(imagePath)
+	file, err := safefile.Open(imagePath)
 	if err == nil {
 		cfg, _, decodeErr := image.DecodeConfig(file)
 		_ = file.Close()
@@ -64,7 +64,7 @@ func GetImageDimensions(imagePath string) (int, int) {
 		slog.Warn("Failed to open image for dimensions", "path", imagePath, "error", err)
 	}
 
-	data, err := os.ReadFile(imagePath)
+	data, err := safefile.ReadFile(imagePath)
 	if err != nil {
 		slog.Warn("Failed to read image for dimension fallback", "path", imagePath, "error", err)
 		return 1000, 1400

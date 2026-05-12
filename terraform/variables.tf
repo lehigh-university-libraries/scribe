@@ -116,9 +116,3 @@ variable "ocr_service_images" {
   type        = map(string)
   default     = {}
 }
-
-variable "vm_compose_images" {
-  description = "Map of service key to a fully digest-pinned GHCR image reference for images pulled directly by the VM docker-compose stack (e.g. \"image-service\"). Populated by the build-ocr workflow (or generate-vm-images-map.sh locally)."
-  type        = map(string)
-  default     = {}
-}

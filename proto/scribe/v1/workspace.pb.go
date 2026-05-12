@@ -7,7 +7,7 @@
 package scribev1
 
 import (
-	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -970,7 +970,7 @@ var File_scribe_v1_workspace_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_workspace_proto_rawDesc = "" +
 	"\n" +
-	"\x19scribe/v1/workspace.proto\x12\tscribe.v1\x1a\x1cscribe/v1/options/auth.proto\"\x83\x01\n" +
+	"\x19scribe/v1/workspace.proto\x12\tscribe.v1\x1a\x1fscribe/v1/options/v1/auth.proto\"\x83\x01\n" +
 	"\vUserProfile\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
@@ -1032,10 +1032,10 @@ const file_scribe_v1_workspace_proto_rawDesc = "" +
 	"\x1cDeleteWorkspaceMemberRequest\x12!\n" +
 	"\fworkspace_id\x18\x01 \x01(\x04R\vworkspaceId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\"\x1f\n" +
-	"\x1dDeleteWorkspaceMemberResponse2\xbf\x06\n" +
-	"\x10WorkspaceService\x12W\n" +
-	"\x0eListWorkspaces\x12 .scribe.v1.ListWorkspacesRequest\x1a!.scribe.v1.ListWorkspacesResponse\"\x00\x12Z\n" +
-	"\x0fCreateWorkspace\x12!.scribe.v1.CreateWorkspaceRequest\x1a\".scribe.v1.CreateWorkspaceResponse\"\x00\x12p\n" +
+	"\x1dDeleteWorkspaceMemberResponse2\xcf\x06\n" +
+	"\x10WorkspaceService\x12_\n" +
+	"\x0eListWorkspaces\x12 .scribe.v1.ListWorkspacesRequest\x1a!.scribe.v1.ListWorkspacesResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12b\n" +
+	"\x0fCreateWorkspace\x12!.scribe.v1.CreateWorkspaceRequest\x1a\".scribe.v1.CreateWorkspaceResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12p\n" +
 	"\x0fUpdateWorkspace\x12!.scribe.v1.UpdateWorkspaceRequest\x1a\".scribe.v1.UpdateWorkspaceResponse\"\x16\x92\xb5\x18\x12\x10\a\x18\x03\"\fworkspace_id\x12\x7f\n" +
 	"\x14ListWorkspaceMembers\x12&.scribe.v1.ListWorkspaceMembersRequest\x1a'.scribe.v1.ListWorkspaceMembersResponse\"\x16\x92\xb5\x18\x12\x10\a\x18\x01\"\fworkspace_id\x12y\n" +
 	"\x12AddWorkspaceMember\x12$.scribe.v1.AddWorkspaceMemberRequest\x1a%.scribe.v1.AddWorkspaceMemberResponse\"\x16\x92\xb5\x18\x12\x10\a\x18\x03\"\fworkspace_id\x12\x82\x01\n" +

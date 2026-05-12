@@ -77,5 +77,27 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  build: {
+    // Mirador is loaded only by the editor route; keep the accepted lazy route
+    // budget explicit so unrelated bundle growth still trips this check.
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules") && !id.includes("mirador-scribe")) return undefined;
+          if (id.includes("mirador") || id.includes("mirador-scribe") || id.includes("openseadragon")) {
+            return "mirador";
+          }
+          if (id.includes("@mui") || id.includes("@emotion") || id.includes("prop-types")) {
+            return "mui";
+          }
+          if (id.includes("/react/") || id.includes("/react-dom/") || id.endsWith("/react/index.js") || id.endsWith("/react-dom/index.js")) {
+            return "react-vendor";
+          }
+          return undefined;
+        }
+      }
+    }
   }
 });

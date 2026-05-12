@@ -82,6 +82,8 @@ if [ -z "$vault_token" ]; then
   exit 1
 fi
 
+echo "::add-mask::${vault_token}"
+
 {
   echo "VAULT_ADDR=${VAULT_ADDR}"
   echo "VAULT_TOKEN=${vault_token}"

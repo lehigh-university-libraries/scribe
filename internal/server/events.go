@@ -10,10 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
+	"golang.org/x/sync/errgroup"
 )
 
 type cloudEvent struct {
@@ -27,63 +28,15 @@ type cloudEvent struct {
 	Data            map[string]any `json:"data,omitempty"`
 }
 
-type eventSubscription struct {
-	ch     chan cloudEvent
-	filter func(cloudEvent) bool
-}
-
-type eventBroker struct {
-	mu          sync.RWMutex
-	nextSubID   uint64
-	nextEventID uint64
-	subs        map[uint64]eventSubscription
-}
-
-func newEventBroker() *eventBroker {
-	return &eventBroker{subs: make(map[uint64]eventSubscription)}
-}
-
-func (b *eventBroker) subscribe(filter func(cloudEvent) bool) (uint64, <-chan cloudEvent) {
-	id := atomic.AddUint64(&b.nextSubID, 1)
-	ch := make(chan cloudEvent, 32)
-	b.mu.Lock()
-	b.subs[id] = eventSubscription{ch: ch, filter: filter}
-	b.mu.Unlock()
-	return id, ch
-}
-
-func (b *eventBroker) unsubscribe(id uint64) {
-	b.mu.Lock()
-	sub, ok := b.subs[id]
-	if ok {
-		delete(b.subs, id)
-		close(sub.ch)
-	}
-	b.mu.Unlock()
-}
-
-func (b *eventBroker) publish(evt cloudEvent) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	for _, sub := range b.subs {
-		if sub.filter != nil && !sub.filter(evt) {
-			continue
-		}
-		select {
-		case sub.ch <- evt:
-		default:
-		}
-	}
-}
-
 func (h *Handler) publishEvent(eventType, subject string, data map[string]any) {
-	if h.events == nil {
-		return
-	}
-	id := atomic.AddUint64(&h.events.nextEventID, 1)
-	evt := cloudEvent{
+	evt := h.newCloudEvent(eventType, subject, data)
+	h.publishCloudEvent(evt, true)
+}
+
+func (h *Handler) newCloudEvent(eventType, subject string, data map[string]any) cloudEvent {
+	return cloudEvent{
 		SpecVersion:     "1.0",
-		ID:              fmt.Sprintf("scribe-%d-%d", time.Now().UnixNano(), id),
+		ID:              uuid.NewString(),
 		Source:          "/scribe",
 		Type:            eventType,
 		Subject:         subject,
@@ -91,12 +44,19 @@ func (h *Handler) publishEvent(eventType, subject string, data map[string]any) {
 		DataContentType: "application/json",
 		Data:            data,
 	}
-	h.events.publish(evt)
-	h.deliverWebhooks(evt)
 }
 
-func (h *Handler) deliverWebhooks(evt cloudEvent) {
-	if len(h.webhookURLs) == 0 || h.webhookClient == nil {
+func (h *Handler) publishCloudEvent(evt cloudEvent, enqueueWebhook bool) {
+	if evt.ID == "" {
+		return
+	}
+	if enqueueWebhook {
+		h.enqueueWebhooks(evt)
+	}
+}
+
+func (h *Handler) enqueueWebhooks(evt cloudEvent) {
+	if h.transcriptionJobs == nil {
 		return
 	}
 	body, err := json.Marshal(evt)
@@ -104,26 +64,76 @@ func (h *Handler) deliverWebhooks(evt cloudEvent) {
 		slog.Warn("Failed to marshal webhook event", "event_type", evt.Type, "error", err)
 		return
 	}
-	for _, target := range h.webhookURLs {
-		targetURL := target
-		go func() {
-			req, err := http.NewRequest(http.MethodPost, targetURL, bytes.NewReader(body))
-			if err != nil {
-				slog.Warn("Failed to create webhook request", "target", targetURL, "event_type", evt.Type, "error", err)
-				return
-			}
-			req.Header.Set("Content-Type", "application/cloudevents+json")
-			resp, err := h.webhookClient.Do(req)
-			if err != nil {
-				slog.Warn("Webhook delivery failed", "target", targetURL, "event_type", evt.Type, "error", err)
-				return
-			}
-			_ = resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				slog.Warn("Webhook delivery returned non-2xx", "target", targetURL, "event_type", evt.Type, "status", resp.StatusCode)
-			}
-		}()
+	if err := h.transcriptionJobs.EnqueueWebhookEvent(h.backgroundContext(), evt.ID, evt.Type, evt.Subject, string(body), h.webhookURLs); err != nil {
+		slog.Warn("Failed to enqueue webhook event", "event_type", evt.Type, "event_id", evt.ID, "error", err)
 	}
+}
+
+// StartWebhookDispatcher starts durable webhook delivery workers until ctx is cancelled.
+func (h *Handler) StartWebhookDispatcher(ctx context.Context) {
+	if h.transcriptionJobs == nil || h.webhookClient == nil || len(h.webhookURLs) == 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		retentionTicker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		defer retentionTicker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				h.dispatchWebhookBatch(ctx)
+			case <-retentionTicker.C:
+				if err := h.transcriptionJobs.RetainWebhookEvents(ctx, 30*24*time.Hour); err != nil {
+					slog.Warn("Failed to retain webhook events", "error", err)
+				}
+			}
+		}
+	}()
+}
+
+func (h *Handler) dispatchWebhookBatch(ctx context.Context) {
+	deliveries, err := h.transcriptionJobs.ClaimWebhookDeliveries(ctx, 10)
+	if err != nil {
+		slog.Warn("Failed to claim webhook deliveries", "error", err)
+		return
+	}
+	g, groupCtx := errgroup.WithContext(ctx)
+	g.SetLimit(5)
+	for _, delivery := range deliveries {
+		delivery := delivery
+		g.Go(func() error {
+			if err := h.deliverWebhook(groupCtx, delivery.TargetURL, []byte(delivery.BodyJSON)); err != nil {
+				slog.Warn("Webhook delivery failed", "target", delivery.TargetURL, "event_type", delivery.EventType, "event_id", delivery.EventID, "error", err)
+				_ = h.transcriptionJobs.MarkWebhookDeliveryFailed(ctx, delivery.ID, delivery.LeaseOwner, err.Error())
+				return nil
+			}
+			_ = h.transcriptionJobs.MarkWebhookDeliveryDelivered(ctx, delivery.ID, delivery.LeaseOwner)
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		slog.Warn("Webhook batch stopped", "error", err)
+	}
+}
+
+func (h *Handler) deliverWebhook(ctx context.Context, targetURL string, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/cloudevents+json")
+	resp, err := h.webhookClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func parseEventTypes(values []string) map[string]struct{} {
@@ -140,6 +150,10 @@ func parseEventTypes(values []string) map[string]struct{} {
 }
 
 func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
+	if h.transcriptionJobs == nil {
+		writeError(w, http.StatusServiceUnavailable, "event stream unavailable")
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
@@ -165,7 +179,8 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	workspaceID := h.currentWorkspaceID(r.Context())
-	filter := func(evt cloudEvent) bool {
+	visibility := newEventVisibilityCache()
+	matches := func(evt cloudEvent) bool {
 		if len(types) > 0 {
 			if _, ok := types[evt.Type]; !ok {
 				return false
@@ -174,14 +189,17 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		if subjectPrefix != "" && !strings.HasPrefix(evt.Subject, subjectPrefix) {
 			return false
 		}
-		if !h.eventVisibleToWorkspace(r.Context(), workspaceID, evt) {
+		if !h.eventVisibleToWorkspaceCached(r.Context(), workspaceID, evt, visibility) {
 			return false
 		}
 		return true
 	}
 
-	subID, ch := h.events.subscribe(filter)
-	defer h.events.unsubscribe(subID)
+	lastOutboxID, err := h.transcriptionJobs.EventOutboxHighWater(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "event stream unavailable")
+		return
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -192,6 +210,8 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 
 	ticker := time.NewTicker(25 * time.Second)
 	defer ticker.Stop()
+	pollTicker := time.NewTicker(500 * time.Millisecond)
+	defer pollTicker.Stop()
 
 	ctx := r.Context()
 	for {
@@ -201,16 +221,65 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		case <-ticker.C:
 			_, _ = w.Write([]byte(": keep-alive\n\n"))
 			flusher.Flush()
-		case evt := <-ch:
-			payload, err := json.Marshal(evt)
+		case <-pollTicker.C:
+			events, err := h.transcriptionJobs.ListEventOutboxAfter(ctx, lastOutboxID, 100)
 			if err != nil {
+				slog.Warn("Failed to poll event outbox", "error", err)
 				continue
 			}
-			_, _ = fmt.Fprintf(w, "event: %s\n", evt.Type)
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
-			flusher.Flush()
+			for _, outboxEvent := range events {
+				if outboxEvent.ID > lastOutboxID {
+					lastOutboxID = outboxEvent.ID
+				}
+				evt, err := cloudEventFromOutbox(outboxEvent.EventID, outboxEvent.EventType, outboxEvent.Subject, outboxEvent.BodyJSON)
+				if err != nil {
+					slog.Warn("Failed to decode event outbox body", "outbox_id", outboxEvent.ID, "error", err)
+					continue
+				}
+				if !matches(evt) {
+					continue
+				}
+				if err := writeSSEEvent(w, evt); err != nil {
+					slog.Warn("Failed to write SSE event", "event_id", evt.ID, "error", err)
+					return
+				}
+				flusher.Flush()
+			}
 		}
 	}
+}
+
+func cloudEventFromOutbox(eventID, eventType, subject, bodyJSON string) (cloudEvent, error) {
+	decoder := json.NewDecoder(strings.NewReader(bodyJSON))
+	decoder.UseNumber()
+	var evt cloudEvent
+	if err := decoder.Decode(&evt); err != nil {
+		return cloudEvent{}, err
+	}
+	if evt.ID == "" {
+		evt.ID = eventID
+	}
+	if evt.Type == "" {
+		evt.Type = eventType
+	}
+	if evt.Subject == "" {
+		evt.Subject = subject
+	}
+	return evt, nil
+}
+
+func writeSSEEvent(w http.ResponseWriter, evt cloudEvent) error {
+	payload, err := json.Marshal(evt)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\n", evt.Type); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+		return err
+	}
+	return nil
 }
 
 func subjectForItemImage(itemImageID uint64) string {
@@ -221,14 +290,57 @@ func subjectForAnnotation(itemImageID uint64, annotationID string) string {
 	return fmt.Sprintf("item-images/%d/annotations/%s", itemImageID, annotationID)
 }
 
-func (h *Handler) eventVisibleToWorkspace(ctx context.Context, workspaceID uint64, evt cloudEvent) bool {
+type eventVisibilityCache struct {
+	mu              sync.Mutex
+	itemImages      map[uint64]bool
+	itemImagesKnown map[uint64]struct{}
+	items           map[string]bool
+	itemsKnown      map[string]struct{}
+}
+
+func newEventVisibilityCache() *eventVisibilityCache {
+	return &eventVisibilityCache{
+		itemImages:      make(map[uint64]bool),
+		itemImagesKnown: make(map[uint64]struct{}),
+		items:           make(map[string]bool),
+		itemsKnown:      make(map[string]struct{}),
+	}
+}
+
+func (h *Handler) eventVisibleToWorkspaceCached(ctx context.Context, workspaceID uint64, evt cloudEvent, cache *eventVisibilityCache) bool {
 	if itemImageID, ok := eventItemImageID(evt); ok {
-		allowed, err := h.items.WorkspaceOwnsItemImage(ctx, workspaceID, itemImageID)
-		return err == nil && allowed
+		cache.mu.Lock()
+		if _, known := cache.itemImagesKnown[itemImageID]; known {
+			visible := cache.itemImages[itemImageID]
+			cache.mu.Unlock()
+			return visible
+		}
+		cache.mu.Unlock()
+
+		visible, err := h.items.WorkspaceOwnsItemImage(ctx, workspaceID, itemImageID)
+
+		cache.mu.Lock()
+		cache.itemImagesKnown[itemImageID] = struct{}{}
+		cache.itemImages[itemImageID] = err == nil && visible
+		cache.mu.Unlock()
+		return err == nil && visible
 	}
 	if itemID, ok := eventItemID(evt); ok {
-		allowed, err := h.items.WorkspaceOwnsItem(ctx, workspaceID, itemID)
-		return err == nil && allowed
+		cache.mu.Lock()
+		if _, known := cache.itemsKnown[itemID]; known {
+			visible := cache.items[itemID]
+			cache.mu.Unlock()
+			return visible
+		}
+		cache.mu.Unlock()
+
+		visible, err := h.items.WorkspaceOwnsItem(ctx, workspaceID, itemID)
+
+		cache.mu.Lock()
+		cache.itemsKnown[itemID] = struct{}{}
+		cache.items[itemID] = err == nil && visible
+		cache.mu.Unlock()
+		return err == nil && visible
 	}
 	return false
 }

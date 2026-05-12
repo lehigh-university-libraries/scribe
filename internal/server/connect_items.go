@@ -4,16 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/db"
+	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
+)
+
+const (
+	maxRemoteHOCRBytes int64 = 10 << 20
+	maxInlineHOCRBytes       = 10 << 20
 )
 
 // --- ItemService Connect handlers ---
@@ -67,13 +71,13 @@ func (h *Handler) CreateItem(ctx context.Context, req *connect.Request[scribev1.
 
 	itemID := fmt.Sprintf("item_%d", time.Now().UTC().UnixNano())
 	it, err := h.items.Create(ctx, db.CreateItemParams{
-		ID:         itemID,
-		UserID:     h.currentUserID(ctx),
+		ID:          itemID,
+		UserID:      h.currentUserID(ctx),
 		WorkspaceID: h.currentWorkspaceID(ctx),
-		Name:       name,
-		SourceType: srcType,
-		SourceURL:  manifestURL,
-		Metadata:   strings.TrimSpace(req.Msg.GetMetadata()),
+		Name:        name,
+		SourceType:  srcType,
+		SourceURL:   manifestURL,
+		Metadata:    strings.TrimSpace(req.Msg.GetMetadata()),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -95,25 +99,9 @@ func (h *Handler) CreateItem(ctx context.Context, req *connect.Request[scribev1.
 func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scribev1.UploadItemImageRequest]) (*connect.Response[scribev1.UploadItemImageResponse], error) {
 	itemID := strings.TrimSpace(req.Msg.GetItemId())
 	if itemID == "" {
-		// Create a new item for this upload.
-		name := strings.TrimSpace(req.Msg.GetName())
-		if name == "" {
-			name = strings.TrimSuffix(req.Msg.GetFilename(), "")
-			if name == "" {
-				name = "Untitled Item"
-			}
-		}
-		itemID = fmt.Sprintf("item_%d", time.Now().UTC().UnixNano())
-		if _, err := h.items.Create(ctx, db.CreateItemParams{
-			ID:         itemID,
-			UserID:     h.currentUserID(ctx),
-			WorkspaceID: h.currentWorkspaceID(ctx),
-			Name:       name,
-			SourceType: "upload",
-		}); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
-		}
-	} else if _, err := h.itemForRequest(ctx, itemID); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_id is required"))
+	}
+	if _, err := h.itemForRequest(ctx, itemID); err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
 	}
 
@@ -212,11 +200,7 @@ func (h *Handler) ingestParsedManifest(ctx context.Context, itemID string, manif
 }
 
 func fetchHOCRContent(ctx context.Context, hocrURL string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hocrURL, nil)
-	if err != nil {
-		return "", err
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := safehttp.Get(ctx, hocrURL)
 	if err != nil {
 		return "", err
 	}
@@ -224,7 +208,7 @@ func fetchHOCRContent(ctx context.Context, hocrURL string) (string, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("fetch hocr: status %d", resp.StatusCode)
 	}
-	b, err := io.ReadAll(resp.Body)
+	b, err := safehttp.ReadAllLimit(resp.Body, maxRemoteHOCRBytes)
 	if err != nil {
 		return "", err
 	}

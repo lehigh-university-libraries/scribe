@@ -105,24 +105,7 @@ func (s *APIKeyStore) ListByWorkspace(ctx context.Context, workspaceID uint64) (
 }
 
 func (s *APIKeyStore) DeleteForWorkspace(ctx context.Context, id, workspaceID uint64) error {
-	apiKey, err := s.GetByIDAndWorkspace(ctx, id, workspaceID)
-	if err != nil {
-		return err
-	}
-	return s.q.DeleteAPIKey(ctx, apiKey.ID)
-}
-
-func (s *APIKeyStore) GetByIDAndWorkspace(ctx context.Context, id, workspaceID uint64) (APIKey, error) {
-	keys, err := s.q.ListAPIKeysByWorkspace(ctx, workspaceID)
-	if err != nil {
-		return APIKey{}, fmt.Errorf("list api keys: %w", err)
-	}
-	for _, row := range keys {
-		if row.ID == id {
-			return rowToAPIKey(row), nil
-		}
-	}
-	return APIKey{}, sql.ErrNoRows
+	return s.q.DeleteAPIKeyForWorkspace(ctx, id, workspaceID)
 }
 
 func rowToAPIKey(row db.APIKey) APIKey {

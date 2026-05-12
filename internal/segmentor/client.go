@@ -8,12 +8,12 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/serviceauth"
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
@@ -129,7 +129,7 @@ func (c *Client) newMultipartBody(imagePath string, fields map[string]string) (*
 	if !c.Enabled() {
 		return nil, "", fmt.Errorf("segmentor service is not configured")
 	}
-	imageData, err := os.ReadFile(imagePath)
+	imageData, err := safefile.ReadFile(imagePath)
 	if err != nil {
 		return nil, "", fmt.Errorf("read image %s: %w", imagePath, err)
 	}

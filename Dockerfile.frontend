@@ -25,4 +25,5 @@ COPY --from=web-build /app/web/dist /app/web/dist
 COPY web/server.mjs /app/web/server.mjs
 
 EXPOSE 8888
+USER node
 CMD ["node", "server.mjs"]

@@ -337,17 +337,25 @@ func (h *Handler) SplitLineIntoTwoLines(_ context.Context, req *connect.Request[
 	return connect.NewResponse(&scribev1.SplitLineIntoTwoLinesResponse{AnnotationJsons: []string{string(b1), string(b2)}}), nil
 }
 
-func (h *Handler) JoinLines(_ context.Context, req *connect.Request[scribev1.JoinAnnotationsRequest]) (*connect.Response[scribev1.JoinAnnotationsResponse], error) {
-	return h.joinAnnotations(req.Msg.GetAnnotationJsons())
+func (h *Handler) JoinLines(_ context.Context, req *connect.Request[scribev1.JoinLinesRequest]) (*connect.Response[scribev1.JoinLinesResponse], error) {
+	annotationJSON, err := h.joinAnnotations(req.Msg.GetAnnotationJsons())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&scribev1.JoinLinesResponse{AnnotationJson: annotationJSON}), nil
 }
 
-func (h *Handler) JoinWordsIntoLine(_ context.Context, req *connect.Request[scribev1.JoinAnnotationsRequest]) (*connect.Response[scribev1.JoinAnnotationsResponse], error) {
-	return h.joinAnnotations(req.Msg.GetAnnotationJsons())
+func (h *Handler) JoinWordsIntoLine(_ context.Context, req *connect.Request[scribev1.JoinWordsIntoLineRequest]) (*connect.Response[scribev1.JoinWordsIntoLineResponse], error) {
+	annotationJSON, err := h.joinAnnotations(req.Msg.GetAnnotationJsons())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&scribev1.JoinWordsIntoLineResponse{AnnotationJson: annotationJSON}), nil
 }
 
-func (h *Handler) joinAnnotations(annotationJSONs []string) (*connect.Response[scribev1.JoinAnnotationsResponse], error) {
+func (h *Handler) joinAnnotations(annotationJSONs []string) (string, error) {
 	if len(annotationJSONs) < 2 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("at least two annotations are required"))
+		return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("at least two annotations are required"))
 	}
 	var (
 		texts     []string
@@ -360,7 +368,7 @@ func (h *Handler) joinAnnotations(annotationJSONs []string) (*connect.Response[s
 	for _, raw := range annotationJSONs {
 		_, text, x1, y1, x2, y2, c, err := parseLineAnnotation(raw)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			return "", connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		if canvasURI == "" {
 			canvasURI = c
@@ -386,50 +394,50 @@ func (h *Handler) joinAnnotations(annotationJSONs []string) (*connect.Response[s
 		strings.TrimSpace(strings.Join(texts, " ")),
 	)
 	b, _ := json.Marshal(merged)
-	return connect.NewResponse(&scribev1.JoinAnnotationsResponse{AnnotationJson: string(b)}), nil
+	return string(b), nil
 }
 
-func (h *Handler) CrosswalkToPlainText(_ context.Context, req *connect.Request[scribev1.CrosswalkRequest]) (*connect.Response[scribev1.CrosswalkResponse], error) {
+func (h *Handler) CrosswalkToPlainText(_ context.Context, req *connect.Request[scribev1.CrosswalkToPlainTextRequest]) (*connect.Response[scribev1.CrosswalkToPlainTextResponse], error) {
 	lines, _, _, err := annotationPayloadToHOCRLines(req.Msg.GetAnnotationPageJson(), req.Msg.GetAnnotationJson())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	return connect.NewResponse(&scribev1.CrosswalkResponse{
+	return connect.NewResponse(&scribev1.CrosswalkToPlainTextResponse{
 		Format:  "text/plain",
 		Content: linesToPlainText(lines),
 	}), nil
 }
 
-func (h *Handler) CrosswalkToHOCR(_ context.Context, req *connect.Request[scribev1.CrosswalkRequest]) (*connect.Response[scribev1.CrosswalkResponse], error) {
+func (h *Handler) CrosswalkToHOCR(_ context.Context, req *connect.Request[scribev1.CrosswalkToHOCRRequest]) (*connect.Response[scribev1.CrosswalkToHOCRResponse], error) {
 	lines, pageW, pageH, err := annotationPayloadToHOCRLines(req.Msg.GetAnnotationPageJson(), req.Msg.GetAnnotationJson())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	converter := hocr.NewConverter()
 	xml := converter.ConvertHOCRLinesToXML(lines, pageW, pageH)
-	return connect.NewResponse(&scribev1.CrosswalkResponse{
+	return connect.NewResponse(&scribev1.CrosswalkToHOCRResponse{
 		Format:  "text/vnd.hocr+html",
 		Content: xml,
 	}), nil
 }
 
-func (h *Handler) CrosswalkToPageXML(_ context.Context, req *connect.Request[scribev1.CrosswalkRequest]) (*connect.Response[scribev1.CrosswalkResponse], error) {
+func (h *Handler) CrosswalkToPageXML(_ context.Context, req *connect.Request[scribev1.CrosswalkToPageXMLRequest]) (*connect.Response[scribev1.CrosswalkToPageXMLResponse], error) {
 	lines, pageW, pageH, err := annotationPayloadToHOCRLines(req.Msg.GetAnnotationPageJson(), req.Msg.GetAnnotationJson())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	return connect.NewResponse(&scribev1.CrosswalkResponse{
+	return connect.NewResponse(&scribev1.CrosswalkToPageXMLResponse{
 		Format:  "application/vnd.prima.page+xml",
 		Content: linesToPageXML(lines, pageW, pageH),
 	}), nil
 }
 
-func (h *Handler) CrosswalkToALTOXML(_ context.Context, req *connect.Request[scribev1.CrosswalkRequest]) (*connect.Response[scribev1.CrosswalkResponse], error) {
+func (h *Handler) CrosswalkToALTOXML(_ context.Context, req *connect.Request[scribev1.CrosswalkToALTOXMLRequest]) (*connect.Response[scribev1.CrosswalkToALTOXMLResponse], error) {
 	lines, pageW, pageH, err := annotationPayloadToHOCRLines(req.Msg.GetAnnotationPageJson(), req.Msg.GetAnnotationJson())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	return connect.NewResponse(&scribev1.CrosswalkResponse{
+	return connect.NewResponse(&scribev1.CrosswalkToALTOXMLResponse{
 		Format:  "application/alto+xml",
 		Content: linesToALTOXML(lines, pageW, pageH),
 	}), nil
