@@ -8,19 +8,19 @@ import (
 )
 
 type ProviderCallAudit struct {
-	ID           uint64     `json:"id"`
-	SessionID    string     `json:"session_id,omitempty"`
-	ItemImageID  *uint64    `json:"item_image_id,omitempty"`
-	ContextID    *uint64    `json:"context_id,omitempty"`
-	Provider     string     `json:"provider"`
-	Model        string     `json:"model"`
-	Operation    string     `json:"operation"`
-	Prompt       string     `json:"prompt,omitempty"`
-	RequestJSON  string     `json:"request_json,omitempty"`
-	ResponseJSON string     `json:"response_json,omitempty"`
-	ErrorMessage string     `json:"error_message,omitempty"`
-	HTTPStatus   *int       `json:"http_status,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID           uint64    `json:"id"`
+	SessionID    string    `json:"session_id,omitempty"`
+	ItemImageID  *uint64   `json:"item_image_id,omitempty"`
+	ContextID    *uint64   `json:"context_id,omitempty"`
+	Provider     string    `json:"provider"`
+	Model        string    `json:"model"`
+	Operation    string    `json:"operation"`
+	Prompt       string    `json:"prompt,omitempty"`
+	RequestJSON  string    `json:"request_json,omitempty"`
+	ResponseJSON string    `json:"response_json,omitempty"`
+	ErrorMessage string    `json:"error_message,omitempty"`
+	HTTPStatus   *int      `json:"http_status,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type ItemProviderCallAudit struct {
@@ -132,13 +132,11 @@ func (s *ProviderCallAuditStore) ListByItem(ctx context.Context, itemID string, 
 		if sessionID.Valid {
 			audit.SessionID = sessionID.String
 		}
-		if itemImageID.Valid {
-			v := uint64(itemImageID.Int64)
-			audit.ItemImageID = &v
+		if v, ok := uint64PtrFromNullInt64(itemImageID); ok {
+			audit.ItemImageID = v
 		}
-		if contextID.Valid {
-			v := uint64(contextID.Int64)
-			audit.ContextID = &v
+		if v, ok := uint64PtrFromNullInt64(contextID); ok {
+			audit.ContextID = v
 		}
 		if prompt.Valid {
 			audit.Prompt = prompt.String

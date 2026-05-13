@@ -41,10 +41,19 @@ bash generate-secrets.sh
 docker compose up --build
 ```
 
-The local override starts the standalone `segmentor` and `image-service`
-containers. The main `api` and `worker` image is now the lean remote-service
-build by default and expects those helper services to exist for OCR and image
-manipulation work.
+If local Docker Compose is configured to read secrets from a deployed Vault,
+set `VAULT_GCP_AUTH_ROLE` in `.env` to the workspace-specific role Terraform
+created, such as `scribe-app-dev` or `scribe-app-prod`. The Compose default is
+just `scribe-app`, which does not match the deployed Vault roles.
+
+Local Docker Compose now pins `api` and `worker` to the in-network Triplet
+IIIF and presentation URLs directly instead of reading those endpoints from
+`.env`, to avoid local runs accidentally pointing image flows at remote
+services.
+
+The local override starts the standalone `segmentor` container. The main `api`
+and `worker` image is now the lean remote-service build by default and expects
+Triplet for IIIF image delivery plus the segmentor service for OCR work.
 
 The main API/worker binaries build without CGO or local OCR libraries. Local
 Tesseract/Leptonica support is isolated to the standalone segmentor image,
@@ -113,27 +122,33 @@ API/editor contract:
 ```mermaid
 flowchart TD
   browser([Client / Browser])
+  integration([API clients / integrations])
 
   subgraph edge[Edge]
-      frontend[Cloud Run Frontend<br/>static UI + proxy]
+      frontend[Cloud Run Frontend<br/>static UI + hardened same-origin proxy]
+      cors[CORS allowlist<br/>public base URL + configured origins]
   end
 
   subgraph vm[Backend VM]
       ingress[VM host :80]
-      api[API]
-      worker[Worker]
-      db[(MariaDB)]
-      files[(Uploads / Cache)]
+      api[Go API<br/>Connect + IIIF + authz + request limits]
+      fetcher[Safe remote fetcher<br/>public HTTP(S) only]
+      worker[Worker<br/>job leases]
+      outbox[Event / webhook outbox]
+      db[(MariaDB<br/>items annotations jobs)]
+      files[(Private uploads / cache<br/>workspace-gated)]
 
       ingress --> api
       api --> db
+      api --> outbox
       worker --> db
       api --> files
       worker --> files
+      api --> fetcher
   end
 
   subgraph shared[Shared / Private Services]
-      vault[Vault]
+      vault[Vault KV v2<br/>least-privilege app policy]
       cantaloupe[Shared Cantaloupe]
       imageSvc[Image Service<br/>normalize / crop / stitch]
       genericSeg[Generic Segmentor<br/>auto / scribe / tesseract]
@@ -143,6 +158,7 @@ flowchart TD
   end
 
   subgraph external[External Providers]
+      iiifSource[Remote IIIF / hOCR / images]
       openai[OpenAI]
       gemini[Gemini]
   end
@@ -150,23 +166,28 @@ flowchart TD
   context{Resolved context<br/>segmentation_model<br/>transcription_provider<br/>transcription_model<br/>optional endpoint override}
 
   browser -->|loads app + API calls| frontend
-  frontend -->|proxy to backend origin| ingress
+  integration -->|API key / JWT requests| ingress
+  frontend --> cors
+  cors -->|proxy to backend origin| ingress
 
   browser -->|IIIF/image requests| frontend
-  frontend -->|/iiif via image-service| imageSvc
-  imageSvc -->|reads shared uploads| api
+  frontend -->|/iiif via triplet| imageSvc
+  api -->|authorized /static/uploads| files
+  imageSvc -->|reads shared uploads| files
 
-  api -->|startup secret reads| vault
+  api -->|startup secret reads + provider secret writes| vault
   worker -->|startup secret reads| vault
 
   api -->|create item / save edits / enqueue jobs| db
-  worker -->|read jobs / persist OCR results| db
+  worker -->|claim jobs / persist OCR results| db
+  outbox -->|deliver events| integration
 
   api -->|store source images / hOCR cache| files
   worker -->|read source images / write outputs| files
+  fetcher -->|validated outbound fetches| iiifSource
 
-  api -->|normalize / crop / stitch when needed| imageSvc
-  worker -->|normalize / crop / stitch when needed| imageSvc
+  api -->|iiif image access / normalize when needed| imageSvc
+  worker -->|iiif image access / normalize when needed| imageSvc
 
   api -.->|resolve request context| context
   worker -.->|resolve job context| context
@@ -182,6 +203,7 @@ flowchart TD
   context -.->|explicit context URL/audience overrides win| ollama
   context -.->|explicit context URL/audience overrides win| krakenOCR
 ```
+
 ## Build and test
 
 ```bash
@@ -202,6 +224,13 @@ npm run serve
 
 # Frontend container
 make build-frontend
+
+# Review/security checks
+gosec -exclude-generated ./...
+govulncheck ./...
+npm --prefix web audit --audit-level=moderate
+npm --prefix mirador-scribe audit --audit-level=moderate
+terraform -chdir=terraform validate
 ```
 
 SQL query definitions live under [sqlc/queries](/workspace/sqlc/queries). The
@@ -222,6 +251,10 @@ startup using the paths configured under `vault.paths` in `config.yaml`. The
 Vault address itself is non-secret and also lives in `config.yaml` as
 `vault.address`.
 
+Browser credentialed CORS is allowlisted. The configured `public_base_url` and
+the request's same-origin URL are allowed automatically; add any additional
+trusted browser/plugin origins under `cors.allowed_origins`.
+
 On deployed GCP VMs, Scribe authenticates to Vault with the GCP auth method.
 It first tries a mounted service-account credential file and then falls back to
 the VM metadata service if that file is not available. A static Vault token is
@@ -240,15 +273,19 @@ The backend containers now expect a Docker Compose secret file at
 externally in deployed environments. For local/CI compose runs,
 `generate-secrets.sh` creates a `{}` placeholder when the file is missing so
 the secret mount exists without fabricating real credentials.
+The helper also normalizes `./secrets` ownership to `100:10001` when possible,
+sets secret files to mode `640`, and keeps directories traversable with mode
+`750`.
 
 When `VAULT_ADDRESS` is configured, `generate-secrets.sh` also rewrites
 `./secrets/mariadb_password` and `./secrets/mariadb_root_password` from the
-Vault `secret/scribe/database` secret before Docker Compose starts MariaDB, so
-the database container and the app use the same credentials source. It does
-that through the init-only `vault-init` Compose service, which signs into Vault
-from `./secrets/GOOGLE_APPLICATION_CREDENTIALS` inside Docker rather than
-calling the metadata server, so it still works when Docker traffic to metadata
-is blocked.
+Vault KV v2 `secret/data/scribe/database/app` and
+`secret/data/scribe/database/root` secrets before Docker Compose starts
+MariaDB, so the database container and the app use the same credentials
+source. It does that through the init-only `vault-init` Compose service, which
+signs into Vault from the mounted `/run/secrets/GOOGLE_APPLICATION_CREDENTIALS`
+file rather than calling the metadata server, so it still works when Docker
+traffic to metadata is blocked.
 
 Use `make vault-secrets` to list, read, or update the required app secrets in
 Vault. The helper prompts for `dev` vs `prod`, uses your current
@@ -335,6 +372,16 @@ reason not to use RPC. The `GET /v1/item-images/{id}/manifest`,
 routes are examples of that exception: they expose dereferenceable IIIF/OCR
 documents that external viewers and IIIF clients fetch directly.
 
+Uploaded image files are private runtime artifacts. Direct `/static/uploads/*`
+requests are authorized against the current workspace, and customer-facing
+integrations should use item, manifest, or IIIF URLs instead of sharing raw
+upload filenames.
+
+Scribe caps image payloads at 100 MiB for direct uploads, remote image fetches,
+and local OCR processing. Inline hOCR imports are capped at 10 MiB. The
+frontend proxy rejects malformed URL paths before routing and applies baseline
+security headers to static and proxied responses.
+
 ## Auth model
 
 Google OAuth is the only interactive login path. The shipped runtime does not
@@ -394,14 +441,14 @@ action.
 
 ## Deployment direction
 
-The current deployment/auth refactor plan lives in
-[docs/infra-auth-plan.md](/workspace/docs/infra-auth-plan.md). The current
-deployment shape is:
+The current deployment shape is:
 
 - separate `frontend`, `api`, and `worker` deployments
 - backend Go image stays on the VM
 - frontend image is deployed as the optional `frontend` Cloud Run sidecar next
   to ppb and proxies backend paths back to the VM
+- frontend runtime runs as a non-root user and terminates slow or malformed
+  requests before they reach backend services
 - shared production Cantaloupe managed from this repo's Terraform
 - shared private Ollama model services managed from this repo's Terraform
 - a shared production HTTPS load balancer for the app and Cantaloupe
@@ -409,6 +456,7 @@ deployment shape is:
 - Google OAuth plus Connect interceptor-based authorization
 - Vault-backed storage for user-supplied provider keys
 - session hOCR state persisted in the database instead of local disk
+- workspace-scoped access checks for uploaded image files and IIIF resources
 
 Editor-oriented annotation operations are exposed on `AnnotationService` so
 plugins can delegate structural OCR edits to the backend:

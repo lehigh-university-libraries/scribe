@@ -2,7 +2,8 @@ locals {
   vault_policy_files          = fileset("${path.module}/policies/vault", "*.hcl")
   vault_gcp_auth_backend_path = "gcp"
   vault_jwt_auth_backend_path = "google-jwt"
-  vault_admin_policy_name     = "admin"
+  vault_operator_policy_name  = "operator"
+  vault_break_glass_policy    = "break-glass"
   vault_app_policy_name       = "app"
   vault_ci_policy_name        = "ci"
   vault_gcloud_client_id      = "32555940559.apps.googleusercontent.com"
@@ -17,7 +18,7 @@ locals {
 module "vault" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
-  source = "git::https://github.com/libops/terraform-vault-cloudrun?ref=0.5.3"
+  source = "git::https://github.com/libops/terraform-vault-cloudrun?ref=bf62fe8cb4e8d391a357431894bf109d797d13a4"
   providers = {
     docker      = docker
     google      = google
@@ -37,25 +38,40 @@ module "vault" {
   public_routes = [
     "/.well-known/",
     "/v1/auth/gcp/",
-    "/v1/secret/",
     "/v1/sys/health",
   ]
 }
 
-resource "google_project_iam_member" "vault_gcp_auth_service_account_viewer" {
+resource "google_service_account_iam_member" "vault_gcp_auth_app_service_account_viewer" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
-  project = var.project_id
-  role    = "roles/iam.serviceAccountViewer"
-  member  = "serviceAccount:${module.vault[0].gsa}"
+  service_account_id = module.scribe.appGsa.name
+  role               = "roles/iam.serviceAccountViewer"
+  member             = "serviceAccount:${module.vault[0].gsa}"
 }
 
-resource "google_project_iam_member" "vault_gcp_auth_service_account_key_admin" {
+resource "google_service_account_iam_member" "vault_gcp_auth_instance_service_account_viewer" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
-  project = var.project_id
-  role    = "roles/iam.serviceAccountKeyAdmin"
-  member  = "serviceAccount:${module.vault[0].gsa}"
+  service_account_id = module.scribe.instance.gsa.name
+  role               = "roles/iam.serviceAccountViewer"
+  member             = "serviceAccount:${module.vault[0].gsa}"
+}
+
+resource "google_service_account_iam_member" "vault_gcp_auth_app_service_account_key_admin" {
+  count = local.vault_is_owner_workspace ? 1 : 0
+
+  service_account_id = module.scribe.appGsa.name
+  role               = "roles/iam.serviceAccountKeyAdmin"
+  member             = "serviceAccount:${module.vault[0].gsa}"
+}
+
+resource "google_service_account_iam_member" "vault_gcp_auth_instance_service_account_key_admin" {
+  count = local.vault_is_owner_workspace ? 1 : 0
+
+  service_account_id = module.scribe.instance.gsa.name
+  role               = "roles/iam.serviceAccountKeyAdmin"
+  member             = "serviceAccount:${module.vault[0].gsa}"
 }
 
 resource "vault_mount" "secret" {
@@ -64,17 +80,7 @@ resource "vault_mount" "secret" {
   path = "secret"
   type = "kv"
   options = {
-    version = 1
-  }
-}
-
-resource "vault_mount" "keys" {
-  count = local.vault_is_owner_workspace ? 1 : 0
-
-  path = "keys"
-  type = "kv"
-  options = {
-    version = 1
+    version = 2
   }
 }
 
@@ -83,6 +89,20 @@ resource "vault_policy" "vault" {
 
   name   = trimsuffix(each.value, ".hcl")
   policy = file("${path.module}/policies/vault/${each.value}")
+}
+
+resource "vault_audit" "stdout" {
+  count = local.vault_is_owner_workspace ? 1 : 0
+
+  type = "file"
+  path = "stdout"
+  options = {
+    file_path = "stdout"
+  }
+
+  depends_on = [
+    vault_policy.vault,
+  ]
 }
 
 resource "vault_auth_backend" "gcp" {
@@ -139,13 +159,45 @@ resource "vault_jwt_auth_backend_role" "admin" {
     local.vault_gcloud_client_id,
   ]
   bound_claims = {
-    email = each.value
+    email          = each.value
+    email_verified = "true"
+    hd             = "lehigh.edu"
   }
   token_policies = [
-    local.vault_admin_policy_name,
+    local.vault_operator_policy_name,
   ]
   token_ttl     = 300
   token_max_ttl = 900
+
+  depends_on = [
+    vault_policy.vault,
+  ]
+}
+
+resource "vault_jwt_auth_backend_role" "admin_break_glass" {
+  for_each = local.vault_is_owner_workspace ? {
+    for email in var.vault_admin_emails : replace(replace(email, "@", "-at-"), ".", "-") => email
+  } : {}
+
+  backend    = vault_jwt_auth_backend.google_jwt[0].path
+  role_name  = "break-glass-admin-${each.key}"
+  role_type  = "jwt"
+  user_claim = "email"
+  bound_audiences = [
+    module.vault[0].vault-url,
+    local.vault_gcloud_client_id,
+  ]
+  bound_claims = {
+    email          = each.value
+    email_verified = "true"
+    hd             = "lehigh.edu"
+  }
+  token_policies = [
+    local.vault_operator_policy_name,
+    local.vault_break_glass_policy,
+  ]
+  token_ttl     = 120
+  token_max_ttl = 300
 
   depends_on = [
     vault_policy.vault,
@@ -166,7 +218,6 @@ resource "vault_gcp_auth_backend_role" "app" {
   token_policies = [
     local.vault_app_policy_name,
   ]
-  add_group_aliases = true
 
   depends_on = [
     vault_auth_backend.gcp,
@@ -189,7 +240,6 @@ resource "vault_gcp_auth_backend_role" "ci" {
   token_policies = [
     local.vault_ci_policy_name,
   ]
-  add_group_aliases = true
 
   depends_on = [
     vault_auth_backend.gcp,

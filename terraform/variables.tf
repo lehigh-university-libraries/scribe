@@ -106,19 +106,13 @@ variable "vault_admin_emails" {
 }
 
 variable "vault_ci_service_account_emails" {
-  description = "Service account emails allowed to read deployment secrets from Vault through GCP IAM auth."
+  description = "Service account emails that must keep Vault CI login roles and secret-read access. Terraform creates both google-jwt ci-* roles and GCP auth roles from this list."
   type        = list(string)
   default     = []
 }
 
 variable "ocr_service_images" {
   description = "Map of OCR service key (e.g. \"segmentor\", \"kraken-ocr/<model>\", \"ollama/<model>\") to a fully digest-pinned GAR image reference. Populated by the build-ocr GitHub Actions workflow (or generate-ocr-images-map.sh locally) from config.yaml's ocr section."
-  type        = map(string)
-  default     = {}
-}
-
-variable "vm_compose_images" {
-  description = "Map of service key to a fully digest-pinned GHCR image reference for images pulled directly by the VM docker-compose stack (e.g. \"image-service\"). Populated by the build-ocr workflow (or generate-vm-images-map.sh locally)."
   type        = map(string)
   default     = {}
 }

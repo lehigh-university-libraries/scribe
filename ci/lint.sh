@@ -11,9 +11,14 @@ if command -v shellcheck >/dev/null 2>&1; then
   fi
 fi
 
+echo "Running golangci-lint..."
 if command -v golangci-lint >/dev/null 2>&1; then
-  echo "Running golangci-lint..."
   golangci-lint run
-else
-  echo "golangci-lint not installed; skipping Go lint"
+  exit 0
 fi
+
+docker run --rm \
+  -v "$PWD:/app" \
+  -w /app \
+  "${GOLANGCI_IMAGE:?GOLANGCI_IMAGE is required}" \
+  golangci-lint run

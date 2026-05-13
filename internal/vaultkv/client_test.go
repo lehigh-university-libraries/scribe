@@ -1,6 +1,7 @@
 package vaultkv
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -9,6 +10,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"strings"
 	"testing"
 	"time"
@@ -73,6 +77,84 @@ func TestSignServiceAccountJWT(t *testing.T) {
 	sum := sha256.Sum256([]byte(signingInput))
 	if err := rsa.VerifyPKCS1v15(&privateKey.PublicKey, crypto.SHA256, sum[:], signature); err != nil {
 		t.Fatalf("verify signature: %v", err)
+	}
+}
+
+func TestRenewSelfExtendsCachedToken(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0).UTC()
+	var renewCalled bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/auth/token/renew-self" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if got := r.Header.Get("X-Vault-Token"); got != "old-token" {
+			t.Fatalf("X-Vault-Token = %q", got)
+		}
+		renewCalled = true
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"auth": map[string]any{
+				"client_token":   "renewed-token",
+				"lease_duration": 300,
+				"renewable":      true,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, "", "secret", "scribe-app")
+	client.now = func() time.Time { return now }
+	client.cachedToken = "old-token"
+	client.expiresAt = now.Add(20 * time.Second)
+	client.renewable = true
+
+	token, err := client.authToken(context.Background())
+	if err != nil {
+		t.Fatalf("authToken returned error: %v", err)
+	}
+	if token != "renewed-token" {
+		t.Fatalf("token = %q, want renewed-token", token)
+	}
+	if !renewCalled {
+		t.Fatal("renew endpoint was not called")
+	}
+	if !client.expiresAt.Equal(now.Add(300 * time.Second)) {
+		t.Fatalf("expiresAt = %s, want %s", client.expiresAt, now.Add(300*time.Second))
+	}
+}
+
+func TestReadRetriesRetryableVaultErrors(t *testing.T) {
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/secret/data/scribe/database/app":
+			if attempts.Add(1) < 3 {
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte(`{"errors":["temporary"]}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": map[string]any{
+					"data": map[string]string{
+						"password": "db-password",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, "test-token", "secret", "scribe-app")
+	data, err := client.Read(context.Background(), "scribe/database/app")
+	if err != nil {
+		t.Fatalf("Read returned error: %v", err)
+	}
+	if got := data["password"]; got != "db-password" {
+		t.Fatalf("password = %q, want db-password", got)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("attempts = %d, want 3", got)
 	}
 }
 

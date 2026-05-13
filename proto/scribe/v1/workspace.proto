@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package scribe.v1;
 
-import "scribe/v1/options/auth.proto";
+import "scribe/v1/options/v1/auth.proto";
 
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
@@ -96,38 +96,48 @@ message DeleteWorkspaceMemberRequest {
 message DeleteWorkspaceMemberResponse {}
 
 service WorkspaceService {
-  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse) {}
-  rpc CreateWorkspace(CreateWorkspaceRequest) returns (CreateWorkspaceResponse) {}
+  rpc ListWorkspaces(ListWorkspacesRequest) returns (ListWorkspacesResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (CreateWorkspaceResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
   rpc UpdateWorkspace(UpdateWorkspaceRequest) returns (UpdateWorkspaceResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_ADMIN
       resource_id_field: "workspace_id"
     };
   }
   rpc ListWorkspaceMembers(ListWorkspaceMembersRequest) returns (ListWorkspaceMembersResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_READ
       resource_id_field: "workspace_id"
     };
   }
   rpc AddWorkspaceMember(AddWorkspaceMemberRequest) returns (AddWorkspaceMemberResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_ADMIN
       resource_id_field: "workspace_id"
     };
   }
   rpc UpdateWorkspaceMember(UpdateWorkspaceMemberRequest) returns (UpdateWorkspaceMemberResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_ADMIN
       resource_id_field: "workspace_id"
     };
   }
   rpc DeleteWorkspaceMember(DeleteWorkspaceMemberRequest) returns (DeleteWorkspaceMemberResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_ADMIN
       resource_id_field: "workspace_id"

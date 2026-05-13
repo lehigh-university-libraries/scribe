@@ -105,19 +105,36 @@ func TestRequestedWorkspaceIDRejectsInvalidHeader(t *testing.T) {
 	}
 }
 
-func TestGoogleCallbackURLUsesForwardedOrigin(t *testing.T) {
+func TestGoogleCallbackURLUsesConfiguredPublicBaseURL(t *testing.T) {
 	t.Parallel()
 
 	manager := &Manager{
 		auth: config.AuthConfig{
 			GoogleCallbackPath: "/auth/callback/google",
 		},
-		publicBaseURL: "http://localhost:8080",
+		publicBaseURL: "https://scribe.example",
 	}
 	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/auth/google", nil)
 	req.Host = "internal-service"
 	req.Header.Set("X-Forwarded-Proto", "https")
-	req.Header.Set("X-Forwarded-Host", "scribe.example")
+	req.Header.Set("X-Forwarded-Host", "attacker.example")
+
+	if got := manager.googleCallbackURL(req); got != "https://scribe.example/auth/callback/google" {
+		t.Fatalf("googleCallbackURL = %q, want %q", got, "https://scribe.example/auth/callback/google")
+	}
+}
+
+func TestGoogleCallbackURLFallsBackToRequestOrigin(t *testing.T) {
+	t.Parallel()
+
+	manager := &Manager{
+		auth: config.AuthConfig{
+			GoogleCallbackPath: "/auth/callback/google",
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "https://scribe.example/auth/google", nil)
+	req.Host = "scribe.example"
+	req.Header.Set("X-Forwarded-Host", "attacker.example")
 
 	if got := manager.googleCallbackURL(req); got != "https://scribe.example/auth/callback/google" {
 		t.Fatalf("googleCallbackURL = %q, want %q", got, "https://scribe.example/auth/callback/google")

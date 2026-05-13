@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
+
+	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
 )
+
+const maxRemoteManifestBytes int64 = 20 << 20
 
 type canvasInfo struct {
 	imageURL  string
@@ -17,12 +20,7 @@ type canvasInfo struct {
 
 // fetchIIIFManifest fetches and decodes a IIIF Presentation manifest (v2 or v3).
 func fetchIIIFManifest(ctx context.Context, manifestURL string) (map[string]any, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Accept", "application/ld+json;profile=\"http://iiif.io/api/presentation/3/context.json\", application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := safehttp.Get(ctx, manifestURL)
 	if err != nil {
 		return nil, fmt.Errorf("fetch manifest: %w", err)
 	}
@@ -30,8 +28,12 @@ func fetchIIIFManifest(ctx context.Context, manifestURL string) (map[string]any,
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("fetch manifest: status %d", resp.StatusCode)
 	}
+	payload, err := safehttp.ReadAllLimit(resp.Body, maxRemoteManifestBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read manifest: %w", err)
+	}
 	var manifest map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+	if err := json.Unmarshal(payload, &manifest); err != nil {
 		return nil, fmt.Errorf("decode manifest: %w", err)
 	}
 	return manifest, nil

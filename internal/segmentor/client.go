@@ -8,15 +8,21 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/serviceauth"
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
+
+// tripletIIIFBase is the in-cluster URL of the Triplet IIIF server. The
+// segmentor cannot decode TIFF/JP2 directly, so we route those formats through
+// Triplet to get a normalized JPEG.
+const tripletIIIFBase = "http://triplet:8080/iiif/3"
 
 type Client struct {
 	http *http.Client
@@ -129,9 +135,21 @@ func (c *Client) newMultipartBody(imagePath string, fields map[string]string) (*
 	if !c.Enabled() {
 		return nil, "", fmt.Errorf("segmentor service is not configured")
 	}
-	imageData, err := os.ReadFile(imagePath)
-	if err != nil {
-		return nil, "", fmt.Errorf("read image %s: %w", imagePath, err)
+
+	uploadName := filepath.Base(imagePath)
+	var imageData []byte
+	var err error
+	if needsTripletNormalize(imagePath) {
+		imageData, err = c.fetchTripletJPEG(filepath.Base(imagePath))
+		if err != nil {
+			return nil, "", fmt.Errorf("normalize image %s via triplet: %w", imagePath, err)
+		}
+		uploadName = strings.TrimSuffix(uploadName, filepath.Ext(uploadName)) + ".jpg"
+	} else {
+		imageData, err = safefile.ReadFile(imagePath)
+		if err != nil {
+			return nil, "", fmt.Errorf("read image %s: %w", imagePath, err)
+		}
 	}
 
 	var buf bytes.Buffer
@@ -144,7 +162,7 @@ func (c *Client) newMultipartBody(imagePath string, fields map[string]string) (*
 			return nil, "", err
 		}
 	}
-	part, err := writer.CreateFormFile("image", filepath.Base(imagePath))
+	part, err := writer.CreateFormFile("image", uploadName)
 	if err != nil {
 		return nil, "", err
 	}
@@ -180,6 +198,28 @@ func (c *Client) post(ctx context.Context, path string, body *bytes.Buffer, cont
 		return nil, fmt.Errorf("segmentor %s status %d: %s", path, resp.StatusCode, string(respBody))
 	}
 	return respBody, nil
+}
+
+func needsTripletNormalize(imagePath string) bool {
+	switch strings.ToLower(filepath.Ext(imagePath)) {
+	case ".tif", ".tiff", ".jp2", ".j2k", ".jpx", ".webp":
+		return true
+	}
+	return false
+}
+
+func (c *Client) fetchTripletJPEG(identifier string) ([]byte, error) {
+	u := tripletIIIFBase + "/" + url.PathEscape(identifier) + "/full/max/0/default.jpg"
+	resp, err := c.http.Get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("triplet %s status %d: %s", u, resp.StatusCode, string(body))
+	}
+	return io.ReadAll(resp.Body)
 }
 
 func (c *Client) authorize(ctx context.Context, req *http.Request) error {

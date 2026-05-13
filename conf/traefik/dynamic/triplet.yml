@@ -1,0 +1,11 @@
+http:
+  services:
+    triplet:
+      loadBalancer:
+        servers:
+          - url: http://triplet:8080
+  routers:
+    triplet:
+      rule: PathPrefix(`/iiif`) || PathPrefix(`/presentation`)
+      service: triplet
+      priority: 100

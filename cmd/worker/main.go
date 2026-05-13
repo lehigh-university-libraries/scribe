@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,8 +14,9 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
-	deps, err := app.NewDependencies(ctx, app.BootstrapOptions{
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+	deps, err := app.NewDependencies(appCtx, app.BootstrapOptions{
 		RunMigrations:      false,
 		SeedSystemContexts: false,
 	})
@@ -26,9 +28,10 @@ func main() {
 
 	handler := deps.NewHandler()
 
-	workerCtx, workerCancel := context.WithCancel(context.Background())
+	workerCtx, workerCancel := context.WithCancel(appCtx)
 	defer workerCancel()
 	handler.StartTranscriptionWorker(workerCtx)
+	handler.StartWebhookDispatcher(workerCtx)
 
 	healthMux := http.NewServeMux()
 	healthMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -36,16 +39,21 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	healthAddr := strings.TrimSpace(os.Getenv("WORKER_HEALTH_LISTEN_ADDR"))
+	if healthAddr == "" {
+		healthAddr = ":8081"
+	}
 	httpServer := &http.Server{
-		Addr:         deps.Config.ListenAddr,
-		Handler:      healthMux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              healthAddr,
+		Handler:           healthMux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
-		slog.Info("worker health endpoint listening", "addr", deps.Config.ListenAddr)
+		slog.Info("worker health endpoint listening", "addr", healthAddr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("worker health server failed", "err", err)
 			os.Exit(1)
@@ -57,6 +65,7 @@ func main() {
 	<-sigCh
 
 	workerCancel()
+	appCancel()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {

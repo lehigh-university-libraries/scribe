@@ -8,7 +8,7 @@ package scribev1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -291,8 +291,8 @@ func (x *ProcessHOCRRequest) GetFilename() string {
 	return ""
 }
 
-// ProcessImageResponse returns item/image IDs along with run-scoped OCR data.
-type ProcessImageResponse struct {
+// ProcessImageURLResponse returns item/image IDs along with run-scoped OCR data.
+type ProcessImageURLResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ItemId      string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
 	ItemImageId uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
@@ -305,20 +305,20 @@ type ProcessImageResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ProcessImageResponse) Reset() {
-	*x = ProcessImageResponse{}
+func (x *ProcessImageURLResponse) Reset() {
+	*x = ProcessImageURLResponse{}
 	mi := &file_scribe_v1_process_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ProcessImageResponse) String() string {
+func (x *ProcessImageURLResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ProcessImageResponse) ProtoMessage() {}
+func (*ProcessImageURLResponse) ProtoMessage() {}
 
-func (x *ProcessImageResponse) ProtoReflect() protoreflect.Message {
+func (x *ProcessImageURLResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_scribe_v1_process_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -330,47 +330,217 @@ func (x *ProcessImageResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ProcessImageResponse.ProtoReflect.Descriptor instead.
-func (*ProcessImageResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use ProcessImageURLResponse.ProtoReflect.Descriptor instead.
+func (*ProcessImageURLResponse) Descriptor() ([]byte, []int) {
 	return file_scribe_v1_process_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *ProcessImageResponse) GetItemId() string {
+func (x *ProcessImageURLResponse) GetItemId() string {
 	if x != nil {
 		return x.ItemId
 	}
 	return ""
 }
 
-func (x *ProcessImageResponse) GetItemImageId() uint64 {
+func (x *ProcessImageURLResponse) GetItemImageId() uint64 {
 	if x != nil {
 		return x.ItemImageId
 	}
 	return 0
 }
 
-func (x *ProcessImageResponse) GetImageUrl() string {
+func (x *ProcessImageURLResponse) GetImageUrl() string {
 	if x != nil {
 		return x.ImageUrl
 	}
 	return ""
 }
 
-func (x *ProcessImageResponse) GetHocr() string {
+func (x *ProcessImageURLResponse) GetHocr() string {
 	if x != nil {
 		return x.Hocr
 	}
 	return ""
 }
 
-func (x *ProcessImageResponse) GetPlainText() string {
+func (x *ProcessImageURLResponse) GetPlainText() string {
 	if x != nil {
 		return x.PlainText
 	}
 	return ""
 }
 
-func (x *ProcessImageResponse) GetSessionId() string {
+func (x *ProcessImageURLResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+type ProcessImageUploadResponse struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ItemId      string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	ItemImageId uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	ImageUrl    string                 `protobuf:"bytes,3,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
+	Hocr        string                 `protobuf:"bytes,4,opt,name=hocr,proto3" json:"hocr,omitempty"`
+	PlainText   string                 `protobuf:"bytes,5,opt,name=plain_text,json=plainText,proto3" json:"plain_text,omitempty"`
+	// Session-scoped identifier for OCR run lookups and async processing.
+	SessionId     string `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessImageUploadResponse) Reset() {
+	*x = ProcessImageUploadResponse{}
+	mi := &file_scribe_v1_process_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessImageUploadResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessImageUploadResponse) ProtoMessage() {}
+
+func (x *ProcessImageUploadResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_process_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessImageUploadResponse.ProtoReflect.Descriptor instead.
+func (*ProcessImageUploadResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ProcessImageUploadResponse) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *ProcessImageUploadResponse) GetItemImageId() uint64 {
+	if x != nil {
+		return x.ItemImageId
+	}
+	return 0
+}
+
+func (x *ProcessImageUploadResponse) GetImageUrl() string {
+	if x != nil {
+		return x.ImageUrl
+	}
+	return ""
+}
+
+func (x *ProcessImageUploadResponse) GetHocr() string {
+	if x != nil {
+		return x.Hocr
+	}
+	return ""
+}
+
+func (x *ProcessImageUploadResponse) GetPlainText() string {
+	if x != nil {
+		return x.PlainText
+	}
+	return ""
+}
+
+func (x *ProcessImageUploadResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+type ProcessHOCRResponse struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ItemId      string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	ItemImageId uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	ImageUrl    string                 `protobuf:"bytes,3,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
+	Hocr        string                 `protobuf:"bytes,4,opt,name=hocr,proto3" json:"hocr,omitempty"`
+	PlainText   string                 `protobuf:"bytes,5,opt,name=plain_text,json=plainText,proto3" json:"plain_text,omitempty"`
+	// Session-scoped identifier for OCR run lookups and async processing.
+	SessionId     string `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessHOCRResponse) Reset() {
+	*x = ProcessHOCRResponse{}
+	mi := &file_scribe_v1_process_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessHOCRResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessHOCRResponse) ProtoMessage() {}
+
+func (x *ProcessHOCRResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_process_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessHOCRResponse.ProtoReflect.Descriptor instead.
+func (*ProcessHOCRResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ProcessHOCRResponse) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *ProcessHOCRResponse) GetItemImageId() uint64 {
+	if x != nil {
+		return x.ItemImageId
+	}
+	return 0
+}
+
+func (x *ProcessHOCRResponse) GetImageUrl() string {
+	if x != nil {
+		return x.ImageUrl
+	}
+	return ""
+}
+
+func (x *ProcessHOCRResponse) GetHocr() string {
+	if x != nil {
+		return x.Hocr
+	}
+	return ""
+}
+
+func (x *ProcessHOCRResponse) GetPlainText() string {
+	if x != nil {
+		return x.PlainText
+	}
+	return ""
+}
+
+func (x *ProcessHOCRResponse) GetSessionId() string {
 	if x != nil {
 		return x.SessionId
 	}
@@ -378,17 +548,15 @@ func (x *ProcessImageResponse) GetSessionId() string {
 }
 
 type GetOCRRunRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Accept either session_id or item_image_id.
-	SessionId     string `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	ItemImageId   uint64 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemImageId   uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetOCRRunRequest) Reset() {
 	*x = GetOCRRunRequest{}
-	mi := &file_scribe_v1_process_proto_msgTypes[4]
+	mi := &file_scribe_v1_process_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -400,7 +568,7 @@ func (x *GetOCRRunRequest) String() string {
 func (*GetOCRRunRequest) ProtoMessage() {}
 
 func (x *GetOCRRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[4]
+	mi := &file_scribe_v1_process_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -413,14 +581,7 @@ func (x *GetOCRRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOCRRunRequest.ProtoReflect.Descriptor instead.
 func (*GetOCRRunRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *GetOCRRunRequest) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetOCRRunRequest) GetItemImageId() uint64 {
@@ -430,7 +591,7 @@ func (x *GetOCRRunRequest) GetItemImageId() uint64 {
 	return 0
 }
 
-type OCRRun struct {
+type GetOCRRunResponse struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	SessionId           string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	ItemImageId         uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
@@ -446,21 +607,21 @@ type OCRRun struct {
 	sizeCache           protoimpl.SizeCache
 }
 
-func (x *OCRRun) Reset() {
-	*x = OCRRun{}
-	mi := &file_scribe_v1_process_proto_msgTypes[5]
+func (x *GetOCRRunResponse) Reset() {
+	*x = GetOCRRunResponse{}
+	mi := &file_scribe_v1_process_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *OCRRun) String() string {
+func (x *GetOCRRunResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*OCRRun) ProtoMessage() {}
+func (*GetOCRRunResponse) ProtoMessage() {}
 
-func (x *OCRRun) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[5]
+func (x *GetOCRRunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_process_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -471,75 +632,75 @@ func (x *OCRRun) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use OCRRun.ProtoReflect.Descriptor instead.
-func (*OCRRun) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{5}
+// Deprecated: Use GetOCRRunResponse.ProtoReflect.Descriptor instead.
+func (*GetOCRRunResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *OCRRun) GetSessionId() string {
+func (x *GetOCRRunResponse) GetSessionId() string {
 	if x != nil {
 		return x.SessionId
 	}
 	return ""
 }
 
-func (x *OCRRun) GetItemImageId() uint64 {
+func (x *GetOCRRunResponse) GetItemImageId() uint64 {
 	if x != nil {
 		return x.ItemImageId
 	}
 	return 0
 }
 
-func (x *OCRRun) GetImageUrl() string {
+func (x *GetOCRRunResponse) GetImageUrl() string {
 	if x != nil {
 		return x.ImageUrl
 	}
 	return ""
 }
 
-func (x *OCRRun) GetModel() string {
+func (x *GetOCRRunResponse) GetModel() string {
 	if x != nil {
 		return x.Model
 	}
 	return ""
 }
 
-func (x *OCRRun) GetOriginalHocr() string {
+func (x *GetOCRRunResponse) GetOriginalHocr() string {
 	if x != nil {
 		return x.OriginalHocr
 	}
 	return ""
 }
 
-func (x *OCRRun) GetOriginalText() string {
+func (x *GetOCRRunResponse) GetOriginalText() string {
 	if x != nil {
 		return x.OriginalText
 	}
 	return ""
 }
 
-func (x *OCRRun) GetCorrectedHocr() string {
+func (x *GetOCRRunResponse) GetCorrectedHocr() string {
 	if x != nil {
 		return x.CorrectedHocr
 	}
 	return ""
 }
 
-func (x *OCRRun) GetCorrectedText() string {
+func (x *GetOCRRunResponse) GetCorrectedText() string {
 	if x != nil {
 		return x.CorrectedText
 	}
 	return ""
 }
 
-func (x *OCRRun) GetEditCount() int32 {
+func (x *GetOCRRunResponse) GetEditCount() int32 {
 	if x != nil {
 		return x.EditCount
 	}
 	return 0
 }
 
-func (x *OCRRun) GetLevenshteinDistance() int32 {
+func (x *GetOCRRunResponse) GetLevenshteinDistance() int32 {
 	if x != nil {
 		return x.LevenshteinDistance
 	}
@@ -548,7 +709,6 @@ func (x *OCRRun) GetLevenshteinDistance() int32 {
 
 type SaveOCREditsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	ItemImageId   uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
 	CorrectedHocr string                 `protobuf:"bytes,3,opt,name=corrected_hocr,json=correctedHocr,proto3" json:"corrected_hocr,omitempty"`
 	EditCount     int32                  `protobuf:"varint,4,opt,name=edit_count,json=editCount,proto3" json:"edit_count,omitempty"`
@@ -558,7 +718,7 @@ type SaveOCREditsRequest struct {
 
 func (x *SaveOCREditsRequest) Reset() {
 	*x = SaveOCREditsRequest{}
-	mi := &file_scribe_v1_process_proto_msgTypes[6]
+	mi := &file_scribe_v1_process_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -570,7 +730,7 @@ func (x *SaveOCREditsRequest) String() string {
 func (*SaveOCREditsRequest) ProtoMessage() {}
 
 func (x *SaveOCREditsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[6]
+	mi := &file_scribe_v1_process_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -583,14 +743,7 @@ func (x *SaveOCREditsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveOCREditsRequest.ProtoReflect.Descriptor instead.
 func (*SaveOCREditsRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *SaveOCREditsRequest) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SaveOCREditsRequest) GetItemImageId() uint64 {
@@ -628,7 +781,7 @@ type SaveOCREditsResponse struct {
 
 func (x *SaveOCREditsResponse) Reset() {
 	*x = SaveOCREditsResponse{}
-	mi := &file_scribe_v1_process_proto_msgTypes[7]
+	mi := &file_scribe_v1_process_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -640,7 +793,7 @@ func (x *SaveOCREditsResponse) String() string {
 func (*SaveOCREditsResponse) ProtoMessage() {}
 
 func (x *SaveOCREditsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[7]
+	mi := &file_scribe_v1_process_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -653,7 +806,7 @@ func (x *SaveOCREditsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveOCREditsResponse.ProtoReflect.Descriptor instead.
 func (*SaveOCREditsResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{7}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SaveOCREditsResponse) GetSessionId() string {
@@ -708,7 +861,7 @@ type ReprocessItemImageRequest struct {
 
 func (x *ReprocessItemImageRequest) Reset() {
 	*x = ReprocessItemImageRequest{}
-	mi := &file_scribe_v1_process_proto_msgTypes[8]
+	mi := &file_scribe_v1_process_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -720,7 +873,7 @@ func (x *ReprocessItemImageRequest) String() string {
 func (*ReprocessItemImageRequest) ProtoMessage() {}
 
 func (x *ReprocessItemImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[8]
+	mi := &file_scribe_v1_process_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -733,7 +886,7 @@ func (x *ReprocessItemImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReprocessItemImageRequest.ProtoReflect.Descriptor instead.
 func (*ReprocessItemImageRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{8}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ReprocessItemImageRequest) GetItemImageId() uint64 {
@@ -766,7 +919,7 @@ type ReprocessItemImageResponse struct {
 
 func (x *ReprocessItemImageResponse) Reset() {
 	*x = ReprocessItemImageResponse{}
-	mi := &file_scribe_v1_process_proto_msgTypes[9]
+	mi := &file_scribe_v1_process_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -778,7 +931,7 @@ func (x *ReprocessItemImageResponse) String() string {
 func (*ReprocessItemImageResponse) ProtoMessage() {}
 
 func (x *ReprocessItemImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[9]
+	mi := &file_scribe_v1_process_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -791,7 +944,7 @@ func (x *ReprocessItemImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReprocessItemImageResponse.ProtoReflect.Descriptor instead.
 func (*ReprocessItemImageResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{9}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ReprocessItemImageResponse) GetSessionId() string {
@@ -854,7 +1007,7 @@ var File_scribe_v1_process_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
-	"\x17scribe/v1/process.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cscribe/v1/options/auth.proto\"\xd2\x01\n" +
+	"\x17scribe/v1/process.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xd2\x01\n" +
 	"\x16ProcessImageURLRequest\x12-\n" +
 	"\timage_url\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\bimageUrl\x12<\n" +
 	"\routput_format\x18\x02 \x01(\x0e2\x17.scribe.v1.OutputFormatR\foutputFormat\x12\x1d\n" +
@@ -875,8 +1028,8 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\routput_format\x18\x03 \x01(\x0e2\x17.scribe.v1.OutputFormatR\foutputFormat\x12\x1d\n" +
 	"\n" +
 	"image_data\x18\x04 \x01(\fR\timageData\x12,\n" +
-	"\bfilename\x18\x05 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bfilename\"\xc2\x01\n" +
-	"\x14ProcessImageResponse\x12\x17\n" +
+	"\bfilename\x18\x05 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bfilename\"\xc5\x01\n" +
+	"\x17ProcessImageURLResponse\x12\x17\n" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +
 	"\timage_url\x18\x03 \x01(\tR\bimageUrl\x12\x12\n" +
@@ -884,13 +1037,29 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
 	"plain_text\x18\x05 \x01(\tR\tplainText\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x06 \x01(\tR\tsessionId\"\xef\x01\n" +
-	"\x10GetOCRRunRequest\x12/\n" +
+	"session_id\x18\x06 \x01(\tR\tsessionId\"\xc8\x01\n" +
+	"\x1aProcessImageUploadResponse\x12\x17\n" +
+	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\"\n" +
+	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +
+	"\timage_url\x18\x03 \x01(\tR\bimageUrl\x12\x12\n" +
+	"\x04hocr\x18\x04 \x01(\tR\x04hocr\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\tsessionId\x12\"\n" +
-	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId:\x85\x01\xbaH\x81\x01\x1a\x7f\n" +
-	"\x16get_ocr_run.identifier\x12'session_id or item_image_id is required\x1a<this.item_image_id > 0 || this.session_id.matches('.*\\\\S.*')\"\xe8\x02\n" +
-	"\x06OCRRun\x12\x1d\n" +
+	"plain_text\x18\x05 \x01(\tR\tplainText\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x06 \x01(\tR\tsessionId\"\xc1\x01\n" +
+	"\x13ProcessHOCRResponse\x12\x17\n" +
+	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\"\n" +
+	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +
+	"\timage_url\x18\x03 \x01(\tR\bimageUrl\x12\x12\n" +
+	"\x04hocr\x18\x04 \x01(\tR\x04hocr\x12\x1d\n" +
+	"\n" +
+	"plain_text\x18\x05 \x01(\tR\tplainText\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x06 \x01(\tR\tsessionId\"\x88\x01\n" +
+	"\x10GetOCRRunRequest\x12\"\n" +
+	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId:P\xbaHM\x1aK\n" +
+	"\x16get_ocr_run.identifier\x12\x19item_image_id is required\x1a\x16this.item_image_id > 0\"\xf3\x02\n" +
+	"\x11GetOCRRunResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +
@@ -903,15 +1072,13 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
 	"edit_count\x18\t \x01(\x05R\teditCount\x121\n" +
 	"\x14levenshtein_distance\x18\n" +
-	" \x01(\x05R\x13levenshteinDistance\"\xce\x02\n" +
-	"\x13SaveOCREditsRequest\x12/\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\tsessionId\x12\"\n" +
+	" \x01(\x05R\x13levenshteinDistance\"\xe6\x01\n" +
+	"\x13SaveOCREditsRequest\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x127\n" +
 	"\x0ecorrected_hocr\x18\x03 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\rcorrectedHocr\x12\x1d\n" +
 	"\n" +
-	"edit_count\x18\x04 \x01(\x05R\teditCount:\x89\x01\xbaH\x85\x01\x1a\x82\x01\n" +
-	"\x19save_ocr_edits.identifier\x12'session_id or item_image_id is required\x1a<this.item_image_id > 0 || this.session_id.matches('.*\\\\S.*')\"\x8d\x02\n" +
+	"edit_count\x18\x04 \x01(\x05R\teditCount:S\xbaHP\x1aN\n" +
+	"\x19save_ocr_edits.identifier\x12\x19item_image_id is required\x1a\x16this.item_image_id > 0\"\x8d\x02\n" +
 	"\x14SaveOCREditsResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
@@ -942,12 +1109,12 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\x19OUTPUT_FORMAT_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12OUTPUT_FORMAT_HOCR\x10\x01\x12\x16\n" +
 	"\x12OUTPUT_FORMAT_TEXT\x10\x02\x12\x1a\n" +
-	"\x16OUTPUT_FORMAT_PAGE_XML\x10\x032\xf5\x04\n" +
-	"\x16ImageProcessingService\x12_\n" +
-	"\x0fProcessImageURL\x12!.scribe.v1.ProcessImageURLRequest\x1a\x1f.scribe.v1.ProcessImageResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12e\n" +
-	"\x12ProcessImageUpload\x12$.scribe.v1.ProcessImageUploadRequest\x1a\x1f.scribe.v1.ProcessImageResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12W\n" +
-	"\vProcessHOCR\x12\x1d.scribe.v1.ProcessHOCRRequest\x1a\x1f.scribe.v1.ProcessImageResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12T\n" +
-	"\tGetOCRRun\x12\x1b.scribe.v1.GetOCRRunRequest\x1a\x11.scribe.v1.OCRRun\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12h\n" +
+	"\x16OUTPUT_FORMAT_PAGE_XML\x10\x032\x88\x05\n" +
+	"\x16ImageProcessingService\x12b\n" +
+	"\x0fProcessImageURL\x12!.scribe.v1.ProcessImageURLRequest\x1a\".scribe.v1.ProcessImageURLResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12k\n" +
+	"\x12ProcessImageUpload\x12$.scribe.v1.ProcessImageUploadRequest\x1a%.scribe.v1.ProcessImageUploadResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12V\n" +
+	"\vProcessHOCR\x12\x1d.scribe.v1.ProcessHOCRRequest\x1a\x1e.scribe.v1.ProcessHOCRResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12_\n" +
+	"\tGetOCRRun\x12\x1b.scribe.v1.GetOCRRunRequest\x1a\x1c.scribe.v1.GetOCRRunResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12h\n" +
 	"\fSaveOCREdits\x12\x1e.scribe.v1.SaveOCREditsRequest\x1a\x1f.scribe.v1.SaveOCREditsResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12z\n" +
 	"\x12ReprocessItemImage\x12$.scribe.v1.ReprocessItemImageRequest\x1a%.scribe.v1.ReprocessItemImageResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_idB\xaa\x01\n" +
 	"\rcom.scribe.v1B\fProcessProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
@@ -966,19 +1133,21 @@ func file_scribe_v1_process_proto_rawDescGZIP() []byte {
 }
 
 var file_scribe_v1_process_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_scribe_v1_process_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_scribe_v1_process_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_scribe_v1_process_proto_goTypes = []any{
 	(OutputFormat)(0),                  // 0: scribe.v1.OutputFormat
 	(*ProcessImageURLRequest)(nil),     // 1: scribe.v1.ProcessImageURLRequest
 	(*ProcessImageUploadRequest)(nil),  // 2: scribe.v1.ProcessImageUploadRequest
 	(*ProcessHOCRRequest)(nil),         // 3: scribe.v1.ProcessHOCRRequest
-	(*ProcessImageResponse)(nil),       // 4: scribe.v1.ProcessImageResponse
-	(*GetOCRRunRequest)(nil),           // 5: scribe.v1.GetOCRRunRequest
-	(*OCRRun)(nil),                     // 6: scribe.v1.OCRRun
-	(*SaveOCREditsRequest)(nil),        // 7: scribe.v1.SaveOCREditsRequest
-	(*SaveOCREditsResponse)(nil),       // 8: scribe.v1.SaveOCREditsResponse
-	(*ReprocessItemImageRequest)(nil),  // 9: scribe.v1.ReprocessItemImageRequest
-	(*ReprocessItemImageResponse)(nil), // 10: scribe.v1.ReprocessItemImageResponse
+	(*ProcessImageURLResponse)(nil),    // 4: scribe.v1.ProcessImageURLResponse
+	(*ProcessImageUploadResponse)(nil), // 5: scribe.v1.ProcessImageUploadResponse
+	(*ProcessHOCRResponse)(nil),        // 6: scribe.v1.ProcessHOCRResponse
+	(*GetOCRRunRequest)(nil),           // 7: scribe.v1.GetOCRRunRequest
+	(*GetOCRRunResponse)(nil),          // 8: scribe.v1.GetOCRRunResponse
+	(*SaveOCREditsRequest)(nil),        // 9: scribe.v1.SaveOCREditsRequest
+	(*SaveOCREditsResponse)(nil),       // 10: scribe.v1.SaveOCREditsResponse
+	(*ReprocessItemImageRequest)(nil),  // 11: scribe.v1.ReprocessItemImageRequest
+	(*ReprocessItemImageResponse)(nil), // 12: scribe.v1.ReprocessItemImageResponse
 }
 var file_scribe_v1_process_proto_depIdxs = []int32{
 	0,  // 0: scribe.v1.ProcessImageURLRequest.output_format:type_name -> scribe.v1.OutputFormat
@@ -987,15 +1156,15 @@ var file_scribe_v1_process_proto_depIdxs = []int32{
 	1,  // 3: scribe.v1.ImageProcessingService.ProcessImageURL:input_type -> scribe.v1.ProcessImageURLRequest
 	2,  // 4: scribe.v1.ImageProcessingService.ProcessImageUpload:input_type -> scribe.v1.ProcessImageUploadRequest
 	3,  // 5: scribe.v1.ImageProcessingService.ProcessHOCR:input_type -> scribe.v1.ProcessHOCRRequest
-	5,  // 6: scribe.v1.ImageProcessingService.GetOCRRun:input_type -> scribe.v1.GetOCRRunRequest
-	7,  // 7: scribe.v1.ImageProcessingService.SaveOCREdits:input_type -> scribe.v1.SaveOCREditsRequest
-	9,  // 8: scribe.v1.ImageProcessingService.ReprocessItemImage:input_type -> scribe.v1.ReprocessItemImageRequest
-	4,  // 9: scribe.v1.ImageProcessingService.ProcessImageURL:output_type -> scribe.v1.ProcessImageResponse
-	4,  // 10: scribe.v1.ImageProcessingService.ProcessImageUpload:output_type -> scribe.v1.ProcessImageResponse
-	4,  // 11: scribe.v1.ImageProcessingService.ProcessHOCR:output_type -> scribe.v1.ProcessImageResponse
-	6,  // 12: scribe.v1.ImageProcessingService.GetOCRRun:output_type -> scribe.v1.OCRRun
-	8,  // 13: scribe.v1.ImageProcessingService.SaveOCREdits:output_type -> scribe.v1.SaveOCREditsResponse
-	10, // 14: scribe.v1.ImageProcessingService.ReprocessItemImage:output_type -> scribe.v1.ReprocessItemImageResponse
+	7,  // 6: scribe.v1.ImageProcessingService.GetOCRRun:input_type -> scribe.v1.GetOCRRunRequest
+	9,  // 7: scribe.v1.ImageProcessingService.SaveOCREdits:input_type -> scribe.v1.SaveOCREditsRequest
+	11, // 8: scribe.v1.ImageProcessingService.ReprocessItemImage:input_type -> scribe.v1.ReprocessItemImageRequest
+	4,  // 9: scribe.v1.ImageProcessingService.ProcessImageURL:output_type -> scribe.v1.ProcessImageURLResponse
+	5,  // 10: scribe.v1.ImageProcessingService.ProcessImageUpload:output_type -> scribe.v1.ProcessImageUploadResponse
+	6,  // 11: scribe.v1.ImageProcessingService.ProcessHOCR:output_type -> scribe.v1.ProcessHOCRResponse
+	8,  // 12: scribe.v1.ImageProcessingService.GetOCRRun:output_type -> scribe.v1.GetOCRRunResponse
+	10, // 13: scribe.v1.ImageProcessingService.SaveOCREdits:output_type -> scribe.v1.SaveOCREditsResponse
+	12, // 14: scribe.v1.ImageProcessingService.ReprocessItemImage:output_type -> scribe.v1.ReprocessItemImageResponse
 	9,  // [9:15] is the sub-list for method output_type
 	3,  // [3:9] is the sub-list for method input_type
 	3,  // [3:3] is the sub-list for extension type_name
@@ -1014,7 +1183,7 @@ func file_scribe_v1_process_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_process_proto_rawDesc), len(file_scribe_v1_process_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   10,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

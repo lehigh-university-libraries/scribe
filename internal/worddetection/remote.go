@@ -10,12 +10,12 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/serviceauth"
 )
 
@@ -62,7 +62,7 @@ func (p *remoteProvider) DetectWords(ctx context.Context, imagePath string) ([]W
 		return nil, fmt.Errorf("segmentation_service.url is required when built with remoteocr")
 	}
 
-	imageData, err := os.ReadFile(imagePath)
+	imageData, err := safefile.ReadFile(imagePath)
 	if err != nil {
 		return nil, fmt.Errorf("read image %s: %w", imagePath, err)
 	}

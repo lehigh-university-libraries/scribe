@@ -1,6 +1,7 @@
 .env
 .terraform
 terraform.tfstate
+terraform/terraform.tfvars
 uploads
 secrets
 web/node_modules

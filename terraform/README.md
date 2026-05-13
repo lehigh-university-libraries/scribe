@@ -10,6 +10,7 @@ The same Terraform root can also manage shared production edge services:
 - a shared Cantaloupe Cloud Run deployment
 - shared private Ollama model services built from a single generic module
 - shared private OCR helper services for segmentation and image manipulation
+- a private GCS uploads bucket shared by the API, worker, and image-service
 - a shared external HTTPS load balancer that routes hostnames to the main app
   ingress and the shared Cantaloupe backend
 - a self-hosted Vault Cloud Run deployment with bootstrapped mounts,
@@ -17,7 +18,8 @@ The same Terraform root can also manage shared production edge services:
 
 ## What this does
 
-- creates a GCE VM and persistent disks
+- creates a GCE VM for the API, worker, and MariaDB process boundary plus a
+  GCS bucket for uploaded image blobs
 - clones the Scribe repo onto the VM
 - deploys the backend VM compose stack without a local frontend proxy; the
   Cloud Run frontend image talks straight to the backend API on port 80
@@ -26,11 +28,11 @@ The same Terraform root can also manage shared production edge services:
   such as `./secrets/GOOGLE_APPLICATION_CREDENTIALS` where local/CI runs may use
   a placeholder file until infra provides the real value
 - when `VAULT_ADDRESS` is configured, rewrites the MariaDB Docker secret files
-  from Vault before `docker compose up` so MariaDB and the app share the same
-  database password source. The init-only `vault-init` Compose service signs
-  into Vault from the rotated `./secrets/GOOGLE_APPLICATION_CREDENTIALS` file
-  rather than the metadata server, because Docker traffic to metadata is
-  blocked on the VM
+  from Vault KV v2 path `secret/data/scribe/database/app` before
+  `docker compose up` so MariaDB and the app share the same database password
+  source. The init-only `vault-init` Compose service signs into Vault from the
+  mounted `/run/secrets/GOOGLE_APPLICATION_CREDENTIALS` file rather than the
+  metadata server, because Docker traffic to metadata is blocked on the VM
 - injects non-secret runtime config into the compose services as environment
   variables, which `config.yaml` resolves via `${VAR}` / `${VAR:-default}`
   interpolation at process startup
@@ -114,7 +116,10 @@ branch name so the local run targets the same workspace and image tag.
 By default, the local script uses `TF_STATE_BUCKET=${GCLOUD_PROJECT}-terraform`.
 Set `TF_STATE_BUCKET` explicitly only if you need a different bucket.
 
-## Required edits in `terraform.tfvars`
+## Required local variables
+
+Do not commit `terraform.tfvars`. Copy `terraform.tfvars.example` locally or
+pass these values through `TF_VAR_*`/the `make tf-*` wrappers.
 
 - set `project_id`
 - replace the sample SSH key
@@ -137,8 +142,8 @@ Set `TF_STATE_BUCKET` explicitly only if you need a different bucket.
 
 `vault_ci_service_account_emails` must include the GitHub Actions deploy service
 account used by `secrets.GSA`. Local bootstrap configures a `google-jwt` auth
-backend, per-admin `admin-*` roles for `vault_admin_emails`, and `ci` roles for
-those service accounts. The GitHub
+backend, per-admin `admin-*` and short-lived `break-glass-admin-*` roles for
+`vault_admin_emails`, and `ci` roles for those service accounts. The GitHub
 Terraform workflows log into Vault with a Google ID token before they run
 Terraform. Those CI service accounts are also merged into the Vault proxy's
 `X-Admin-Token` allow-list so they can reach non-public Vault routes during
@@ -187,10 +192,11 @@ Shared dev uses:
 
 ## Creating the shared Vaults locally
 
-Set the Vault admins in your tfvars first, for example:
+Set the Vault admin and GitHub Actions CI service account in your tfvars first:
 
 ```hcl
 vault_admin_emails = ["jjc223@lehigh.edu"]
+vault_ci_service_account_emails = ["github@lehigh-lyrasis-catalyst.iam.gserviceaccount.com"]
 ```
 
 Then create the shared dev environment, which also creates the shared dev Vault:
@@ -212,19 +218,44 @@ make tf-prod ACTION=apply
 If you only want the Vault/bootstrap resources first, select the workspace and
 do it in two steps so the Vault provider has a concrete URL to talk to. The
 second apply must be a normal apply, not a narrow target list, so Terraform can
-create the `google-jwt` backend, the per-admin `admin-*` login roles from
-`vault_admin_emails`, and the per-service-account `ci` login roles from
-`vault_ci_service_account_emails`:
+create the `google-jwt` backend, the per-admin `admin-*` and
+`break-glass-admin-*` login roles from `vault_admin_emails`, and the
+per-service-account `ci` login roles from `vault_ci_service_account_emails`.
+After the first Vault server exists, local deploys use Google JWT login for the
+admin role. For the very first policy/auth bootstrap, export a one-time
+`VAULT_TOKEN`; do not store or commit root tokens:
 
 ```bash
 cd terraform
 terraform init -backend-config="bucket=${GCLOUD_PROJECT}-terraform" -backend-config="prefix=scribe"
 terraform workspace select dev || terraform workspace new dev
 terraform apply -target=module.vault
+export VAULT_TOKEN=<one-time bootstrap token>
 terraform apply
 ```
 
 Repeat that with workspace `prod` for production.
+
+If local Google JWT admin login is unavailable or does not yet have enough Vault policy to bootstrap the auth backends and roles, local applies can download and decrypt the stored root token instead of logging in as a user:
+
+```bash
+export VAULT_BOOTSTRAP_MODE=root-token
+make tf-prod ACTION=apply
+```
+
+By default the helper reads `gs://${GCLOUD_PROJECT}-vault-server-dev-key/root-token.enc` or `gs://${GCLOUD_PROJECT}-vault-server-prod-key/root-token.enc` depending on the shared Vault workspace, base64-decodes it, and decrypts it with KMS key `vault` in key ring `vault-server-dev` or `vault-server-prod`. Override `VAULT_ROOT_TOKEN_OBJECT`, `VAULT_ROOT_TOKEN_KMS_LOCATION`, `VAULT_ROOT_TOKEN_KMS_KEYRING`, or `VAULT_ROOT_TOKEN_KMS_KEY` if your stored token path differs.
+
+If GitHub Actions fails with an error like `role "ci-...gserviceaccount-com" could not be found`, the Vault server is up but the JWT CI role for the current deploy service account does not exist in the owning shared Vault workspace. Update `vault_ci_service_account_emails` to include the exact service account email from `secrets.GSA`, then re-apply the owner workspace:
+
+```bash
+# shared dev Vault used by previews and local dev
+make tf-dev-vault BRANCH=main ACTION=apply
+
+# production Vault
+make tf-prod ACTION=apply
+```
+
+Preview environments and the preview workflow's `sync-dev-shared` job use the shared `dev` Vault. Production uses the `prod` Vault.
 
 ## Notes
 
@@ -234,11 +265,13 @@ Repeat that with workspace `prod` for production.
   `VAULT_ADDRESS`, `OLLAMA_URL`, `OLLAMA_AUDIENCE`,
   `OLLAMA_MODEL_ENDPOINTS_JSON`,
   `SEGMENTATION_SERVICE_URL`, `SEGMENTATION_MODEL_ENDPOINTS_JSON`,
-  `IMAGE_SERVICE_URL`, `KRAKEN_URL`, `KRAKEN_MODEL`, and
+  `IMAGE_SERVICE_URL`, `SCRIBE_UPLOADS_BUCKET`, `SCRIBE_UPLOADS_PREFIX`,
+  `KRAKEN_URL`, `KRAKEN_MODEL`, and
   `KRAKEN_MODEL_ENDPOINTS_JSON` at process startup. Production injects the
   shared `glm-ocr:bf16` Ollama Cloud Run URL automatically, plus model-keyed
-  Ollama and Kraken endpoint maps. Non-prod workspaces read those shared URLs
-  from remote Terraform state.
+  Ollama and Kraken endpoint maps. The standalone image-service runs on
+  Cloud Run and reads uploads from the shared GCS bucket. Non-prod workspaces
+  read shared Ollama URLs from remote Terraform state.
 - The root module is intentionally opinionated. Service names, Artifact
   Registry layout, Cantaloupe sizing, Ollama sizing, and the compose bootstrap
   commands are internal defaults in Terraform rather than deployer-facing
@@ -247,17 +280,22 @@ Repeat that with workspace `prod` for production.
   repository `projects/<project>/locations/us/repositories/internal`. This
   root validates that the repo exists; it does not create it.
 - The Vault Cloud Run service account must be able to verify app/VM service
-  account JWTs for the `auth/gcp` backend. This root now grants that runtime
-  identity `roles/iam.serviceAccountViewer` and
-  `roles/iam.serviceAccountKeyAdmin` in the owning Vault workspace.
-- The Vault proxy now also allows `/v1/secret/` through without
-  `X-Admin-Token` so Scribe can read and write its KV mount using only the
-  Vault client token obtained from `auth/gcp`. Vault ACLs still apply on that
-  mount; this only removes the proxy's outer admin-header requirement.
+  account JWTs for the `auth/gcp` backend. This root grants
+  `roles/iam.serviceAccountViewer` and `roles/iam.serviceAccountKeyAdmin`
+  on the Scribe app and VM service accounts so Vault can read service account
+  metadata and the public key material needed to verify IAM login JWTs.
+- The Vault proxy no longer exposes `/v1/secret/` as a public route. Runtime
+  secret access must pass both the proxy layer and Vault ACLs.
+- The app Vault policy is intentionally narrow: the app can read only the
+  fixed runtime secrets under `secret/data/scribe/*` that it needs, and it can
+  create/read provider-secret records under
+  `secret/data/scribe/provider-secrets/workspaces/*`.
 - The frontend image is built with
   `SCRIBE_FRONTEND_BACKEND_ORIGIN=http://<site>.<zone>.c.<project>.internal`
   so the ppb Cloud Run proxy talks straight to the backend API on the VM.
   Local Docker Compose instead sets `SCRIBE_FRONTEND_BACKEND_ORIGIN=http://api:8080`.
+  The runtime container serves on port `8888` as the image's non-root `node`
+  user.
 - If the Ollama Cloud Run service uses its default `run.app` URL, Scribe can
   derive the ID token audience automatically. Set `llm.ollama.audience` only
   if you intentionally configured a custom audience.
@@ -277,9 +315,9 @@ Repeat that with workspace `prod` for production.
 - Preview and production deploys push backend and frontend images to GHCR. The
   backend image is injected into `TF_VAR_api_image`; `TF_VAR_frontend_image` is
   retained only for local compose/build parity while the Cloud Run frontend
-  sidecar uses `frontend_gar_image`. GitHub Actions resolves that GAR tag to an
-  immutable `@sha256:` digest before Terraform apply so Cloud Run rolls the
-  frontend sidecar when the image contents change.
+  sidecar uses `frontend_gar_image`. GitHub Actions resolves backend, frontend,
+  and frontend-GAR tags to immutable `@sha256:` digests before Terraform apply
+  so VM and Cloud Run rollback follows Terraform state instead of a mutable tag.
 - MariaDB passwords are now generated into docker secret files by
   `generate-secrets.sh` instead of being stored directly in `.env`.
 - The PR preview comment includes the Cloud Run ingress URL from
@@ -290,4 +328,8 @@ Repeat that with workspace `prod` for production.
   on the VM.
 - GitHub Actions preview and prod deploys assume a remote GCS backend and use
   Terraform workspaces to isolate `prod` from `pr-<number>` preview environments.
+- If Terraform is interrupted while holding the state lock, inspect the active
+  workflow or local process first. Only after confirming no Terraform process
+  is still running, recover with `cd terraform && terraform force-unlock <LOCK_ID>`,
+  then rerun `make tf-prod ACTION=plan` before applying again.
 - State files are already ignored by the repo's top-level `.gitignore`.

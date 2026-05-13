@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/otiai10/gosseract/v2"
 )
 
@@ -28,8 +29,12 @@ func (p *TesseractProvider) DetectWords(ctx context.Context, imagePath string) (
 	client := gosseract.NewClient()
 	defer client.Close()
 
-	if err := client.SetImage(imagePath); err != nil {
-		return nil, fmt.Errorf("failed to set image: %w", err)
+	imageData, err := safefile.ReadFile(imagePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read image: %w", err)
+	}
+	if err := client.SetImageFromBytes(imageData); err != nil {
+		return nil, fmt.Errorf("failed to set image bytes: %w", err)
 	}
 
 	// Get word-level bounding boxes

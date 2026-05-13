@@ -176,8 +176,8 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 				lineID = fmt.Sprintf("line_%d", lineCounter)
 			}
 			line := models.HOCRLine{
-				ID:    lineID,
-				BBox:  models.BBox{X1: x1, Y1: y1, X2: x2, Y2: y2},
+				ID:   lineID,
+				BBox: models.BBox{X1: x1, Y1: y1, X2: x2, Y2: y2},
 			}
 			if existing, ok := lineByID[lineID]; ok {
 				existing.BBox = line.BBox
@@ -463,17 +463,17 @@ func linesToPageXML(lines []models.HOCRLine, pageW, pageH int) string {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15">` + "\n")
-	b.WriteString(fmt.Sprintf(`<Page imageWidth="%d" imageHeight="%d">`+"\n", pageW, pageH))
+	fmt.Fprintf(&b, `<Page imageWidth="%d" imageHeight="%d">`+"\n", pageW, pageH)
 	b.WriteString(`<TextRegion id="r1">` + "\n")
 	for i, line := range lines {
-		b.WriteString(fmt.Sprintf(`<TextLine id="l%d">`, i+1))
-		b.WriteString(fmt.Sprintf(`<Coords points="%d,%d %d,%d %d,%d %d,%d"/>`,
-			line.BBox.X1, line.BBox.Y1, line.BBox.X2, line.BBox.Y1, line.BBox.X2, line.BBox.Y2, line.BBox.X1, line.BBox.Y2))
+		fmt.Fprintf(&b, `<TextLine id="l%d">`, i+1)
+		fmt.Fprintf(&b, `<Coords points="%d,%d %d,%d %d,%d %d,%d"/>`,
+			line.BBox.X1, line.BBox.Y1, line.BBox.X2, line.BBox.Y1, line.BBox.X2, line.BBox.Y2, line.BBox.X1, line.BBox.Y2)
 		b.WriteString(`<TextEquiv><Unicode>` + html.EscapeString(strings.TrimSpace(joinLineWords(line))) + `</Unicode></TextEquiv>`)
 		for j, word := range line.Words {
-			b.WriteString(fmt.Sprintf(`<Word id="w%d_%d">`, i+1, j+1))
-			b.WriteString(fmt.Sprintf(`<Coords points="%d,%d %d,%d %d,%d %d,%d"/>`,
-				word.BBox.X1, word.BBox.Y1, word.BBox.X2, word.BBox.Y1, word.BBox.X2, word.BBox.Y2, word.BBox.X1, word.BBox.Y2))
+			fmt.Fprintf(&b, `<Word id="w%d_%d">`, i+1, j+1)
+			fmt.Fprintf(&b, `<Coords points="%d,%d %d,%d %d,%d %d,%d"/>`,
+				word.BBox.X1, word.BBox.Y1, word.BBox.X2, word.BBox.Y1, word.BBox.X2, word.BBox.Y2, word.BBox.X1, word.BBox.Y2)
 			b.WriteString(`<TextEquiv><Unicode>` + html.EscapeString(strings.TrimSpace(word.Text)) + `</Unicode></TextEquiv>`)
 			b.WriteString(`</Word>`)
 		}
@@ -490,18 +490,18 @@ func linesToALTOXML(lines []models.HOCRLine, pageW, pageH int) string {
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<alto xmlns="http://www.loc.gov/standards/alto/ns-v4#">` + "\n")
 	b.WriteString(`<Layout>` + "\n")
-	b.WriteString(fmt.Sprintf(`<Page WIDTH="%d" HEIGHT="%d">`+"\n", pageW, pageH))
-	b.WriteString(fmt.Sprintf(`<PrintSpace HPOS="0" VPOS="0" WIDTH="%d" HEIGHT="%d">`+"\n", pageW, pageH))
+	fmt.Fprintf(&b, `<Page WIDTH="%d" HEIGHT="%d">`+"\n", pageW, pageH)
+	fmt.Fprintf(&b, `<PrintSpace HPOS="0" VPOS="0" WIDTH="%d" HEIGHT="%d">`+"\n", pageW, pageH)
 	b.WriteString(`<TextBlock ID="TB1">` + "\n")
 	for i, line := range lines {
 		w := maxInt(1, line.BBox.X2-line.BBox.X1)
 		h := maxInt(1, line.BBox.Y2-line.BBox.Y1)
-		b.WriteString(fmt.Sprintf(`<TextLine ID="TL%d" HPOS="%d" VPOS="%d" WIDTH="%d" HEIGHT="%d">`, i+1, line.BBox.X1, line.BBox.Y1, w, h))
+		fmt.Fprintf(&b, `<TextLine ID="TL%d" HPOS="%d" VPOS="%d" WIDTH="%d" HEIGHT="%d">`, i+1, line.BBox.X1, line.BBox.Y1, w, h)
 		for j, word := range line.Words {
 			ww := maxInt(1, word.BBox.X2-word.BBox.X1)
 			wh := maxInt(1, word.BBox.Y2-word.BBox.Y1)
-			b.WriteString(fmt.Sprintf(`<String ID="S%d_%d" CONTENT="%s" HPOS="%d" VPOS="%d" WIDTH="%d" HEIGHT="%d"/>`,
-				i+1, j+1, html.EscapeString(strings.TrimSpace(word.Text)), word.BBox.X1, word.BBox.Y1, ww, wh))
+			fmt.Fprintf(&b, `<String ID="S%d_%d" CONTENT="%s" HPOS="%d" VPOS="%d" WIDTH="%d" HEIGHT="%d"/>`,
+				i+1, j+1, html.EscapeString(strings.TrimSpace(word.Text)), word.BBox.X1, word.BBox.Y1, ww, wh)
 		}
 		b.WriteString(`</TextLine>` + "\n")
 	}

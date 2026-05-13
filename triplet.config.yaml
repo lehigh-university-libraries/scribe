@@ -2,7 +2,7 @@ server:
   listen: ":8080"
   read_timeout: 30s
   write_timeout: 120s
-  public_base_url: "${TRIPLET_PUBLIC_BASE_URL:-http://localhost:8081}"
+  public_base_url: "${TRIPLET_PUBLIC_BASE_URL}"
 
 logging:
   level: info
@@ -34,13 +34,7 @@ iiif:
     prefix: /presentation/v3
     root: /var/lib/triplet/presentation
     write_enabled: true
-    write_token: "${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}"
-  search:
-    enabled: false
-    prefix: /search/v2
-  auth:
-    enabled: false
-    prefix: /auth/v2
+    write_token: "${TRIPLET_PRESENTATION_WRITE_TOKEN}"
 
 sources:
   default: file

@@ -16,199 +16,99 @@ type CreateProviderSecretParams struct {
 }
 
 func (q *Queries) CreateProviderSecret(ctx context.Context, arg CreateProviderSecretParams) (uint64, error) {
-	res, err := q.db.ExecContext(ctx, `
-INSERT INTO provider_secrets (
-  user_id,
-  workspace_id,
-  provider,
-  name,
-  vault_path,
-  key_hint
-) VALUES (?, ?, ?, ?, ?, ?)
-`,
-		compatNullUint64(arg.UserID),
-		compatNullUint64(arg.WorkspaceID),
-		strings.ToLower(strings.TrimSpace(arg.Provider)),
-		arg.Name,
-		arg.VaultPath,
-		compatNullableString(arg.KeyHint),
-	)
+	userID, err := compatNullUint64(arg.UserID)
 	if err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
-	return uint64(id), err
+	workspaceID, err := compatNullUint64(arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	res, err := q.CreateProviderSecretManual(ctx, CreateProviderSecretManualParams{
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+		Provider:    strings.ToLower(strings.TrimSpace(arg.Provider)),
+		Name:        arg.Name,
+		VaultPath:   arg.VaultPath,
+		KeyHint:     compatNullableString(arg.KeyHint),
+	})
+	if err != nil {
+		return 0, err
+	}
+	return compatLastInsertID(res)
 }
 
 func (q *Queries) ListProviderSecretsVisibleToUser(ctx context.Context, workspaceID, userID uint64) ([]ProviderSecret, error) {
-	rows, err := q.db.QueryContext(ctx, `
-SELECT
-  id,
-  user_id,
-  workspace_id,
-  provider,
-  name,
-  vault_path,
-  key_hint,
-  created_at,
-  updated_at
-FROM provider_secrets
-WHERE workspace_id = ?
-  AND (user_id IS NULL OR user_id = ?)
-ORDER BY provider ASC, name ASC, updated_at DESC
-`, workspaceID, userID)
+	workspaceIDParam, err := compatUint64ToInt64(workspaceID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	out := make([]ProviderSecret, 0)
-	for rows.Next() {
-		var row ProviderSecret
-		if err := rows.Scan(
-			&row.ID,
-			&row.UserID,
-			&row.WorkspaceID,
-			&row.Provider,
-			&row.Name,
-			&row.VaultPath,
-			&row.KeyHint,
-			&row.CreatedAt,
-			&row.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		out = append(out, row)
+	userIDParam, err := compatUint64ToInt64(userID)
+	if err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	return q.ListProviderSecretsVisibleToUserManual(ctx, ListProviderSecretsVisibleToUserManualParams{
+		WorkspaceID: sql.NullInt64{Int64: workspaceIDParam, Valid: true},
+		UserID:      sql.NullInt64{Int64: userIDParam, Valid: userID > 0},
+	})
 }
 
 func (q *Queries) GetProviderSecretVisibleToUser(ctx context.Context, id, workspaceID, userID uint64) (ProviderSecret, error) {
-	var row ProviderSecret
-	err := q.db.QueryRowContext(ctx, `
-SELECT
-  id,
-  user_id,
-  workspace_id,
-  provider,
-  name,
-  vault_path,
-  key_hint,
-  created_at,
-  updated_at
-FROM provider_secrets
-WHERE id = ?
-  AND workspace_id = ?
-  AND (user_id IS NULL OR user_id = ?)
-LIMIT 1
-`, id, workspaceID, userID).Scan(
-		&row.ID,
-		&row.UserID,
-		&row.WorkspaceID,
-		&row.Provider,
-		&row.Name,
-		&row.VaultPath,
-		&row.KeyHint,
-		&row.CreatedAt,
-		&row.UpdatedAt,
-	)
-	return row, err
+	workspaceIDParam, err := compatUint64ToInt64(workspaceID)
+	if err != nil {
+		return ProviderSecret{}, err
+	}
+	userIDParam, err := compatUint64ToInt64(userID)
+	if err != nil {
+		return ProviderSecret{}, err
+	}
+	return q.GetProviderSecretVisibleToUserManual(ctx, GetProviderSecretVisibleToUserManualParams{
+		ID:          id,
+		WorkspaceID: sql.NullInt64{Int64: workspaceIDParam, Valid: true},
+		UserID:      sql.NullInt64{Int64: userIDParam, Valid: userID > 0},
+	})
 }
 
 func (q *Queries) DeleteProviderSecret(ctx context.Context, id, workspaceID uint64, userID *uint64) error {
-	args := []any{id, workspaceID}
-	query := `
-DELETE FROM provider_secrets
-WHERE id = ?
-  AND workspace_id = ?`
+	workspaceIDParam, err := compatUint64ToInt64(workspaceID)
+	if err != nil {
+		return err
+	}
 	if userID == nil {
-		query += " AND user_id IS NULL"
-	} else {
-		query += " AND user_id = ?"
-		args = append(args, *userID)
+		res, err := q.DeleteWorkspaceProviderSecretManual(ctx, DeleteWorkspaceProviderSecretManualParams{
+			ID:          id,
+			WorkspaceID: sql.NullInt64{Int64: workspaceIDParam, Valid: true},
+		})
+		return requireAffectedRow(res, err)
 	}
-
-	res, err := q.db.ExecContext(ctx, query, args...)
+	userIDParam, err := compatUint64ToInt64(*userID)
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	res, err := q.DeleteUserProviderSecretManual(ctx, DeleteUserProviderSecretManualParams{
+		ID:          id,
+		WorkspaceID: sql.NullInt64{Int64: workspaceIDParam, Valid: true},
+		UserID:      sql.NullInt64{Int64: userIDParam, Valid: *userID > 0},
+	})
+	return requireAffectedRow(res, err)
 }
 
 func (q *Queries) FindPreferredProviderSecret(ctx context.Context, workspaceID uint64, userID *uint64, provider string) (ProviderSecret, error) {
-	var row ProviderSecret
-	provider = strings.ToLower(strings.TrimSpace(provider))
+	workspaceIDParam, err := compatUint64ToInt64(workspaceID)
+	if err != nil {
+		return ProviderSecret{}, err
+	}
+	var userIDParam sql.NullInt64
 	if userID != nil && *userID > 0 {
-		err := q.db.QueryRowContext(ctx, `
-SELECT
-  id,
-  user_id,
-  workspace_id,
-  provider,
-  name,
-  vault_path,
-  key_hint,
-  created_at,
-  updated_at
-FROM provider_secrets
-WHERE workspace_id = ?
-  AND user_id = ?
-  AND provider = ?
-ORDER BY updated_at DESC, id DESC
-LIMIT 1
-`, workspaceID, *userID, provider).Scan(
-			&row.ID,
-			&row.UserID,
-			&row.WorkspaceID,
-			&row.Provider,
-			&row.Name,
-			&row.VaultPath,
-			&row.KeyHint,
-			&row.CreatedAt,
-			&row.UpdatedAt,
-		)
-		if err == nil {
-			return row, nil
-		}
-		if err != sql.ErrNoRows {
+		converted, err := compatUint64ToInt64(*userID)
+		if err != nil {
 			return ProviderSecret{}, err
 		}
+		userIDParam = sql.NullInt64{Int64: converted, Valid: true}
 	}
-
-	err := q.db.QueryRowContext(ctx, `
-SELECT
-  id,
-  user_id,
-  workspace_id,
-  provider,
-  name,
-  vault_path,
-  key_hint,
-  created_at,
-  updated_at
-FROM provider_secrets
-WHERE workspace_id = ?
-  AND user_id IS NULL
-  AND provider = ?
-ORDER BY updated_at DESC, id DESC
-LIMIT 1
-`, workspaceID, provider).Scan(
-		&row.ID,
-		&row.UserID,
-		&row.WorkspaceID,
-		&row.Provider,
-		&row.Name,
-		&row.VaultPath,
-		&row.KeyHint,
-		&row.CreatedAt,
-		&row.UpdatedAt,
-	)
-	return row, err
+	return q.FindPreferredProviderSecretManual(ctx, FindPreferredProviderSecretManualParams{
+		WorkspaceID: sql.NullInt64{Int64: workspaceIDParam, Valid: true},
+		Provider:    strings.ToLower(strings.TrimSpace(provider)),
+		UserID:      userIDParam,
+	})
 }

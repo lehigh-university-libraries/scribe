@@ -18,6 +18,11 @@ SELECT
   total_segments,
   completed_segments,
   failed_segments,
+  attempt_count,
+  max_attempts,
+  retry_after,
+  lease_until,
+  locked_by,
   current_annotation_id,
   current_annotation_json,
   last_result_annotation_json,
@@ -37,6 +42,11 @@ SELECT
   total_segments,
   completed_segments,
   failed_segments,
+  attempt_count,
+  max_attempts,
+  retry_after,
+  lease_until,
+  locked_by,
   current_annotation_id,
   current_annotation_json,
   last_result_annotation_json,
@@ -56,6 +66,11 @@ SELECT
   tj.total_segments,
   tj.completed_segments,
   tj.failed_segments,
+  tj.attempt_count,
+  tj.max_attempts,
+  tj.retry_after,
+  tj.lease_until,
+  tj.locked_by,
   tj.current_annotation_id,
   tj.current_annotation_json,
   tj.last_result_annotation_json,
@@ -77,6 +92,11 @@ SELECT
   total_segments,
   completed_segments,
   failed_segments,
+  attempt_count,
+  max_attempts,
+  retry_after,
+  lease_until,
+  locked_by,
   current_annotation_id,
   current_annotation_json,
   last_result_annotation_json,
@@ -96,14 +116,16 @@ SET
   updated_at = NOW()
 WHERE id = sqlc.arg(id);
 
--- name: SetTranscriptionJobTotalSegmentsManual :exec
+-- name: SetTranscriptionJobTotalSegmentsManual :execresult
 UPDATE transcription_jobs
 SET
   total_segments = sqlc.arg(total_segments),
   updated_at = NOW()
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+  AND locked_by = sqlc.arg(locked_by)
+  AND status = 'running';
 
--- name: UpdateTranscriptionJobProgressManual :exec
+-- name: UpdateTranscriptionJobProgressManual :execresult
 UPDATE transcription_jobs
 SET
   completed_segments = sqlc.arg(completed_segments),
@@ -112,7 +134,9 @@ SET
   current_annotation_json = sqlc.narg(current_annotation_json),
   last_result_annotation_json = sqlc.narg(last_result_annotation_json),
   updated_at = NOW()
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+  AND locked_by = sqlc.arg(locked_by)
+  AND status = 'running';
 
 -- name: CompleteTranscriptionJobManual :exec
 UPDATE transcription_jobs

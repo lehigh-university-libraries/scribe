@@ -1,7 +1,4 @@
 import "./styles.css";
-import { renderHome } from "./pages/home";
-import { renderEditor } from "./pages/editor";
-import { renderShell } from "./pages/shell";
 
 const storedTheme = (() => {
   try {
@@ -16,14 +13,27 @@ const app = document.getElementById("app");
 if (!app) {
   throw new Error("missing #app element");
 }
+const root = app;
 
 const path = window.location.pathname;
-if (path.startsWith("/editor")) {
-  void renderEditor(app);
-} else if (path.startsWith("/settings")) {
-  void renderShell(app, "settings");
-} else if (path.startsWith("/contexts")) {
-  void renderShell(app, "contexts");
-} else {
-  void renderHome(app);
+async function renderRoute() {
+  if (path.startsWith("/editor")) {
+    const { renderEditor } = await import("./pages/editor");
+    await renderEditor(root);
+    return;
+  }
+  if (path.startsWith("/settings")) {
+    const { renderShell } = await import("./pages/shell");
+    await renderShell(root, "settings");
+    return;
+  }
+  if (path.startsWith("/contexts")) {
+    const { renderShell } = await import("./pages/shell");
+    await renderShell(root, "contexts");
+    return;
+  }
+  const { renderHome } = await import("./pages/home");
+  await renderHome(root);
 }
+
+void renderRoute();

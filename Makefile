@@ -1,11 +1,11 @@
 .PHONY: help
-.PHONY: build build-frontend fmt lint test test-frontend proto proto-lint sqlc generate install-tools up up-db down logs sequelace tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-preview vault-secrets
+.PHONY: build build-frontend fmt lint test test-backend test-frontend proto proto-lint sqlc generate install-tools up up-db down logs sequelace tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
 COMPOSE_UP_FLAGS ?= -d --build
 # renovate: datasource=docker depName=golangci/golangci-lint
-GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.10.1-alpine
+GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.10.1-alpine@sha256:33bc6b6156d4c7da87175f187090019769903d04dd408833b83083ed214b0ddf
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -66,7 +66,11 @@ install-tools: ## Install required development tools
 	@go install github.com/google/gnostic/cmd/protoc-gen-openapi@v0.7.0
 	@go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
 
-test: ## Run Go tests (integration tests run automatically if MariaDB is active via make up-db or make up)
+test: ## Run frontend checks and Go tests (integration tests run automatically if MariaDB is active via make up-db or make up)
+	@$(MAKE) test-frontend
+	@$(MAKE) test-backend
+
+test-backend: ## Run Go tests (integration tests run automatically if MariaDB is active via make up-db or make up)
 	@./ci/test.sh
 
 test-frontend: ## Run frontend tests and production build checks

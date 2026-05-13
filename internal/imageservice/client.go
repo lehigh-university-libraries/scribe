@@ -23,7 +23,9 @@ import (
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/serviceauth"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
 )
 
 type Box struct {
@@ -173,13 +175,7 @@ func max(a, b int) int {
 
 func (c *Client) Normalize(ctx context.Context, image []byte, contentType string) ([]byte, error) {
 	if c != nil && c.iiif != "" {
-		data, err := c.normalizeViaIIIF(ctx, image, contentType)
-		if err == nil {
-			return data, nil
-		}
-		if c.base == "" {
-			return nil, err
-		}
+		return c.normalizeViaIIIF(ctx, image, contentType)
 	}
 	if c == nil || c.base == "" {
 		return nil, fmt.Errorf("image service is not configured")
@@ -217,12 +213,19 @@ func (c *Client) normalizeViaIIIF(ctx context.Context, image []byte, contentType
 	}
 	sum := sha256.Sum256(image)
 	name := hex.EncodeToString(sum[:]) + extensionForNormalizeContentType(contentType)
-	if err := os.MkdirAll("uploads", 0o755); err != nil {
+
+	if err := os.MkdirAll("uploads", 0o750); err != nil {
 		return nil, fmt.Errorf("create uploads dir: %w", err)
 	}
 	path := filepath.Join("uploads", name)
 	if err := os.WriteFile(path, image, 0o644); err != nil {
 		return nil, fmt.Errorf("write image for iiif normalize: %w", err)
+	}
+
+	if uploadblob.Enabled() {
+		if err := uploadblob.Put(ctx, name, image, contentType); err != nil {
+			return nil, fmt.Errorf("write image for iiif normalize: %w", err)
+		}
 	}
 	identifier := url.PathEscape(name)
 	return c.getIIIFImage(ctx, fmt.Sprintf("%s/%s/full/max/0/default.jpg", c.iiif, identifier))
@@ -249,7 +252,7 @@ func (c *Client) postMultipartImage(ctx context.Context, path, imagePath string,
 	if c == nil || c.base == "" {
 		return nil, fmt.Errorf("image service is not configured")
 	}
-	image, err := os.ReadFile(imagePath)
+	image, err := safefile.ReadFile(imagePath)
 	if err != nil {
 		return nil, fmt.Errorf("read image %s: %w", imagePath, err)
 	}

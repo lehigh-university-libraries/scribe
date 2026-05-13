@@ -3,14 +3,12 @@ package server
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -49,41 +47,6 @@ func (h *Handler) bootstrapAnnotationsFromHOCR(ctx context.Context, canvasURI, b
 		return nil, fmt.Errorf("invalid item image reference in canvas uri: %w", err)
 	}
 	return h.bootstrapStoredAnnotationsForItemImage(ctx, itemImageID, canvasURI, "line", "word")
-}
-
-func bindAnnotationToCanvas(anno map[string]any, canvasURI string) map[string]any {
-	if anno == nil || strings.TrimSpace(canvasURI) == "" {
-		return anno
-	}
-
-	selector := map[string]any(nil)
-	switch target := anno["target"].(type) {
-	case map[string]any:
-		if s := fragmentSelectorFromValue(target["selector"]); s != nil {
-			selector = s
-		}
-	case string:
-		if idx := strings.Index(target, "#xywh="); idx >= 0 {
-			selector = map[string]any{
-				"type":       "FragmentSelector",
-				"conformsTo": "http://www.w3.org/TR/media-frags/",
-				"value":      "xywh=" + roundXYWHFragment(target[idx+6:]),
-			}
-		}
-	}
-
-	newTarget := map[string]any{
-		"source": map[string]any{
-			"id":   canvasURI,
-			"type": "Canvas",
-		},
-	}
-	if selector != nil {
-		newTarget["selector"] = selector
-	}
-	anno["target"] = newTarget
-	delete(anno, "on")
-	return anno
 }
 
 // bootstrapAnnotationsForCanvas returns bootstrapped annotations for any canvas URI.
@@ -177,60 +140,6 @@ func (h *Handler) bootstrapStoredAnnotationsForItemImage(
 	return items, nil
 }
 
-func (h *Handler) bootstrapAnnotationsForGranularities(
-	ctx context.Context,
-	canvasURI, base string,
-	urlBuilder func(string, string) (string, error),
-	granularities ...string,
-) ([]any, error) {
-	type result struct {
-		order []string
-		items map[string]map[string]any
-	}
-
-	merged := result{
-		order: make([]string, 0),
-		items: make(map[string]map[string]any),
-	}
-	seen := make(map[string]struct{})
-
-	for _, granularity := range granularities {
-		rawItems, err := h.fetchBootstrapAnnotationItems(ctx, canvasURI, base, granularity, urlBuilder)
-		if err != nil {
-			if granularity == "line" {
-				return nil, err
-			}
-			continue
-		}
-		for _, item := range rawItems {
-			anno, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			id := strings.TrimSpace(annStringValue(anno, "id"))
-			if id == "" {
-				id = strings.TrimSpace(annStringValue(anno, "@id"))
-			}
-			if id == "" {
-				continue
-			}
-			if _, ok := seen[id]; !ok {
-				seen[id] = struct{}{}
-				merged.order = append(merged.order, id)
-			}
-			merged.items[id] = anno
-		}
-	}
-
-	items := make([]any, 0, len(merged.order))
-	for _, id := range merged.order {
-		if anno, ok := merged.items[id]; ok {
-			items = append(items, anno)
-		}
-	}
-	return items, nil
-}
-
 func (h *Handler) persistAnnotationItems(ctx context.Context, canvasURI string, items []any) ([]string, error) {
 	current, err := h.currentAnnotationItems(ctx, canvasURI, h.internalAnnotationBaseURL())
 	if err != nil {
@@ -248,66 +157,6 @@ func (h *Handler) persistAnnotationItems(ctx context.Context, canvasURI string, 
 
 func (h *Handler) replaceAnnotationItems(ctx context.Context, canvasURI string, items []any) ([]string, error) {
 	return h.saveAnnotationPage(ctx, canvasURI, items)
-}
-
-func (h *Handler) fetchBootstrapAnnotationItems(
-	ctx context.Context,
-	canvasURI, base, granularity string,
-	urlBuilder func(string, string) (string, error),
-) ([]any, error) {
-	reqURL, err := urlBuilder(base, canvasURI)
-	if err != nil {
-		return nil, err
-	}
-	if granularity != "" {
-		parsed, parseErr := url.Parse(reqURL)
-		if parseErr != nil {
-			return nil, parseErr
-		}
-		query := parsed.Query()
-		query.Set("textGranularity", granularity)
-		parsed.RawQuery = query.Encode()
-		reqURL = parsed.String()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("annotation bootstrap failed: %s", resp.Status)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, err
-	}
-	rawItems, _ := payload["items"].([]any)
-	for i, item := range rawItems {
-		anno, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		id := strings.TrimSpace(annStringValue(anno, "id"))
-		if id == "" {
-			id = strings.TrimSpace(annStringValue(anno, "@id"))
-		}
-		if id != "" && !strings.HasPrefix(id, "urn:scribe:annotation:") {
-			stable := annStableID(id)
-			full := annotationID(stable)
-			anno["id"] = full
-			anno["@id"] = full
-		}
-		rawItems[i] = bindAnnotationToCanvas(normalizeAnnotation(anno, canvasURI), canvasURI)
-	}
-	return rawItems, nil
 }
 
 // manifestURLCandidatesFromCanvasURI returns manifest URL candidates derived from a
@@ -332,7 +181,7 @@ func (h *Handler) autoIngestManifest(ctx context.Context, manifestURL string) er
 	if label == "" {
 		label = manifestURL
 	}
-	itemID := fmt.Sprintf("auto-%d-%x", h.currentUserID(ctx), sha1.Sum([]byte(manifestURL)))[:32]
+	itemID := fmt.Sprintf("auto-%d-%x", h.currentUserID(ctx), sha256.Sum256([]byte(manifestURL)))[:32]
 	it, err := h.items.Create(ctx, db.CreateItemParams{
 		ID:          itemID,
 		UserID:      h.currentUserID(ctx),
@@ -346,17 +195,6 @@ func (h *Handler) autoIngestManifest(ctx context.Context, manifestURL string) er
 	}
 	_, err = h.ingestParsedManifest(ctx, it.ID, manifest)
 	return err
-}
-
-func annotationBootstrapURL(base, canvasURI string) (string, error) {
-	if matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI); len(matches) >= 2 {
-		itemImageID := strings.TrimSpace(matches[1])
-		if itemImageID == "" {
-			return "", fmt.Errorf("empty item image id in canvas uri")
-		}
-		return base + "/v1/item-images/" + url.PathEscape(itemImageID) + "/annotations", nil
-	}
-	return "", fmt.Errorf("cannot extract item image reference from canvas uri")
 }
 
 // --- IIIF annotation normalisation (ported from annotationserver) ---
@@ -500,15 +338,6 @@ func extractCanvasURI(anno map[string]any) string {
 	return on
 }
 
-func emptyAnnotationPage(id string) map[string]any {
-	return map[string]any{
-		"@context": annotationPageContexts(),
-		"id":       id,
-		"type":     "AnnotationPage",
-		"items":    []any{},
-	}
-}
-
 func annStringValue(v map[string]any, key string) string {
 	if v == nil {
 		return ""
@@ -536,7 +365,7 @@ func annRandomID() string {
 }
 
 func annStableID(raw string) string {
-	sum := sha1.Sum([]byte(raw))
+	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -601,7 +430,7 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 	}
 	ctx = h.contextWithProviderSecret(ctx, workspaceID, userID, pctx.TranscriptionProvider)
 
-	imagePath, cleanup, err := fetchImageRegionToTemp(run.ImageURL, x1, y1, x2, y2)
+	imagePath, cleanup, err := fetchImageRegionToTemp(ctx, run.ImageURL, x1, y1, x2, y2)
 	if err != nil {
 		return "", fmt.Errorf("fetch image region: %w", err)
 	}
@@ -757,22 +586,4 @@ func parseXYWH(fragment string) (x1, y1, x2, y2 int, err error) {
 		vals[i] = int(math.Round(f))
 	}
 	return vals[0], vals[1], vals[0] + vals[2], vals[1] + vals[3], nil
-}
-
-// iiifIDFromCanvasURI extracts the source image IIIF identifier from canvas URI by
-// resolving the underlying OCR run through the item_image_id path.
-func (h *Handler) iiifIDFromCanvasURI(ctx context.Context, canvasURI string) (string, error) {
-	if matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI); len(matches) >= 2 {
-		itemImageIDRaw := strings.TrimSpace(matches[1])
-		itemImageID, err := strconv.ParseUint(itemImageIDRaw, 10, 64)
-		if err != nil {
-			return "", fmt.Errorf("invalid item image id in canvas uri %q", canvasURI)
-		}
-		run, err := h.ocrRuns.GetByItemImageID(ctx, itemImageID)
-		if err != nil {
-			return "", fmt.Errorf("lookup run by item image id %s: %w", itemImageIDRaw, err)
-		}
-		return iiifIdentifierFromImageURL(run.ImageURL)
-	}
-	return "", fmt.Errorf("cannot extract item image reference from canvas uri %q", canvasURI)
 }

@@ -86,8 +86,8 @@ func (s *IdentityStore) EnsureGoogleUser(ctx context.Context, profile GoogleProf
 		err  error
 	)
 	row, err := s.q.GetUserByGoogleSubject(ctx, profile.Subject)
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		if updateErr := s.q.UpdateUserAuthProfile(ctx, db.UpdateUserAuthProfileParams{
 			ID:            row.ID,
 			Name:          profile.Name,
@@ -99,7 +99,7 @@ func (s *IdentityStore) EnsureGoogleUser(ctx context.Context, profile GoogleProf
 			return User{}, Workspace{}, fmt.Errorf("update user auth profile: %w", updateErr)
 		}
 		user, err = s.GetUser(ctx, row.ID)
-	case err == sql.ErrNoRows:
+	case sql.ErrNoRows:
 		row, err = s.q.GetUserByEmail(ctx, profile.Email)
 		if err == nil {
 			if updateErr := s.q.UpdateUserAuthProfile(ctx, db.UpdateUserAuthProfileParams{
@@ -309,9 +309,8 @@ func rowToWorkspace(row db.Workspace) Workspace {
 		CreatedAt:  row.CreatedAt,
 		UpdatedAt:  row.UpdatedAt,
 	}
-	if row.OwnerUserID.Valid {
-		ownerUserID := uint64(row.OwnerUserID.Int64)
-		workspace.OwnerUserID = &ownerUserID
+	if ownerUserID, ok := uint64PtrFromNullInt64(row.OwnerUserID); ok {
+		workspace.OwnerUserID = ownerUserID
 	}
 	return workspace
 }

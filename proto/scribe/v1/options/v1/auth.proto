@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package scribe.v1.options.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options;optionsv1";
+
+enum ResourceType {
+  RESOURCE_TYPE_UNSPECIFIED = 0;
+  RESOURCE_TYPE_SYSTEM = 1;
+  RESOURCE_TYPE_USER = 2;
+  RESOURCE_TYPE_ITEM = 3;
+  RESOURCE_TYPE_ITEM_IMAGE = 4;
+  RESOURCE_TYPE_CONTEXT = 5;
+  RESOURCE_TYPE_TRANSCRIPTION_JOB = 6;
+  RESOURCE_TYPE_WORKSPACE = 7;
+}
+
+enum AccessLevel {
+  ACCESS_LEVEL_UNSPECIFIED = 0;
+  ACCESS_LEVEL_READ = 1;
+  ACCESS_LEVEL_WRITE = 2;
+  ACCESS_LEVEL_ADMIN = 3;
+}
+
+message AuthzRule {
+  bool allow_anonymous = 1;
+  ResourceType resource = 2;
+  AccessLevel level = 3;
+  string resource_id_field = 4;
+}
+
+extend google.protobuf.MethodOptions {
+  AuthzRule authz = 50002;
+}
