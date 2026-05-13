@@ -1,2 +1,0 @@
-ALTER TABLE ocr_runs
-  ADD COLUMN IF NOT EXISTS provider VARCHAR(64) NOT NULL DEFAULT 'unknown';

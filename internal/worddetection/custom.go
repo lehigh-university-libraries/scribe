@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 )
 
 // CustomProvider implements word detection using custom flood-fill algorithm
@@ -42,7 +43,7 @@ func (p *CustomProvider) DetectWords(ctx context.Context, imagePath string) ([]W
 	defer os.Remove(processedPath)
 
 	// Load processed image
-	file, err := os.Open(processedPath)
+	file, err := safefile.Open(processedPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open processed image: %w", err)
 	}

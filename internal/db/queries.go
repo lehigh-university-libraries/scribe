@@ -24,10 +24,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
-	return q.CreateSessionManual(ctx, CreateSessionManualParams{
-		ID:   arg.ID,
-		Name: arg.Name,
-	})
+	return q.CreateSessionManual(ctx, CreateSessionManualParams(arg))
 }
 
 type UpsertOCRRunParams struct {
@@ -103,7 +100,11 @@ func (q *Queries) GetOCRRun(ctx context.Context, sessionID string) (OCRRun, erro
 }
 
 func (q *Queries) GetOCRRunByItemImageID(ctx context.Context, itemImageID uint64) (OCRRun, error) {
-	row, err := q.GetOCRRunByItemImageIDManual(ctx, sql.NullInt64{Int64: int64(itemImageID), Valid: true})
+	converted, err := compatUint64ToInt64(itemImageID)
+	if err != nil {
+		return OCRRun{}, err
+	}
+	row, err := q.GetOCRRunByItemImageIDManual(ctx, sql.NullInt64{Int64: converted, Valid: true})
 	if err != nil {
 		return OCRRun{}, err
 	}
@@ -142,26 +143,16 @@ type SaveOCREditsParams struct {
 }
 
 func (q *Queries) SaveOCREdits(ctx context.Context, arg SaveOCREditsParams) error {
-	res, err := q.db.ExecContext(ctx, saveOCREditsManual,
-		sql.NullString{String: arg.CorrectedHocr, Valid: true},
-		sql.NullString{String: arg.CorrectedText, Valid: true},
-		arg.EditCount,
-		arg.LevenshteinDistance,
-		arg.BoxEditCount,
-		arg.BoxesAdded,
-		arg.BoxesDeleted,
-		arg.BoxChangeScore,
-		arg.SessionID,
-	)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	res, err := q.SaveOCREditsManual(ctx, SaveOCREditsManualParams{
+		CorrectedHocr:       sql.NullString{String: arg.CorrectedHocr, Valid: true},
+		CorrectedText:       sql.NullString{String: arg.CorrectedText, Valid: true},
+		EditCount:           arg.EditCount,
+		LevenshteinDistance: arg.LevenshteinDistance,
+		BoxEditCount:        arg.BoxEditCount,
+		BoxesAdded:          arg.BoxesAdded,
+		BoxesDeleted:        arg.BoxesDeleted,
+		BoxChangeScore:      arg.BoxChangeScore,
+		SessionID:           arg.SessionID,
+	})
+	return requireAffectedRow(res, err)
 }

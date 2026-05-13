@@ -29,6 +29,7 @@ type Config struct {
 	PublicBaseURL string `yaml:"public_base_url"`
 
 	Auth          AuthConfig            `yaml:"auth"`
+	CORS          CORSConfig            `yaml:"cors"`
 	Database      DatabaseConfig        `yaml:"database"`
 	LLM           LLMConfig             `yaml:"llm"`
 	Transcription TranscriptionConfig   `yaml:"transcription"`
@@ -45,14 +46,35 @@ type Config struct {
 }
 
 type AuthConfig struct {
-	CookieName         string        `yaml:"cookie_name"`
-	CookieDomain       string        `yaml:"cookie_domain"`
-	CookieSecure       string        `yaml:"cookie_secure"` // "auto" | "true" | "false"
-	SessionTTL         time.Duration `yaml:"session_ttl"`
-	GoogleCallbackPath string        `yaml:"google_callback_path"`
-	AllowedDomains     []string      `yaml:"allowed_domains"`
-	DeniedDomains      []string      `yaml:"denied_domains"`
-	AdminEmails        []string      `yaml:"admin_emails"`
+	CookieName         string                    `yaml:"cookie_name"`
+	CookieDomain       string                    `yaml:"cookie_domain"`
+	SessionTTL         time.Duration             `yaml:"session_ttl"`
+	GoogleCallbackPath string                    `yaml:"google_callback_path"`
+	AllowedDomains     []string                  `yaml:"allowed_domains"`
+	DeniedDomains      []string                  `yaml:"denied_domains"`
+	AdminEmails        []string                  `yaml:"admin_emails"`
+	ExternalJWTIssuers []ExternalJWTIssuerConfig `yaml:"external_jwt_issuers"`
+}
+
+type ExternalJWTIssuerConfig struct {
+	Issuer        string                   `yaml:"issuer"`
+	Audience      string                   `yaml:"audience"`
+	JWKSURL       string                   `yaml:"jwks_url"`
+	WorkspaceID   uint64                   `yaml:"workspace_id"`
+	RequiredRoles []string                 `yaml:"required_roles"`
+	Role          string                   `yaml:"role"`
+	Scopes        []string                 `yaml:"scopes"`
+	RoleMappings  []ExternalJWTRoleMapping `yaml:"role_mappings"`
+}
+
+type ExternalJWTRoleMapping struct {
+	Roles  []string `yaml:"roles"`
+	Role   string   `yaml:"role"`
+	Scopes []string `yaml:"scopes"`
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type DatabaseConfig struct {
@@ -108,7 +130,18 @@ type GeminiConfig struct {
 }
 
 type TranscriptionConfig struct {
-	JobWorkers int `yaml:"job_workers"`
+	JobWorkers int                `yaml:"job_workers"`
+	Queue      TranscriptionQueue `yaml:"queue"`
+}
+
+type TranscriptionQueue struct {
+	Backend                string        `yaml:"backend"`
+	ProjectID              string        `yaml:"project_id"`
+	TopicID                string        `yaml:"topic_id"`
+	SubscriptionID         string        `yaml:"subscription_id"`
+	MaxOutstandingMessages int           `yaml:"max_outstanding_messages"`
+	MaxExtension           time.Duration `yaml:"max_extension"`
+	RecoveryPollInterval   time.Duration `yaml:"recovery_poll_interval"`
 }
 
 type IIIFConfig struct {
@@ -161,7 +194,6 @@ type Secrets struct {
 	OpenAIAPIKey            string
 	GeminiAPIKey            string
 	DatabasePassword        string
-	DatabaseRootPassword    string
 }
 
 // Load reads the YAML config from ConfigPath (falling back to the embedded
@@ -340,18 +372,6 @@ func (c Config) GoogleCallbackURL() string {
 	}
 	u.Path = strings.TrimRight(u.Path, "/") + c.Auth.GoogleCallbackPath
 	return u.String()
-}
-
-// CookieSecureResolved collapses the "auto" sentinel into a concrete bool.
-func (c Config) CookieSecureResolved() bool {
-	switch strings.ToLower(strings.TrimSpace(c.Auth.CookieSecure)) {
-	case "true", "1", "yes":
-		return true
-	case "false", "0", "no":
-		return false
-	default:
-		return strings.HasPrefix(c.PublicBaseURL, "https://")
-	}
 }
 
 // BuildDSN renders the configured DSN template using the supplied password.

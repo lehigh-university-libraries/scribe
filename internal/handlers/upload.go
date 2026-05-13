@@ -28,6 +28,8 @@ func (h *Handler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleURLUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 	var request struct {
 		ImageURL string `json:"image_url"`
 	}
@@ -60,6 +62,7 @@ func (h *Handler) handleURLUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleFileUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadedImageBytes+(1<<20))
 
 	file, header, err := r.FormFile("files")
 	if err != nil {
@@ -97,11 +100,11 @@ func (h *Handler) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 	h.sessionStore.Set(sessionID, session)
 
 	response := map[string]any{
-		"session_id": sessionID,
-		"message":    "Successfully processed 1 file",
-		"images":     1,
-		"cache_used": h.wasCacheUsed(result.MD5Hash),
-		"md5_hash":   result.MD5Hash,
+		"session_id":   sessionID,
+		"message":      "Successfully processed 1 file",
+		"images":       1,
+		"cache_used":   h.wasCacheUsed(result.ContentHash),
+		"content_hash": result.ContentHash,
 	}
 
 	h.writeJSON(w, response)

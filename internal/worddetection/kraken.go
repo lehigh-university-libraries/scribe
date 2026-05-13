@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 )
 
 // KrakenProvider runs kraken segmentation.
@@ -50,7 +52,7 @@ func (p *KrakenProvider) DetectWords(ctx context.Context, imagePath string) ([]W
 		"-bl",
 		"-i", p.modelID,
 	}
-	cmd := exec.CommandContext(ctx, "kraken", args...)
+	cmd := exec.CommandContext(ctx, "kraken", args...) // #nosec G204 -- kraken is invoked directly without a shell; arguments are file/model paths.
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("kraken segment failed (model=%s): %w\noutput: %s",
@@ -73,7 +75,7 @@ type krakenSegOutput struct {
 }
 
 func parseKrakenJSON(path string) ([]WordBox, error) {
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read kraken output: %w", err)
 	}

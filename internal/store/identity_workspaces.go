@@ -126,7 +126,11 @@ INSERT INTO workspace_members (
 		if err := tx.Commit(); err != nil {
 			return WorkspaceAccess{}, fmt.Errorf("commit workspace creation: %w", err)
 		}
-		return s.GetWorkspaceAccess(ctx, userID, uint64(workspaceID))
+		createdWorkspaceID, ok := uint64FromNonNegativeInt64(workspaceID)
+		if !ok {
+			return WorkspaceAccess{}, fmt.Errorf("create workspace returned negative id %d", workspaceID)
+		}
+		return s.GetWorkspaceAccess(ctx, userID, createdWorkspaceID)
 	}
 
 	return WorkspaceAccess{}, fmt.Errorf("create workspace: unable to allocate unique slug")
@@ -382,13 +386,13 @@ func scanWorkspaceMember(scanner interface {
 	Scan(dest ...any) error
 }) (WorkspaceMember, error) {
 	var (
-		member         WorkspaceMember
-		email          sql.NullString
-		googleSubject  sql.NullString
-		pictureURL     sql.NullString
-		lastLoginAt    sql.NullTime
-		userCreatedAt  time.Time
-		userUpdatedAt  time.Time
+		member        WorkspaceMember
+		email         sql.NullString
+		googleSubject sql.NullString
+		pictureURL    sql.NullString
+		lastLoginAt   sql.NullTime
+		userCreatedAt time.Time
+		userUpdatedAt time.Time
 	)
 
 	if err := scanner.Scan(

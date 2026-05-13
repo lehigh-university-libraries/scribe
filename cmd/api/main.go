@@ -13,8 +13,9 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
-	deps, err := app.NewDependencies(ctx, app.BootstrapOptions{
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+	deps, err := app.NewDependencies(appCtx, app.BootstrapOptions{
 		RunMigrations:      true,
 		SeedSystemContexts: true,
 	})
@@ -27,11 +28,12 @@ func main() {
 	handler := deps.NewHandler()
 
 	httpServer := &http.Server{
-		Addr:         deps.Config.ListenAddr,
-		Handler:      handler,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 0,
-		IdleTimeout:  60 * time.Second,
+		Addr:              deps.Config.ListenAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      0,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
@@ -45,6 +47,7 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
+	appCancel()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

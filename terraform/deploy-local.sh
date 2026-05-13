@@ -23,8 +23,8 @@ Optional environment:
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar). When unset, local apply resolves the default tag and auto-builds it if missing.
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. When unset (and the action is not destroy), deploy-local.sh calls ci/generate-ocr-images-map.sh to resolve the digests from existing GAR tags.
   SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to main for prod and the branch slug otherwise.
-  SCRIBE_VM_COMPOSE_IMAGES_JSON  Pre-resolved JSON map of service_key -> GHCR digest ref for images pulled directly by the VM (e.g. image-service). When unset (and the action is not destroy), deploy-local.sh calls ci/generate-vm-images-map.sh to resolve digests from existing GHCR tags.
   SCRIBE_ZONE            Optional zone override used when locally building the frontend GAR sidecar. Falls back to TF_VAR_zone, terraform/terraform.tfvars, then us-east5-b.
+  VAULT_TOKEN            Optional one-time Vault token. Normal local runs use Google JWT login instead.
 
 Notes:
   - Dev mode uses Terraform workspace dev and site name scribe-dev.
@@ -44,26 +44,26 @@ require_cmd() {
   }
 }
 
-decode_base64_file() {
-  local input="$1"
-  local output="$2"
-
-  if base64 --decode <"$input" >"$output" 2>/dev/null; then
-    return 0
-  fi
-  if base64 -d <"$input" >"$output" 2>/dev/null; then
-    return 0
-  fi
-  if base64 -D <"$input" >"$output" 2>/dev/null; then
-    return 0
-  fi
-
-  echo "Failed to base64 decode $input" >&2
-  return 1
-}
-
 sanitize_image_tag() {
   printf '%s' "$1" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}' | tr '[:upper:]' '[:lower:]'
+}
+
+vault_jwt_role_slug() {
+  printf '%s' "$1" | sed 's/@/-at-/g; s/\./-/g'
+}
+
+resolve_terraform_region() {
+  if [ -n "${SCRIBE_REGION:-}" ]; then
+    printf '%s\n' "$SCRIBE_REGION"
+    return 0
+  fi
+
+  if [ -n "${TF_VAR_region:-}" ]; then
+    printf '%s\n' "$TF_VAR_region"
+    return 0
+  fi
+
+  printf 'us-east5\n'
 }
 
 resolve_terraform_zone() {
@@ -158,41 +158,48 @@ shared_vault_service_name() {
   printf 'vault-server-dev'
 }
 
-fetch_vault_root_token() {
+login_vault_admin_token() {
   local shared_workspace="$1"
-  local service_name key_bucket kms_key_ring tmpdir
+  local service_name region vault_addr vault_audience account role_slug role_name access_token id_token payload response token
 
   service_name="$(shared_vault_service_name "$shared_workspace")"
-  key_bucket="$(printf '%s-%s-key' "$GCLOUD_PROJECT" "$service_name" | tr '[:upper:]' '[:lower:]' | sed 's/_/-/g; s/\./-/g; s/ /-/g')"
-  kms_key_ring="$service_name"
-  tmpdir="$(mktemp -d)"
+  region="$(resolve_terraform_region)"
 
-  if ! gcloud storage cp "gs://${key_bucket}/root-token.enc" "$tmpdir/root-token.enc" >/dev/null 2>&1; then
-    rm -rf "$tmpdir"
+  if ! vault_addr="$(gcloud run services describe "$service_name" --region "$region" --format='value(status.url)' 2>/dev/null)"; then
+    return 1
+  fi
+  if [ -z "$vault_addr" ]; then
+    return 1
+  fi
+  vault_audience="$(gcloud run services describe "$service_name" --region "$region" --format='value(uri)' 2>/dev/null || true)"
+  if [ -z "$vault_audience" ]; then
+    vault_audience="$vault_addr"
+  fi
+
+  account="$(gcloud config get-value account 2>/dev/null || true)"
+  if [ -z "$account" ]; then
+    return 1
+  fi
+  role_slug="$(vault_jwt_role_slug "$account")"
+  role_name="admin-${role_slug}"
+
+  access_token="$(gcloud auth print-access-token)"
+  id_token="$(gcloud auth print-identity-token --audiences="$vault_audience" --include-email)"
+  payload="$(jq -cn --arg role "$role_name" --arg jwt "$id_token" '{role: $role, jwt: $jwt}')"
+
+  if ! response="$(curl -fsS \
+    -H "X-Admin-Token: ${access_token}" \
+    -H "Content-Type: application/json" \
+    --data "$payload" \
+    "${vault_addr%/}/v1/auth/google-jwt/login")"; then
+    return 1
+  fi
+  if ! token="$(jq -er '.auth.client_token' <<<"$response")"; then
     return 1
   fi
 
-  if ! decode_base64_file "$tmpdir/root-token.enc" "$tmpdir/root-token.ciphertext"; then
-    rm -rf "$tmpdir"
-    return 1
-  fi
-
-  gcloud kms decrypt \
-    --key=vault \
-    --keyring="$kms_key_ring" \
-    --location=global \
-    --project="$GCLOUD_PROJECT" \
-    --ciphertext-file="$tmpdir/root-token.ciphertext" \
-    --plaintext-file="$tmpdir/root-token" >/dev/null
-
-  VAULT_TOKEN="$(tr -d '\r\n' < "$tmpdir/root-token")"
+  VAULT_TOKEN="$token"
   export VAULT_TOKEN
-  rm -rf "$tmpdir"
-
-  if [ -z "${VAULT_TOKEN}" ]; then
-    echo "Decrypted Vault token was empty." >&2
-    return 1
-  fi
 }
 
 bootstrap_vault_token() {
@@ -204,34 +211,27 @@ bootstrap_vault_token() {
     return 0
   fi
 
-  if fetch_vault_root_token "$shared_workspace"; then
+  if login_vault_admin_token "$shared_workspace"; then
     return 0
   fi
 
-  if [ "$target_workspace" = "$shared_workspace" ] && [ "$action" != "destroy" ]; then
-    echo "Vault root token for workspace ${shared_workspace} not found; bootstrapping Vault first..."
+  if [ "$target_workspace" = "$shared_workspace" ] && [ "$action" = "apply" ]; then
+    echo "Vault JWT login for workspace ${shared_workspace} is not ready; applying the Vault service shell first..."
     terraform apply -auto-approve -target=module.vault "${terraform_vars[@]}"
-
-    echo "Waiting for Vault init to publish the encrypted root token..."
-    for _ in $(seq 1 18); do
-      if fetch_vault_root_token "$shared_workspace"; then
-        return 0
-      fi
-      sleep 10
-    done
-
-    echo "Vault bootstrap finished, but the root token still could not be fetched from GCS/KMS." >&2
-    echo "Ensure the current identity can read gs://${GCLOUD_PROJECT}-$(shared_vault_service_name "$shared_workspace")-key/root-token.enc and decrypt KMS key ring $(shared_vault_service_name "$shared_workspace")/vault." >&2
-    return 1
+    if login_vault_admin_token "$shared_workspace"; then
+      return 0
+    fi
   fi
 
-  echo "Vault root token for shared workspace ${shared_workspace} is unavailable." >&2
-  echo "Apply the ${shared_workspace} workspace first, or ensure the current identity can read the shared root token object and decrypt its KMS key." >&2
+  echo "Vault login for shared workspace ${shared_workspace} failed." >&2
+  echo "Use an existing google-jwt admin role, or export a one-time VAULT_TOKEN for the first policy/auth bootstrap." >&2
   return 1
 }
 
 require_cmd git
 require_cmd gcloud
+require_cmd curl
+require_cmd jq
 require_cmd terraform
 if [ $# -lt 2 ]; then
   usage
@@ -262,15 +262,18 @@ case "$target_set" in
     needs_ocr_images=false
     terraform_targets+=(
       "-target=module.vault"
-      "-target=google_project_iam_member.vault_gcp_auth_service_account_viewer"
-      "-target=google_project_iam_member.vault_gcp_auth_service_account_key_admin"
+      "-target=google_service_account_iam_member.vault_gcp_auth_app_service_account_viewer"
+      "-target=google_service_account_iam_member.vault_gcp_auth_instance_service_account_viewer"
+      "-target=google_service_account_iam_member.vault_gcp_auth_app_service_account_key_viewer"
+      "-target=google_service_account_iam_member.vault_gcp_auth_instance_service_account_key_viewer"
       "-target=vault_mount.secret"
-      "-target=vault_mount.keys"
       "-target=vault_policy.vault"
+      "-target=vault_audit.stdout"
       "-target=vault_auth_backend.gcp"
       "-target=vault_jwt_auth_backend.google_jwt"
       "-target=vault_jwt_auth_backend_role.ci"
       "-target=vault_jwt_auth_backend_role.admin"
+      "-target=vault_jwt_auth_backend_role.admin_break_glass"
       "-target=vault_gcp_auth_backend_role.app"
       "-target=vault_gcp_auth_backend_role.ci"
     )
@@ -396,20 +399,6 @@ if [ -z "$ocr_images_json" ]; then
   ocr_images_json='{}'
 fi
 
-vm_compose_images_json="${SCRIBE_VM_COMPOSE_IMAGES_JSON:-}"
-if [ "$needs_ocr_images" != "true" ]; then
-  vm_compose_images_json='{}'
-elif [ "$action" != "destroy" ] && [ -z "$vm_compose_images_json" ]; then
-  vm_compose_images_json="$(
-    WORKSPACE_SLUG="$target_workspace" \
-    IMAGE_TAG="${SCRIBE_OCR_IMAGE_TAG:-$ocr_image_tag_default}" \
-    "$repo_root/ci/generate-vm-images-map.sh"
-  )"
-fi
-if [ -z "$vm_compose_images_json" ]; then
-  vm_compose_images_json='{}'
-fi
-
 terraform_vars=(
   "-var=project_id=${GCLOUD_PROJECT}"
   "-var=terraform_state_bucket=${TF_STATE_BUCKET}"
@@ -420,7 +409,6 @@ terraform_vars=(
   "-var=frontend_image=${frontend_image_tag}"
   "-var=frontend_gar_image=${frontend_gar_image_tag}"
   "-var=ocr_service_images=${ocr_images_json}"
-  "-var=vm_compose_images=${vm_compose_images_json}"
 )
 
 if [ -n "${ALLOWED_IPS:-}" ]; then
@@ -446,7 +434,11 @@ fi
 
 case "$action" in
   plan)
-    terraform plan "${terraform_vars[@]}" "${terraform_targets[@]}"
+    if [ "${TF_PLAN_DETAILED_EXITCODE:-}" = "true" ]; then
+      terraform plan -detailed-exitcode "${terraform_vars[@]}" "${terraform_targets[@]}"
+    else
+      terraform plan "${terraform_vars[@]}" "${terraform_targets[@]}"
+    fi
     ;;
   apply)
     terraform apply -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"

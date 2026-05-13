@@ -12,6 +12,23 @@ const iiifOrigin = iiifOriginRaw ? new URL(iiifOriginRaw) : null;
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(rootDir, "dist");
 const indexPath = path.join(distDir, "index.html");
+const securityHeaders = {
+  "content-security-policy": [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: http: https:",
+    "font-src 'self' data:",
+    "connect-src 'self' http: https:",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; "),
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+};
 const mimeTypes = new Map([
   [".css", "text/css; charset=utf-8"],
   [".gif", "image/gif"],
@@ -45,6 +62,18 @@ function isProxyPath(pathname) {
   return proxyMatchers.some((matches) => matches(pathname));
 }
 
+function safeDecodePathname(pathname) {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+}
+
+function responseHeaders(headers = {}) {
+  return { ...securityHeaders, ...headers };
+}
+
 function stripHopByHopHeaders(headers) {
   const filtered = { ...headers };
   for (const name of [
@@ -56,6 +85,19 @@ function stripHopByHopHeaders(headers) {
     "trailers",
     "transfer-encoding",
     "upgrade",
+  ]) {
+    delete filtered[name];
+  }
+  return filtered;
+}
+
+function stripCredentialHeaders(headers) {
+  const filtered = { ...headers };
+  for (const name of [
+    "authorization",
+    "cookie",
+    "x-scribe-api-key",
+    "x-scribe-workspace-id",
   ]) {
     delete filtered[name];
   }
@@ -79,18 +121,21 @@ function targetOriginForPath(pathname) {
   return backendOrigin;
 }
 
-function proxyRequest(req, res) {
+function proxyRequest(req, res, pathname) {
   const url = new URL(req.url || "/", "http://frontend.local");
-  const targetOrigin = targetOriginForPath(decodeURIComponent(url.pathname));
+  const targetOrigin = targetOriginForPath(pathname);
   if (!targetOrigin) {
-    res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+    res.writeHead(502, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
     res.end("frontend upstream origin is not configured");
     return;
   }
 
   const targetURL = new URL(req.url || "/", targetOrigin);
   const client = targetURL.protocol === "https:" ? https : http;
-  const headers = stripHopByHopHeaders(req.headers);
+  const isSeparateIIIFOrigin = Boolean(iiifOrigin && backendOrigin && targetOrigin.origin !== backendOrigin.origin);
+  const headers = isSeparateIIIFOrigin
+    ? stripCredentialHeaders(stripHopByHopHeaders(req.headers))
+    : stripHopByHopHeaders(req.headers);
   const forwardedProto = req.headers["x-forwarded-proto"] || (req.socket.encrypted ? "https" : "http");
 
   headers.host = targetURL.host;
@@ -108,7 +153,7 @@ function proxyRequest(req, res) {
       headers,
     },
     (upstreamRes) => {
-      res.writeHead(upstreamRes.statusCode || 502, stripHopByHopHeaders(upstreamRes.headers));
+      res.writeHead(upstreamRes.statusCode || 502, responseHeaders(stripHopByHopHeaders(upstreamRes.headers)));
       upstreamRes.pipe(res);
     },
   );
@@ -116,7 +161,7 @@ function proxyRequest(req, res) {
   upstream.on("error", (error) => {
     console.error("frontend proxy request failed", error);
     if (!res.headersSent) {
-      res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+      res.writeHead(502, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
     }
     res.end("upstream request failed");
   });
@@ -128,10 +173,16 @@ async function serveFile(req, res, filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = mimeTypes.get(ext) || "application/octet-stream";
   const stat = await fs.stat(filePath);
-  res.writeHead(200, {
+  const headers = {
     "content-length": stat.size,
     "content-type": contentType,
-  });
+  };
+  if (filePath !== indexPath && filePath.startsWith(path.join(distDir, "assets") + path.sep)) {
+    headers["cache-control"] = "public, max-age=31536000, immutable";
+  } else {
+    headers["cache-control"] = "no-store";
+  }
+  res.writeHead(200, responseHeaders(headers));
   if (req.method === "HEAD") {
     res.end();
     return;
@@ -164,20 +215,25 @@ async function resolveStaticPath(pathname) {
 const server = http.createServer(async (req, res) => {
   const method = req.method || "GET";
   const url = new URL(req.url || "/", "http://frontend.local");
-  const pathname = decodeURIComponent(url.pathname);
+  const pathname = safeDecodePathname(url.pathname);
+  if (pathname === null) {
+    res.writeHead(400, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
+    res.end("invalid request path");
+    return;
+  }
 
   if (method !== "GET" && method !== "HEAD" && isProxyPath(pathname)) {
-    proxyRequest(req, res);
+    proxyRequest(req, res, pathname);
     return;
   }
 
   if (isProxyPath(pathname)) {
-    proxyRequest(req, res);
+    proxyRequest(req, res, pathname);
     return;
   }
 
   if (method !== "GET" && method !== "HEAD") {
-    res.writeHead(405, { allow: "GET, HEAD" });
+    res.writeHead(405, responseHeaders({ allow: "GET, HEAD" }));
     res.end();
     return;
   }
@@ -191,10 +247,14 @@ const server = http.createServer(async (req, res) => {
     await serveFile(req, res, indexPath);
   } catch (error) {
     console.error("frontend request failed", error);
-    res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+    res.writeHead(500, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
     res.end("frontend request failed");
   }
 });
+
+server.headersTimeout = 15_000;
+server.requestTimeout = 120_000;
+server.keepAliveTimeout = 60_000;
 
 server.listen(port, "0.0.0.0", () => {
   console.log(`frontend listening on :${port}`);

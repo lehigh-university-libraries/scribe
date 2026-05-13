@@ -5,6 +5,7 @@ provider "registry.terraform.io/hashicorp/cloudinit" {
   version = "2.3.7"
   hashes = [
     "h1:M9TpQxKAE/hyOwytdX9MUNZw30HoD/OXqYIug5fkqH8=",
+    "h1:iZ27qylcH/2bs685LJTKOKcQ+g7cF3VwN3kHMrzm4Ow=",
     "zh:06f1c54e919425c3139f8aeb8fcf9bceca7e560d48c9f0c1e3bb0a8ad9d9da1e",
     "zh:0e1e4cf6fd98b019e764c28586a386dc136129fef50af8c7165a067e7e4a31d5",
     "zh:1871f4337c7c57287d4d67396f633d224b8938708b772abfc664d1f80bd67edd",
@@ -25,6 +26,7 @@ provider "registry.terraform.io/hashicorp/google" {
   constraints = "~> 7.0, >= 7.22.0"
   hashes = [
     "h1:SQaFVC55GTev4MsXkmyFWTtH0OhyJXGV7Txi6ZguLsc=",
+    "h1:o0puBmN8n9phQ3SK5z5dcjRCn7fL48rqSKduDv5QbiE=",
     "zh:0e1057526f44cbb5462fd103f022743bbfe13aa33a460dc3adf76408b766a845",
     "zh:207a6de17871088d907bf11854419fbc9793fa832f4bbdcc1aa0d63d18f87dcf",
     "zh:2afdb8530b53edb1ea39aa3736e0a28eb8413d042296e01026c027e3b5abf12f",
@@ -44,6 +46,7 @@ provider "registry.terraform.io/hashicorp/google-beta" {
   version     = "7.29.0"
   constraints = "~> 7.0, >= 7.22.0"
   hashes = [
+    "h1:7av5RlKyjMLHoSIe4ryqIYIkr79Ats7PnVfjcwL1YXM=",
     "h1:HwICgzIspSchgnH49Xu85CQ4Fe9OZC9a992KJCCZPLc=",
     "zh:035cd2c6773ceb262f739825505c71e2283f4781c205ac26dc618f75edfb7a3d",
     "zh:0fa7f22f5b44349ae758ead4d4aa3c6cb855d2f2d948c5ca3f6198595a98905b",
@@ -63,6 +66,7 @@ provider "registry.terraform.io/hashicorp/google-beta" {
 provider "registry.terraform.io/hashicorp/time" {
   version = "0.13.1"
   hashes = [
+    "h1:+W+DMrVoVnoXo3f3M4W+OpZbkCrUn6PnqDF33D2Cuf0=",
     "h1:ZT5ppCNIModqk3iOkVt5my8b8yBHmDpl663JtXAIRqM=",
     "zh:02cb9aab1002f0f2a94a4f85acec8893297dc75915f7404c165983f720a54b74",
     "zh:04429b2b31a492d19e5ecf999b116d396dac0b24bba0d0fb19ecaefe193fdb8f",
@@ -114,6 +118,7 @@ provider "registry.terraform.io/kreuzwerker/docker" {
   constraints = ">= 3.0.1, ~> 4.2"
   hashes = [
     "h1:erkgDZdfAMgpZy3l7HwQl3RMVxpKVCFEWjXfHeNgPy0=",
+    "h1:n8B7LCJVsC7v6EQ8sYYMg9c4R9PmdqMvd1VVx134Ypc=",
     "zh:2e017fde776314d677ab6b028bb844c9605908f6b95e7bd16bb5e89641827f0b",
     "zh:376453d7523922d679526c41378b19106c65758c42e53a1d465837f39984d360",
     "zh:50f0da6eaf582064473a6792696a386ad6992ad730bf9f63aea95f1d59b28f32",

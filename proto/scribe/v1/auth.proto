@@ -1,0 +1,172 @@
+syntax = "proto3";
+
+package scribe.v1;
+
+import "buf/validate/validate.proto";
+import "scribe/v1/options/v1/auth.proto";
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
+
+message AuthUser {
+  uint64 id                   = 1;
+  string email                = 2;
+  string name                 = 3;
+  string picture_url          = 4;
+  bool   is_admin             = 5;
+  uint64 default_workspace_id = 6;
+}
+
+message AuthWorkspace {
+  uint64 id   = 1;
+  string name = 2;
+  string role = 3;
+}
+
+message AuthMeRequest {}
+
+message AuthMeResponse {
+  bool          authenticated = 1;
+  string        auth_type     = 2;
+  string        login_url     = 3;
+  string        logout_url    = 4;
+  AuthUser      user          = 5;
+  AuthWorkspace workspace     = 6;
+}
+
+message APIKeyRecord {
+  uint64          id                 = 1;
+  uint64          workspace_id       = 2;
+  uint64          created_by_user_id = 3;
+  string          name               = 4;
+  string          key_prefix         = 5;
+  string          role               = 6;
+  repeated string scopes             = 7;
+  string          last_used_at       = 8;
+  string          expires_at         = 9;
+  string          created_at         = 10;
+  string          updated_at         = 11;
+}
+
+message ListAPIKeysRequest {}
+
+message ListAPIKeysResponse {
+  repeated APIKeyRecord api_keys = 1;
+}
+
+message CreateAPIKeyRequest {
+  string name = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  string role = 2;
+  repeated string scopes = 3;
+  string expires_at = 4;
+}
+
+message CreateAPIKeyResponse {
+  APIKeyRecord api_key = 1;
+  string key = 2;
+}
+
+message DeleteAPIKeyRequest {
+  uint64 key_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+}
+
+message DeleteAPIKeyResponse {}
+
+message ProviderSecretRecord {
+  uint64 id           = 1;
+  uint64 user_id      = 2;
+  uint64 workspace_id = 3;
+  string provider     = 4;
+  string name         = 5;
+  string vault_path   = 6;
+  string key_hint     = 7;
+  string scope        = 8;
+  string created_at   = 9;
+  string updated_at   = 10;
+}
+
+message ListProviderSecretsRequest {}
+
+message ListProviderSecretsResponse {
+  repeated ProviderSecretRecord provider_secrets = 1;
+}
+
+message CreateProviderSecretRequest {
+  string provider = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  string name = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  string api_key = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  string scope = 4;
+}
+
+message CreateProviderSecretResponse {
+  ProviderSecretRecord provider_secret = 1;
+}
+
+message DeleteProviderSecretRequest {
+  uint64 secret_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+}
+
+message DeleteProviderSecretResponse {}
+
+service AuthService {
+  rpc GetAuthMe(AuthMeRequest) returns (AuthMeResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      allow_anonymous: true
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc ListAPIKeys(ListAPIKeysRequest) returns (ListAPIKeysResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_ADMIN
+    };
+  }
+  rpc CreateAPIKey(CreateAPIKeyRequest) returns (CreateAPIKeyResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_ADMIN
+    };
+  }
+  rpc DeleteAPIKey(DeleteAPIKeyRequest) returns (DeleteAPIKeyResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_ADMIN
+    };
+  }
+  rpc ListProviderSecrets(ListProviderSecretsRequest) returns (ListProviderSecretsResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc CreateProviderSecret(CreateProviderSecretRequest) returns (CreateProviderSecretResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc DeleteProviderSecret(DeleteProviderSecretRequest) returns (DeleteProviderSecretResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+}

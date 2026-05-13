@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
-	"image/jpeg"
 	_ "image/gif"
+	"image/jpeg"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
@@ -17,7 +17,10 @@ import (
 	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 )
+
+const maxImageRequestBytes int64 = 64 << 20
 
 func NewHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -34,7 +37,7 @@ func NewHandler() http.Handler {
 }
 
 func handleCrop(w http.ResponseWriter, r *http.Request) {
-	img, _, err := readMultipartImage(r)
+	img, _, err := readMultipartImage(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -70,7 +73,7 @@ func handleCrop(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleStitchHorizontal(w http.ResponseWriter, r *http.Request) {
-	img, _, err := readMultipartImage(r)
+	img, _, err := readMultipartImage(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -99,6 +102,7 @@ func handleStitchHorizontal(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleNormalize(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxImageRequestBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("read request body: %v", err), http.StatusBadRequest)
@@ -113,8 +117,9 @@ func handleNormalize(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(normalized)
 }
 
-func readMultipartImage(r *http.Request) (image.Image, string, error) {
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+func readMultipartImage(w http.ResponseWriter, r *http.Request) (image.Image, string, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxImageRequestBytes)
+	if err := r.ParseMultipartForm(64 << 20); err != nil { // #nosec G120 -- request body is capped with http.MaxBytesReader immediately above.
 		return nil, "", fmt.Errorf("parse multipart form: %w", err)
 	}
 	file, header, err := r.FormFile("image")
@@ -146,7 +151,9 @@ func atoiOptionalField(r *http.Request, name string, defaultValue int) (int, err
 }
 
 func cropImage(src image.Image, rect image.Rectangle) image.Image {
-	if sub, ok := src.(interface{ SubImage(image.Rectangle) image.Image }); ok {
+	if sub, ok := src.(interface {
+		SubImage(image.Rectangle) image.Image
+	}); ok {
 		return sub.SubImage(rect)
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy()))
@@ -224,7 +231,7 @@ func normalizeWithMagick(imageData []byte, contentType string) ([]byte, error) {
 		return nil, fmt.Errorf("imagemagick normalize failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
-	normalized, err := os.ReadFile(outputPath)
+	normalized, err := safefile.ReadFile(outputPath)
 	if err != nil {
 		return nil, fmt.Errorf("read normalized output: %w", err)
 	}

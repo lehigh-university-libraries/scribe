@@ -44,7 +44,10 @@ locals {
       memory             = "4Gi"
       min_instances      = 0
       max_instances      = 5
-      env                = []
+      env = [
+        { name = "SCRIBE_UPLOADS_BUCKET", value = google_storage_bucket.uploads.name },
+        { name = "SCRIBE_UPLOADS_PREFIX", value = "uploads" },
+      ]
     }
   }
 

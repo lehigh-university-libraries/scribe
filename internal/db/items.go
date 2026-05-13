@@ -106,8 +106,7 @@ func (q *Queries) CreateItemImage(ctx context.Context, arg CreateItemImageParams
 	if err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
-	return uint64(id), err
+	return compatLastInsertID(res)
 }
 
 func (q *Queries) GetItemImage(ctx context.Context, id uint64) (ItemImage, error) {

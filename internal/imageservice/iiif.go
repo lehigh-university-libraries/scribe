@@ -2,14 +2,15 @@ package imageservice
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
+	_ "image/gif"
 	"image/jpeg"
 	"image/png"
-	_ "image/gif"
 	"log/slog"
 	"math"
 	"net/http"
@@ -18,6 +19,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
 )
 
 const iiifUploadsEnv = "IMAGE_SERVICE_UPLOADS_DIR"
@@ -40,11 +44,12 @@ func handleIIIF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	imagePath, err := iiifUploadPathFromIdentifier(req.Identifier)
+	imagePath, cleanup, err := iiifUploadPathFromIdentifier(r.Context(), req.Identifier)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
+	defer cleanup()
 	if _, err := os.Stat(imagePath); err != nil {
 		http.NotFound(w, r)
 		return
@@ -96,22 +101,43 @@ func parseIIIFRequest(path string) (iiifRequest, error) {
 	return iiifRequest{}, fmt.Errorf("path %q is not a IIIF image request", path)
 }
 
-func iiifUploadPathFromIdentifier(identifier string) (string, error) {
+func iiifUploadPathFromIdentifier(ctx context.Context, identifier string) (string, func(), error) {
 	decoded, err := url.PathUnescape(strings.TrimSpace(identifier))
 	if err != nil {
-		return "", fmt.Errorf("decode IIIF identifier: %w", err)
+		return "", func() {}, fmt.Errorf("decode IIIF identifier: %w", err)
 	}
 	if decoded == "" {
-		return "", fmt.Errorf("empty IIIF identifier")
+		return "", func() {}, fmt.Errorf("empty IIIF identifier")
 	}
 	if decoded == "." || decoded == ".." || strings.Contains(decoded, "..") || strings.Contains(decoded, "/") || strings.Contains(decoded, "\\") {
-		return "", fmt.Errorf("invalid IIIF identifier %q", identifier)
+		return "", func() {}, fmt.Errorf("invalid IIIF identifier %q", identifier)
+	}
+	if uploadblob.Enabled() {
+		data, _, err := uploadblob.Read(ctx, decoded)
+		if err != nil {
+			return "", func() {}, err
+		}
+		f, err := os.CreateTemp("", "scribe-iiif-*"+filepath.Ext(decoded))
+		if err != nil {
+			return "", func() {}, fmt.Errorf("create iiif temp file: %w", err)
+		}
+		cleanup := func() { _ = os.Remove(f.Name()) }
+		if _, err := f.Write(data); err != nil {
+			_ = f.Close()
+			cleanup()
+			return "", func() {}, fmt.Errorf("write iiif temp file: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("close iiif temp file: %w", err)
+		}
+		return f.Name(), cleanup, nil
 	}
 	root := strings.TrimSpace(os.Getenv(iiifUploadsEnv))
 	if root == "" {
 		root = "uploads"
 	}
-	return filepath.Join(root, decoded), nil
+	return filepath.Join(root, decoded), func() {}, nil
 }
 
 func serveIIIFInfoJSON(w http.ResponseWriter, r *http.Request, req iiifRequest, imagePath string) {
@@ -222,7 +248,7 @@ func serveIIIFImageBytes(w http.ResponseWriter, req iiifRequest, imagePath strin
 }
 
 func decodeIIIFImageConfig(imagePath string) (image.Config, error) {
-	f, err := os.Open(imagePath)
+	f, err := safefile.Open(imagePath)
 	if err != nil {
 		return image.Config{}, err
 	}
@@ -244,7 +270,7 @@ func decodeIIIFImageConfig(imagePath string) (image.Config, error) {
 }
 
 func decodeIIIFImage(imagePath string) (image.Image, error) {
-	f, err := os.Open(imagePath)
+	f, err := safefile.Open(imagePath)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +292,7 @@ func decodeIIIFImage(imagePath string) (image.Image, error) {
 }
 
 func normalizeIIIFSource(imagePath string) ([]byte, error) {
-	data, err := os.ReadFile(imagePath)
+	data, err := safefile.ReadFile(imagePath)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +459,9 @@ func applyIIIFQuality(src image.Image, quality string) (image.Image, error) {
 }
 
 func cropIIIFImage(src image.Image, rect image.Rectangle) image.Image {
-	if sub, ok := src.(interface{ SubImage(image.Rectangle) image.Image }); ok {
+	if sub, ok := src.(interface {
+		SubImage(image.Rectangle) image.Image
+	}); ok {
 		return sub.SubImage(rect)
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy()))

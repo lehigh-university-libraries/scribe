@@ -8,7 +8,7 @@ package scribev1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -370,6 +370,50 @@ func (x *GetTranscriptionJobRequest) GetJobId() uint64 {
 	return 0
 }
 
+type GetTranscriptionJobResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *TranscriptionJob      `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetTranscriptionJobResponse) Reset() {
+	*x = GetTranscriptionJobResponse{}
+	mi := &file_scribe_v1_transcription_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetTranscriptionJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetTranscriptionJobResponse) ProtoMessage() {}
+
+func (x *GetTranscriptionJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_transcription_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetTranscriptionJobResponse.ProtoReflect.Descriptor instead.
+func (*GetTranscriptionJobResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetTranscriptionJobResponse) GetJob() *TranscriptionJob {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
 type ListTranscriptionJobsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Filter by item_image_id; returns all jobs if zero.
@@ -380,7 +424,7 @@ type ListTranscriptionJobsRequest struct {
 
 func (x *ListTranscriptionJobsRequest) Reset() {
 	*x = ListTranscriptionJobsRequest{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[4]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -392,7 +436,7 @@ func (x *ListTranscriptionJobsRequest) String() string {
 func (*ListTranscriptionJobsRequest) ProtoMessage() {}
 
 func (x *ListTranscriptionJobsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[4]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -405,7 +449,7 @@ func (x *ListTranscriptionJobsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTranscriptionJobsRequest.ProtoReflect.Descriptor instead.
 func (*ListTranscriptionJobsRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{4}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListTranscriptionJobsRequest) GetItemImageId() uint64 {
@@ -424,7 +468,7 @@ type ListTranscriptionJobsResponse struct {
 
 func (x *ListTranscriptionJobsResponse) Reset() {
 	*x = ListTranscriptionJobsResponse{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[5]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -436,7 +480,7 @@ func (x *ListTranscriptionJobsResponse) String() string {
 func (*ListTranscriptionJobsResponse) ProtoMessage() {}
 
 func (x *ListTranscriptionJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[5]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +493,7 @@ func (x *ListTranscriptionJobsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTranscriptionJobsResponse.ProtoReflect.Descriptor instead.
 func (*ListTranscriptionJobsResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{5}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListTranscriptionJobsResponse) GetJobs() []*TranscriptionJob {
@@ -471,7 +515,7 @@ type StreamTranscriptionJobRequest struct {
 
 func (x *StreamTranscriptionJobRequest) Reset() {
 	*x = StreamTranscriptionJobRequest{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[6]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -483,7 +527,7 @@ func (x *StreamTranscriptionJobRequest) String() string {
 func (*StreamTranscriptionJobRequest) ProtoMessage() {}
 
 func (x *StreamTranscriptionJobRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[6]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -496,7 +540,7 @@ func (x *StreamTranscriptionJobRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamTranscriptionJobRequest.ProtoReflect.Descriptor instead.
 func (*StreamTranscriptionJobRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{6}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StreamTranscriptionJobRequest) GetJobId() uint64 {
@@ -506,11 +550,55 @@ func (x *StreamTranscriptionJobRequest) GetJobId() uint64 {
 	return 0
 }
 
+type StreamTranscriptionJobResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *TranscriptionJob      `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamTranscriptionJobResponse) Reset() {
+	*x = StreamTranscriptionJobResponse{}
+	mi := &file_scribe_v1_transcription_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamTranscriptionJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamTranscriptionJobResponse) ProtoMessage() {}
+
+func (x *StreamTranscriptionJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_transcription_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamTranscriptionJobResponse.ProtoReflect.Descriptor instead.
+func (*StreamTranscriptionJobResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *StreamTranscriptionJobResponse) GetJob() *TranscriptionJob {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
 var File_scribe_v1_transcription_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_transcription_proto_rawDesc = "" +
 	"\n" +
-	"\x1dscribe/v1/transcription.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cscribe/v1/options/auth.proto\"\xad\x04\n" +
+	"\x1dscribe/v1/transcription.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xad\x04\n" +
 	"\x10TranscriptionJob\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1d\n" +
@@ -538,25 +626,29 @@ const file_scribe_v1_transcription_proto_rawDesc = "" +
 	"\x06job_id\x18\x01 \x01(\x04R\x05jobId\"?\n" +
 	"\x1aGetTranscriptionJobRequest\x12!\n" +
 	"\x06job_id\x18\x01 \x01(\x04B\n" +
-	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05jobId\"B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05jobId\"L\n" +
+	"\x1bGetTranscriptionJobResponse\x12-\n" +
+	"\x03job\x18\x01 \x01(\v2\x1b.scribe.v1.TranscriptionJobR\x03job\"B\n" +
 	"\x1cListTranscriptionJobsRequest\x12\"\n" +
 	"\ritem_image_id\x18\x01 \x01(\x04R\vitemImageId\"P\n" +
 	"\x1dListTranscriptionJobsResponse\x12/\n" +
 	"\x04jobs\x18\x01 \x03(\v2\x1b.scribe.v1.TranscriptionJobR\x04jobs\"B\n" +
 	"\x1dStreamTranscriptionJobRequest\x12!\n" +
 	"\x06job_id\x18\x01 \x01(\x04B\n" +
-	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05jobId*\xdb\x01\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05jobId\"O\n" +
+	"\x1eStreamTranscriptionJobResponse\x12-\n" +
+	"\x03job\x18\x01 \x01(\v2\x1b.scribe.v1.TranscriptionJobR\x03job*\xdb\x01\n" +
 	"\x16TranscriptionJobStatus\x12(\n" +
 	"$TRANSCRIPTION_JOB_STATUS_UNSPECIFIED\x10\x00\x12$\n" +
 	" TRANSCRIPTION_JOB_STATUS_PENDING\x10\x01\x12$\n" +
 	" TRANSCRIPTION_JOB_STATUS_RUNNING\x10\x02\x12&\n" +
 	"\"TRANSCRIPTION_JOB_STATUS_COMPLETED\x10\x03\x12#\n" +
-	"\x1fTRANSCRIPTION_JOB_STATUS_FAILED\x10\x042\x87\x04\n" +
+	"\x1fTRANSCRIPTION_JOB_STATUS_FAILED\x10\x042\x91\x04\n" +
 	"\x14TranscriptionService\x12\x86\x01\n" +
-	"\x16CreateTranscriptionJob\x12(.scribe.v1.CreateTranscriptionJobRequest\x1a).scribe.v1.CreateTranscriptionJobResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12k\n" +
-	"\x13GetTranscriptionJob\x12%.scribe.v1.GetTranscriptionJobRequest\x1a\x1b.scribe.v1.TranscriptionJob\"\x10\x92\xb5\x18\f\x10\x06\x18\x01\"\x06job_id\x12\x83\x01\n" +
-	"\x15ListTranscriptionJobs\x12'.scribe.v1.ListTranscriptionJobsRequest\x1a(.scribe.v1.ListTranscriptionJobsResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12s\n" +
-	"\x16StreamTranscriptionJob\x12(.scribe.v1.StreamTranscriptionJobRequest\x1a\x1b.scribe.v1.TranscriptionJob\"\x10\x92\xb5\x18\f\x10\x06\x18\x01\"\x06job_id0\x01B\xb0\x01\n" +
+	"\x16CreateTranscriptionJob\x12(.scribe.v1.CreateTranscriptionJobRequest\x1a).scribe.v1.CreateTranscriptionJobResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12v\n" +
+	"\x13GetTranscriptionJob\x12%.scribe.v1.GetTranscriptionJobRequest\x1a&.scribe.v1.GetTranscriptionJobResponse\"\x10\x92\xb5\x18\f\x10\x06\x18\x01\"\x06job_id\x12t\n" +
+	"\x15ListTranscriptionJobs\x12'.scribe.v1.ListTranscriptionJobsRequest\x1a(.scribe.v1.ListTranscriptionJobsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12\x81\x01\n" +
+	"\x16StreamTranscriptionJob\x12(.scribe.v1.StreamTranscriptionJobRequest\x1a).scribe.v1.StreamTranscriptionJobResponse\"\x10\x92\xb5\x18\f\x10\x06\x18\x01\"\x06job_id0\x01B\xb0\x01\n" +
 	"\rcom.scribe.v1B\x12TranscriptionProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 
@@ -573,33 +665,37 @@ func file_scribe_v1_transcription_proto_rawDescGZIP() []byte {
 }
 
 var file_scribe_v1_transcription_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_scribe_v1_transcription_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_scribe_v1_transcription_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_scribe_v1_transcription_proto_goTypes = []any{
 	(TranscriptionJobStatus)(0),            // 0: scribe.v1.TranscriptionJobStatus
 	(*TranscriptionJob)(nil),               // 1: scribe.v1.TranscriptionJob
 	(*CreateTranscriptionJobRequest)(nil),  // 2: scribe.v1.CreateTranscriptionJobRequest
 	(*CreateTranscriptionJobResponse)(nil), // 3: scribe.v1.CreateTranscriptionJobResponse
 	(*GetTranscriptionJobRequest)(nil),     // 4: scribe.v1.GetTranscriptionJobRequest
-	(*ListTranscriptionJobsRequest)(nil),   // 5: scribe.v1.ListTranscriptionJobsRequest
-	(*ListTranscriptionJobsResponse)(nil),  // 6: scribe.v1.ListTranscriptionJobsResponse
-	(*StreamTranscriptionJobRequest)(nil),  // 7: scribe.v1.StreamTranscriptionJobRequest
+	(*GetTranscriptionJobResponse)(nil),    // 5: scribe.v1.GetTranscriptionJobResponse
+	(*ListTranscriptionJobsRequest)(nil),   // 6: scribe.v1.ListTranscriptionJobsRequest
+	(*ListTranscriptionJobsResponse)(nil),  // 7: scribe.v1.ListTranscriptionJobsResponse
+	(*StreamTranscriptionJobRequest)(nil),  // 8: scribe.v1.StreamTranscriptionJobRequest
+	(*StreamTranscriptionJobResponse)(nil), // 9: scribe.v1.StreamTranscriptionJobResponse
 }
 var file_scribe_v1_transcription_proto_depIdxs = []int32{
 	0, // 0: scribe.v1.TranscriptionJob.status:type_name -> scribe.v1.TranscriptionJobStatus
-	1, // 1: scribe.v1.ListTranscriptionJobsResponse.jobs:type_name -> scribe.v1.TranscriptionJob
-	2, // 2: scribe.v1.TranscriptionService.CreateTranscriptionJob:input_type -> scribe.v1.CreateTranscriptionJobRequest
-	4, // 3: scribe.v1.TranscriptionService.GetTranscriptionJob:input_type -> scribe.v1.GetTranscriptionJobRequest
-	5, // 4: scribe.v1.TranscriptionService.ListTranscriptionJobs:input_type -> scribe.v1.ListTranscriptionJobsRequest
-	7, // 5: scribe.v1.TranscriptionService.StreamTranscriptionJob:input_type -> scribe.v1.StreamTranscriptionJobRequest
-	3, // 6: scribe.v1.TranscriptionService.CreateTranscriptionJob:output_type -> scribe.v1.CreateTranscriptionJobResponse
-	1, // 7: scribe.v1.TranscriptionService.GetTranscriptionJob:output_type -> scribe.v1.TranscriptionJob
-	6, // 8: scribe.v1.TranscriptionService.ListTranscriptionJobs:output_type -> scribe.v1.ListTranscriptionJobsResponse
-	1, // 9: scribe.v1.TranscriptionService.StreamTranscriptionJob:output_type -> scribe.v1.TranscriptionJob
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1, // 1: scribe.v1.GetTranscriptionJobResponse.job:type_name -> scribe.v1.TranscriptionJob
+	1, // 2: scribe.v1.ListTranscriptionJobsResponse.jobs:type_name -> scribe.v1.TranscriptionJob
+	1, // 3: scribe.v1.StreamTranscriptionJobResponse.job:type_name -> scribe.v1.TranscriptionJob
+	2, // 4: scribe.v1.TranscriptionService.CreateTranscriptionJob:input_type -> scribe.v1.CreateTranscriptionJobRequest
+	4, // 5: scribe.v1.TranscriptionService.GetTranscriptionJob:input_type -> scribe.v1.GetTranscriptionJobRequest
+	6, // 6: scribe.v1.TranscriptionService.ListTranscriptionJobs:input_type -> scribe.v1.ListTranscriptionJobsRequest
+	8, // 7: scribe.v1.TranscriptionService.StreamTranscriptionJob:input_type -> scribe.v1.StreamTranscriptionJobRequest
+	3, // 8: scribe.v1.TranscriptionService.CreateTranscriptionJob:output_type -> scribe.v1.CreateTranscriptionJobResponse
+	5, // 9: scribe.v1.TranscriptionService.GetTranscriptionJob:output_type -> scribe.v1.GetTranscriptionJobResponse
+	7, // 10: scribe.v1.TranscriptionService.ListTranscriptionJobs:output_type -> scribe.v1.ListTranscriptionJobsResponse
+	9, // 11: scribe.v1.TranscriptionService.StreamTranscriptionJob:output_type -> scribe.v1.StreamTranscriptionJobResponse
+	8, // [8:12] is the sub-list for method output_type
+	4, // [4:8] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_scribe_v1_transcription_proto_init() }
@@ -613,7 +709,7 @@ func file_scribe_v1_transcription_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_transcription_proto_rawDesc), len(file_scribe_v1_transcription_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

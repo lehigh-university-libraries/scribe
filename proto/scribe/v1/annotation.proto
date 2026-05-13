@@ -3,6 +3,7 @@ syntax = "proto3";
 package scribe.v1;
 
 import "buf/validate/validate.proto";
+import "scribe/v1/options/v1/auth.proto";
 
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
@@ -114,16 +115,24 @@ message SplitLineIntoTwoLinesResponse {
 }
 
 // Join two or more line annotations into one (union bbox, concatenated text).
-message JoinAnnotationsRequest {
+message JoinLinesRequest {
   repeated string annotation_jsons = 1 [(buf.validate.field).repeated.min_items = 2];
 }
 
-message JoinAnnotationsResponse {
+message JoinLinesResponse {
+  string annotation_json = 1;
+}
+
+message JoinWordsIntoLineRequest {
+  repeated string annotation_jsons = 1 [(buf.validate.field).repeated.min_items = 2];
+}
+
+message JoinWordsIntoLineResponse {
   string annotation_json = 1;
 }
 
 // Crosswalk: convert an AnnotationPage (or single annotation) to an export format.
-message CrosswalkRequest {
+message CrosswalkToPlainTextRequest {
   option (buf.validate.message).cel = {
     id: "crosswalk.input"
     message: "annotation_page_json or annotation_json is required"
@@ -134,29 +143,147 @@ message CrosswalkRequest {
   string annotation_json      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
 }
 
-message CrosswalkResponse {
+message CrosswalkToPlainTextResponse {
+  string format  = 1; // MIME type of the exported content
+  string content = 2;
+}
+
+message CrosswalkToHOCRRequest {
+  option (buf.validate.message).cel = {
+    id: "crosswalk.input"
+    message: "annotation_page_json or annotation_json is required"
+    expression: "this.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')"
+  };
+  // Provide one of the two fields; annotation_page_json takes priority.
+  string annotation_page_json = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+  string annotation_json      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+}
+
+message CrosswalkToHOCRResponse {
+  string format  = 1; // MIME type of the exported content
+  string content = 2;
+}
+
+message CrosswalkToPageXMLRequest {
+  option (buf.validate.message).cel = {
+    id: "crosswalk.input"
+    message: "annotation_page_json or annotation_json is required"
+    expression: "this.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')"
+  };
+  // Provide one of the two fields; annotation_page_json takes priority.
+  string annotation_page_json = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+  string annotation_json      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+}
+
+message CrosswalkToPageXMLResponse {
+  string format  = 1; // MIME type of the exported content
+  string content = 2;
+}
+
+message CrosswalkToALTOXMLRequest {
+  option (buf.validate.message).cel = {
+    id: "crosswalk.input"
+    message: "annotation_page_json or annotation_json is required"
+    expression: "this.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')"
+  };
+  // Provide one of the two fields; annotation_page_json takes priority.
+  string annotation_page_json = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+  string annotation_json      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+}
+
+message CrosswalkToALTOXMLResponse {
   string format  = 1; // MIME type of the exported content
   string content = 2;
 }
 
 service AnnotationService {
-  rpc SearchAnnotations(SearchAnnotationsRequest) returns (SearchAnnotationsResponse);
-  rpc GetAnnotation(GetAnnotationRequest) returns (GetAnnotationResponse);
-  rpc CreateAnnotation(CreateAnnotationRequest) returns (CreateAnnotationResponse);
-  rpc UpdateAnnotation(UpdateAnnotationRequest) returns (UpdateAnnotationResponse);
-  rpc DeleteAnnotation(DeleteAnnotationRequest) returns (DeleteAnnotationResponse);
+  rpc SearchAnnotations(SearchAnnotationsRequest) returns (SearchAnnotationsResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc GetAnnotation(GetAnnotationRequest) returns (GetAnnotationResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc CreateAnnotation(CreateAnnotationRequest) returns (CreateAnnotationResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc UpdateAnnotation(UpdateAnnotationRequest) returns (UpdateAnnotationResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc DeleteAnnotation(DeleteAnnotationRequest) returns (DeleteAnnotationResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
   // Improve transcription for one line or a full canvas.
-  rpc EnrichAnnotation(EnrichAnnotationRequest) returns (EnrichAnnotationResponse);
+  rpc EnrichAnnotation(EnrichAnnotationRequest) returns (EnrichAnnotationResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
 
   // Structural split/join operations.
-  rpc SplitLineIntoWords(SplitLineIntoWordsRequest) returns (SplitLineIntoWordsResponse);
-  rpc SplitLineIntoTwoLines(SplitLineIntoTwoLinesRequest) returns (SplitLineIntoTwoLinesResponse);
-  rpc JoinLines(JoinAnnotationsRequest) returns (JoinAnnotationsResponse);
-  rpc JoinWordsIntoLine(JoinAnnotationsRequest) returns (JoinAnnotationsResponse);
+  rpc SplitLineIntoWords(SplitLineIntoWordsRequest) returns (SplitLineIntoWordsResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc SplitLineIntoTwoLines(SplitLineIntoTwoLinesRequest) returns (SplitLineIntoTwoLinesResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc JoinLines(JoinLinesRequest) returns (JoinLinesResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc JoinWordsIntoLine(JoinWordsIntoLineRequest) returns (JoinWordsIntoLineResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
 
   // Export / crosswalk operations.
-  rpc CrosswalkToPlainText(CrosswalkRequest) returns (CrosswalkResponse);
-  rpc CrosswalkToHOCR(CrosswalkRequest) returns (CrosswalkResponse);
-  rpc CrosswalkToPageXML(CrosswalkRequest) returns (CrosswalkResponse);
-  rpc CrosswalkToALTOXML(CrosswalkRequest) returns (CrosswalkResponse);
+  rpc CrosswalkToPlainText(CrosswalkToPlainTextRequest) returns (CrosswalkToPlainTextResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc CrosswalkToHOCR(CrosswalkToHOCRRequest) returns (CrosswalkToHOCRResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc CrosswalkToPageXML(CrosswalkToPageXMLRequest) returns (CrosswalkToPageXMLResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
+  rpc CrosswalkToALTOXML(CrosswalkToALTOXMLRequest) returns (CrosswalkToALTOXMLResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_READ
+    };
+  }
 }

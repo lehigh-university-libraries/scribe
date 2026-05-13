@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: terraform-apply-${{ github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   prepare-backend-origin:
@@ -78,7 +78,7 @@ jobs:
       checkout_ref: ${{ github.sha }}
 
   terraform-apply:
-    needs: [prepare-backend-origin, build-push, build-frontend, build-ocr]
+    needs: [prepare-backend-origin, build-push, build-frontend, build-ocr, lint-test]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
@@ -98,4 +98,3 @@ jobs:
       frontend_image_tag: ghcr.io/lehigh-university-libraries/scribe-frontend:main
       frontend_gar_image_tag: ${{ needs.prepare-backend-origin.outputs.frontend_gar_image_tag }}
       ocr_images_json: ${{ needs.build-ocr.outputs.images_json }}
-      vm_compose_images_json: ${{ needs.build-ocr.outputs.vm_images_json }}
