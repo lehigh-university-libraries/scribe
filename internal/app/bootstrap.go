@@ -4,10 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/database"
+	"github.com/lehigh-university-libraries/scribe/internal/jobqueue"
 	"github.com/lehigh-university-libraries/scribe/internal/server"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	"github.com/lehigh-university-libraries/scribe/internal/vaultkv"
@@ -22,6 +25,7 @@ type BootstrapOptions struct {
 // Dependencies collects the long-lived stores and shared resources used by the
 // API and worker entrypoints.
 type Dependencies struct {
+	AppContext             context.Context
 	Config                 config.Config
 	Secrets                config.Secrets
 	DBPool                 *sql.DB
@@ -36,6 +40,7 @@ type Dependencies struct {
 	ProviderSecretStore    *store.ProviderSecretStore
 	VaultClient            *vaultkv.Client
 	AuthManager            *auth.Manager
+	TranscriptionQueue     *jobqueue.PubSubTranscriptionQueue
 }
 
 // NewDependencies loads config + secrets, opens the DB, runs migrations, and
@@ -47,7 +52,7 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-	secrets, err := config.LoadSecrets(ctx, cfg)
+	secrets, err := loadSecretsWithRetry(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("load secrets: %w", err)
 	}
@@ -67,6 +72,7 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 	}
 
 	deps := &Dependencies{
+		AppContext:             ctx,
 		Config:                 cfg,
 		Secrets:                secrets,
 		DBPool:                 dbPool,
@@ -81,17 +87,25 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 		ProviderSecretStore:    store.NewProviderSecretStore(dbPool),
 		VaultClient:            vaultkv.New(cfg.Vault.Address, cfg.Vault.Token, cfg.Vault.KVMount, cfg.Vault.GCPAuthRole),
 	}
+	if jobqueue.Enabled(cfg.Transcription.Queue) {
+		q, err := jobqueue.NewPubSubTranscriptionQueue(ctx, cfg.Transcription.Queue, cfg.Transcription.JobWorkers)
+		if err != nil {
+			_ = dbPool.Close()
+			return nil, fmt.Errorf("configure transcription queue: %w", err)
+		}
+		deps.TranscriptionQueue = q
+	}
 
 	authManager, err := auth.NewManager(cfg, secrets, deps.IdentityStore, deps.APIKeyStore, deps.ProviderSecretStore, deps.ItemStore, deps.ContextStore, deps.TranscriptionJobStore, deps.VaultClient)
 	if err != nil {
-		_ = dbPool.Close()
+		_ = deps.Close()
 		return nil, fmt.Errorf("configure auth: %w", err)
 	}
 	deps.AuthManager = authManager
 
 	if opts.SeedSystemContexts {
 		if err := EnsureSystemContexts(ctx, cfg, deps.ContextStore); err != nil {
-			_ = dbPool.Close()
+			_ = deps.Close()
 			return nil, fmt.Errorf("seed system contexts: %w", err)
 		}
 	}
@@ -99,15 +113,49 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 	return deps, nil
 }
 
+func loadSecretsWithRetry(ctx context.Context, cfg config.Config) (config.Secrets, error) {
+	delay := 250 * time.Millisecond
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		secrets, err := config.LoadSecrets(ctx, cfg)
+		if err == nil {
+			return secrets, nil
+		}
+		lastErr = err
+		if !vaultkv.IsRetryable(err) || attempt == 5 {
+			break
+		}
+		slog.Warn("vault secrets load failed; retrying", "attempt", attempt, "err", err)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return config.Secrets{}, ctx.Err()
+		case <-timer.C:
+		}
+		delay *= 2
+		if delay > 4*time.Second {
+			delay = 4 * time.Second
+		}
+	}
+	return config.Secrets{}, lastErr
+}
+
 func (d *Dependencies) Close() error {
-	if d == nil || d.DBPool == nil {
+	if d == nil {
+		return nil
+	}
+	if d.TranscriptionQueue != nil {
+		_ = d.TranscriptionQueue.Close()
+	}
+	if d.DBPool == nil {
 		return nil
 	}
 	return d.DBPool.Close()
 }
 
 func (d *Dependencies) NewHandler() *server.Handler {
-	return server.NewHandler(
+	h := server.NewHandler(
 		d.OCRRunStore,
 		d.ItemStore,
 		d.ContextStore,
@@ -118,4 +166,9 @@ func (d *Dependencies) NewHandler() *server.Handler {
 		d.VaultClient,
 		d.ProviderCallAuditStore,
 	)
+	if d.TranscriptionQueue != nil {
+		h.SetTranscriptionJobQueue(d.TranscriptionQueue)
+	}
+	h.SetAppContext(d.AppContext)
+	return h
 }

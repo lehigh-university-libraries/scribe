@@ -27,24 +27,28 @@ export async function createItemFromManifest(manifestUrl: string): Promise<{ ite
 }
 
 export async function uploadItemImages(files: File[]): Promise<Item> {
-  let itemId = "";
+  if (files.length === 0) throw new Error("no files provided");
+  const createResp = await client().createItem({
+    name: files[0].name || "Untitled Item",
+    sourceType: "upload",
+  });
+  if (!createResp.item) throw new Error("no item in response");
+
+  const itemId = createResp.item.id;
   let item: Item | undefined;
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
     const imageData = await readFileBytes(file);
     const resp = await client().uploadItemImage({
       itemId,
-      name: files[0].name,
       imageData,
       filename: file.name,
       sequence: i + 1,
     });
     if (!resp.item) throw new Error("no item in response");
     item = resp.item;
-    itemId = item.id;
   }
-  if (!item) throw new Error("no files provided");
-  return item;
+  return item ?? createResp.item;
 }
 
 export async function getItem(itemId: string): Promise<Item> {

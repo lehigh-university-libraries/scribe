@@ -34,6 +34,8 @@ locals {
   vault_is_owner_workspace            = terraform.workspace == "prod" || terraform.workspace == "dev"
   workspace_slug                      = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
   vault_app_role_name                 = "scribe-app-${local.workspace_slug}"
+  pubsub_service_agent                = "service-${local.project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+  uploads_bucket_name                 = trimsuffix(substr(replace(lower("${var.project_id}-${var.name}-${local.workspace_slug}-uploads"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
 }
 
 data "google_artifact_registry_repository" "internal" {
@@ -91,18 +93,13 @@ locals {
   }
   segmentor_url                      = try(module.kraken["segmentor"].urls[var.region], try(module.kraken["segmentor"].urls[local.ocr_service_regions[0]], ""))
   segmentor_audience                 = local.segmentor_url
-  image_service_url                  = "http://image-service:8080"
-  image_service_audience             = ""
+  image_service_url                  = try(module.kraken["image-service"].primary_url, "")
+  image_service_audience             = local.image_service_url
   iiif_base                          = "/iiif/3"
-  iiif_internal_base                 = "http://image-service:8080/iiif/3"
+  iiif_internal_base                 = trimspace(local.image_service_url) != "" ? "${local.image_service_url}/iiif/3" : ""
   triplet_presentation_base          = ""
   triplet_presentation_internal_base = ""
   triplet_presentation_write_token   = ""
-  image_service_compose_image = lookup(
-    var.vm_compose_images,
-    "image-service",
-    "MISSING_IMAGE_FOR_image-service@sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  )
   kraken_segmentation_services = {
     for name, service in module.kraken :
     service.route_key => {
@@ -137,10 +134,34 @@ locals {
   }
   default_kraken_url      = try(local.kraken_transcription_services[local.kraken_default_transcription_key].primary_url, "")
   default_kraken_audience = try(local.kraken_transcription_services[local.kraken_default_transcription_key].audience, "")
-  docker_compose_services = ["mariadb", "image-service", "api", "worker"]
+  docker_compose_services = ["mariadb", "api", "worker"]
 
   docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
   compose_env_vars = [
+    {
+      name  = "TRANSCRIPTION_QUEUE_BACKEND"
+      value = "pubsub"
+    },
+    {
+      name  = "PUBSUB_PROJECT_ID"
+      value = var.project_id
+    },
+    {
+      name  = "PUBSUB_TRANSCRIPTION_TOPIC_ID"
+      value = google_pubsub_topic.transcription_jobs.name
+    },
+    {
+      name  = "PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID"
+      value = google_pubsub_subscription.transcription_workers.name
+    },
+    {
+      name  = "SCRIBE_UPLOADS_BUCKET"
+      value = google_storage_bucket.uploads.name
+    },
+    {
+      name  = "SCRIBE_UPLOADS_PREFIX"
+      value = "uploads"
+    },
     {
       name  = "OLLAMA_AUDIENCE"
       value = local.default_ollama_audience
@@ -222,12 +243,16 @@ locals {
       value = var.api_image
     },
     {
-      name  = "SCRIBE_IMAGE_SERVICE_IMAGE"
-      value = local.image_service_compose_image
-    },
-    {
       name  = "VAULT_ADDRESS"
       value = local.vault_url
+    },
+    {
+      name  = "VAULT_WORKSPACE"
+      value = local.workspace_slug
+    },
+    {
+      name  = "VAULT_SECRET_PREFIX"
+      value = "scribe/${local.workspace_slug}"
     },
     {
       name  = "VAULT_GCP_AUTH_ROLE"
@@ -237,21 +262,9 @@ locals {
   compose_env_update_commands = [
     for env in local.compose_env_vars :
     format(
-      "update_env %s '%s'",
+      "python3 scripts/update-env.py .env %s --base64 %s",
       env.name,
-      replace(
-        replace(
-          replace(
-            replace(env.value, "\\", "\\\\"),
-            "&",
-            "\\&",
-          ),
-          "/",
-          "\\/",
-        ),
-        "'",
-        "'\"'\"'",
-      ),
+      base64encode(env.value),
     )
   ]
   docker_compose_init = concat(local.compose_env_update_commands, [
@@ -260,7 +273,7 @@ locals {
   ])
   docker_compose_up = concat(local.compose_env_update_commands, [
     "git pull",
-    "docker compose pull api worker image-service",
+    "docker compose pull api worker",
     format("docker compose up --no-build %s", join(" ", local.docker_compose_services)),
   ])
   docker_compose_down = concat(local.compose_env_update_commands, [
@@ -268,10 +281,102 @@ locals {
   ])
 }
 
+resource "google_pubsub_topic" "transcription_jobs" {
+  name = "${var.name}-${local.workspace_slug}-transcription-jobs"
+}
+
+resource "google_pubsub_topic" "transcription_jobs_dead_letter" {
+  name = "${var.name}-${local.workspace_slug}-transcription-jobs-dlq"
+}
+
+resource "google_pubsub_subscription" "transcription_workers" {
+  name  = "${var.name}-${local.workspace_slug}-transcription-workers"
+  topic = google_pubsub_topic.transcription_jobs.id
+
+  ack_deadline_seconds       = 60
+  message_retention_duration = "604800s"
+
+  dead_letter_policy {
+    dead_letter_topic     = google_pubsub_topic.transcription_jobs_dead_letter.id
+    max_delivery_attempts = 5
+  }
+
+  retry_policy {
+    minimum_backoff = "10s"
+    maximum_backoff = "600s"
+  }
+}
+
+resource "google_pubsub_topic_iam_member" "transcription_jobs_publisher" {
+  topic  = google_pubsub_topic.transcription_jobs.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${module.scribe.appGsa.email}"
+}
+
+resource "google_pubsub_subscription_iam_member" "transcription_workers_subscriber" {
+  subscription = google_pubsub_subscription.transcription_workers.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${module.scribe.appGsa.email}"
+}
+
+resource "google_pubsub_topic_iam_member" "transcription_dead_letter_publisher" {
+  topic  = google_pubsub_topic.transcription_jobs_dead_letter.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${local.pubsub_service_agent}"
+}
+
+resource "google_pubsub_subscription_iam_member" "transcription_dead_letter_source_subscriber" {
+  subscription = google_pubsub_subscription.transcription_workers.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${local.pubsub_service_agent}"
+}
+
+resource "google_storage_bucket" "uploads" {
+  name                        = local.uploads_bucket_name
+  location                    = upper(var.region)
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+
+  lifecycle_rule {
+    condition {
+      age = 30
+    }
+    action {
+      type = "AbortIncompleteMultipartUpload"
+    }
+  }
+}
+
+resource "google_storage_bucket_iam_member" "uploads_app_object_admin" {
+  bucket = google_storage_bucket.uploads.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${module.scribe.appGsa.email}"
+}
+
+resource "google_storage_bucket_iam_member" "uploads_image_service_reader" {
+  bucket = google_storage_bucket.uploads.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${google_service_account.kraken.email}"
+}
+
 check "shared_vault_ready" {
   assert {
     condition     = local.vault_is_owner_workspace || trimspace(local.vault_url) != ""
     error_message = "Shared Vault workspace '${local.shared_vault_workspace}' must be applied first and expose the root output 'vault_url'. Apply the dev workspace before running preview environments."
+  }
+}
+
+check "vault_admin_emails_configured" {
+  assert {
+    condition     = !local.vault_is_owner_workspace || length(var.vault_admin_emails) > 0
+    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_admin_emails to be set in terraform.tfvars before apply."
+  }
+}
+
+check "vault_ci_service_account_emails_configured" {
+  assert {
+    condition     = !local.vault_is_owner_workspace || length(var.vault_ci_service_account_emails) > 0
+    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_ci_service_account_emails to be set in terraform.tfvars before apply. Include the GitHub Actions deploy service account from secrets.GSA."
   }
 }
 
@@ -291,7 +396,7 @@ provider "vault" {
 }
 
 module "scribe" {
-  source = "git::https://github.com/libops/cloud-compose?ref=0.6.1"
+  source = "git::https://github.com/libops/cloud-compose?ref=ab2108124bcf5c62a9b6b9dfdab9099e81b32ef7"
 
   project_id            = var.project_id
   project_number        = local.project_number
@@ -312,6 +417,7 @@ module "scribe" {
   users                 = var.users
   run_snapshots         = var.run_snapshots
   rootfs                = "${path.module}/rootfs"
+  os                    = "cos-125-19216-395-4"
   frontend = trimspace(var.frontend_gar_image) == "" ? null : {
     image = var.frontend_gar_image
     port  = 8888

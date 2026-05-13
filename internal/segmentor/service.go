@@ -5,14 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
+
+const maxMultipartBytes int64 = 64 << 20
 
 type SegmentResponse struct {
 	Provider string                  `json:"provider"`
@@ -49,7 +54,8 @@ func NewHandler() http.Handler {
 }
 
 func handleSegment(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMultipartBytes)
+	if err := r.ParseMultipartForm(64 << 20); err != nil { // #nosec G120 -- request body is capped with http.MaxBytesReader immediately above.
 		http.Error(w, fmt.Sprintf("parse multipart form: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -65,7 +71,7 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	tmp, err := os.CreateTemp("", "segmentor-*"+filepath.Ext(header.Filename))
+	tmp, err := os.CreateTemp("", "segmentor-*"+segmentorImageExtension(header, r.Header.Get("Content-Type")))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("create temp image: %v", err), http.StatusInternalServerError)
 		return
@@ -84,7 +90,14 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	words, provider, err := DetectWords(r.Context(), tmpPath, model)
+	preparedPath, cleanupPrepared, err := normalizeSegmentInput(tmpPath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("normalize segment image: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer cleanupPrepared()
+
+	words, provider, err := DetectWords(r.Context(), preparedPath, model)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("segment image: %v", err), http.StatusBadGateway)
 		return
@@ -98,7 +111,8 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleTranscribe(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMultipartBytes)
+	if err := r.ParseMultipartForm(64 << 20); err != nil { // #nosec G120 -- request body is capped with http.MaxBytesReader immediately above.
 		http.Error(w, fmt.Sprintf("parse multipart form: %v", err), http.StatusBadRequest)
 		return
 	}
@@ -111,7 +125,7 @@ func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	tmp, err := os.CreateTemp("", "segmentor-transcribe-*"+filepath.Ext(header.Filename))
+	tmp, err := os.CreateTemp("", "segmentor-transcribe-*"+segmentorImageExtension(header, r.Header.Get("Content-Type")))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("create temp image: %v", err), http.StatusInternalServerError)
 		return
@@ -177,7 +191,7 @@ func TranscribeWithKraken(ctx context.Context, imagePath, model string) (string,
 	_ = output.Close()
 	defer func() { _ = os.Remove(outputPath) }()
 
-	cmd := exec.CommandContext(ctx, "kraken",
+	cmd := exec.CommandContext(ctx, "kraken", // #nosec G204,G702 -- kraken is invoked directly without a shell; model paths are resolved under the configured model directory.
 		"-i", imagePath, outputPath,
 		"segment", "-bl",
 		"ocr", "-m", resolvedModel,
@@ -187,7 +201,7 @@ func TranscribeWithKraken(ctx context.Context, imagePath, model string) (string,
 		return "", "", fmt.Errorf("kraken transcription failed (model=%s): %w\noutput: %s", resolvedModel, err, strings.TrimSpace(string(combined)))
 	}
 
-	data, err := os.ReadFile(outputPath)
+	data, err := safefile.ReadFile(outputPath)
 	if err != nil {
 		return "", "", fmt.Errorf("read kraken transcription: %w", err)
 	}
@@ -218,16 +232,62 @@ func resolveKrakenModelPathWithDefault(model, fallback string) string {
 	if candidate == "" {
 		return ""
 	}
-	if filepath.IsAbs(candidate) {
-		return candidate
+	if filepath.IsAbs(candidate) || strings.ContainsAny(candidate, `/\`) {
+		return ""
 	}
-	modelDir := strings.TrimSpace(os.Getenv("KRAKEN_MODEL_DIR"))
-	if modelDir == "" {
-		modelDir = "/models/kraken"
-	}
-	resolved := filepath.Join(modelDir, candidate)
-	if _, err := os.Stat(resolved); err == nil {
+	resolved := filepath.Join("/models/kraken", candidate)
+	if _, err := os.Stat(resolved); err == nil { // #nosec G703 -- candidate rejects absolute paths and separators before joining under /models/kraken.
 		return resolved
 	}
 	return candidate
+}
+
+func normalizeSegmentInput(imagePath string) (string, func(), error) {
+	output, err := os.CreateTemp("", "segmentor-prepared-*.jpg")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create prepared image: %w", err)
+	}
+	outputPath := output.Name()
+	if err := output.Close(); err != nil {
+		_ = os.Remove(outputPath)
+		return "", func() {}, fmt.Errorf("close prepared image: %w", err)
+	}
+
+	cmd, err := imagemagick.ConvertCommand(imagePath, outputPath)
+	if err != nil {
+		_ = os.Remove(outputPath)
+		return "", func() {}, err
+	}
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		_ = os.Remove(outputPath)
+		return "", func() {}, fmt.Errorf("imagemagick normalize failed: %w: %s", err, strings.TrimSpace(string(combined)))
+	}
+
+	cleanup := func() {
+		_ = os.Remove(outputPath)
+	}
+	return outputPath, cleanup, nil
+}
+
+func segmentorImageExtension(header *multipart.FileHeader, contentType string) string {
+	if header != nil {
+		switch strings.ToLower(filepath.Ext(strings.TrimSpace(header.Filename))) {
+		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".jp2", ".j2k", ".jpx", ".tif", ".tiff":
+			return filepath.Ext(strings.TrimSpace(header.Filename))
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0])) {
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	case "image/jp2", "image/jpeg2000", "image/jpx":
+		return ".jp2"
+	case "image/tif", "image/tiff":
+		return ".tif"
+	default:
+		return ".jpg"
+	}
 }

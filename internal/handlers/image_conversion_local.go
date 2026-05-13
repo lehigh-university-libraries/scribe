@@ -5,7 +5,7 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -14,28 +14,29 @@ import (
 
 	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
 	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 )
 
 // convertImageViaHoudini converts JP2/TIFF images to JPG using ImageMagick locally.
-func (h *Handler) convertImageViaHoudini(imageData []byte, contentType string) ([]byte, error) {
-	hash := md5.Sum(imageData)
+func (h *Handler) convertImageViaHoudini(ctx context.Context, imageData []byte, contentType string) ([]byte, error) {
+	hash := sha256.Sum256(imageData)
 	cacheKey := hex.EncodeToString(hash[:])
 	cacheFilename := cacheKey + "_converted.jpg"
 	cacheDir := "cache/houdini"
 	cachePath := filepath.Join(cacheDir, cacheFilename)
 
-	if cachedData, err := os.ReadFile(cachePath); err == nil {
+	if cachedData, err := safefile.ReadFile(cachePath); err == nil {
 		slog.Info("Using cached Houdini conversion", "cache_key", cacheKey)
 		return cachedData, nil
 	}
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o750); err != nil {
 		slog.Warn("Failed to create Houdini cache directory", "error", err)
 	}
 
 	if client := imageservice.New(); client.Enabled() {
-		convertedData, err := client.Normalize(context.Background(), imageData, contentType)
+		convertedData, err := client.Normalize(ctx, imageData, contentType)
 		if err == nil {
-			if writeErr := os.WriteFile(cachePath, convertedData, 0o644); writeErr != nil {
+			if writeErr := os.WriteFile(cachePath, convertedData, 0o600); writeErr != nil {
 				slog.Warn("Failed to write normalized image cache", "cache_path", cachePath, "error", writeErr)
 			}
 			return convertedData, nil
@@ -53,7 +54,7 @@ func (h *Handler) convertImageViaHoudini(imageData []byte, contentType string) (
 		return nil, fmt.Errorf("imagemagick preprocessing failed: %w", err)
 	}
 
-	convertedData, err := os.ReadFile(cachePath)
+	convertedData, err := safefile.ReadFile(cachePath)
 	if err != nil {
 		return nil, err
 	}

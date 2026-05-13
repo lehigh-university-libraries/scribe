@@ -4,41 +4,22 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"io/fs"
-	"sort"
 	"strings"
 )
 
-//go:embed migrations/*.sql
-var migrationsFS embed.FS
+//go:embed schema.sql
+var schemaFS embed.FS
 
 func Migrate(db *sql.DB) error {
-	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	body, err := schemaFS.ReadFile("schema.sql")
 	if err != nil {
-		return fmt.Errorf("read migrations: %w", err)
+		return fmt.Errorf("read schema: %w", err)
 	}
-
-	files := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
-			continue
-		}
-		files = append(files, "migrations/"+entry.Name())
-	}
-	sort.Strings(files)
-
-	for _, file := range files {
-		body, err := migrationsFS.ReadFile(file)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", file, err)
-		}
-		for _, stmt := range splitStatements(string(body)) {
-			if _, err := db.Exec(stmt); err != nil {
-				return fmt.Errorf("apply %s: %w\nstatement: %s", file, err, stmt)
-			}
+	for _, stmt := range splitStatements(string(body)) {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("apply schema: %w\nstatement: %s", err, stmt)
 		}
 	}
-
 	return nil
 }
 

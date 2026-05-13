@@ -29,6 +29,7 @@ type Config struct {
 	PublicBaseURL string `yaml:"public_base_url"`
 
 	Auth          AuthConfig            `yaml:"auth"`
+	CORS          CORSConfig            `yaml:"cors"`
 	Database      DatabaseConfig        `yaml:"database"`
 	LLM           LLMConfig             `yaml:"llm"`
 	Transcription TranscriptionConfig   `yaml:"transcription"`
@@ -45,14 +46,35 @@ type Config struct {
 }
 
 type AuthConfig struct {
-	CookieName         string        `yaml:"cookie_name"`
-	CookieDomain       string        `yaml:"cookie_domain"`
-	CookieSecure       string        `yaml:"cookie_secure"` // "auto" | "true" | "false"
-	SessionTTL         time.Duration `yaml:"session_ttl"`
-	GoogleCallbackPath string        `yaml:"google_callback_path"`
-	AllowedDomains     []string      `yaml:"allowed_domains"`
-	DeniedDomains      []string      `yaml:"denied_domains"`
-	AdminEmails        []string      `yaml:"admin_emails"`
+	CookieName         string                    `yaml:"cookie_name"`
+	CookieDomain       string                    `yaml:"cookie_domain"`
+	SessionTTL         time.Duration             `yaml:"session_ttl"`
+	GoogleCallbackPath string                    `yaml:"google_callback_path"`
+	AllowedDomains     []string                  `yaml:"allowed_domains"`
+	DeniedDomains      []string                  `yaml:"denied_domains"`
+	AdminEmails        []string                  `yaml:"admin_emails"`
+	ExternalJWTIssuers []ExternalJWTIssuerConfig `yaml:"external_jwt_issuers"`
+}
+
+type ExternalJWTIssuerConfig struct {
+	Issuer        string                   `yaml:"issuer"`
+	Audience      string                   `yaml:"audience"`
+	JWKSURL       string                   `yaml:"jwks_url"`
+	WorkspaceID   uint64                   `yaml:"workspace_id"`
+	RequiredRoles []string                 `yaml:"required_roles"`
+	Role          string                   `yaml:"role"`
+	Scopes        []string                 `yaml:"scopes"`
+	RoleMappings  []ExternalJWTRoleMapping `yaml:"role_mappings"`
+}
+
+type ExternalJWTRoleMapping struct {
+	Roles  []string `yaml:"roles"`
+	Role   string   `yaml:"role"`
+	Scopes []string `yaml:"scopes"`
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type DatabaseConfig struct {
@@ -108,7 +130,19 @@ type GeminiConfig struct {
 }
 
 type TranscriptionConfig struct {
-	JobWorkers int `yaml:"job_workers"`
+	JobWorkers int                `yaml:"job_workers"`
+	Queue      TranscriptionQueue `yaml:"queue"`
+}
+
+type TranscriptionQueue struct {
+	Backend                string        `yaml:"backend"`
+	ProjectID              string        `yaml:"project_id"`
+	TopicID                string        `yaml:"topic_id"`
+	SubscriptionID         string        `yaml:"subscription_id"`
+	MaxOutstandingMessages int           `yaml:"max_outstanding_messages"`
+	MaxExtension           time.Duration `yaml:"max_extension"`
+	RecoveryPollInterval   time.Duration `yaml:"recovery_poll_interval"`
+	RecoveryMinAge         time.Duration `yaml:"recovery_min_age"`
 }
 
 type IIIFConfig struct {
@@ -142,15 +176,17 @@ type VaultConfig struct {
 	Address     string     `yaml:"address"`
 	GCPAuthRole string     `yaml:"gcp_auth_role"`
 	KVMount     string     `yaml:"kv_mount"`
+	Workspace   string     `yaml:"workspace"`
 	Paths       VaultPaths `yaml:"paths"`
 	Token       string     `yaml:"-"` // optional local-dev fallback from env
 }
 
 type VaultPaths struct {
-	GoogleOAuth string `yaml:"google_oauth"`
-	OpenAI      string `yaml:"openai"`
-	Gemini      string `yaml:"gemini"`
-	Database    string `yaml:"database"`
+	GoogleOAuth     string `yaml:"google_oauth"`
+	OpenAI          string `yaml:"openai"`
+	Gemini          string `yaml:"gemini"`
+	Database        string `yaml:"database"`
+	ProviderSecrets string `yaml:"provider_secrets"`
 }
 
 // Secrets holds values loaded from Vault at startup. The fields are populated
@@ -161,7 +197,6 @@ type Secrets struct {
 	OpenAIAPIKey            string
 	GeminiAPIKey            string
 	DatabasePassword        string
-	DatabaseRootPassword    string
 }
 
 // Load reads the YAML config from ConfigPath (falling back to the embedded
@@ -191,6 +226,10 @@ func Load() (Config, error) {
 	cfg.Vault.GCPAuthRole = strings.TrimSpace(cfg.Vault.GCPAuthRole)
 	if cfg.Vault.GCPAuthRole == "" {
 		cfg.Vault.GCPAuthRole = strings.TrimSpace(os.Getenv("VAULT_GCP_AUTH_ROLE"))
+	}
+	cfg.Vault.Workspace = strings.TrimSpace(cfg.Vault.Workspace)
+	if cfg.Vault.Workspace == "" {
+		cfg.Vault.Workspace = strings.TrimSpace(os.Getenv("VAULT_WORKSPACE"))
 	}
 	cfg.Vault.Token = strings.TrimSpace(os.Getenv("VAULT_TOKEN"))
 	var err error
@@ -229,6 +268,11 @@ func Load() (Config, error) {
 	}
 
 	cfg.PublicBaseURL = strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
+	for _, origin := range cfg.CORS.AllowedOrigins {
+		if strings.TrimSpace(origin) == "*" {
+			return Config{}, fmt.Errorf("cors.allowed_origins must not contain wildcard '*' when credentials are enabled")
+		}
+	}
 	if cfg.Auth.CookieName == "" {
 		cfg.Auth.CookieName = "scribe_session"
 	}
@@ -243,6 +287,21 @@ func Load() (Config, error) {
 	}
 	if cfg.Vault.GCPAuthRole == "" {
 		cfg.Vault.GCPAuthRole = "scribe-app"
+	}
+	if cfg.Vault.Workspace != "" {
+		expectedPrefix := "scribe/" + strings.Trim(cfg.Vault.Workspace, "/") + "/"
+		for name, path := range map[string]string{
+			"google_oauth":     cfg.Vault.Paths.GoogleOAuth,
+			"openai":           cfg.Vault.Paths.OpenAI,
+			"gemini":           cfg.Vault.Paths.Gemini,
+			"database":         cfg.Vault.Paths.Database,
+			"provider_secrets": cfg.Vault.Paths.ProviderSecrets,
+		} {
+			normalized := strings.Trim(strings.TrimSpace(path), "/") + "/"
+			if !strings.HasPrefix(normalized, expectedPrefix) {
+				return Config{}, fmt.Errorf("vault path %s=%q does not match VAULT_WORKSPACE %q", name, path, cfg.Vault.Workspace)
+			}
+		}
 	}
 
 	return cfg, nil
@@ -340,18 +399,6 @@ func (c Config) GoogleCallbackURL() string {
 	}
 	u.Path = strings.TrimRight(u.Path, "/") + c.Auth.GoogleCallbackPath
 	return u.String()
-}
-
-// CookieSecureResolved collapses the "auto" sentinel into a concrete bool.
-func (c Config) CookieSecureResolved() bool {
-	switch strings.ToLower(strings.TrimSpace(c.Auth.CookieSecure)) {
-	case "true", "1", "yes":
-		return true
-	case "false", "0", "no":
-		return false
-	default:
-		return strings.HasPrefix(c.PublicBaseURL, "https://")
-	}
 }
 
 // BuildDSN renders the configured DSN template using the supplied password.

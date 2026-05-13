@@ -8,6 +8,7 @@ services:
       TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
       TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
       KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
+      VAULT_TOKEN: ${VAULT_TOKEN:-}
     depends_on:
       segmentor:
         condition: service_started
@@ -23,6 +24,7 @@ services:
       TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
       TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
       KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
+      VAULT_TOKEN: ${VAULT_TOKEN:-}
     depends_on:
       segmentor:
         condition: service_started
@@ -49,4 +51,4 @@ services:
       dockerfile: Dockerfile.segmentor
 
   triplet:
-    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:main}
+    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:main@sha256:20eb44ee16b62ffc5dfc1fabdba76d16bf2550f036351f1cb867899477014599}

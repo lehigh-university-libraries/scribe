@@ -3,7 +3,7 @@ syntax = "proto3";
 package scribe.v1;
 
 import "buf/validate/validate.proto";
-import "scribe/v1/options/auth.proto";
+import "scribe/v1/options/v1/auth.proto";
 
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
@@ -62,6 +62,10 @@ message GetTranscriptionJobRequest {
   ];
 }
 
+message GetTranscriptionJobResponse {
+  TranscriptionJob job = 1;
+}
+
 message ListTranscriptionJobsRequest {
   // Filter by item_image_id; returns all jobs if zero.
   uint64 item_image_id = 1;
@@ -81,10 +85,14 @@ message StreamTranscriptionJobRequest {
   ];
 }
 
+message StreamTranscriptionJobResponse {
+  TranscriptionJob job = 1;
+}
+
 service TranscriptionService {
   // CreateTranscriptionJob enqueues a new batch transcription job for an image.
   rpc CreateTranscriptionJob(CreateTranscriptionJobRequest) returns (CreateTranscriptionJobResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_WRITE
       resource_id_field: "item_image_id"
@@ -92,8 +100,8 @@ service TranscriptionService {
   }
 
   // GetTranscriptionJob returns the current state of a job (for polling).
-  rpc GetTranscriptionJob(GetTranscriptionJobRequest) returns (TranscriptionJob) {
-    option (scribe.v1.options.authz) = {
+  rpc GetTranscriptionJob(GetTranscriptionJobRequest) returns (GetTranscriptionJobResponse) {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_TRANSCRIPTION_JOB
       level: ACCESS_LEVEL_READ
       resource_id_field: "job_id"
@@ -102,17 +110,16 @@ service TranscriptionService {
 
   // ListTranscriptionJobs lists jobs, optionally filtered by item image.
   rpc ListTranscriptionJobs(ListTranscriptionJobsRequest) returns (ListTranscriptionJobsResponse) {
-    option (scribe.v1.options.authz) = {
-      resource: RESOURCE_TYPE_ITEM_IMAGE
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_READ
-      resource_id_field: "item_image_id"
     };
   }
 
   // StreamTranscriptionJob streams job updates in real time until the job
   // reaches a terminal state (completed or failed).
-  rpc StreamTranscriptionJob(StreamTranscriptionJobRequest) returns (stream TranscriptionJob) {
-    option (scribe.v1.options.authz) = {
+  rpc StreamTranscriptionJob(StreamTranscriptionJobRequest) returns (stream StreamTranscriptionJobResponse) {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_TRANSCRIPTION_JOB
       level: ACCESS_LEVEL_READ
       resource_id_field: "job_id"

@@ -14,6 +14,8 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
 	"github.com/lehigh-university-libraries/scribe/internal/storage"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
 	"github.com/lehigh-university-libraries/scribe/internal/utils"
 )
 
@@ -28,7 +30,7 @@ type ImageProcessResult struct {
 	HOCRXML       string
 	Width         int
 	Height        int
-	MD5Hash       string
+	ContentHash   string
 }
 
 type SessionConfig struct {
@@ -62,7 +64,7 @@ func (h *Handler) writeJSON(w http.ResponseWriter, data interface{}) {
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, message string, code int) {
-	slog.Error(message)
+	slog.Error("request failed", "status", code)
 	http.Error(w, message, code)
 }
 
@@ -79,11 +81,25 @@ func (h *Handler) getSessionOrError(w http.ResponseWriter, sessionID string) (*m
 // File operation helpers
 func (h *Handler) ensureUploadsDir() error {
 	uploadsDir := "uploads"
-	return os.MkdirAll(uploadsDir, 0755)
+	return os.MkdirAll(uploadsDir, 0o750)
 }
 
-func (h *Handler) wasCacheUsed(md5Hash string) bool {
-	hocrFilename := md5Hash + ".xml"
+func (h *Handler) saveUploadedImageBytes(ctx context.Context, imageFilename string, imageData []byte, contentType string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	imageFilePath := filepath.Join("uploads", imageFilename)
+	if err := os.WriteFile(imageFilePath, imageData, 0o644); err != nil {
+		return "", fmt.Errorf("save image: %w", err)
+	}
+	if err := uploadblob.Put(ctx, imageFilename, imageData, contentType); err != nil {
+		return "", fmt.Errorf("save image to shared upload store: %w", err)
+	}
+	return imageFilePath, nil
+}
+
+func (h *Handler) wasCacheUsed(contentHash string) bool {
+	hocrFilename := contentHash + ".xml"
 	hocrFilePath := filepath.Join("uploads", hocrFilename)
 	_, err := os.Stat(hocrFilePath)
 	return err == nil
@@ -118,19 +134,6 @@ func (h *Handler) createImageSession(sessionID string, result *ImageProcessResul
 	return session
 }
 
-func (h *Handler) getOCRForImage(imagePath string) (string, error) {
-	// Use the simplified OCR service that bundles word detection + ChatGPT transcription
-	return h.hocrService.ProcessImageToHOCR(imagePath)
-}
-
-func (h *Handler) getOCRForImageWithModel(imagePath, model string) (string, error) {
-	return h.hocrService.ProcessImageToHOCRWithModel(imagePath, model)
-}
-
-func (h *Handler) getOCRForImageWithProviderAndModel(imagePath, provider, model string) (string, error) {
-	return h.hocrService.ProcessImageToHOCRWithProviderAndModel(imagePath, provider, model)
-}
-
 func (h *Handler) getDetectedHOCRForImage(imagePath string) (string, error) {
 	return h.hocrService.DetectLinesToHOCR(imagePath)
 }
@@ -159,7 +162,7 @@ func (h *Handler) ProcessImageURLWithContext(ctx context.Context, imageURL strin
 	if err := h.ensureUploadsDir(); err != nil {
 		return nil, fmt.Errorf("create uploads dir: %w", err)
 	}
-	imageData, contentType, err := h.downloadImageFromURL(imageURL)
+	imageData, contentType, err := h.downloadImageFromURL(ctx, imageURL)
 	if err != nil {
 		return nil, err
 	}
@@ -179,29 +182,35 @@ func (h *Handler) ProcessImageUploadWithContext(ctx context.Context, filename st
 // processDataWithContext is the shared implementation for ProcessImageURLWithContext
 // and ProcessImageUploadWithContext.
 func (h *Handler) processDataWithContext(ctx context.Context, imageData []byte, contentType, filename, sourceURL string, pctx hocr.ProcessingContext) (*ProcessResult, error) {
+	if err := validateUploadedImageData(imageData); err != nil {
+		return nil, err
+	}
+
 	if needsHoudiniConversion(contentType, sourceURL) {
-		converted, err := h.convertImageViaHoudini(imageData, contentType)
+		converted, err := h.convertImageViaHoudini(ctx, imageData, contentType)
 		if err != nil {
 			return nil, fmt.Errorf("convert image: %w", err)
 		}
 		imageData = converted
 		contentType = "image/jpeg"
+		if err := validateUploadedImageData(imageData); err != nil {
+			return nil, err
+		}
 	}
 
-	md5Hash := utils.CalculateDataMD5(imageData)
+	contentHash := utils.CalculateDataHash(imageData)
 	ext := h.getFileExtension(contentType, filename)
-	imageFilename := md5Hash + ext
-	imageFilePath := filepath.Join("uploads", imageFilename)
-
-	if err := os.WriteFile(imageFilePath, imageData, 0644); err != nil {
-		return nil, fmt.Errorf("save image: %w", err)
+	imageFilename := contentHash + ext
+	imageFilePath, err := h.saveUploadedImageBytes(ctx, imageFilename, imageData, contentType)
+	if err != nil {
+		return nil, err
 	}
 
 	imageLocalURL := "/static/uploads/" + imageFilename
 	width, height := utils.GetImageDimensions(imageFilePath)
 
 	baseFilename := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
-	sessionID := fmt.Sprintf("%s_%d", baseFilename, time.Now().Unix())
+	sessionID := fmt.Sprintf("%s_%d", safeSessionName(baseFilename), time.Now().Unix())
 	ctx = hocr.WithProviderCallMetadata(ctx, sessionID, nil, nil)
 
 	hocrXML, provider, model, err := h.hocrService.ProcessImageWithContext(ctx, imageFilePath, pctx)
@@ -220,7 +229,7 @@ func (h *Handler) processDataWithContext(ctx context.Context, imageData []byte, 
 		HOCRXML:       hocrXML,
 		Width:         width,
 		Height:        height,
-		MD5Hash:       md5Hash,
+		ContentHash:   contentHash,
 	}, SessionConfig{})
 	h.sessionStore.Set(sessionID, session)
 
@@ -232,4 +241,8 @@ func (h *Handler) processDataWithContext(ctx context.Context, imageData []byte, 
 		Provider:  provider,
 		Model:     model,
 	}, nil
+}
+
+func safeSessionName(raw string) string {
+	return store.Slugify(strings.TrimSuffix(filepath.Base(raw), filepath.Ext(raw)))
 }

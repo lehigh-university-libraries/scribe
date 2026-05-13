@@ -18,7 +18,9 @@ export async function createTranscriptionJob(itemImageId: bigint, contextId?: bi
 }
 
 export async function getTranscriptionJob(jobId: bigint): Promise<TranscriptionJob> {
-  return client().getTranscriptionJob({ jobId });
+  const resp = await client().getTranscriptionJob({ jobId });
+  if (!resp.job) throw new Error("no job in response");
+  return resp.job;
 }
 
 export async function listTranscriptionJobs(itemImageId: bigint): Promise<TranscriptionJob[]> {
@@ -47,9 +49,10 @@ export function streamTranscriptionJob(
         { signal: ac.signal },
       );
       let last: TranscriptionJob | undefined;
-      for await (const job of stream) {
-        last = job;
-        onUpdate(job);
+      for await (const resp of stream) {
+        if (!resp.job) continue;
+        last = resp.job;
+        onUpdate(resp.job);
       }
       if (last) onDone?.(last);
     } catch (err) {

@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -38,7 +40,7 @@ func (h *Handler) CreateTranscriptionJob(
 		contextID = &v
 	}
 
-	jobID, err := h.transcriptionJobs.Create(ctx, itemImageID, contextID)
+	jobID, err := h.createTranscriptionJob(ctx, itemImageID, contextID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create job: %w", err))
 	}
@@ -49,19 +51,22 @@ func (h *Handler) CreateTranscriptionJob(
 func (h *Handler) GetTranscriptionJob(
 	ctx context.Context,
 	req *connect.Request[scribev1.GetTranscriptionJobRequest],
-) (*connect.Response[scribev1.TranscriptionJob], error) {
+) (*connect.Response[scribev1.GetTranscriptionJobResponse], error) {
 	job, err := h.transcriptionJobs.Get(ctx, req.Msg.GetJobId())
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, err)
 	}
-	return connect.NewResponse(storeJobToProto(job)), nil
+	return connect.NewResponse(&scribev1.GetTranscriptionJobResponse{Job: storeJobToProto(job)}), nil
 }
 
 func (h *Handler) ListTranscriptionJobs(
 	ctx context.Context,
 	req *connect.Request[scribev1.ListTranscriptionJobsRequest],
 ) (*connect.Response[scribev1.ListTranscriptionJobsResponse], error) {
-	jobs, err := h.transcriptionJobs.ListByItemImage(ctx, req.Msg.GetItemImageId())
+	var (
+		jobs []store.TranscriptionJob
+		err  error
+	)
 	if req.Msg.GetItemImageId() == 0 {
 		jobs, err = h.transcriptionJobs.ListByWorkspace(ctx, h.currentWorkspaceID(ctx))
 	} else {
@@ -81,12 +86,12 @@ func (h *Handler) ListTranscriptionJobs(
 }
 
 // StreamTranscriptionJob sends a TranscriptionJob message every time the job
-// is updated (polling the DB every 500 ms) until the job reaches a terminal
+// is updated (polling the DB every 2 seconds) until the job reaches a terminal
 // state or the client disconnects.
 func (h *Handler) StreamTranscriptionJob(
 	ctx context.Context,
 	req *connect.Request[scribev1.StreamTranscriptionJobRequest],
-	stream *connect.ServerStream[scribev1.TranscriptionJob],
+	stream *connect.ServerStream[scribev1.StreamTranscriptionJobResponse],
 ) error {
 	jobID := req.Msg.GetJobId()
 	allowed, err := h.transcriptionJobs.WorkspaceOwnsJob(ctx, h.currentWorkspaceID(ctx), jobID)
@@ -96,7 +101,7 @@ func (h *Handler) StreamTranscriptionJob(
 	if !allowed {
 		return connect.NewError(connect.CodeNotFound, fmt.Errorf("job not found"))
 	}
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	var lastUpdatedAt time.Time
@@ -121,7 +126,7 @@ func (h *Handler) StreamTranscriptionJob(
 			}
 			lastUpdatedAt = job.UpdatedAt
 
-			if err := stream.Send(storeJobToProto(job)); err != nil {
+			if err := stream.Send(&scribev1.StreamTranscriptionJobResponse{Job: storeJobToProto(job)}); err != nil {
 				return err
 			}
 
@@ -138,10 +143,46 @@ func (h *Handler) StreamTranscriptionJob(
 // startup; it runs until ctx is cancelled.
 func (h *Handler) StartTranscriptionWorker(ctx context.Context) {
 	workerCount := transcriptionJobWorkerCount()
+	if h.transcriptionQueue != nil {
+		slog.Info("Starting Pub/Sub transcription job worker", "workers", workerCount)
+		sem := make(chan struct{}, workerCount)
+		go func() {
+			if err := h.transcriptionQueue.ReceiveTranscriptionJobs(ctx, func(msgCtx context.Context, jobID uint64) error {
+				if !acquireTranscriptionSlot(msgCtx, sem) {
+					return msgCtx.Err()
+				}
+				defer releaseTranscriptionSlot(sem)
+				return h.processQueuedTranscriptionJob(msgCtx, jobID)
+			}, func(msgCtx context.Context, messageID string, parseErr error, body []byte) {
+				h.publishEvent("dev.scribe.transcription.poisoned", "transcription/poisoned", map[string]any{
+					"messageId": messageID,
+					"error":     parseErr.Error(),
+					"body":      string(body),
+				})
+			}); err != nil {
+				slog.Error("Pub/Sub transcription worker stopped with error", "error", err)
+			}
+		}()
+		go h.transcriptionRecoveryLoop(ctx, sem)
+		return
+	}
 	slog.Info("Starting transcription job worker pool", "workers", workerCount)
 	for i := 0; i < workerCount; i++ {
 		go h.transcriptionWorkerLoop(ctx, i+1)
 	}
+}
+
+func (h *Handler) createTranscriptionJob(ctx context.Context, itemImageID uint64, contextID *uint64) (uint64, error) {
+	jobID, err := h.transcriptionJobs.Create(ctx, itemImageID, contextID)
+	if err != nil {
+		return 0, err
+	}
+	if h.transcriptionQueue != nil {
+		if err := h.transcriptionQueue.PublishTranscriptionJob(ctx, jobID); err != nil {
+			slog.Warn("Failed to publish transcription job message; recovery poller will pick it up", "job_id", jobID, "error", err)
+		}
+	}
+	return jobID, nil
 }
 
 func (h *Handler) transcriptionWorkerLoop(ctx context.Context, workerID int) {
@@ -157,24 +198,178 @@ func (h *Handler) transcriptionWorkerLoop(ctx context.Context, workerID int) {
 		job, err := h.transcriptionJobs.ClaimNextPending(ctx)
 		if err != nil {
 			slog.Error("Failed to claim transcription job", "worker_id", workerID, "error", err)
-			time.Sleep(5 * time.Second)
+			if !sleepOrDone(ctx, 5*time.Second) {
+				return
+			}
 			continue
 		}
 		if job == nil {
-			time.Sleep(3 * time.Second)
+			if !sleepOrDone(ctx, 3*time.Second) {
+				return
+			}
 			continue
 		}
 
 		slog.Info("Processing transcription job", "worker_id", workerID, "job_id", job.ID, "item_image_id", job.ItemImageID)
-		if err := h.processTranscriptionJob(ctx, job); err != nil {
+		if err := h.processClaimedTranscriptionJob(ctx, job); err != nil {
 			slog.Error("Transcription job failed", "worker_id", workerID, "job_id", job.ID, "error", err)
-			_ = h.transcriptionJobs.Fail(ctx, job.ID, err.Error())
-			h.publishEvent("dev.scribe.transcription.failed", subjectForItemImage(job.ItemImageID), map[string]any{
-				"jobId":       job.ID,
-				"itemImageId": job.ItemImageID,
-				"error":       err.Error(),
-			})
+			_ = h.recordClaimedTranscriptionJobFailure(ctx, job, err)
 		}
+	}
+}
+
+func (h *Handler) processQueuedTranscriptionJob(ctx context.Context, jobID uint64) error {
+	job, err := h.transcriptionJobs.ClaimPendingByID(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	if job == nil {
+		return nil
+	}
+	slog.Info("Processing queued transcription job", "job_id", job.ID, "item_image_id", job.ItemImageID)
+	if err := h.processClaimedTranscriptionJob(ctx, job); err != nil {
+		slog.Error("Queued transcription job failed", "job_id", job.ID, "error", err)
+		if recordErr := h.recordClaimedTranscriptionJobFailure(ctx, job, err); recordErr != nil {
+			return recordErr
+		}
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) transcriptionRecoveryLoop(ctx context.Context, sem chan struct{}) {
+	if sem == nil {
+		sem = make(chan struct{}, 1)
+	}
+	interval := config.Get().Config.Transcription.Queue.RecoveryPollInterval
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	minAge := config.Get().Config.Transcription.Queue.RecoveryMinAge
+	if minAge <= 0 {
+		minAge = 20 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for {
+				if !acquireTranscriptionSlot(ctx, sem) {
+					return
+				}
+				job, err := h.transcriptionJobs.ClaimNextPendingOlderThan(ctx, time.Now().UTC().Add(-minAge))
+				if err != nil {
+					releaseTranscriptionSlot(sem)
+					slog.Error("Failed to claim recovery transcription job", "error", err)
+					break
+				}
+				if job == nil {
+					releaseTranscriptionSlot(sem)
+					break
+				}
+				go func(job *store.TranscriptionJob) {
+					defer releaseTranscriptionSlot(sem)
+					slog.Info("Processing recovery transcription job", "job_id", job.ID, "item_image_id", job.ItemImageID)
+					if err := h.processClaimedTranscriptionJob(ctx, job); err != nil {
+						slog.Error("Recovery transcription job failed", "job_id", job.ID, "error", err)
+						_ = h.recordClaimedTranscriptionJobFailure(ctx, job, err)
+					}
+				}(job)
+			}
+		}
+	}
+}
+
+func acquireTranscriptionSlot(ctx context.Context, sem chan struct{}) bool {
+	select {
+	case sem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func releaseTranscriptionSlot(sem chan struct{}) {
+	select {
+	case <-sem:
+	default:
+	}
+}
+
+func (h *Handler) processClaimedTranscriptionJob(ctx context.Context, job *store.TranscriptionJob) error {
+	if strings.TrimSpace(job.LeaseOwner) == "" {
+		return fmt.Errorf("claimed transcription job %d has no lease owner", job.ID)
+	}
+	stopHeartbeat := h.startTranscriptionJobLeaseHeartbeat(ctx, job.ID, job.LeaseOwner)
+	defer stopHeartbeat()
+	return h.processTranscriptionJob(ctx, job)
+}
+
+type transcriptionRetryLaterError struct {
+	message    string
+	retryAfter time.Duration
+}
+
+func (e transcriptionRetryLaterError) Error() string {
+	return e.message
+}
+
+func retryTranscriptionLater(message string, retryAfter time.Duration) error {
+	if retryAfter <= 0 {
+		retryAfter = 5 * time.Second
+	}
+	return transcriptionRetryLaterError{message: message, retryAfter: retryAfter}
+}
+
+func (h *Handler) recordClaimedTranscriptionJobFailure(ctx context.Context, job *store.TranscriptionJob, err error) error {
+	if errors.Is(err, context.Canceled) {
+		deferCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return h.transcriptionJobs.Defer(deferCtx, job.ID, job.LeaseOwner, "worker shutting down", time.Now().UTC().Add(5*time.Second))
+	}
+	var retryLater transcriptionRetryLaterError
+	if errors.As(err, &retryLater) {
+		return h.transcriptionJobs.Defer(ctx, job.ID, job.LeaseOwner, retryLater.Error(), time.Now().UTC().Add(retryLater.retryAfter))
+	}
+	evt := h.newCloudEvent("dev.scribe.transcription.failed", subjectForItemImage(job.ItemImageID), map[string]any{
+		"jobId":       job.ID,
+		"itemImageId": job.ItemImageID,
+		"error":       err.Error(),
+	})
+	body, marshalErr := json.Marshal(evt)
+	if marshalErr != nil {
+		return fmt.Errorf("marshal failure event: %w", marshalErr)
+	}
+	if failErr := h.transcriptionJobs.FailWithWebhookEvent(ctx, job.ID, job.LeaseOwner, err.Error(), evt.ID, evt.Type, evt.Subject, string(body), h.webhookURLs); failErr != nil {
+		return failErr
+	}
+	h.publishCloudEvent(evt, false)
+	return nil
+}
+
+func (h *Handler) startTranscriptionJobLeaseHeartbeat(ctx context.Context, jobID uint64, leaseOwner string) func() {
+	done := make(chan struct{})
+	ticker := time.NewTicker(2 * time.Minute)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-ticker.C:
+				if err := h.transcriptionJobs.ExtendLease(ctx, jobID, leaseOwner, 10*time.Minute); err != nil {
+					slog.Warn("Failed to extend transcription job lease", "job_id", jobID, "error", err)
+				}
+			}
+		}
+	}()
+	return func() {
+		close(done)
 	}
 }
 
@@ -183,6 +378,17 @@ func transcriptionJobWorkerCount() int {
 		return v
 	}
 	return 3
+}
+
+func sleepOrDone(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func (h *Handler) resolveTranscriptionJobContext(ctx context.Context, job *store.TranscriptionJob) (store.Context, uint64, *uint64, error) {
@@ -218,58 +424,36 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	}
 	ctx = h.contextWithProviderSecret(ctx, workspaceID, ownerUserID, pctx.TranscriptionProvider)
 
-	// Wait for the canvas URI and annotations to be populated by Mirador loading
-	// the manifest. This happens shortly after the editor page loads, so we poll
-	// with a backoff rather than failing immediately.
 	var img store.ItemImage
 	var payloads []string
-	const maxWait = 20
-	for attempt := 1; attempt <= maxWait; attempt++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		var imgErr error
-		img, imgErr = h.items.GetImage(ctx, job.ItemImageID)
-		if imgErr != nil {
-			return fmt.Errorf("get item image %d: %w", job.ItemImageID, imgErr)
-		}
-
-		if img.CanvasURI != "" {
-			var searchErr error
-			payloads, searchErr = h.annotations.SearchByCanvas(ctx, img.CanvasURI)
-			if searchErr != nil {
-				return fmt.Errorf("search annotations for canvas %s: %w", img.CanvasURI, searchErr)
-			}
-			if len(payloads) == 0 {
-				base := h.internalAnnotationBaseURL()
-				bootstrap, bootstrapErr := h.bootstrapAnnotationsForCanvas(ctx, img.CanvasURI, base)
-				if bootstrapErr == nil {
-					payloads, searchErr = h.persistAnnotationItems(ctx, img.CanvasURI, bootstrap)
-					if searchErr != nil {
-						return fmt.Errorf("persist bootstrapped annotations for canvas %s: %w", img.CanvasURI, searchErr)
-					}
-				}
-			}
-			if len(payloads) > 0 {
-				break
-			}
-		}
-
-		slog.Info("Waiting for canvas and annotations to be ready",
-			"job_id", job.ID, "item_image_id", job.ItemImageID,
-			"attempt", attempt, "max", maxWait,
-			"has_canvas_uri", img.CanvasURI != "")
-		time.Sleep(3 * time.Second)
+	var imgErr error
+	img, imgErr = h.items.GetImage(ctx, job.ItemImageID)
+	if imgErr != nil {
+		return fmt.Errorf("get item image %d: %w", job.ItemImageID, imgErr)
+	}
+	if img.CanvasURI == "" {
+		slog.Info("Deferring transcription job until canvas URI is ready", "job_id", job.ID, "item_image_id", job.ItemImageID)
+		return retryTranscriptionLater(fmt.Sprintf("item image %d canvas URI is not ready", job.ItemImageID), 5*time.Second)
 	}
 
-	if img.CanvasURI == "" {
-		return fmt.Errorf("item image %d canvas URI never set after %d retries", job.ItemImageID, maxWait)
+	var searchErr error
+	payloads, searchErr = h.annotations.SearchByCanvas(ctx, img.CanvasURI)
+	if searchErr != nil {
+		return fmt.Errorf("search annotations for canvas %s: %w", img.CanvasURI, searchErr)
 	}
 	if len(payloads) == 0 {
-		return fmt.Errorf("no annotations found for canvas %s after %d retries", img.CanvasURI, maxWait)
+		base := h.internalAnnotationBaseURL()
+		bootstrap, bootstrapErr := h.bootstrapAnnotationsForCanvas(ctx, img.CanvasURI, base)
+		if bootstrapErr == nil {
+			payloads, searchErr = h.persistAnnotationItems(ctx, img.CanvasURI, bootstrap)
+			if searchErr != nil {
+				return fmt.Errorf("persist bootstrapped annotations for canvas %s: %w", img.CanvasURI, searchErr)
+			}
+		}
+	}
+	if len(payloads) == 0 {
+		slog.Info("Deferring transcription job until annotations are ready", "job_id", job.ID, "item_image_id", job.ItemImageID, "canvas_uri", img.CanvasURI)
+		return retryTranscriptionLater(fmt.Sprintf("no annotations found for canvas %s", img.CanvasURI), 5*time.Second)
 	}
 
 	// Filter to line-level annotations only.
@@ -291,8 +475,8 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 
 	total := len(lines)
 	slog.Info("Transcription job: found line annotations", "job_id", job.ID, "count", total)
-	if err := h.transcriptionJobs.SetTotalSegments(ctx, job.ID, total); err != nil {
-		slog.Warn("Failed to set total segments", "job_id", job.ID, "error", err)
+	if err := h.transcriptionJobs.SetTotalSegments(ctx, job.ID, job.LeaseOwner, total); err != nil {
+		return fmt.Errorf("set total segments: %w", err)
 	}
 
 	completed, failed := 0, 0
@@ -306,9 +490,12 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		slog.Info("Transcribing segment", "job_id", job.ID, "index", i+1, "total", total, "annotation_id", entry.id)
 
 		// Mark current segment in progress.
-		if err := h.transcriptionJobs.UpdateProgress(ctx, job.ID,
+		if err := h.transcriptionJobs.UpdateProgress(ctx, job.ID, job.LeaseOwner,
 			completed, failed, entry.id, entry.payload, ""); err != nil {
-			slog.Warn("Failed to update progress (pre-segment)", "job_id", job.ID, "error", err)
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("job lease lost before segment: %w", err)
+			}
+			return fmt.Errorf("update progress before segment: %w", err)
 		}
 		h.publishEvent("dev.scribe.transcription.task.started", subjectForAnnotation(job.ItemImageID, entry.id), map[string]any{
 			"jobId":             job.ID,
@@ -324,9 +511,12 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		if err != nil {
 			slog.Warn("Segment transcription failed", "job_id", job.ID, "annotation_id", entry.id, "error", err)
 			failed++
-			if err := h.transcriptionJobs.UpdateProgress(ctx, job.ID,
+			if err := h.transcriptionJobs.UpdateProgress(ctx, job.ID, job.LeaseOwner,
 				completed, failed, "", "", ""); err != nil {
-				slog.Warn("Failed to update progress (after failure)", "job_id", job.ID, "error", err)
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("job lease lost after segment failure: %w", err)
+				}
+				return fmt.Errorf("update progress after segment failure: %w", err)
 			}
 			continue
 		}
@@ -343,9 +533,12 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		}
 
 		completed++
-		if err := h.transcriptionJobs.UpdateProgress(ctx, job.ID,
+		if err := h.transcriptionJobs.UpdateProgress(ctx, job.ID, job.LeaseOwner,
 			completed, failed, "", "", enriched); err != nil {
-			slog.Warn("Failed to update progress (after success)", "job_id", job.ID, "error", err)
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("job lease lost after segment success: %w", err)
+			}
+			return fmt.Errorf("update progress after segment success: %w", err)
 		}
 		h.publishEvent("dev.scribe.transcription.task.completed", subjectForAnnotation(job.ItemImageID, entry.id), map[string]any{
 			"jobId":             job.ID,
@@ -359,14 +552,22 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	}
 
 	slog.Info("Transcription job complete", "job_id", job.ID, "completed", completed, "failed", failed)
-	h.publishEvent("dev.scribe.transcription.completed", subjectForItemImage(job.ItemImageID), map[string]any{
+	evt := h.newCloudEvent("dev.scribe.transcription.completed", subjectForItemImage(job.ItemImageID), map[string]any{
 		"jobId":             job.ID,
 		"itemImageId":       job.ItemImageID,
 		"completedSegments": completed,
 		"failedSegments":    failed,
 		"totalSegments":     total,
 	})
-	return h.transcriptionJobs.Complete(ctx, job.ID)
+	body, err := json.Marshal(evt)
+	if err != nil {
+		return fmt.Errorf("marshal completion event: %w", err)
+	}
+	if err := h.transcriptionJobs.CompleteWithWebhookEvent(ctx, job.ID, job.LeaseOwner, evt.ID, evt.Type, evt.Subject, string(body), h.webhookURLs); err != nil {
+		return err
+	}
+	h.publishCloudEvent(evt, false)
+	return nil
 }
 
 // --- proto conversion ---
@@ -375,9 +576,9 @@ func storeJobToProto(j store.TranscriptionJob) *scribev1.TranscriptionJob {
 	p := &scribev1.TranscriptionJob{
 		Id:                       j.ID,
 		ItemImageId:              j.ItemImageID,
-		TotalSegments:            int32(j.TotalSegments),
-		CompletedSegments:        int32(j.CompletedSegments),
-		FailedSegments:           int32(j.FailedSegments),
+		TotalSegments:            int32FromIntBounded(j.TotalSegments),
+		CompletedSegments:        int32FromIntBounded(j.CompletedSegments),
+		FailedSegments:           int32FromIntBounded(j.FailedSegments),
 		CurrentAnnotationId:      j.CurrentAnnotationID,
 		CurrentAnnotationJson:    j.CurrentAnnotationJSON,
 		LastResultAnnotationJson: j.LastResultAnnotationJSON,

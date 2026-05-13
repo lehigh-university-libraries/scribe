@@ -49,8 +49,8 @@ func TestRequestOriginIgnoresForwardedHeadersFromUntrustedProxy(t *testing.T) {
 func TestNormalizeOriginHostDropsPort(t *testing.T) {
 	tests := map[string]string{
 		"scribe-915966395449.us-east5.run.app:8080": "scribe-915966395449.us-east5.run.app",
-		"localhost:8080":                             "localhost",
-		"example.org":                                "example.org",
+		"localhost:8080": "localhost",
+		"example.org":    "example.org",
 	}
 
 	for input, want := range tests {

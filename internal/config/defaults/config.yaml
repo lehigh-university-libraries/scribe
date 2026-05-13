@@ -4,12 +4,15 @@ public_base_url: "${PUBLIC_BASE_URL:-http://localhost:8080}"
 auth:
   cookie_name: scribe_session
   cookie_domain: ""
-  cookie_secure: auto
   session_ttl: 24h
   google_callback_path: /auth/callback/google
   allowed_domains: []
   denied_domains: []
   admin_emails: []
+  external_jwt_issuers: []
+
+cors:
+  allowed_origins: []
 
 database:
   dsn_template: "{{.User}}:{{.Password}}@tcp({{.Host}}:{{.Port}})/{{.Name}}?parseTime=true"
@@ -44,10 +47,19 @@ llm:
 
 transcription:
   job_workers: 3
+  queue:
+    backend: "${TRANSCRIPTION_QUEUE_BACKEND:-database}"
+    project_id: "${PUBSUB_PROJECT_ID:-}"
+    topic_id: "${PUBSUB_TRANSCRIPTION_TOPIC_ID:-scribe-transcription-jobs}"
+    subscription_id: "${PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID:-scribe-transcription-workers}"
+    max_outstanding_messages: 3
+    max_extension: 60m
+    recovery_poll_interval: 30s
+    recovery_min_age: 20s
 
 iiif:
   base: "${IIIF_BASE:-/iiif/3}"
-  internal_base: "${IIIF_INTERNAL_BASE:-http://image-service:8080/iiif/3}"
+  internal_base: "${IIIF_INTERNAL_BASE:-http://triplet:8080/iiif/3}"
 
 segmentation_service:
   url: "${SEGMENTATION_SERVICE_URL:-}"
@@ -73,9 +85,11 @@ webhooks:
 vault:
   address: "${VAULT_ADDRESS:-}"
   gcp_auth_role: "${VAULT_GCP_AUTH_ROLE:-scribe-app}"
+  workspace: "${VAULT_WORKSPACE:-dev}"
   kv_mount: secret
   paths:
-    google_oauth: scribe/google_oauth
-    openai: scribe/openai
-    gemini: scribe/gemini
-    database: scribe/database
+    google_oauth: ${VAULT_SECRET_PREFIX:-scribe/dev}/google_oauth
+    openai: ${VAULT_SECRET_PREFIX:-scribe/dev}/openai
+    gemini: ${VAULT_SECRET_PREFIX:-scribe/dev}/gemini
+    database: ${VAULT_SECRET_PREFIX:-scribe/dev}/database/app
+    provider_secrets: ${VAULT_SECRET_PREFIX:-scribe/dev}/provider-secrets/workspaces

@@ -28,8 +28,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (uint64,
 	if err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
-	return uint64(id), err
+	return compatLastInsertID(res)
 }
 
 func (q *Queries) GetUser(ctx context.Context, id uint64) (User, error) {
@@ -146,23 +145,38 @@ type CreateWorkspaceParams struct {
 }
 
 func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams) (uint64, error) {
+	organizationID, err := compatNullUint64(arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	ownerUserID, err := compatNullUint64(arg.OwnerUserID)
+	if err != nil {
+		return 0, err
+	}
+	createdByUserID, err := compatNullUint64(arg.CreatedByUserID)
+	if err != nil {
+		return 0, err
+	}
 	res, err := q.CreateWorkspaceManual(ctx, CreateWorkspaceManualParams{
-		OrganizationID:  compatNullUint64(arg.OrganizationID),
-		OwnerUserID:     compatNullUint64(arg.OwnerUserID),
+		OrganizationID:  organizationID,
+		OwnerUserID:     ownerUserID,
 		Name:            arg.Name,
 		Slug:            arg.Slug,
 		IsPersonal:      arg.IsPersonal,
-		CreatedByUserID: compatNullUint64(arg.CreatedByUserID),
+		CreatedByUserID: createdByUserID,
 	})
 	if err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
-	return uint64(id), err
+	return compatLastInsertID(res)
 }
 
 func (q *Queries) GetPersonalWorkspaceByUserID(ctx context.Context, userID uint64) (Workspace, error) {
-	return q.GetPersonalWorkspaceByUserIDManual(ctx, sql.NullInt64{Int64: int64(userID), Valid: true})
+	converted, err := compatUint64ToInt64(userID)
+	if err != nil {
+		return Workspace{}, err
+	}
+	return q.GetPersonalWorkspaceByUserIDManual(ctx, sql.NullInt64{Int64: converted, Valid: true})
 }
 
 type WorkspaceAccess struct {

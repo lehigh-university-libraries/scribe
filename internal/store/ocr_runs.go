@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"time"
 
 	db "github.com/lehigh-university-libraries/scribe/internal/db"
@@ -108,14 +109,34 @@ func (s *OCRRunStore) SaveEdits(
 	editCount, levenshteinDistance, boxEditCount, boxesAdded, boxesDeleted int,
 	boxChangeScore float64,
 ) error {
-	err := s.q.SaveOCREdits(ctx, db.SaveOCREditsParams{
+	editCount32, err := int32FromInt(editCount)
+	if err != nil {
+		return err
+	}
+	levenshteinDistance32, err := int32FromInt(levenshteinDistance)
+	if err != nil {
+		return err
+	}
+	boxEditCount32, err := int32FromInt(boxEditCount)
+	if err != nil {
+		return err
+	}
+	boxesAdded32, err := int32FromInt(boxesAdded)
+	if err != nil {
+		return err
+	}
+	boxesDeleted32, err := int32FromInt(boxesDeleted)
+	if err != nil {
+		return err
+	}
+	err = s.q.SaveOCREdits(ctx, db.SaveOCREditsParams{
 		CorrectedHocr:       correctedHOCR,
 		CorrectedText:       correctedText,
-		EditCount:           int32(editCount),
-		LevenshteinDistance: int32(levenshteinDistance),
-		BoxEditCount:        int32(boxEditCount),
-		BoxesAdded:          int32(boxesAdded),
-		BoxesDeleted:        int32(boxesDeleted),
+		EditCount:           editCount32,
+		LevenshteinDistance: levenshteinDistance32,
+		BoxEditCount:        boxEditCount32,
+		BoxesAdded:          boxesAdded32,
+		BoxesDeleted:        boxesDeleted32,
 		BoxChangeScore:      boxChangeScore,
 		SessionID:           sessionID,
 	})
@@ -127,6 +148,9 @@ func (s *OCRRunStore) SaveEdits(
 
 func uint64ToNullInt64(v *uint64) sql.NullInt64 {
 	if v == nil {
+		return sql.NullInt64{}
+	}
+	if *v > math.MaxInt64 {
 		return sql.NullInt64{}
 	}
 	return sql.NullInt64{

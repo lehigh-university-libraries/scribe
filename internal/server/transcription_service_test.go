@@ -119,11 +119,11 @@ func TestResolveTranscriptionJobContextUsesOwningUserScope(t *testing.T) {
 
 	itemID := uniqueName("job-item")
 	item, err := itemStore.Create(ctx, dbstore.CreateItemParams{
-		ID:         itemID,
-		UserID:     ownerUserID,
+		ID:          itemID,
+		UserID:      ownerUserID,
 		WorkspaceID: ownerWorkspaceID,
-		Name:       "Job Item",
-		SourceType: "upload",
+		Name:        "Job Item",
+		SourceType:  "upload",
 	})
 	if err != nil {
 		t.Fatalf("create item: %v", err)
@@ -196,11 +196,11 @@ func TestResolveTranscriptionJobContextRejectsOtherUsersExplicitContext(t *testi
 
 	itemID := uniqueName("job-item-explicit")
 	item, err := itemStore.Create(ctx, dbstore.CreateItemParams{
-		ID:         itemID,
-		UserID:     ownerUserID,
+		ID:          itemID,
+		UserID:      ownerUserID,
 		WorkspaceID: ownerWorkspaceID,
-		Name:       "Job Item Explicit",
-		SourceType: "upload",
+		Name:        "Job Item Explicit",
+		SourceType:  "upload",
 	})
 	if err != nil {
 		t.Fatalf("create item: %v", err)

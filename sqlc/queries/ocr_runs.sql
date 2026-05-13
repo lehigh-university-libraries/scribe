@@ -73,7 +73,7 @@ SELECT
 FROM ocr_runs
 WHERE item_image_id = sqlc.arg(item_image_id);
 
--- name: SaveOCREditsManual :exec
+-- name: SaveOCREditsManual :execresult
 UPDATE ocr_runs
 SET
   corrected_hocr = sqlc.arg(corrected_hocr),

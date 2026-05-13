@@ -21,11 +21,11 @@ users = {
 
 # Vault administrators for the shared dev/prod Vault servers.
 vault_admin_emails = [
-  "admin@example.edu",
+  "jjc223@lehigh.edu",
 ]
 
 # GitHub Actions deploy service accounts that must keep Vault CI login roles.
 # This must include the current value of GitHub secret GSA.
 vault_ci_service_account_emails = [
-  "github-deploy@example-project.iam.gserviceaccount.com",
+  "github@lehigh-lyrasis-catalyst.iam.gserviceaccount.com",
 ]

@@ -55,10 +55,10 @@ const (
 
 // ImageProcessingServiceClient is a client for the scribe.v1.ImageProcessingService service.
 type ImageProcessingServiceClient interface {
-	ProcessImageURL(context.Context, *connect.Request[v1.ProcessImageURLRequest]) (*connect.Response[v1.ProcessImageResponse], error)
-	ProcessImageUpload(context.Context, *connect.Request[v1.ProcessImageUploadRequest]) (*connect.Response[v1.ProcessImageResponse], error)
-	ProcessHOCR(context.Context, *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessImageResponse], error)
-	GetOCRRun(context.Context, *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.OCRRun], error)
+	ProcessImageURL(context.Context, *connect.Request[v1.ProcessImageURLRequest]) (*connect.Response[v1.ProcessImageURLResponse], error)
+	ProcessImageUpload(context.Context, *connect.Request[v1.ProcessImageUploadRequest]) (*connect.Response[v1.ProcessImageUploadResponse], error)
+	ProcessHOCR(context.Context, *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessHOCRResponse], error)
+	GetOCRRun(context.Context, *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.GetOCRRunResponse], error)
 	SaveOCREdits(context.Context, *connect.Request[v1.SaveOCREditsRequest]) (*connect.Response[v1.SaveOCREditsResponse], error)
 	ReprocessItemImage(context.Context, *connect.Request[v1.ReprocessItemImageRequest]) (*connect.Response[v1.ReprocessItemImageResponse], error)
 }
@@ -74,25 +74,25 @@ func NewImageProcessingServiceClient(httpClient connect.HTTPClient, baseURL stri
 	baseURL = strings.TrimRight(baseURL, "/")
 	imageProcessingServiceMethods := v1.File_scribe_v1_process_proto.Services().ByName("ImageProcessingService").Methods()
 	return &imageProcessingServiceClient{
-		processImageURL: connect.NewClient[v1.ProcessImageURLRequest, v1.ProcessImageResponse](
+		processImageURL: connect.NewClient[v1.ProcessImageURLRequest, v1.ProcessImageURLResponse](
 			httpClient,
 			baseURL+ImageProcessingServiceProcessImageURLProcedure,
 			connect.WithSchema(imageProcessingServiceMethods.ByName("ProcessImageURL")),
 			connect.WithClientOptions(opts...),
 		),
-		processImageUpload: connect.NewClient[v1.ProcessImageUploadRequest, v1.ProcessImageResponse](
+		processImageUpload: connect.NewClient[v1.ProcessImageUploadRequest, v1.ProcessImageUploadResponse](
 			httpClient,
 			baseURL+ImageProcessingServiceProcessImageUploadProcedure,
 			connect.WithSchema(imageProcessingServiceMethods.ByName("ProcessImageUpload")),
 			connect.WithClientOptions(opts...),
 		),
-		processHOCR: connect.NewClient[v1.ProcessHOCRRequest, v1.ProcessImageResponse](
+		processHOCR: connect.NewClient[v1.ProcessHOCRRequest, v1.ProcessHOCRResponse](
 			httpClient,
 			baseURL+ImageProcessingServiceProcessHOCRProcedure,
 			connect.WithSchema(imageProcessingServiceMethods.ByName("ProcessHOCR")),
 			connect.WithClientOptions(opts...),
 		),
-		getOCRRun: connect.NewClient[v1.GetOCRRunRequest, v1.OCRRun](
+		getOCRRun: connect.NewClient[v1.GetOCRRunRequest, v1.GetOCRRunResponse](
 			httpClient,
 			baseURL+ImageProcessingServiceGetOCRRunProcedure,
 			connect.WithSchema(imageProcessingServiceMethods.ByName("GetOCRRun")),
@@ -115,31 +115,31 @@ func NewImageProcessingServiceClient(httpClient connect.HTTPClient, baseURL stri
 
 // imageProcessingServiceClient implements ImageProcessingServiceClient.
 type imageProcessingServiceClient struct {
-	processImageURL    *connect.Client[v1.ProcessImageURLRequest, v1.ProcessImageResponse]
-	processImageUpload *connect.Client[v1.ProcessImageUploadRequest, v1.ProcessImageResponse]
-	processHOCR        *connect.Client[v1.ProcessHOCRRequest, v1.ProcessImageResponse]
-	getOCRRun          *connect.Client[v1.GetOCRRunRequest, v1.OCRRun]
+	processImageURL    *connect.Client[v1.ProcessImageURLRequest, v1.ProcessImageURLResponse]
+	processImageUpload *connect.Client[v1.ProcessImageUploadRequest, v1.ProcessImageUploadResponse]
+	processHOCR        *connect.Client[v1.ProcessHOCRRequest, v1.ProcessHOCRResponse]
+	getOCRRun          *connect.Client[v1.GetOCRRunRequest, v1.GetOCRRunResponse]
 	saveOCREdits       *connect.Client[v1.SaveOCREditsRequest, v1.SaveOCREditsResponse]
 	reprocessItemImage *connect.Client[v1.ReprocessItemImageRequest, v1.ReprocessItemImageResponse]
 }
 
 // ProcessImageURL calls scribe.v1.ImageProcessingService.ProcessImageURL.
-func (c *imageProcessingServiceClient) ProcessImageURL(ctx context.Context, req *connect.Request[v1.ProcessImageURLRequest]) (*connect.Response[v1.ProcessImageResponse], error) {
+func (c *imageProcessingServiceClient) ProcessImageURL(ctx context.Context, req *connect.Request[v1.ProcessImageURLRequest]) (*connect.Response[v1.ProcessImageURLResponse], error) {
 	return c.processImageURL.CallUnary(ctx, req)
 }
 
 // ProcessImageUpload calls scribe.v1.ImageProcessingService.ProcessImageUpload.
-func (c *imageProcessingServiceClient) ProcessImageUpload(ctx context.Context, req *connect.Request[v1.ProcessImageUploadRequest]) (*connect.Response[v1.ProcessImageResponse], error) {
+func (c *imageProcessingServiceClient) ProcessImageUpload(ctx context.Context, req *connect.Request[v1.ProcessImageUploadRequest]) (*connect.Response[v1.ProcessImageUploadResponse], error) {
 	return c.processImageUpload.CallUnary(ctx, req)
 }
 
 // ProcessHOCR calls scribe.v1.ImageProcessingService.ProcessHOCR.
-func (c *imageProcessingServiceClient) ProcessHOCR(ctx context.Context, req *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessImageResponse], error) {
+func (c *imageProcessingServiceClient) ProcessHOCR(ctx context.Context, req *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessHOCRResponse], error) {
 	return c.processHOCR.CallUnary(ctx, req)
 }
 
 // GetOCRRun calls scribe.v1.ImageProcessingService.GetOCRRun.
-func (c *imageProcessingServiceClient) GetOCRRun(ctx context.Context, req *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.OCRRun], error) {
+func (c *imageProcessingServiceClient) GetOCRRun(ctx context.Context, req *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.GetOCRRunResponse], error) {
 	return c.getOCRRun.CallUnary(ctx, req)
 }
 
@@ -156,10 +156,10 @@ func (c *imageProcessingServiceClient) ReprocessItemImage(ctx context.Context, r
 // ImageProcessingServiceHandler is an implementation of the scribe.v1.ImageProcessingService
 // service.
 type ImageProcessingServiceHandler interface {
-	ProcessImageURL(context.Context, *connect.Request[v1.ProcessImageURLRequest]) (*connect.Response[v1.ProcessImageResponse], error)
-	ProcessImageUpload(context.Context, *connect.Request[v1.ProcessImageUploadRequest]) (*connect.Response[v1.ProcessImageResponse], error)
-	ProcessHOCR(context.Context, *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessImageResponse], error)
-	GetOCRRun(context.Context, *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.OCRRun], error)
+	ProcessImageURL(context.Context, *connect.Request[v1.ProcessImageURLRequest]) (*connect.Response[v1.ProcessImageURLResponse], error)
+	ProcessImageUpload(context.Context, *connect.Request[v1.ProcessImageUploadRequest]) (*connect.Response[v1.ProcessImageUploadResponse], error)
+	ProcessHOCR(context.Context, *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessHOCRResponse], error)
+	GetOCRRun(context.Context, *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.GetOCRRunResponse], error)
 	SaveOCREdits(context.Context, *connect.Request[v1.SaveOCREditsRequest]) (*connect.Response[v1.SaveOCREditsResponse], error)
 	ReprocessItemImage(context.Context, *connect.Request[v1.ReprocessItemImageRequest]) (*connect.Response[v1.ReprocessItemImageResponse], error)
 }
@@ -230,19 +230,19 @@ func NewImageProcessingServiceHandler(svc ImageProcessingServiceHandler, opts ..
 // UnimplementedImageProcessingServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedImageProcessingServiceHandler struct{}
 
-func (UnimplementedImageProcessingServiceHandler) ProcessImageURL(context.Context, *connect.Request[v1.ProcessImageURLRequest]) (*connect.Response[v1.ProcessImageResponse], error) {
+func (UnimplementedImageProcessingServiceHandler) ProcessImageURL(context.Context, *connect.Request[v1.ProcessImageURLRequest]) (*connect.Response[v1.ProcessImageURLResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ImageProcessingService.ProcessImageURL is not implemented"))
 }
 
-func (UnimplementedImageProcessingServiceHandler) ProcessImageUpload(context.Context, *connect.Request[v1.ProcessImageUploadRequest]) (*connect.Response[v1.ProcessImageResponse], error) {
+func (UnimplementedImageProcessingServiceHandler) ProcessImageUpload(context.Context, *connect.Request[v1.ProcessImageUploadRequest]) (*connect.Response[v1.ProcessImageUploadResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ImageProcessingService.ProcessImageUpload is not implemented"))
 }
 
-func (UnimplementedImageProcessingServiceHandler) ProcessHOCR(context.Context, *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessImageResponse], error) {
+func (UnimplementedImageProcessingServiceHandler) ProcessHOCR(context.Context, *connect.Request[v1.ProcessHOCRRequest]) (*connect.Response[v1.ProcessHOCRResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ImageProcessingService.ProcessHOCR is not implemented"))
 }
 
-func (UnimplementedImageProcessingServiceHandler) GetOCRRun(context.Context, *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.OCRRun], error) {
+func (UnimplementedImageProcessingServiceHandler) GetOCRRun(context.Context, *connect.Request[v1.GetOCRRunRequest]) (*connect.Response[v1.GetOCRRunResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ImageProcessingService.GetOCRRun is not implemented"))
 }
 

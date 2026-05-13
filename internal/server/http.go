@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
@@ -27,7 +26,9 @@ import (
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
 	"github.com/lehigh-university-libraries/scribe/internal/vaultkv"
 )
 
@@ -39,10 +40,10 @@ type Handler struct {
 	providerCallAudits *store.ProviderCallAuditStore
 	providerSecrets    *store.ProviderSecretStore
 	transcriptionJobs  *store.TranscriptionJobStore
+	transcriptionQueue TranscriptionJobQueue
 	auth               *auth.Manager
+	appCtx             context.Context
 	vault              *vaultkv.Client
-	events             *eventBroker
-	webhookClient      *http.Client
 	webhookURLs        []string
 	mux                http.Handler
 	webDir             string
@@ -52,19 +53,12 @@ type Handler struct {
 	annotationBaseURL string
 }
 
-type processProgress struct {
-	ID        string    `json:"id"`
-	Status    string    `json:"status"`
-	Message   string    `json:"message"`
-	Done      bool      `json:"done"`
-	Error     string    `json:"error,omitempty"`
-	StartedAt time.Time `json:"started_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+type TranscriptionJobQueue interface {
+	PublishTranscriptionJob(context.Context, uint64) error
+	ReceiveTranscriptionJobs(context.Context, func(context.Context, uint64) error, func(context.Context, string, error, []byte)) error
 }
 
 var (
-	progressMu       sync.RWMutex
-	progressState    = map[string]processProgress{}
 	trustedProxyNets = mustParseCIDRs(
 		"10.0.0.0/8",
 		"172.16.0.0/12",
@@ -127,7 +121,9 @@ func AccessLogger(next http.Handler) http.Handler {
 			wrapped.statusCode = http.StatusOK
 		}
 
-		slog.Info(r.Method+" "+r.URL.Path,
+		slog.Info("http request",
+			"method", r.Method,
+			"path", r.URL.Path,
 			"status", wrapped.statusCode,
 			"duration_ms", time.Since(start).Milliseconds(),
 			"remote_addr", r.RemoteAddr,
@@ -167,9 +163,8 @@ func NewHandler(
 		providerSecrets:    providerSecrets,
 		transcriptionJobs:  transcriptionJobs,
 		auth:               authManager,
+		appCtx:             context.Background(),
 		vault:              vaultClient,
-		events:             newEventBroker(),
-		webhookClient:      &http.Client{Timeout: 10 * time.Second},
 		webhookURLs:        append([]string(nil), config.Get().Config.Webhooks.URLs...),
 		webDir:             webDir,
 		ocr:                ocrhandlers.New(),
@@ -217,8 +212,8 @@ func NewHandler(
 		authManager.RegisterRoutes(mux)
 	}
 
-	// Static assets
-	mux.Handle("GET /static/uploads/", http.StripPrefix("/static/uploads/", http.FileServer(http.Dir("uploads"))))
+	// Static uploads are workspace-scoped even though they live on local disk.
+	mux.HandleFunc("GET /static/uploads/", handler.handleStaticUpload)
 	mux.HandleFunc("/", handler.handleWeb)
 	var finalMux http.Handler = mux
 	if authManager != nil {
@@ -228,27 +223,211 @@ func NewHandler(
 	return handler
 }
 
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// CORS: allow all origins for annotation / Connect RPC clients.
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" {
-		origin = "*"
-	} else {
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
+func (h *Handler) SetAppContext(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Vary", "Origin")
-	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Accept,Authorization,Connect-Protocol-Version,X-Provider,X-Scribe-Workspace-ID,X-Scribe-API-Key")
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusNoContent)
+	h.appCtx = ctx
+}
+
+func (h *Handler) backgroundContext() context.Context {
+	if h != nil && h.appCtx != nil {
+		return h.appCtx
+	}
+	return context.Background()
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !applyCORS(w, r) {
 		return
 	}
 	h.mux.ServeHTTP(w, r)
 }
 
+func applyCORS(w http.ResponseWriter, r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return false
+		}
+		return true
+	}
+
+	addVaryHeader(w.Header(), "Origin")
+	if !corsOriginAllowed(r, origin) {
+		if r.Method == http.MethodOptions {
+			writeError(w, http.StatusForbidden, "origin is not allowed")
+			return false
+		}
+		return true
+	}
+
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Accept,Authorization,Connect-Protocol-Version,X-Provider,X-Scribe-Workspace-ID,X-Scribe-API-Key")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return false
+	}
+	return true
+}
+
+func addVaryHeader(header http.Header, value string) {
+	existing := header.Values("Vary")
+	for _, entry := range existing {
+		for _, part := range strings.Split(entry, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), value) {
+				return
+			}
+		}
+	}
+	header.Add("Vary", value)
+}
+
+func corsOriginAllowed(r *http.Request, rawOrigin string) bool {
+	origin, ok := canonicalOrigin(rawOrigin)
+	if !ok {
+		return false
+	}
+	for _, candidate := range allowedCORSOrigins(r) {
+		if candidate == origin {
+			return true
+		}
+	}
+	return false
+}
+
+func allowedCORSOrigins(r *http.Request) []string {
+	cfg := config.Get().Config
+	rawOrigins := make([]string, 0, 2+len(cfg.CORS.AllowedOrigins))
+	rawOrigins = append(rawOrigins, cfg.PublicBaseURL, requestCORSOrigin(r))
+	rawOrigins = append(rawOrigins, cfg.CORS.AllowedOrigins...)
+
+	seen := make(map[string]struct{}, len(rawOrigins))
+	origins := make([]string, 0, len(rawOrigins))
+	for _, raw := range rawOrigins {
+		origin, ok := canonicalOrigin(raw)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[origin]; exists {
+			continue
+		}
+		seen[origin] = struct{}{}
+		origins = append(origins, origin)
+	}
+	return origins
+}
+
+func requestCORSOrigin(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	host := strings.TrimSpace(r.Host)
+	if isTrustedProxy(r.RemoteAddr) {
+		forwarded := forwardedParams(r.Header.Get("Forwarded"))
+		if forwardedProto := firstForwardedValue(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
+			scheme = forwardedProto
+		}
+		if forwarded["proto"] != "" {
+			scheme = forwarded["proto"]
+		}
+		if forwardedHost := firstForwardedValue(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+			host = forwardedHost
+		} else if forwarded["host"] != "" {
+			host = forwarded["host"]
+		}
+	}
+	origin, _ := canonicalOrigin(scheme + "://" + host)
+	return origin
+}
+
+func canonicalOrigin(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil {
+		return "", false
+	}
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return "", false
+	}
+	return scheme + "://" + strings.ToLower(strings.TrimSpace(u.Host)), true
+}
+
+func (h *Handler) SetTranscriptionJobQueue(q TranscriptionJobQueue) {
+	h.transcriptionQueue = q
+}
+
 func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) handleStaticUpload(w http.ResponseWriter, r *http.Request) {
+	name, err := uploadNameFromRequestPath(r.URL.Path)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if h.items == nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	imageURL := staticUploadsPrefix + name
+	allowed, err := h.items.WorkspaceOwnsImageURL(r.Context(), h.currentWorkspaceID(r.Context()), imageURL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to authorize upload")
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if uploadblob.Enabled() {
+		data, attrs, err := uploadblob.Read(r.Context(), name)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		if attrs.ContentType != "" {
+			w.Header().Set("Content-Type", attrs.ContentType)
+		}
+		http.ServeContent(w, r, name, attrs.Updated, bytes.NewReader(data))
+		return
+	}
+	f, err := safefile.Open(filepath.Join("uploads", name))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	http.ServeContent(w, r, name, info.ModTime(), f)
+}
+
+func uploadNameFromRequestPath(requestPath string) (string, error) {
+	rawName := strings.TrimPrefix(strings.TrimSpace(requestPath), staticUploadsPrefix)
+	name, err := url.PathUnescape(rawName)
+	if err != nil {
+		return "", err
+	}
+	if name == "" || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("invalid upload name")
+	}
+	return name, nil
 }
 
 func (h *Handler) handleGetHOCR(w http.ResponseWriter, r *http.Request) {
@@ -729,31 +908,34 @@ func buildGlyphAnnotations(sessionID, canvasID string, wordGlyphs []hocr.WordWit
 func transcriptionAnnotation(id, granularity, text, canvasID string, box models.BBox) map[string]any {
 	width := box.X2 - box.X1
 	height := box.Y2 - box.Y1
-	return map[string]any{
+	anno := map[string]any{
 		"id":              id,
 		"type":            "Annotation",
 		"textGranularity": granularity,
 		"motivation":      "supplementing",
-		"body": []any{
+	}
+	if strings.TrimSpace(text) != "" {
+		anno["body"] = []any{
 			map[string]any{
 				"type":    "TextualBody",
 				"purpose": "supplementing",
 				"format":  "text/plain",
 				"value":   text,
 			},
+		}
+	}
+	anno["target"] = map[string]any{
+		"source": map[string]any{
+			"id":   canvasID,
+			"type": "Canvas",
 		},
-		"target": map[string]any{
-			"source": map[string]any{
-				"id":   canvasID,
-				"type": "Canvas",
-			},
-			"selector": map[string]any{
-				"type":       "FragmentSelector",
-				"conformsTo": "http://www.w3.org/TR/media-frags/",
-				"value":      fmt.Sprintf("xywh=%d,%d,%d,%d", box.X1, box.Y1, width, height),
-			},
+		"selector": map[string]any{
+			"type":       "FragmentSelector",
+			"conformsTo": "http://www.w3.org/TR/media-frags/",
+			"value":      fmt.Sprintf("xywh=%d,%d,%d,%d", box.X1, box.Y1, width, height),
 		},
 	}
+	return anno
 }
 
 func iiifManifestLabel(run store.OCRRun) string {
@@ -907,7 +1089,7 @@ func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run s
 	return nil
 }
 
-func fetchIIIFRegionToTemp(iiifID string, x1, y1, x2, y2 int) (string, func(), error) {
+func fetchIIIFRegionToTemp(ctx context.Context, iiifID string, x1, y1, x2, y2 int) (string, func(), error) {
 	width := x2 - x1
 	height := y2 - y1
 	if width <= 0 || height <= 0 {
@@ -918,170 +1100,7 @@ func fetchIIIFRegionToTemp(iiifID string, x1, y1, x2, y2 int) (string, func(), e
 		return "", func() {}, fmt.Errorf("iiif.internal_base is not configured")
 	}
 	cropURL := fmt.Sprintf("%s/%s/%d,%d,%d,%d/max/0/default.jpg", base, iiifID, x1, y1, width, height)
-	return fetchImageURLToTemp(cropURL, "scribe-region-*.jpg")
-}
-
-func (h *Handler) startAsyncTranscription(sessionID, imageURL, provider, model string, workspaceID uint64, userID *uint64) {
-	go func() {
-		ctx := context.Background()
-		ctx = h.contextWithProviderSecret(ctx, workspaceID, userID, provider)
-		run, err := h.ocrRuns.Get(ctx, sessionID)
-		if err != nil {
-			slog.Warn("Skipping async transcription; session lookup failed", "session_id", sessionID, "error", err)
-			return
-		}
-		sourceHOCR := strings.TrimSpace(run.OriginalHOCR)
-		if persisted, ok := readSessionHOCR(sessionID, "original.hocr"); ok && strings.TrimSpace(persisted) != "" {
-			sourceHOCR = persisted
-		}
-		if sourceHOCR == "" {
-			slog.Warn("Skipping async transcription; missing source hOCR", "session_id", sessionID)
-			return
-		}
-		lines, err := hocr.ParseHOCRLines(sourceHOCR)
-		if err != nil {
-			slog.Warn("Skipping async transcription; unable to parse source hOCR", "session_id", sessionID, "error", err)
-			return
-		}
-		if len(lines) == 0 {
-			slog.Warn("Skipping async transcription; no detected lines", "session_id", sessionID)
-			return
-		}
-
-		slog.Info(
-			"Starting async session transcription",
-			"session_id", sessionID,
-			"provider", effectiveProvider(provider),
-			"model", effectiveModel(provider, model),
-			"line_count", len(lines),
-		)
-
-		type lineJob struct {
-			idx  int
-			line models.HOCRLine
-		}
-		type lineResult struct {
-			idx  int
-			line models.HOCRLine
-		}
-		jobs := make(chan lineJob, len(lines))
-		results := make(chan lineResult, len(lines))
-		var wg sync.WaitGroup
-
-		workerCount := getAsyncTranscribeConcurrency()
-		if workerCount > len(lines) {
-			workerCount = len(lines)
-		}
-		if workerCount < 1 {
-			workerCount = 1
-		}
-
-		worker := func() {
-			defer wg.Done()
-			for job := range jobs {
-				outLine := job.line
-				width := outLine.BBox.X2 - outLine.BBox.X1
-				height := outLine.BBox.Y2 - outLine.BBox.Y1
-				if width <= 0 || height <= 0 {
-					outLine.Words = nil
-					results <- lineResult{idx: job.idx, line: outLine}
-					continue
-				}
-
-				regionPath, cleanup, err := fetchImageRegionToTemp(imageURL, outLine.BBox.X1, outLine.BBox.Y1, outLine.BBox.X2, outLine.BBox.Y2)
-				if err != nil {
-					slog.Warn("Async line fetch failed", "session_id", sessionID, "line_id", outLine.ID, "error", err)
-					outLine.Words = nil
-					results <- lineResult{idx: job.idx, line: outLine}
-					continue
-				}
-				text, err := h.ocr.TranscribeImageFileWithContext(ctx, regionPath, provider, model)
-				cleanup()
-				if err != nil {
-					slog.Warn("Async line transcription failed", "session_id", sessionID, "line_id", outLine.ID, "error", err)
-					outLine.Words = nil
-					results <- lineResult{idx: job.idx, line: outLine}
-					continue
-				}
-				outLine.Words = []models.HOCRWord{
-					{
-						ID:         fmt.Sprintf("word_%d_0", job.idx),
-						LineID:     outLine.ID,
-						BBox:       outLine.BBox,
-						Text:       text,
-						Confidence: 85,
-					},
-				}
-				results <- lineResult{idx: job.idx, line: outLine}
-			}
-		}
-
-		wg.Add(workerCount)
-		for i := 0; i < workerCount; i++ {
-			go worker()
-		}
-		for i, line := range lines {
-			jobs <- lineJob{idx: i, line: line}
-		}
-		close(jobs)
-		wg.Wait()
-		close(results)
-
-		rebuilt := make([]models.HOCRLine, len(lines))
-		for result := range results {
-			rebuilt[result.idx] = result.line
-		}
-
-		pageW, pageH := extractPageDimensions(sourceHOCR)
-		if pageW <= 0 || pageH <= 0 {
-			for _, line := range rebuilt {
-				if line.BBox.X2 > pageW {
-					pageW = line.BBox.X2
-				}
-				if line.BBox.Y2 > pageH {
-					pageH = line.BBox.Y2
-				}
-			}
-		}
-		if pageW <= 0 {
-			pageW = 1
-		}
-		if pageH <= 0 {
-			pageH = 1
-		}
-
-		converter := hocr.NewConverter()
-		hocrXML := converter.ConvertHOCRLinesToXML(rebuilt, pageW, pageH)
-
-		plainText, err := ocrhandlers.HOCRToPlainText(hocrXML)
-		if err != nil {
-			plainText = hocrToPlainTextLenient(hocrXML)
-		}
-
-		if err := h.ocrRuns.Create(ctx, store.OCRRun{
-			SessionID:    sessionID,
-			ImageURL:     imageURL,
-			Provider:     effectiveProvider(provider),
-			Model:        effectiveModel(provider, model),
-			OriginalHOCR: hocrXML,
-			OriginalText: plainText,
-		}); err != nil {
-			slog.Warn("Async session transcription save failed", "session_id", sessionID, "error", err)
-			return
-		}
-		if err := writeSessionHOCR(sessionID, "original.hocr", hocrXML); err != nil {
-			slog.Warn("Async session transcription persist failed", "session_id", sessionID, "error", err)
-			return
-		}
-		slog.Info("Async session transcription complete", "session_id", sessionID)
-	}()
-}
-
-func getAsyncTranscribeConcurrency() int {
-	if v := config.Get().Config.LLM.LineTranscribeConcurrency; v > 0 {
-		return v
-	}
-	return 5
+	return fetchImageURLToTemp(ctx, cropURL, "scribe-region-*.jpg")
 }
 
 // buildImageBody returns a IIIF Presentation v3 painting body for the given image URL.
@@ -1362,77 +1381,6 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func startProgress(id, status, message string) {
-	now := time.Now()
-	progressMu.Lock()
-	progressState[id] = processProgress{
-		ID:        id,
-		Status:    status,
-		Message:   message,
-		Done:      false,
-		StartedAt: now,
-		UpdatedAt: now,
-	}
-	progressMu.Unlock()
-}
-
-func updateProgress(id, status, message string) {
-	now := time.Now()
-	progressMu.Lock()
-	state, ok := progressState[id]
-	if !ok {
-		state = processProgress{ID: id, StartedAt: now}
-	}
-	if status != "" {
-		state.Status = status
-	}
-	if message != "" {
-		state.Message = message
-	}
-	state.UpdatedAt = now
-	progressState[id] = state
-	progressMu.Unlock()
-}
-
-func finishProgress(id, status, message, errMsg string) {
-	now := time.Now()
-	progressMu.Lock()
-	state, ok := progressState[id]
-	if !ok {
-		state = processProgress{ID: id, StartedAt: now}
-	}
-	if status != "" {
-		state.Status = status
-	}
-	if message != "" {
-		state.Message = message
-	}
-	state.Done = true
-	state.Error = errMsg
-	state.UpdatedAt = now
-	progressState[id] = state
-	progressMu.Unlock()
-}
-
-func startProgressHeartbeat(id string) func() {
-	done := make(chan struct{})
-	ticker := time.NewTicker(2 * time.Second)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				updateProgress(id, "", "")
-			case <-done:
-				ticker.Stop()
-				return
-			}
-		}
-	}()
-	return func() {
-		close(done)
-	}
-}
-
 func (h *Handler) handleWeb(w http.ResponseWriter, r *http.Request) {
 	if h.webDir == "" {
 		http.NotFound(w, r)
@@ -1584,7 +1532,7 @@ func resolvePublicBase(raw string, r *http.Request, fallbackPath string) string 
 
 func (h *Handler) serveIndexHTML(w http.ResponseWriter, r *http.Request) {
 	indexPath := filepath.Join(h.webDir, "index.html")
-	content, err := os.ReadFile(indexPath)
+	content, err := safefile.ReadFile(indexPath)
 	if err != nil {
 		http.ServeFile(w, r, indexPath)
 		return

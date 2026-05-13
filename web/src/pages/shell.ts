@@ -49,7 +49,7 @@ import {
   syncWorkspaceSelectionFromLocation,
   workspaceAwarePath,
 } from "../lib/workspace";
-import { escHtml, uint64ToString } from "../lib/util";
+import { html, setHTML, uint64ToString, type TrustedHTML } from "../lib/util";
 import { ContextSchema, type Context } from "../proto/scribe/v1/context_pb";
 import type { Item } from "../proto/scribe/v1/item_pb";
 import type { Workspace, WorkspaceAccess, WorkspaceMember } from "../proto/scribe/v1/workspace_pb";
@@ -88,30 +88,30 @@ interface ProcessingOverlay {
 const THEME_STORAGE_KEY = "scribe.shell.theme";
 
 const ICONS = {
-  chevron: `
+  chevron: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M6 8l4 4 4-4"></path>
     </svg>
   `,
-  plus: `
+  plus: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M10 4v12"></path>
       <path d="M4 10h12"></path>
     </svg>
   `,
-  search: `
+  search: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="9" cy="9" r="5"></circle>
       <path d="M13 13l4 4"></path>
     </svg>
   `,
-  sparkles: `
+  sparkles: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M10 2l1.5 4.5L16 8l-4.5 1.5L10 14l-1.5-4.5L4 8l4.5-1.5L10 2z"></path>
       <path d="M15.5 13.5l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7.7-2.1z"></path>
     </svg>
   `,
-  sun: `
+  sun: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="10" cy="10" r="3.5"></circle>
       <path d="M10 1.5v2"></path>
@@ -124,51 +124,51 @@ const ICONS = {
       <path d="M14.6 5.4L16 4"></path>
     </svg>
   `,
-  moon: `
+  moon: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M15.4 12.9A6.8 6.8 0 017.1 4.6 7.5 7.5 0 1015.4 12.9z"></path>
     </svg>
   `,
-  user: `
+  user: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="10" cy="6" r="3"></circle>
       <path d="M4 16c1.2-2.5 3.3-3.8 6-3.8s4.8 1.3 6 3.8"></path>
     </svg>
   `,
-  logout: `
+  logout: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M8 4H4.5A1.5 1.5 0 003 5.5v9A1.5 1.5 0 004.5 16H8"></path>
       <path d="M13 6l4 4-4 4"></path>
       <path d="M17 10H7"></path>
     </svg>
   `,
-  close: `
+  close: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M5 5l10 10"></path>
       <path d="M15 5L5 15"></path>
     </svg>
   `,
-  link: `
+  link: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M8.5 11.5l3-3"></path>
       <path d="M7 14H5.5A3.5 3.5 0 112 10.5V9a3.5 3.5 0 013.5-3.5H7"></path>
       <path d="M13 6h1.5A3.5 3.5 0 0118 9.5V11a3.5 3.5 0 01-3.5 3.5H13"></path>
     </svg>
   `,
-  upload: `
+  upload: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M10 13V4"></path>
       <path d="M6.5 7.5L10 4l3.5 3.5"></path>
       <path d="M3 14.5V16h14v-1.5"></path>
     </svg>
   `,
-  file: `
+  file: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M6 2.5h5l4 4V17.5H6z"></path>
       <path d="M11 2.5v4h4"></path>
     </svg>
   `,
-  grid: `
+  grid: html`
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <rect x="3" y="3" width="5" height="5" rx="1.2"></rect>
       <rect x="12" y="3" width="5" height="5" rx="1.2"></rect>
@@ -176,7 +176,7 @@ const ICONS = {
       <rect x="12" y="12" width="5" height="5" rx="1.2"></rect>
     </svg>
   `,
-  check: `
+  check: html`
     <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
       <path fill-rule="evenodd" d="M16.704 5.29a1 1 0 010 1.415l-8 8a1 1 0 01-1.414 0l-4-4A1 1 0 114.704 9.29L8 12.586l7.296-7.296a1 1 0 011.408 0z" clip-rule="evenodd"></path>
     </svg>
@@ -217,7 +217,7 @@ function avatarInitials(auth: AuthMeResponse | null): string {
 function createProcessingOverlay(steps: string[]): ProcessingOverlay {
   const el = document.createElement("div");
   el.className = "fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/15 px-4 backdrop-blur-sm";
-  el.innerHTML = `
+  setHTML(el, html`
     <div class="w-full max-w-md rounded-lg border border-border bg-card px-8 py-9 text-center shadow-2xl shadow-black/10">
       <div>
         <p class="text-xs font-semibold uppercase tracking-[0.34em] text-muted-foreground">Scribe</p>
@@ -227,16 +227,16 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
         <div class="size-12 animate-spin rounded-full border-4 border-border border-t-primary"></div>
       </div>
       <ul class="mt-8 flex flex-col gap-3 text-left text-sm">
-        ${steps.map((label, index) => `
+        ${steps.map((label, index) => html`
           <li id="proc-step-${index}" class="flex items-center gap-3 text-muted-foreground transition-colors duration-300">
             <span id="proc-icon-${index}" class="flex size-5 flex-shrink-0 items-center justify-center text-xs">·</span>
-            <span>${escHtml(label)}</span>
+            <span>${label}</span>
           </li>
-        `).join("")}
+        `)}
       </ul>
       <p id="proc-detail" class="mt-6 text-xs text-muted-foreground"></p>
     </div>
-  `;
+  `);
   document.body.appendChild(el);
 
   let activeStep = -1;
@@ -248,10 +248,10 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
       if (!item || !icon) continue;
       if (i < step) {
         item.className = "flex items-center gap-3 text-muted-foreground transition-colors duration-300";
-        icon.innerHTML = `<span class="size-4 text-primary">${ICONS.check}</span>`;
+        setHTML(icon, html`<span class="size-4 text-primary">${ICONS.check}</span>`);
       } else {
         item.className = "flex items-center gap-3 text-foreground transition-colors duration-300";
-        icon.innerHTML = `<span class="inline-block size-3 animate-spin rounded-full border-2 border-border border-t-primary"></span>`;
+        setHTML(icon, html`<span class="inline-block size-3 animate-spin rounded-full border-2 border-border border-t-primary"></span>`);
       }
     }
     activeStep = step;
@@ -267,7 +267,7 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
         const icon = document.getElementById(`proc-icon-${i}`);
         if (!item || !icon) continue;
         item.className = "flex items-center gap-3 text-muted-foreground transition-colors duration-300";
-        icon.innerHTML = `<span class="size-4 text-primary">${ICONS.check}</span>`;
+        setHTML(icon, html`<span class="size-4 text-primary">${ICONS.check}</span>`);
       }
       const detailEl = document.getElementById("proc-detail");
       if (detailEl) detailEl.textContent = detail;
@@ -284,21 +284,65 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
 
 async function waitForAutomaticTranscriptionStart(itemImageId: string, overlay: ProcessingOverlay): Promise<void> {
   overlay.setDetail("Preparing automatic transcription...");
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 120000) {
-    try {
-      const jobs = await listTranscriptionJobs(BigInt(itemImageId));
-      const latest = jobs[0];
-      if (latest) {
-        const total = latest.totalSegments > 0 ? latest.totalSegments : "?";
-        overlay.setDetail(`Automatic transcription progress ${latest.completedSegments}/${total}`);
-        return;
-      }
-    } catch {
-      overlay.setDetail("Preparing automatic transcription...");
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 500));
+  const existing = await listTranscriptionJobs(BigInt(itemImageId));
+  const latest = existing[0];
+  if (latest) {
+    const total = latest.totalSegments > 0 ? latest.totalSegments : "?";
+    overlay.setDetail(`Automatic transcription progress ${latest.completedSegments}/${total}`);
+    return;
   }
+
+  await new Promise<void>((resolve, reject) => {
+    let subscription: { close: () => void } | null = null;
+    const timeout = window.setTimeout(() => {
+      subscription?.close();
+      reject(new Error("Automatic transcription did not start within 120 seconds."));
+    }, 120000);
+    const finish = () => {
+      window.clearTimeout(timeout);
+      subscription?.close();
+      resolve();
+    };
+    subscription = subscribeToEvents(
+      {
+        itemImageId,
+        types: [
+          "dev.scribe.transcription.task.started",
+          "dev.scribe.transcription.task.completed",
+          "dev.scribe.transcription.completed",
+          "dev.scribe.transcription.failed",
+        ],
+      },
+      (event) => {
+        if (event.type === "dev.scribe.transcription.failed") {
+          overlay.setDetail("Automatic transcription failed.");
+          finish();
+          return;
+        }
+        overlay.setDetail("Automatic transcription is running.");
+        finish();
+      },
+      () => {
+        overlay.setDetail("Preparing automatic transcription...");
+      },
+    );
+  });
+}
+
+function exportFilename(item: Item, format: "hocr" | "pagexml" | "alto" | "txt"): string {
+  const ext = format === "txt" ? "txt" : "xml";
+  const stem = (item.name || item.id || "scribe-export").trim().replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "scribe-export";
+  return `${stem}.${ext}`;
+}
+
+function renderExportLinks(item: Item): TrustedHTML[] {
+  return ([
+    ["hocr", "hOCR"],
+    ["pagexml", "PAGE XML"],
+    ["alto", "ALTO XML"],
+    ["txt", "Text"],
+  ] as Array<["hocr" | "pagexml" | "alto" | "txt", string]>)
+    .map(([format, label]) => html`<a href="${exportHref(item.id, format)}" download="${exportFilename(item, format)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground">${label}</a>`);
 }
 
 function formatDate(raw: string): string {
@@ -344,11 +388,10 @@ function workspaceIdString(value: string | number | bigint | null | undefined): 
   return raw === "" || raw === "0" ? "" : raw;
 }
 
-function contextOptionMarkup(contexts: Context[]): string {
+function contextOptionMarkup(contexts: Context[]): TrustedHTML[] {
   return contexts
     .filter((context) => context.id !== 0n)
-    .map((context) => `<option value="${escHtml(context.id.toString())}"${context.isDefault ? " selected" : ""}>${escHtml(context.name || `Context ${context.id}`)}</option>`)
-    .join("");
+    .map((context) => html`<option value="${context.id.toString()}"${context.isDefault ? " selected" : ""}>${context.name || `Context ${context.id}`}</option>`);
 }
 
 function editorHrefForItem(item: Item): string {
@@ -365,56 +408,56 @@ function exportHref(itemId: string, format: "hocr" | "pagexml" | "alto" | "txt")
   return workspaceAwarePath(`/v1/items/${encodeURIComponent(itemId)}/export?format=${encodeURIComponent(format)}`);
 }
 
-function renderAuditCard(audit: ItemProviderCallAudit): string {
+function renderAuditCard(audit: ItemProviderCallAudit): TrustedHTML {
   const pageLabel = audit.itemImageLabel?.trim()
     || (audit.itemImageSequence ? `Page ${audit.itemImageSequence}` : audit.itemImageId ? `Image ${audit.itemImageId}` : "Item");
   const status = audit.httpStatus != null ? `HTTP ${audit.httpStatus}` : audit.errorMessage?.trim() ? "Error" : "OK";
-  return `
+  return html`
     <article class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
       <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${escHtml(pageLabel)}</span>
-        <span>${escHtml(formatDateTime(audit.createdAt))}</span>
-        <span>${escHtml(status)}</span>
+        <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${pageLabel}</span>
+        <span>${formatDateTime(audit.createdAt)}</span>
+        <span>${status}</span>
       </div>
-      <p class="mt-3 text-sm font-medium text-foreground">${escHtml(audit.provider)} ${escHtml(audit.model)} <span class="text-muted-foreground">(${escHtml(audit.operation)})</span></p>
-      ${audit.errorMessage?.trim() ? `<p class="mt-3 text-xs text-destructive">${escHtml(audit.errorMessage)}</p>` : ""}
+      <p class="mt-3 text-sm font-medium text-foreground">${audit.provider} ${audit.model} <span class="text-muted-foreground">(${audit.operation})</span></p>
+      ${audit.errorMessage?.trim() ? html`<p class="mt-3 text-xs text-destructive">${audit.errorMessage}</p>` : ""}
       <div class="mt-4 flex flex-col gap-3">
-        ${audit.prompt?.trim() ? `<details class="rounded-lg border border-border bg-muted p-3"><summary class="cursor-pointer text-xs font-medium text-muted-foreground">Prompt</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">${escHtml(audit.prompt)}</pre></details>` : ""}
-        ${audit.requestJson?.trim() ? `<details class="rounded-lg border border-border bg-muted p-3"><summary class="cursor-pointer text-xs font-medium text-muted-foreground">Request JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">${escHtml(audit.requestJson)}</pre></details>` : ""}
-        ${audit.responseJson?.trim() ? `<details class="rounded-lg border border-border bg-muted p-3"><summary class="cursor-pointer text-xs font-medium text-muted-foreground">Response JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">${escHtml(audit.responseJson)}</pre></details>` : ""}
+        ${audit.prompt?.trim() ? html`<details class="rounded-lg border border-border bg-muted p-3"><summary class="cursor-pointer text-xs font-medium text-muted-foreground">Prompt</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">${audit.prompt}</pre></details>` : ""}
+        ${audit.requestJson?.trim() ? html`<details class="rounded-lg border border-border bg-muted p-3"><summary class="cursor-pointer text-xs font-medium text-muted-foreground">Request JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">${audit.requestJson}</pre></details>` : ""}
+        ${audit.responseJson?.trim() ? html`<details class="rounded-lg border border-border bg-muted p-3"><summary class="cursor-pointer text-xs font-medium text-muted-foreground">Response JSON</summary><pre class="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">${audit.responseJson}</pre></details>` : ""}
       </div>
     </article>
   `;
 }
 
-function renderContextCard(context: Context, metrics: ContextMetrics): string {
+function renderContextCard(context: Context, metrics: ContextMetrics): TrustedHTML {
   const endpointLabel = context.transcriptionBaseUrl
     || (context.transcriptionProvider === "kraken" ? "Model-routed from config" : "Global config default");
-  return `
+  return html`
     <article class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <h3 class="text-lg font-semibold text-foreground">${escHtml(context.name)}</h3>
-          <p class="mt-2 text-sm text-muted-foreground">${escHtml(context.description || "No description.")}</p>
+          <h3 class="text-lg font-semibold text-foreground">${context.name}</h3>
+          <p class="mt-2 text-sm text-muted-foreground">${context.description || "No description."}</p>
         </div>
-        ${context.isDefault ? `<span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">Default</span>` : ""}
+        ${context.isDefault ? html`<span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">Default</span>` : ""}
       </div>
       <dl class="mt-5 grid gap-3 sm:grid-cols-2">
         <div class="rounded-lg border border-border bg-muted p-3">
           <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Provider</dt>
-          <dd class="mt-1 text-sm text-foreground">${escHtml(context.transcriptionProvider || "—")}</dd>
+          <dd class="mt-1 text-sm text-foreground">${context.transcriptionProvider || "—"}</dd>
         </div>
         <div class="rounded-lg border border-border bg-muted p-3">
           <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Model</dt>
-          <dd class="mt-1 truncate font-mono text-xs text-muted-foreground">${escHtml(context.transcriptionModel || "—")}</dd>
+          <dd class="mt-1 truncate font-mono text-xs text-muted-foreground">${context.transcriptionModel || "—"}</dd>
         </div>
         <div class="rounded-lg border border-border bg-muted p-3">
           <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Segmentation</dt>
-          <dd class="mt-1 truncate font-mono text-xs text-muted-foreground">${escHtml(context.segmentationModel || "—")}</dd>
+          <dd class="mt-1 truncate font-mono text-xs text-muted-foreground">${context.segmentationModel || "—"}</dd>
         </div>
         <div class="rounded-lg border border-border bg-muted p-3">
           <dt class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Endpoint</dt>
-          <dd class="mt-1 truncate font-mono text-xs text-muted-foreground">${escHtml(endpointLabel)}</dd>
+          <dd class="mt-1 truncate font-mono text-xs text-muted-foreground">${endpointLabel}</dd>
         </div>
       </dl>
       <div class="mt-5 grid gap-3 sm:grid-cols-3">
@@ -435,11 +478,11 @@ function renderContextCard(context: Context, metrics: ContextMetrics): string {
   `;
 }
 
-function renderProviderSecrets(secrets: ProviderSecretRecord[]): string {
+function renderProviderSecrets(secrets: ProviderSecretRecord[]): TrustedHTML {
   if (secrets.length === 0) {
-    return `<p class="text-sm text-muted-foreground">No provider keys saved yet.</p>`;
+    return html`<p class="text-sm text-muted-foreground">No provider keys saved yet.</p>`;
   }
-  return `
+  return html`
     <div class="overflow-x-auto">
       <table class="min-w-full text-left text-sm">
         <thead class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
@@ -453,29 +496,29 @@ function renderProviderSecrets(secrets: ProviderSecretRecord[]): string {
           </tr>
         </thead>
         <tbody>
-          ${secrets.map((secret) => `
+          ${secrets.map((secret) => html`
             <tr class="border-t border-border">
-              <td class="px-3 py-3 text-foreground">${escHtml(secret.provider)}</td>
-              <td class="px-3 py-3 text-foreground">${escHtml(secret.name)}</td>
-              <td class="px-3 py-3 text-muted-foreground">${escHtml(secret.scope)}</td>
-              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${secret.key_hint ? `****${escHtml(secret.key_hint)}` : "Stored"}</td>
-              <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(secret.updated_at))}</td>
+              <td class="px-3 py-3 text-foreground">${secret.provider}</td>
+              <td class="px-3 py-3 text-foreground">${secret.name}</td>
+              <td class="px-3 py-3 text-muted-foreground">${secret.scope}</td>
+              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${secret.keyHint ? `****${secret.keyHint}` : "Stored"}</td>
+              <td class="px-3 py-3 text-muted-foreground">${formatDateTime(secret.updatedAt)}</td>
               <td class="px-3 py-3 text-right">
-                <button data-provider-secret-delete="${escHtml(String(secret.id))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Delete</button>
+                <button data-provider-secret-delete="${String(secret.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Delete</button>
               </td>
             </tr>
-          `).join("")}
+          `)}
         </tbody>
       </table>
     </div>
   `;
 }
 
-function renderAPIKeys(keys: APIKeyRecord[]): string {
+function renderAPIKeys(keys: APIKeyRecord[]): TrustedHTML {
   if (keys.length === 0) {
-    return `<p class="text-sm text-muted-foreground">No workspace API keys created yet.</p>`;
+    return html`<p class="text-sm text-muted-foreground">No workspace API keys created yet.</p>`;
   }
-  return `
+  return html`
     <div class="overflow-x-auto">
       <table class="min-w-full text-left text-sm">
         <thead class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
@@ -488,53 +531,45 @@ function renderAPIKeys(keys: APIKeyRecord[]): string {
           </tr>
         </thead>
         <tbody>
-          ${keys.map((key) => `
+          ${keys.map((key) => html`
             <tr class="border-t border-border">
-              <td class="px-3 py-3 text-foreground">${escHtml(key.name)}</td>
-              <td class="px-3 py-3 text-muted-foreground">${escHtml(key.role)}</td>
-              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${escHtml(key.key_prefix)}</td>
-              <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(key.updated_at))}</td>
+              <td class="px-3 py-3 text-foreground">${key.name}</td>
+              <td class="px-3 py-3 text-muted-foreground">${key.role}</td>
+              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${key.keyPrefix}</td>
+              <td class="px-3 py-3 text-muted-foreground">${formatDateTime(key.updatedAt)}</td>
               <td class="px-3 py-3 text-right">
-                <button data-api-key-delete="${escHtml(String(key.id))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Delete</button>
+                <button data-api-key-delete="${String(key.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Delete</button>
               </td>
             </tr>
-          `).join("")}
+          `)}
         </tbody>
       </table>
     </div>
   `;
 }
 
-function renderRecentItemCard(item: Item): string {
+function renderRecentItemCard(item: Item): TrustedHTML {
   const openHref = editorHrefForItem(item);
   const pageLabel = `${item.images.length} page${item.images.length === 1 ? "" : "s"}`;
-  return `
+  return html`
     <article class="rounded-md border border-transparent px-3 py-2.5 transition hover:border-border hover:bg-accent hover:text-accent-foreground">
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
-          <p class="truncate text-base font-semibold text-foreground">${escHtml(item.name || item.id)}</p>
-          <p class="mt-1 truncate text-xs text-muted-foreground">${escHtml(item.id)}</p>
+          <p class="truncate text-base font-semibold text-foreground">${item.name || item.id}</p>
+          <p class="mt-1 truncate text-xs text-muted-foreground">${item.id}</p>
         </div>
-        <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${escHtml(item.sourceType)}</span>
+        <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${item.sourceType}</span>
       </div>
       <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span>${escHtml(pageLabel)}</span>
+        <span>${pageLabel}</span>
         <span>•</span>
-        <span>${escHtml(formatDate(item.createdAt))}</span>
+        <span>${formatDate(item.createdAt)}</span>
       </div>
       <div class="mt-5 flex flex-wrap items-center gap-2">
-        ${openHref ? `<a href="${openHref}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">Open editor</a>` : `<span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">No images</span>`}
-        <button data-item-logs="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Logs</button>
-        <button data-item-delete="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">Delete</button>
-        ${openHref ? `
-          <select data-item-export="${escHtml(item.id)}" class="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 min-w-[140px] max-w-[180px] py-1.5 text-xs">
-            <option value="">Export</option>
-            <option value="hocr">hOCR</option>
-            <option value="pagexml">PAGE XML</option>
-            <option value="alto">ALTO XML</option>
-            <option value="txt">Plain text</option>
-          </select>
-        ` : ""}
+        ${openHref ? html`<a href="${openHref}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">Open editor</a>` : html`<span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">No images</span>`}
+        <button data-item-logs="${item.id}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Logs</button>
+        <button data-item-delete="${item.id}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">Delete</button>
+        ${openHref ? renderExportLinks(item) : ""}
       </div>
     </article>
   `;
@@ -563,7 +598,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
 
   applyTheme(state.theme);
 
-  app.innerHTML = `
+  setHTML(app, html`
     <div class="min-h-screen text-foreground">
       <div class="mx-auto flex min-h-screen w-full">
         <aside id="shell-sidebar" class="flex w-full max-w-[260px] flex-col border-r border-border bg-muted/40 px-3 py-4"></aside>
@@ -578,11 +613,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       <div id="shell-drawer-backdrop" class="fixed inset-0 z-40 bg-foreground/20 hidden"></div>
       <aside id="shell-drawer" class="fixed bottom-0 right-0 top-0 z-50 w-full max-w-[640px] border-l border-border bg-background px-6 py-5 shadow-lg transition-transform duration-200 translate-x-full"></aside>
 
-      <div id="shell-modal" class="hidden fixed inset-0 z-50 items-center justify-center bg-foreground/20 p-4 backdrop-blur-sm">
+      <div id="shell-modal" role="dialog" aria-modal="true" aria-labelledby="shell-modal-heading" tabindex="-1" class="hidden fixed inset-0 z-50 items-center justify-center bg-foreground/20 p-4 backdrop-blur-sm">
         <div class="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg border border-border bg-card shadow-2xl shadow-black/10">
           <div class="flex items-center justify-between border-b border-border px-6 py-4">
             <div>
-              <h2 class="text-lg font-semibold text-foreground">Item logs</h2>
+              <h2 id="shell-modal-heading" class="text-lg font-semibold text-foreground">Item logs</h2>
               <p id="shell-modal-title" class="text-xs text-muted-foreground"></p>
             </div>
             <button id="shell-modal-close" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Close</button>
@@ -591,7 +626,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         </div>
       </div>
     </div>
-  `;
+  `);
 
   const sidebar = document.getElementById("shell-sidebar") as HTMLDivElement;
   const topbar = document.getElementById("shell-topbar") as HTMLDivElement;
@@ -603,6 +638,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   const modalTitle = document.getElementById("shell-modal-title") as HTMLParagraphElement;
   const modalBody = document.getElementById("shell-modal-body") as HTMLDivElement;
   const modalClose = document.getElementById("shell-modal-close") as HTMLButtonElement;
+  let modalReturnFocus: HTMLElement | null = null;
 
   function selectedContextId(): bigint {
     const select = document.getElementById("library-context-select") as HTMLSelectElement | null;
@@ -629,17 +665,19 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   async function openLogsModal(itemId: string): Promise<void> {
     const item = state.items.find((entry) => entry.id === itemId);
     if (!item) return;
+    modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     modal.classList.remove("hidden");
     modal.classList.add("flex");
     modalTitle.textContent = `${item.name || item.id} (${item.id})`;
-    modalBody.innerHTML = `<p class="text-muted-foreground">Loading logs…</p>`;
+    setHTML(modalBody, html`<p class="text-muted-foreground">Loading logs…</p>`);
+    modalClose.focus();
     try {
       const audits = await listItemProviderCallAudits(item.id, 100);
-      modalBody.innerHTML = audits.length === 0
-        ? `<p class="text-muted-foreground">No provider logs recorded for this item yet.</p>`
-        : `<div class="flex flex-col gap-3">${audits.map(renderAuditCard).join("")}</div>`;
+      setHTML(modalBody, audits.length === 0
+        ? html`<p class="text-muted-foreground">No provider logs recorded for this item yet.</p>`
+        : html`<div class="flex flex-col gap-3">${audits.map(renderAuditCard)}</div>`);
     } catch (error) {
-      modalBody.innerHTML = `<p class="text-destructive">Failed to load logs: ${escHtml(String(error))}</p>`;
+      setHTML(modalBody, html`<p class="text-destructive">Failed to load logs: ${String(error)}</p>`);
     }
   }
 
@@ -665,28 +703,20 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       });
     });
 
-    app.querySelectorAll<HTMLSelectElement>("[data-item-export]").forEach((select) => {
-      select.addEventListener("change", () => {
-        const format = select.value as "" | "hocr" | "pagexml" | "alto" | "txt";
-        const itemId = select.dataset.itemExport;
-        if (!format || !itemId) return;
-        window.location.href = exportHref(itemId, format);
-      });
-    });
   }
 
   function renderTopbar() {
     const workspace = currentWorkspace(state);
-    topbar.innerHTML = `
+    setHTML(topbar, html`
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0">
-          <p class="text-sm font-medium text-muted-foreground">${escHtml(workspace?.name || state.auth?.workspace?.name || "Workspace")}</p>
+          <p class="text-sm font-medium text-muted-foreground">${workspace?.name || state.auth?.workspace?.name || "Workspace"}</p>
           <h1 class="mt-1 text-3xl font-semibold tracking-tight text-foreground">${state.auth?.authenticated ? "Create new annotation" : "Welcome to Scribe"}</h1>
-          <p class="mt-2 max-w-2xl text-sm text-muted-foreground">${escHtml(
+          <p class="mt-2 max-w-2xl text-sm text-muted-foreground">${
             state.auth?.authenticated
               ? "Start from an image, upload a batch, or import a IIIF manifest. Existing annotations stay on the left like a conversation list."
               : "Sign in to work with your workspace, manage contexts, and keep your documents organized."
-          )}</p>
+          }</p>
         </div>
         <div class="flex items-center gap-2">
           <button id="shell-contexts-button" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50" type="button" title="Manage contexts">
@@ -698,7 +728,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           </button>
         </div>
       </div>
-    `;
+    `);
 
     document.getElementById("shell-contexts-button")?.addEventListener("click", () => {
       void openPanel("contexts");
@@ -714,9 +744,9 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   function renderSidebar() {
     const items = filteredItems();
     const loginHref = buildLoginHref(state.auth);
-    sidebar.innerHTML = `
+    setHTML(sidebar, html`
       <div class="mb-4">
-        ${state.auth?.authenticated ? `
+        ${state.auth?.authenticated ? html`
           <div class="flex items-end gap-2">
             <div class="min-w-0 flex-1">
               <label class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground" for="sidebar-workspace-select">Workspace</label>
@@ -725,23 +755,23 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
                   ${state.workspaces.map((entry) => {
                     const id = uint64ToString(entry.workspace?.id ?? 0n);
                     const selected = id === state.currentWorkspaceId ? " selected" : "";
-                    return `<option value="${escHtml(id)}"${selected}>${escHtml(entry.workspace?.name || "Workspace")}</option>`;
-                  }).join("")}
+                    return html`<option value="${id}"${selected}>${entry.workspace?.name || "Workspace"}</option>`;
+                  })}
                 </select>
                 <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-muted-foreground">${ICONS.chevron}</span>
               </div>
-              <p class="mt-2 text-xs text-muted-foreground">${escHtml(currentWorkspaceRole(state) || state.auth?.workspace?.role || "")}</p>
+              <p class="mt-2 text-xs text-muted-foreground">${currentWorkspaceRole(state) || state.auth?.workspace?.role || ""}</p>
             </div>
             <button id="sidebar-create-workspace" class="inline-flex size-8 items-center justify-center rounded-md border border-transparent text-muted-foreground transition hover:bg-accent hover:text-accent-foreground" type="button" title="Create workspace">
               ${ICONS.plus}
             </button>
           </div>
-        ` : `
+        ` : html`
           <div>
             <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Workspace</p>
             <h2 class="mt-2 text-2xl font-semibold text-foreground">Scribe</h2>
-            <p class="mt-3 text-sm text-muted-foreground">${escHtml(state.authError || "Sign in to manage workspaces, members, contexts, and saved provider keys.")}</p>
-            <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 mt-4">Sign in with Google</a>
+            <p class="mt-3 text-sm text-muted-foreground">${state.authError || "Sign in to manage workspaces, members, contexts, and saved provider keys."}</p>
+            <a href="${loginHref}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 mt-4">Sign in with Google</a>
           </div>
         `}
       </div>
@@ -755,7 +785,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         <span class="pointer-events-none absolute inset-y-0 left-4 flex items-center text-muted-foreground">${ICONS.search}</span>
         <input
           id="sidebar-search"
-          value="${escHtml(state.search)}"
+          value="${state.search}"
           placeholder="Search annotations"
           class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 pl-12"
           ${state.auth?.authenticated ? "" : "disabled"}
@@ -768,46 +798,46 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           <span class="text-xs text-muted-foreground">${items.length}</span>
         </div>
         <div class="flex flex-col gap-2">
-          ${items.length === 0 ? `
+          ${items.length === 0 ? html`
             <div class="rounded-md border bg-card px-3 py-2.5 text-sm text-muted-foreground">
               ${state.auth?.authenticated ? "No annotations in this workspace yet." : "Sign in to load annotations."}
             </div>
           ` : items.map((item) => {
             const openHref = editorHrefForItem(item);
-            return `
+            return html`
               <article class="rounded-md border border-transparent px-3 py-2.5 transition hover:border-border hover:bg-accent hover:text-accent-foreground">
-                ${openHref ? `
+                ${openHref ? html`
                   <a href="${openHref}" class="block">
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
-                        <p class="truncate text-sm font-semibold text-foreground">${escHtml(item.name || item.id)}</p>
-                        <p class="mt-1 truncate text-xs text-muted-foreground">${escHtml(item.id)}</p>
+                        <p class="truncate text-sm font-semibold text-foreground">${item.name || item.id}</p>
+                        <p class="mt-1 truncate text-xs text-muted-foreground">${item.id}</p>
                       </div>
                       <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${item.images.length}</span>
                     </div>
                     <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span>${escHtml(item.sourceType)}</span>
+                      <span>${item.sourceType}</span>
                       <span>•</span>
-                      <span>${escHtml(formatDate(item.createdAt))}</span>
+                      <span>${formatDate(item.createdAt)}</span>
                     </div>
                   </a>
-                ` : `
+                ` : html`
                   <div>
-                    <p class="truncate text-sm font-semibold text-foreground">${escHtml(item.name || item.id)}</p>
-                    <p class="mt-1 truncate text-xs text-muted-foreground">${escHtml(item.id)}</p>
+                    <p class="truncate text-sm font-semibold text-foreground">${item.name || item.id}</p>
+                    <p class="mt-1 truncate text-xs text-muted-foreground">${item.id}</p>
                     <div class="mt-3 text-xs text-muted-foreground">No images yet</div>
                   </div>
                 `}
                 <div class="mt-4 flex flex-wrap items-center gap-2">
-                  <button data-item-logs="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Logs</button>
-                  <button data-item-delete="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">Delete</button>
+                  <button data-item-logs="${item.id}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Logs</button>
+                  <button data-item-delete="${item.id}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">Delete</button>
                 </div>
               </article>
             `;
-          }).join("")}
+          })}
         </div>
       </div>
-    `;
+    `);
 
     const workspaceSelect = document.getElementById("sidebar-workspace-select") as HTMLSelectElement | null;
     workspaceSelect?.addEventListener("change", async () => {
@@ -849,7 +879,8 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       const start = searchInput.selectionStart ?? searchInput.value.length;
       const end = searchInput.selectionEnd ?? searchInput.value.length;
       state.search = searchInput.value;
-      renderAll();
+      renderSidebar();
+      void bindSharedItemActions();
       const nextInput = document.getElementById("sidebar-search") as HTMLInputElement | null;
       nextInput?.focus();
       nextInput?.setSelectionRange(start, end);
@@ -862,26 +893,26 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const workspace = currentWorkspace(state);
 
     if (!state.auth?.authenticated) {
-      content.innerHTML = `
+      setHTML(content, html`
         <section class="mx-auto flex min-h-[68vh] max-w-4xl items-center">
           <div class="mx-auto w-full max-w-2xl px-6 py-10 text-center">
             <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground text-center">Get Started</p>
             <h2 class="mt-4 text-5xl font-semibold tracking-tight text-foreground">Create annotations with your workspace</h2>
             <p class="mx-auto mt-4 max-w-2xl text-base text-muted-foreground">Sign in to import images, manage workspace members, bring your own model keys, and open existing annotations from the left sidebar.</p>
             <div class="mt-8 flex justify-center">
-              <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">Sign in with Google</a>
+              <a href="${loginHref}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">Sign in with Google</a>
             </div>
           </div>
         </section>
-      `;
+      `);
       return;
     }
 
-    content.innerHTML = `
+    setHTML(content, html`
       <section class="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        ${state.dataError ? `
+        ${state.dataError ? html`
           <div class="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            ${escHtml(state.dataError)}
+            ${state.dataError}
           </div>
         ` : ""}
         <div class="pt-6 text-center">
@@ -891,24 +922,24 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         </div>
 
         <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs mx-auto w-full max-w-3xl">
-          <div class="flex flex-wrap justify-center gap-2">
+          <div class="flex flex-wrap justify-center gap-2" role="tablist" aria-label="Annotation source">
             ${([
               ["url", "Image URL", ICONS.link],
               ["single", "Single upload", ICONS.upload],
               ["multi", "Batch upload", ICONS.grid],
               ["manifest", "IIIF manifest", ICONS.file],
-            ] as Array<[LibraryTab, string, string]>).map(([tab, label, icon]) => `
-              <button data-library-tab="${tab}" class="${state.activeLibraryTab === tab ? "inline-flex items-center gap-1 rounded-full border border-transparent bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground" : "inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground"}" type="button">
+            ] as Array<[LibraryTab, string, TrustedHTML]>).map(([tab, label, icon]) => html`
+              <button data-library-tab="${tab}" role="tab" aria-selected="${state.activeLibraryTab === tab ? "true" : "false"}" class="${state.activeLibraryTab === tab ? "inline-flex items-center gap-1 rounded-full border border-transparent bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground" : "inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground"}" type="button">
                 <span class="inline-flex size-4 items-center justify-center">${icon}</span>
                 <span>${label}</span>
               </button>
-            `).join("")}
+            `)}
           </div>
 
           <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center gap-2 text-sm text-muted-foreground">
-              <span class="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">${escHtml(workspace?.name || "Workspace")}</span>
-              <span class="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">${escHtml(currentWorkspaceRole(state) || "workspace")}</span>
+              <span class="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">${workspace?.name || "Workspace"}</span>
+              <span class="rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">${currentWorkspaceRole(state) || "workspace"}</span>
             </div>
             <div class="flex items-center gap-2">
               <label for="library-context-select" class="text-sm font-medium text-muted-foreground">Context</label>
@@ -988,12 +1019,12 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           <div class="mt-5 h-px bg-border"></div>
           <div class="mt-5">
             ${recentItems.length === 0
-              ? `<div class="rounded-md border bg-card px-3 py-2.5 text-sm text-muted-foreground px-5 py-10 text-center">No matching annotations yet. Use the composer above to create one.</div>`
-              : `<div class="grid gap-3 lg:grid-cols-2">${recentItems.map(renderRecentItemCard).join("")}</div>`}
+              ? html`<div class="rounded-md border bg-card px-3 py-2.5 text-sm text-muted-foreground px-5 py-10 text-center">No matching annotations yet. Use the composer above to create one.</div>`
+              : html`<div class="grid gap-3 lg:grid-cols-2">${recentItems.map(renderRecentItemCard)}</div>`}
           </div>
         </section>
       </section>
-    `;
+    `);
 
     content.querySelectorAll<HTMLButtonElement>("[data-library-tab]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1129,7 +1160,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const contextsWithEdits = metricsResults.filter((metrics) => metrics.corrected_runs > 0).length;
     const loginHref = buildLoginHref(state.auth);
 
-    drawer.innerHTML = `
+    setHTML(drawer, html`
       <div class="flex h-full flex-col">
         <div class="mb-5 flex items-start justify-between gap-4">
           <div>
@@ -1143,7 +1174,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         </div>
 
         <div class="h-full overflow-y-auto pb-10 pr-1">
-          ${state.auth?.authenticated ? `
+          ${state.auth?.authenticated ? html`
             <section class="grid gap-3 sm:grid-cols-3">
               <div class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
                 <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Contexts</p>
@@ -1189,19 +1220,19 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
 
             <section class="mt-4 flex flex-col gap-3">
               ${state.contexts.length === 0
-                ? `<div class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs text-sm text-muted-foreground">No contexts in this workspace yet.</div>`
-                : state.contexts.map((context, index) => renderContextCard(context, metricsResults[index])).join("")}
+                ? html`<div class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs text-sm text-muted-foreground">No contexts in this workspace yet.</div>`
+                : state.contexts.map((context, index) => renderContextCard(context, metricsResults[index]))}
             </section>
-          ` : `
+          ` : html`
             <section class="w-full px-6 py-10 text-center">
               <h3 class="text-2xl font-semibold text-foreground">Sign in to manage contexts</h3>
               <p class="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">Contexts let you point a workspace at different OCR providers, model IDs, and dedicated Cloud Run helper services.</p>
-              <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 mt-6">Sign in with Google</a>
+              <a href="${loginHref}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 mt-6">Sign in with Google</a>
             </section>
           `}
         </div>
       </div>
-    `;
+    `);
 
     document.getElementById("shell-panel-close")?.addEventListener("click", () => {
       void openPanel(null);
@@ -1256,7 +1287,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const canManageAPIKeys = canManageWorkspaceAPIKeys(state);
     const loginHref = buildLoginHref(state.auth);
 
-    drawer.innerHTML = `
+    setHTML(drawer, html`
       <div class="flex h-full flex-col">
         <div class="mb-5 flex items-start justify-between gap-4">
           <div>
@@ -1270,14 +1301,14 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         </div>
 
         <div class="h-full overflow-y-auto pb-10 pr-1">
-          ${state.auth?.authenticated ? `
+          ${state.auth?.authenticated ? html`
             <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs">
               <div class="flex flex-wrap items-center justify-between gap-4">
                 <div class="flex items-center gap-4">
-                  <span class="flex size-14 items-center justify-center rounded-full bg-primary text-base font-semibold text-primary-foreground">${escHtml(avatarInitials(state.auth))}</span>
+                  <span class="flex size-14 items-center justify-center rounded-full bg-primary text-base font-semibold text-primary-foreground">${avatarInitials(state.auth)}</span>
                   <div>
-                    <h3 class="text-xl font-semibold text-foreground">${escHtml(state.auth.user?.name || state.auth.user?.email || "Account")}</h3>
-                    <p class="mt-1 text-sm text-muted-foreground">${escHtml(state.auth.user?.email || "")}</p>
+                    <h3 class="text-xl font-semibold text-foreground">${state.auth.user?.name || state.auth.user?.email || "Account"}</h3>
+                    <p class="mt-1 text-sm text-muted-foreground">${state.auth.user?.email || ""}</p>
                   </div>
                 </div>
                 <button id="settings-logout" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50" type="button">
@@ -1288,11 +1319,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
               <dl class="mt-5 grid gap-3 sm:grid-cols-3">
                 <div class="rounded-lg border border-border bg-muted p-4">
                   <dt class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Default workspace</dt>
-                  <dd class="mt-2 text-sm text-foreground">${escHtml(state.auth.workspace?.name || "")}</dd>
+                  <dd class="mt-2 text-sm text-foreground">${state.auth.workspace?.name || ""}</dd>
                 </div>
                 <div class="rounded-lg border border-border bg-muted p-4">
                   <dt class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Workspace role</dt>
-                  <dd class="mt-2 text-sm text-foreground">${escHtml(workspaceAccess?.role || "")}</dd>
+                  <dd class="mt-2 text-sm text-foreground">${workspaceAccess?.role || ""}</dd>
                 </div>
                 <div class="rounded-lg border border-border bg-muted p-4">
                   <dt class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Admin</dt>
@@ -1303,10 +1334,10 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
 
             <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs mt-4">
               <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Workspace</p>
-              <h3 class="mt-2 text-2xl font-semibold text-foreground">${escHtml(workspace?.name || "Workspace")}</h3>
+              <h3 class="mt-2 text-2xl font-semibold text-foreground">${workspace?.name || "Workspace"}</h3>
               <p class="mt-3 text-sm text-muted-foreground">${workspace?.isPersonal ? "Personal workspaces are created automatically for each user." : "Rename this workspace or create another one."}</p>
               <form id="settings-rename-workspace" class="mt-5 flex flex-col gap-3 sm:flex-row">
-                <input id="settings-workspace-name" value="${escHtml(workspace?.name || "")}" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 flex-1" ${admin && !workspace?.isPersonal ? "" : "disabled"} />
+                <input id="settings-workspace-name" value="${workspace?.name || ""}" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 flex-1" ${admin && !workspace?.isPersonal ? "" : "disabled"} />
                 <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit"${admin && !workspace?.isPersonal ? "" : " disabled"}>Rename</button>
               </form>
               <p id="settings-workspace-status" class="mt-3 text-sm text-muted-foreground"></p>
@@ -1322,10 +1353,10 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
                   <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Members</p>
                   <h3 class="mt-2 text-2xl font-semibold text-foreground">Workspace members</h3>
                 </div>
-                <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${escHtml(workspaceAccess?.role || "")}</span>
+                <span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">${workspaceAccess?.role || ""}</span>
               </div>
               <div class="mt-5 overflow-x-auto">
-                ${state.members.length === 0 ? `<p class="text-sm text-muted-foreground">No members found.</p>` : `
+                ${state.members.length === 0 ? html`<p class="text-sm text-muted-foreground">No members found.</p>` : html`
                   <table class="min-w-full text-left text-sm">
                     <thead class="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                       <tr>
@@ -1336,26 +1367,26 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
                       </tr>
                     </thead>
                     <tbody>
-                      ${state.members.map((member) => `
+                      ${state.members.map((member) => html`
                         <tr class="border-t border-border">
                           <td class="px-3 py-3">
-                            <p class="text-foreground">${escHtml(member.user?.name || member.user?.email || `User ${member.user?.id || ""}`)}</p>
-                            <p class="mt-1 text-xs text-muted-foreground">${escHtml(member.user?.email || "")}</p>
+                            <p class="text-foreground">${member.user?.name || member.user?.email || `User ${member.user?.id || ""}`}</p>
+                            <p class="mt-1 text-xs text-muted-foreground">${member.user?.email || ""}</p>
                           </td>
                           <td class="px-3 py-3">
-                            <select data-member-role="${escHtml(uint64ToString(member.user?.id ?? 0n))}" class="w-[140px] appearance-none rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>
-                              ${["admin", "write", "create", "read"].map((role) => `<option value="${role}"${member.role === role ? " selected" : ""}>${role}</option>`).join("")}
+                            <select data-member-role="${uint64ToString(member.user?.id ?? 0n)}" class="w-[140px] appearance-none rounded-md border border-input bg-background px-3 py-2 text-xs text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>
+                              ${["admin", "write", "create", "read"].map((role) => html`<option value="${role}"${member.role === role ? " selected" : ""}>${role}</option>`)}
                             </select>
                           </td>
-                          <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(member.createdAt))}</td>
+                          <td class="px-3 py-3 text-muted-foreground">${formatDateTime(member.createdAt)}</td>
                           <td class="px-3 py-3 text-right">
                             <div class="flex justify-end gap-2">
-                              <button data-member-save="${escHtml(uint64ToString(member.user?.id ?? 0n))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>Save</button>
-                              <button data-member-remove="${escHtml(uint64ToString(member.user?.id ?? 0n))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>Remove</button>
+                              <button data-member-save="${uint64ToString(member.user?.id ?? 0n)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>Save</button>
+                              <button data-member-remove="${uint64ToString(member.user?.id ?? 0n)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"${admin && !workspace?.isPersonal ? "" : " disabled"}>Remove</button>
                             </div>
                           </td>
                         </tr>
-                      `).join("")}
+                      `)}
                     </tbody>
                   </table>
                 `}
@@ -1394,7 +1425,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
                   <p id="settings-provider-secret-status" class="text-sm text-muted-foreground"></p>
                 </div>
               </form>
-              ${canManageSecrets ? "" : `<p class="mt-3 text-sm text-muted-foreground">Editing provider secrets requires a workspace write role.</p>`}
+              ${canManageSecrets ? "" : html`<p class="mt-3 text-sm text-muted-foreground">Editing provider secrets requires a workspace write role.</p>`}
               <div class="mt-5">${renderProviderSecrets(state.providerSecrets)}</div>
             </section>
 
@@ -1405,7 +1436,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
                   <h3 class="mt-2 text-2xl font-semibold text-foreground">Workspace tokens</h3>
                 </div>
               </div>
-              ${canManageAPIKeys ? `
+              ${canManageAPIKeys ? html`
                 <form id="settings-api-key-form" class="mt-5 grid gap-3 sm:grid-cols-[1fr_0.5fr_auto]">
                   <input id="settings-api-key-name" placeholder="Token name" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50" />
                   <select id="settings-api-key-role" class="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50">
@@ -1416,22 +1447,22 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
                   </select>
                   <button class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50" type="submit">Create key</button>
                 </form>
-              ` : `
+              ` : html`
                 <p class="mt-5 rounded-lg border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">Workspace tokens are limited to workspace admins.</p>
               `}
               <p id="settings-api-key-status" class="mt-3 text-sm text-muted-foreground"></p>
               <div class="mt-5">${canManageAPIKeys ? renderAPIKeys(state.apiKeys) : ""}</div>
             </section>
-          ` : `
+          ` : html`
             <section class="w-full px-6 py-10 text-center">
               <h3 class="text-2xl font-semibold text-foreground">Sign in to manage your workspace</h3>
               <p class="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">Workspace members, organization settings, provider keys, and account-level controls live here.</p>
-              <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 mt-6">Sign in with Google</a>
+              <a href="${loginHref}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 mt-6">Sign in with Google</a>
             </section>
           `}
         </div>
       </div>
-    `;
+    `);
 
     document.getElementById("shell-panel-close")?.addEventListener("click", () => {
       void openPanel(null);
@@ -1602,7 +1633,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     if (!state.panel) {
       drawerBackdrop.classList.add("hidden");
       drawer.classList.add("translate-x-full");
-      drawer.innerHTML = "";
+      drawer.replaceChildren();
       return;
     }
 
@@ -1619,30 +1650,30 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   function renderAccountFab() {
     const loginHref = buildLoginHref(state.auth);
     if (state.auth?.authenticated && state.auth.user) {
-      accountFab.innerHTML = `
+      setHTML(accountFab, html`
         <button id="shell-account-button" class="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground" type="button">
-          <span class="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">${escHtml(avatarInitials(state.auth))}</span>
+          <span class="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">${avatarInitials(state.auth)}</span>
           <span class="hidden text-left sm:block">
-            <span class="block text-sm font-medium text-foreground">${escHtml(state.auth.user.name || state.auth.user.email || "Account")}</span>
-            <span class="block text-xs text-muted-foreground">${escHtml(currentWorkspaceRole(state) || "Settings")}</span>
+            <span class="block text-sm font-medium text-foreground">${state.auth.user.name || state.auth.user.email || "Account"}</span>
+            <span class="block text-xs text-muted-foreground">${currentWorkspaceRole(state) || "Settings"}</span>
           </span>
         </button>
-      `;
+      `);
       document.getElementById("shell-account-button")?.addEventListener("click", () => {
         void openPanel("settings");
       });
       return;
     }
 
-    accountFab.innerHTML = `
-      <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground">
+    setHTML(accountFab, html`
+      <a href="${loginHref}" class="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground">
         <span class="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">${ICONS.user}</span>
         <span class="hidden text-left sm:block">
           <span class="block text-sm font-medium text-foreground">Sign in</span>
           <span class="block text-xs text-muted-foreground">Workspace access</span>
         </span>
       </a>
-    `;
+    `);
   }
 
   function renderAll() {
@@ -1783,19 +1814,46 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     }
   }
 
-  modalClose.addEventListener("click", () => {
+  function closeModal() {
     modal.classList.add("hidden");
     modal.classList.remove("flex");
     modalTitle.textContent = "";
-    modalBody.innerHTML = "";
-  });
+    modalBody.replaceChildren();
+    modalReturnFocus?.focus();
+    modalReturnFocus = null;
+  }
+
+  modalClose.addEventListener("click", closeModal);
 
   modal.addEventListener("click", (event) => {
     if (event.target === modal) {
-      modal.classList.add("hidden");
-      modal.classList.remove("flex");
-      modalTitle.textContent = "";
-      modalBody.innerHTML = "";
+      closeModal();
+    }
+  });
+
+  modal.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      modal.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex='-1'])"),
+    ).filter((el) => el.offsetParent !== null);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      modal.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   });
 
@@ -1838,7 +1896,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     )
     : null;
 
-  window.addEventListener("beforeunload", () => {
+  window.addEventListener("pagehide", () => {
     subscription?.close();
   }, { once: true });
 }

@@ -71,3 +71,15 @@ ORDER BY
   updated_at DESC,
   id DESC
 LIMIT 1;
+
+-- name: DeleteWorkspaceProviderSecretManual :execresult
+DELETE FROM provider_secrets
+WHERE id = sqlc.arg(id)
+  AND workspace_id = sqlc.arg(workspace_id)
+  AND user_id IS NULL;
+
+-- name: DeleteUserProviderSecretManual :execresult
+DELETE FROM provider_secrets
+WHERE id = sqlc.arg(id)
+  AND workspace_id = sqlc.arg(workspace_id)
+  AND user_id = sqlc.arg(user_id);

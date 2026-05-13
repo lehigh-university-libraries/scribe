@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	"crypto/md5"
+	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,31 +12,38 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
+	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
 	"github.com/lehigh-university-libraries/scribe/internal/utils"
+)
+
+const (
+	maxRemoteImageBytes   int64 = 100 << 20
+	maxRemoteHOCRBytes    int64 = 10 << 20
+	maxUploadedImageBytes       = maxRemoteImageBytes
 )
 
 func (h *Handler) processImageFile(fileData []byte, filename string) (*ImageProcessResult, error) {
 	return h.processImageFileWithProviderAndModel(fileData, filename, "", "")
 }
 
-func (h *Handler) processImageFileWithModel(fileData []byte, filename, model string) (*ImageProcessResult, error) {
-	return h.processImageFileWithProviderAndModel(fileData, filename, "", model)
-}
-
 func (h *Handler) processImageFileWithProviderAndModel(fileData []byte, filename, provider, model string) (*ImageProcessResult, error) {
-	md5Hash := utils.CalculateDataMD5(fileData)
-	ext := filepath.Ext(filename)
-	imageFilename := md5Hash + ext
-	imageFilePath := filepath.Join("uploads", imageFilename)
+	if err := validateUploadedImageData(fileData); err != nil {
+		return nil, err
+	}
 
-	if err := os.WriteFile(imageFilePath, fileData, 0644); err != nil {
+	contentHash := utils.CalculateDataHash(fileData)
+	ext := safeImageExtension(filepath.Ext(filename))
+	imageFilename := contentHash + ext
+	imageFilePath, err := h.saveUploadedImageBytes(context.Background(), imageFilename, fileData, "")
+	if err != nil {
 		return nil, fmt.Errorf("failed to save image: %w", err)
 	}
 
-	slog.Info("Image saved", "filename", imageFilename, "md5", md5Hash)
+	slog.Info("Image saved", "filename", imageFilename, "content_hash", contentHash)
 
 	width, height := utils.GetImageDimensions(imageFilePath)
-	hocrXML, err := h.processHOCRWithProviderAndModel(imageFilePath, md5Hash, provider, model)
+	hocrXML, err := h.processHOCRWithProviderAndModel(imageFilePath, contentHash, provider, model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process hOCR: %w", err)
 	}
@@ -47,12 +54,12 @@ func (h *Handler) processImageFileWithProviderAndModel(fileData []byte, filename
 		HOCRXML:       hocrXML,
 		Width:         width,
 		Height:        height,
-		MD5Hash:       md5Hash,
+		ContentHash:   contentHash,
 	}, nil
 }
 
-func (h *Handler) downloadImageFromURL(imageURL string) ([]byte, string, error) {
-	resp, err := http.Get(imageURL)
+func (h *Handler) downloadImageFromURL(ctx context.Context, imageURL string) ([]byte, string, error) {
+	resp, err := safehttp.Get(ctx, imageURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to download image: %w", err)
 	}
@@ -62,7 +69,7 @@ func (h *Handler) downloadImageFromURL(imageURL string) ([]byte, string, error) 
 		return nil, "", fmt.Errorf("failed to download image: HTTP %d", resp.StatusCode)
 	}
 
-	imageData, err := io.ReadAll(resp.Body)
+	imageData, err := safehttp.ReadAllLimit(resp.Body, maxRemoteImageBytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read image data: %w", err)
 	}
@@ -75,43 +82,41 @@ func (h *Handler) processImageFromURL(imageURL string) (*ImageProcessResult, err
 	return h.processImageFromURLWithProviderAndModel(imageURL, "", "")
 }
 
-func (h *Handler) processImageFromURLWithModel(imageURL, model string) (*ImageProcessResult, error) {
-	return h.processImageFromURLWithProviderAndModel(imageURL, "", model)
+func (h *Handler) processImageFromURLWithProviderAndModel(imageURL, provider, model string) (*ImageProcessResult, error) {
+	return h.processImageFromURLWithContext(context.Background(), imageURL, provider, model)
 }
 
-func (h *Handler) processImageFromURLWithProviderAndModel(imageURL, provider, model string) (*ImageProcessResult, error) {
+func (h *Handler) processImageFromURLWithContext(ctx context.Context, imageURL, provider, model string) (*ImageProcessResult, error) {
 	// Download image from URL
-	imageData, contentType, err := h.downloadImageFromURL(imageURL)
+	imageData, contentType, err := h.downloadImageFromURL(ctx, imageURL)
 	if err != nil {
 		return nil, err
 	}
 
-	return h.processImageFromDataWithProviderAndModel(imageData, contentType, imageURL, provider, model)
+	return h.processImageFromDataWithContext(ctx, imageData, contentType, imageURL, provider, model)
 }
 
-func (h *Handler) processImageFromData(imageData []byte, contentType, sourceURL string) (*ImageProcessResult, error) {
-	return h.processImageFromDataWithProviderAndModel(imageData, contentType, sourceURL, "", "")
-}
+func (h *Handler) processImageFromDataWithContext(ctx context.Context, imageData []byte, contentType, sourceURL, provider, model string) (*ImageProcessResult, error) {
+	if err := validateUploadedImageData(imageData); err != nil {
+		return nil, err
+	}
 
-func (h *Handler) processImageFromDataWithModel(imageData []byte, contentType, sourceURL, model string) (*ImageProcessResult, error) {
-	return h.processImageFromDataWithProviderAndModel(imageData, contentType, sourceURL, "", model)
-}
-
-func (h *Handler) processImageFromDataWithProviderAndModel(imageData []byte, contentType, sourceURL, provider, model string) (*ImageProcessResult, error) {
 	// Convert JP2/TIFF images using Houdini if needed
 	originalImageData := imageData
 	if needsHoudiniConversion(contentType, sourceURL) {
 		slog.Info("Image requires Houdini conversion", "content_type", contentType, "url", sourceURL)
-		convertedData, err := h.convertImageViaHoudini(imageData, contentType)
+		convertedData, err := h.convertImageViaHoudini(ctx, imageData, contentType)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert image via Houdini: %w", err)
 		}
 		imageData = convertedData
 		contentType = "image/jpeg"
+		if err := validateUploadedImageData(imageData); err != nil {
+			return nil, err
+		}
 	}
 
-	// Calculate MD5 hash of the original image data for consistent caching
-	md5Hash := utils.CalculateDataMD5(originalImageData)
+	contentHash := utils.CalculateDataHash(originalImageData)
 
 	// Determine file extension from content type
 	ext := h.getFileExtension(contentType, sourceURL)
@@ -120,21 +125,19 @@ func (h *Handler) processImageFromDataWithProviderAndModel(imageData []byte, con
 		return nil, fmt.Errorf("failed to create uploads directory: %w", err)
 	}
 
-	imageFilename := md5Hash + ext
-	imageFilePath := filepath.Join("uploads", imageFilename)
-
-	// Save image file
-	if err := os.WriteFile(imageFilePath, imageData, 0644); err != nil {
+	imageFilename := contentHash + ext
+	imageFilePath, err := h.saveUploadedImageBytes(ctx, imageFilename, imageData, contentType)
+	if err != nil {
 		return nil, fmt.Errorf("failed to save image: %w", err)
 	}
 
-	slog.Info("Image processed and saved", "filename", imageFilename, "md5", md5Hash, "source", sourceURL)
+	slog.Info("Image processed and saved", "filename", imageFilename, "content_hash", contentHash, "source", sourceURL)
 
 	// Get image dimensions
 	width, height := utils.GetImageDimensions(imageFilePath)
 
 	// Process hOCR
-	hocrXML, err := h.processHOCRWithProviderAndModel(imageFilePath, md5Hash, provider, model)
+	hocrXML, err := h.processHOCRWithProviderAndModel(imageFilePath, contentHash, provider, model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process hOCR: %w", err)
 	}
@@ -145,8 +148,18 @@ func (h *Handler) processImageFromDataWithProviderAndModel(imageData []byte, con
 		HOCRXML:       hocrXML,
 		Width:         width,
 		Height:        height,
-		MD5Hash:       md5Hash,
+		ContentHash:   contentHash,
 	}, nil
+}
+
+func validateUploadedImageData(fileData []byte) error {
+	if len(fileData) == 0 {
+		return fmt.Errorf("image data is required")
+	}
+	if int64(len(fileData)) > maxUploadedImageBytes {
+		return fmt.Errorf("image data exceeds 100 MiB limit")
+	}
+	return nil
 }
 
 func (h *Handler) getFileExtension(contentType, sourceURL string) string {
@@ -161,28 +174,29 @@ func (h *Handler) getFileExtension(contentType, sourceURL string) string {
 	default:
 		// Try to get extension from URL
 		if urlExt := filepath.Ext(sourceURL); urlExt != "" {
-			ext = urlExt
+			ext = safeImageExtension(urlExt)
 		}
 	}
 	return ext
 }
 
-func (h *Handler) processHOCR(imageFilePath, md5Hash string) (string, error) {
-	return h.processHOCRWithProviderAndModel(imageFilePath, md5Hash, "", "")
+func safeImageExtension(ext string) string {
+	switch strings.ToLower(strings.TrimSpace(ext)) {
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".jp2", ".j2k", ".jpx", ".tif", ".tiff":
+		return strings.ToLower(strings.TrimSpace(ext))
+	default:
+		return ".jpg"
+	}
 }
 
-func (h *Handler) processHOCRWithModel(imageFilePath, md5Hash, model string) (string, error) {
-	return h.processHOCRWithProviderAndModel(imageFilePath, md5Hash, "", model)
-}
-
-func (h *Handler) processHOCRWithProviderAndModel(imageFilePath, md5Hash, provider, model string) (string, error) {
+func (h *Handler) processHOCRWithProviderAndModel(imageFilePath, contentHash, provider, model string) (string, error) {
 	_ = provider
-	hocrFilename := buildHOCRBoxesCacheFilename(md5Hash, model)
+	hocrFilename := buildHOCRBoxesCacheFilename(contentHash, model)
 	hocrFilePath := filepath.Join("uploads", hocrFilename)
 
 	// Check cache first
 	if _, err := os.Stat(hocrFilePath); err == nil {
-		hocrData, err := os.ReadFile(hocrFilePath)
+		hocrData, err := safefile.ReadFile(hocrFilePath)
 		if err != nil {
 			slog.Warn("Failed to read existing hOCR file", "error", err, "path", hocrFilePath)
 		} else {
@@ -198,7 +212,7 @@ func (h *Handler) processHOCRWithProviderAndModel(imageFilePath, md5Hash, provid
 	}
 
 	// Cache the result
-	if err := os.WriteFile(hocrFilePath, []byte(hocrXML), 0644); err != nil {
+	if err := os.WriteFile(hocrFilePath, []byte(hocrXML), 0o600); err != nil { // #nosec G703 -- cache filename is derived from a SHA-256 content hash and fixed suffixes.
 		slog.Warn("Failed to save hOCR file", "error", err)
 	} else {
 		slog.Info("hOCR cached", "filename", hocrFilename)
@@ -213,28 +227,18 @@ func buildHOCRBoxesCacheFilename(imageHash, model string) string {
 		return imageHash + "_boxes.xml"
 	}
 
-	modelHash := md5.Sum([]byte(normalizedModel))
+	modelHash := sha256.Sum256([]byte(normalizedModel))
 	return imageHash + "_boxes_" + hex.EncodeToString(modelHash[:8]) + ".xml"
 }
 
-func buildHOCRCacheFilename(imageHash, model string) string {
-	normalizedModel := strings.TrimSpace(strings.ToLower(model))
-	if normalizedModel == "" {
-		return imageHash + ".xml"
-	}
-
-	modelHash := md5.Sum([]byte(normalizedModel))
-	return imageHash + "_" + hex.EncodeToString(modelHash[:8]) + ".xml"
-}
-
-func (h *Handler) extractFilenameFromURL(imageURL, md5Hash string) string {
+func (h *Handler) extractFilenameFromURL(imageURL, contentHash string) string {
 	if urlParts := strings.Split(imageURL, "/"); len(urlParts) > 0 {
 		lastPart := urlParts[len(urlParts)-1]
 		if lastPart != "" && strings.Contains(lastPart, ".") {
 			return strings.TrimSuffix(lastPart, filepath.Ext(lastPart))
 		}
 	}
-	return md5Hash
+	return contentHash
 }
 
 func (h *Handler) createSessionFromURL(imageURL string) (string, error) {
@@ -243,8 +247,7 @@ func (h *Handler) createSessionFromURL(imageURL string) (string, error) {
 		return "", err
 	}
 
-	// Extract filename from URL or use md5 hash
-	filename := h.extractFilenameFromURL(imageURL, result.MD5Hash)
+	filename := safeSessionName(h.extractFilenameFromURL(imageURL, result.ContentHash))
 	sessionID := fmt.Sprintf("%s_%d", filename, time.Now().Unix())
 
 	config := SessionConfig{

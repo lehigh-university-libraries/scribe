@@ -16,7 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
+	"github.com/lehigh-university-libraries/scribe/internal/safefile"
+	"image/png"
 )
 
 // CustomProvider implements word detection using custom flood-fill algorithm
@@ -42,7 +43,7 @@ func (p *CustomProvider) DetectWords(ctx context.Context, imagePath string) ([]W
 	defer os.Remove(processedPath)
 
 	// Load processed image
-	file, err := os.Open(processedPath)
+	file, err := safefile.Open(processedPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open processed image: %w", err)
 	}
@@ -70,22 +71,40 @@ func (p *CustomProvider) DetectWords(ctx context.Context, imagePath string) ([]W
 func (p *CustomProvider) preprocessImage(imagePath string) (string, error) {
 	tempDir := "/tmp"
 	baseName := strings.TrimSuffix(filepath.Base(imagePath), filepath.Ext(imagePath))
-	processedPath := filepath.Join(tempDir, fmt.Sprintf("processed_custom_%s_%d.jpg", baseName, time.Now().Unix()))
+	processedPath := filepath.Join(tempDir, fmt.Sprintf("processed_custom_%s_%d.png", baseName, time.Now().Unix()))
 
-	// Preprocess: grayscale, enhance contrast, sharpen, threshold
-	cmd, err := imagemagick.ConvertCommand(imagePath,
-		"-colorspace", "Gray",
-		"-contrast-stretch", "0.15x0.05%",
-		"-sharpen", "0x1",
-		"-morphology", "close", "rectangle:2x1",
-		"-threshold", "75%",
-		processedPath)
+	file, err := safefile.Open(imagePath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("open source image: %w", err)
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return "", fmt.Errorf("decode source image: %w", err)
 	}
 
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("imagemagick preprocessing failed: %w", err)
+	bounds := img.Bounds()
+	thresholded := image.NewGray(bounds)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			gray := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
+			if gray.Y < 192 {
+				thresholded.SetGray(x, y, color.Gray{Y: 0})
+			} else {
+				thresholded.SetGray(x, y, color.Gray{Y: 255})
+			}
+		}
+	}
+
+	output, err := os.Create(processedPath)
+	if err != nil {
+		return "", fmt.Errorf("create processed image: %w", err)
+	}
+	defer output.Close()
+	if err := png.Encode(output, thresholded); err != nil {
+		_ = os.Remove(processedPath)
+		return "", fmt.Errorf("encode processed image: %w", err)
 	}
 
 	return processedPath, nil

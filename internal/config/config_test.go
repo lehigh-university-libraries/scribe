@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +95,31 @@ func TestLoadModelEndpointMapEnvRejectsInvalidJSON(t *testing.T) {
 
 	if _, err := loadModelEndpointMapEnv("OLLAMA_MODEL_ENDPOINTS_JSON"); err == nil {
 		t.Fatal("expected error for invalid endpoint map json")
+	}
+}
+
+func TestLoadRejectsVaultWorkspacePathMismatch(t *testing.T) {
+	t.Setenv("VAULT_WORKSPACE", "prod")
+	t.Setenv("VAULT_SECRET_PREFIX", "scribe/dev")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load accepted Vault paths for the wrong workspace")
+	}
+	if !strings.Contains(err.Error(), "does not match VAULT_WORKSPACE") {
+		t.Fatalf("Load error = %v, want workspace mismatch", err)
+	}
+}
+
+func TestLoadAcceptsMatchingVaultWorkspacePaths(t *testing.T) {
+	t.Setenv("VAULT_WORKSPACE", "prod")
+	t.Setenv("VAULT_SECRET_PREFIX", "scribe/prod")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned error for matching Vault workspace paths: %v", err)
+	}
+	if cfg.Vault.Workspace != "prod" {
+		t.Fatalf("Vault.Workspace = %q, want prod", cfg.Vault.Workspace)
 	}
 }

@@ -6,8 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
 	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
@@ -30,9 +28,11 @@ func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lin
 			Height: height,
 		})
 		if err == nil {
-			outputPath := filepath.Join("/tmp", fmt.Sprintf("line_%d_%d.png", lineIndex, time.Now().UnixNano()))
-			if writeErr := os.WriteFile(outputPath, data, 0o644); writeErr == nil {
-				return outputPath, nil
+			outputPath, pathErr := tempImagePath(fmt.Sprintf("line-%d-*.png", lineIndex))
+			if pathErr == nil {
+				if writeErr := os.WriteFile(outputPath, data, 0o600); writeErr == nil {
+					return outputPath, nil
+				}
 			}
 		}
 	}
@@ -43,7 +43,10 @@ func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lin
 	cropWidth := width + 2*padding
 	cropHeight := height + 2*padding
 
-	outputPath := filepath.Join("/tmp", fmt.Sprintf("line_%d_%d.png", lineIndex, time.Now().UnixNano()))
+	outputPath, err := tempImagePath(fmt.Sprintf("line-%d-*.png", lineIndex))
+	if err != nil {
+		return "", err
+	}
 	cmd, err := imagemagick.ConvertCommand(imagePath,
 		"-crop", fmt.Sprintf("%dx%d+%d+%d", cropWidth, cropHeight, cropX, cropY),
 		"+repage",
@@ -52,9 +55,22 @@ func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lin
 		return "", err
 	}
 	if err := cmd.Run(); err != nil {
+		_ = os.Remove(outputPath)
 		return "", fmt.Errorf("failed to extract line image: %w", err)
 	}
 	return outputPath, nil
+}
+
+func tempImagePath(pattern string) (string, error) {
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 // stitchWordImages combines multiple word images horizontally into a single image.
@@ -75,14 +91,19 @@ func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordB
 		}
 		data, err := client.StitchHorizontal(context.Background(), imagePath, boxes, 5)
 		if err == nil {
-			outputPath := filepath.Join("/tmp", fmt.Sprintf("stitched_%d.png", time.Now().UnixNano()))
-			if writeErr := os.WriteFile(outputPath, data, 0o644); writeErr == nil {
-				return outputPath, nil
+			outputPath, pathErr := tempImagePath("stitched-*.png")
+			if pathErr == nil {
+				if writeErr := os.WriteFile(outputPath, data, 0o600); writeErr == nil {
+					return outputPath, nil
+				}
 			}
 		}
 	}
 
-	outputPath := filepath.Join("/tmp", fmt.Sprintf("stitched_%d.png", time.Now().UnixNano()))
+	outputPath, err := tempImagePath("stitched-*.png")
+	if err != nil {
+		return "", err
+	}
 	args := []string{imagePath}
 	for _, word := range words {
 		padding := 5
@@ -102,6 +123,7 @@ func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordB
 		return "", err
 	}
 	if err := cmd.Run(); err != nil {
+		_ = os.Remove(outputPath)
 		return "", fmt.Errorf("failed to stitch word images: %w", err)
 	}
 	return outputPath, nil

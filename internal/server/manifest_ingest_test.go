@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
 	"github.com/lehigh-university-libraries/scribe/internal/database"
+	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
@@ -474,11 +474,11 @@ func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
 	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
-		ID:         t.Name(),
-		UserID:     store.AnonymousUserID,
+		ID:          t.Name(),
+		UserID:      store.AnonymousUserID,
 		WorkspaceID: 1,
-		Name:       "Test Item",
-		SourceType: "upload",
+		Name:        "Test Item",
+		SourceType:  "upload",
 	})
 	if err != nil {
 		t.Fatalf("create item: %v", err)
@@ -537,11 +537,11 @@ func TestGetIIIFAnnotationsPersistsMissingCanvasURI(t *testing.T) {
 	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
-		ID:         t.Name(),
-		UserID:     store.AnonymousUserID,
+		ID:          t.Name(),
+		UserID:      store.AnonymousUserID,
 		WorkspaceID: 1,
-		Name:       "Test Item",
-		SourceType: "upload",
+		Name:        "Test Item",
+		SourceType:  "upload",
 	})
 	if err != nil {
 		t.Fatalf("create item: %v", err)
@@ -600,11 +600,11 @@ func TestGetIIIFManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
 	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
-		ID:         t.Name(),
-		UserID:     store.AnonymousUserID,
+		ID:          t.Name(),
+		UserID:      store.AnonymousUserID,
 		WorkspaceID: 1,
-		Name:       "Test Item",
-		SourceType: "manifest",
+		Name:        "Test Item",
+		SourceType:  "manifest",
 	})
 	if err != nil {
 		t.Fatalf("create item: %v", err)
@@ -665,11 +665,11 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 	t.Setenv("ANNOTATION_API_BASE", appServer.URL)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
-		ID:         t.Name(),
-		UserID:     store.AnonymousUserID,
+		ID:          t.Name(),
+		UserID:      store.AnonymousUserID,
 		WorkspaceID: 1,
-		Name:       "Test Item",
-		SourceType: "upload",
+		Name:        "Test Item",
+		SourceType:  "upload",
 	})
 	if err != nil {
 		t.Fatalf("create item: %v", err)
@@ -744,11 +744,11 @@ func TestSearchAnnotationsSupportsAllGranularity(t *testing.T) {
 	t.Setenv("ANNOTATION_API_BASE", appServer.URL)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
-		ID:         t.Name(),
-		UserID:     store.AnonymousUserID,
+		ID:          t.Name(),
+		UserID:      store.AnonymousUserID,
 		WorkspaceID: 1,
-		Name:       "Test Item",
-		SourceType: "upload",
+		Name:        "Test Item",
+		SourceType:  "upload",
 	})
 	if err != nil {
 		t.Fatalf("create item: %v", err)

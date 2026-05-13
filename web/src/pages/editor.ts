@@ -7,7 +7,7 @@ import { subscribeToEvents } from "../api/events";
 import { scribePath } from "../api/http";
 import { syncWorkspaceSelectionFromLocation, workspaceAwarePath } from "../lib/workspace";
 import { TranscriptionJobStatus } from "../proto/scribe/v1/transcription_pb";
-import { uint64ToString } from "../lib/util";
+import { html, setHTML, uint64ToString } from "../lib/util";
 
 function isPendingStatus(status: TranscriptionJobStatus | string | number): boolean {
   return status === TranscriptionJobStatus.PENDING
@@ -131,7 +131,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     navigateHome();
   }
 
-  app.innerHTML = `
+  setHTML(app, html`
     <main class="h-screen w-screen overflow-hidden bg-background text-foreground">
       <header class="flex items-center justify-between border-b border-border bg-background/95 px-4 py-2">
         <div class="flex items-center gap-4">
@@ -170,7 +170,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
         </div>
       </div>
     </main>
-  `;
+  `);
 
   const meta = document.getElementById("editor-meta") as HTMLParagraphElement;
   const transcriptionStatus = document.getElementById("editor-transcription-status") as HTMLParagraphElement;
@@ -451,7 +451,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   if (!runResp.imageUrl || runResp.imageUrl.trim() === "") {
     const viewer = document.getElementById("mirador-viewer");
     if (viewer) {
-      viewer.innerHTML = `<div class="flex h-full items-center justify-center text-sm text-muted-foreground">No image is available for this OCR run.</div>`;
+      setHTML(viewer, html`<div class="flex h-full items-center justify-center text-sm text-muted-foreground">No image is available for this OCR run.</div>`);
     }
     return;
   }
@@ -469,7 +469,6 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
 
   Mirador.viewer({
     id: "mirador-viewer",
-    theme: { direction: "rtl" },
     osdConfig,
     annotation: {
       adapter: (canvasID: string) => new ScribeAnnotationAdapter(annotationBase, 3, canvasID, "Scribe User", annotationClient),

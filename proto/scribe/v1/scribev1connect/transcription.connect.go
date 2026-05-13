@@ -52,12 +52,12 @@ type TranscriptionServiceClient interface {
 	// CreateTranscriptionJob enqueues a new batch transcription job for an image.
 	CreateTranscriptionJob(context.Context, *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error)
 	// GetTranscriptionJob returns the current state of a job (for polling).
-	GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.TranscriptionJob], error)
+	GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error)
 	// ListTranscriptionJobs lists jobs, optionally filtered by item image.
 	ListTranscriptionJobs(context.Context, *connect.Request[v1.ListTranscriptionJobsRequest]) (*connect.Response[v1.ListTranscriptionJobsResponse], error)
 	// StreamTranscriptionJob streams job updates in real time until the job
 	// reaches a terminal state (completed or failed).
-	StreamTranscriptionJob(context.Context, *connect.Request[v1.StreamTranscriptionJobRequest]) (*connect.ServerStreamForClient[v1.TranscriptionJob], error)
+	StreamTranscriptionJob(context.Context, *connect.Request[v1.StreamTranscriptionJobRequest]) (*connect.ServerStreamForClient[v1.StreamTranscriptionJobResponse], error)
 }
 
 // NewTranscriptionServiceClient constructs a client for the scribe.v1.TranscriptionService service.
@@ -77,7 +77,7 @@ func NewTranscriptionServiceClient(httpClient connect.HTTPClient, baseURL string
 			connect.WithSchema(transcriptionServiceMethods.ByName("CreateTranscriptionJob")),
 			connect.WithClientOptions(opts...),
 		),
-		getTranscriptionJob: connect.NewClient[v1.GetTranscriptionJobRequest, v1.TranscriptionJob](
+		getTranscriptionJob: connect.NewClient[v1.GetTranscriptionJobRequest, v1.GetTranscriptionJobResponse](
 			httpClient,
 			baseURL+TranscriptionServiceGetTranscriptionJobProcedure,
 			connect.WithSchema(transcriptionServiceMethods.ByName("GetTranscriptionJob")),
@@ -89,7 +89,7 @@ func NewTranscriptionServiceClient(httpClient connect.HTTPClient, baseURL string
 			connect.WithSchema(transcriptionServiceMethods.ByName("ListTranscriptionJobs")),
 			connect.WithClientOptions(opts...),
 		),
-		streamTranscriptionJob: connect.NewClient[v1.StreamTranscriptionJobRequest, v1.TranscriptionJob](
+		streamTranscriptionJob: connect.NewClient[v1.StreamTranscriptionJobRequest, v1.StreamTranscriptionJobResponse](
 			httpClient,
 			baseURL+TranscriptionServiceStreamTranscriptionJobProcedure,
 			connect.WithSchema(transcriptionServiceMethods.ByName("StreamTranscriptionJob")),
@@ -101,9 +101,9 @@ func NewTranscriptionServiceClient(httpClient connect.HTTPClient, baseURL string
 // transcriptionServiceClient implements TranscriptionServiceClient.
 type transcriptionServiceClient struct {
 	createTranscriptionJob *connect.Client[v1.CreateTranscriptionJobRequest, v1.CreateTranscriptionJobResponse]
-	getTranscriptionJob    *connect.Client[v1.GetTranscriptionJobRequest, v1.TranscriptionJob]
+	getTranscriptionJob    *connect.Client[v1.GetTranscriptionJobRequest, v1.GetTranscriptionJobResponse]
 	listTranscriptionJobs  *connect.Client[v1.ListTranscriptionJobsRequest, v1.ListTranscriptionJobsResponse]
-	streamTranscriptionJob *connect.Client[v1.StreamTranscriptionJobRequest, v1.TranscriptionJob]
+	streamTranscriptionJob *connect.Client[v1.StreamTranscriptionJobRequest, v1.StreamTranscriptionJobResponse]
 }
 
 // CreateTranscriptionJob calls scribe.v1.TranscriptionService.CreateTranscriptionJob.
@@ -112,7 +112,7 @@ func (c *transcriptionServiceClient) CreateTranscriptionJob(ctx context.Context,
 }
 
 // GetTranscriptionJob calls scribe.v1.TranscriptionService.GetTranscriptionJob.
-func (c *transcriptionServiceClient) GetTranscriptionJob(ctx context.Context, req *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.TranscriptionJob], error) {
+func (c *transcriptionServiceClient) GetTranscriptionJob(ctx context.Context, req *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error) {
 	return c.getTranscriptionJob.CallUnary(ctx, req)
 }
 
@@ -122,7 +122,7 @@ func (c *transcriptionServiceClient) ListTranscriptionJobs(ctx context.Context, 
 }
 
 // StreamTranscriptionJob calls scribe.v1.TranscriptionService.StreamTranscriptionJob.
-func (c *transcriptionServiceClient) StreamTranscriptionJob(ctx context.Context, req *connect.Request[v1.StreamTranscriptionJobRequest]) (*connect.ServerStreamForClient[v1.TranscriptionJob], error) {
+func (c *transcriptionServiceClient) StreamTranscriptionJob(ctx context.Context, req *connect.Request[v1.StreamTranscriptionJobRequest]) (*connect.ServerStreamForClient[v1.StreamTranscriptionJobResponse], error) {
 	return c.streamTranscriptionJob.CallServerStream(ctx, req)
 }
 
@@ -131,12 +131,12 @@ type TranscriptionServiceHandler interface {
 	// CreateTranscriptionJob enqueues a new batch transcription job for an image.
 	CreateTranscriptionJob(context.Context, *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error)
 	// GetTranscriptionJob returns the current state of a job (for polling).
-	GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.TranscriptionJob], error)
+	GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error)
 	// ListTranscriptionJobs lists jobs, optionally filtered by item image.
 	ListTranscriptionJobs(context.Context, *connect.Request[v1.ListTranscriptionJobsRequest]) (*connect.Response[v1.ListTranscriptionJobsResponse], error)
 	// StreamTranscriptionJob streams job updates in real time until the job
 	// reaches a terminal state (completed or failed).
-	StreamTranscriptionJob(context.Context, *connect.Request[v1.StreamTranscriptionJobRequest], *connect.ServerStream[v1.TranscriptionJob]) error
+	StreamTranscriptionJob(context.Context, *connect.Request[v1.StreamTranscriptionJobRequest], *connect.ServerStream[v1.StreamTranscriptionJobResponse]) error
 }
 
 // NewTranscriptionServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -193,7 +193,7 @@ func (UnimplementedTranscriptionServiceHandler) CreateTranscriptionJob(context.C
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.CreateTranscriptionJob is not implemented"))
 }
 
-func (UnimplementedTranscriptionServiceHandler) GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.TranscriptionJob], error) {
+func (UnimplementedTranscriptionServiceHandler) GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.GetTranscriptionJob is not implemented"))
 }
 
@@ -201,6 +201,6 @@ func (UnimplementedTranscriptionServiceHandler) ListTranscriptionJobs(context.Co
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.ListTranscriptionJobs is not implemented"))
 }
 
-func (UnimplementedTranscriptionServiceHandler) StreamTranscriptionJob(context.Context, *connect.Request[v1.StreamTranscriptionJobRequest], *connect.ServerStream[v1.TranscriptionJob]) error {
+func (UnimplementedTranscriptionServiceHandler) StreamTranscriptionJob(context.Context, *connect.Request[v1.StreamTranscriptionJobRequest], *connect.ServerStream[v1.StreamTranscriptionJobResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.StreamTranscriptionJob is not implemented"))
 }

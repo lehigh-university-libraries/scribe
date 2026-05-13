@@ -3,7 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
 )
 
 type annotationPageDocument struct {
@@ -62,7 +63,7 @@ func tripletRouteForCanvasURI(canvasURI string) tripletAnnotationRoute {
 			CanvasID: canvasID,
 		}
 	}
-	sum := sha1.Sum([]byte(canvasURI))
+	sum := sha256.Sum256([]byte(canvasURI))
 	return tripletAnnotationRoute{
 		ItemID:   "canvas-" + hex.EncodeToString(sum[:])[:24],
 		CanvasID: "annotations",
@@ -97,11 +98,7 @@ func (h *Handler) loadTripletAnnotationPage(ctx context.Context, canvasURI strin
 	if err != nil {
 		return nil, true, err
 	}
-	client := h.webhookClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
+	resp, err := safehttp.Do(req)
 	if err != nil {
 		return nil, true, err
 	}
@@ -155,11 +152,7 @@ func (h *Handler) putTripletAnnotationPage(ctx context.Context, canvasURI string
 	if strings.TrimSpace(etag) != "" {
 		req.Header.Set("If-Match", strings.TrimSpace(etag))
 	}
-	client := h.webhookClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
+	resp, err := safehttp.Do(req)
 	if err != nil {
 		return err
 	}

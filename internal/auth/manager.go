@@ -10,13 +10,13 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
-	optionsv1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
-	"google.golang.org/protobuf/encoding/protojson"
+	optionsv1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -24,17 +24,19 @@ import (
 )
 
 type Manager struct {
-	auth            config.AuthConfig
-	publicBaseURL   string
-	cookieSecure    bool
-	identities      *store.IdentityStore
-	apiKeys         *store.APIKeyStore
-	providerSecrets *store.ProviderSecretStore
-	items           *store.ItemStore
-	contexts        *store.ContextStore
-	jobs            *store.TranscriptionJobStore
-	google          *GoogleOAuthManager
-	vault           vaultClient
+	auth                       config.AuthConfig
+	publicBaseURL              string
+	providerSecretsVaultPrefix string
+	identities                 *store.IdentityStore
+	apiKeys                    *store.APIKeyStore
+	providerSecrets            *store.ProviderSecretStore
+	items                      *store.ItemStore
+	contexts                   *store.ContextStore
+	jobs                       *store.TranscriptionJobStore
+	google                     *GoogleOAuthManager
+	vault                      vaultClient
+	jwksMu                     sync.Mutex
+	jwksCache                  map[string]cachedJWKS
 }
 
 type vaultClient interface {
@@ -55,16 +57,17 @@ func NewManager(
 	vault vaultClient,
 ) (*Manager, error) {
 	manager := &Manager{
-		auth:            cfg.Auth,
-		publicBaseURL:   cfg.PublicBaseURL,
-		cookieSecure:    cfg.CookieSecureResolved(),
-		identities:      identities,
-		apiKeys:         apiKeys,
-		providerSecrets: providerSecrets,
-		items:           items,
-		contexts:        contexts,
-		jobs:            jobs,
-		vault:           vault,
+		auth:                       cfg.Auth,
+		publicBaseURL:              cfg.PublicBaseURL,
+		providerSecretsVaultPrefix: strings.Trim(strings.TrimSpace(cfg.Vault.Paths.ProviderSecrets), "/"),
+		identities:                 identities,
+		apiKeys:                    apiKeys,
+		providerSecrets:            providerSecrets,
+		items:                      items,
+		contexts:                   contexts,
+		jobs:                       jobs,
+		vault:                      vault,
+		jwksCache:                  make(map[string]cachedJWKS),
 	}
 	clientID := strings.TrimSpace(secrets.GoogleOAuthClientID)
 	clientSecret := strings.TrimSpace(secrets.GoogleOAuthClientSecret)
@@ -103,13 +106,6 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 }
 
 func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /auth/me", m.handleMe)
-	mux.HandleFunc("GET /auth/api-keys", m.handleListAPIKeys)
-	mux.HandleFunc("POST /auth/api-keys", m.handleCreateAPIKey)
-	mux.HandleFunc("DELETE /auth/api-keys/{key_id}", m.handleDeleteAPIKey)
-	mux.HandleFunc("GET /auth/provider-secrets", m.handleListProviderSecrets)
-	mux.HandleFunc("POST /auth/provider-secrets", m.handleCreateProviderSecret)
-	mux.HandleFunc("DELETE /auth/provider-secrets/{secret_id}", m.handleDeleteProviderSecret)
 	mux.HandleFunc("GET /logout", m.handleLogout)
 	mux.HandleFunc("POST /logout", m.handleLogout)
 	if m.google != nil {
@@ -125,16 +121,18 @@ func (m *Manager) Interceptor() connect.Interceptor {
 			if !ok {
 				principal = m.anonymousPrincipal()
 			}
-			if principal.Anonymous() {
-				return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
-			}
-
 			rule, err := extractAuthzRule(req.Spec().Procedure)
 			if err != nil {
 				return nil, connect.NewError(connect.CodePermissionDenied, err)
 			}
 			if rule == nil {
+				return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no authz rule for %s", req.Spec().Procedure))
+			}
+			if rule.GetAllowAnonymous() {
 				return next(ctx, req)
+			}
+			if principal.Anonymous() {
+				return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
 			}
 
 			resourceIDField := strings.TrimSpace(rule.GetResourceIdField())
@@ -151,7 +149,7 @@ func (m *Manager) Interceptor() connect.Interceptor {
 
 			resourceID, ok := extractFieldValue(req.Any(), resourceIDField)
 			if !ok || strings.TrimSpace(resourceID) == "" {
-				return next(ctx, req)
+				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", resourceIDField))
 			}
 
 			allowed, authErr := m.authorizeResource(ctx, principal, req.Spec().Procedure, rule.GetResource(), rule.GetLevel(), resourceID)
@@ -187,7 +185,7 @@ func (m *Manager) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("start google oauth: %v", err), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, authURL, http.StatusFound)
+	http.Redirect(w, r, authURL, http.StatusFound) // #nosec G710 -- BeginAuth returns the fixed Google OAuth authorization endpoint plus signed state.
 }
 
 func (m *Manager) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
@@ -247,302 +245,15 @@ func (m *Manager) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-func (m *Manager) handleMe(w http.ResponseWriter, r *http.Request) {
-	principal, ok := PrincipalFromContext(r.Context())
-	if !ok {
-		principal = m.anonymousPrincipal()
-	}
-	response := map[string]any{
-		"authenticated": principal.Authenticated,
-		"authType":      principal.AuthType,
-		"loginUrl":      "/auth/google",
-		"logoutUrl":     "/logout",
-	}
-	if principal.Authenticated {
-		response["user"] = map[string]any{
-			"id":                 principal.UserID,
-			"email":              principal.Email,
-			"name":               principal.Name,
-			"pictureUrl":         principal.PictureURL,
-			"isAdmin":            principal.IsAdmin,
-			"defaultWorkspaceId": principal.DefaultWorkspaceID,
-		}
-		response["workspace"] = map[string]any{
-			"id":   principal.WorkspaceID,
-			"name": principal.WorkspaceName,
-			"role": principal.WorkspaceRole,
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(response)
-}
-
-func (m *Manager) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
-	principal, ok := PrincipalFromContext(r.Context())
-	if !ok || !principal.Authenticated || principal.AuthType != "session" {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	if !principalHasPermission(principal, "admin:api_keys") {
-		http.Error(w, "permission denied", http.StatusForbidden)
-		return
-	}
-	keys, err := m.apiKeys.ListByWorkspace(r.Context(), principal.WorkspaceID)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("list api keys: %v", err), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"apiKeys": keys})
-}
-
-func (m *Manager) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
-	principal, ok := PrincipalFromContext(r.Context())
-	if !ok || !principal.Authenticated || principal.AuthType != "session" {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	if !principalHasPermission(principal, "admin:api_keys") {
-		http.Error(w, "permission denied", http.StatusForbidden)
-		return
-	}
-	var req struct {
-		Name      string   `json:"name"`
-		Role      string   `json:"role"`
-		Scopes    []string `json:"scopes"`
-		ExpiresAt string   `json:"expiresAt"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-	var expiresAt *time.Time
-	if raw := strings.TrimSpace(req.ExpiresAt); raw != "" {
-		parsed, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
-			http.Error(w, "invalid expiresAt", http.StatusBadRequest)
-			return
-		}
-		expiresAt = &parsed
-	}
-	apiKey, rawKey, err := m.apiKeys.Create(r.Context(), principal.WorkspaceID, principal.UserID, req.Name, req.Role, req.Scopes, expiresAt)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("create api key: %v", err), http.StatusBadRequest)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"apiKey": apiKey,
-		"key":    rawKey,
-	})
-}
-
-func (m *Manager) handleDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
-	principal, ok := PrincipalFromContext(r.Context())
-	if !ok || !principal.Authenticated || principal.AuthType != "session" {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	if !principalHasPermission(principal, "admin:api_keys") {
-		http.Error(w, "permission denied", http.StatusForbidden)
-		return
-	}
-	keyID, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("key_id")), 10, 64)
-	if err != nil || keyID == 0 {
-		http.Error(w, "invalid key_id", http.StatusBadRequest)
-		return
-	}
-	if err := m.apiKeys.DeleteForWorkspace(r.Context(), keyID, principal.WorkspaceID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "api key not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, fmt.Sprintf("delete api key: %v", err), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (m *Manager) handleListProviderSecrets(w http.ResponseWriter, r *http.Request) {
-	principal, ok := PrincipalFromContext(r.Context())
-	if !ok || !principal.Authenticated || principal.AuthType != "session" {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	if !principalHasPermission(principal, "contexts:read") {
-		http.Error(w, "permission denied", http.StatusForbidden)
-		return
-	}
-	if m.providerSecrets == nil {
-		http.Error(w, "provider secret storage is not configured", http.StatusServiceUnavailable)
-		return
-	}
-	secrets, err := m.providerSecrets.ListVisible(r.Context(), principal.WorkspaceID, principal.UserID)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("list provider secrets: %v", err), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"providerSecrets": secrets})
-}
-
-func (m *Manager) handleCreateProviderSecret(w http.ResponseWriter, r *http.Request) {
-	principal, ok := PrincipalFromContext(r.Context())
-	if !ok || !principal.Authenticated || principal.AuthType != "session" {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	if !principalHasPermission(principal, "contexts:write") {
-		http.Error(w, "permission denied", http.StatusForbidden)
-		return
-	}
-	if m.providerSecrets == nil || m.vault == nil {
-		http.Error(w, "provider secret storage is not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	var req struct {
-		Provider string `json:"provider"`
-		Name     string `json:"name"`
-		APIKey   string `json:"apiKey"`
-		Scope    string `json:"scope"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-
-	provider := strings.ToLower(strings.TrimSpace(req.Provider))
-	if provider != "gemini" {
-		http.Error(w, "unsupported provider secret provider", http.StatusBadRequest)
-		return
-	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		http.Error(w, "name is required", http.StatusBadRequest)
-		return
-	}
-	apiKey := strings.TrimSpace(req.APIKey)
-	if apiKey == "" {
-		http.Error(w, "apiKey is required", http.StatusBadRequest)
-		return
-	}
-
-	scope := strings.ToLower(strings.TrimSpace(req.Scope))
-	if scope == "" {
-		scope = "user"
-	}
-	if scope != "user" && scope != "workspace" {
-		http.Error(w, "scope must be 'user' or 'workspace'", http.StatusBadRequest)
-		return
-	}
-	if scope == "workspace" && !strings.EqualFold(principal.WorkspaceRole, "admin") && !principal.IsAdmin {
-		http.Error(w, "workspace secrets require admin role", http.StatusForbidden)
-		return
-	}
-
-	pathSuffix, err := randomString(12)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("generate secret path: %v", err), http.StatusInternalServerError)
-		return
-	}
-	vaultPath := fmt.Sprintf(
-		"scribe/provider-secrets/workspaces/%d/%s/%s-%s",
-		principal.WorkspaceID,
-		provider,
-		store.Slugify(name),
-		strings.ToLower(pathSuffix),
-	)
-	if err := m.vault.Write(r.Context(), vaultPath, map[string]string{
-		"api_key":  apiKey,
-		"provider": provider,
-		"name":     name,
-	}); err != nil {
-		http.Error(w, fmt.Sprintf("write provider secret: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	var userID *uint64
-	workspaceID := principal.WorkspaceID
-	if scope == "user" {
-		userID = &principal.UserID
-	}
-	secret, err := m.providerSecrets.Create(r.Context(), store.ProviderSecret{
-		UserID:      userID,
-		WorkspaceID: &workspaceID,
-		Provider:    provider,
-		Name:        name,
-		VaultPath:   vaultPath,
-		KeyHint:     secretKeyHint(apiKey),
-		Scope:       scope,
-	})
-	if err != nil {
-		_ = m.vault.Delete(r.Context(), vaultPath)
-		http.Error(w, fmt.Sprintf("create provider secret: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"providerSecret": secret,
-	})
-}
-
-func (m *Manager) handleDeleteProviderSecret(w http.ResponseWriter, r *http.Request) {
-	principal, ok := PrincipalFromContext(r.Context())
-	if !ok || !principal.Authenticated || principal.AuthType != "session" {
-		http.Error(w, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	if !principalHasPermission(principal, "contexts:write") {
-		http.Error(w, "permission denied", http.StatusForbidden)
-		return
-	}
-	if m.providerSecrets == nil || m.vault == nil {
-		http.Error(w, "provider secret storage is not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	secretID, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("secret_id")), 10, 64)
-	if err != nil || secretID == 0 {
-		http.Error(w, "invalid secret_id", http.StatusBadRequest)
-		return
-	}
-
-	secret, err := m.providerSecrets.GetVisible(r.Context(), secretID, principal.WorkspaceID, principal.UserID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "provider secret not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, fmt.Sprintf("load provider secret: %v", err), http.StatusInternalServerError)
-		return
-	}
-	if secret.Scope == "workspace" && !strings.EqualFold(principal.WorkspaceRole, "admin") && !principal.IsAdmin {
-		http.Error(w, "workspace secrets require admin role", http.StatusForbidden)
-		return
-	}
-
-	if secret.Scope == "workspace" {
-		err = m.providerSecrets.DeleteWorkspaceSecret(r.Context(), secretID, principal.WorkspaceID)
-	} else {
-		err = m.providerSecrets.DeleteUserSecret(r.Context(), secretID, principal.WorkspaceID, principal.UserID)
-	}
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "provider secret not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, fmt.Sprintf("delete provider secret: %v", err), http.StatusInternalServerError)
-		return
-	}
-	_ = m.vault.Delete(r.Context(), secret.VaultPath)
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func (m *Manager) authenticateRequest(r *http.Request) (Principal, error) {
-	if rawKey := extractAPIKeyFromRequest(r); rawKey != "" {
+	if rawKey := strings.TrimSpace(r.Header.Get("X-Scribe-API-Key")); rawKey != "" {
 		return m.apiKeyPrincipal(r.Context(), rawKey)
+	}
+	if bearer := bearerTokenFromRequest(r); bearer != "" {
+		if looksLikeJWT(bearer) && len(m.auth.ExternalJWTIssuers) > 0 {
+			return m.externalJWTPrincipal(r.Context(), bearer)
+		}
+		return m.apiKeyPrincipal(r.Context(), bearer)
 	}
 	cookie, err := r.Cookie(m.auth.CookieName)
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
@@ -632,6 +343,10 @@ func extractAPIKeyFromRequest(r *http.Request) string {
 	if raw := strings.TrimSpace(r.Header.Get("X-Scribe-API-Key")); raw != "" {
 		return raw
 	}
+	return bearerTokenFromRequest(r)
+}
+
+func bearerTokenFromRequest(r *http.Request) string {
 	authz := strings.TrimSpace(r.Header.Get("Authorization"))
 	if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
 		return strings.TrimSpace(authz[7:])
@@ -639,12 +354,14 @@ func extractAPIKeyFromRequest(r *http.Request) string {
 	return ""
 }
 
+func looksLikeJWT(raw string) bool {
+	return strings.Count(strings.TrimSpace(raw), ".") == 2
+}
+
 func (m *Manager) requiresAuthenticatedAPI(r *http.Request) bool {
 	path := strings.TrimSpace(r.URL.Path)
 	return strings.HasPrefix(path, "/v1/") ||
-		strings.HasPrefix(path, "/scribe.v1.") ||
-		strings.HasPrefix(path, "/auth/api-keys") ||
-		strings.HasPrefix(path, "/auth/provider-secrets")
+		strings.HasPrefix(path, "/scribe.v1.")
 }
 
 func (m *Manager) authorizeProcedure(ctx context.Context, principal Principal, procedure string, level optionsv1.AccessLevel) (bool, error) {
@@ -728,6 +445,12 @@ func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLeve
 		return "transcription:read"
 	case "/scribe.v1.TranscriptionService/CreateTranscriptionJob":
 		return "transcription:write"
+	case "/scribe.v1.AuthService/ListAPIKeys", "/scribe.v1.AuthService/CreateAPIKey", "/scribe.v1.AuthService/DeleteAPIKey":
+		return "admin:api_keys"
+	case "/scribe.v1.AuthService/ListProviderSecrets":
+		return "contexts:read"
+	case "/scribe.v1.AuthService/CreateProviderSecret", "/scribe.v1.AuthService/DeleteProviderSecret":
+		return "contexts:write"
 	case "/scribe.v1.AnnotationService/SearchAnnotations", "/scribe.v1.AnnotationService/GetAnnotation", "/scribe.v1.AnnotationService/CrosswalkToPlainText", "/scribe.v1.AnnotationService/CrosswalkToHOCR", "/scribe.v1.AnnotationService/CrosswalkToPageXML", "/scribe.v1.AnnotationService/CrosswalkToALTOXML":
 		return "annotations:read"
 	case "/scribe.v1.AnnotationService/CreateAnnotation", "/scribe.v1.AnnotationService/UpdateAnnotation", "/scribe.v1.AnnotationService/DeleteAnnotation", "/scribe.v1.AnnotationService/EnrichAnnotation", "/scribe.v1.AnnotationService/SplitLineIntoWords", "/scribe.v1.AnnotationService/SplitLineIntoTwoLines", "/scribe.v1.AnnotationService/JoinLines", "/scribe.v1.AnnotationService/JoinWordsIntoLine", "/scribe.v1.ImageProcessingService/SaveOCREdits":
@@ -735,25 +458,13 @@ func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLeve
 	case "/scribe.v1.AnnotationService/PublishItemImageEdits":
 		return "annotations:read"
 	default:
-		if level >= optionsv1.AccessLevel_ACCESS_LEVEL_WRITE {
-			return "items:write"
-		}
-		return "items:read"
+		return "authz:unmapped"
 	}
 }
 
 func requiredPermissionForPath(path, method string) string {
 	if strings.HasPrefix(path, "/scribe.v1.") {
 		return requiredPermissionForProcedure(path, optionsv1.AccessLevel_ACCESS_LEVEL_READ)
-	}
-	if strings.HasPrefix(path, "/auth/api-keys") {
-		return "admin:api_keys"
-	}
-	if strings.HasPrefix(path, "/auth/provider-secrets") {
-		if strings.EqualFold(method, http.MethodGet) {
-			return "contexts:read"
-		}
-		return "contexts:write"
 	}
 	switch {
 	case path == "/v1/events":
@@ -816,7 +527,7 @@ func workspaceRoleAllowsPermission(role, permission string) bool {
 
 func scopeListAllows(scopes []string, permission string) bool {
 	if len(scopes) == 0 {
-		return true
+		return false
 	}
 	for _, scope := range scopes {
 		scope = strings.TrimSpace(scope)
@@ -848,49 +559,24 @@ func (m *Manager) googleCallbackURL(r *http.Request) string {
 }
 
 func requestPublicBaseURL(r *http.Request, fallback string) string {
+	fallback = strings.TrimRight(strings.TrimSpace(fallback), "/")
+	if fallback != "" {
+		return fallback
+	}
 	if r != nil {
-		host := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
-		if host == "" {
-			host = strings.TrimSpace(r.Host)
-		}
+		host := strings.TrimSpace(r.Host)
 		if host != "" {
-			scheme := firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))
-			if scheme == "" {
-				switch {
-				case r.URL != nil && strings.TrimSpace(r.URL.Scheme) != "":
-					scheme = strings.TrimSpace(r.URL.Scheme)
-				case r.TLS != nil:
-					scheme = "https"
-				default:
-					scheme = "http"
-				}
+			scheme := "http"
+			switch {
+			case r.URL != nil && strings.TrimSpace(r.URL.Scheme) != "":
+				scheme = strings.TrimSpace(r.URL.Scheme)
+			case r.TLS != nil:
+				scheme = "https"
 			}
 			return (&url.URL{Scheme: scheme, Host: host}).String()
 		}
 	}
-	return strings.TrimRight(strings.TrimSpace(fallback), "/")
-}
-
-func firstForwardedValue(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	return strings.TrimSpace(strings.Split(raw, ",")[0])
-}
-
-func requestIsSecure(r *http.Request, fallback bool) bool {
-	if r != nil {
-		switch strings.ToLower(firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))) {
-		case "https":
-			return true
-		case "http":
-			return false
-		}
-		if r.TLS != nil {
-			return true
-		}
-	}
-	return fallback
+	return ""
 }
 
 func (m *Manager) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
@@ -901,7 +587,7 @@ func (m *Manager) setSessionCookie(w http.ResponseWriter, r *http.Request, token
 		Domain:   m.auth.CookieDomain,
 		MaxAge:   maxAgeSeconds(m.auth.SessionTTL),
 		HttpOnly: true,
-		Secure:   requestIsSecure(r, m.cookieSecure),
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -914,7 +600,7 @@ func (m *Manager) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 		Domain:   m.auth.CookieDomain,
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   requestIsSecure(r, m.cookieSecure),
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -1026,36 +712,50 @@ func extractFieldValue(message any, fieldPath string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	body, err := protojson.Marshal(protoMessage)
-	if err != nil {
-		return "", false
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return "", false
-	}
-	var current any = payload
+	current := protoMessage.ProtoReflect()
 	for _, rawSegment := range strings.Split(fieldPath, ".") {
-		segment := toCamelCase(strings.TrimSpace(rawSegment))
-		obj, ok := current.(map[string]any)
-		if !ok {
+		segment := strings.TrimSpace(rawSegment)
+		if segment == "" || !current.IsValid() {
 			return "", false
 		}
-		next, ok := obj[segment]
-		if !ok {
+		field := findFieldByPathSegment(current.Descriptor(), segment)
+		if field == nil || !current.Has(field) {
 			return "", false
 		}
-		current = next
+		value := current.Get(field)
+		if field.Kind() == protoreflect.MessageKind || field.Kind() == protoreflect.GroupKind {
+			current = value.Message()
+			continue
+		}
+		return scalarFieldValue(value, field)
 	}
-	switch value := current.(type) {
-	case string:
-		return value, true
-	case float64:
-		return strconv.FormatUint(uint64(value), 10), true
-	case json.Number:
+	return "", false
+}
+
+func findFieldByPathSegment(desc protoreflect.MessageDescriptor, raw string) protoreflect.FieldDescriptor {
+	fields := desc.Fields()
+	camel := toCamelCase(raw)
+	for i := 0; i < fields.Len(); i++ {
+		field := fields.Get(i)
+		if string(field.Name()) == raw || field.JSONName() == raw || field.JSONName() == camel {
+			return field
+		}
+	}
+	return nil
+}
+
+func scalarFieldValue(value protoreflect.Value, field protoreflect.FieldDescriptor) (string, bool) {
+	switch field.Kind() {
+	case protoreflect.StringKind:
 		return value.String(), true
+	case protoreflect.Uint32Kind, protoreflect.Uint64Kind, protoreflect.Fixed32Kind, protoreflect.Fixed64Kind:
+		return strconv.FormatUint(value.Uint(), 10), true
+	case protoreflect.Int32Kind, protoreflect.Int64Kind, protoreflect.Sint32Kind, protoreflect.Sint64Kind, protoreflect.Sfixed32Kind, protoreflect.Sfixed64Kind:
+		return strconv.FormatInt(value.Int(), 10), true
+	case protoreflect.BoolKind:
+		return strconv.FormatBool(value.Bool()), true
 	default:
-		return fmt.Sprintf("%v", value), true
+		return value.String(), true
 	}
 }
 

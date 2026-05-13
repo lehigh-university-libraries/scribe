@@ -3,7 +3,7 @@ syntax = "proto3";
 package scribe.v1;
 
 import "buf/validate/validate.proto";
-import "scribe/v1/options/auth.proto";
+import "scribe/v1/options/v1/auth.proto";
 
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
@@ -176,33 +176,33 @@ message ResolveContextResponse {
 
 service ContextService {
   rpc ListContexts(ListContextsRequest) returns (ListContextsResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_READ
     };
   }
   rpc GetContext(GetContextRequest) returns (GetContextResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_CONTEXT
       level: ACCESS_LEVEL_READ
       resource_id_field: "context_id"
     };
   }
   rpc CreateContext(CreateContextRequest) returns (CreateContextResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_WRITE
     };
   }
   rpc UpdateContext(UpdateContextRequest) returns (UpdateContextResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_CONTEXT
       level: ACCESS_LEVEL_WRITE
       resource_id_field: "context.id"
     };
   }
   rpc DeleteContext(DeleteContextRequest) returns (DeleteContextResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_CONTEXT
       level: ACCESS_LEVEL_WRITE
       resource_id_field: "context_id"
@@ -210,28 +210,27 @@ service ContextService {
   }
 
   rpc ListSelectionRules(ListSelectionRulesRequest) returns (ListSelectionRulesResponse) {
-    option (scribe.v1.options.authz) = {
-      resource: RESOURCE_TYPE_CONTEXT
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_READ
-      resource_id_field: "context_id"
     };
   }
   rpc CreateSelectionRule(CreateSelectionRuleRequest) returns (CreateSelectionRuleResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_CONTEXT
       level: ACCESS_LEVEL_WRITE
       resource_id_field: "rule.context_id"
     };
   }
   rpc DeleteSelectionRule(DeleteSelectionRuleRequest) returns (DeleteSelectionRuleResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_WRITE
     };
   }
 
   rpc ResolveContext(ResolveContextRequest) returns (ResolveContextResponse) {
-    option (scribe.v1.options.authz) = {
+    option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_READ
     };
