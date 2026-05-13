@@ -49,7 +49,7 @@ import {
   syncWorkspaceSelectionFromLocation,
   workspaceAwarePath,
 } from "../lib/workspace";
-import { escHtml, uint64ToString } from "../lib/util";
+import { escHtml, setHTML, uint64ToString } from "../lib/util";
 import { ContextSchema, type Context } from "../proto/scribe/v1/context_pb";
 import type { Item } from "../proto/scribe/v1/item_pb";
 import type { Workspace, WorkspaceAccess, WorkspaceMember } from "../proto/scribe/v1/workspace_pb";
@@ -217,7 +217,7 @@ function avatarInitials(auth: AuthMeResponse | null): string {
 function createProcessingOverlay(steps: string[]): ProcessingOverlay {
   const el = document.createElement("div");
   el.className = "fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/15 px-4 backdrop-blur-sm";
-  el.innerHTML = `
+  setHTML(el, `
     <div class="w-full max-w-md rounded-lg border border-border bg-card px-8 py-9 text-center shadow-2xl shadow-black/10">
       <div>
         <p class="text-xs font-semibold uppercase tracking-[0.34em] text-muted-foreground">Scribe</p>
@@ -236,7 +236,7 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
       </ul>
       <p id="proc-detail" class="mt-6 text-xs text-muted-foreground"></p>
     </div>
-  `;
+  `);
   document.body.appendChild(el);
 
   let activeStep = -1;
@@ -248,10 +248,10 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
       if (!item || !icon) continue;
       if (i < step) {
         item.className = "flex items-center gap-3 text-muted-foreground transition-colors duration-300";
-        icon.innerHTML = `<span class="size-4 text-primary">${ICONS.check}</span>`;
+        setHTML(icon, `<span class="size-4 text-primary">${ICONS.check}</span>`);
       } else {
         item.className = "flex items-center gap-3 text-foreground transition-colors duration-300";
-        icon.innerHTML = `<span class="inline-block size-3 animate-spin rounded-full border-2 border-border border-t-primary"></span>`;
+        setHTML(icon, `<span class="inline-block size-3 animate-spin rounded-full border-2 border-border border-t-primary"></span>`);
       }
     }
     activeStep = step;
@@ -267,7 +267,7 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
         const icon = document.getElementById(`proc-icon-${i}`);
         if (!item || !icon) continue;
         item.className = "flex items-center gap-3 text-muted-foreground transition-colors duration-300";
-        icon.innerHTML = `<span class="size-4 text-primary">${ICONS.check}</span>`;
+        setHTML(icon, `<span class="size-4 text-primary">${ICONS.check}</span>`);
       }
       const detailEl = document.getElementById("proc-detail");
       if (detailEl) detailEl.textContent = detail;
@@ -284,21 +284,66 @@ function createProcessingOverlay(steps: string[]): ProcessingOverlay {
 
 async function waitForAutomaticTranscriptionStart(itemImageId: string, overlay: ProcessingOverlay): Promise<void> {
   overlay.setDetail("Preparing automatic transcription...");
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 120000) {
-    try {
-      const jobs = await listTranscriptionJobs(BigInt(itemImageId));
-      const latest = jobs[0];
-      if (latest) {
-        const total = latest.totalSegments > 0 ? latest.totalSegments : "?";
-        overlay.setDetail(`Automatic transcription progress ${latest.completedSegments}/${total}`);
-        return;
-      }
-    } catch {
-      overlay.setDetail("Preparing automatic transcription...");
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, 500));
+  const existing = await listTranscriptionJobs(BigInt(itemImageId));
+  const latest = existing[0];
+  if (latest) {
+    const total = latest.totalSegments > 0 ? latest.totalSegments : "?";
+    overlay.setDetail(`Automatic transcription progress ${latest.completedSegments}/${total}`);
+    return;
   }
+
+  await new Promise<void>((resolve, reject) => {
+    let subscription: { close: () => void } | null = null;
+    const timeout = window.setTimeout(() => {
+      subscription?.close();
+      reject(new Error("Automatic transcription did not start within 120 seconds."));
+    }, 120000);
+    const finish = () => {
+      window.clearTimeout(timeout);
+      subscription?.close();
+      resolve();
+    };
+    subscription = subscribeToEvents(
+      {
+        itemImageId,
+        types: [
+          "dev.scribe.transcription.task.started",
+          "dev.scribe.transcription.task.completed",
+          "dev.scribe.transcription.completed",
+          "dev.scribe.transcription.failed",
+        ],
+      },
+      (event) => {
+        if (event.type === "dev.scribe.transcription.failed") {
+          overlay.setDetail("Automatic transcription failed.");
+          finish();
+          return;
+        }
+        overlay.setDetail("Automatic transcription is running.");
+        finish();
+      },
+      () => {
+        overlay.setDetail("Preparing automatic transcription...");
+      },
+    );
+  });
+}
+
+function exportFilename(item: Item, format: "hocr" | "pagexml" | "alto" | "txt"): string {
+  const ext = format === "txt" ? "txt" : "xml";
+  const stem = (item.name || item.id || "scribe-export").trim().replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "scribe-export";
+  return `${stem}.${ext}`;
+}
+
+function renderExportLinks(item: Item): string {
+  return ([
+    ["hocr", "hOCR"],
+    ["pagexml", "PAGE XML"],
+    ["alto", "ALTO XML"],
+    ["txt", "Text"],
+  ] as Array<["hocr" | "pagexml" | "alto" | "txt", string]>)
+    .map(([format, label]) => `<a href="${escHtml(exportHref(item.id, format))}" download="${escHtml(exportFilename(item, format))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground">${label}</a>`)
+    .join("");
 }
 
 function formatDate(raw: string): string {
@@ -458,8 +503,8 @@ function renderProviderSecrets(secrets: ProviderSecretRecord[]): string {
               <td class="px-3 py-3 text-foreground">${escHtml(secret.provider)}</td>
               <td class="px-3 py-3 text-foreground">${escHtml(secret.name)}</td>
               <td class="px-3 py-3 text-muted-foreground">${escHtml(secret.scope)}</td>
-              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${secret.key_hint ? `****${escHtml(secret.key_hint)}` : "Stored"}</td>
-              <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(secret.updated_at))}</td>
+              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${secret.keyHint ? `****${escHtml(secret.keyHint)}` : "Stored"}</td>
+              <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(secret.updatedAt))}</td>
               <td class="px-3 py-3 text-right">
                 <button data-provider-secret-delete="${escHtml(String(secret.id))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Delete</button>
               </td>
@@ -492,8 +537,8 @@ function renderAPIKeys(keys: APIKeyRecord[]): string {
             <tr class="border-t border-border">
               <td class="px-3 py-3 text-foreground">${escHtml(key.name)}</td>
               <td class="px-3 py-3 text-muted-foreground">${escHtml(key.role)}</td>
-              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${escHtml(key.key_prefix)}</td>
-              <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(key.updated_at))}</td>
+              <td class="px-3 py-3 font-mono text-xs text-muted-foreground">${escHtml(key.keyPrefix)}</td>
+              <td class="px-3 py-3 text-muted-foreground">${escHtml(formatDateTime(key.updatedAt))}</td>
               <td class="px-3 py-3 text-right">
                 <button data-api-key-delete="${escHtml(String(key.id))}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Delete</button>
               </td>
@@ -526,15 +571,7 @@ function renderRecentItemCard(item: Item): string {
         ${openHref ? `<a href="${openHref}" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">Open editor</a>` : `<span class="inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">No images</span>`}
         <button data-item-logs="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Logs</button>
         <button data-item-delete="${escHtml(item.id)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-destructive shadow-xs transition hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50">Delete</button>
-        ${openHref ? `
-          <select data-item-export="${escHtml(item.id)}" class="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 min-w-[140px] max-w-[180px] py-1.5 text-xs">
-            <option value="">Export</option>
-            <option value="hocr">hOCR</option>
-            <option value="pagexml">PAGE XML</option>
-            <option value="alto">ALTO XML</option>
-            <option value="txt">Plain text</option>
-          </select>
-        ` : ""}
+        ${openHref ? renderExportLinks(item) : ""}
       </div>
     </article>
   `;
@@ -563,7 +600,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
 
   applyTheme(state.theme);
 
-  app.innerHTML = `
+  setHTML(app, `
     <div class="min-h-screen text-foreground">
       <div class="mx-auto flex min-h-screen w-full">
         <aside id="shell-sidebar" class="flex w-full max-w-[260px] flex-col border-r border-border bg-muted/40 px-3 py-4"></aside>
@@ -578,11 +615,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       <div id="shell-drawer-backdrop" class="fixed inset-0 z-40 bg-foreground/20 hidden"></div>
       <aside id="shell-drawer" class="fixed bottom-0 right-0 top-0 z-50 w-full max-w-[640px] border-l border-border bg-background px-6 py-5 shadow-lg transition-transform duration-200 translate-x-full"></aside>
 
-      <div id="shell-modal" class="hidden fixed inset-0 z-50 items-center justify-center bg-foreground/20 p-4 backdrop-blur-sm">
+      <div id="shell-modal" role="dialog" aria-modal="true" aria-labelledby="shell-modal-heading" tabindex="-1" class="hidden fixed inset-0 z-50 items-center justify-center bg-foreground/20 p-4 backdrop-blur-sm">
         <div class="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-lg border border-border bg-card shadow-2xl shadow-black/10">
           <div class="flex items-center justify-between border-b border-border px-6 py-4">
             <div>
-              <h2 class="text-lg font-semibold text-foreground">Item logs</h2>
+              <h2 id="shell-modal-heading" class="text-lg font-semibold text-foreground">Item logs</h2>
               <p id="shell-modal-title" class="text-xs text-muted-foreground"></p>
             </div>
             <button id="shell-modal-close" class="inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">Close</button>
@@ -591,7 +628,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         </div>
       </div>
     </div>
-  `;
+  `);
 
   const sidebar = document.getElementById("shell-sidebar") as HTMLDivElement;
   const topbar = document.getElementById("shell-topbar") as HTMLDivElement;
@@ -603,6 +640,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   const modalTitle = document.getElementById("shell-modal-title") as HTMLParagraphElement;
   const modalBody = document.getElementById("shell-modal-body") as HTMLDivElement;
   const modalClose = document.getElementById("shell-modal-close") as HTMLButtonElement;
+  let modalReturnFocus: HTMLElement | null = null;
 
   function selectedContextId(): bigint {
     const select = document.getElementById("library-context-select") as HTMLSelectElement | null;
@@ -629,17 +667,19 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   async function openLogsModal(itemId: string): Promise<void> {
     const item = state.items.find((entry) => entry.id === itemId);
     if (!item) return;
+    modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     modal.classList.remove("hidden");
     modal.classList.add("flex");
     modalTitle.textContent = `${item.name || item.id} (${item.id})`;
-    modalBody.innerHTML = `<p class="text-muted-foreground">Loading logs…</p>`;
+    setHTML(modalBody, `<p class="text-muted-foreground">Loading logs…</p>`);
+    modalClose.focus();
     try {
       const audits = await listItemProviderCallAudits(item.id, 100);
-      modalBody.innerHTML = audits.length === 0
+      setHTML(modalBody, audits.length === 0
         ? `<p class="text-muted-foreground">No provider logs recorded for this item yet.</p>`
-        : `<div class="flex flex-col gap-3">${audits.map(renderAuditCard).join("")}</div>`;
+        : `<div class="flex flex-col gap-3">${audits.map(renderAuditCard).join("")}</div>`);
     } catch (error) {
-      modalBody.innerHTML = `<p class="text-destructive">Failed to load logs: ${escHtml(String(error))}</p>`;
+      setHTML(modalBody, `<p class="text-destructive">Failed to load logs: ${escHtml(String(error))}</p>`);
     }
   }
 
@@ -665,19 +705,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       });
     });
 
-    app.querySelectorAll<HTMLSelectElement>("[data-item-export]").forEach((select) => {
-      select.addEventListener("change", () => {
-        const format = select.value as "" | "hocr" | "pagexml" | "alto" | "txt";
-        const itemId = select.dataset.itemExport;
-        if (!format || !itemId) return;
-        window.location.href = exportHref(itemId, format);
-      });
-    });
   }
 
   function renderTopbar() {
     const workspace = currentWorkspace(state);
-    topbar.innerHTML = `
+    setHTML(topbar, `
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0">
           <p class="text-sm font-medium text-muted-foreground">${escHtml(workspace?.name || state.auth?.workspace?.name || "Workspace")}</p>
@@ -698,7 +730,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           </button>
         </div>
       </div>
-    `;
+    `);
 
     document.getElementById("shell-contexts-button")?.addEventListener("click", () => {
       void openPanel("contexts");
@@ -714,7 +746,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   function renderSidebar() {
     const items = filteredItems();
     const loginHref = buildLoginHref(state.auth);
-    sidebar.innerHTML = `
+    setHTML(sidebar, `
       <div class="mb-4">
         ${state.auth?.authenticated ? `
           <div class="flex items-end gap-2">
@@ -807,7 +839,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           }).join("")}
         </div>
       </div>
-    `;
+    `);
 
     const workspaceSelect = document.getElementById("sidebar-workspace-select") as HTMLSelectElement | null;
     workspaceSelect?.addEventListener("change", async () => {
@@ -849,7 +881,8 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       const start = searchInput.selectionStart ?? searchInput.value.length;
       const end = searchInput.selectionEnd ?? searchInput.value.length;
       state.search = searchInput.value;
-      renderAll();
+      renderSidebar();
+      void bindSharedItemActions();
       const nextInput = document.getElementById("sidebar-search") as HTMLInputElement | null;
       nextInput?.focus();
       nextInput?.setSelectionRange(start, end);
@@ -862,7 +895,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const workspace = currentWorkspace(state);
 
     if (!state.auth?.authenticated) {
-      content.innerHTML = `
+      setHTML(content, `
         <section class="mx-auto flex min-h-[68vh] max-w-4xl items-center">
           <div class="mx-auto w-full max-w-2xl px-6 py-10 text-center">
             <p class="text-[11px] font-medium uppercase tracking-wider text-muted-foreground text-center">Get Started</p>
@@ -873,11 +906,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
             </div>
           </div>
         </section>
-      `;
+      `);
       return;
     }
 
-    content.innerHTML = `
+    setHTML(content, `
       <section class="mx-auto flex w-full max-w-5xl flex-col gap-6">
         ${state.dataError ? `
           <div class="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -891,14 +924,14 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         </div>
 
         <section class="rounded-lg border bg-card p-5 text-card-foreground shadow-xs mx-auto w-full max-w-3xl">
-          <div class="flex flex-wrap justify-center gap-2">
+          <div class="flex flex-wrap justify-center gap-2" role="tablist" aria-label="Annotation source">
             ${([
               ["url", "Image URL", ICONS.link],
               ["single", "Single upload", ICONS.upload],
               ["multi", "Batch upload", ICONS.grid],
               ["manifest", "IIIF manifest", ICONS.file],
             ] as Array<[LibraryTab, string, string]>).map(([tab, label, icon]) => `
-              <button data-library-tab="${tab}" class="${state.activeLibraryTab === tab ? "inline-flex items-center gap-1 rounded-full border border-transparent bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground" : "inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground"}" type="button">
+              <button data-library-tab="${tab}" role="tab" aria-selected="${state.activeLibraryTab === tab ? "true" : "false"}" class="${state.activeLibraryTab === tab ? "inline-flex items-center gap-1 rounded-full border border-transparent bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground" : "inline-flex items-center gap-1 rounded-full border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground"}" type="button">
                 <span class="inline-flex size-4 items-center justify-center">${icon}</span>
                 <span>${label}</span>
               </button>
@@ -993,7 +1026,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           </div>
         </section>
       </section>
-    `;
+    `);
 
     content.querySelectorAll<HTMLButtonElement>("[data-library-tab]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1129,7 +1162,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const contextsWithEdits = metricsResults.filter((metrics) => metrics.corrected_runs > 0).length;
     const loginHref = buildLoginHref(state.auth);
 
-    drawer.innerHTML = `
+    setHTML(drawer, `
       <div class="flex h-full flex-col">
         <div class="mb-5 flex items-start justify-between gap-4">
           <div>
@@ -1201,7 +1234,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           `}
         </div>
       </div>
-    `;
+    `);
 
     document.getElementById("shell-panel-close")?.addEventListener("click", () => {
       void openPanel(null);
@@ -1256,7 +1289,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const canManageAPIKeys = canManageWorkspaceAPIKeys(state);
     const loginHref = buildLoginHref(state.auth);
 
-    drawer.innerHTML = `
+    setHTML(drawer, `
       <div class="flex h-full flex-col">
         <div class="mb-5 flex items-start justify-between gap-4">
           <div>
@@ -1431,7 +1464,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           `}
         </div>
       </div>
-    `;
+    `);
 
     document.getElementById("shell-panel-close")?.addEventListener("click", () => {
       void openPanel(null);
@@ -1602,7 +1635,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     if (!state.panel) {
       drawerBackdrop.classList.add("hidden");
       drawer.classList.add("translate-x-full");
-      drawer.innerHTML = "";
+      drawer.replaceChildren();
       return;
     }
 
@@ -1619,7 +1652,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   function renderAccountFab() {
     const loginHref = buildLoginHref(state.auth);
     if (state.auth?.authenticated && state.auth.user) {
-      accountFab.innerHTML = `
+      setHTML(accountFab, `
         <button id="shell-account-button" class="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground" type="button">
           <span class="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">${escHtml(avatarInitials(state.auth))}</span>
           <span class="hidden text-left sm:block">
@@ -1627,14 +1660,14 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
             <span class="block text-xs text-muted-foreground">${escHtml(currentWorkspaceRole(state) || "Settings")}</span>
           </span>
         </button>
-      `;
+      `);
       document.getElementById("shell-account-button")?.addEventListener("click", () => {
         void openPanel("settings");
       });
       return;
     }
 
-    accountFab.innerHTML = `
+    setHTML(accountFab, `
       <a href="${escHtml(loginHref)}" class="inline-flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground">
         <span class="flex size-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">${ICONS.user}</span>
         <span class="hidden text-left sm:block">
@@ -1642,7 +1675,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           <span class="block text-xs text-muted-foreground">Workspace access</span>
         </span>
       </a>
-    `;
+    `);
   }
 
   function renderAll() {
@@ -1783,19 +1816,46 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     }
   }
 
-  modalClose.addEventListener("click", () => {
+  function closeModal() {
     modal.classList.add("hidden");
     modal.classList.remove("flex");
     modalTitle.textContent = "";
-    modalBody.innerHTML = "";
-  });
+    modalBody.replaceChildren();
+    modalReturnFocus?.focus();
+    modalReturnFocus = null;
+  }
+
+  modalClose.addEventListener("click", closeModal);
 
   modal.addEventListener("click", (event) => {
     if (event.target === modal) {
-      modal.classList.add("hidden");
-      modal.classList.remove("flex");
-      modalTitle.textContent = "";
-      modalBody.innerHTML = "";
+      closeModal();
+    }
+  });
+
+  modal.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      modal.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex='-1'])"),
+    ).filter((el) => el.offsetParent !== null);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      modal.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   });
 
@@ -1838,7 +1898,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     )
     : null;
 
-  window.addEventListener("beforeunload", () => {
+  window.addEventListener("pagehide", () => {
     subscription?.close();
   }, { once: true });
 }

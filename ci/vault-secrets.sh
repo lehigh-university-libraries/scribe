@@ -124,9 +124,17 @@ vault_request() {
   rm -f "$tmp_file"
 }
 
+vault_data_path() {
+  printf 'data/%s' "$1"
+}
+
+vault_metadata_path() {
+  printf 'metadata/%s' "$1"
+}
+
 vault_read_data_object() {
   local path="$1"
-  vault_request GET "$path"
+  vault_request GET "$(vault_data_path "$path")"
   case "$VAULT_LAST_STATUS" in
     200) ;;
     404)
@@ -139,13 +147,15 @@ vault_read_data_object() {
       return 1
       ;;
   esac
-  printf '%s' "$VAULT_LAST_RESPONSE" | jq -c '.data // {}'
+  printf '%s' "$VAULT_LAST_RESPONSE" | jq -c '.data.data // {}'
 }
 
 vault_write_object() {
   local path="$1"
   local object_json="$2"
-  vault_request POST "$path" "" "$object_json"
+  local body
+  body="$(printf '%s' "$object_json" | jq -c '{data: .}')"
+  vault_request POST "$(vault_data_path "$path")" "" "$body"
   case "$VAULT_LAST_STATUS" in
     200|204) ;;
     *)
@@ -158,7 +168,7 @@ vault_write_object() {
 
 vault_list_keys() {
   local prefix="$1"
-  vault_request GET "$prefix" "list=true"
+  vault_request GET "$(vault_metadata_path "$prefix")" "list=true"
   case "$VAULT_LAST_STATUS" in
     200)
       printf '%s' "$VAULT_LAST_RESPONSE" | jq -r '.data.keys[]?'
@@ -370,8 +380,10 @@ run_update() {
     "${DEFAULT_PREFIX}/gemini" \
     "api_key" "Gemini API key" "secret"
   update_required_secret \
-    "${DEFAULT_PREFIX}/database" \
-    "password" "Application database password" "secret" \
+    "${DEFAULT_PREFIX}/database/app" \
+    "password" "Application database password" "secret"
+  update_required_secret \
+    "${DEFAULT_PREFIX}/database/root" \
     "root_password" "MariaDB root password" "secret"
 }
 

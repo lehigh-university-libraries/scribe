@@ -8,7 +8,7 @@ package scribev1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
-	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options"
+	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -387,12 +387,11 @@ func (x *GetItemResponse) GetItem() *Item {
 	return nil
 }
 
-// CreateItemRequest covers URL ingest and manifest ingest.
-// For single/multi file upload use UploadItemImageRequest.
+// CreateItemRequest covers URL ingest, manifest ingest, and upload containers.
 type CreateItemRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// source_type: "url" | "manifest"
+	// source_type: "url" | "manifest" | "upload"
 	SourceType string `protobuf:"bytes,2,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
 	SourceUrl  string `protobuf:"bytes,3,opt,name=source_url,json=sourceUrl,proto3" json:"source_url,omitempty"`
 	// Optional context to use for processing; if empty, selection engine runs.
@@ -512,12 +511,11 @@ func (x *CreateItemResponse) GetItem() *Item {
 	return nil
 }
 
-// UploadItemImageRequest handles single or batch file upload.
+// UploadItemImageRequest adds a single uploaded image to an existing item.
 // Returns the item after all images are added.
 type UploadItemImageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ItemId        string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"` // if empty, a new item is created
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`                   // item name (used when creating)
+	ItemId        string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
 	ImageData     []byte                 `protobuf:"bytes,3,opt,name=image_data,json=imageData,proto3" json:"image_data,omitempty"`
 	Filename      string                 `protobuf:"bytes,4,opt,name=filename,proto3" json:"filename,omitempty"`
 	Sequence      uint32                 `protobuf:"varint,5,opt,name=sequence,proto3" json:"sequence,omitempty"`
@@ -559,13 +557,6 @@ func (*UploadItemImageRequest) Descriptor() ([]byte, []int) {
 func (x *UploadItemImageRequest) GetItemId() string {
 	if x != nil {
 		return x.ItemId
-	}
-	return ""
-}
-
-func (x *UploadItemImageRequest) GetName() string {
-	if x != nil {
-		return x.Name
 	}
 	return ""
 }
@@ -734,7 +725,7 @@ var File_scribe_v1_item_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_item_proto_rawDesc = "" +
 	"\n" +
-	"\x14scribe/v1/item.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cscribe/v1/options/auth.proto\"\xa2\x01\n" +
+	"\x14scribe/v1/item.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xa2\x01\n" +
 	"\tItemImage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12\x1a\n" +
@@ -763,7 +754,7 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\x0eGetItemRequest\x12)\n" +
 	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\"6\n" +
 	"\x0fGetItemResponse\x12#\n" +
-	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xff\x02\n" +
+	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xa7\x03\n" +
 	"\x11CreateItemRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
 	"\vsource_type\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\n" +
@@ -772,13 +763,12 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"source_url\x18\x03 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\tsourceUrl\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x04 \x01(\x04R\tcontextId\x12,\n" +
-	"\bmetadata\x18\x05 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bmetadata:\xa4\x01\xbaH\xa0\x01\x1a\x9d\x01\n" +
-	"\x17create_item.source_type\x12+source_type must be empty, url, or manifest\x1aUthis.source_type == '' || this.source_type == 'url' || this.source_type == 'manifest'\"9\n" +
+	"\bmetadata\x18\x05 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bmetadata:\xcc\x01\xbaH\xc8\x01\x1a\xc5\x01\n" +
+	"\x17create_item.source_type\x123source_type must be empty, url, manifest, or upload\x1authis.source_type == '' || this.source_type == 'url' || this.source_type == 'manifest' || this.source_type == 'upload'\"9\n" +
 	"\x12CreateItemResponse\x12#\n" +
-	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xfd\x01\n" +
+	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xd7\x01\n" +
 	"\x16UploadItemImageRequest\x12)\n" +
-	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x06itemId\x12$\n" +
-	"\x04name\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x04name\x12)\n" +
+	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\x12)\n" +
 	"\n" +
 	"image_data\x18\x03 \x01(\fB\n" +
 	"\xbaH\a\xc8\x01\x01z\x02\x10\x01R\timageData\x12,\n" +

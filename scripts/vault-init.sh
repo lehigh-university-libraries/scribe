@@ -19,6 +19,15 @@ vault_read_secret() {
   endpoint="$1"
   response_file="$2"
   status_file="$3"
+  if [ -n "${VAULT_ADMIN_TOKEN:-}" ]; then
+    if curl -fsS -o "$response_file" -w '%{http_code}' \
+      -H "X-Vault-Token: $VAULT_TOKEN" \
+      -H "X-Admin-Token: $VAULT_ADMIN_TOKEN" \
+      "$endpoint" >"$status_file"; then
+      return 0
+    fi
+    return 1
+  fi
 
   if curl -fsS -o "$response_file" -w '%{http_code}' \
     -H "X-Vault-Token: $VAULT_TOKEN" \
@@ -46,7 +55,8 @@ require_env "VAULT_GCP_AUTH_ROLE"
 require_env "GOOGLE_APPLICATION_CREDENTIALS"
 
 VAULT_KV_MOUNT="${VAULT_KV_MOUNT:-secret}"
-VAULT_DATABASE_PATH="${VAULT_DATABASE_PATH:-scribe/database}"
+VAULT_DATABASE_APP_PATH="${VAULT_DATABASE_APP_PATH:-${VAULT_DATABASE_PATH:-scribe/database/app}}"
+VAULT_DATABASE_ROOT_PATH="${VAULT_DATABASE_ROOT_PATH:-scribe/database/root}"
 OUT_DIR="${OUT_DIR:-/out}"
 
 apk add --no-cache curl jq openssl >/dev/null
@@ -107,24 +117,28 @@ secret_response="$(mktemp)"
 secret_status="$(mktemp)"
 trap 'rm -f "$key_file" "$secret_response" "$secret_status"' EXIT INT TERM
 
-v2_endpoint="${VAULT_ADDRESS%/}/v1/${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_PATH}"
-v1_endpoint="${VAULT_ADDRESS%/}/v1/${VAULT_KV_MOUNT}/${VAULT_DATABASE_PATH}"
+v2_endpoint="${VAULT_ADDRESS%/}/v1/${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_APP_PATH}"
 
-if vault_read_secret "$v2_endpoint" "$secret_response" "$secret_status"; then
-  password="$(jq -r '.data.data.password // empty' "$secret_response")"
-  root_password="$(jq -r '.data.data.root_password // empty' "$secret_response")"
-else
-  if ! vault_read_secret "$v1_endpoint" "$secret_response" "$secret_status"; then
-    cat "$secret_response" >&2
-    echo "Failed to read Vault database secret from ${VAULT_KV_MOUNT}/${VAULT_DATABASE_PATH}" >&2
-    exit 1
-  fi
-  password="$(jq -r '.data.password // empty' "$secret_response")"
-  root_password="$(jq -r '.data.root_password // empty' "$secret_response")"
+if ! vault_read_secret "$v2_endpoint" "$secret_response" "$secret_status"; then
+	cat "$secret_response" >&2
+	echo "Failed to read Vault database app secret from ${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_APP_PATH}" >&2
+	exit 1
+fi
+password="$(jq -r '.data.data.password // empty' "$secret_response")"
+if [ -z "$password" ]; then
+  echo "Vault database app secret ${VAULT_KV_MOUNT}/${VAULT_DATABASE_APP_PATH} is missing password." >&2
+  exit 1
 fi
 
-if [ -z "$password" ] || [ -z "$root_password" ]; then
-  echo "Vault database secret ${VAULT_KV_MOUNT}/${VAULT_DATABASE_PATH} is missing password or root_password." >&2
+v2_endpoint="${VAULT_ADDRESS%/}/v1/${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_ROOT_PATH}"
+if ! vault_read_secret "$v2_endpoint" "$secret_response" "$secret_status"; then
+  cat "$secret_response" >&2
+  echo "Failed to read Vault database root secret from ${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_ROOT_PATH}" >&2
+  exit 1
+fi
+root_password="$(jq -r '.data.data.root_password // empty' "$secret_response")"
+if [ -z "$root_password" ]; then
+  echo "Vault database root secret ${VAULT_KV_MOUNT}/${VAULT_DATABASE_ROOT_PATH} is missing root_password." >&2
   exit 1
 fi
 

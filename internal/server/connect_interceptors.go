@@ -13,6 +13,8 @@ import (
 	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
 )
 
+const maxConnectReadBytes = 110 << 20
+
 func connectHandlerOptions(authManager *auth.Manager) []connect.HandlerOption {
 	interceptors := []connect.Interceptor{
 		connect.UnaryInterceptorFunc(connectRecoveryInterceptor),
@@ -22,7 +24,10 @@ func connectHandlerOptions(authManager *auth.Manager) []connect.HandlerOption {
 	if authManager != nil {
 		interceptors = append(interceptors, authManager.Interceptor())
 	}
-	return []connect.HandlerOption{connect.WithInterceptors(interceptors...)}
+	return []connect.HandlerOption{
+		connect.WithInterceptors(interceptors...),
+		connect.WithReadMaxBytes(maxConnectReadBytes),
+	}
 }
 
 func registerConnectServices(mux *http.ServeMux, handler *Handler, authManager *auth.Manager, opts ...connect.HandlerOption) {
@@ -51,6 +56,8 @@ func registerConnectServices(mux *http.ServeMux, handler *Handler, authManager *
 	}
 	if authManager != nil {
 		path, svcHandler := scribev1connect.NewWorkspaceServiceHandler(authManager, opts...)
+		mux.Handle(path, svcHandler)
+		path, svcHandler = scribev1connect.NewAuthServiceHandler(authManager, opts...)
 		mux.Handle(path, svcHandler)
 	}
 }

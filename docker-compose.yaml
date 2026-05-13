@@ -40,6 +40,12 @@ services:
       TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE:-http://localhost:8081/presentation/v3}
       TRIPLET_PRESENTATION_INTERNAL_BASE: ${TRIPLET_PRESENTATION_INTERNAL_BASE:-http://triplet:8080/presentation/v3}
       TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
+      TRANSCRIPTION_QUEUE_BACKEND: ${TRANSCRIPTION_QUEUE_BACKEND:-database}
+      PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-}
+      PUBSUB_TRANSCRIPTION_TOPIC_ID: ${PUBSUB_TRANSCRIPTION_TOPIC_ID:-scribe-transcription-jobs}
+      PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID: ${PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID:-scribe-transcription-workers}
+      SCRIBE_UPLOADS_BUCKET: ${SCRIBE_UPLOADS_BUCKET:-}
+      SCRIBE_UPLOADS_PREFIX: ${SCRIBE_UPLOADS_PREFIX:-uploads}
       KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     volumes:
@@ -53,6 +59,18 @@ services:
         condition: service_healthy
       triplet:
         condition: service_started
+
+  image-service:
+    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-image-service:main}
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
+      IMAGE_SERVICE_UPLOADS_DIR: /app/uploads
+      SCRIBE_UPLOADS_BUCKET: ${SCRIBE_UPLOADS_BUCKET:-}
+      SCRIBE_UPLOADS_PREFIX: ${SCRIBE_UPLOADS_PREFIX:-uploads}
+    volumes:
+      - uploads-data:/app/uploads
+    secrets:
+      - GOOGLE_APPLICATION_CREDENTIALS
 
   worker:
     image: ${SCRIBE_API_IMAGE:-ghcr.io/lehigh-university-libraries/scribe:main}
@@ -76,6 +94,12 @@ services:
       TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE:-http://localhost:8081/presentation/v3}
       TRIPLET_PRESENTATION_INTERNAL_BASE: ${TRIPLET_PRESENTATION_INTERNAL_BASE:-http://triplet:8080/presentation/v3}
       TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
+      TRANSCRIPTION_QUEUE_BACKEND: ${TRANSCRIPTION_QUEUE_BACKEND:-database}
+      PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-}
+      PUBSUB_TRANSCRIPTION_TOPIC_ID: ${PUBSUB_TRANSCRIPTION_TOPIC_ID:-scribe-transcription-jobs}
+      PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID: ${PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID:-scribe-transcription-workers}
+      SCRIBE_UPLOADS_BUCKET: ${SCRIBE_UPLOADS_BUCKET:-}
+      SCRIBE_UPLOADS_PREFIX: ${SCRIBE_UPLOADS_PREFIX:-uploads}
       KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     volumes:
@@ -93,7 +117,7 @@ services:
         condition: service_started
 
   triplet:
-    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:main}
+    image: ghcr.io/libops/triplet:v1.1.0
     ports:
       - "${SCRIBE_IMAGE_SERVICE_PORT:-8081}:8080"
     environment:
@@ -112,7 +136,8 @@ services:
       VAULT_ADDRESS: ${VAULT_ADDRESS:-}
       VAULT_GCP_AUTH_ROLE: ${VAULT_GCP_AUTH_ROLE:-scribe-app}
       VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
-      VAULT_DATABASE_PATH: ${VAULT_DATABASE_PATH:-scribe/database}
+      VAULT_DATABASE_APP_PATH: ${VAULT_DATABASE_APP_PATH:-scribe/database/app}
+      VAULT_DATABASE_ROOT_PATH: ${VAULT_DATABASE_ROOT_PATH:-scribe/database/root}
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
       OUT_DIR: /out
       HOST_UID: ${HOST_UID:-}

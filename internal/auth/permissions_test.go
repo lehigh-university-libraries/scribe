@@ -107,9 +107,6 @@ func TestRequiredPermissionForPath(t *testing.T) {
 		method string
 		want   string
 	}{
-		{path: "/auth/api-keys", method: "POST", want: "admin:api_keys"},
-		{path: "/auth/provider-secrets", method: "GET", want: "contexts:read"},
-		{path: "/auth/provider-secrets", method: "POST", want: "contexts:write"},
 		{path: "/v1/events", method: "GET", want: "transcription:read"},
 		{path: "/scribe.v1.AnnotationService/CreateAnnotation", method: "POST", want: "annotations:write"},
 		{path: "/scribe.v1.AnnotationService/CrosswalkToHOCR", method: "POST", want: "annotations:read"},
@@ -122,14 +119,34 @@ func TestRequiredPermissionForPath(t *testing.T) {
 	}
 }
 
-func TestScopeListAllowsEmptyMeansFullRoleScope(t *testing.T) {
+func TestRequiredPermissionForAuthProcedures(t *testing.T) {
 	t.Parallel()
 
-	if !scopeListAllows(nil, "items:write") {
-		t.Fatal("scopeListAllows(nil, items:write) = false, want true")
+	tests := []struct {
+		procedure string
+		want      string
+	}{
+		{procedure: "/scribe.v1.AuthService/ListAPIKeys", want: "admin:api_keys"},
+		{procedure: "/scribe.v1.AuthService/ListProviderSecrets", want: "contexts:read"},
+		{procedure: "/scribe.v1.AuthService/CreateProviderSecret", want: "contexts:write"},
+		{procedure: "/scribe.v1.UnknownService/Unknown", want: "authz:unmapped"},
 	}
-	if !scopeListAllows([]string{}, "annotations:read") {
-		t.Fatal("scopeListAllows(empty, annotations:read) = false, want true")
+
+	for _, tt := range tests {
+		if got := requiredPermissionForProcedure(tt.procedure, 0); got != tt.want {
+			t.Fatalf("requiredPermissionForProcedure(%q) = %q, want %q", tt.procedure, got, tt.want)
+		}
+	}
+}
+
+func TestScopeListAllowsEmptyDeniesAPIKeyScope(t *testing.T) {
+	t.Parallel()
+
+	if scopeListAllows(nil, "items:write") {
+		t.Fatal("scopeListAllows(nil, items:write) = true, want false")
+	}
+	if scopeListAllows([]string{}, "annotations:read") {
+		t.Fatal("scopeListAllows(empty, annotations:read) = true, want false")
 	}
 }
 

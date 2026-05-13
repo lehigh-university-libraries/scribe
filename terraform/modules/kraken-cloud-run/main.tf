@@ -7,14 +7,8 @@ data "google_service_account" "service" {
   account_id = var.service_account_id
 }
 
-resource "google_project_iam_member" "service_user" {
-  project = var.project_id
-  role    = "roles/iam.serviceAccountUser"
-  member  = "serviceAccount:${data.google_service_account.service.email}"
-}
-
 module "service" {
-  source = "git::https://github.com/libops/terraform-cloudrun-v2?ref=0.5.2"
+  source = "git::https://github.com/libops/terraform-cloudrun-v2?ref=903c0758f5b19740a233558d097efdccabece7c5"
 
   name          = var.name
   project       = var.project_id

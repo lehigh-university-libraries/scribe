@@ -287,7 +287,7 @@ func TestJoinLines(t *testing.T) {
 	a := lineAnno("line-1", testCanvas, "Hello", 10, 20, 90, 25)
 	b := lineAnno("line-2", testCanvas, "World", 110, 20, 90, 25)
 
-	req := connect.NewRequest(&scribev1.JoinAnnotationsRequest{
+	req := connect.NewRequest(&scribev1.JoinLinesRequest{
 		AnnotationJsons: []string{a, b},
 	})
 	resp, err := h.JoinLines(context.Background(), req)
@@ -317,7 +317,7 @@ func TestJoinWordsIntoLine(t *testing.T) {
 	a := lineAnno("word-1", testCanvas, "foo", 0, 0, 50, 20)
 	b := lineAnno("word-2", testCanvas, "bar", 60, 0, 50, 20)
 
-	req := connect.NewRequest(&scribev1.JoinAnnotationsRequest{
+	req := connect.NewRequest(&scribev1.JoinWordsIntoLineRequest{
 		AnnotationJsons: []string{a, b},
 	})
 	resp, err := h.JoinWordsIntoLine(context.Background(), req)
@@ -339,7 +339,7 @@ func TestJoinWordsIntoLine(t *testing.T) {
 
 func TestJoinLines_TooFewAnnotations(t *testing.T) {
 	h := &Handler{}
-	req := connect.NewRequest(&scribev1.JoinAnnotationsRequest{
+	req := connect.NewRequest(&scribev1.JoinLinesRequest{
 		AnnotationJsons: []string{lineAnno("line-1", testCanvas, "Hello", 0, 0, 100, 20)},
 	})
 	_, err := h.JoinLines(context.Background(), req)
@@ -368,7 +368,7 @@ func TestCrosswalkConnectHandlers(t *testing.T) {
 	}`
 
 	t.Run("plain text", func(t *testing.T) {
-		req := connect.NewRequest(&scribev1.CrosswalkRequest{AnnotationPageJson: pageJSON})
+		req := connect.NewRequest(&scribev1.CrosswalkToPlainTextRequest{AnnotationPageJson: pageJSON})
 		resp, err := h.CrosswalkToPlainText(context.Background(), req)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -382,7 +382,7 @@ func TestCrosswalkConnectHandlers(t *testing.T) {
 	})
 
 	t.Run("hOCR contains text", func(t *testing.T) {
-		req := connect.NewRequest(&scribev1.CrosswalkRequest{AnnotationPageJson: pageJSON})
+		req := connect.NewRequest(&scribev1.CrosswalkToHOCRRequest{AnnotationPageJson: pageJSON})
 		resp, err := h.CrosswalkToHOCR(context.Background(), req)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -396,7 +396,7 @@ func TestCrosswalkConnectHandlers(t *testing.T) {
 	})
 
 	t.Run("PageXML contains text", func(t *testing.T) {
-		req := connect.NewRequest(&scribev1.CrosswalkRequest{AnnotationPageJson: pageJSON})
+		req := connect.NewRequest(&scribev1.CrosswalkToPageXMLRequest{AnnotationPageJson: pageJSON})
 		resp, err := h.CrosswalkToPageXML(context.Background(), req)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -410,7 +410,7 @@ func TestCrosswalkConnectHandlers(t *testing.T) {
 	})
 
 	t.Run("ALTO XML contains text", func(t *testing.T) {
-		req := connect.NewRequest(&scribev1.CrosswalkRequest{AnnotationPageJson: pageJSON})
+		req := connect.NewRequest(&scribev1.CrosswalkToALTOXMLRequest{AnnotationPageJson: pageJSON})
 		resp, err := h.CrosswalkToALTOXML(context.Background(), req)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -451,7 +451,7 @@ func TestSplitLineIntoWords_ThenJoinBack(t *testing.T) {
 	for i, item := range items {
 		wordJSONs[i] = mustMarshal(t, item)
 	}
-	joinResp, err := h.JoinWordsIntoLine(context.Background(), connect.NewRequest(&scribev1.JoinAnnotationsRequest{
+	joinResp, err := h.JoinWordsIntoLine(context.Background(), connect.NewRequest(&scribev1.JoinWordsIntoLineRequest{
 		AnnotationJsons: wordJSONs,
 	}))
 	if err != nil {

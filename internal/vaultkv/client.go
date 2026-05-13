@@ -1,15 +1,15 @@
 package vaultkv
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"bytes"
-	"encoding/json"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -17,15 +17,20 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 const (
-	defaultCredentialsPath = "/run/secrets/GOOGLE_APPLICATION_CREDENTIALS"
-	defaultGCPAuthMount    = "gcp"
-	defaultGCPAuthRole     = "scribe-app"
+	defaultADCFile      = "/run/secrets/GOOGLE_APPLICATION_CREDENTIALS"
+	defaultGCPAuthMount = "gcp"
+	defaultGCPAuthRole  = "scribe-app"
+	adminTokenScope     = "https://www.googleapis.com/auth/userinfo.email"
 )
 
 type Client struct {
@@ -36,9 +41,11 @@ type Client struct {
 	http        *http.Client
 	now         func() time.Time
 
-	mu          sync.Mutex
-	cachedToken string
-	expiresAt   time.Time
+	mu               sync.Mutex
+	cachedToken      string
+	expiresAt        time.Time
+	renewable        bool
+	adminTokenSource oauth2.TokenSource
 }
 
 func New(addr, token, kvMount, gcpAuthRole string) *Client {
@@ -67,12 +74,7 @@ func (c *Client) Read(ctx context.Context, path string) (map[string]string, erro
 	if err != nil {
 		return nil, err
 	}
-	if values, err := c.readV2(ctx, token, path); err == nil {
-		return values, nil
-	} else if !isFallbackableVaultStatus(err) {
-		return nil, err
-	}
-	return c.readV1(ctx, token, path)
+	return c.readV2(ctx, token, path)
 }
 
 func (c *Client) readV2(ctx context.Context, token, path string) (map[string]string, error) {
@@ -82,6 +84,9 @@ func (c *Client) readV2(ctx context.Context, token, path string) (map[string]str
 		return nil, err
 	}
 	req.Header.Set("X-Vault-Token", token)
+	if err := c.addAdminHeader(ctx, req); err != nil {
+		return nil, err
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -118,50 +123,6 @@ func (c *Client) readV2(ctx context.Context, token, path string) (map[string]str
 	return out, nil
 }
 
-func (c *Client) readV1(ctx context.Context, token, path string) (map[string]string, error) {
-	endpoint := fmt.Sprintf("%s/v1/%s/%s", c.addr, url.PathEscape(c.kvMount), pathEscape(path))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("X-Vault-Token", token)
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		return map[string]string{}, nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, vaultStatusError{operation: "read", path: path, statusCode: resp.StatusCode, body: string(body)}
-	}
-
-	var parsed struct {
-		Data map[string]any `json:"data"`
-	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("parse vault response: %w", err)
-	}
-	out := make(map[string]string, len(parsed.Data))
-	for key, value := range parsed.Data {
-		switch typed := value.(type) {
-		case string:
-			out[key] = typed
-		default:
-			raw, _ := json.Marshal(typed)
-			out[key] = string(raw)
-		}
-	}
-	return out, nil
-}
-
 func (c *Client) Write(ctx context.Context, path string, data map[string]string) error {
 	if c == nil || c.addr == "" || c.kvMount == "" {
 		return fmt.Errorf("vault client is not configured")
@@ -170,12 +131,7 @@ func (c *Client) Write(ctx context.Context, path string, data map[string]string)
 	if err != nil {
 		return err
 	}
-	if err := c.writeV2(ctx, token, path, data); err == nil {
-		return nil
-	} else if !isFallbackableVaultStatus(err) {
-		return err
-	}
-	return c.writeV1(ctx, token, path, data)
+	return c.writeV2(ctx, token, path, data)
 }
 
 func (c *Client) writeV2(ctx context.Context, token, path string, data map[string]string) error {
@@ -192,35 +148,9 @@ func (c *Client) writeV2(ctx context.Context, token, path string, data map[strin
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Vault-Token", token)
-
-	resp, err := c.http.Do(req)
-	if err != nil {
+	if err := c.addAdminHeader(ctx, req); err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return vaultStatusError{operation: "write", path: path, statusCode: resp.StatusCode, body: string(body)}
-	}
-	return nil
-}
-
-func (c *Client) writeV1(ctx context.Context, token, path string, data map[string]string) error {
-	payload, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("marshal vault payload: %w", err)
-	}
-	endpoint := fmt.Sprintf("%s/v1/%s/%s", c.addr, url.PathEscape(c.kvMount), pathEscape(path))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Vault-Token", token)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -246,12 +176,7 @@ func (c *Client) Delete(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	if err := c.deleteV2(ctx, token, path); err == nil {
-		return nil
-	} else if !isFallbackableVaultStatus(err) {
-		return err
-	}
-	return c.deleteV1(ctx, token, path)
+	return c.deleteV2(ctx, token, path)
 }
 
 func (c *Client) deleteV2(ctx context.Context, token, path string) error {
@@ -261,33 +186,9 @@ func (c *Client) deleteV2(ctx context.Context, token, path string) error {
 		return err
 	}
 	req.Header.Set("X-Vault-Token", token)
-
-	resp, err := c.http.Do(req)
-	if err != nil {
+	if err := c.addAdminHeader(ctx, req); err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		return nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return vaultStatusError{operation: "delete", path: path, statusCode: resp.StatusCode, body: string(body)}
-	}
-	return nil
-}
-
-func (c *Client) deleteV1(ctx context.Context, token, path string) error {
-	endpoint := fmt.Sprintf("%s/v1/%s/%s", c.addr, url.PathEscape(c.kvMount), pathEscape(path))
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Vault-Token", token)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -319,12 +220,9 @@ func (e vaultStatusError) Error() string {
 	return fmt.Sprintf("vault %s %s: status %d: %s", e.operation, e.path, e.statusCode, e.body)
 }
 
-func isFallbackableVaultStatus(err error) bool {
+func IsNotFound(err error) bool {
 	var statusErr vaultStatusError
-	if !errors.As(err, &statusErr) {
-		return false
-	}
-	return statusErr.statusCode == http.StatusBadRequest || statusErr.statusCode == http.StatusNotFound
+	return errors.As(err, &statusErr) && statusErr.statusCode == http.StatusNotFound
 }
 
 func (c *Client) authToken(ctx context.Context) (string, error) {
@@ -338,23 +236,33 @@ func (c *Client) authToken(ctx context.Context) (string, error) {
 	if c.cachedToken != "" && c.now().Add(30*time.Second).Before(c.expiresAt) {
 		return c.cachedToken, nil
 	}
+	if c.cachedToken != "" && c.renewable {
+		token, expiresAt, renewable, err := c.renewSelf(ctx, c.cachedToken)
+		if err == nil && token != "" && c.now().Add(30*time.Second).Before(expiresAt) {
+			c.cachedToken = token
+			c.expiresAt = expiresAt
+			c.renewable = renewable
+			return c.cachedToken, nil
+		}
+	}
 
-	token, expiresAt, err := c.loginWithGCP(ctx)
+	token, expiresAt, renewable, err := c.loginWithGCP(ctx)
 	if err != nil {
 		return "", err
 	}
 	c.cachedToken = token
 	c.expiresAt = expiresAt
+	c.renewable = renewable
 	return token, nil
 }
 
-func (c *Client) loginWithGCP(ctx context.Context) (string, time.Time, error) {
+func (c *Client) loginWithGCP(ctx context.Context) (string, time.Time, bool, error) {
 	jwt, err := c.signedJWTFromCredentials()
 	if err != nil {
 		credErr := err
 		jwt, err = c.signedJWTFromMetadata(ctx)
 		if err != nil {
-			return "", time.Time{}, fmt.Errorf("vault gcp login: credentials auth failed: %v; metadata auth failed: %w", credErr, err)
+			return "", time.Time{}, false, fmt.Errorf("vault gcp login: credentials auth failed: %v; metadata auth failed: %w", credErr, err)
 		}
 	}
 
@@ -363,55 +271,143 @@ func (c *Client) loginWithGCP(ctx context.Context) (string, time.Time, error) {
 		"jwt":  jwt,
 	})
 	if err != nil {
-		return "", time.Time{}, fmt.Errorf("marshal vault gcp login: %w", err)
+		return "", time.Time{}, false, fmt.Errorf("marshal vault gcp login: %w", err)
 	}
 
 	endpoint := fmt.Sprintf("%s/v1/auth/%s/login", c.addr, defaultGCPAuthMount)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return "", time.Time{}, err
+		return "", time.Time{}, false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", time.Time{}, err
+		return "", time.Time{}, false, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", time.Time{}, err
+		return "", time.Time{}, false, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", time.Time{}, fmt.Errorf("vault gcp login status %d: %s", resp.StatusCode, string(body))
+		return "", time.Time{}, false, fmt.Errorf("vault gcp login status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var parsed struct {
 		Auth struct {
 			ClientToken   string `json:"client_token"`
 			LeaseDuration int    `json:"lease_duration"`
+			Renewable     bool   `json:"renewable"`
 		} `json:"auth"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", time.Time{}, fmt.Errorf("parse vault login response: %w", err)
+		return "", time.Time{}, false, fmt.Errorf("parse vault login response: %w", err)
 	}
 	if strings.TrimSpace(parsed.Auth.ClientToken) == "" {
-		return "", time.Time{}, fmt.Errorf("vault login response missing client_token")
+		return "", time.Time{}, false, fmt.Errorf("vault login response missing client_token")
 	}
 	lease := time.Duration(parsed.Auth.LeaseDuration) * time.Second
 	if lease <= 0 {
 		lease = 5 * time.Minute
 	}
-	return parsed.Auth.ClientToken, c.now().Add(lease), nil
+	return parsed.Auth.ClientToken, c.now().Add(lease), parsed.Auth.Renewable, nil
+}
+
+func (c *Client) addAdminHeader(ctx context.Context, req *http.Request) error {
+	token, err := c.adminAccessToken(ctx)
+	if err != nil {
+		return fmt.Errorf("mint vault admin access token: %w", err)
+	}
+	req.Header.Set("X-Admin-Token", token)
+	return nil
+}
+
+func (c *Client) adminAccessToken(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	source := c.adminTokenSource
+	c.mu.Unlock()
+
+	if source == nil {
+		creds, err := google.FindDefaultCredentials(ctx, adminTokenScope)
+		if err != nil {
+			return "", err
+		}
+		source = creds.TokenSource
+		c.mu.Lock()
+		if c.adminTokenSource == nil {
+			c.adminTokenSource = source
+		} else {
+			source = c.adminTokenSource
+		}
+		c.mu.Unlock()
+	}
+
+	token, err := source.Token()
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(token.AccessToken) == "" {
+		return "", fmt.Errorf("google access token was empty")
+	}
+	return token.AccessToken, nil
+}
+
+func (c *Client) renewSelf(ctx context.Context, token string) (string, time.Time, bool, error) {
+	endpoint := fmt.Sprintf("%s/v1/auth/token/renew-self", c.addr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		return "", time.Time{}, false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Vault-Token", token)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", time.Time{}, false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", time.Time{}, false, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", time.Time{}, false, fmt.Errorf("vault token renew status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var parsed struct {
+		Auth struct {
+			ClientToken   string `json:"client_token"`
+			LeaseDuration int    `json:"lease_duration"`
+			Renewable     bool   `json:"renewable"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", time.Time{}, false, fmt.Errorf("parse vault renew response: %w", err)
+	}
+	if strings.TrimSpace(parsed.Auth.ClientToken) == "" {
+		parsed.Auth.ClientToken = token
+	}
+	lease := time.Duration(parsed.Auth.LeaseDuration) * time.Second
+	if lease <= 0 {
+		lease = 5 * time.Minute
+	}
+	return parsed.Auth.ClientToken, c.now().Add(lease), parsed.Auth.Renewable, nil
 }
 
 func (c *Client) signedJWTFromCredentials() (string, error) {
 	path := strings.TrimSpace(os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"))
 	if path == "" {
-		path = defaultCredentialsPath
+		path = defaultADCFile
 	}
-	raw, err := os.ReadFile(path)
+	// Vault IAM auth signs only the compose-mounted credential file so local
+	// overrides cannot silently widen which service account can mint tokens.
+	if filepath.Clean(path) != defaultADCFile {
+		return "", fmt.Errorf("GOOGLE_APPLICATION_CREDENTIALS must point to %s", defaultADCFile)
+	}
+	raw, err := os.ReadFile(defaultADCFile)
 	if err != nil {
 		return "", err
 	}

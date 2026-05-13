@@ -19,17 +19,9 @@ func (h *Handler) currentUserID(ctx context.Context) uint64 {
 	return auth.UserIDFromContext(ctx)
 }
 
-func (h *Handler) currentUserIDPtr(ctx context.Context) *uint64 {
-	userID := h.currentUserID(ctx)
-	if userID == 0 || userID == store.AnonymousUserID {
-		return nil
-	}
-	return &userID
-}
-
 func (h *Handler) currentWorkspaceID(ctx context.Context) uint64 {
 	if h.auth == nil {
-		return 1
+		return store.AnonymousWorkspaceID
 	}
 	return auth.WorkspaceIDFromContext(ctx)
 }
@@ -44,15 +36,6 @@ func (h *Handler) itemImageForRequest(ctx context.Context, itemImageID uint64) (
 
 func (h *Handler) contextForRead(ctx context.Context, contextID uint64) (store.Context, error) {
 	return h.contexts.GetForWorkspace(ctx, contextID, h.currentWorkspaceID(ctx))
-}
-
-func (h *Handler) contextForWrite(ctx context.Context, contextID uint64) (store.Context, error) {
-	if ok, err := h.contexts.WorkspaceCanWriteContext(ctx, h.currentWorkspaceID(ctx), contextID); err != nil {
-		return store.Context{}, err
-	} else if !ok {
-		return store.Context{}, sql.ErrNoRows
-	}
-	return h.contexts.Get(ctx, contextID)
 }
 
 func (h *Handler) resolveContextForRequest(ctx context.Context, contextID uint64, metadataJSON string) (store.Context, error) {
@@ -93,9 +76,9 @@ func (h *Handler) authorizeCanvasRead(ctx context.Context, canvasURI string) err
 		if ingestErr := h.autoIngestManifest(ctx, manifestURL); ingestErr != nil {
 			continue
 		}
-			if _, retryErr := h.items.GetImageByCanvasURIForWorkspace(ctx, canvasURI, h.currentWorkspaceID(ctx)); retryErr == nil {
-				return nil
-			}
+		if _, retryErr := h.items.GetImageByCanvasURIForWorkspace(ctx, canvasURI, h.currentWorkspaceID(ctx)); retryErr == nil {
+			return nil
+		}
 	}
 	return sql.ErrNoRows
 }

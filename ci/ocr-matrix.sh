@@ -12,10 +12,6 @@
 #   ghcr_image    GHCR image name segment passed to the shared build workflow.
 #   gar_image     GAR image repository path without the tag suffix.
 #   image         Full GAR image reference with tag (no digest).
-#   vm_image      Optional full GHCR image reference with tag for images pulled
-#                 directly by the VM docker-compose stack. Present only on
-#                 entries consumed by the VM (e.g. "image-service"). Resolved to
-#                 a digest by ci/generate-vm-images-map.sh.
 #   context       Docker build context, relative to the repo root.
 #   dockerfile    Dockerfile path, relative to the build context.
 #   file          Dockerfile path relative to the repo root.
@@ -65,7 +61,20 @@ hash8() {
     || printf '%s' "$1" | openssl dgst -md5 -hex | awk '{print substr($2,1,8)}'
 }
 
+slugify() {
+  # Use a POSIX BRE-safe pattern so this behaves the same on GNU and BSD sed.
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed 's/[^a-z0-9][^a-z0-9]*/-/g; s/^-//; s/-$//'
+}
+
 gar_image() {
+  case "$IMAGE_TAG" in
+    *:*)
+      echo "IMAGE_TAG must be a valid Docker tag and cannot contain ':': $IMAGE_TAG" >&2
+      exit 1
+      ;;
+  esac
   printf '%s/%s:%s' "$gar_repo" "$1" "$IMAGE_TAG"
 }
 
@@ -144,13 +153,12 @@ append_entry "$(jq -n \
   --arg ghcr_image "$image_service" \
   --arg gar_image "${gar_repo}/${image_service}" \
   --arg image "$(gar_image "$image_service")" \
-  --arg vm_image "ghcr.io/lehigh-university-libraries/${image_service}:${IMAGE_TAG}" \
   --arg context "." \
   --arg dockerfile "Dockerfile.image-service" \
   --arg file "Dockerfile.image-service" \
   --arg platform "linux/amd64" \
   --argjson build_args "$(build_args_json)" \
-  '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, vm_image:$vm_image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
+  '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
 
 # Kraken segmentation services: one per entry in ocr.kraken.segmentation_models.
 while IFS= read -r seg_key; do
@@ -208,7 +216,7 @@ done < <(yq -r '.ocr.kraken.transcription_models | keys | sort | .[]' "$config_p
 ollama_base="$(yq -r '.ocr.ollama.base_image // ""' "$config_path")"
 while IFS= read -r model; do
   [ -z "$model" ] && continue
-  slug="$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')"
+  slug="$(slugify "$model")"
   service="ollama-${slug}"
   if [ "${#service}" -gt 63 ]; then service="$(printf '%s' "$service" | cut -c1-63 | sed 's/-*$//')"; fi
   append_entry "$(jq -n \

@@ -61,6 +61,16 @@ while true; do
     echo "Common causes: secrets.GSA is missing from vault_ci_service_account_emails, the owning workspace Vault bootstrap has not been re-applied since that change, or the Vault URL/audience no longer matches the configured role." >&2
     if [ -s "$response_file" ]; then
       cat "$response_file" >&2
+      if jq -e --arg role "$VAULT_ROLE" '.errors[]? | contains("role \"" + $role + "\" could not be found")' "$response_file" >/dev/null 2>&1; then
+        echo "Vault is reachable, but the JWT auth role ${VAULT_ROLE} does not exist yet." >&2
+        echo "Apply the owning Vault workspace with a tfvars entry that includes the GitHub Actions service account from secrets.GSA under vault_ci_service_account_emails." >&2
+        echo "For preview/dev workflows, re-apply workspace dev. For production workflows, re-apply workspace prod." >&2
+      elif jq -e '.errors[]? | contains("non-admin hitting protected route")' "$response_file" >/dev/null 2>&1; then
+        echo "Vault rejected the X-Admin-Token before evaluating role ${VAULT_ROLE}." >&2
+        echo "This usually means the Vault proxy admin allow-list was not refreshed after adding or changing secrets.GSA." >&2
+        echo "Re-apply the owning Vault workspace so module.vault picks up vault_ci_service_account_emails and updates the proxy config." >&2
+        echo "For preview/dev workflows, re-apply workspace dev. For production workflows, re-apply workspace prod." >&2
+      fi
     fi
     exit 1
   fi
@@ -81,6 +91,8 @@ if [ -z "$vault_token" ]; then
   echo "Vault login response did not include auth.client_token for role ${VAULT_ROLE}" >&2
   exit 1
 fi
+
+echo "::add-mask::${vault_token}"
 
 {
   echo "VAULT_ADDR=${VAULT_ADDR}"

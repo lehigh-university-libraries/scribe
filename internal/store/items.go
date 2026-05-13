@@ -10,19 +10,22 @@ import (
 	db "github.com/lehigh-university-libraries/scribe/internal/db"
 )
 
-const AnonymousUserID uint64 = 1
+const (
+	AnonymousUserID      uint64 = 1
+	AnonymousWorkspaceID uint64 = 1
+)
 
 type Item struct {
-	ID         string         `json:"id"`
-	UserID     uint64         `json:"user_id"`
-	WorkspaceID uint64        `json:"workspace_id"`
-	Name       string         `json:"name"`
-	SourceType string         `json:"source_type"`
-	SourceURL  string         `json:"source_url,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
-	Images     []ItemImage    `json:"images,omitempty"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
+	ID          string         `json:"id"`
+	UserID      uint64         `json:"user_id"`
+	WorkspaceID uint64         `json:"workspace_id"`
+	Name        string         `json:"name"`
+	SourceType  string         `json:"source_type"`
+	SourceURL   string         `json:"source_url,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	Images      []ItemImage    `json:"images,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 type ItemImage struct {
@@ -149,6 +152,22 @@ func (s *ItemStore) GetImageForWorkspace(ctx context.Context, id uint64, workspa
 		return ItemImage{}, err
 	}
 	return rowToItemImage(img), nil
+}
+
+func (s *ItemStore) WorkspaceOwnsImageURL(ctx context.Context, workspaceID uint64, imageURL string) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	rows, err := s.q.ListItemImagesByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if row.ImageUrl == imageURL {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *ItemStore) GetImageByCanvasURI(ctx context.Context, canvasURI string) (ItemImage, error) {

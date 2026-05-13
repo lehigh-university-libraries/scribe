@@ -49,8 +49,7 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (uin
 	if err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
-	return uint64(id), err
+	return compatLastInsertID(res)
 }
 
 func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey, error) {
@@ -122,6 +121,14 @@ func (q *Queries) ListAPIKeysByWorkspace(ctx context.Context, workspaceID uint64
 
 func (q *Queries) DeleteAPIKey(ctx context.Context, id uint64) error {
 	return q.DeleteAPIKeyManual(ctx, id)
+}
+
+func (q *Queries) DeleteAPIKeyForWorkspace(ctx context.Context, id, workspaceID uint64) error {
+	res, err := q.DeleteAPIKeyForWorkspaceManual(ctx, DeleteAPIKeyForWorkspaceManualParams{
+		ID:          id,
+		WorkspaceID: workspaceID,
+	})
+	return requireAffectedRow(res, err)
 }
 
 func (q *Queries) TouchAPIKey(ctx context.Context, id uint64) error {

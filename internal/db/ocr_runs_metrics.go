@@ -17,7 +17,11 @@ type ContextOCRRunMetrics struct {
 }
 
 func (q *Queries) GetContextOCRRunMetrics(ctx context.Context, contextID uint64) (ContextOCRRunMetrics, error) {
-	row, err := q.GetContextOCRRunMetricsManual(ctx, sql.NullInt64{Int64: int64(contextID), Valid: true})
+	converted, err := compatUint64ToInt64(contextID)
+	if err != nil {
+		return ContextOCRRunMetrics{}, err
+	}
+	row, err := q.GetContextOCRRunMetricsManual(ctx, sql.NullInt64{Int64: converted, Valid: true})
 	if err != nil {
 		return ContextOCRRunMetrics{}, err
 	}

@@ -21,11 +21,17 @@ func LoadSecrets(ctx context.Context, cfg Config) (Secrets, error) {
 	}
 	openai, err := client.Read(ctx, cfg.Vault.Paths.OpenAI)
 	if err != nil {
-		return Secrets{}, fmt.Errorf("read openai secret: %w", err)
+		if !vaultkv.IsNotFound(err) {
+			return Secrets{}, fmt.Errorf("read openai secret: %w", err)
+		}
+		openai = map[string]string{}
 	}
 	gemini, err := client.Read(ctx, cfg.Vault.Paths.Gemini)
 	if err != nil {
-		return Secrets{}, fmt.Errorf("read gemini secret: %w", err)
+		if !vaultkv.IsNotFound(err) {
+			return Secrets{}, fmt.Errorf("read gemini secret: %w", err)
+		}
+		gemini = map[string]string{}
 	}
 	db, err := client.Read(ctx, cfg.Vault.Paths.Database)
 	if err != nil {
@@ -38,6 +44,5 @@ func LoadSecrets(ctx context.Context, cfg Config) (Secrets, error) {
 		OpenAIAPIKey:            openai["api_key"],
 		GeminiAPIKey:            gemini["api_key"],
 		DatabasePassword:        db["password"],
-		DatabaseRootPassword:    db["root_password"],
 	}, nil
 }
