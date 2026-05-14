@@ -61,7 +61,7 @@ services:
         condition: service_started
 
   image-service:
-    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-image-service:main}
+    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-image-service:main@sha256:226b03a815a83f89ac4b0338a529194d16228573dbfb90899f00a1192431d9cf}
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
       IMAGE_SERVICE_UPLOADS_DIR: /app/uploads
@@ -117,7 +117,7 @@ services:
         condition: service_started
 
   triplet:
-    image: ghcr.io/libops/triplet:v1.1.0
+    image: ghcr.io/libops/triplet:v1.1.0@sha256:ebdd90375f515e863a57372940a61a3b071c3bfb3134c699e2b5d726949603c8
     ports:
       - "${SCRIBE_IMAGE_SERVICE_PORT:-8081}:8080"
     environment:
