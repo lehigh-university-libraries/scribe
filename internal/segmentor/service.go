@@ -79,7 +79,7 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 	tmpPath := tmp.Name()
 	defer func() {
 		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
+		_ = os.Remove(tmpPath) // #nosec G703 -- tmpPath comes directly from os.CreateTemp, not request input.
 	}()
 	if _, err := io.Copy(tmp, file); err != nil {
 		http.Error(w, fmt.Sprintf("write temp image: %v", err), http.StatusInternalServerError)
@@ -133,7 +133,7 @@ func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 	tmpPath := tmp.Name()
 	defer func() {
 		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
+		_ = os.Remove(tmpPath) // #nosec G703 -- tmpPath comes directly from os.CreateTemp, not request input.
 	}()
 	if _, err := io.Copy(tmp, file); err != nil {
 		http.Error(w, fmt.Sprintf("write temp image: %v", err), http.StatusInternalServerError)

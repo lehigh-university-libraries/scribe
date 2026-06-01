@@ -218,7 +218,7 @@ func (c *Client) normalizeViaIIIF(ctx context.Context, image []byte, contentType
 		return nil, fmt.Errorf("create uploads dir: %w", err)
 	}
 	path := filepath.Join("uploads", name)
-	if err := os.WriteFile(path, image, 0o644); err != nil {
+	if err := os.WriteFile(path, image, 0o600); err != nil {
 		return nil, fmt.Errorf("write image for iiif normalize: %w", err)
 	}
 

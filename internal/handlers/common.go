@@ -88,14 +88,26 @@ func (h *Handler) saveUploadedImageBytes(ctx context.Context, imageFilename stri
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	imageFilePath := filepath.Join("uploads", imageFilename)
-	if err := os.WriteFile(imageFilePath, imageData, 0o644); err != nil {
+	safeName, err := safeUploadFilename(imageFilename)
+	if err != nil {
+		return "", err
+	}
+	imageFilePath := filepath.Join("uploads", safeName)
+	if err := os.WriteFile(imageFilePath, imageData, 0o600); err != nil { // #nosec G703 -- safeName is restricted to a single basename before joining uploads/.
 		return "", fmt.Errorf("save image: %w", err)
 	}
-	if err := uploadblob.Put(ctx, imageFilename, imageData, contentType); err != nil {
+	if err := uploadblob.Put(ctx, safeName, imageData, contentType); err != nil {
 		return "", fmt.Errorf("save image to shared upload store: %w", err)
 	}
 	return imageFilePath, nil
+}
+
+func safeUploadFilename(name string) (string, error) {
+	clean := strings.TrimSpace(name)
+	if clean == "" || filepath.Base(clean) != clean || strings.ContainsAny(clean, `/\`) {
+		return "", fmt.Errorf("invalid upload filename")
+	}
+	return clean, nil
 }
 
 func (h *Handler) wasCacheUsed(contentHash string) bool {

@@ -307,6 +307,45 @@ resource "google_pubsub_subscription" "transcription_workers" {
   }
 }
 
+resource "google_pubsub_subscription" "transcription_dead_letter_monitor" {
+  name  = "${var.name}-${local.workspace_slug}-transcription-jobs-dlq-monitor"
+  topic = google_pubsub_topic.transcription_jobs_dead_letter.id
+
+  ack_deadline_seconds       = 60
+  message_retention_duration = "1209600s"
+
+  expiration_policy {
+    ttl = ""
+  }
+}
+
+resource "google_monitoring_alert_policy" "transcription_dead_letter_depth" {
+  display_name          = "${var.name} ${local.workspace_slug} transcription DLQ has messages"
+  combiner              = "OR"
+  notification_channels = var.monitoring_notification_channels
+
+  documentation {
+    content   = "The Scribe transcription Pub/Sub dead-letter subscription has unacked messages. Inspect ${google_pubsub_subscription.transcription_dead_letter_monitor.name}; each message represents a job that exceeded Pub/Sub delivery attempts."
+    mime_type = "text/markdown"
+  }
+
+  conditions {
+    display_name = "DLQ monitor subscription has undelivered messages"
+
+    condition_threshold {
+      filter          = "resource.type = \"pubsub_subscription\" AND resource.labels.subscription_id = \"${google_pubsub_subscription.transcription_dead_letter_monitor.name}\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "300s"
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+    }
+  }
+}
+
 resource "google_pubsub_topic_iam_member" "transcription_jobs_publisher" {
   topic  = google_pubsub_topic.transcription_jobs.name
   role   = "roles/pubsub.publisher"

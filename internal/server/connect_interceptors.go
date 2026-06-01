@@ -17,8 +17,8 @@ const maxConnectReadBytes = 110 << 20
 
 func connectHandlerOptions(authManager *auth.Manager) []connect.HandlerOption {
 	interceptors := []connect.Interceptor{
-		connect.UnaryInterceptorFunc(connectRecoveryInterceptor),
-		connect.UnaryInterceptorFunc(connectLoggingInterceptor),
+		connectRecoveryInterceptor{},
+		connectLoggingInterceptor{},
 		validate.NewInterceptor(),
 	}
 	if authManager != nil {
@@ -62,7 +62,9 @@ func registerConnectServices(mux *http.ServeMux, handler *Handler, authManager *
 	}
 }
 
-func connectRecoveryInterceptor(next connect.UnaryFunc) connect.UnaryFunc {
+type connectRecoveryInterceptor struct{}
+
+func (connectRecoveryInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (resp connect.AnyResponse, err error) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
@@ -78,7 +80,28 @@ func connectRecoveryInterceptor(next connect.UnaryFunc) connect.UnaryFunc {
 	}
 }
 
-func connectLoggingInterceptor(next connect.UnaryFunc) connect.UnaryFunc {
+func (connectRecoveryInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (connectRecoveryInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) (err error) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.Error("connect streaming rpc panic",
+					"procedure", conn.Spec().Procedure,
+					"panic", fmt.Sprint(recovered),
+				)
+				err = connect.NewError(connect.CodeInternal, fmt.Errorf("internal server error"))
+			}
+		}()
+		return next(ctx, conn)
+	}
+}
+
+type connectLoggingInterceptor struct{}
+
+func (connectLoggingInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 		start := time.Now()
 		resp, err := next(ctx, req)
@@ -93,5 +116,27 @@ func connectLoggingInterceptor(next connect.UnaryFunc) connect.UnaryFunc {
 		}
 		slog.Info("connect rpc", attrs...)
 		return resp, err
+	}
+}
+
+func (connectLoggingInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (connectLoggingInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		start := time.Now()
+		err := next(ctx, conn)
+		code := connect.CodeOf(err)
+		attrs := []any{
+			"procedure", conn.Spec().Procedure,
+			"code", fmt.Sprint(code),
+			"duration_ms", time.Since(start).Milliseconds(),
+		}
+		if err != nil {
+			attrs = append(attrs, "error", err.Error())
+		}
+		slog.Info("connect streaming rpc", attrs...)
+		return err
 	}
 }

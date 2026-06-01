@@ -56,7 +56,7 @@ const (
 
 // AuthServiceClient is a client for the scribe.v1.AuthService service.
 type AuthServiceClient interface {
-	GetAuthMe(context.Context, *connect.Request[v1.AuthMeRequest]) (*connect.Response[v1.AuthMeResponse], error)
+	GetAuthMe(context.Context, *connect.Request[v1.GetAuthMeRequest]) (*connect.Response[v1.GetAuthMeResponse], error)
 	ListAPIKeys(context.Context, *connect.Request[v1.ListAPIKeysRequest]) (*connect.Response[v1.ListAPIKeysResponse], error)
 	CreateAPIKey(context.Context, *connect.Request[v1.CreateAPIKeyRequest]) (*connect.Response[v1.CreateAPIKeyResponse], error)
 	DeleteAPIKey(context.Context, *connect.Request[v1.DeleteAPIKeyRequest]) (*connect.Response[v1.DeleteAPIKeyResponse], error)
@@ -76,7 +76,7 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 	baseURL = strings.TrimRight(baseURL, "/")
 	authServiceMethods := v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods()
 	return &authServiceClient{
-		getAuthMe: connect.NewClient[v1.AuthMeRequest, v1.AuthMeResponse](
+		getAuthMe: connect.NewClient[v1.GetAuthMeRequest, v1.GetAuthMeResponse](
 			httpClient,
 			baseURL+AuthServiceGetAuthMeProcedure,
 			connect.WithSchema(authServiceMethods.ByName("GetAuthMe")),
@@ -123,7 +123,7 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	getAuthMe            *connect.Client[v1.AuthMeRequest, v1.AuthMeResponse]
+	getAuthMe            *connect.Client[v1.GetAuthMeRequest, v1.GetAuthMeResponse]
 	listAPIKeys          *connect.Client[v1.ListAPIKeysRequest, v1.ListAPIKeysResponse]
 	createAPIKey         *connect.Client[v1.CreateAPIKeyRequest, v1.CreateAPIKeyResponse]
 	deleteAPIKey         *connect.Client[v1.DeleteAPIKeyRequest, v1.DeleteAPIKeyResponse]
@@ -133,7 +133,7 @@ type authServiceClient struct {
 }
 
 // GetAuthMe calls scribe.v1.AuthService.GetAuthMe.
-func (c *authServiceClient) GetAuthMe(ctx context.Context, req *connect.Request[v1.AuthMeRequest]) (*connect.Response[v1.AuthMeResponse], error) {
+func (c *authServiceClient) GetAuthMe(ctx context.Context, req *connect.Request[v1.GetAuthMeRequest]) (*connect.Response[v1.GetAuthMeResponse], error) {
 	return c.getAuthMe.CallUnary(ctx, req)
 }
 
@@ -169,7 +169,7 @@ func (c *authServiceClient) DeleteProviderSecret(ctx context.Context, req *conne
 
 // AuthServiceHandler is an implementation of the scribe.v1.AuthService service.
 type AuthServiceHandler interface {
-	GetAuthMe(context.Context, *connect.Request[v1.AuthMeRequest]) (*connect.Response[v1.AuthMeResponse], error)
+	GetAuthMe(context.Context, *connect.Request[v1.GetAuthMeRequest]) (*connect.Response[v1.GetAuthMeResponse], error)
 	ListAPIKeys(context.Context, *connect.Request[v1.ListAPIKeysRequest]) (*connect.Response[v1.ListAPIKeysResponse], error)
 	CreateAPIKey(context.Context, *connect.Request[v1.CreateAPIKeyRequest]) (*connect.Response[v1.CreateAPIKeyResponse], error)
 	DeleteAPIKey(context.Context, *connect.Request[v1.DeleteAPIKeyRequest]) (*connect.Response[v1.DeleteAPIKeyResponse], error)
@@ -252,7 +252,7 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 // UnimplementedAuthServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAuthServiceHandler struct{}
 
-func (UnimplementedAuthServiceHandler) GetAuthMe(context.Context, *connect.Request[v1.AuthMeRequest]) (*connect.Response[v1.AuthMeResponse], error) {
+func (UnimplementedAuthServiceHandler) GetAuthMe(context.Context, *connect.Request[v1.GetAuthMeRequest]) (*connect.Response[v1.GetAuthMeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.GetAuthMe is not implemented"))
 }
 

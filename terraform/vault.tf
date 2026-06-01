@@ -111,11 +111,11 @@ path "secret/data/scribe/${local.workspace_slug}/database/app" {
   capabilities = ["read"]
 }
 
-path "secret/data/scribe/${local.workspace_slug}/provider-secrets/workspaces/{{identity.entity.metadata.workspace_id}}/*" {
+path "secret/data/scribe/${local.workspace_slug}/provider-secrets/workspaces/*" {
   capabilities = ["create", "read"]
 }
 
-path "secret/metadata/scribe/${local.workspace_slug}/provider-secrets/workspaces/{{identity.entity.metadata.workspace_id}}/*" {
+path "secret/metadata/scribe/${local.workspace_slug}/provider-secrets/workspaces/*" {
   capabilities = ["delete"]
 }
 EOT
@@ -277,29 +277,6 @@ resource "vault_gcp_auth_backend_role" "app" {
     vault_auth_backend.gcp,
     vault_policy.app,
   ]
-}
-
-data "vault_gcp_auth_backend_role" "app" {
-  backend   = local.vault_gcp_auth_backend_path
-  role_name = local.vault_app_role_name
-
-  depends_on = [
-    vault_gcp_auth_backend_role.app,
-  ]
-}
-
-resource "vault_identity_entity" "app" {
-  name = "${local.vault_app_role_name}-workspace-${var.vault_app_workspace_id}"
-  metadata = {
-    workspace_id   = var.vault_app_workspace_id
-    workspace_slug = local.workspace_slug
-  }
-}
-
-resource "vault_identity_entity_alias" "app_gcp_role" {
-  name           = data.vault_gcp_auth_backend_role.app.role_id
-  mount_accessor = data.vault_auth_backend.gcp.accessor
-  canonical_id   = vault_identity_entity.app.id
 }
 
 resource "vault_gcp_auth_backend_role" "ci" {

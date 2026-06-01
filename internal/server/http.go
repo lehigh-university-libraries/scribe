@@ -203,7 +203,6 @@ func NewHandler(
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/hocr", handler.handleGetHOCR)
 	mux.HandleFunc("GET /v1/item-images/{item_image_id}/export", handler.handleExportAnnotations)
 	mux.HandleFunc("GET /v1/events", handler.handleEventStream)
-	mux.HandleFunc("POST /scribe.v1.AnnotationService/PublishItemImageEdits", handler.handlePublishItemImageEdits)
 
 	// Context metrics
 	mux.HandleFunc("GET /v1/contexts/{context_id}/metrics", handler.handleGetContextMetrics)
@@ -445,9 +444,6 @@ func (h *Handler) handleGetHOCR(w http.ResponseWriter, r *http.Request) {
 	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
 		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
 	}
-	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
-		hocrXML = persisted
-	}
 	if hocrXML == "" {
 		writeError(w, http.StatusNotFound, "hocr not found")
 		return
@@ -526,9 +522,6 @@ func (h *Handler) handleGetItemIIIFManifest(w http.ResponseWriter, r *http.Reque
 			hocrXML := strings.TrimSpace(run.OriginalHOCR)
 			if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
 				hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-			}
-			if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
-				hocrXML = persisted
 			}
 			pageW, pageH = extractPageDimensions(hocrXML)
 			if pageW <= 0 {
@@ -649,9 +642,6 @@ func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) 
 	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
 		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
 	}
-	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
-		hocrXML = persisted
-	}
 	pageW, pageH := extractPageDimensions(hocrXML)
 	if pageW <= 0 {
 		pageW = 1
@@ -757,9 +747,6 @@ func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Reques
 	hocrXML := strings.TrimSpace(run.OriginalHOCR)
 	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
 		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-	}
-	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
-		hocrXML = persisted
 	}
 	if hocrXML == "" {
 		writeError(w, http.StatusNotFound, "hocr not found")
@@ -1059,9 +1046,6 @@ func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run s
 	hocrXML := strings.TrimSpace(run.OriginalHOCR)
 	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
 		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-	}
-	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
-		hocrXML = persisted
 	}
 	if hocrXML == "" {
 		return nil
@@ -1646,9 +1630,6 @@ func (h *Handler) exportItemImageContent(ctx context.Context, itemImageID uint64
 		hocrXML := strings.TrimSpace(run.OriginalHOCR)
 		if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
 			hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-		}
-		if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
-			hocrXML = persisted
 		}
 		if hocrXML == "" {
 			return "", "", "", fmt.Errorf("no annotations available")

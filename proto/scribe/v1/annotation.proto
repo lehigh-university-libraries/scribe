@@ -65,6 +65,20 @@ message DeleteAnnotationRequest {
 
 message DeleteAnnotationResponse {}
 
+message PublishItemImageEditsRequest {
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+}
+
+message PublishItemImageEditsResponse {
+  uint64 item_image_id        = 1;
+  string canvas_uri           = 2;
+  string annotation_page_json = 3;
+  string published_at         = 4;
+}
+
 // EnrichAnnotationRequest sends a IIIF annotation (one line or an entire
 // AnnotationPage) to Scribe's transcription service for improvement.
 // The caller provides the raw JSON and specifies the scope.
@@ -225,6 +239,13 @@ service AnnotationService {
     option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc PublishItemImageEdits(PublishItemImageEditsRequest) returns (PublishItemImageEditsResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
     };
   }
   // Improve transcription for one line or a full canvas.

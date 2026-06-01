@@ -162,6 +162,30 @@ func TestResolveTranscriptionJobContextUsesOwningUserScope(t *testing.T) {
 	}
 }
 
+func TestResumedTranscriptionProgressUsesPersistedCursor(t *testing.T) {
+	t.Parallel()
+
+	completed, failed, startIndex := resumedTranscriptionProgress(&store.TranscriptionJob{
+		CompletedSegments: 2,
+		FailedSegments:    1,
+	}, 5)
+	if completed != 2 || failed != 1 || startIndex != 3 {
+		t.Fatalf("completed=%d failed=%d startIndex=%d, want 2/1/3", completed, failed, startIndex)
+	}
+}
+
+func TestResumedTranscriptionProgressClampsToTotal(t *testing.T) {
+	t.Parallel()
+
+	completed, failed, startIndex := resumedTranscriptionProgress(&store.TranscriptionJob{
+		CompletedSegments: 9,
+		FailedSegments:    4,
+	}, 5)
+	if completed != 5 || failed != 0 || startIndex != 5 {
+		t.Fatalf("completed=%d failed=%d startIndex=%d, want 5/0/5", completed, failed, startIndex)
+	}
+}
+
 func TestResolveTranscriptionJobContextRejectsOtherUsersExplicitContext(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()

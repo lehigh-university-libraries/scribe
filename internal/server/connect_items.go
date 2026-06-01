@@ -191,7 +191,6 @@ func (h *Handler) ingestParsedManifest(ctx context.Context, itemID string, manif
 		}); err != nil {
 			continue
 		}
-		_ = writeSessionHOCR(sessionID, "original.hocr", hocrXML)
 		if firstWithHOCR == 0 {
 			firstWithHOCR = img.ID
 		}

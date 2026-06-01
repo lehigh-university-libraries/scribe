@@ -94,13 +94,6 @@ func (h *Handler) StreamTranscriptionJob(
 	stream *connect.ServerStream[scribev1.StreamTranscriptionJobResponse],
 ) error {
 	jobID := req.Msg.GetJobId()
-	allowed, err := h.transcriptionJobs.WorkspaceOwnsJob(ctx, h.currentWorkspaceID(ctx), jobID)
-	if err != nil {
-		return connect.NewError(connect.CodeInternal, err)
-	}
-	if !allowed {
-		return connect.NewError(connect.CodeNotFound, fmt.Errorf("job not found"))
-	}
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -479,12 +472,24 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		return fmt.Errorf("set total segments: %w", err)
 	}
 
-	completed, failed := 0, 0
+	completed, failed, startIndex := resumedTranscriptionProgress(job, total)
+	if startIndex > 0 {
+		slog.Info("Resuming transcription job from persisted progress",
+			"job_id", job.ID,
+			"completed", completed,
+			"failed", failed,
+			"start_index", startIndex+1,
+			"total", total,
+		)
+	}
 	for i, entry := range lines {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+		if i < startIndex {
+			continue
 		}
 
 		slog.Info("Transcribing segment", "job_id", job.ID, "index", i+1, "total", total, "annotation_id", entry.id)
@@ -568,6 +573,28 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	}
 	h.publishCloudEvent(evt, false)
 	return nil
+}
+
+func resumedTranscriptionProgress(job *store.TranscriptionJob, total int) (completed, failed, startIndex int) {
+	if job == nil || total <= 0 {
+		return 0, 0, 0
+	}
+	completed = job.CompletedSegments
+	if completed < 0 {
+		completed = 0
+	}
+	if completed > total {
+		completed = total
+	}
+	failed = job.FailedSegments
+	if failed < 0 {
+		failed = 0
+	}
+	remaining := total - completed
+	if failed > remaining {
+		failed = remaining
+	}
+	return completed, failed, completed + failed
 }
 
 // --- proto conversion ---

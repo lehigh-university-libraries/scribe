@@ -2,6 +2,15 @@ name: Terraform Apply
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Terraform action to run.
+        required: true
+        type: choice
+        default: apply
+        options:
+          - plan
+          - apply
   push:
     branches:
       - main
@@ -86,7 +95,7 @@ jobs:
       packages: write
     secrets: inherit
     with:
-      mode: apply
+      mode: ${{ github.event_name == 'push' && 'plan' || inputs.mode }}
       environment_name: production
       tf_workspace: prod
       site_name: scribe

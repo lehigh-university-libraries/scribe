@@ -17,12 +17,12 @@ import (
 
 var _ scribev1connect.AuthServiceHandler = (*Manager)(nil)
 
-func (m *Manager) GetAuthMe(ctx context.Context, _ *connect.Request[scribev1.AuthMeRequest]) (*connect.Response[scribev1.AuthMeResponse], error) {
+func (m *Manager) GetAuthMe(ctx context.Context, _ *connect.Request[scribev1.GetAuthMeRequest]) (*connect.Response[scribev1.GetAuthMeResponse], error) {
 	principal, ok := PrincipalFromContext(ctx)
 	if !ok {
 		principal = m.anonymousPrincipal()
 	}
-	resp := &scribev1.AuthMeResponse{
+	resp := &scribev1.GetAuthMeResponse{
 		Authenticated: principal.Authenticated,
 		AuthType:      principal.AuthType,
 		LoginUrl:      "/auth/google",
@@ -277,7 +277,6 @@ func providerSecretToProto(secret store.ProviderSecret) *scribev1.ProviderSecret
 		Id:        secret.ID,
 		Provider:  secret.Provider,
 		Name:      secret.Name,
-		VaultPath: secret.VaultPath,
 		KeyHint:   secret.KeyHint,
 		Scope:     secret.Scope,
 		CreatedAt: formatOptionalTime(secret.CreatedAt),

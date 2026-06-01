@@ -444,8 +444,20 @@ Current event types:
 Use `transcription.task.completed` to drive per-line progress in the UI. Use
 `annotations.created` and `annotations.published` for external integrations such
 as Islandora. Save does not publish: `annotations.published` is emitted only
-after the explicit `POST /scribe.v1.AnnotationService/PublishItemImageEdits`
-action.
+after the `scribe.v1.AnnotationService/PublishItemImageEdits` Connect action.
+
+The current SSE implementation polls the event outbox per connected client.
+That is acceptable for the current single-VM deployment and modest editor
+concurrency. Before running multiple API replicas or sustained high concurrent
+editor counts, move `/v1/events` to a shared fan-out path such as database
+`LISTEN/NOTIFY` plus in-process broadcast, or an external event broker.
+
+OAuth state is also in-memory and per API process. This matches today's
+single-API topology. Horizontal API scaling needs either sticky OAuth callbacks
+or a shared state store before multiple replicas accept browser logins.
+
+Run `make e2e-smoke` for the containerized DB-backed smoke path that covers IIIF
+manifest ingest plus annotation edit, save, reload, and persistence semantics.
 
 ## Deployment direction
 

@@ -106,7 +106,7 @@ jobs:
           terraform_version: 1.5.7
 
       - name: Check Terraform formatting
-        if: inputs.mode == 'apply'
+        if: inputs.mode == 'apply' || inputs.mode == 'plan'
         run: terraform fmt -check -recursive
 
       - name: Set up Cloud SDK
@@ -146,7 +146,7 @@ jobs:
 
       - name: Resolve pinned backend GHCR image
         id: backend_ghcr_image
-        if: inputs.mode == 'apply' && startsWith(inputs.image_tag, 'ghcr.io/')
+        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && startsWith(inputs.image_tag, 'ghcr.io/')
         shell: bash
         run: |
           resolved_image="$(./ci/resolve-ghcr-image.sh '${{ inputs.image_tag }}')"
@@ -155,7 +155,7 @@ jobs:
 
       - name: Resolve pinned frontend GHCR image
         id: frontend_ghcr_image
-        if: inputs.mode == 'apply' && startsWith(inputs.frontend_image_tag, 'ghcr.io/')
+        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && startsWith(inputs.frontend_image_tag, 'ghcr.io/')
         shell: bash
         run: |
           resolved_image="$(./ci/resolve-ghcr-image.sh '${{ inputs.frontend_image_tag }}')"
@@ -164,7 +164,7 @@ jobs:
 
       - name: Resolve pinned frontend GAR image
         id: frontend_gar_image
-        if: inputs.mode == 'apply' && inputs.frontend_gar_image_tag != ''
+        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.frontend_gar_image_tag != ''
         shell: bash
         run: |
           resolved_image="$(./ci/resolve-gar-image.sh '${{ inputs.frontend_gar_image_tag }}')"
@@ -234,7 +234,7 @@ jobs:
 
       - name: Run production Terraform plan
         id: plan
-        if: inputs.mode == 'apply' && inputs.pr_number == ''
+        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.pr_number == ''
         shell: bash
         run: |
           set -o pipefail
@@ -242,7 +242,7 @@ jobs:
 
       - name: Run preview Terraform plan
         id: plan_preview
-        if: inputs.mode == 'apply' && inputs.pr_number != ''
+        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.pr_number != ''
         shell: bash
         run: |
           set -o pipefail
@@ -289,7 +289,7 @@ jobs:
           make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=destroy 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log"
 
       - name: Upload Terraform logs
-        if: failure() || inputs.mode == 'apply'
+        if: failure() || inputs.mode == 'apply' || inputs.mode == 'plan'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: terraform-logs-${{ inputs.tf_workspace }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -306,6 +306,11 @@ jobs:
             status='${{ steps.apply.outcome }}'
             if [ "$status" = '' ]; then
               status='${{ steps.apply_preview.outcome }}'
+            fi
+          elif [ '${{ inputs.mode }}' = 'plan' ]; then
+            status='${{ steps.plan.outcome }}'
+            if [ "$status" = '' ]; then
+              status='${{ steps.plan_preview.outcome }}'
             fi
           else
             status='${{ steps.destroy.outcome }}'

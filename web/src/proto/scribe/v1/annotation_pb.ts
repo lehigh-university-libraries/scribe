@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file scribe/v1/annotation.proto.
  */
 export const file_scribe_v1_annotation: GenFile = /*@__PURE__*/
-  fileDesc("ChpzY3JpYmUvdjEvYW5ub3RhdGlvbi5wcm90bxIJc2NyaWJlLnYxIkAKGFNlYXJjaEFubm90YXRpb25zUmVxdWVzdBIkCgpjYW52YXNfdXJpGAEgASgJQhC6SA3IAQFyCDIGLipcUy4qIjkKGVNlYXJjaEFubm90YXRpb25zUmVzcG9uc2USHAoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAkiNAoUR2V0QW5ub3RhdGlvblJlcXVlc3QSHAoCaWQYASABKAlCELpIDcgBAXIIMgYuKlxTLioiMAoVR2V0QW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJEChdDcmVhdGVBbm5vdGF0aW9uUmVxdWVzdBIpCg9hbm5vdGF0aW9uX2pzb24YASABKAlCELpIDcgBAXIIMgYuKlxTLioiMwoYQ3JlYXRlQW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJEChdVcGRhdGVBbm5vdGF0aW9uUmVxdWVzdBIpCg9hbm5vdGF0aW9uX2pzb24YASABKAlCELpIDcgBAXIIMgYuKlxTLioiMwoYVXBkYXRlQW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSI4ChdEZWxldGVBbm5vdGF0aW9uUmVxdWVzdBIdCgN1cmkYASABKAlCELpIDcgBAXIIMgYuKlxTLioiGgoYRGVsZXRlQW5ub3RhdGlvblJlc3BvbnNlIo0CChdFbnJpY2hBbm5vdGF0aW9uUmVxdWVzdBIcCgVzY29wZRgBIAEoCUINukgKcggyBi4qXFMuKhImCg9hbm5vdGF0aW9uX2pzb24YAiABKAlCDbpICnIIMgYuKlxTLioSEgoKY29udGV4dF9pZBgDIAEoBDqXAbpIkwEakAEKF2VucmljaF9hbm5vdGF0aW9uLnNjb3BlEhpzY29wZSBtdXN0IGJlIGxpbmUgb3IgcGFnZRpZKHRoaXMuc2NvcGUgPT0gJ2xpbmUnIHx8IHRoaXMuc2NvcGUgPT0gJ3BhZ2UnKSAmJiB0aGlzLmFubm90YXRpb25fanNvbi5tYXRjaGVzKCcuKlxcUy4qJykiMwoYRW5yaWNoQW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJVChlTcGxpdExpbmVJbnRvV29yZHNSZXF1ZXN0EikKD2Fubm90YXRpb25fanNvbhgBIAEoCUIQukgNyAEBcggyBi4qXFMuKhINCgV3b3JkcxgCIAMoCSI6ChpTcGxpdExpbmVJbnRvV29yZHNSZXNwb25zZRIcChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgBIAEoCSJgChxTcGxpdExpbmVJbnRvVHdvTGluZXNSZXF1ZXN0EikKD2Fubm90YXRpb25fanNvbhgBIAEoCUIQukgNyAEBcggyBi4qXFMuKhIVCg1zcGxpdF9hdF93b3JkGAIgASgFIjkKHVNwbGl0TGluZUludG9Ud29MaW5lc1Jlc3BvbnNlEhgKEGFubm90YXRpb25fanNvbnMYASADKAkiNgoQSm9pbkxpbmVzUmVxdWVzdBIiChBhbm5vdGF0aW9uX2pzb25zGAEgAygJQgi6SAWSAQIIAiIsChFKb2luTGluZXNSZXNwb25zZRIXCg9hbm5vdGF0aW9uX2pzb24YASABKAkiPgoYSm9pbldvcmRzSW50b0xpbmVSZXF1ZXN0EiIKEGFubm90YXRpb25fanNvbnMYASADKAlCCLpIBZIBAggCIjQKGUpvaW5Xb3Jkc0ludG9MaW5lUmVzcG9uc2USFwoPYW5ub3RhdGlvbl9qc29uGAEgASgJIqECChtDcm9zc3dhbGtUb1BsYWluVGV4dFJlcXVlc3QSLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAlCELpIDXILMgleJHwuKlxTLioSKQoPYW5ub3RhdGlvbl9qc29uGAIgASgJQhC6SA1yCzIJXiR8LipcUy4qOqYBukiiARqfAQoPY3Jvc3N3YWxrLmlucHV0EjNhbm5vdGF0aW9uX3BhZ2VfanNvbiBvciBhbm5vdGF0aW9uX2pzb24gaXMgcmVxdWlyZWQaV3RoaXMuYW5ub3RhdGlvbl9wYWdlX2pzb24ubWF0Y2hlcygnLipcXFMuKicpIHx8IHRoaXMuYW5ub3RhdGlvbl9qc29uLm1hdGNoZXMoJy4qXFxTLionKSI/ChxDcm9zc3dhbGtUb1BsYWluVGV4dFJlc3BvbnNlEg4KBmZvcm1hdBgBIAEoCRIPCgdjb250ZW50GAIgASgJIpwCChZDcm9zc3dhbGtUb0hPQ1JSZXF1ZXN0Ei4KFGFubm90YXRpb25fcGFnZV9qc29uGAEgASgJQhC6SA1yCzIJXiR8LipcUy4qEikKD2Fubm90YXRpb25fanNvbhgCIAEoCUIQukgNcgsyCV4kfC4qXFMuKjqmAbpIogEanwEKD2Nyb3Nzd2Fsay5pbnB1dBIzYW5ub3RhdGlvbl9wYWdlX2pzb24gb3IgYW5ub3RhdGlvbl9qc29uIGlzIHJlcXVpcmVkGld0aGlzLmFubm90YXRpb25fcGFnZV9qc29uLm1hdGNoZXMoJy4qXFxTLionKSB8fCB0aGlzLmFubm90YXRpb25fanNvbi5tYXRjaGVzKCcuKlxcUy4qJykiOgoXQ3Jvc3N3YWxrVG9IT0NSUmVzcG9uc2USDgoGZm9ybWF0GAEgASgJEg8KB2NvbnRlbnQYAiABKAkinwIKGUNyb3Nzd2Fsa1RvUGFnZVhNTFJlcXVlc3QSLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAlCELpIDXILMgleJHwuKlxTLioSKQoPYW5ub3RhdGlvbl9qc29uGAIgASgJQhC6SA1yCzIJXiR8LipcUy4qOqYBukiiARqfAQoPY3Jvc3N3YWxrLmlucHV0EjNhbm5vdGF0aW9uX3BhZ2VfanNvbiBvciBhbm5vdGF0aW9uX2pzb24gaXMgcmVxdWlyZWQaV3RoaXMuYW5ub3RhdGlvbl9wYWdlX2pzb24ubWF0Y2hlcygnLipcXFMuKicpIHx8IHRoaXMuYW5ub3RhdGlvbl9qc29uLm1hdGNoZXMoJy4qXFxTLionKSI9ChpDcm9zc3dhbGtUb1BhZ2VYTUxSZXNwb25zZRIOCgZmb3JtYXQYASABKAkSDwoHY29udGVudBgCIAEoCSKfAgoZQ3Jvc3N3YWxrVG9BTFRPWE1MUmVxdWVzdBIuChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgBIAEoCUIQukgNcgsyCV4kfC4qXFMuKhIpCg9hbm5vdGF0aW9uX2pzb24YAiABKAlCELpIDXILMgleJHwuKlxTLio6pgG6SKIBGp8BCg9jcm9zc3dhbGsuaW5wdXQSM2Fubm90YXRpb25fcGFnZV9qc29uIG9yIGFubm90YXRpb25fanNvbiBpcyByZXF1aXJlZBpXdGhpcy5hbm5vdGF0aW9uX3BhZ2VfanNvbi5tYXRjaGVzKCcuKlxcUy4qJykgfHwgdGhpcy5hbm5vdGF0aW9uX2pzb24ubWF0Y2hlcygnLipcXFMuKicpIj0KGkNyb3Nzd2Fsa1RvQUxUT1hNTFJlc3BvbnNlEg4KBmZvcm1hdBgBIAEoCRIPCgdjb250ZW50GAIgASgJMscLChFBbm5vdGF0aW9uU2VydmljZRJoChFTZWFyY2hBbm5vdGF0aW9ucxIjLnNjcmliZS52MS5TZWFyY2hBbm5vdGF0aW9uc1JlcXVlc3QaJC5zY3JpYmUudjEuU2VhcmNoQW5ub3RhdGlvbnNSZXNwb25zZSIIkrUYBBACGAESXAoNR2V0QW5ub3RhdGlvbhIfLnNjcmliZS52MS5HZXRBbm5vdGF0aW9uUmVxdWVzdBogLnNjcmliZS52MS5HZXRBbm5vdGF0aW9uUmVzcG9uc2UiCJK1GAQQAhgBEmUKEENyZWF0ZUFubm90YXRpb24SIi5zY3JpYmUudjEuQ3JlYXRlQW5ub3RhdGlvblJlcXVlc3QaIy5zY3JpYmUudjEuQ3JlYXRlQW5ub3RhdGlvblJlc3BvbnNlIgiStRgEEAIYAhJlChBVcGRhdGVBbm5vdGF0aW9uEiIuc2NyaWJlLnYxLlVwZGF0ZUFubm90YXRpb25SZXF1ZXN0GiMuc2NyaWJlLnYxLlVwZGF0ZUFubm90YXRpb25SZXNwb25zZSIIkrUYBBACGAISZQoQRGVsZXRlQW5ub3RhdGlvbhIiLnNjcmliZS52MS5EZWxldGVBbm5vdGF0aW9uUmVxdWVzdBojLnNjcmliZS52MS5EZWxldGVBbm5vdGF0aW9uUmVzcG9uc2UiCJK1GAQQAhgCEmUKEEVucmljaEFubm90YXRpb24SIi5zY3JpYmUudjEuRW5yaWNoQW5ub3RhdGlvblJlcXVlc3QaIy5zY3JpYmUudjEuRW5yaWNoQW5ub3RhdGlvblJlc3BvbnNlIgiStRgEEAIYAhJrChJTcGxpdExpbmVJbnRvV29yZHMSJC5zY3JpYmUudjEuU3BsaXRMaW5lSW50b1dvcmRzUmVxdWVzdBolLnNjcmliZS52MS5TcGxpdExpbmVJbnRvV29yZHNSZXNwb25zZSIIkrUYBBACGAISdAoVU3BsaXRMaW5lSW50b1R3b0xpbmVzEicuc2NyaWJlLnYxLlNwbGl0TGluZUludG9Ud29MaW5lc1JlcXVlc3QaKC5zY3JpYmUudjEuU3BsaXRMaW5lSW50b1R3b0xpbmVzUmVzcG9uc2UiCJK1GAQQAhgCElAKCUpvaW5MaW5lcxIbLnNjcmliZS52MS5Kb2luTGluZXNSZXF1ZXN0Ghwuc2NyaWJlLnYxLkpvaW5MaW5lc1Jlc3BvbnNlIgiStRgEEAIYAhJoChFKb2luV29yZHNJbnRvTGluZRIjLnNjcmliZS52MS5Kb2luV29yZHNJbnRvTGluZVJlcXVlc3QaJC5zY3JpYmUudjEuSm9pbldvcmRzSW50b0xpbmVSZXNwb25zZSIIkrUYBBACGAIScQoUQ3Jvc3N3YWxrVG9QbGFpblRleHQSJi5zY3JpYmUudjEuQ3Jvc3N3YWxrVG9QbGFpblRleHRSZXF1ZXN0Gicuc2NyaWJlLnYxLkNyb3Nzd2Fsa1RvUGxhaW5UZXh0UmVzcG9uc2UiCJK1GAQQAhgBEmIKD0Nyb3Nzd2Fsa1RvSE9DUhIhLnNjcmliZS52MS5Dcm9zc3dhbGtUb0hPQ1JSZXF1ZXN0GiIuc2NyaWJlLnYxLkNyb3Nzd2Fsa1RvSE9DUlJlc3BvbnNlIgiStRgEEAIYARJrChJDcm9zc3dhbGtUb1BhZ2VYTUwSJC5zY3JpYmUudjEuQ3Jvc3N3YWxrVG9QYWdlWE1MUmVxdWVzdBolLnNjcmliZS52MS5Dcm9zc3dhbGtUb1BhZ2VYTUxSZXNwb25zZSIIkrUYBBACGAESawoSQ3Jvc3N3YWxrVG9BTFRPWE1MEiQuc2NyaWJlLnYxLkNyb3Nzd2Fsa1RvQUxUT1hNTFJlcXVlc3QaJS5zY3JpYmUudjEuQ3Jvc3N3YWxrVG9BTFRPWE1MUmVzcG9uc2UiCJK1GAQQAhgBQq0BCg1jb20uc2NyaWJlLnYxQg9Bbm5vdGF0aW9uUHJvdG9QAVpGZ2l0aHViLmNvbS9sZWhpZ2gtdW5pdmVyc2l0eS1saWJyYXJpZXMvc2NyaWJlL3Byb3RvL3NjcmliZS92MTtzY3JpYmV2MaICA1NYWKoCCVNjcmliZS5WMcoCCVNjcmliZVxWMeICFVNjcmliZVxWMVxHUEJNZXRhZGF0YeoCClNjcmliZTo6VjFiBnByb3RvMw", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
+  fileDesc("ChpzY3JpYmUvdjEvYW5ub3RhdGlvbi5wcm90bxIJc2NyaWJlLnYxIkAKGFNlYXJjaEFubm90YXRpb25zUmVxdWVzdBIkCgpjYW52YXNfdXJpGAEgASgJQhC6SA3IAQFyCDIGLipcUy4qIjkKGVNlYXJjaEFubm90YXRpb25zUmVzcG9uc2USHAoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAkiNAoUR2V0QW5ub3RhdGlvblJlcXVlc3QSHAoCaWQYASABKAlCELpIDcgBAXIIMgYuKlxTLioiMAoVR2V0QW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJEChdDcmVhdGVBbm5vdGF0aW9uUmVxdWVzdBIpCg9hbm5vdGF0aW9uX2pzb24YASABKAlCELpIDcgBAXIIMgYuKlxTLioiMwoYQ3JlYXRlQW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJEChdVcGRhdGVBbm5vdGF0aW9uUmVxdWVzdBIpCg9hbm5vdGF0aW9uX2pzb24YASABKAlCELpIDcgBAXIIMgYuKlxTLioiMwoYVXBkYXRlQW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSI4ChdEZWxldGVBbm5vdGF0aW9uUmVxdWVzdBIdCgN1cmkYASABKAlCELpIDcgBAXIIMgYuKlxTLioiGgoYRGVsZXRlQW5ub3RhdGlvblJlc3BvbnNlIkEKHFB1Ymxpc2hJdGVtSW1hZ2VFZGl0c1JlcXVlc3QSIQoNaXRlbV9pbWFnZV9pZBgBIAEoBEIKukgHyAEBMgIgACJ+Ch1QdWJsaXNoSXRlbUltYWdlRWRpdHNSZXNwb25zZRIVCg1pdGVtX2ltYWdlX2lkGAEgASgEEhIKCmNhbnZhc191cmkYAiABKAkSHAoUYW5ub3RhdGlvbl9wYWdlX2pzb24YAyABKAkSFAoMcHVibGlzaGVkX2F0GAQgASgJIo0CChdFbnJpY2hBbm5vdGF0aW9uUmVxdWVzdBIcCgVzY29wZRgBIAEoCUINukgKcggyBi4qXFMuKhImCg9hbm5vdGF0aW9uX2pzb24YAiABKAlCDbpICnIIMgYuKlxTLioSEgoKY29udGV4dF9pZBgDIAEoBDqXAbpIkwEakAEKF2VucmljaF9hbm5vdGF0aW9uLnNjb3BlEhpzY29wZSBtdXN0IGJlIGxpbmUgb3IgcGFnZRpZKHRoaXMuc2NvcGUgPT0gJ2xpbmUnIHx8IHRoaXMuc2NvcGUgPT0gJ3BhZ2UnKSAmJiB0aGlzLmFubm90YXRpb25fanNvbi5tYXRjaGVzKCcuKlxcUy4qJykiMwoYRW5yaWNoQW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJVChlTcGxpdExpbmVJbnRvV29yZHNSZXF1ZXN0EikKD2Fubm90YXRpb25fanNvbhgBIAEoCUIQukgNyAEBcggyBi4qXFMuKhINCgV3b3JkcxgCIAMoCSI6ChpTcGxpdExpbmVJbnRvV29yZHNSZXNwb25zZRIcChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgBIAEoCSJgChxTcGxpdExpbmVJbnRvVHdvTGluZXNSZXF1ZXN0EikKD2Fubm90YXRpb25fanNvbhgBIAEoCUIQukgNyAEBcggyBi4qXFMuKhIVCg1zcGxpdF9hdF93b3JkGAIgASgFIjkKHVNwbGl0TGluZUludG9Ud29MaW5lc1Jlc3BvbnNlEhgKEGFubm90YXRpb25fanNvbnMYASADKAkiNgoQSm9pbkxpbmVzUmVxdWVzdBIiChBhbm5vdGF0aW9uX2pzb25zGAEgAygJQgi6SAWSAQIIAiIsChFKb2luTGluZXNSZXNwb25zZRIXCg9hbm5vdGF0aW9uX2pzb24YASABKAkiPgoYSm9pbldvcmRzSW50b0xpbmVSZXF1ZXN0EiIKEGFubm90YXRpb25fanNvbnMYASADKAlCCLpIBZIBAggCIjQKGUpvaW5Xb3Jkc0ludG9MaW5lUmVzcG9uc2USFwoPYW5ub3RhdGlvbl9qc29uGAEgASgJIqECChtDcm9zc3dhbGtUb1BsYWluVGV4dFJlcXVlc3QSLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAlCELpIDXILMgleJHwuKlxTLioSKQoPYW5ub3RhdGlvbl9qc29uGAIgASgJQhC6SA1yCzIJXiR8LipcUy4qOqYBukiiARqfAQoPY3Jvc3N3YWxrLmlucHV0EjNhbm5vdGF0aW9uX3BhZ2VfanNvbiBvciBhbm5vdGF0aW9uX2pzb24gaXMgcmVxdWlyZWQaV3RoaXMuYW5ub3RhdGlvbl9wYWdlX2pzb24ubWF0Y2hlcygnLipcXFMuKicpIHx8IHRoaXMuYW5ub3RhdGlvbl9qc29uLm1hdGNoZXMoJy4qXFxTLionKSI/ChxDcm9zc3dhbGtUb1BsYWluVGV4dFJlc3BvbnNlEg4KBmZvcm1hdBgBIAEoCRIPCgdjb250ZW50GAIgASgJIpwCChZDcm9zc3dhbGtUb0hPQ1JSZXF1ZXN0Ei4KFGFubm90YXRpb25fcGFnZV9qc29uGAEgASgJQhC6SA1yCzIJXiR8LipcUy4qEikKD2Fubm90YXRpb25fanNvbhgCIAEoCUIQukgNcgsyCV4kfC4qXFMuKjqmAbpIogEanwEKD2Nyb3Nzd2Fsay5pbnB1dBIzYW5ub3RhdGlvbl9wYWdlX2pzb24gb3IgYW5ub3RhdGlvbl9qc29uIGlzIHJlcXVpcmVkGld0aGlzLmFubm90YXRpb25fcGFnZV9qc29uLm1hdGNoZXMoJy4qXFxTLionKSB8fCB0aGlzLmFubm90YXRpb25fanNvbi5tYXRjaGVzKCcuKlxcUy4qJykiOgoXQ3Jvc3N3YWxrVG9IT0NSUmVzcG9uc2USDgoGZm9ybWF0GAEgASgJEg8KB2NvbnRlbnQYAiABKAkinwIKGUNyb3Nzd2Fsa1RvUGFnZVhNTFJlcXVlc3QSLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAlCELpIDXILMgleJHwuKlxTLioSKQoPYW5ub3RhdGlvbl9qc29uGAIgASgJQhC6SA1yCzIJXiR8LipcUy4qOqYBukiiARqfAQoPY3Jvc3N3YWxrLmlucHV0EjNhbm5vdGF0aW9uX3BhZ2VfanNvbiBvciBhbm5vdGF0aW9uX2pzb24gaXMgcmVxdWlyZWQaV3RoaXMuYW5ub3RhdGlvbl9wYWdlX2pzb24ubWF0Y2hlcygnLipcXFMuKicpIHx8IHRoaXMuYW5ub3RhdGlvbl9qc29uLm1hdGNoZXMoJy4qXFxTLionKSI9ChpDcm9zc3dhbGtUb1BhZ2VYTUxSZXNwb25zZRIOCgZmb3JtYXQYASABKAkSDwoHY29udGVudBgCIAEoCSKfAgoZQ3Jvc3N3YWxrVG9BTFRPWE1MUmVxdWVzdBIuChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgBIAEoCUIQukgNcgsyCV4kfC4qXFMuKhIpCg9hbm5vdGF0aW9uX2pzb24YAiABKAlCELpIDXILMgleJHwuKlxTLio6pgG6SKIBGp8BCg9jcm9zc3dhbGsuaW5wdXQSM2Fubm90YXRpb25fcGFnZV9qc29uIG9yIGFubm90YXRpb25fanNvbiBpcyByZXF1aXJlZBpXdGhpcy5hbm5vdGF0aW9uX3BhZ2VfanNvbi5tYXRjaGVzKCcuKlxcUy4qJykgfHwgdGhpcy5hbm5vdGF0aW9uX2pzb24ubWF0Y2hlcygnLipcXFMuKicpIj0KGkNyb3Nzd2Fsa1RvQUxUT1hNTFJlc3BvbnNlEg4KBmZvcm1hdBgBIAEoCRIPCgdjb250ZW50GAIgASgJMs0MChFBbm5vdGF0aW9uU2VydmljZRJoChFTZWFyY2hBbm5vdGF0aW9ucxIjLnNjcmliZS52MS5TZWFyY2hBbm5vdGF0aW9uc1JlcXVlc3QaJC5zY3JpYmUudjEuU2VhcmNoQW5ub3RhdGlvbnNSZXNwb25zZSIIkrUYBBACGAESXAoNR2V0QW5ub3RhdGlvbhIfLnNjcmliZS52MS5HZXRBbm5vdGF0aW9uUmVxdWVzdBogLnNjcmliZS52MS5HZXRBbm5vdGF0aW9uUmVzcG9uc2UiCJK1GAQQAhgBEmUKEENyZWF0ZUFubm90YXRpb24SIi5zY3JpYmUudjEuQ3JlYXRlQW5ub3RhdGlvblJlcXVlc3QaIy5zY3JpYmUudjEuQ3JlYXRlQW5ub3RhdGlvblJlc3BvbnNlIgiStRgEEAIYAhJlChBVcGRhdGVBbm5vdGF0aW9uEiIuc2NyaWJlLnYxLlVwZGF0ZUFubm90YXRpb25SZXF1ZXN0GiMuc2NyaWJlLnYxLlVwZGF0ZUFubm90YXRpb25SZXNwb25zZSIIkrUYBBACGAISZQoQRGVsZXRlQW5ub3RhdGlvbhIiLnNjcmliZS52MS5EZWxldGVBbm5vdGF0aW9uUmVxdWVzdBojLnNjcmliZS52MS5EZWxldGVBbm5vdGF0aW9uUmVzcG9uc2UiCJK1GAQQAhgCEoMBChVQdWJsaXNoSXRlbUltYWdlRWRpdHMSJy5zY3JpYmUudjEuUHVibGlzaEl0ZW1JbWFnZUVkaXRzUmVxdWVzdBooLnNjcmliZS52MS5QdWJsaXNoSXRlbUltYWdlRWRpdHNSZXNwb25zZSIXkrUYExAEGAIiDWl0ZW1faW1hZ2VfaWQSZQoQRW5yaWNoQW5ub3RhdGlvbhIiLnNjcmliZS52MS5FbnJpY2hBbm5vdGF0aW9uUmVxdWVzdBojLnNjcmliZS52MS5FbnJpY2hBbm5vdGF0aW9uUmVzcG9uc2UiCJK1GAQQAhgCEmsKElNwbGl0TGluZUludG9Xb3JkcxIkLnNjcmliZS52MS5TcGxpdExpbmVJbnRvV29yZHNSZXF1ZXN0GiUuc2NyaWJlLnYxLlNwbGl0TGluZUludG9Xb3Jkc1Jlc3BvbnNlIgiStRgEEAIYAhJ0ChVTcGxpdExpbmVJbnRvVHdvTGluZXMSJy5zY3JpYmUudjEuU3BsaXRMaW5lSW50b1R3b0xpbmVzUmVxdWVzdBooLnNjcmliZS52MS5TcGxpdExpbmVJbnRvVHdvTGluZXNSZXNwb25zZSIIkrUYBBACGAISUAoJSm9pbkxpbmVzEhsuc2NyaWJlLnYxLkpvaW5MaW5lc1JlcXVlc3QaHC5zY3JpYmUudjEuSm9pbkxpbmVzUmVzcG9uc2UiCJK1GAQQAhgCEmgKEUpvaW5Xb3Jkc0ludG9MaW5lEiMuc2NyaWJlLnYxLkpvaW5Xb3Jkc0ludG9MaW5lUmVxdWVzdBokLnNjcmliZS52MS5Kb2luV29yZHNJbnRvTGluZVJlc3BvbnNlIgiStRgEEAIYAhJxChRDcm9zc3dhbGtUb1BsYWluVGV4dBImLnNjcmliZS52MS5Dcm9zc3dhbGtUb1BsYWluVGV4dFJlcXVlc3QaJy5zY3JpYmUudjEuQ3Jvc3N3YWxrVG9QbGFpblRleHRSZXNwb25zZSIIkrUYBBACGAESYgoPQ3Jvc3N3YWxrVG9IT0NSEiEuc2NyaWJlLnYxLkNyb3Nzd2Fsa1RvSE9DUlJlcXVlc3QaIi5zY3JpYmUudjEuQ3Jvc3N3YWxrVG9IT0NSUmVzcG9uc2UiCJK1GAQQAhgBEmsKEkNyb3Nzd2Fsa1RvUGFnZVhNTBIkLnNjcmliZS52MS5Dcm9zc3dhbGtUb1BhZ2VYTUxSZXF1ZXN0GiUuc2NyaWJlLnYxLkNyb3Nzd2Fsa1RvUGFnZVhNTFJlc3BvbnNlIgiStRgEEAIYARJrChJDcm9zc3dhbGtUb0FMVE9YTUwSJC5zY3JpYmUudjEuQ3Jvc3N3YWxrVG9BTFRPWE1MUmVxdWVzdBolLnNjcmliZS52MS5Dcm9zc3dhbGtUb0FMVE9YTUxSZXNwb25zZSIIkrUYBBACGAFCrQEKDWNvbS5zY3JpYmUudjFCD0Fubm90YXRpb25Qcm90b1ABWkZnaXRodWIuY29tL2xlaGlnaC11bml2ZXJzaXR5LWxpYnJhcmllcy9zY3JpYmUvcHJvdG8vc2NyaWJlL3YxO3NjcmliZXYxogIDU1hYqgIJU2NyaWJlLlYxygIJU2NyaWJlXFYx4gIVU2NyaWJlXFYxXEdQQk1ldGFkYXRh6gIKU2NyaWJlOjpWMWIGcHJvdG8z", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
 
 /**
  * @generated from message scribe.v1.SearchAnnotationsRequest
@@ -185,6 +185,55 @@ export const DeleteAnnotationResponseSchema: GenMessage<DeleteAnnotationResponse
   messageDesc(file_scribe_v1_annotation, 9);
 
 /**
+ * @generated from message scribe.v1.PublishItemImageEditsRequest
+ */
+export type PublishItemImageEditsRequest = Message<"scribe.v1.PublishItemImageEditsRequest"> & {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+};
+
+/**
+ * Describes the message scribe.v1.PublishItemImageEditsRequest.
+ * Use `create(PublishItemImageEditsRequestSchema)` to create a new message.
+ */
+export const PublishItemImageEditsRequestSchema: GenMessage<PublishItemImageEditsRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_annotation, 10);
+
+/**
+ * @generated from message scribe.v1.PublishItemImageEditsResponse
+ */
+export type PublishItemImageEditsResponse = Message<"scribe.v1.PublishItemImageEditsResponse"> & {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: string canvas_uri = 2;
+   */
+  canvasUri: string;
+
+  /**
+   * @generated from field: string annotation_page_json = 3;
+   */
+  annotationPageJson: string;
+
+  /**
+   * @generated from field: string published_at = 4;
+   */
+  publishedAt: string;
+};
+
+/**
+ * Describes the message scribe.v1.PublishItemImageEditsResponse.
+ * Use `create(PublishItemImageEditsResponseSchema)` to create a new message.
+ */
+export const PublishItemImageEditsResponseSchema: GenMessage<PublishItemImageEditsResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_annotation, 11);
+
+/**
  * EnrichAnnotationRequest sends a IIIF annotation (one line or an entire
  * AnnotationPage) to Scribe's transcription service for improvement.
  * The caller provides the raw JSON and specifies the scope.
@@ -217,7 +266,7 @@ export type EnrichAnnotationRequest = Message<"scribe.v1.EnrichAnnotationRequest
  * Use `create(EnrichAnnotationRequestSchema)` to create a new message.
  */
 export const EnrichAnnotationRequestSchema: GenMessage<EnrichAnnotationRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 10);
+  messageDesc(file_scribe_v1_annotation, 12);
 
 /**
  * @generated from message scribe.v1.EnrichAnnotationResponse
@@ -234,7 +283,7 @@ export type EnrichAnnotationResponse = Message<"scribe.v1.EnrichAnnotationRespon
  * Use `create(EnrichAnnotationResponseSchema)` to create a new message.
  */
 export const EnrichAnnotationResponseSchema: GenMessage<EnrichAnnotationResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 11);
+  messageDesc(file_scribe_v1_annotation, 13);
 
 /**
  * Split a line annotation into proportionally-spaced word annotations.
@@ -259,7 +308,7 @@ export type SplitLineIntoWordsRequest = Message<"scribe.v1.SplitLineIntoWordsReq
  * Use `create(SplitLineIntoWordsRequestSchema)` to create a new message.
  */
 export const SplitLineIntoWordsRequestSchema: GenMessage<SplitLineIntoWordsRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 12);
+  messageDesc(file_scribe_v1_annotation, 14);
 
 /**
  * @generated from message scribe.v1.SplitLineIntoWordsResponse
@@ -278,7 +327,7 @@ export type SplitLineIntoWordsResponse = Message<"scribe.v1.SplitLineIntoWordsRe
  * Use `create(SplitLineIntoWordsResponseSchema)` to create a new message.
  */
 export const SplitLineIntoWordsResponseSchema: GenMessage<SplitLineIntoWordsResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 13);
+  messageDesc(file_scribe_v1_annotation, 15);
 
 /**
  * Split a line annotation into two lines at a word boundary.
@@ -304,7 +353,7 @@ export type SplitLineIntoTwoLinesRequest = Message<"scribe.v1.SplitLineIntoTwoLi
  * Use `create(SplitLineIntoTwoLinesRequestSchema)` to create a new message.
  */
 export const SplitLineIntoTwoLinesRequestSchema: GenMessage<SplitLineIntoTwoLinesRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 14);
+  messageDesc(file_scribe_v1_annotation, 16);
 
 /**
  * @generated from message scribe.v1.SplitLineIntoTwoLinesResponse
@@ -321,7 +370,7 @@ export type SplitLineIntoTwoLinesResponse = Message<"scribe.v1.SplitLineIntoTwoL
  * Use `create(SplitLineIntoTwoLinesResponseSchema)` to create a new message.
  */
 export const SplitLineIntoTwoLinesResponseSchema: GenMessage<SplitLineIntoTwoLinesResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 15);
+  messageDesc(file_scribe_v1_annotation, 17);
 
 /**
  * Join two or more line annotations into one (union bbox, concatenated text).
@@ -340,7 +389,7 @@ export type JoinLinesRequest = Message<"scribe.v1.JoinLinesRequest"> & {
  * Use `create(JoinLinesRequestSchema)` to create a new message.
  */
 export const JoinLinesRequestSchema: GenMessage<JoinLinesRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 16);
+  messageDesc(file_scribe_v1_annotation, 18);
 
 /**
  * @generated from message scribe.v1.JoinLinesResponse
@@ -357,7 +406,7 @@ export type JoinLinesResponse = Message<"scribe.v1.JoinLinesResponse"> & {
  * Use `create(JoinLinesResponseSchema)` to create a new message.
  */
 export const JoinLinesResponseSchema: GenMessage<JoinLinesResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 17);
+  messageDesc(file_scribe_v1_annotation, 19);
 
 /**
  * @generated from message scribe.v1.JoinWordsIntoLineRequest
@@ -374,7 +423,7 @@ export type JoinWordsIntoLineRequest = Message<"scribe.v1.JoinWordsIntoLineReque
  * Use `create(JoinWordsIntoLineRequestSchema)` to create a new message.
  */
 export const JoinWordsIntoLineRequestSchema: GenMessage<JoinWordsIntoLineRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 18);
+  messageDesc(file_scribe_v1_annotation, 20);
 
 /**
  * @generated from message scribe.v1.JoinWordsIntoLineResponse
@@ -391,7 +440,7 @@ export type JoinWordsIntoLineResponse = Message<"scribe.v1.JoinWordsIntoLineResp
  * Use `create(JoinWordsIntoLineResponseSchema)` to create a new message.
  */
 export const JoinWordsIntoLineResponseSchema: GenMessage<JoinWordsIntoLineResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 19);
+  messageDesc(file_scribe_v1_annotation, 21);
 
 /**
  * Crosswalk: convert an AnnotationPage (or single annotation) to an export format.
@@ -417,7 +466,7 @@ export type CrosswalkToPlainTextRequest = Message<"scribe.v1.CrosswalkToPlainTex
  * Use `create(CrosswalkToPlainTextRequestSchema)` to create a new message.
  */
 export const CrosswalkToPlainTextRequestSchema: GenMessage<CrosswalkToPlainTextRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 20);
+  messageDesc(file_scribe_v1_annotation, 22);
 
 /**
  * @generated from message scribe.v1.CrosswalkToPlainTextResponse
@@ -441,7 +490,7 @@ export type CrosswalkToPlainTextResponse = Message<"scribe.v1.CrosswalkToPlainTe
  * Use `create(CrosswalkToPlainTextResponseSchema)` to create a new message.
  */
 export const CrosswalkToPlainTextResponseSchema: GenMessage<CrosswalkToPlainTextResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 21);
+  messageDesc(file_scribe_v1_annotation, 23);
 
 /**
  * @generated from message scribe.v1.CrosswalkToHOCRRequest
@@ -465,7 +514,7 @@ export type CrosswalkToHOCRRequest = Message<"scribe.v1.CrosswalkToHOCRRequest">
  * Use `create(CrosswalkToHOCRRequestSchema)` to create a new message.
  */
 export const CrosswalkToHOCRRequestSchema: GenMessage<CrosswalkToHOCRRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 22);
+  messageDesc(file_scribe_v1_annotation, 24);
 
 /**
  * @generated from message scribe.v1.CrosswalkToHOCRResponse
@@ -489,7 +538,7 @@ export type CrosswalkToHOCRResponse = Message<"scribe.v1.CrosswalkToHOCRResponse
  * Use `create(CrosswalkToHOCRResponseSchema)` to create a new message.
  */
 export const CrosswalkToHOCRResponseSchema: GenMessage<CrosswalkToHOCRResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 23);
+  messageDesc(file_scribe_v1_annotation, 25);
 
 /**
  * @generated from message scribe.v1.CrosswalkToPageXMLRequest
@@ -513,7 +562,7 @@ export type CrosswalkToPageXMLRequest = Message<"scribe.v1.CrosswalkToPageXMLReq
  * Use `create(CrosswalkToPageXMLRequestSchema)` to create a new message.
  */
 export const CrosswalkToPageXMLRequestSchema: GenMessage<CrosswalkToPageXMLRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 24);
+  messageDesc(file_scribe_v1_annotation, 26);
 
 /**
  * @generated from message scribe.v1.CrosswalkToPageXMLResponse
@@ -537,7 +586,7 @@ export type CrosswalkToPageXMLResponse = Message<"scribe.v1.CrosswalkToPageXMLRe
  * Use `create(CrosswalkToPageXMLResponseSchema)` to create a new message.
  */
 export const CrosswalkToPageXMLResponseSchema: GenMessage<CrosswalkToPageXMLResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 25);
+  messageDesc(file_scribe_v1_annotation, 27);
 
 /**
  * @generated from message scribe.v1.CrosswalkToALTOXMLRequest
@@ -561,7 +610,7 @@ export type CrosswalkToALTOXMLRequest = Message<"scribe.v1.CrosswalkToALTOXMLReq
  * Use `create(CrosswalkToALTOXMLRequestSchema)` to create a new message.
  */
 export const CrosswalkToALTOXMLRequestSchema: GenMessage<CrosswalkToALTOXMLRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 26);
+  messageDesc(file_scribe_v1_annotation, 28);
 
 /**
  * @generated from message scribe.v1.CrosswalkToALTOXMLResponse
@@ -585,7 +634,7 @@ export type CrosswalkToALTOXMLResponse = Message<"scribe.v1.CrosswalkToALTOXMLRe
  * Use `create(CrosswalkToALTOXMLResponseSchema)` to create a new message.
  */
 export const CrosswalkToALTOXMLResponseSchema: GenMessage<CrosswalkToALTOXMLResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 27);
+  messageDesc(file_scribe_v1_annotation, 29);
 
 /**
  * @generated from service scribe.v1.AnnotationService
@@ -630,6 +679,14 @@ export const AnnotationService: GenService<{
     methodKind: "unary";
     input: typeof DeleteAnnotationRequestSchema;
     output: typeof DeleteAnnotationResponseSchema;
+  },
+  /**
+   * @generated from rpc scribe.v1.AnnotationService.PublishItemImageEdits
+   */
+  publishItemImageEdits: {
+    methodKind: "unary";
+    input: typeof PublishItemImageEditsRequestSchema;
+    output: typeof PublishItemImageEditsResponseSchema;
   },
   /**
    * Improve transcription for one line or a full canvas.

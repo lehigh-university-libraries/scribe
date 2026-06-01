@@ -115,53 +115,128 @@ func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (m *Manager) Interceptor() connect.Interceptor {
-	return connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			principal, ok := PrincipalFromContext(ctx)
-			if !ok {
-				principal = m.anonymousPrincipal()
-			}
-			rule, err := extractAuthzRule(req.Spec().Procedure)
-			if err != nil {
-				return nil, connect.NewError(connect.CodePermissionDenied, err)
-			}
-			if rule == nil {
-				return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no authz rule for %s", req.Spec().Procedure))
-			}
-			if rule.GetAllowAnonymous() {
-				return next(ctx, req)
-			}
-			if principal.Anonymous() {
-				return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
-			}
+	return authzInterceptor{manager: m}
+}
 
-			resourceIDField := strings.TrimSpace(rule.GetResourceIdField())
-			if resourceIDField == "" {
-				allowed, authErr := m.authorizeProcedure(ctx, principal, req.Spec().Procedure, rule.GetLevel())
-				if authErr != nil {
-					return nil, connect.NewError(connect.CodeInternal, authErr)
-				}
-				if !allowed {
-					return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("permission denied"))
-				}
-				return next(ctx, req)
-			}
+type authzInterceptor struct {
+	manager *Manager
+}
 
-			resourceID, ok := extractFieldValue(req.Any(), resourceIDField)
-			if !ok || strings.TrimSpace(resourceID) == "" {
-				return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", resourceIDField))
-			}
-
-			allowed, authErr := m.authorizeResource(ctx, principal, req.Spec().Procedure, rule.GetResource(), rule.GetLevel(), resourceID)
-			if authErr != nil {
-				return nil, connect.NewError(connect.CodeInternal, authErr)
-			}
-			if !allowed {
-				return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("permission denied"))
-			}
-			return next(ctx, req)
+func (i authzInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		principal := i.manager.connectPrincipal(ctx)
+		if err := i.manager.authorizeConnectRequest(ctx, principal, req.Spec().Procedure, req.Any()); err != nil {
+			return nil, err
 		}
-	})
+		return next(ctx, req)
+	}
+}
+
+func (i authzInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (i authzInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		principal := i.manager.connectPrincipal(ctx)
+		rule, err := extractAuthzRule(conn.Spec().Procedure)
+		if err != nil {
+			return connect.NewError(connect.CodePermissionDenied, err)
+		}
+		if rule == nil {
+			return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no authz rule for %s", conn.Spec().Procedure))
+		}
+		if rule.GetAllowAnonymous() {
+			return next(ctx, conn)
+		}
+		if principal.Anonymous() {
+			return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+		}
+		if strings.TrimSpace(rule.GetResourceIdField()) == "" {
+			if err := i.manager.authorizeConnectRule(ctx, principal, conn.Spec().Procedure, rule, nil); err != nil {
+				return err
+			}
+			return next(ctx, conn)
+		}
+		return next(ctx, &authzStreamingHandlerConn{
+			StreamingHandlerConn: conn,
+			manager:              i.manager,
+			ctx:                  ctx,
+			principal:            principal,
+			procedure:            conn.Spec().Procedure,
+			rule:                 rule,
+		})
+	}
+}
+
+type authzStreamingHandlerConn struct {
+	connect.StreamingHandlerConn
+	manager   *Manager
+	ctx       context.Context
+	principal Principal
+	procedure string
+	rule      *optionsv1.AuthzRule
+}
+
+func (c *authzStreamingHandlerConn) Receive(msg any) error {
+	if err := c.StreamingHandlerConn.Receive(msg); err != nil {
+		return err
+	}
+	return c.manager.authorizeConnectRule(c.ctx, c.principal, c.procedure, c.rule, msg)
+}
+
+func (m *Manager) connectPrincipal(ctx context.Context) Principal {
+	principal, ok := PrincipalFromContext(ctx)
+	if !ok {
+		return m.anonymousPrincipal()
+	}
+	return principal
+}
+
+func (m *Manager) authorizeConnectRequest(ctx context.Context, principal Principal, procedure string, request any) error {
+	rule, err := extractAuthzRule(procedure)
+	if err != nil {
+		return connect.NewError(connect.CodePermissionDenied, err)
+	}
+	if rule == nil {
+		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no authz rule for %s", procedure))
+	}
+	return m.authorizeConnectRule(ctx, principal, procedure, rule, request)
+}
+
+func (m *Manager) authorizeConnectRule(ctx context.Context, principal Principal, procedure string, rule *optionsv1.AuthzRule, request any) error {
+	if rule.GetAllowAnonymous() {
+		return nil
+	}
+	if principal.Anonymous() {
+		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+
+	resourceIDField := strings.TrimSpace(rule.GetResourceIdField())
+	if resourceIDField == "" {
+		allowed, authErr := m.authorizeProcedure(ctx, principal, procedure, rule.GetLevel())
+		if authErr != nil {
+			return connect.NewError(connect.CodeInternal, authErr)
+		}
+		if !allowed {
+			return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("permission denied"))
+		}
+		return nil
+	}
+
+	resourceID, ok := extractFieldValue(request, resourceIDField)
+	if !ok || strings.TrimSpace(resourceID) == "" {
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", resourceIDField))
+	}
+
+	allowed, authErr := m.authorizeResource(ctx, principal, procedure, rule.GetResource(), rule.GetLevel(), resourceID)
+	if authErr != nil {
+		return connect.NewError(connect.CodeInternal, authErr)
+	}
+	if !allowed {
+		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("permission denied"))
+	}
+	return nil
 }
 
 func (m *Manager) anonymousPrincipal() Principal {
@@ -453,10 +528,8 @@ func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLeve
 		return "contexts:write"
 	case "/scribe.v1.AnnotationService/SearchAnnotations", "/scribe.v1.AnnotationService/GetAnnotation", "/scribe.v1.AnnotationService/CrosswalkToPlainText", "/scribe.v1.AnnotationService/CrosswalkToHOCR", "/scribe.v1.AnnotationService/CrosswalkToPageXML", "/scribe.v1.AnnotationService/CrosswalkToALTOXML":
 		return "annotations:read"
-	case "/scribe.v1.AnnotationService/CreateAnnotation", "/scribe.v1.AnnotationService/UpdateAnnotation", "/scribe.v1.AnnotationService/DeleteAnnotation", "/scribe.v1.AnnotationService/EnrichAnnotation", "/scribe.v1.AnnotationService/SplitLineIntoWords", "/scribe.v1.AnnotationService/SplitLineIntoTwoLines", "/scribe.v1.AnnotationService/JoinLines", "/scribe.v1.AnnotationService/JoinWordsIntoLine", "/scribe.v1.ImageProcessingService/SaveOCREdits":
+	case "/scribe.v1.AnnotationService/CreateAnnotation", "/scribe.v1.AnnotationService/UpdateAnnotation", "/scribe.v1.AnnotationService/DeleteAnnotation", "/scribe.v1.AnnotationService/PublishItemImageEdits", "/scribe.v1.AnnotationService/EnrichAnnotation", "/scribe.v1.AnnotationService/SplitLineIntoWords", "/scribe.v1.AnnotationService/SplitLineIntoTwoLines", "/scribe.v1.AnnotationService/JoinLines", "/scribe.v1.AnnotationService/JoinWordsIntoLine", "/scribe.v1.ImageProcessingService/SaveOCREdits":
 		return "annotations:write"
-	case "/scribe.v1.AnnotationService/PublishItemImageEdits":
-		return "annotations:read"
 	default:
 		return "authz:unmapped"
 	}

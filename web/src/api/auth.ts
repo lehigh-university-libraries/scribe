@@ -2,13 +2,13 @@ import { createClient } from "@connectrpc/connect";
 import { AuthService } from "../proto/scribe/v1/auth_connect";
 import type {
   APIKeyRecord,
-  AuthMeResponse,
+  GetAuthMeResponse,
   ProviderSecretRecord,
 } from "../proto/scribe/v1/auth_pb";
 import { getTransport } from "./transport";
 import { scribeFetch } from "./http";
 
-export type { APIKeyRecord, AuthMeResponse, ProviderSecretRecord };
+export type { APIKeyRecord, GetAuthMeResponse, ProviderSecretRecord };
 
 export interface CreateAPIKeyRequest {
   name: string;
@@ -28,7 +28,7 @@ function client() {
   return createClient(AuthService, getTransport());
 }
 
-export async function getAuthMe(): Promise<AuthMeResponse> {
+export async function getAuthMe(): Promise<GetAuthMeResponse> {
   return client().getAuthMe({});
 }
 

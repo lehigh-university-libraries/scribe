@@ -26,7 +26,7 @@ func (h *Handler) contextWithProviderSecret(ctx context.Context, workspaceID uin
 	}
 	payload, err := h.vault.Read(ctx, secret.VaultPath)
 	if err != nil {
-		slog.Warn("read provider secret failed", "provider_secret_id", secret.ID, "vault_path", secret.VaultPath, "error", err)
+		slog.Warn("read provider secret failed", "provider_secret_id", secret.ID, "provider", secret.Provider, "error", err)
 		return ctx
 	}
 	apiKey := strings.TrimSpace(payload["api_key"])
