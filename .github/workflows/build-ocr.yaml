@@ -32,9 +32,12 @@ jobs:
       - name: Install yq
         env:
           YQ_VERSION: v4.44.3
+          YQ_SHA256: a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
         run: |
-          sudo curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
-          sudo chmod +x /usr/local/bin/yq
+          yq_url="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          curl -fsSL "$yq_url" -o "$RUNNER_TEMP/yq"
+          echo "${YQ_SHA256}  ${RUNNER_TEMP}/yq" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/yq" /usr/local/bin/yq
 
       - name: Generate matrix
         id: gen
@@ -88,9 +91,12 @@ jobs:
       - name: Install yq
         env:
           YQ_VERSION: v4.44.3
+          YQ_SHA256: a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
         run: |
-          sudo curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
-          sudo chmod +x /usr/local/bin/yq
+          yq_url="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          curl -fsSL "$yq_url" -o "$RUNNER_TEMP/yq"
+          echo "${YQ_SHA256}  ${RUNNER_TEMP}/yq" | sha256sum -c -
+          sudo install -m 0755 "$RUNNER_TEMP/yq" /usr/local/bin/yq
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3

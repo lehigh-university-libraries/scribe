@@ -93,6 +93,12 @@ variable "run_snapshots" {
   default     = true
 }
 
+variable "monitoring_notification_channels" {
+  description = "Optional Cloud Monitoring notification channel IDs used by alert policies managed by this root module."
+  type        = list(string)
+  default     = []
+}
+
 variable "app_domain" {
   description = "Hostname routed to the main Scribe app backend on the shared load balancer."
   type        = string
@@ -112,14 +118,9 @@ variable "vault_ci_service_account_emails" {
 }
 
 variable "vault_app_workspace_id" {
-  description = "Database workspace id that the deployed app Vault identity may read/write under provider-secrets/workspaces/<id>. Use one app auth role/entity per tenant when enabling multiple Vault-isolated workspaces."
+  description = "Deprecated compatibility input. Provider-secret Vault ACLs are deployment-scoped for the single multi-tenant app identity; Go validates the workspace path before each secret operation."
   type        = string
   default     = "1"
-
-  validation {
-    condition     = can(regex("^[0-9]+$", var.vault_app_workspace_id))
-    error_message = "vault_app_workspace_id must be a decimal database workspace id."
-  }
 }
 
 variable "ocr_service_images" {

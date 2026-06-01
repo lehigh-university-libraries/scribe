@@ -102,9 +102,6 @@ func (h *Handler) bootstrapStoredAnnotationsForItemImage(
 	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
 		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
 	}
-	if persisted, ok := readPreferredSessionHOCR(run.SessionID); ok {
-		hocrXML = persisted
-	}
 	if hocrXML == "" {
 		return nil, fmt.Errorf("hocr not found")
 	}

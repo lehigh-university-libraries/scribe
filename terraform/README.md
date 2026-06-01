@@ -76,6 +76,8 @@ Your user also needs Artifact Registry write access to
 `projects/${GCLOUD_PROJECT}/locations/us/repositories/internal`. Local
 `ACTION=plan` stays read-only; if a required GAR tag is missing it fails with
 the image reference so you can publish it first or rerun with `ACTION=apply`.
+Local Terraform deploys default `DOCKER_DEFAULT_PLATFORM` to `linux/amd64`, so
+Apple Silicon and other ARM hosts do not publish ARM-only images for Cloud Run.
 
 For production:
 
@@ -139,6 +141,8 @@ pass these values through `TF_VAR_*`/the `make tf-*` wrappers.
   `prod` workspace
 - set `vault_admin_emails` and `vault_ci_service_account_emails` for the
   always-on Vault deployment
+- optionally set `monitoring_notification_channels` to Cloud Monitoring channel
+  IDs that should receive managed alerts, including the transcription DLQ alert
 - initialize Terraform with a GCS backend bucket so CI and local runs share state
 
 `vault_ci_service_account_emails` must include the GitHub Actions deploy service
@@ -150,11 +154,18 @@ Terraform. Those CI service accounts are also merged into the Vault proxy's
 `X-Admin-Token` allow-list so they can reach non-public Vault routes during
 bootstrap and login flows.
 
+Routine `operator` Vault tokens can manage the app KV tree and inspect platform
+configuration, but cannot mutate auth backends, identity entities, or ACL
+policies. Use the short-lived `break-glass` role for those recovery operations.
+
 ## GitHub workflow
 
 - Open or update a PR against `main` to create or refresh a preview environment.
 - Close the PR to destroy that preview environment.
-- Merge to `main` to deploy production.
+- Merge to `main` to build images and run a production Terraform plan.
+- Use the `Terraform Apply` workflow manually with `mode=apply` to deploy
+  production after reviewing the plan and passing the GitHub `production`
+  environment approval gate.
 - Run the `Terraform Dev` workflow from GitHub Actions to create, refresh, or
   destroy the shared `dev` environment from GitHub instead of a local machine.
 - PR preview runs also reapply the shared `dev` owner resources from the
@@ -199,6 +210,17 @@ Set the Vault admin and GitHub Actions CI service account in your tfvars first:
 vault_admin_emails = ["jjc223@lehigh.edu"]
 vault_ci_service_account_emails = ["github@lehigh-lyrasis-catalyst.iam.gserviceaccount.com"]
 ```
+
+For local one-off runs you can also pass those values through the deploy helper:
+
+```bash
+export VAULT_ADMIN_EMAILS='["jjc223@lehigh.edu"]'
+export VAULT_CI_SERVICE_ACCOUNT_EMAILS='["github@lehigh-lyrasis-catalyst.iam.gserviceaccount.com"]'
+```
+
+GitHub Actions sets `VAULT_CI_SERVICE_ACCOUNT_EMAILS` from `secrets.GSA` and
+sets `VAULT_ADMIN_EMAILS` to `["jjc223@lehigh.edu"]` so owner workspace plans
+do not rely on local-only tfvars.
 
 Then create the shared dev environment, which also creates the shared dev Vault:
 
@@ -258,6 +280,37 @@ make tf-prod ACTION=apply
 
 Preview environments and the preview workflow's `sync-dev-shared` job use the shared `dev` Vault. Production uses the `prod` Vault.
 
+## Backup and restore runbook
+
+Production currently runs the app, worker, and MariaDB on one Compute Engine VM
+with persistent disk snapshots enabled by `run_snapshots=true`. Treat those
+snapshots as the recovery baseline unless and until the database moves to a
+managed HA service.
+
+Recommended operating target:
+
+- Recovery point objective: last successful scheduled disk snapshot.
+- Recovery time objective: restore the VM disk, run `make tf-prod ACTION=plan`,
+  then `make tf-prod ACTION=apply` once the restored instance is verified.
+
+Restore drill:
+
+1. In Google Cloud, create a new persistent disk from the latest production
+   snapshot of the docker volume disk.
+2. Stop the production VM or restore into an isolated test VM first.
+3. Attach the restored disk at the same mount point expected by the
+   `cloud-compose` module.
+4. Start compose and verify MariaDB health, `/healthz`, item listing, editor
+   load, and an annotation save/reload cycle.
+5. Record the snapshot timestamp used and the elapsed restore time in the
+   incident or drill notes.
+
+The transcription Pub/Sub dead-letter topic has a persistent monitor
+subscription and an alert on undelivered messages. A non-empty DLQ means a job
+exceeded Pub/Sub delivery attempts; inspect and ack messages from the
+`scribe-<workspace>-transcription-jobs-dlq-monitor` subscription only after the
+corresponding app job state and outbox events have been reviewed.
+
 ## Notes
 
 - The checked-in [config.yaml](/workspace/config.yaml) is the source of truth
@@ -287,14 +340,14 @@ Preview environments and the preview workflow's `sync-dev-shared` job use the sh
   metadata and the public key material needed to verify IAM login JWTs.
 - The Vault proxy no longer exposes `/v1/secret/` as a public route. Runtime
   secret access must pass both the proxy layer and Vault ACLs.
-- The app Vault policy is environment-scoped and identity-templated: each
-  Terraform workspace gets an `app-<workspace>` policy that can read only
+- The app Vault policy is environment-scoped: each Terraform workspace gets an
+  `app-<workspace>` policy that can read only
   `secret/data/scribe/<workspace>/...` runtime secrets. Provider-secret access
-  is additionally constrained by the authenticated Vault entity metadata:
-  `secret/data/scribe/<workspace>/provider-secrets/workspaces/{{identity.entity.metadata.workspace_id}}/*`.
-  Set `vault_app_workspace_id` to the database workspace id the app identity is
-  allowed to manage; use separate app roles/entities for additional
-  Vault-isolated tenants.
+  is scoped to the deployment prefix
+  `secret/data/scribe/<workspace>/provider-secrets/workspaces/*`; the Go app is
+  the tenancy boundary and validates that provider-secret operations only touch
+  the active workspace path before calling Vault. `vault_app_workspace_id` is a
+  deprecated compatibility input and does not grant Vault-side per-tenant ACLs.
 - The frontend image is built with
   `SCRIBE_FRONTEND_BACKEND_ORIGIN=http://<site>.<zone>.c.<project>.internal`
   so the ppb Cloud Run proxy talks straight to the backend API on the VM.

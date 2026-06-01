@@ -111,11 +111,11 @@ path "secret/data/scribe/${local.workspace_slug}/database/app" {
   capabilities = ["read"]
 }
 
-path "secret/data/scribe/${local.workspace_slug}/provider-secrets/workspaces/{{identity.entity.metadata.workspace_id}}/*" {
+path "secret/data/scribe/${local.workspace_slug}/provider-secrets/workspaces/*" {
   capabilities = ["create", "read"]
 }
 
-path "secret/metadata/scribe/${local.workspace_slug}/provider-secrets/workspaces/{{identity.entity.metadata.workspace_id}}/*" {
+path "secret/metadata/scribe/${local.workspace_slug}/provider-secrets/workspaces/*" {
   capabilities = ["delete"]
 }
 EOT
@@ -136,8 +136,8 @@ resource "vault_token_auth_backend_role" "ci" {
   allowed_policies = [local.vault_ci_policy_name]
   orphan           = false
   renewable        = false
-  token_ttl        = 300
-  token_max_ttl    = 900
+  token_ttl        = 1800
+  token_max_ttl    = 3600
 
   depends_on = [
     vault_policy.vault,
@@ -191,8 +191,8 @@ resource "vault_jwt_auth_backend_role" "ci" {
   token_policies = [
     local.vault_ci_policy_name,
   ]
-  token_ttl     = 300
-  token_max_ttl = 900
+  token_ttl     = 1800
+  token_max_ttl = 3600
 
   depends_on = [
     vault_policy.vault,
@@ -250,8 +250,8 @@ resource "vault_jwt_auth_backend_role" "admin_break_glass" {
     local.vault_operator_policy_name,
     local.vault_break_glass_policy,
   ]
-  token_ttl     = 120
-  token_max_ttl = 300
+  token_ttl     = 600
+  token_max_ttl = 900
 
   depends_on = [
     vault_policy.vault,
@@ -279,29 +279,6 @@ resource "vault_gcp_auth_backend_role" "app" {
   ]
 }
 
-data "vault_gcp_auth_backend_role" "app" {
-  backend   = local.vault_gcp_auth_backend_path
-  role_name = local.vault_app_role_name
-
-  depends_on = [
-    vault_gcp_auth_backend_role.app,
-  ]
-}
-
-resource "vault_identity_entity" "app" {
-  name = "${local.vault_app_role_name}-workspace-${var.vault_app_workspace_id}"
-  metadata = {
-    workspace_id   = var.vault_app_workspace_id
-    workspace_slug = local.workspace_slug
-  }
-}
-
-resource "vault_identity_entity_alias" "app_gcp_role" {
-  name           = data.vault_gcp_auth_backend_role.app.role_id
-  mount_accessor = data.vault_auth_backend.gcp.accessor
-  canonical_id   = vault_identity_entity.app.id
-}
-
 resource "vault_gcp_auth_backend_role" "ci" {
   for_each = local.vault_is_owner_workspace ? {
     for email in var.vault_ci_service_account_emails : replace(replace(email, "@", "-at-"), ".", "-") => email
@@ -312,8 +289,8 @@ resource "vault_gcp_auth_backend_role" "ci" {
   type                   = "iam"
   bound_service_accounts = [each.value]
   bound_projects         = [var.project_id]
-  token_ttl              = 300
-  token_max_ttl          = 900
+  token_ttl              = 1800
+  token_max_ttl          = 3600
   token_policies = [
     local.vault_ci_policy_name,
   ]

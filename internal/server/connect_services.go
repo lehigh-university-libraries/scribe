@@ -249,10 +249,6 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 		failExternal(err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := writeSessionHOCR(sessionID, "original.hocr", result.HOCR); err != nil {
-		failExternal(err)
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
-	}
 	if err := h.ensureItemImageCanvasAndAnnotations(ctx, store.OCRRun{
 		SessionID:    sessionID,
 		ItemImageID:  &itemImage.ID,
@@ -347,9 +343,6 @@ func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[s
 	}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := writeSessionHOCR(sessionID, "original.hocr", result.HOCR); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
-	}
 	if err := h.ensureItemImageCanvasAndAnnotations(ctx, store.OCRRun{
 		SessionID:    sessionID,
 		ItemImageID:  &itemImage.ID,
@@ -420,9 +413,6 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1
 	}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := writeSessionHOCR(sessionID, "original.hocr", hocrXML); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
-	}
 	return connect.NewResponse(&scribev1.ProcessHOCRResponse{
 		ItemId:      item.ID,
 		ItemImageId: itemImage.ID,
@@ -464,11 +454,6 @@ func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[scribev1.G
 	}
 	if run.CorrectedHOCR != nil {
 		resp.CorrectedHocr = *run.CorrectedHOCR
-	}
-	if strings.TrimSpace(resp.CorrectedHocr) == "" {
-		if corrected, ok := readSessionHOCR(run.SessionID, "corrected.hocr"); ok {
-			resp.CorrectedHocr = corrected
-		}
 	}
 	if run.CorrectedText != nil {
 		resp.CorrectedText = *run.CorrectedText
@@ -515,10 +500,6 @@ func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[scribev
 	); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := writeSessionHOCR(run.SessionID, "corrected.hocr", correctedHOCR); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist corrected hocr: %w", err))
-	}
-
 	return connect.NewResponse(&scribev1.SaveOCREditsResponse{
 		SessionId:           run.SessionID,
 		ItemImageId:         itemImageID,
@@ -599,10 +580,6 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[s
 	}); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if err := writeSessionHOCR(run.SessionID, "original.hocr", result.HOCR); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist original hocr: %w", err))
-	}
-
 	canvasURI := strings.TrimSpace(img.CanvasURI)
 	if canvasURI == "" {
 		canvasURI = fmt.Sprintf("%s/v1/item-images/%d/manifest/canvas/page-1", h.internalAnnotationBaseURL(), itemImageID)

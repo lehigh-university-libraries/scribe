@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build build-frontend fmt lint test test-backend test-frontend proto proto-lint sqlc generate install-tools up up-db down logs sequelace tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-preview vault-secrets
+.PHONY: build build-frontend fmt lint test test-backend test-frontend e2e-smoke proto proto-lint sqlc generate install-tools up up-db down logs sequelace tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
@@ -75,6 +75,9 @@ test-backend: ## Run Go tests (integration tests run automatically if MariaDB is
 
 test-frontend: ## Run frontend tests and production build checks
 	@bash ./ci/test-frontend.sh
+
+e2e-smoke: ## Run the containerized DB-backed ingest/edit/save/reload smoke path
+	@bash ./ci/e2e-smoke.sh
 
 tf-dev: ## Run local Terraform for the shared dev environment. Usage: make tf-dev [BRANCH=name] ACTION=plan|apply|destroy
 	@set -eu; \

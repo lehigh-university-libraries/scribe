@@ -110,6 +110,7 @@ func TestRequiredPermissionForPath(t *testing.T) {
 		{path: "/v1/events", method: "GET", want: "transcription:read"},
 		{path: "/scribe.v1.AnnotationService/CreateAnnotation", method: "POST", want: "annotations:write"},
 		{path: "/scribe.v1.AnnotationService/CrosswalkToHOCR", method: "POST", want: "annotations:read"},
+		{path: "/scribe.v1.AnnotationService/PublishItemImageEdits", method: "POST", want: "annotations:write"},
 	}
 
 	for _, tt := range tests {

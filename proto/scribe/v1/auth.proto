@@ -22,9 +22,9 @@ message AuthWorkspace {
   string role = 3;
 }
 
-message AuthMeRequest {}
+message GetAuthMeRequest {}
 
-message AuthMeResponse {
+message GetAuthMeResponse {
   bool          authenticated = 1;
   string        auth_type     = 2;
   string        login_url     = 3;
@@ -83,11 +83,10 @@ message ProviderSecretRecord {
   uint64 workspace_id = 3;
   string provider     = 4;
   string name         = 5;
-  string vault_path   = 6;
-  string key_hint     = 7;
-  string scope        = 8;
-  string created_at   = 9;
-  string updated_at   = 10;
+  string key_hint     = 6;
+  string scope        = 7;
+  string created_at   = 8;
+  string updated_at   = 9;
 }
 
 message ListProviderSecretsRequest {}
@@ -126,7 +125,7 @@ message DeleteProviderSecretRequest {
 message DeleteProviderSecretResponse {}
 
 service AuthService {
-  rpc GetAuthMe(AuthMeRequest) returns (AuthMeResponse) {
+  rpc GetAuthMe(GetAuthMeRequest) returns (GetAuthMeResponse) {
     option (scribe.v1.options.v1.authz) = {
       allow_anonymous: true
       resource: RESOURCE_TYPE_USER

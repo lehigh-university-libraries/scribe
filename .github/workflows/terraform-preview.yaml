@@ -112,6 +112,8 @@ jobs:
       SCRIBE_FRONTEND_IMAGE: ${{ needs.prepare-image-tag.outputs.frontend_image_tag }}
       SCRIBE_FRONTEND_GAR_IMAGE: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
       SCRIBE_OCR_IMAGES_JSON: ${{ needs.build-ocr.outputs.images_json }}
+      VAULT_ADMIN_EMAILS: '["jjc223@lehigh.edu"]'
+      VAULT_CI_SERVICE_ACCOUNT_EMAILS: '["${{ secrets.GSA }}"]'
     steps:
       - name: Validate workflow variables
         shell: bash

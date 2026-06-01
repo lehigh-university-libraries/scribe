@@ -4,21 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
+
+	"connectrpc.com/connect"
+	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
-
-type publishItemImageEditsRequest struct {
-	ItemImageID uint64 `json:"itemImageId"`
-}
-
-type publishItemImageEditsResponse struct {
-	ItemImageID        uint64 `json:"itemImageId"`
-	CanvasURI          string `json:"canvasUri"`
-	AnnotationPageJSON string `json:"annotationPageJson"`
-	PublishedAt        string `json:"publishedAt"`
-}
 
 func (h *Handler) annotationPageJSONForItemImage(ctx context.Context, itemImageID uint64) (string, string, int, error) {
 	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
@@ -54,39 +45,30 @@ func (h *Handler) annotationPageJSONForItemImage(ctx context.Context, itemImageI
 	return string(b), canvasURI, len(items), nil
 }
 
-func (h *Handler) handlePublishItemImageEdits(w http.ResponseWriter, r *http.Request) {
-	var req publishItemImageEditsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
+func (h *Handler) PublishItemImageEdits(ctx context.Context, req *connect.Request[scribev1.PublishItemImageEditsRequest]) (*connect.Response[scribev1.PublishItemImageEditsResponse], error) {
+	itemImageID := req.Msg.GetItemImageId()
+	if itemImageID == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_image_id is required"))
 	}
-	if req.ItemImageID == 0 {
-		writeError(w, http.StatusBadRequest, "itemImageId is required")
-		return
+	if _, err := h.itemImageForRequest(ctx, itemImageID); err != nil {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item image not found"))
 	}
-	if _, err := h.itemImageForRequest(r.Context(), req.ItemImageID); err != nil {
-		writeError(w, http.StatusNotFound, "item image not found")
-		return
-	}
-
-	pageJSON, canvasURI, count, err := h.annotationPageJSONForItemImage(r.Context(), req.ItemImageID)
+	pageJSON, canvasURI, count, err := h.annotationPageJSONForItemImage(ctx, itemImageID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	publishedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	h.publishEvent("dev.scribe.annotations.published", subjectForItemImage(req.ItemImageID), map[string]any{
-		"itemImageId":        req.ItemImageID,
+	h.publishEvent("dev.scribe.annotations.published", subjectForItemImage(itemImageID), map[string]any{
+		"itemImageId":        itemImageID,
 		"canvasUri":          canvasURI,
 		"annotationCount":    count,
 		"annotationPageJson": pageJSON,
 		"publishedAt":        publishedAt,
 	})
-
-	writeJSON(w, http.StatusOK, publishItemImageEditsResponse{
-		ItemImageID:        req.ItemImageID,
-		CanvasURI:          canvasURI,
-		AnnotationPageJSON: pageJSON,
+	return connect.NewResponse(&scribev1.PublishItemImageEditsResponse{
+		ItemImageId:        itemImageID,
+		CanvasUri:          canvasURI,
+		AnnotationPageJson: pageJSON,
 		PublishedAt:        publishedAt,
-	})
+	}), nil
 }

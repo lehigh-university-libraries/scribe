@@ -48,6 +48,9 @@ const (
 	// AnnotationServiceDeleteAnnotationProcedure is the fully-qualified name of the AnnotationService's
 	// DeleteAnnotation RPC.
 	AnnotationServiceDeleteAnnotationProcedure = "/scribe.v1.AnnotationService/DeleteAnnotation"
+	// AnnotationServicePublishItemImageEditsProcedure is the fully-qualified name of the
+	// AnnotationService's PublishItemImageEdits RPC.
+	AnnotationServicePublishItemImageEditsProcedure = "/scribe.v1.AnnotationService/PublishItemImageEdits"
 	// AnnotationServiceEnrichAnnotationProcedure is the fully-qualified name of the AnnotationService's
 	// EnrichAnnotation RPC.
 	AnnotationServiceEnrichAnnotationProcedure = "/scribe.v1.AnnotationService/EnrichAnnotation"
@@ -84,6 +87,7 @@ type AnnotationServiceClient interface {
 	CreateAnnotation(context.Context, *connect.Request[v1.CreateAnnotationRequest]) (*connect.Response[v1.CreateAnnotationResponse], error)
 	UpdateAnnotation(context.Context, *connect.Request[v1.UpdateAnnotationRequest]) (*connect.Response[v1.UpdateAnnotationResponse], error)
 	DeleteAnnotation(context.Context, *connect.Request[v1.DeleteAnnotationRequest]) (*connect.Response[v1.DeleteAnnotationResponse], error)
+	PublishItemImageEdits(context.Context, *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error)
 	// Improve transcription for one line or a full canvas.
 	EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error)
 	// Structural split/join operations.
@@ -137,6 +141,12 @@ func NewAnnotationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			httpClient,
 			baseURL+AnnotationServiceDeleteAnnotationProcedure,
 			connect.WithSchema(annotationServiceMethods.ByName("DeleteAnnotation")),
+			connect.WithClientOptions(opts...),
+		),
+		publishItemImageEdits: connect.NewClient[v1.PublishItemImageEditsRequest, v1.PublishItemImageEditsResponse](
+			httpClient,
+			baseURL+AnnotationServicePublishItemImageEditsProcedure,
+			connect.WithSchema(annotationServiceMethods.ByName("PublishItemImageEdits")),
 			connect.WithClientOptions(opts...),
 		),
 		enrichAnnotation: connect.NewClient[v1.EnrichAnnotationRequest, v1.EnrichAnnotationResponse](
@@ -203,6 +213,7 @@ type annotationServiceClient struct {
 	createAnnotation      *connect.Client[v1.CreateAnnotationRequest, v1.CreateAnnotationResponse]
 	updateAnnotation      *connect.Client[v1.UpdateAnnotationRequest, v1.UpdateAnnotationResponse]
 	deleteAnnotation      *connect.Client[v1.DeleteAnnotationRequest, v1.DeleteAnnotationResponse]
+	publishItemImageEdits *connect.Client[v1.PublishItemImageEditsRequest, v1.PublishItemImageEditsResponse]
 	enrichAnnotation      *connect.Client[v1.EnrichAnnotationRequest, v1.EnrichAnnotationResponse]
 	splitLineIntoWords    *connect.Client[v1.SplitLineIntoWordsRequest, v1.SplitLineIntoWordsResponse]
 	splitLineIntoTwoLines *connect.Client[v1.SplitLineIntoTwoLinesRequest, v1.SplitLineIntoTwoLinesResponse]
@@ -237,6 +248,11 @@ func (c *annotationServiceClient) UpdateAnnotation(ctx context.Context, req *con
 // DeleteAnnotation calls scribe.v1.AnnotationService.DeleteAnnotation.
 func (c *annotationServiceClient) DeleteAnnotation(ctx context.Context, req *connect.Request[v1.DeleteAnnotationRequest]) (*connect.Response[v1.DeleteAnnotationResponse], error) {
 	return c.deleteAnnotation.CallUnary(ctx, req)
+}
+
+// PublishItemImageEdits calls scribe.v1.AnnotationService.PublishItemImageEdits.
+func (c *annotationServiceClient) PublishItemImageEdits(ctx context.Context, req *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error) {
+	return c.publishItemImageEdits.CallUnary(ctx, req)
 }
 
 // EnrichAnnotation calls scribe.v1.AnnotationService.EnrichAnnotation.
@@ -291,6 +307,7 @@ type AnnotationServiceHandler interface {
 	CreateAnnotation(context.Context, *connect.Request[v1.CreateAnnotationRequest]) (*connect.Response[v1.CreateAnnotationResponse], error)
 	UpdateAnnotation(context.Context, *connect.Request[v1.UpdateAnnotationRequest]) (*connect.Response[v1.UpdateAnnotationResponse], error)
 	DeleteAnnotation(context.Context, *connect.Request[v1.DeleteAnnotationRequest]) (*connect.Response[v1.DeleteAnnotationResponse], error)
+	PublishItemImageEdits(context.Context, *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error)
 	// Improve transcription for one line or a full canvas.
 	EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error)
 	// Structural split/join operations.
@@ -340,6 +357,12 @@ func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.H
 		AnnotationServiceDeleteAnnotationProcedure,
 		svc.DeleteAnnotation,
 		connect.WithSchema(annotationServiceMethods.ByName("DeleteAnnotation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	annotationServicePublishItemImageEditsHandler := connect.NewUnaryHandler(
+		AnnotationServicePublishItemImageEditsProcedure,
+		svc.PublishItemImageEdits,
+		connect.WithSchema(annotationServiceMethods.ByName("PublishItemImageEdits")),
 		connect.WithHandlerOptions(opts...),
 	)
 	annotationServiceEnrichAnnotationHandler := connect.NewUnaryHandler(
@@ -408,6 +431,8 @@ func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.H
 			annotationServiceUpdateAnnotationHandler.ServeHTTP(w, r)
 		case AnnotationServiceDeleteAnnotationProcedure:
 			annotationServiceDeleteAnnotationHandler.ServeHTTP(w, r)
+		case AnnotationServicePublishItemImageEditsProcedure:
+			annotationServicePublishItemImageEditsHandler.ServeHTTP(w, r)
 		case AnnotationServiceEnrichAnnotationProcedure:
 			annotationServiceEnrichAnnotationHandler.ServeHTTP(w, r)
 		case AnnotationServiceSplitLineIntoWordsProcedure:
@@ -453,6 +478,10 @@ func (UnimplementedAnnotationServiceHandler) UpdateAnnotation(context.Context, *
 
 func (UnimplementedAnnotationServiceHandler) DeleteAnnotation(context.Context, *connect.Request[v1.DeleteAnnotationRequest]) (*connect.Response[v1.DeleteAnnotationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.DeleteAnnotation is not implemented"))
+}
+
+func (UnimplementedAnnotationServiceHandler) PublishItemImageEdits(context.Context, *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.PublishItemImageEdits is not implemented"))
 }
 
 func (UnimplementedAnnotationServiceHandler) EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error) {

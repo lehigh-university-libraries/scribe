@@ -2,13 +2,13 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createAPIKey, deleteAPIKey, getAuthMe, listAPIKeys, listProviderSecrets, logout } from "../api/auth";
-import { getContextMetrics, listContexts } from "../api/context";
+import { createAPIKey, createProviderSecret, deleteAPIKey, deleteProviderSecret, getAuthMe, listAPIKeys, listProviderSecrets, logout } from "../api/auth";
+import { createContext, getContextMetrics, listContexts } from "../api/context";
 import { subscribeToEvents } from "../api/events";
 import { createItemFromManifest, listItems, listItemProviderCallAudits, uploadItemImages } from "../api/items";
 import { processImageURL, processImageUpload } from "../api/processing";
 import { listTranscriptionJobs } from "../api/transcription";
-import { listWorkspaceMembers, listWorkspaces } from "../api/workspaces";
+import { addWorkspaceMember, deleteWorkspaceMember, listWorkspaceMembers, listWorkspaces, updateWorkspaceMember } from "../api/workspaces";
 import { renderShell } from "./shell";
 
 vi.mock("../api/auth", () => ({
@@ -78,7 +78,7 @@ async function waitFor(assertion: () => void): Promise<void> {
   throw lastError;
 }
 
-async function setupShell(view: "library" | "settings" = "library", eventClose = vi.fn()): Promise<HTMLElement> {
+async function setupShell(view: "library" | "contexts" | "settings" = "library", eventClose = vi.fn()): Promise<HTMLElement> {
   document.body.innerHTML = `<main id="app"></main>`;
   window.history.replaceState(null, "", `/${view}`);
   window.localStorage.clear();
@@ -253,6 +253,167 @@ describe("annotation upload actions", () => {
 
     await waitFor(() => {
       expect(deleteAPIKey).toHaveBeenCalledWith("55");
+    });
+  });
+
+  it("creates provider secrets and removes stored provider secrets from settings", async () => {
+    vi.mocked(createProviderSecret).mockResolvedValue({
+      id: 77n,
+      provider: "gemini",
+      name: "Gemini key",
+      scope: "workspace",
+      keyHint: "1234",
+      createdAt: "2026-06-01T00:00:00Z",
+    } as never);
+    vi.mocked(deleteProviderSecret).mockResolvedValue({} as never);
+    Object.defineProperty(window, "confirm", { configurable: true, value: vi.fn(() => true) });
+
+    await setupShell("settings");
+    vi.mocked(listProviderSecrets).mockResolvedValue([
+      {
+        id: 77n,
+        provider: "gemini",
+        name: "Gemini key",
+        scope: "workspace",
+        keyHint: "1234",
+        createdAt: "2026-06-01T00:00:00Z",
+      } as never,
+    ]);
+
+    const name = document.getElementById("settings-provider-secret-name") as HTMLInputElement | null;
+    const scope = document.getElementById("settings-provider-secret-scope") as HTMLSelectElement | null;
+    const apiKey = document.getElementById("settings-provider-secret-api-key") as HTMLInputElement | null;
+    const form = document.getElementById("settings-provider-secret-form") as HTMLFormElement | null;
+    expect(name).toBeTruthy();
+    expect(scope).toBeTruthy();
+    expect(apiKey).toBeTruthy();
+    expect(form).toBeTruthy();
+
+    name!.value = "Gemini key";
+    scope!.value = "workspace";
+    apiKey!.value = "secret-token";
+    form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await waitFor(() => {
+      expect(createProviderSecret).toHaveBeenCalledWith({
+        provider: "gemini",
+        name: "Gemini key",
+        apiKey: "secret-token",
+        scope: "workspace",
+      });
+    });
+
+    let deleteButton: HTMLButtonElement | null = null;
+    await waitFor(() => {
+      deleteButton = document.querySelector<HTMLButtonElement>("[data-provider-secret-delete=\"77\"]");
+      expect(deleteButton).toBeTruthy();
+    });
+    deleteButton!.click();
+
+    await waitFor(() => {
+      expect(deleteProviderSecret).toHaveBeenCalledWith("77");
+    });
+  });
+
+  it("adds, updates, and removes workspace members from settings", async () => {
+    vi.mocked(addWorkspaceMember).mockResolvedValue({ user: { id: 13n, email: "member@example.test" }, role: "read" } as never);
+    vi.mocked(updateWorkspaceMember).mockResolvedValue({ user: { id: 13n, email: "member@example.test" }, role: "write" } as never);
+    vi.mocked(deleteWorkspaceMember).mockResolvedValue({} as never);
+    Object.defineProperty(window, "confirm", { configurable: true, value: vi.fn(() => true) });
+
+    await setupShell("settings");
+    vi.mocked(listWorkspaceMembers).mockResolvedValue({
+      workspace,
+      members: [{ user: { id: 13n, email: "member@example.test" }, role: "read" }],
+    } as never);
+
+    const email = document.getElementById("settings-member-email") as HTMLInputElement | null;
+    const role = document.getElementById("settings-member-role") as HTMLSelectElement | null;
+    const form = document.getElementById("settings-add-member") as HTMLFormElement | null;
+    expect(email).toBeTruthy();
+    expect(role).toBeTruthy();
+    expect(form).toBeTruthy();
+
+    email!.value = "member@example.test";
+    role!.value = "read";
+    form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await waitFor(() => {
+      expect(addWorkspaceMember).toHaveBeenCalledWith(7n, "member@example.test", "read");
+      expect(document.body.textContent).toContain("member@example.test");
+    });
+
+    const memberRole = document.querySelector<HTMLSelectElement>("[data-member-role=\"13\"]");
+    const saveButton = document.querySelector<HTMLButtonElement>("[data-member-save=\"13\"]");
+    expect(memberRole).toBeTruthy();
+    expect(saveButton).toBeTruthy();
+    memberRole!.value = "write";
+    saveButton!.click();
+
+    await waitFor(() => {
+      expect(updateWorkspaceMember).toHaveBeenCalledWith(7n, "13", "write");
+    });
+
+    const removeButton = document.querySelector<HTMLButtonElement>("[data-member-remove=\"13\"]");
+    expect(removeButton).toBeTruthy();
+    removeButton!.click();
+
+    await waitFor(() => {
+      expect(deleteWorkspaceMember).toHaveBeenCalledWith(7n, "13");
+    });
+  });
+
+  it("creates OCR contexts from the contexts panel", async () => {
+    vi.mocked(createContext).mockResolvedValue({
+      id: 88n,
+      name: "Special collections",
+      description: "Bound volumes",
+      isDefault: true,
+      segmentationModel: "kraken",
+      transcriptionProvider: "gemini",
+      transcriptionModel: "gemini-2.0-flash",
+      transcriptionBaseUrl: "https://model.example.test",
+      transcriptionAudience: "https://audience.example.test",
+      systemPrompt: "Read marginalia carefully.",
+    } as never);
+
+    await setupShell("contexts");
+    vi.mocked(listContexts).mockResolvedValue([
+      {
+        id: 88n,
+        name: "Special collections",
+        isDefault: true,
+        segmentationModel: "kraken",
+        transcriptionProvider: "gemini",
+        transcriptionModel: "gemini-2.0-flash",
+      } as never,
+    ]);
+
+    (document.getElementById("contexts-name") as HTMLInputElement).value = "Special collections";
+    (document.getElementById("contexts-provider") as HTMLInputElement).value = "gemini";
+    (document.getElementById("contexts-model") as HTMLInputElement).value = "gemini-2.0-flash";
+    (document.getElementById("contexts-segmentation") as HTMLInputElement).value = "kraken";
+    (document.getElementById("contexts-base-url") as HTMLInputElement).value = "https://model.example.test";
+    (document.getElementById("contexts-audience") as HTMLInputElement).value = "https://audience.example.test";
+    (document.getElementById("contexts-description") as HTMLTextAreaElement).value = "Bound volumes";
+    (document.getElementById("contexts-system-prompt") as HTMLTextAreaElement).value = "Read marginalia carefully.";
+    (document.getElementById("contexts-default") as HTMLInputElement).checked = true;
+    document.getElementById("contexts-create-form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await waitFor(() => {
+      const request = vi.mocked(createContext).mock.calls[0]?.[0];
+      expect(request).toMatchObject({
+        name: "Special collections",
+        description: "Bound volumes",
+        isDefault: true,
+        segmentationModel: "kraken",
+        transcriptionProvider: "gemini",
+        transcriptionModel: "gemini-2.0-flash",
+        transcriptionBaseUrl: "https://model.example.test",
+        transcriptionAudience: "https://audience.example.test",
+        systemPrompt: "Read marginalia carefully.",
+      });
+      expect(document.body.textContent).toContain("Special collections");
     });
   });
 });

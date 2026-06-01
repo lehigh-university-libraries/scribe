@@ -21,8 +21,8 @@ services:
     image: traefik:v3.7.0@sha256:eb328e2c806c53aafbbace6c451fa54d268961261a85452fcf0fb752a30c17be
     restart: unless-stopped
     command:
-      - --api.insecure=true
-      - --api.dashboard=true
+      - --api.insecure=false
+      - --api.dashboard=false
       - --ping=true
       - --entryPoints.http.address=:80
       - --entryPoints.http.forwardedHeaders.insecure=true

@@ -1,11 +1,11 @@
-# Routine operator access: manage auth configuration, policies, and the app's
-# KV tree without global sudo or audit-device mutation.
+# Routine operator access: manage the app's KV tree and inspect platform
+# configuration without global sudo, auth-backend mutation, or ACL rewrites.
 path "auth/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
+  capabilities = ["read", "list"]
 }
 
 path "sys/auth/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
+  capabilities = ["read", "list"]
 }
 
 path "sys/auth" {
@@ -21,7 +21,7 @@ path "sys/mounts" {
 }
 
 path "sys/policies/acl/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
+  capabilities = ["read", "list"]
 }
 
 path "sys/policies/acl" {
@@ -37,7 +37,7 @@ path "secret/metadata/scribe/*" {
 }
 
 path "identity/*" {
-  capabilities = ["create", "read", "update", "delete", "list"]
+  capabilities = ["read", "list"]
 }
 
 path "sys/health" {

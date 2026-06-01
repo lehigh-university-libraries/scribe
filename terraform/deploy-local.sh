@@ -23,6 +23,8 @@ Optional environment:
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. When unset (and the action is not destroy), deploy-local.sh calls ci/generate-ocr-images-map.sh to resolve the digests from existing GAR tags.
   SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to main for prod and the branch slug otherwise.
   SCRIBE_ZONE            Optional zone override used when locally building the frontend GAR sidecar. Falls back to TF_VAR_zone, terraform/terraform.tfvars, then us-east5-b.
+  VAULT_ADMIN_EMAILS      Optional Terraform list(string) for vault_admin_emails, e.g. ["you@example.edu"].
+  VAULT_CI_SERVICE_ACCOUNT_EMAILS  Optional Terraform list(string) for vault_ci_service_account_emails, e.g. ["github@project.iam.gserviceaccount.com"].
   VAULT_TOKEN            Optional one-time Vault token. Normal local runs use Google JWT login instead.
   VAULT_BOOTSTRAP_MODE   Vault auth bootstrap mode: jwt (default), root-token, or jwt-or-root-token.
   VAULT_ROOT_TOKEN_OBJECT  GCS object holding the base64-wrapped encrypted Vault root token. Defaults to gs://${GCLOUD_PROJECT}-vault-server-dev-key/root-token.enc or gs://${GCLOUD_PROJECT}-vault-server-prod-key/root-token.enc based on the shared Vault workspace.
@@ -213,8 +215,9 @@ download_vault_root_token() {
   export VAULT_TOKEN
 }
 
-login_vault_admin_token() {
+login_vault_jwt_token() {
   local shared_workspace="$1"
+  local role_prefix="$2"
   local service_name region vault_addr account role_slug role_name access_token id_token payload response token
 
   service_name="$(shared_vault_service_name "$shared_workspace")"
@@ -232,10 +235,10 @@ login_vault_admin_token() {
     return 1
   fi
   role_slug="$(vault_jwt_role_slug "$account")"
-  role_name="admin-${role_slug}"
+  role_name="${role_prefix}-${role_slug}"
 
   access_token="$(gcloud auth print-access-token)"
-  # For local operator login we use the active gcloud user account, not a
+  # For local Vault login we use the active gcloud user account, not a
   # service account. gcloud only supports --audiences for service accounts, and
   # the Vault admin role already allows the Google OAuth client ID audience
   # emitted for user tokens.
@@ -260,6 +263,16 @@ login_vault_admin_token() {
 
   VAULT_TOKEN="$token"
   export VAULT_TOKEN
+}
+
+login_vault_admin_token() {
+  local shared_workspace="$1"
+
+  if login_vault_jwt_token "$shared_workspace" "break-glass-admin"; then
+    return 0
+  fi
+
+  login_vault_jwt_token "$shared_workspace" "admin"
 }
 
 bootstrap_vault_token() {
@@ -331,6 +344,7 @@ fi
 
 TF_STATE_BUCKET="${TF_STATE_BUCKET:-${GCLOUD_PROJECT}-terraform}"
 export TF_STATE_BUCKET
+export DOCKER_DEFAULT_PLATFORM="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
 target_set="${TF_TARGET_SET:-}"
 
 terraform_targets=()
@@ -499,6 +513,14 @@ fi
 
 if [ -n "${ALLOWED_SSH_IPV4:-}" ]; then
   terraform_vars+=("-var=allowed_ssh_ipv4=${ALLOWED_SSH_IPV4}")
+fi
+
+if [ -n "${VAULT_ADMIN_EMAILS:-}" ]; then
+  terraform_vars+=("-var=vault_admin_emails=${VAULT_ADMIN_EMAILS}")
+fi
+
+if [ -n "${VAULT_CI_SERVICE_ACCOUNT_EMAILS:-}" ]; then
+  terraform_vars+=("-var=vault_ci_service_account_emails=${VAULT_CI_SERVICE_ACCOUNT_EMAILS}")
 fi
 
 terraform init -upgrade \

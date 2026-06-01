@@ -30,7 +30,7 @@ const (
 	defaultADCFile      = "/run/secrets/GOOGLE_APPLICATION_CREDENTIALS"
 	defaultGCPAuthMount = "gcp"
 	defaultGCPAuthRole  = "scribe-app"
-	adminTokenScope     = "https://www.googleapis.com/auth/userinfo.email"
+	gcpAuthEmailScope   = "https://www.googleapis.com/auth/userinfo.email"
 	maxRetryAttempts    = 5
 	initialRetryDelay   = 250 * time.Millisecond
 	maxRetryDelay       = 4 * time.Second
@@ -353,7 +353,7 @@ func (c *Client) adminAccessToken(ctx context.Context) (string, error) {
 	c.mu.Unlock()
 
 	if source == nil {
-		creds, err := google.FindDefaultCredentials(ctx, adminTokenScope)
+		creds, err := google.FindDefaultCredentials(ctx, gcpAuthEmailScope)
 		if err != nil {
 			return "", err
 		}

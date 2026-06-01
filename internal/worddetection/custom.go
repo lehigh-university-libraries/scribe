@@ -9,15 +9,12 @@ import (
 	"image/color"
 	_ "image/gif"
 	_ "image/jpeg"
+	"image/png"
 	_ "image/png"
 	"os"
-	"path/filepath"
 	"sort"
-	"strings"
-	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
-	"image/png"
 )
 
 // CustomProvider implements word detection using custom flood-fill algorithm
@@ -69,10 +66,6 @@ func (p *CustomProvider) DetectWords(ctx context.Context, imagePath string) ([]W
 
 // preprocessImage preprocesses the image for better word detection
 func (p *CustomProvider) preprocessImage(imagePath string) (string, error) {
-	tempDir := "/tmp"
-	baseName := strings.TrimSuffix(filepath.Base(imagePath), filepath.Ext(imagePath))
-	processedPath := filepath.Join(tempDir, fmt.Sprintf("processed_custom_%s_%d.png", baseName, time.Now().Unix()))
-
 	file, err := safefile.Open(imagePath)
 	if err != nil {
 		return "", fmt.Errorf("open source image: %w", err)
@@ -97,11 +90,12 @@ func (p *CustomProvider) preprocessImage(imagePath string) (string, error) {
 		}
 	}
 
-	output, err := os.Create(processedPath)
+	output, err := os.CreateTemp("", "processed-custom-*.png")
 	if err != nil {
 		return "", fmt.Errorf("create processed image: %w", err)
 	}
 	defer output.Close()
+	processedPath := output.Name()
 	if err := png.Encode(output, thresholded); err != nil {
 		_ = os.Remove(processedPath)
 		return "", fmt.Errorf("encode processed image: %w", err)

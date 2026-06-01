@@ -307,6 +307,45 @@ resource "google_pubsub_subscription" "transcription_workers" {
   }
 }
 
+resource "google_pubsub_subscription" "transcription_dead_letter_monitor" {
+  name  = "${var.name}-${local.workspace_slug}-transcription-jobs-dlq-monitor"
+  topic = google_pubsub_topic.transcription_jobs_dead_letter.id
+
+  ack_deadline_seconds       = 60
+  message_retention_duration = "1209600s"
+
+  expiration_policy {
+    ttl = ""
+  }
+}
+
+resource "google_monitoring_alert_policy" "transcription_dead_letter_depth" {
+  display_name          = "${var.name} ${local.workspace_slug} transcription DLQ has messages"
+  combiner              = "OR"
+  notification_channels = var.monitoring_notification_channels
+
+  documentation {
+    content   = "The Scribe transcription Pub/Sub dead-letter subscription has unacked messages. Inspect ${google_pubsub_subscription.transcription_dead_letter_monitor.name}; each message represents a job that exceeded Pub/Sub delivery attempts."
+    mime_type = "text/markdown"
+  }
+
+  conditions {
+    display_name = "DLQ monitor subscription has undelivered messages"
+
+    condition_threshold {
+      filter          = "resource.type = \"pubsub_subscription\" AND resource.labels.subscription_id = \"${google_pubsub_subscription.transcription_dead_letter_monitor.name}\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "300s"
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+    }
+  }
+}
+
 resource "google_pubsub_topic_iam_member" "transcription_jobs_publisher" {
   topic  = google_pubsub_topic.transcription_jobs.name
   role   = "roles/pubsub.publisher"
@@ -369,14 +408,14 @@ check "shared_vault_ready" {
 check "vault_admin_emails_configured" {
   assert {
     condition     = !local.vault_is_owner_workspace || length(var.vault_admin_emails) > 0
-    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_admin_emails to be set in terraform.tfvars before apply."
+    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_admin_emails to be set before apply. Use terraform.tfvars locally or VAULT_ADMIN_EMAILS in deploy-local.sh/GitHub Actions."
   }
 }
 
 check "vault_ci_service_account_emails_configured" {
   assert {
     condition     = !local.vault_is_owner_workspace || length(var.vault_ci_service_account_emails) > 0
-    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_ci_service_account_emails to be set in terraform.tfvars before apply. Include the GitHub Actions deploy service account from secrets.GSA."
+    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_ci_service_account_emails to be set before apply. Use terraform.tfvars locally or VAULT_CI_SERVICE_ACCOUNT_EMAILS in deploy-local.sh/GitHub Actions, and include the GitHub Actions deploy service account from secrets.GSA."
   }
 }
 
@@ -388,7 +427,9 @@ check "shared_internal_repository_ready" {
 }
 
 provider "vault" {
-  address = local.vault_url
+  address          = local.vault_url
+  skip_child_token = true
+
   headers {
     name  = "X-Admin-Token"
     value = data.google_client_config.current.access_token

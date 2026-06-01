@@ -20,6 +20,8 @@ jobs:
       TF_PLAN_DETAILED_EXITCODE: "true"
       SCRIBE_API_IMAGE: ghcr.io/lehigh-university-libraries/scribe:main
       SCRIBE_FRONTEND_IMAGE: ghcr.io/lehigh-university-libraries/scribe-frontend:main
+      VAULT_ADMIN_EMAILS: '["jjc223@lehigh.edu"]'
+      VAULT_CI_SERVICE_ACCOUNT_EMAILS: '["${{ secrets.GSA }}"]'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 

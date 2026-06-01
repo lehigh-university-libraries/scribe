@@ -1,13 +1,29 @@
-path "auth/token/create/ci" {
-  capabilities = ["update"]
+path "auth/token/roles/ci" {
+  capabilities = ["create", "read", "update", "delete", "list"]
 }
 
 path "sys/auth/gcp" {
-  capabilities = ["create", "read", "update", "list"]
+  capabilities = ["create", "read", "update", "delete", "list"]
 }
 
 path "sys/auth/google-jwt" {
-  capabilities = ["create", "read", "update", "list"]
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "sys/mounts/auth/gcp" {
+  capabilities = ["read"]
+}
+
+path "sys/mounts/auth/gcp/tune" {
+  capabilities = ["read", "update"]
+}
+
+path "sys/mounts/auth/google-jwt" {
+  capabilities = ["read"]
+}
+
+path "sys/mounts/auth/google-jwt/tune" {
+  capabilities = ["read", "update"]
 }
 
 path "auth/gcp/role/scribe-app-*" {
@@ -27,11 +43,19 @@ path "auth/google-jwt/role/ci-*" {
 }
 
 path "sys/mounts/secret" {
-  capabilities = ["create", "read", "update", "list"]
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "sys/audit" {
+  capabilities = ["read", "sudo"]
+}
+
+path "sys/audit/stdout" {
+  capabilities = ["create", "read", "update", "delete", "sudo"]
 }
 
 path "sys/policies/acl/ci" {
-  capabilities = ["create", "read", "update", "list"]
+  capabilities = ["create", "read", "update", "delete", "list"]
 }
 
 path "sys/policies/acl/app-*" {
@@ -39,11 +63,11 @@ path "sys/policies/acl/app-*" {
 }
 
 path "sys/policies/acl/operator" {
-  capabilities = ["read", "list"]
+  capabilities = ["create", "read", "update", "delete", "list"]
 }
 
 path "sys/policies/acl/break-glass" {
-  capabilities = ["read", "list"]
+  capabilities = ["create", "read", "update", "delete", "list"]
 }
 
 path "auth/gcp/role/operator*" {

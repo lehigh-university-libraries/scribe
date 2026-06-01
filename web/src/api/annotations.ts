@@ -1,26 +1,9 @@
 import { createClient } from "@connectrpc/connect";
 import { AnnotationService } from "../proto/scribe/v1/annotation_connect";
-import { scribeFetch } from "./http";
 import { getTransport } from "./transport";
 
 function client() {
   return createClient(AnnotationService, getTransport());
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function stringValue(value: unknown, field: string): string {
-  if (typeof value === "string") return value;
-  throw new Error(`invalid ${field} in annotation response`);
-}
-
-function idString(value: unknown, field: string): string {
-  if (typeof value === "string" || typeof value === "number" || typeof value === "bigint") {
-    return `${value}`;
-  }
-  throw new Error(`invalid ${field} in annotation response`);
 }
 
 export async function searchAnnotations(canvasUri: string): Promise<unknown> {
@@ -48,25 +31,12 @@ export async function deleteAnnotation(uri: string): Promise<void> {
 }
 
 export async function publishItemImageEdits(itemImageId: string): Promise<{ itemImageId: string; canvasUri: string; annotationPageJson: string; publishedAt: string }> {
-  const resp = await scribeFetch("/scribe.v1.AnnotationService/PublishItemImageEdits", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ itemImageId }),
-  });
-  if (!resp.ok) {
-    throw new Error(`publish failed: ${resp.status}`);
-  }
-  const body: unknown = await resp.json();
-  if (!isRecord(body)) {
-    throw new Error("invalid publish response");
-  }
+  const resp = await client().publishItemImageEdits({ itemImageId: BigInt(itemImageId) });
   return {
-    itemImageId: idString(body.itemImageId, "itemImageId"),
-    canvasUri: stringValue(body.canvasUri, "canvasUri"),
-    annotationPageJson: stringValue(body.annotationPageJson, "annotationPageJson"),
-    publishedAt: stringValue(body.publishedAt, "publishedAt"),
+    itemImageId: resp.itemImageId.toString(),
+    canvasUri: resp.canvasUri,
+    annotationPageJson: resp.annotationPageJson,
+    publishedAt: resp.publishedAt,
   };
 }
 

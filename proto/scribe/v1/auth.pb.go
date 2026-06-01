@@ -167,26 +167,26 @@ func (x *AuthWorkspace) GetRole() string {
 	return ""
 }
 
-type AuthMeRequest struct {
+type GetAuthMeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AuthMeRequest) Reset() {
-	*x = AuthMeRequest{}
+func (x *GetAuthMeRequest) Reset() {
+	*x = GetAuthMeRequest{}
 	mi := &file_scribe_v1_auth_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AuthMeRequest) String() string {
+func (x *GetAuthMeRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AuthMeRequest) ProtoMessage() {}
+func (*GetAuthMeRequest) ProtoMessage() {}
 
-func (x *AuthMeRequest) ProtoReflect() protoreflect.Message {
+func (x *GetAuthMeRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_scribe_v1_auth_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -198,12 +198,12 @@ func (x *AuthMeRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AuthMeRequest.ProtoReflect.Descriptor instead.
-func (*AuthMeRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetAuthMeRequest.ProtoReflect.Descriptor instead.
+func (*GetAuthMeRequest) Descriptor() ([]byte, []int) {
 	return file_scribe_v1_auth_proto_rawDescGZIP(), []int{2}
 }
 
-type AuthMeResponse struct {
+type GetAuthMeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Authenticated bool                   `protobuf:"varint,1,opt,name=authenticated,proto3" json:"authenticated,omitempty"`
 	AuthType      string                 `protobuf:"bytes,2,opt,name=auth_type,json=authType,proto3" json:"auth_type,omitempty"`
@@ -215,20 +215,20 @@ type AuthMeResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AuthMeResponse) Reset() {
-	*x = AuthMeResponse{}
+func (x *GetAuthMeResponse) Reset() {
+	*x = GetAuthMeResponse{}
 	mi := &file_scribe_v1_auth_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AuthMeResponse) String() string {
+func (x *GetAuthMeResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AuthMeResponse) ProtoMessage() {}
+func (*GetAuthMeResponse) ProtoMessage() {}
 
-func (x *AuthMeResponse) ProtoReflect() protoreflect.Message {
+func (x *GetAuthMeResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_scribe_v1_auth_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -240,47 +240,47 @@ func (x *AuthMeResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AuthMeResponse.ProtoReflect.Descriptor instead.
-func (*AuthMeResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use GetAuthMeResponse.ProtoReflect.Descriptor instead.
+func (*GetAuthMeResponse) Descriptor() ([]byte, []int) {
 	return file_scribe_v1_auth_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *AuthMeResponse) GetAuthenticated() bool {
+func (x *GetAuthMeResponse) GetAuthenticated() bool {
 	if x != nil {
 		return x.Authenticated
 	}
 	return false
 }
 
-func (x *AuthMeResponse) GetAuthType() string {
+func (x *GetAuthMeResponse) GetAuthType() string {
 	if x != nil {
 		return x.AuthType
 	}
 	return ""
 }
 
-func (x *AuthMeResponse) GetLoginUrl() string {
+func (x *GetAuthMeResponse) GetLoginUrl() string {
 	if x != nil {
 		return x.LoginUrl
 	}
 	return ""
 }
 
-func (x *AuthMeResponse) GetLogoutUrl() string {
+func (x *GetAuthMeResponse) GetLogoutUrl() string {
 	if x != nil {
 		return x.LogoutUrl
 	}
 	return ""
 }
 
-func (x *AuthMeResponse) GetUser() *AuthUser {
+func (x *GetAuthMeResponse) GetUser() *AuthUser {
 	if x != nil {
 		return x.User
 	}
 	return nil
 }
 
-func (x *AuthMeResponse) GetWorkspace() *AuthWorkspace {
+func (x *GetAuthMeResponse) GetWorkspace() *AuthWorkspace {
 	if x != nil {
 		return x.Workspace
 	}
@@ -698,11 +698,10 @@ type ProviderSecretRecord struct {
 	WorkspaceId   uint64                 `protobuf:"varint,3,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
 	Provider      string                 `protobuf:"bytes,4,opt,name=provider,proto3" json:"provider,omitempty"`
 	Name          string                 `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
-	VaultPath     string                 `protobuf:"bytes,6,opt,name=vault_path,json=vaultPath,proto3" json:"vault_path,omitempty"`
-	KeyHint       string                 `protobuf:"bytes,7,opt,name=key_hint,json=keyHint,proto3" json:"key_hint,omitempty"`
-	Scope         string                 `protobuf:"bytes,8,opt,name=scope,proto3" json:"scope,omitempty"`
-	CreatedAt     string                 `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     string                 `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	KeyHint       string                 `protobuf:"bytes,6,opt,name=key_hint,json=keyHint,proto3" json:"key_hint,omitempty"`
+	Scope         string                 `protobuf:"bytes,7,opt,name=scope,proto3" json:"scope,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     string                 `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -768,13 +767,6 @@ func (x *ProviderSecretRecord) GetProvider() string {
 func (x *ProviderSecretRecord) GetName() string {
 	if x != nil {
 		return x.Name
-	}
-	return ""
-}
-
-func (x *ProviderSecretRecord) GetVaultPath() string {
-	if x != nil {
-		return x.VaultPath
 	}
 	return ""
 }
@@ -1095,9 +1087,9 @@ const file_scribe_v1_auth_proto_rawDesc = "" +
 	"\rAuthWorkspace\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
-	"\x04role\x18\x03 \x01(\tR\x04role\"\x0f\n" +
-	"\rAuthMeRequest\"\xf0\x01\n" +
-	"\x0eAuthMeResponse\x12$\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\"\x12\n" +
+	"\x10GetAuthMeRequest\"\xf3\x01\n" +
+	"\x11GetAuthMeResponse\x12$\n" +
 	"\rauthenticated\x18\x01 \x01(\bR\rauthenticated\x12\x1b\n" +
 	"\tauth_type\x18\x02 \x01(\tR\bauthType\x12\x1b\n" +
 	"\tlogin_url\x18\x03 \x01(\tR\bloginUrl\x12\x1d\n" +
@@ -1138,22 +1130,19 @@ const file_scribe_v1_auth_proto_rawDesc = "" +
 	"\x13DeleteAPIKeyRequest\x12!\n" +
 	"\x06key_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05keyId\"\x16\n" +
-	"\x14DeleteAPIKeyResponse\"\xa0\x02\n" +
+	"\x14DeleteAPIKeyResponse\"\x81\x02\n" +
 	"\x14ProviderSecretRecord\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12!\n" +
 	"\fworkspace_id\x18\x03 \x01(\x04R\vworkspaceId\x12\x1a\n" +
 	"\bprovider\x18\x04 \x01(\tR\bprovider\x12\x12\n" +
-	"\x04name\x18\x05 \x01(\tR\x04name\x12\x1d\n" +
+	"\x04name\x18\x05 \x01(\tR\x04name\x12\x19\n" +
+	"\bkey_hint\x18\x06 \x01(\tR\akeyHint\x12\x14\n" +
+	"\x05scope\x18\a \x01(\tR\x05scope\x12\x1d\n" +
 	"\n" +
-	"vault_path\x18\x06 \x01(\tR\tvaultPath\x12\x19\n" +
-	"\bkey_hint\x18\a \x01(\tR\akeyHint\x12\x14\n" +
-	"\x05scope\x18\b \x01(\tR\x05scope\x12\x1d\n" +
+	"created_at\x18\b \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\t \x01(\tR\tcreatedAt\x12\x1d\n" +
-	"\n" +
-	"updated_at\x18\n" +
-	" \x01(\tR\tupdatedAt\"\x1c\n" +
+	"updated_at\x18\t \x01(\tR\tupdatedAt\"\x1c\n" +
 	"\x1aListProviderSecretsRequest\"i\n" +
 	"\x1bListProviderSecretsResponse\x12J\n" +
 	"\x10provider_secrets\x18\x01 \x03(\v2\x1f.scribe.v1.ProviderSecretRecordR\x0fproviderSecrets\"\xb2\x01\n" +
@@ -1167,9 +1156,9 @@ const file_scribe_v1_auth_proto_rawDesc = "" +
 	"\x1bDeleteProviderSecretRequest\x12'\n" +
 	"\tsecret_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\bsecretId\"\x1e\n" +
-	"\x1cDeleteProviderSecretResponse2\xbf\x05\n" +
-	"\vAuthService\x12L\n" +
-	"\tGetAuthMe\x12\x18.scribe.v1.AuthMeRequest\x1a\x19.scribe.v1.AuthMeResponse\"\n" +
+	"\x1cDeleteProviderSecretResponse2\xc5\x05\n" +
+	"\vAuthService\x12R\n" +
+	"\tGetAuthMe\x12\x1b.scribe.v1.GetAuthMeRequest\x1a\x1c.scribe.v1.GetAuthMeResponse\"\n" +
 	"\x92\xb5\x18\x06\b\x01\x10\x02\x18\x01\x12V\n" +
 	"\vListAPIKeys\x12\x1d.scribe.v1.ListAPIKeysRequest\x1a\x1e.scribe.v1.ListAPIKeysResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x03\x12Y\n" +
 	"\fCreateAPIKey\x12\x1e.scribe.v1.CreateAPIKeyRequest\x1a\x1f.scribe.v1.CreateAPIKeyResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x03\x12Y\n" +
@@ -1196,8 +1185,8 @@ var file_scribe_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_scribe_v1_auth_proto_goTypes = []any{
 	(*AuthUser)(nil),                     // 0: scribe.v1.AuthUser
 	(*AuthWorkspace)(nil),                // 1: scribe.v1.AuthWorkspace
-	(*AuthMeRequest)(nil),                // 2: scribe.v1.AuthMeRequest
-	(*AuthMeResponse)(nil),               // 3: scribe.v1.AuthMeResponse
+	(*GetAuthMeRequest)(nil),             // 2: scribe.v1.GetAuthMeRequest
+	(*GetAuthMeResponse)(nil),            // 3: scribe.v1.GetAuthMeResponse
 	(*APIKeyRecord)(nil),                 // 4: scribe.v1.APIKeyRecord
 	(*ListAPIKeysRequest)(nil),           // 5: scribe.v1.ListAPIKeysRequest
 	(*ListAPIKeysResponse)(nil),          // 6: scribe.v1.ListAPIKeysResponse
@@ -1214,20 +1203,20 @@ var file_scribe_v1_auth_proto_goTypes = []any{
 	(*DeleteProviderSecretResponse)(nil), // 17: scribe.v1.DeleteProviderSecretResponse
 }
 var file_scribe_v1_auth_proto_depIdxs = []int32{
-	0,  // 0: scribe.v1.AuthMeResponse.user:type_name -> scribe.v1.AuthUser
-	1,  // 1: scribe.v1.AuthMeResponse.workspace:type_name -> scribe.v1.AuthWorkspace
+	0,  // 0: scribe.v1.GetAuthMeResponse.user:type_name -> scribe.v1.AuthUser
+	1,  // 1: scribe.v1.GetAuthMeResponse.workspace:type_name -> scribe.v1.AuthWorkspace
 	4,  // 2: scribe.v1.ListAPIKeysResponse.api_keys:type_name -> scribe.v1.APIKeyRecord
 	4,  // 3: scribe.v1.CreateAPIKeyResponse.api_key:type_name -> scribe.v1.APIKeyRecord
 	11, // 4: scribe.v1.ListProviderSecretsResponse.provider_secrets:type_name -> scribe.v1.ProviderSecretRecord
 	11, // 5: scribe.v1.CreateProviderSecretResponse.provider_secret:type_name -> scribe.v1.ProviderSecretRecord
-	2,  // 6: scribe.v1.AuthService.GetAuthMe:input_type -> scribe.v1.AuthMeRequest
+	2,  // 6: scribe.v1.AuthService.GetAuthMe:input_type -> scribe.v1.GetAuthMeRequest
 	5,  // 7: scribe.v1.AuthService.ListAPIKeys:input_type -> scribe.v1.ListAPIKeysRequest
 	7,  // 8: scribe.v1.AuthService.CreateAPIKey:input_type -> scribe.v1.CreateAPIKeyRequest
 	9,  // 9: scribe.v1.AuthService.DeleteAPIKey:input_type -> scribe.v1.DeleteAPIKeyRequest
 	12, // 10: scribe.v1.AuthService.ListProviderSecrets:input_type -> scribe.v1.ListProviderSecretsRequest
 	14, // 11: scribe.v1.AuthService.CreateProviderSecret:input_type -> scribe.v1.CreateProviderSecretRequest
 	16, // 12: scribe.v1.AuthService.DeleteProviderSecret:input_type -> scribe.v1.DeleteProviderSecretRequest
-	3,  // 13: scribe.v1.AuthService.GetAuthMe:output_type -> scribe.v1.AuthMeResponse
+	3,  // 13: scribe.v1.AuthService.GetAuthMe:output_type -> scribe.v1.GetAuthMeResponse
 	6,  // 14: scribe.v1.AuthService.ListAPIKeys:output_type -> scribe.v1.ListAPIKeysResponse
 	8,  // 15: scribe.v1.AuthService.CreateAPIKey:output_type -> scribe.v1.CreateAPIKeyResponse
 	10, // 16: scribe.v1.AuthService.DeleteAPIKey:output_type -> scribe.v1.DeleteAPIKeyResponse
