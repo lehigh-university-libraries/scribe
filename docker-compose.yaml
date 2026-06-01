@@ -53,23 +53,23 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
       OLLAMA_AUDIENCE: ${OLLAMA_AUDIENCE:-}
       OLLAMA_MODEL_ENDPOINTS_JSON: ${OLLAMA_MODEL_ENDPOINTS_JSON:-}
-      SEGMENTATION_SERVICE_URL: http://segmentor:8080
+      SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:-}
       SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:-}
-      SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
+      SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:-}
       IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
       IMAGE_SERVICE_AUDIENCE: ${IMAGE_SERVICE_AUDIENCE:-}
-      IIIF_BASE: http://localhost/iiif/3
-      IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
-      TRIPLET_PRESENTATION_BASE: http://localhost:8081/presentation/v3
-      TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
-      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
+      IIIF_BASE: ${IIIF_BASE:-/iiif/3}
+      IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://triplet:8080/iiif/3}
+      TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE-http://localhost:8081/presentation/v3}
+      TRIPLET_PRESENTATION_INTERNAL_BASE: ${TRIPLET_PRESENTATION_INTERNAL_BASE-http://triplet:8080/presentation/v3}
+      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN-scribe-local-presentation-token}
       TRANSCRIPTION_QUEUE_BACKEND: ${TRANSCRIPTION_QUEUE_BACKEND:-database}
       PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-}
       PUBSUB_TRANSCRIPTION_TOPIC_ID: ${PUBSUB_TRANSCRIPTION_TOPIC_ID:-scribe-transcription-jobs}
       PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID: ${PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID:-scribe-transcription-workers}
       SCRIBE_UPLOADS_BUCKET: ${SCRIBE_UPLOADS_BUCKET:-}
       SCRIBE_UPLOADS_PREFIX: ${SCRIBE_UPLOADS_PREFIX:-uploads}
-      KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
+      KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
     volumes:
       - ./config.yaml:/etc/scribe/config.yaml:ro
       - uploads-data:/app/uploads
@@ -79,8 +79,6 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
-      segmentor:
-        condition: service_started
       triplet:
         condition: service_started
 
@@ -110,23 +108,23 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
       OLLAMA_AUDIENCE: ${OLLAMA_AUDIENCE:-}
       OLLAMA_MODEL_ENDPOINTS_JSON: ${OLLAMA_MODEL_ENDPOINTS_JSON:-}
-      SEGMENTATION_SERVICE_URL: http://segmentor:8080
+      SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:-}
       SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:-}
-      SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
+      SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:-}
       IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
       IMAGE_SERVICE_AUDIENCE: ${IMAGE_SERVICE_AUDIENCE:-}
-      IIIF_BASE: http://localhost/iiif/3
-      IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
-      TRIPLET_PRESENTATION_BASE: http://localhost:8081/presentation/v3
-      TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
-      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
+      IIIF_BASE: ${IIIF_BASE:-/iiif/3}
+      IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://triplet:8080/iiif/3}
+      TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE-http://localhost:8081/presentation/v3}
+      TRIPLET_PRESENTATION_INTERNAL_BASE: ${TRIPLET_PRESENTATION_INTERNAL_BASE-http://triplet:8080/presentation/v3}
+      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN-scribe-local-presentation-token}
       TRANSCRIPTION_QUEUE_BACKEND: ${TRANSCRIPTION_QUEUE_BACKEND:-database}
       PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-}
       PUBSUB_TRANSCRIPTION_TOPIC_ID: ${PUBSUB_TRANSCRIPTION_TOPIC_ID:-scribe-transcription-jobs}
       PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID: ${PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID:-scribe-transcription-workers}
       SCRIBE_UPLOADS_BUCKET: ${SCRIBE_UPLOADS_BUCKET:-}
       SCRIBE_UPLOADS_PREFIX: ${SCRIBE_UPLOADS_PREFIX:-uploads}
-      KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
+      KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
     volumes:
       - ./config.yaml:/etc/scribe/config.yaml:ro
       - uploads-data:/app/uploads
@@ -138,15 +136,8 @@ services:
         condition: service_healthy
       api:
         condition: service_started
-      segmentor:
-        condition: service_started
       triplet:
         condition: service_started
-
-  segmentor:
-    build:
-      context: .
-      dockerfile: Dockerfile.segmentor
 
   triplet:
     image: ghcr.io/libops/triplet:v1.1.0@sha256:ebdd90375f515e863a57372940a61a3b071c3bfb3134c699e2b5d726949603c8

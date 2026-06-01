@@ -55,6 +55,10 @@ The local override starts the standalone `segmentor` container. The main `api`
 and `worker` image is now the lean remote-service build by default and expects
 Triplet for IIIF image delivery plus the segmentor service for OCR work.
 
+Production Compose should not use `docker-compose.override-example.yaml`.
+Terraform injects the Cloud Run OCR helper URLs into `.env`; the base Compose
+file reads those values and does not build the local `segmentor` image.
+
 The main API/worker binaries build without CGO or local OCR libraries. Local
 Tesseract/Leptonica support is isolated to the standalone segmentor image,
 which opts in with the `localocr` build tag; API/worker production builds use
