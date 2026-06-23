@@ -33,7 +33,7 @@
     "react-i18next": ">=15"
   },
   "dependencies": {
-    "@mui/icons-material": "7.3.2"
+    "@mui/icons-material": "7.3.11"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "5.2.0",

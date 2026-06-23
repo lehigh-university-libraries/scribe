@@ -1,6 +1,6 @@
 services:
   mariadb:
-    image: mariadb:12.2@sha256:e0236fc6386e7eacd9359e59d0a078bd7aa0d18280d36d13061121bedeaee903
+    image: mariadb:12.3@sha256:b1c7bf836e64ed9406a8984af29509f40089d55cea14b32f12c4726a1f17104b
     environment:
       MARIADB_DATABASE: scribe
       MARIADB_USER: scribe
@@ -18,7 +18,7 @@ services:
       retries: 20
 
   traefik:
-    image: traefik:v3.7.0@sha256:eb328e2c806c53aafbbace6c451fa54d268961261a85452fcf0fb752a30c17be
+    image: traefik:v3.7.5@sha256:5a52522fa05731d9c537540f873ba8c4842e83354c27275b747145bab75da120
     restart: unless-stopped
     command:
       - --api.insecure=false
@@ -83,7 +83,7 @@ services:
         condition: service_started
 
   image-service:
-    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-image-service:main@sha256:226b03a815a83f89ac4b0338a529194d16228573dbfb90899f00a1192431d9cf}
+    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-image-service:main@sha256:625c809e045a7e6b884cf81967476659862bccc3c18348aa71e6587a5c1827c3}
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
       IMAGE_SERVICE_UPLOADS_DIR: /app/uploads
@@ -140,7 +140,7 @@ services:
         condition: service_started
 
   triplet:
-    image: ghcr.io/libops/triplet:v1.1.0@sha256:ebdd90375f515e863a57372940a61a3b071c3bfb3134c699e2b5d726949603c8
+    image: ghcr.io/libops/triplet:v1.1.2@sha256:da42e55c265af7c02d4351e8ea97aa249c6b354b837a03f8c7c372241b1126df
     environment:
       TRIPLET_PUBLIC_BASE_URL: ${TRIPLET_PUBLIC_BASE_URL:-http://localhost:8081}
       TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
@@ -151,7 +151,7 @@ services:
       - triplet-cache-data:/var/lib/triplet/cache
 
   vault-init:
-    image: alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+    image: alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
     profiles: ["init"]
     environment:
       VAULT_ADDRESS: ${VAULT_ADDRESS:-}
