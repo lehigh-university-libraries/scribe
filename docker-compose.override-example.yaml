@@ -51,4 +51,4 @@ services:
       dockerfile: Dockerfile.segmentor
 
   triplet:
-    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:main@sha256:20eb44ee16b62ffc5dfc1fabdba76d16bf2550f036351f1cb867899477014599}
+    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:main@sha256:3cba2874f8e06352d69028f00207bd85a02cdb80715c954422946765bf557a2b}
