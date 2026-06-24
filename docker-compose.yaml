@@ -83,7 +83,7 @@ services:
         condition: service_started
 
   image-service:
-    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-image-service:main@sha256:358e0230f19592184e6397263da6e222670bc539fb582b9e7ca9dbb411c23623}
+    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-image-service:main@sha256:095b5c1a12c9dbe3162c3b8de01973cc613d391436d86e150c08fc15b5a55cbb}
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
       IMAGE_SERVICE_UPLOADS_DIR: /app/uploads
