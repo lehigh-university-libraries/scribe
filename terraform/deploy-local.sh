@@ -197,8 +197,8 @@ download_vault_root_token() {
     return 1
   fi
 
-  if ! base64 --decode --input "$enc_file" --output "$decoded_file" 2>/dev/null \
-    && ! base64 -D -i "$enc_file" -o "$decoded_file"; then
+  if ! base64 --decode <"$enc_file" >"$decoded_file" 2>/dev/null \
+    && ! base64 -D -i "$enc_file" -o "$decoded_file" 2>/dev/null; then
     rm -rf "$tmpdir"
     echo "Failed to base64-decode Vault root token object ${object_path}." >&2
     return 1
