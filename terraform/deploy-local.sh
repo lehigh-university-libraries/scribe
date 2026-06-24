@@ -184,7 +184,6 @@ download_vault_root_token() {
   kms_keyring="${VAULT_ROOT_TOKEN_KMS_KEYRING:-$(shared_vault_kms_keyring "$shared_workspace")}"
   kms_key="${VAULT_ROOT_TOKEN_KMS_KEY:-vault}"
 
-  require_cmd gsutil
   require_cmd base64
 
   tmpdir="$(mktemp -d)"
@@ -192,16 +191,30 @@ download_vault_root_token() {
   decoded_file="${tmpdir}/root-token.dc"
   plain_file="${tmpdir}/root-token"
 
-  gsutil cp "$object_path" "$enc_file" >/dev/null 2>&1
-  base64 --decode --input "$enc_file" --output "$decoded_file" 2>/dev/null \
-    || base64 -D -i "$enc_file" -o "$decoded_file"
-  gcloud kms decrypt \
+  if ! gcloud storage cp "$object_path" "$enc_file" >/dev/null; then
+    rm -rf "$tmpdir"
+    echo "Failed to download Vault root token object ${object_path}." >&2
+    return 1
+  fi
+
+  if ! base64 --decode <"$enc_file" >"$decoded_file" 2>/dev/null \
+    && ! base64 -D -i "$enc_file" -o "$decoded_file" 2>/dev/null; then
+    rm -rf "$tmpdir"
+    echo "Failed to base64-decode Vault root token object ${object_path}." >&2
+    return 1
+  fi
+
+  if ! gcloud kms decrypt \
     --key "$kms_key" \
     --keyring "$kms_keyring" \
     --location "$kms_location" \
     --project "${GCLOUD_PROJECT}" \
     --ciphertext-file "$decoded_file" \
-    --plaintext-file "$plain_file" >/dev/null
+    --plaintext-file "$plain_file" >/dev/null; then
+    rm -rf "$tmpdir"
+    echo "Failed to decrypt Vault root token with KMS key ${kms_keyring}/${kms_key} in ${kms_location}." >&2
+    return 1
+  fi
 
   vault_token="$(tr -d '\n' < "$plain_file")"
   rm -rf "$tmpdir"
