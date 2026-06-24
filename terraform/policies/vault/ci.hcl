@@ -75,11 +75,11 @@ path "auth/gcp/role/operator*" {
 }
 
 path "auth/google-jwt/role/admin*" {
-  capabilities = ["deny"]
+  capabilities = ["create", "read", "update", "delete", "list"]
 }
 
 path "auth/google-jwt/role/break-glass*" {
-  capabilities = ["deny"]
+  capabilities = ["create", "read", "update", "delete", "list"]
 }
 
 path "identity/oidc/config" {
