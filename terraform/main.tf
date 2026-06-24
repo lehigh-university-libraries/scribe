@@ -262,7 +262,7 @@ locals {
   compose_env_update_commands = [
     for env in local.compose_env_vars :
     format(
-      "python3 scripts/update-env.py .env %s --base64 %s",
+      "python3 scripts/update-env.py .env %s --base64 '%s'",
       env.name,
       base64encode(env.value),
     )
