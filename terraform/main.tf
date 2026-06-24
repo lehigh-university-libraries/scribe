@@ -134,7 +134,7 @@ locals {
   }
   default_kraken_url      = try(local.kraken_transcription_services[local.kraken_default_transcription_key].primary_url, "")
   default_kraken_audience = try(local.kraken_transcription_services[local.kraken_default_transcription_key].audience, "")
-  docker_compose_services = ["mariadb", "api", "worker"]
+  docker_compose_services = ["mariadb", "api", "worker", "traefik"]
 
   docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
   compose_env_vars = [
