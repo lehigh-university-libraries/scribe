@@ -24,11 +24,18 @@ status_code_file="$(mktemp)"
 trap 'rm -f "$response_file" "$status_code_file"' EXIT
 
 payload="$(jq -n --rawfile policy "$policy_file" '{policy: $policy}')"
+curl_headers=(
+  -H "Content-Type: application/json"
+  -H "X-Vault-Token: ${VAULT_TOKEN}"
+)
+
+if [ -n "${VAULT_ADMIN_TOKEN:-}" ]; then
+  curl_headers+=(-H "X-Admin-Token: ${VAULT_ADMIN_TOKEN}")
+fi
 
 if curl -sS -o "$response_file" -w '%{http_code}' \
   -X PUT \
-  -H "Content-Type: application/json" \
-  -H "X-Vault-Token: ${VAULT_TOKEN}" \
+  "${curl_headers[@]}" \
   --data "$payload" \
   "${VAULT_ADDR%/}/v1/sys/policies/acl/ci" >"$status_code_file"; then
   curl_exit=0

@@ -236,6 +236,8 @@ jobs:
 
       - name: Refresh Vault CI policy
         shell: bash
+        env:
+          VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
         run: |
           bash ./ci/vault-sync-ci-policy.sh
 
