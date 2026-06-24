@@ -234,6 +234,11 @@ jobs:
         run: |
           bash ./ci/vault-login.sh
 
+      - name: Refresh Vault CI policy
+        shell: bash
+        run: |
+          bash ./ci/vault-sync-ci-policy.sh
+
       - name: Run production Terraform plan
         id: plan
         if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.pr_number == ''
