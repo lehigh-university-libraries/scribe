@@ -214,12 +214,18 @@ jobs:
           VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
           VAULT_ID_TOKEN: ${{ steps.auth_vault_id.outputs.id_token }}
           VAULT_ROLE: ${{ steps.vault_role.outputs.role_name }}
-        run: bash ./ci/vault-login.sh
+        run: |
+          if bash ./ci/vault-login.sh; then
+            exit 0
+          fi
+
+          echo "Vault CI role login failed; continuing so the shared dev Vault owner workspace can bootstrap the role." >&2
 
       - name: Sync shared dev owner resources
         shell: bash
         env:
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          VAULT_BOOTSTRAP_MODE: jwt-or-root-token
         run: |
           set -o pipefail
           make tf-dev-vault BRANCH="$PR_BRANCH" ACTION=apply
