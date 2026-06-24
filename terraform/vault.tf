@@ -38,6 +38,7 @@ module "vault" {
   public_routes = [
     "/.well-known/",
     "/v1/auth/gcp/",
+    "/v1/secret/",
     "/v1/sys/health",
   ]
 }
@@ -108,6 +109,10 @@ path "secret/data/scribe/${local.workspace_slug}/gemini" {
 }
 
 path "secret/data/scribe/${local.workspace_slug}/database/app" {
+  capabilities = ["read"]
+}
+
+path "secret/data/scribe/${local.workspace_slug}/database/root" {
   capabilities = ["read"]
 }
 
