@@ -27,11 +27,11 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-i18next": "15.7.4",
-    "uuid": "^11.0.0"
+    "uuid": "^14.0.0"
   },
   "overrides": {
     "lodash": "^4.17.21",
-    "uuid": "^11.0.0"
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.1",
