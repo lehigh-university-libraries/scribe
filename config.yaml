@@ -31,7 +31,7 @@ llm:
     url: "${OLLAMA_URL:-http://localhost:11434}"
     audience: "${OLLAMA_AUDIENCE:-}"
     model: "glm-ocr:bf16"
-    models: ["glm-ocr:bf16", "llava", "bakllava"]
+    models: ["glm-ocr:bf16", "llava", "bakllava", "mistral-small3.2:24b"]
   kraken:
     url: "${KRAKEN_URL:-}"
     audience: "${KRAKEN_AUDIENCE:-}"
