@@ -73,33 +73,8 @@ moved {
 }
 
 moved {
-  from = module.scribe.module.gcp.google_service_account.internal-services
-  to   = module.scribe.module.gcp[0].google_service_account.internal-services[0]
-}
-
-moved {
-  from = module.scribe.module.gcp.google_service_account_iam_member.internal-services-keys
-  to   = module.scribe.module.gcp[0].google_service_account_iam_member.internal-services-keys[0]
-}
-
-moved {
-  from = module.scribe.module.gcp.google_project_iam_member.stackdriver
-  to   = module.scribe.module.gcp[0].google_project_iam_member.stackdriver[0]
-}
-
-moved {
   from = module.scribe.module.gcp.google_service_account.app
   to   = module.scribe.module.gcp[0].google_service_account.app[0]
-}
-
-moved {
-  from = module.scribe.module.gcp.google_service_account_iam_member.app-keys
-  to   = module.scribe.module.gcp[0].google_service_account_iam_member.app-keys[0]
-}
-
-moved {
-  from = module.scribe.module.gcp.google_service_account_iam_member.self_jwt_signer_policy
-  to   = module.scribe.module.gcp[0].google_service_account_iam_member.vault_agent_jwt_signer_policy[0]
 }
 
 moved {
