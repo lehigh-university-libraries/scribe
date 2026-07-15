@@ -391,7 +391,11 @@ case "$target_set" in
     needs_frontend_gar_image=false
     terraform_targets+=(
       "-target=module.kraken"
+      "-target=module.ollama_services"
       "-target=google_artifact_registry_repository_iam_member.cloud_run_reader"
+      "-target=google_cloud_run_v2_service_iam_member.kraken_invoker"
+      "-target=google_cloud_run_v2_service_iam_member.ollama_invoker"
+      "-target=google_cloud_run_v2_service_iam_member.ollama_preview_invoker"
     )
     ;;
   *)

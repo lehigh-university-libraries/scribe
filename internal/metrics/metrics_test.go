@@ -27,6 +27,9 @@ func TestLevenshteinDistance(t *testing.T) {
 		{"abcdef", "abc", 3},
 		{"longstringwithmanychars", "longstringwithanychars", 1},
 		{"1234567890", "0987654321", 10},
+		{"école", "ecole", 1},
+		{"你好世界", "你好世", 1},
+		{"مرحبا", "مرحبه", 1},
 	}
 
 	for _, tt := range tests {
@@ -35,5 +38,13 @@ func TestLevenshteinDistance(t *testing.T) {
 			t.Errorf("LevenshteinDistance(%q, %q) = %d; want %d",
 				tt.a, tt.b, got, tt.expected)
 		}
+	}
+}
+
+func TestCalculateSimilarityUsesRunes(t *testing.T) {
+	got := calculateSimilarity("école", "ecole")
+	want := 0.8
+	if got != want {
+		t.Fatalf("calculateSimilarity() = %v; want %v", got, want)
 	}
 }

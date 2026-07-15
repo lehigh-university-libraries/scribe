@@ -1167,6 +1167,118 @@ func (x *ResolveContextResponse) GetIsDefault() bool {
 	return false
 }
 
+type GetModelCatalogRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetModelCatalogRequest) Reset() {
+	*x = GetModelCatalogRequest{}
+	mi := &file_scribe_v1_context_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetModelCatalogRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetModelCatalogRequest) ProtoMessage() {}
+
+func (x *GetModelCatalogRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_context_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetModelCatalogRequest.ProtoReflect.Descriptor instead.
+func (*GetModelCatalogRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{22}
+}
+
+type GetModelCatalogResponse struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	OllamaModels       []string               `protobuf:"bytes,1,rep,name=ollama_models,json=ollamaModels,proto3" json:"ollama_models,omitempty"`
+	KrakenModels       []string               `protobuf:"bytes,2,rep,name=kraken_models,json=krakenModels,proto3" json:"kraken_models,omitempty"`
+	SegmentationModels []string               `protobuf:"bytes,3,rep,name=segmentation_models,json=segmentationModels,proto3" json:"segmentation_models,omitempty"`
+	OpenaiModels       []string               `protobuf:"bytes,4,rep,name=openai_models,json=openaiModels,proto3" json:"openai_models,omitempty"`
+	GeminiModels       []string               `protobuf:"bytes,5,rep,name=gemini_models,json=geminiModels,proto3" json:"gemini_models,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *GetModelCatalogResponse) Reset() {
+	*x = GetModelCatalogResponse{}
+	mi := &file_scribe_v1_context_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetModelCatalogResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetModelCatalogResponse) ProtoMessage() {}
+
+func (x *GetModelCatalogResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_context_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetModelCatalogResponse.ProtoReflect.Descriptor instead.
+func (*GetModelCatalogResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *GetModelCatalogResponse) GetOllamaModels() []string {
+	if x != nil {
+		return x.OllamaModels
+	}
+	return nil
+}
+
+func (x *GetModelCatalogResponse) GetKrakenModels() []string {
+	if x != nil {
+		return x.KrakenModels
+	}
+	return nil
+}
+
+func (x *GetModelCatalogResponse) GetSegmentationModels() []string {
+	if x != nil {
+		return x.SegmentationModels
+	}
+	return nil
+}
+
+func (x *GetModelCatalogResponse) GetOpenaiModels() []string {
+	if x != nil {
+		return x.OpenaiModels
+	}
+	return nil
+}
+
+func (x *GetModelCatalogResponse) GetGeminiModels() []string {
+	if x != nil {
+		return x.GeminiModels
+	}
+	return nil
+}
+
 var File_scribe_v1_context_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_context_proto_rawDesc = "" +
@@ -1253,7 +1365,14 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\x16ResolveContextResponse\x12,\n" +
 	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x02 \x01(\bR\tisDefault2\xbd\a\n" +
+	"is_default\x18\x02 \x01(\bR\tisDefault\"\x18\n" +
+	"\x16GetModelCatalogRequest\"\xde\x01\n" +
+	"\x17GetModelCatalogResponse\x12#\n" +
+	"\rollama_models\x18\x01 \x03(\tR\follamaModels\x12#\n" +
+	"\rkraken_models\x18\x02 \x03(\tR\fkrakenModels\x12/\n" +
+	"\x13segmentation_models\x18\x03 \x03(\tR\x12segmentationModels\x12#\n" +
+	"\ropenai_models\x18\x04 \x03(\tR\fopenaiModels\x12#\n" +
+	"\rgemini_models\x18\x05 \x03(\tR\fgeminiModels2\xa1\b\n" +
 	"\x0eContextService\x12Y\n" +
 	"\fListContexts\x12\x1e.scribe.v1.ListContextsRequest\x1a\x1f.scribe.v1.ListContextsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12_\n" +
 	"\n" +
@@ -1267,7 +1386,8 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\x12ListSelectionRules\x12$.scribe.v1.ListSelectionRulesRequest\x1a%.scribe.v1.ListSelectionRulesResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12\x7f\n" +
 	"\x13CreateSelectionRule\x12%.scribe.v1.CreateSelectionRuleRequest\x1a&.scribe.v1.CreateSelectionRuleResponse\"\x19\x92\xb5\x18\x15\x10\x05\x18\x02\"\x0frule.context_id\x12n\n" +
 	"\x13DeleteSelectionRule\x12%.scribe.v1.DeleteSelectionRuleRequest\x1a&.scribe.v1.DeleteSelectionRuleResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12_\n" +
-	"\x0eResolveContext\x12 .scribe.v1.ResolveContextRequest\x1a!.scribe.v1.ResolveContextResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01B\xaa\x01\n" +
+	"\x0eResolveContext\x12 .scribe.v1.ResolveContextRequest\x1a!.scribe.v1.ResolveContextResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12b\n" +
+	"\x0fGetModelCatalog\x12!.scribe.v1.GetModelCatalogRequest\x1a\".scribe.v1.GetModelCatalogResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01B\xaa\x01\n" +
 	"\rcom.scribe.v1B\fContextProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 
@@ -1283,7 +1403,7 @@ func file_scribe_v1_context_proto_rawDescGZIP() []byte {
 	return file_scribe_v1_context_proto_rawDescData
 }
 
-var file_scribe_v1_context_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_scribe_v1_context_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_scribe_v1_context_proto_goTypes = []any{
 	(*ImagePreprocessor)(nil),           // 0: scribe.v1.ImagePreprocessor
 	(*Context)(nil),                     // 1: scribe.v1.Context
@@ -1307,6 +1427,8 @@ var file_scribe_v1_context_proto_goTypes = []any{
 	(*DeleteSelectionRuleResponse)(nil), // 19: scribe.v1.DeleteSelectionRuleResponse
 	(*ResolveContextRequest)(nil),       // 20: scribe.v1.ResolveContextRequest
 	(*ResolveContextResponse)(nil),      // 21: scribe.v1.ResolveContextResponse
+	(*GetModelCatalogRequest)(nil),      // 22: scribe.v1.GetModelCatalogRequest
+	(*GetModelCatalogResponse)(nil),     // 23: scribe.v1.GetModelCatalogResponse
 }
 var file_scribe_v1_context_proto_depIdxs = []int32{
 	0,  // 0: scribe.v1.Context.image_preprocessors:type_name -> scribe.v1.ImagePreprocessor
@@ -1330,17 +1452,19 @@ var file_scribe_v1_context_proto_depIdxs = []int32{
 	16, // 18: scribe.v1.ContextService.CreateSelectionRule:input_type -> scribe.v1.CreateSelectionRuleRequest
 	18, // 19: scribe.v1.ContextService.DeleteSelectionRule:input_type -> scribe.v1.DeleteSelectionRuleRequest
 	20, // 20: scribe.v1.ContextService.ResolveContext:input_type -> scribe.v1.ResolveContextRequest
-	5,  // 21: scribe.v1.ContextService.ListContexts:output_type -> scribe.v1.ListContextsResponse
-	7,  // 22: scribe.v1.ContextService.GetContext:output_type -> scribe.v1.GetContextResponse
-	9,  // 23: scribe.v1.ContextService.CreateContext:output_type -> scribe.v1.CreateContextResponse
-	11, // 24: scribe.v1.ContextService.UpdateContext:output_type -> scribe.v1.UpdateContextResponse
-	13, // 25: scribe.v1.ContextService.DeleteContext:output_type -> scribe.v1.DeleteContextResponse
-	15, // 26: scribe.v1.ContextService.ListSelectionRules:output_type -> scribe.v1.ListSelectionRulesResponse
-	17, // 27: scribe.v1.ContextService.CreateSelectionRule:output_type -> scribe.v1.CreateSelectionRuleResponse
-	19, // 28: scribe.v1.ContextService.DeleteSelectionRule:output_type -> scribe.v1.DeleteSelectionRuleResponse
-	21, // 29: scribe.v1.ContextService.ResolveContext:output_type -> scribe.v1.ResolveContextResponse
-	21, // [21:30] is the sub-list for method output_type
-	12, // [12:21] is the sub-list for method input_type
+	22, // 21: scribe.v1.ContextService.GetModelCatalog:input_type -> scribe.v1.GetModelCatalogRequest
+	5,  // 22: scribe.v1.ContextService.ListContexts:output_type -> scribe.v1.ListContextsResponse
+	7,  // 23: scribe.v1.ContextService.GetContext:output_type -> scribe.v1.GetContextResponse
+	9,  // 24: scribe.v1.ContextService.CreateContext:output_type -> scribe.v1.CreateContextResponse
+	11, // 25: scribe.v1.ContextService.UpdateContext:output_type -> scribe.v1.UpdateContextResponse
+	13, // 26: scribe.v1.ContextService.DeleteContext:output_type -> scribe.v1.DeleteContextResponse
+	15, // 27: scribe.v1.ContextService.ListSelectionRules:output_type -> scribe.v1.ListSelectionRulesResponse
+	17, // 28: scribe.v1.ContextService.CreateSelectionRule:output_type -> scribe.v1.CreateSelectionRuleResponse
+	19, // 29: scribe.v1.ContextService.DeleteSelectionRule:output_type -> scribe.v1.DeleteSelectionRuleResponse
+	21, // 30: scribe.v1.ContextService.ResolveContext:output_type -> scribe.v1.ResolveContextResponse
+	23, // 31: scribe.v1.ContextService.GetModelCatalog:output_type -> scribe.v1.GetModelCatalogResponse
+	22, // [22:32] is the sub-list for method output_type
+	12, // [12:22] is the sub-list for method input_type
 	12, // [12:12] is the sub-list for extension type_name
 	12, // [12:12] is the sub-list for extension extendee
 	0,  // [0:12] is the sub-list for field type_name
@@ -1357,7 +1481,7 @@ func file_scribe_v1_context_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_context_proto_rawDesc), len(file_scribe_v1_context_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

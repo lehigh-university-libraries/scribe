@@ -64,6 +64,7 @@ iiif:
 segmentation_service:
   url: "${SEGMENTATION_SERVICE_URL:-}"
   audience: "${SEGMENTATION_SERVICE_AUDIENCE:-}"
+  models: ["kraken"]
 
 image_service:
   url: "${IMAGE_SERVICE_URL:-}"

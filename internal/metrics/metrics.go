@@ -43,7 +43,8 @@ func LevenshteinDistance(a, b string) int {
 }
 
 func levenshteinDistance(s1, s2 string) int {
-	len1, len2 := len(s1), len(s2)
+	r1, r2 := []rune(s1), []rune(s2)
+	len1, len2 := len(r1), len(r2)
 	if len1 == 0 {
 		return len2
 	}
@@ -66,7 +67,7 @@ func levenshteinDistance(s1, s2 string) int {
 	for i := 1; i <= len1; i++ {
 		for j := 1; j <= len2; j++ {
 			cost := 0
-			if s1[i-1] != s2[j-1] {
+			if r1[i-1] != r2[j-1] {
 				cost = 1
 			}
 			matrix[i][j] = min(
@@ -80,7 +81,7 @@ func levenshteinDistance(s1, s2 string) int {
 }
 
 func calculateSimilarity(s1, s2 string) float64 {
-	maxLen := max(len(s1), len(s2))
+	maxLen := max(len([]rune(s1)), len([]rune(s2)))
 	if maxLen == 0 {
 		return 1.0
 	}

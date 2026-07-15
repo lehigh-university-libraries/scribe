@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build build-frontend fmt lint test test-backend test-frontend e2e-smoke proto proto-lint sqlc generate install-tools up up-db down logs sequelace tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-preview vault-secrets
+.PHONY: build build-frontend fmt lint test test-backend test-frontend e2e-smoke proto proto-lint sqlc generate install-tools up up-db down logs sequelace ocr-matrix ocr-images tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
@@ -38,6 +38,12 @@ logs: ## Follow logs for the API
 
 sequelace: ## Open the local MariaDB in Sequel Ace (macOS)
 	@./ci/sequelace.sh
+
+ocr-matrix: ## Print the OCR build matrix derived from config.yaml. Usage: GCLOUD_PROJECT=... WORKSPACE_SLUG=prod IMAGE_TAG=main make ocr-matrix
+	@./ci/ocr-matrix.sh
+
+ocr-images: ## Resolve/build GAR OCR images from config.yaml. Usage: GCLOUD_PROJECT=... WORKSPACE_SLUG=prod IMAGE_TAG=main [AUTO_BUILD_MISSING=true] make ocr-images
+	@./ci/generate-ocr-images-map.sh
 
 fmt: ## Format changed Go files
 	@./ci/fmt.sh
@@ -108,6 +114,12 @@ tf-prod: ## Run local Terraform for production. Usage: make tf-prod ACTION=plan|
 	action="${ACTION}"; \
 	if [ -z "$$action" ]; then action="plan"; fi; \
 	./terraform/deploy-local.sh prod "$$action"
+
+tf-prod-ocr: ## Reapply only production OCR helper services, including Ollama Cloud Run. Usage: make tf-prod-ocr ACTION=plan|apply
+	@set -eu; \
+	action="${ACTION}"; \
+	if [ -z "$$action" ]; then action="plan"; fi; \
+	TF_TARGET_SET="ocr" ./terraform/deploy-local.sh prod "$$action"
 
 tf-preview: ## Run local Terraform for a preview env. Usage: make tf-preview PR=23 [BRANCH=name] ACTION=plan|apply|destroy
 	@set -eu; \

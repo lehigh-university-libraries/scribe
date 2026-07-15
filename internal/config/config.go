@@ -153,6 +153,7 @@ type IIIFConfig struct {
 type ServiceEndpointConfig struct {
 	URL            string                   `yaml:"url"`
 	Audience       string                   `yaml:"audience"`
+	Models         []string                 `yaml:"models"`
 	ModelEndpoints map[string]ModelEndpoint `yaml:"-"`
 }
 
@@ -239,11 +240,21 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if models, ok, err := loadStringListEnv("OLLAMA_MODELS_JSON"); err != nil {
+		return Config{}, err
+	} else if ok {
+		cfg.LLM.Ollama.Models = models
+	}
 	cfg.Segmentation.URL = strings.TrimSpace(cfg.Segmentation.URL)
 	cfg.Segmentation.Audience = strings.TrimSpace(cfg.Segmentation.Audience)
 	cfg.Segmentation.ModelEndpoints, err = loadModelEndpointMapEnv("SEGMENTATION_MODEL_ENDPOINTS_JSON")
 	if err != nil {
 		return Config{}, err
+	}
+	if models, ok, err := loadStringListEnv("SEGMENTATION_MODELS_JSON"); err != nil {
+		return Config{}, err
+	} else if ok {
+		cfg.Segmentation.Models = models
 	}
 	cfg.ImageService.URL = strings.TrimSpace(cfg.ImageService.URL)
 	cfg.ImageService.Audience = strings.TrimSpace(cfg.ImageService.Audience)
@@ -256,6 +267,11 @@ func Load() (Config, error) {
 	cfg.LLM.Kraken.ModelEndpoints, err = loadModelEndpointMapEnv("KRAKEN_MODEL_ENDPOINTS_JSON")
 	if err != nil {
 		return Config{}, err
+	}
+	if models, ok, err := loadStringListEnv("KRAKEN_MODELS_JSON"); err != nil {
+		return Config{}, err
+	} else if ok {
+		cfg.LLM.Kraken.Models = models
 	}
 	if cfg.LLM.Kraken.URL == "" {
 		cfg.LLM.Kraken.URL = cfg.Segmentation.URL
@@ -357,6 +373,33 @@ func loadModelEndpointMapEnv(name string) (map[string]ModelEndpoint, error) {
 		return nil, nil
 	}
 	return normalized, nil
+}
+
+func loadStringListEnv(name string) ([]string, bool, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return nil, false, nil
+	}
+
+	var parsed []string
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return nil, true, fmt.Errorf("parse %s: %w", name, err)
+	}
+
+	seen := make(map[string]struct{}, len(parsed))
+	values := make([]string, 0, len(parsed))
+	for _, value := range parsed {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	return values, true, nil
 }
 
 func resolveModelEndpoint(endpoints map[string]ModelEndpoint, key string) (string, string) {

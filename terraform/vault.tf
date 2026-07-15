@@ -112,10 +112,6 @@ path "secret/data/scribe/${local.workspace_slug}/database/app" {
   capabilities = ["read"]
 }
 
-path "secret/data/scribe/${local.workspace_slug}/database/root" {
-  capabilities = ["read"]
-}
-
 path "secret/data/scribe/${local.workspace_slug}/provider-secrets/workspaces/*" {
   capabilities = ["create", "read"]
 }

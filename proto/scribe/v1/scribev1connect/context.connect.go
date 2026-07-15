@@ -60,6 +60,9 @@ const (
 	// ContextServiceResolveContextProcedure is the fully-qualified name of the ContextService's
 	// ResolveContext RPC.
 	ContextServiceResolveContextProcedure = "/scribe.v1.ContextService/ResolveContext"
+	// ContextServiceGetModelCatalogProcedure is the fully-qualified name of the ContextService's
+	// GetModelCatalog RPC.
+	ContextServiceGetModelCatalogProcedure = "/scribe.v1.ContextService/GetModelCatalog"
 )
 
 // ContextServiceClient is a client for the scribe.v1.ContextService service.
@@ -73,6 +76,7 @@ type ContextServiceClient interface {
 	CreateSelectionRule(context.Context, *connect.Request[v1.CreateSelectionRuleRequest]) (*connect.Response[v1.CreateSelectionRuleResponse], error)
 	DeleteSelectionRule(context.Context, *connect.Request[v1.DeleteSelectionRuleRequest]) (*connect.Response[v1.DeleteSelectionRuleResponse], error)
 	ResolveContext(context.Context, *connect.Request[v1.ResolveContextRequest]) (*connect.Response[v1.ResolveContextResponse], error)
+	GetModelCatalog(context.Context, *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error)
 }
 
 // NewContextServiceClient constructs a client for the scribe.v1.ContextService service. By default,
@@ -140,6 +144,12 @@ func NewContextServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(contextServiceMethods.ByName("ResolveContext")),
 			connect.WithClientOptions(opts...),
 		),
+		getModelCatalog: connect.NewClient[v1.GetModelCatalogRequest, v1.GetModelCatalogResponse](
+			httpClient,
+			baseURL+ContextServiceGetModelCatalogProcedure,
+			connect.WithSchema(contextServiceMethods.ByName("GetModelCatalog")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -154,6 +164,7 @@ type contextServiceClient struct {
 	createSelectionRule *connect.Client[v1.CreateSelectionRuleRequest, v1.CreateSelectionRuleResponse]
 	deleteSelectionRule *connect.Client[v1.DeleteSelectionRuleRequest, v1.DeleteSelectionRuleResponse]
 	resolveContext      *connect.Client[v1.ResolveContextRequest, v1.ResolveContextResponse]
+	getModelCatalog     *connect.Client[v1.GetModelCatalogRequest, v1.GetModelCatalogResponse]
 }
 
 // ListContexts calls scribe.v1.ContextService.ListContexts.
@@ -201,6 +212,11 @@ func (c *contextServiceClient) ResolveContext(ctx context.Context, req *connect.
 	return c.resolveContext.CallUnary(ctx, req)
 }
 
+// GetModelCatalog calls scribe.v1.ContextService.GetModelCatalog.
+func (c *contextServiceClient) GetModelCatalog(ctx context.Context, req *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error) {
+	return c.getModelCatalog.CallUnary(ctx, req)
+}
+
 // ContextServiceHandler is an implementation of the scribe.v1.ContextService service.
 type ContextServiceHandler interface {
 	ListContexts(context.Context, *connect.Request[v1.ListContextsRequest]) (*connect.Response[v1.ListContextsResponse], error)
@@ -212,6 +228,7 @@ type ContextServiceHandler interface {
 	CreateSelectionRule(context.Context, *connect.Request[v1.CreateSelectionRuleRequest]) (*connect.Response[v1.CreateSelectionRuleResponse], error)
 	DeleteSelectionRule(context.Context, *connect.Request[v1.DeleteSelectionRuleRequest]) (*connect.Response[v1.DeleteSelectionRuleResponse], error)
 	ResolveContext(context.Context, *connect.Request[v1.ResolveContextRequest]) (*connect.Response[v1.ResolveContextResponse], error)
+	GetModelCatalog(context.Context, *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error)
 }
 
 // NewContextServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -275,6 +292,12 @@ func NewContextServiceHandler(svc ContextServiceHandler, opts ...connect.Handler
 		connect.WithSchema(contextServiceMethods.ByName("ResolveContext")),
 		connect.WithHandlerOptions(opts...),
 	)
+	contextServiceGetModelCatalogHandler := connect.NewUnaryHandler(
+		ContextServiceGetModelCatalogProcedure,
+		svc.GetModelCatalog,
+		connect.WithSchema(contextServiceMethods.ByName("GetModelCatalog")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/scribe.v1.ContextService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ContextServiceListContextsProcedure:
@@ -295,6 +318,8 @@ func NewContextServiceHandler(svc ContextServiceHandler, opts ...connect.Handler
 			contextServiceDeleteSelectionRuleHandler.ServeHTTP(w, r)
 		case ContextServiceResolveContextProcedure:
 			contextServiceResolveContextHandler.ServeHTTP(w, r)
+		case ContextServiceGetModelCatalogProcedure:
+			contextServiceGetModelCatalogHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -338,4 +363,8 @@ func (UnimplementedContextServiceHandler) DeleteSelectionRule(context.Context, *
 
 func (UnimplementedContextServiceHandler) ResolveContext(context.Context, *connect.Request[v1.ResolveContextRequest]) (*connect.Response[v1.ResolveContextResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.ResolveContext is not implemented"))
+}
+
+func (UnimplementedContextServiceHandler) GetModelCatalog(context.Context, *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.GetModelCatalog is not implemented"))
 }

@@ -98,6 +98,29 @@ func TestLoadModelEndpointMapEnvRejectsInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestLoadStringListEnv(t *testing.T) {
+	t.Setenv("OLLAMA_MODELS_JSON", `[" glm-ocr:bf16 ", "", "llava", "llava"]`)
+
+	got, ok, err := loadStringListEnv("OLLAMA_MODELS_JSON")
+	if err != nil {
+		t.Fatalf("loadStringListEnv() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("loadStringListEnv() ok = false")
+	}
+	if strings.Join(got, ",") != "glm-ocr:bf16,llava" {
+		t.Fatalf("loadStringListEnv() = %v", got)
+	}
+}
+
+func TestLoadStringListEnvRejectsInvalidJSON(t *testing.T) {
+	t.Setenv("SEGMENTATION_MODELS_JSON", `{"not":"a-list"}`)
+
+	if _, _, err := loadStringListEnv("SEGMENTATION_MODELS_JSON"); err == nil {
+		t.Fatal("expected error for invalid string list json")
+	}
+}
+
 func TestLoadRejectsVaultWorkspacePathMismatch(t *testing.T) {
 	t.Setenv("VAULT_WORKSPACE", "prod")
 	t.Setenv("VAULT_SECRET_PREFIX", "scribe/dev")

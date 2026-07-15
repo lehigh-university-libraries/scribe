@@ -23,6 +23,21 @@ output "backend" {
   value       = module.scribe.backend
 }
 
+output "rollout" {
+  description = "Optional cloud-compose rollout endpoint details."
+  value       = module.scribe.rollout
+}
+
+output "cloud_compose_power_start_role" {
+  description = "Project custom role used by cloud-compose power management to start or resume the VM."
+  value       = local.cloud_compose_power_start_role
+}
+
+output "cloud_compose_power_suspend_role" {
+  description = "Project custom role used by cloud-compose power management to suspend the VM."
+  value       = local.cloud_compose_power_suspend_role
+}
+
 output "shared_lb_ipv4" {
   description = "IPv4 address of the shared external HTTPS load balancer."
   value       = local.shared_lb_enabled ? module.shared_lb[0].ipv4_address : ""

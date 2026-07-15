@@ -2,12 +2,14 @@ locals {
   ollama_models                  = try(local.ocr_config.ollama.models, [])
   shared_ollama_services_enabled = terraform.workspace == "prod" && length(local.ollama_models) > 0
   ollama_preview_iam_enabled     = terraform.workspace != "prod" && length(local.ollama_models) > 0
-  ollama_regions                 = ["us-east4"]
-  ollama_memory                  = "16Gi"
-  ollama_cpu                     = "4000m"
-  ollama_gpu_count               = 1
-  ollama_min_instances           = 0
-  ollama_max_instances           = 1
+  ollama_cloud_run               = try(local.ocr_config.ollama.cloud_run, {})
+  ollama_regions                 = try(local.ollama_cloud_run.regions, ["us-east4"])
+  ollama_memory                  = try(local.ollama_cloud_run.memory, "16Gi")
+  ollama_cpu                     = try(local.ollama_cloud_run.cpu, "4000m")
+  ollama_gpu_count               = try(local.ollama_cloud_run.gpu_count, 1)
+  ollama_min_instances           = try(local.ollama_cloud_run.min_instances, 0)
+  ollama_max_instances           = try(local.ollama_cloud_run.max_instances, 1)
+  ollama_skip_neg                = try(local.ollama_cloud_run.skip_neg, true)
   scribe_vm_gsa_email            = format("vm-%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
   scribe_app_gsa_email           = format("%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
 
@@ -90,6 +92,7 @@ module "ollama_services" {
   gpu_count     = local.ollama_gpu_count
   min_instances = local.ollama_min_instances
   max_instances = local.ollama_max_instances
+  skip_neg      = local.ollama_skip_neg
   invokers      = []
 
   depends_on = [

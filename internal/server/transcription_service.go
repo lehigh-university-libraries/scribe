@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
@@ -557,6 +558,9 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	}
 
 	slog.Info("Transcription job complete", "job_id", job.ID, "completed", completed, "failed", failed)
+	if err := h.seedTranscriptionJobOCRRun(ctx, job, pctx, img); err != nil {
+		slog.Warn("Failed to seed OCR run metrics for transcription job", "job_id", job.ID, "item_image_id", job.ItemImageID, "error", err)
+	}
 	evt := h.newCloudEvent("dev.scribe.transcription.completed", subjectForItemImage(job.ItemImageID), map[string]any{
 		"jobId":             job.ID,
 		"itemImageId":       job.ItemImageID,
@@ -573,6 +577,58 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	}
 	h.publishCloudEvent(evt, false)
 	return nil
+}
+
+func (h *Handler) seedTranscriptionJobOCRRun(ctx context.Context, job *store.TranscriptionJob, pctx store.Context, img store.ItemImage) error {
+	if h.ocrRuns == nil || h.annotations == nil {
+		return nil
+	}
+	if _, err := h.ocrRuns.GetByItemImageID(ctx, job.ItemImageID); err == nil {
+		return nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	payloads, err := h.annotations.SearchByCanvas(ctx, img.CanvasURI)
+	if err != nil {
+		return fmt.Errorf("search completed annotations: %w", err)
+	}
+	items := make([]any, 0, len(payloads))
+	for _, payload := range payloads {
+		var item any
+		if err := json.Unmarshal([]byte(payload), &item); err != nil {
+			continue
+		}
+		items = append(items, item)
+	}
+	page := map[string]any{
+		"@context": annotationPageContexts(),
+		"id":       annotationPageID(img.CanvasURI),
+		"type":     "AnnotationPage",
+		"items":    items,
+	}
+	pageJSON, err := json.Marshal(page)
+	if err != nil {
+		return fmt.Errorf("marshal completed annotation page: %w", err)
+	}
+	lines, pageW, pageH, err := annotationPageToHOCRLines(string(pageJSON))
+	if err != nil {
+		return fmt.Errorf("crosswalk completed annotations: %w", err)
+	}
+	hocrXML := hocr.NewConverter().ConvertHOCRLinesToXML(lines, pageW, pageH)
+	plainText := linesToPlainText(lines)
+	contextID := pctx.ID
+	itemImageID := job.ItemImageID
+	return h.ocrRuns.Create(ctx, store.OCRRun{
+		SessionID:    fmt.Sprintf("transcription-job-%d", job.ID),
+		ItemImageID:  &itemImageID,
+		ContextID:    &contextID,
+		ImageURL:     img.ImageURL,
+		Provider:     pctx.TranscriptionProvider,
+		Model:        pctx.TranscriptionModel,
+		OriginalHOCR: hocrXML,
+		OriginalText: plainText,
+	})
 }
 
 func resumedTranscriptionProgress(job *store.TranscriptionJob, total int) (completed, failed, startIndex int) {

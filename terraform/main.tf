@@ -66,7 +66,7 @@ data "terraform_remote_state" "shared_ollama" {
 
 locals {
   vault_url            = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
-  public_base_url      = trimspace(var.app_domain) != "" ? format("https://%s", trimspace(var.app_domain)) : try(module.scribe.urls[var.region], "")
+  public_base_url      = trimspace(var.app_domain) != "" ? format("https://%s", trimspace(var.app_domain)) : ""
   default_ollama_model = "glm-ocr:bf16"
   default_ollama_url = !contains(local.ollama_models, local.default_ollama_model) ? "" : (
     local.shared_ollama_services_enabled ? module.ollama_services[local.default_ollama_model].primary_url :
@@ -175,6 +175,10 @@ locals {
       value = jsonencode(local.ollama_endpoint_map)
     },
     {
+      name  = "OLLAMA_MODELS_JSON"
+      value = jsonencode(local.ollama_models)
+    },
+    {
       name  = "SEGMENTATION_SERVICE_URL"
       value = local.segmentor_url
     },
@@ -185,6 +189,10 @@ locals {
     {
       name  = "SEGMENTATION_MODEL_ENDPOINTS_JSON"
       value = jsonencode(local.kraken_segmentation_endpoint_map)
+    },
+    {
+      name  = "SEGMENTATION_MODELS_JSON"
+      value = jsonencode(sort(keys(local.kraken_segmentation_models)))
     },
     {
       name  = "IMAGE_SERVICE_URL"
@@ -235,6 +243,10 @@ locals {
       value = jsonencode(local.kraken_transcription_endpoint_map)
     },
     {
+      name  = "KRAKEN_MODELS_JSON"
+      value = jsonencode(sort(keys(local.kraken_transcription_models)))
+    },
+    {
       name  = "PUBLIC_BASE_URL"
       value = local.public_base_url
     },
@@ -279,6 +291,16 @@ locals {
   docker_compose_down = concat(local.compose_env_update_commands, [
     "docker compose down",
   ])
+  cloud_compose_power_start_role = try(
+    module.cloud_compose_foundation[0].cloud_compose_start_role_name,
+    data.terraform_remote_state.shared_vault[0].outputs.cloud_compose_power_start_role,
+    "",
+  )
+  cloud_compose_power_suspend_role = try(
+    module.cloud_compose_foundation[0].cloud_compose_suspend_role_name,
+    data.terraform_remote_state.shared_vault[0].outputs.cloud_compose_power_suspend_role,
+    "",
+  )
 }
 
 resource "google_pubsub_topic" "transcription_jobs" {
@@ -426,6 +448,13 @@ check "shared_internal_repository_ready" {
   }
 }
 
+module "cloud_compose_foundation" {
+  count  = local.vault_is_owner_workspace ? 1 : 0
+  source = "git::https://github.com/libops/cloud-compose//modules/gcp-foundation?ref=1.2.1"
+
+  service_project_id = var.project_id
+}
+
 provider "vault" {
   address          = local.vault_url
   skip_child_token = true
@@ -437,30 +466,63 @@ provider "vault" {
 }
 
 module "scribe" {
-  source = "git::https://github.com/libops/cloud-compose?ref=ab2108124bcf5c62a9b6b9dfdab9099e81b32ef7"
+  source = "git::https://github.com/libops/cloud-compose?ref=1.2.1"
 
-  project_id            = var.project_id
-  project_number        = local.project_number
-  name                  = var.name
-  region                = var.region
-  zone                  = var.zone
-  machine_type          = var.machine_type
-  disk_type             = local.disk_type
-  disk_size_gb          = var.disk_size_gb
-  docker_compose_repo   = local.docker_compose_repo
-  docker_compose_branch = var.docker_compose_branch
-  docker_compose_init   = local.docker_compose_init
-  docker_compose_up     = local.docker_compose_up
-  docker_compose_down   = local.docker_compose_down
-  allowed_ips           = var.allowed_ips
-  allowed_ssh_ipv4      = var.allowed_ssh_ipv4
-  allowed_ssh_ipv6      = var.allowed_ssh_ipv6
-  users                 = var.users
-  run_snapshots         = var.run_snapshots
-  rootfs                = "${path.module}/rootfs"
-  os                    = "cos-125-19216-395-4"
-  frontend = trimspace(var.frontend_gar_image) == "" ? null : {
-    image = var.frontend_gar_image
-    port  = 8888
+  name = var.name
+
+  gcp = {
+    project_id     = var.project_id
+    project_number = local.project_number
+    region         = var.region
+    zone           = var.zone
+
+    instance = {
+      machine_type = var.machine_type
+      os           = "cos-125-19216-395-4"
+    }
+
+    disks = {
+      type                   = local.disk_type
+      docker_volumes_size_gb = var.disk_size_gb
+    }
+
+    network = {
+      power_button_allowed_ips = var.allowed_ips
+      power_button_ip_depth    = 0
+      ssh_ipv4                 = var.allowed_ssh_ipv4
+      ssh_ipv6                 = var.allowed_ssh_ipv6
+    }
+
+    snapshots = {
+      enabled = var.run_snapshots
+    }
+
+    artifact_registry = {
+      repository = local.shared_artifact_registry_repository
+      location   = local.shared_artifact_registry_location
+    }
+
+    power_management = {
+      enabled      = true
+      start_role   = local.cloud_compose_power_start_role
+      suspend_role = local.cloud_compose_power_suspend_role
+      frontend = trimspace(var.frontend_gar_image) == "" ? null : {
+        image = var.frontend_gar_image
+        port  = 8888
+      }
+    }
+  }
+
+  runtime = {
+    rootfs = "${path.module}/rootfs"
+    users  = var.users
+
+    compose = {
+      repo   = local.docker_compose_repo
+      branch = var.docker_compose_branch
+      init   = local.docker_compose_init
+      up     = local.docker_compose_up
+      down   = local.docker_compose_down
+    }
   }
 }

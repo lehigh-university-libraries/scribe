@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { createAPIKey, createProviderSecret, deleteAPIKey, deleteProviderSecret, getAuthMe, listAPIKeys, listProviderSecrets, logout, type APIKeyRecord, type GetAuthMeResponse, type ProviderSecretRecord } from "../api/auth";
-import { createContext, getContextMetrics, listContexts, type ContextMetrics } from "../api/context";
+import { createContext, getContextMetrics, getModelCatalog, listContexts, type ContextMetrics } from "../api/context";
 import { subscribeToEvents } from "../api/events";
 import { createItemFromManifest, deleteItem, listItemProviderCallAudits, listItems, uploadItemImages } from "../api/items";
 import { processImageUpload, processImageURL, reprocessItemImage } from "../api/processing";
@@ -8,7 +8,7 @@ import { listTranscriptionJobs } from "../api/transcription";
 import { addWorkspaceMember, createWorkspace, deleteWorkspaceMember, listWorkspaceMembers, listWorkspaces, updateWorkspace, updateWorkspaceMember } from "../api/workspaces";
 import { applyWorkspaceToLocation, getCurrentWorkspaceId, setCurrentWorkspaceId, syncWorkspaceSelectionFromLocation, workspaceAwarePath } from "../lib/workspace";
 import { html, setHTML, uint64ToString } from "../lib/util";
-import { ContextSchema, type Context } from "../proto/scribe/v1/context_pb";
+import { ContextSchema, type Context, type GetModelCatalogResponse } from "../proto/scribe/v1/context_pb";
 import type { Item } from "../proto/scribe/v1/item_pb";
 import type { WorkspaceAccess, WorkspaceMember } from "../proto/scribe/v1/workspace_pb";
 import { avatar, buttons, canAdminWorkspace, canWriteWorkspace, card, contextOptions, currentWorkspace, currentWorkspaceRole, editorHrefForItem, formatDateTime, input, loginHref, primary, renderAPIKeys, renderItemActions, renderItemCard, renderProviderSecrets, waitForAutomaticTranscriptionStart, workspaceIdString } from "./shell_helpers";
@@ -27,6 +27,7 @@ interface ShellState {
   currentWorkspaceId: string;
   items: Item[];
   contexts: Context[];
+  modelCatalog: GetModelCatalogResponse | null;
   contextMetrics: Map<string, ContextMetrics>;
   providerSecrets: ProviderSecretRecord[];
   apiKeys: APIKeyRecord[];
@@ -45,6 +46,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     currentWorkspaceId: getCurrentWorkspaceId(),
     items: [],
     contexts: [],
+    modelCatalog: null,
     contextMetrics: new Map(),
     providerSecrets: [],
     apiKeys: [],
@@ -93,6 +95,8 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const query = state.search.trim().toLowerCase();
     return query ? state.items.filter((item) => `${item.name} ${item.id} ${item.sourceType}`.toLowerCase().includes(query)) : state.items;
   };
+  const uniqueOptions = (values: readonly string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const datalistOptions = (values: readonly string[]) => uniqueOptions(values).map((value) => html`<option value="${value}"></option>`).join("");
 
   async function refreshAuth() {
     try {
@@ -131,15 +135,17 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     if (!state.auth?.authenticated) {
       state.items = [];
       state.contexts = [];
+      state.modelCatalog = null;
       state.members = [];
       state.providerSecrets = [];
       state.apiKeys = [];
       return;
     }
-    const [items, contexts] = await Promise.allSettled([listItems(), listContexts()]);
+    const [items, contexts, catalog] = await Promise.allSettled([listItems(), listContexts(), getModelCatalog()]);
     state.items = items.status === "fulfilled" ? [...items.value].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) : [];
     state.contexts = contexts.status === "fulfilled" ? [...contexts.value].sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || (a.name || "").localeCompare(b.name || "")) : [];
-    state.dataError = [items, contexts].some((result) => result.status === "rejected") ? "Some workspace data could not be loaded." : "";
+    state.modelCatalog = catalog.status === "fulfilled" ? catalog.value : null;
+    state.dataError = [items, contexts, catalog].some((result) => result.status === "rejected") ? "Some workspace data could not be loaded." : "";
     await refreshMembers();
   }
 
@@ -324,10 +330,18 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
 
   function renderContextsPanel() {
     const metrics = state.contexts.map((ctx) => state.contextMetrics.get(ctx.id.toString()));
+    const transcriptionModels = uniqueOptions([
+      ...(state.modelCatalog?.ollamaModels ?? []),
+      ...(state.modelCatalog?.krakenModels ?? []),
+      ...(state.modelCatalog?.openaiModels ?? []),
+      ...(state.modelCatalog?.geminiModels ?? []),
+    ]);
+    const segmentationModels = uniqueOptions(state.modelCatalog?.segmentationModels ?? []);
+    const defaultSegmentationModel = segmentationModels[0] ?? "tesseract";
     setHTML(drawer, html`
       <div class="flex items-start justify-between gap-4"><h2 class="text-2xl font-semibold">OCR context library</h2><button id="shell-panel-close" class="${buttons}" type="button">Close</button></div>
       ${state.auth?.authenticated ? html`
-        <form id="contexts-create-form" class="${card} mt-5 grid gap-3"><input id="contexts-name" class="${input}" placeholder="Name" /><input id="contexts-provider" class="${input}" value="ollama" /><input id="contexts-model" class="${input}" placeholder="Transcription model" /><input id="contexts-segmentation" class="${input}" value="tesseract" /><input id="contexts-base-url" class="${input}" placeholder="https://service.run.app" /><input id="contexts-audience" class="${input}" placeholder="Optional audience" /><textarea id="contexts-description" class="${input}" placeholder="Description"></textarea><textarea id="contexts-system-prompt" class="${input}" placeholder="System prompt"></textarea><label><input id="contexts-default" type="checkbox" /> Set as default</label><button class="${primary}" type="submit">Create context</button><p id="contexts-status" class="text-sm text-muted-foreground"></p></form>
+        <form id="contexts-create-form" class="${card} mt-5 grid gap-3"><input id="contexts-name" class="${input}" placeholder="Name" /><input id="contexts-provider" class="${input}" list="contexts-provider-options" value="ollama" /><datalist id="contexts-provider-options">${datalistOptions(["ollama", "kraken", "openai", "gemini"])}</datalist><input id="contexts-model" class="${input}" list="contexts-transcription-models" placeholder="Transcription model" /><datalist id="contexts-transcription-models">${datalistOptions(transcriptionModels)}</datalist><input id="contexts-segmentation" class="${input}" list="contexts-segmentation-models" value="${defaultSegmentationModel}" /><datalist id="contexts-segmentation-models">${datalistOptions(segmentationModels)}</datalist><input id="contexts-base-url" class="${input}" placeholder="https://service.run.app" /><input id="contexts-audience" class="${input}" placeholder="Optional audience" /><textarea id="contexts-description" class="${input}" placeholder="Description"></textarea><textarea id="contexts-system-prompt" class="${input}" placeholder="System prompt"></textarea><label><input id="contexts-default" type="checkbox" /> Set as default</label><button class="${primary}" type="submit">Create context</button><p id="contexts-status" class="text-sm text-muted-foreground"></p></form>
         <div class="mt-5 grid gap-3">${state.contexts.map((ctx, index) => html`<article class="${card}"><h3 class="font-semibold">${ctx.name}</h3><p class="text-sm text-muted-foreground">${ctx.transcriptionProvider} · ${ctx.transcriptionModel || "default"}</p><p class="mt-2 text-xs text-muted-foreground">Runs ${metrics[index]?.total_runs ?? 0}</p></article>`)}</div>
       ` : html`<a href="${loginHref(state.auth)}" class="${primary} mt-5">Sign in with Google</a>`}
     `);

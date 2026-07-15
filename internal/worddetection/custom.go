@@ -150,9 +150,9 @@ func (p *CustomProvider) floodFill(img image.Image, visited [][]bool, startX, st
 	width := bounds.Dx()
 	height := bounds.Dy()
 
-	// Use a stack for iterative flood fill
 	type point struct{ x, y int }
 	stack := []point{{startX, startY}}
+	visited[startY][startX] = true
 
 	// 8-directional neighbors
 	directions := []point{{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, {0, 1}, {1, -1}, {1, 0}, {1, 1}}
@@ -164,18 +164,9 @@ func (p *CustomProvider) floodFill(img image.Image, visited [][]bool, startX, st
 
 		x, y := pt.x, pt.y
 
-		// Check bounds
-		if x < 0 || x >= width || y < 0 || y >= height {
+		if !p.isTextPixel(img.At(x, y)) {
 			continue
 		}
-
-		// Skip if already visited or not a text pixel
-		if visited[y][x] || !p.isTextPixel(img.At(x, y)) {
-			continue
-		}
-
-		// Mark as visited
-		visited[y][x] = true
 
 		// Update bounding box
 		if x < *minX {
@@ -191,9 +182,16 @@ func (p *CustomProvider) floodFill(img image.Image, visited [][]bool, startX, st
 			*maxY = y
 		}
 
-		// Add all 8 neighbors to stack
 		for _, dir := range directions {
-			stack = append(stack, point{x + dir.x, y + dir.y})
+			nx, ny := x+dir.x, y+dir.y
+			if nx < 0 || nx >= width || ny < 0 || ny >= height || visited[ny][nx] {
+				continue
+			}
+			if !p.isTextPixel(img.At(nx, ny)) {
+				continue
+			}
+			visited[ny][nx] = true
+			stack = append(stack, point{nx, ny})
 		}
 	}
 }

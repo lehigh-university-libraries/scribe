@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 )
@@ -38,8 +36,15 @@ func (p *KrakenProvider) Name() string {
 // DetectWords runs kraken segmentation and returns line bounding boxes as WordBox entries.
 // Kraken operates at the line level, so each returned WordBox covers a full text line.
 func (p *KrakenProvider) DetectWords(ctx context.Context, imagePath string) ([]WordBox, error) {
-	outputPath := filepath.Join(os.TempDir(),
-		fmt.Sprintf("kraken_seg_%d.json", time.Now().UnixNano()))
+	output, err := os.CreateTemp("", "kraken-seg-*.json")
+	if err != nil {
+		return nil, fmt.Errorf("create kraken output: %w", err)
+	}
+	outputPath := output.Name()
+	if err := output.Close(); err != nil {
+		_ = os.Remove(outputPath)
+		return nil, fmt.Errorf("close kraken output: %w", err)
+	}
 	defer os.Remove(outputPath)
 
 	// kraken -i <input> <output> segment -bl -i <model>

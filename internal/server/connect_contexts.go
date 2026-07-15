@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"connectrpc.com/connect"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -106,6 +109,17 @@ func (h *Handler) ResolveContext(ctx context.Context, req *connect.Request[scrib
 	return connect.NewResponse(&scribev1.ResolveContextResponse{
 		Context:   storeContextToProto(c),
 		IsDefault: isDefault,
+	}), nil
+}
+
+func (h *Handler) GetModelCatalog(ctx context.Context, req *connect.Request[scribev1.GetModelCatalogRequest]) (*connect.Response[scribev1.GetModelCatalogResponse], error) {
+	cfg := config.Get().Config
+	return connect.NewResponse(&scribev1.GetModelCatalogResponse{
+		OllamaModels:       sortedUniqueStrings(cfg.LLM.Ollama.Models),
+		KrakenModels:       sortedUniqueStrings(cfg.LLM.Kraken.Models),
+		SegmentationModels: sortedUniqueStrings(cfg.Segmentation.Models),
+		OpenaiModels:       sortedUniqueStrings(cfg.LLM.OpenAI.Models),
+		GeminiModels:       sortedUniqueStrings(cfg.LLM.Gemini.Models),
 	}), nil
 }
 
@@ -226,4 +240,22 @@ func marshalJSONOrEmpty(v any) string {
 		return ""
 	}
 	return string(b)
+}
+
+func sortedUniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
 }

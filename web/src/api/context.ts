@@ -3,6 +3,7 @@ import { ContextService } from "../proto/scribe/v1/context_connect";
 import {
   type Context,
   type ContextSelectionRule,
+  type GetModelCatalogResponse,
 } from "../proto/scribe/v1/context_pb";
 import { scribeFetch, scribePath } from "./http";
 import { getTransport } from "./transport";
@@ -66,6 +67,10 @@ export async function resolveContext(metadataJson: string): Promise<{ context: C
   const resp = await client().resolveContext({ metadataJson });
   if (!resp.context) throw new Error("no context in response");
   return { context: resp.context, isDefault: resp.isDefault };
+}
+
+export async function getModelCatalog(): Promise<GetModelCatalogResponse> {
+  return client().getModelCatalog({});
 }
 
 export async function getContextMetrics(contextId: string): Promise<ContextMetrics> {
