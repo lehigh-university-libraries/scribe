@@ -467,6 +467,9 @@ provider "vault" {
 
 module "scribe" {
   source = "git::https://github.com/libops/cloud-compose?ref=1.2.1"
+  providers = {
+    google = google
+  }
 
   name = var.name
 
