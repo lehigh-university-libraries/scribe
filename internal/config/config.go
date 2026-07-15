@@ -37,6 +37,7 @@ type Config struct {
 	Segmentation  ServiceEndpointConfig `yaml:"segmentation_service"`
 	ImageService  ServiceEndpointConfig `yaml:"image_service"`
 	Annotation    AnnotationConfig      `yaml:"annotation"`
+	Audit         AuditConfig           `yaml:"audit"`
 	Drupal        DrupalConfig          `yaml:"drupal"`
 	Webhooks      WebhooksConfig        `yaml:"webhooks"`
 	Vault         VaultConfig           `yaml:"vault"`
@@ -163,6 +164,11 @@ type AnnotationConfig struct {
 	TripletPresentationBase         string `yaml:"triplet_presentation_base"`
 	TripletPresentationInternalBase string `yaml:"triplet_presentation_internal_base"`
 	TripletPresentationWriteToken   string `yaml:"triplet_presentation_write_token"`
+}
+
+type AuditConfig struct {
+	ProviderCallBodies    bool          `yaml:"provider_call_bodies"`
+	ProviderCallRetention time.Duration `yaml:"provider_call_retention"`
 }
 
 type DrupalConfig struct {
@@ -297,6 +303,9 @@ func Load() (Config, error) {
 	}
 	if cfg.Auth.GoogleCallbackPath == "" {
 		cfg.Auth.GoogleCallbackPath = "/auth/callback/google"
+	}
+	if cfg.Audit.ProviderCallRetention <= 0 {
+		cfg.Audit.ProviderCallRetention = 30 * 24 * time.Hour
 	}
 	if cfg.Vault.KVMount == "" {
 		cfg.Vault.KVMount = "secret"

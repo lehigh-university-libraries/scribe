@@ -87,16 +87,16 @@ func (h *Handler) ListTranscriptionJobs(
 }
 
 // StreamTranscriptionJob sends a TranscriptionJob message every time the job
-// is updated (polling the DB every 2 seconds) until the job reaches a terminal
-// state or the client disconnects.
+// is updated until the job reaches a terminal state or the client disconnects.
 func (h *Handler) StreamTranscriptionJob(
 	ctx context.Context,
 	req *connect.Request[scribev1.StreamTranscriptionJobRequest],
 	stream *connect.ServerStream[scribev1.StreamTranscriptionJobResponse],
 ) error {
 	jobID := req.Msg.GetJobId()
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
+	pollInterval := 500 * time.Millisecond
+	timer := time.NewTimer(0)
+	defer timer.Stop()
 
 	var lastUpdatedAt time.Time
 
@@ -104,7 +104,7 @@ func (h *Handler) StreamTranscriptionJob(
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-timer.C:
 			job, err := h.transcriptionJobs.Get(ctx, jobID)
 			if err != nil {
 				return connect.NewError(connect.CodeNotFound, err)
@@ -116,9 +116,15 @@ func (h *Handler) StreamTranscriptionJob(
 				if job.Status == store.TranscriptionJobStatusCompleted || job.Status == store.TranscriptionJobStatusFailed {
 					return nil
 				}
+				pollInterval *= 2
+				if pollInterval > 10*time.Second {
+					pollInterval = 10 * time.Second
+				}
+				timer.Reset(pollInterval)
 				continue
 			}
 			lastUpdatedAt = job.UpdatedAt
+			pollInterval = 500 * time.Millisecond
 
 			if err := stream.Send(&scribev1.StreamTranscriptionJobResponse{Job: storeJobToProto(job)}); err != nil {
 				return err
@@ -127,6 +133,7 @@ func (h *Handler) StreamTranscriptionJob(
 			if job.Status == store.TranscriptionJobStatusCompleted || job.Status == store.TranscriptionJobStatusFailed {
 				return nil
 			}
+			timer.Reset(pollInterval)
 		}
 	}
 }

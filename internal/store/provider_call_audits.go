@@ -165,6 +165,18 @@ func (s *ProviderCallAuditStore) ListByItem(ctx context.Context, itemID string, 
 	return audits, nil
 }
 
+func (s *ProviderCallAuditStore) Retain(ctx context.Context, olderThan time.Duration) error {
+	if olderThan <= 0 {
+		olderThan = 30 * 24 * time.Hour
+	}
+	cutoff := time.Now().UTC().Add(-olderThan)
+	_, err := s.pool.ExecContext(ctx, `DELETE FROM provider_call_audits WHERE created_at < ?`, cutoff)
+	if err != nil {
+		return fmt.Errorf("delete retained provider call audits: %w", err)
+	}
+	return nil
+}
+
 func nullString(v string) sql.NullString {
 	if v == "" {
 		return sql.NullString{}

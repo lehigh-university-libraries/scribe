@@ -17,8 +17,25 @@ if command -v golangci-lint >/dev/null 2>&1; then
   exit 0
 fi
 
-docker run --rm \
-  -v "$PWD:/app" \
-  -w /app \
-  "${GOLANGCI_IMAGE:?GOLANGCI_IMAGE is required}" \
-  golangci-lint run
+if docker run --rm -v "$PWD:/app" -w /app "${GOLANGCI_IMAGE:?GOLANGCI_IMAGE is required}" sh -c 'test -f go.mod' >/dev/null 2>&1; then
+  docker run --rm \
+    -v "$PWD:/app" \
+    -w /app \
+    "${GOLANGCI_IMAGE:?GOLANGCI_IMAGE is required}" \
+    golangci-lint run
+  exit 0
+fi
+
+container_id="$(
+  docker create \
+    -w /app \
+    "${GOLANGCI_IMAGE:?GOLANGCI_IMAGE is required}" \
+    golangci-lint run
+)"
+cleanup() {
+  docker rm -f "$container_id" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+docker cp "$PWD/." "$container_id:/app"
+docker start -a "$container_id"

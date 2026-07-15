@@ -81,6 +81,28 @@ describe("renderEditor", () => {
     await vi.waitFor(() => expect(window.location.pathname).toBe("/"));
   });
 
+  it("stays in the editor when save-before-leave fails", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    await renderEditor(app);
+
+    document.dispatchEvent(new CustomEvent("scribe:dirty-state", { detail: { dirty: true } }));
+    document.getElementById("home-nav")?.click();
+    expect(document.getElementById("leave-dialog")?.classList.contains("flex")).toBe(true);
+
+    document.addEventListener("scribe:request-save", (event) => {
+      const detail = (event as CustomEvent<{ requestId: string }>).detail;
+      document.dispatchEvent(new CustomEvent("scribe:save-result", {
+        detail: { ok: false, requestId: detail.requestId },
+      }));
+    }, { once: true });
+
+    document.getElementById("leave-save")?.click();
+    await vi.waitFor(() => expect((document.getElementById("leave-save") as HTMLButtonElement | null)?.disabled).toBe(false));
+    expect(window.location.pathname).toBe("/editor");
+    expect(document.getElementById("leave-dialog")?.classList.contains("flex")).toBe(true);
+  });
+
   it("reloads annotations when the latest loaded transcription job is complete", async () => {
     window.history.replaceState({}, "", "/editor?itemImageId=7");
     mocks.getOCRRun.mockResolvedValue({

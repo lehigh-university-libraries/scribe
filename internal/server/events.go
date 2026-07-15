@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
 	"golang.org/x/sync/errgroup"
 )
@@ -89,6 +90,30 @@ func (h *Handler) StartWebhookDispatcher(ctx context.Context) {
 			case <-retentionTicker.C:
 				if err := h.transcriptionJobs.RetainWebhookEvents(ctx, 30*24*time.Hour); err != nil {
 					slog.Warn("Failed to retain webhook events", "error", err)
+				}
+			}
+		}
+	}()
+}
+
+func (h *Handler) StartProviderCallAuditRetention(ctx context.Context) {
+	if h.providerCallAudits == nil {
+		return
+	}
+	retention := config.Get().Config.Audit.ProviderCallRetention
+	if retention <= 0 {
+		retention = 30 * 24 * time.Hour
+	}
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := h.providerCallAudits.Retain(ctx, retention); err != nil {
+					slog.Warn("Failed to retain provider call audits", "error", err)
 				}
 			}
 		}

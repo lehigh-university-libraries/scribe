@@ -96,7 +96,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     return query ? state.items.filter((item) => `${item.name} ${item.id} ${item.sourceType}`.toLowerCase().includes(query)) : state.items;
   };
   const uniqueOptions = (values: readonly string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const datalistOptions = (values: readonly string[]) => uniqueOptions(values).map((value) => html`<option value="${value}"></option>`).join("");
+  const datalistOptions = (values: readonly string[]) => uniqueOptions(values).map((value) => html`<option value="${value}"></option>`);
 
   async function refreshAuth() {
     try {

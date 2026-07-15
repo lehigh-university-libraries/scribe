@@ -59,6 +59,58 @@ func createTestWorkspace(t *testing.T, db *sql.DB, userID uint64, name string) u
 	return workspaceID
 }
 
+func TestProviderCallAuditRetentionDeletesOldRows(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	audits := store.NewProviderCallAuditStore(db)
+
+	oldSession := uniqueName("old-audit")
+	newSession := uniqueName("new-audit")
+	if err := audits.Create(ctx, store.ProviderCallAudit{
+		SessionID: oldSession,
+		Provider:  "gemini",
+		Model:     "gemini-test",
+		Operation: "transcribe",
+		Prompt:    "old prompt",
+	}); err != nil {
+		t.Fatalf("create old audit: %v", err)
+	}
+	if err := audits.Create(ctx, store.ProviderCallAudit{
+		SessionID: newSession,
+		Provider:  "gemini",
+		Model:     "gemini-test",
+		Operation: "transcribe",
+		Prompt:    "new prompt",
+	}); err != nil {
+		t.Fatalf("create new audit: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM provider_call_audits WHERE session_id IN (?, ?)`, oldSession, newSession)
+	})
+	if _, err := db.Exec(`UPDATE provider_call_audits SET created_at = ? WHERE session_id = ?`, time.Now().UTC().Add(-48*time.Hour), oldSession); err != nil {
+		t.Fatalf("age old audit: %v", err)
+	}
+
+	if err := audits.Retain(ctx, 24*time.Hour); err != nil {
+		t.Fatalf("Retain() error = %v", err)
+	}
+
+	var oldCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM provider_call_audits WHERE session_id = ?`, oldSession).Scan(&oldCount); err != nil {
+		t.Fatalf("count old audit: %v", err)
+	}
+	if oldCount != 0 {
+		t.Fatalf("old audit count = %d, want 0", oldCount)
+	}
+	var newCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM provider_call_audits WHERE session_id = ?`, newSession).Scan(&newCount); err != nil {
+		t.Fatalf("count new audit: %v", err)
+	}
+	if newCount != 1 {
+		t.Fatalf("new audit count = %d, want 1", newCount)
+	}
+}
+
 func TestResolveTranscriptionJobContextUsesOwningUserScope(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()

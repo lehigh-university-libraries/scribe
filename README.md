@@ -64,6 +64,17 @@ Tesseract/Leptonica support is isolated to the standalone segmentor image,
 which opts in with the `localocr` build tag; API/worker production builds use
 the `remoteocr` tag and call that service over HTTP.
 
+OCR build-tag matrix:
+
+| Build | Command | Segmentors |
+|-------|---------|------------|
+| default | `go test ./internal/worddetection` | local Kraken CLI + custom flood fill; Tesseract disabled |
+| `remoteocr` | `go build -tags remoteocr ./cmd/api ./cmd/worker` | remote segmentor/image services over HTTP |
+| `localocr` | `go build -tags localocr ./cmd/segmentor` | local Kraken CLI + custom flood fill + Tesseract/Leptonica |
+
+Run `make ocr-build-tags` to validate all three paths in a container with the
+native Tesseract headers installed. CI runs the same target.
+
 | Service | URL |
 |---------|-----|
 | Web app | http://localhost |

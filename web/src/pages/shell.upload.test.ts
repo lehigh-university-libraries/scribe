@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createAPIKey, createProviderSecret, deleteAPIKey, deleteProviderSecret, getAuthMe, listAPIKeys, listProviderSecrets, logout } from "../api/auth";
-import { createContext, getContextMetrics, listContexts } from "../api/context";
+import { createContext, getContextMetrics, getModelCatalog, listContexts } from "../api/context";
 import { subscribeToEvents } from "../api/events";
 import { createItemFromManifest, listItems, listItemProviderCallAudits, uploadItemImages } from "../api/items";
 import { processImageURL, processImageUpload } from "../api/processing";
@@ -25,6 +25,7 @@ vi.mock("../api/auth", () => ({
 vi.mock("../api/context", () => ({
   createContext: vi.fn(),
   getContextMetrics: vi.fn(),
+  getModelCatalog: vi.fn(),
   listContexts: vi.fn(),
 }));
 
@@ -78,7 +79,9 @@ async function waitFor(assertion: () => void): Promise<void> {
   throw lastError;
 }
 
-async function setupShell(view: "library" | "contexts" | "settings" = "library", eventClose = vi.fn()): Promise<HTMLElement> {
+type TestModelCatalog = Awaited<ReturnType<typeof getModelCatalog>>;
+
+async function setupShell(view: "library" | "contexts" | "settings" = "library", eventClose = vi.fn(), catalog?: TestModelCatalog): Promise<HTMLElement> {
   document.body.innerHTML = `<main id="app"></main>`;
   window.history.replaceState(null, "", `/${view}`);
   window.localStorage.clear();
@@ -94,6 +97,13 @@ async function setupShell(view: "library" | "contexts" | "settings" = "library",
   vi.mocked(listWorkspaces).mockResolvedValue([{ workspace, role: "admin" }] as never);
   vi.mocked(listItems).mockResolvedValue([]);
   vi.mocked(listContexts).mockResolvedValue([]);
+  vi.mocked(getModelCatalog).mockResolvedValue(catalog ?? {
+    ollamaModels: ["glm-ocr:bf16"],
+    krakenModels: ["catmus-print-fondue-large.mlmodel"],
+    segmentationModels: ["kraken"],
+    openaiModels: [],
+    geminiModels: [],
+  } as never);
   vi.mocked(listWorkspaceMembers).mockResolvedValue({ workspace, members: [] } as never);
   vi.mocked(getContextMetrics).mockResolvedValue({
     context_id: 0,
@@ -212,6 +222,41 @@ describe("annotation upload actions", () => {
     window.dispatchEvent(new Event("pagehide"));
 
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates contexts from the deployed model catalog", async () => {
+    const catalog: TestModelCatalog = {
+      ollamaModels: ["glm-ocr:bf16", "llava"],
+      krakenModels: ["catmus-print-fondue-large.mlmodel"],
+      segmentationModels: ["kraken", "kraken-manuscript"],
+      openaiModels: ["gpt-4.1"],
+      geminiModels: [],
+    } as never;
+    vi.mocked(createContext).mockResolvedValue({ id: 88n, name: "Catalog context" } as never);
+
+    await setupShell("contexts", vi.fn(), catalog);
+
+    await waitFor(() => {
+      const modelOptions = Array.from(document.querySelectorAll("#contexts-transcription-models option")).map((option) => option.getAttribute("value"));
+      const segmentationOptions = Array.from(document.querySelectorAll("#contexts-segmentation-models option")).map((option) => option.getAttribute("value"));
+      expect(modelOptions).toEqual(["catmus-print-fondue-large.mlmodel", "glm-ocr:bf16", "gpt-4.1", "llava"]);
+      expect(segmentationOptions).toEqual(["kraken", "kraken-manuscript"]);
+    });
+
+    (document.getElementById("contexts-name") as HTMLInputElement).value = "Catalog context";
+    (document.getElementById("contexts-provider") as HTMLInputElement).value = "ollama";
+    (document.getElementById("contexts-model") as HTMLInputElement).value = "glm-ocr:bf16";
+    (document.getElementById("contexts-segmentation") as HTMLInputElement).value = "kraken-manuscript";
+    document.getElementById("contexts-create-form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await waitFor(() => {
+      expect(createContext).toHaveBeenCalledWith(expect.objectContaining({
+        name: "Catalog context",
+        transcriptionProvider: "ollama",
+        transcriptionModel: "glm-ocr:bf16",
+        segmentationModel: "kraken-manuscript",
+      }));
+    });
   });
 
   it("creates and deletes API keys from settings", async () => {

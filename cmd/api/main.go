@@ -26,6 +26,7 @@ func main() {
 	defer deps.Close()
 
 	handler := deps.NewHandler()
+	handler.StartProviderCallAuditRetention(appCtx)
 
 	httpServer := &http.Server{
 		Addr:              deps.Config.ListenAddr,

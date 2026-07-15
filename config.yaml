@@ -77,6 +77,10 @@ annotation:
   triplet_presentation_internal_base: "${TRIPLET_PRESENTATION_INTERNAL_BASE:-}"
   triplet_presentation_write_token: "${TRIPLET_PRESENTATION_WRITE_TOKEN:-}"
 
+audit:
+  provider_call_bodies: false
+  provider_call_retention: 720h
+
 drupal:
   hocr_url_template: ""
 

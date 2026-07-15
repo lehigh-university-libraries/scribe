@@ -39,6 +39,9 @@ jobs:
       - name: Run tests
         run: make test
 
+      - name: Check OCR build tag matrix
+        run: make ocr-build-tags
+
       - name: Tear down test services
         if: always()
         run: make down

@@ -170,7 +170,13 @@ func NewHandler(
 		ocr:                ocrhandlers.New(),
 	}
 	if providerCallAudits != nil {
+		auditCfg := config.Get().Config.Audit
 		handler.ocr.SetProviderCallAuditLogger(func(ctx context.Context, record hocr.ProviderCallAuditRecord) {
+			if !auditCfg.ProviderCallBodies {
+				record.Prompt = ""
+				record.RequestJSON = ""
+				record.ResponseJSON = ""
+			}
 			if err := providerCallAudits.Create(ctx, store.ProviderCallAudit{
 				SessionID:    record.SessionID,
 				ItemImageID:  record.ItemImageID,

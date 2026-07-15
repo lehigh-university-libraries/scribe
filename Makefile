@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build build-frontend fmt lint test test-backend test-frontend e2e-smoke proto proto-lint sqlc generate install-tools up up-db down logs sequelace ocr-matrix ocr-images tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
+.PHONY: build build-frontend fmt lint test test-backend test-frontend e2e-smoke ocr-build-tags proto proto-lint sqlc generate install-tools up up-db down logs sequelace ocr-matrix ocr-images tf-dev tf-dev-vault tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
@@ -84,6 +84,9 @@ test-frontend: ## Run frontend tests and production build checks
 
 e2e-smoke: ## Run the containerized DB-backed ingest/edit/save/reload smoke path
 	@bash ./ci/e2e-smoke.sh
+
+ocr-build-tags: ## Build/test default, remoteocr, and localocr OCR build-tag combinations in a container
+	@bash ./ci/ocr-build-tags.sh
 
 tf-dev: ## Run local Terraform for the shared dev environment. Usage: make tf-dev [BRANCH=name] ACTION=plan|apply|destroy
 	@set -eu; \

@@ -33,6 +33,7 @@ func main() {
 	defer workerCancel()
 	handler.StartTranscriptionWorker(workerCtx)
 	handler.StartWebhookDispatcher(workerCtx)
+	handler.StartProviderCallAuditRetention(workerCtx)
 
 	var draining atomic.Bool
 	healthMux := http.NewServeMux()

@@ -96,21 +96,48 @@ func parseKrakenJSON(path string) ([]WordBox, error) {
 		box, ok := boundingBoxFromPolygon(line.Boundary)
 		if !ok {
 			// Fall back to baseline points if boundary is missing.
-			box, ok = boundingBoxFromPolygon(line.Baseline)
+			box, ok = boundingBoxFromBaseline(line.Baseline)
 			if !ok {
 				continue
 			}
-			// Inflate the baseline box vertically to approximate line height.
-			h := box.Height
-			if h < 20 {
-				h = 20
-			}
-			box.Y -= h / 2
-			box.Height = h
 		}
 		boxes = append(boxes, box)
 	}
 	return boxes, nil
+}
+
+func boundingBoxFromBaseline(points [][]int) (WordBox, bool) {
+	if len(points) == 0 {
+		return WordBox{}, false
+	}
+	minX, minY := points[0][0], points[0][1]
+	maxX, maxY := minX, minY
+	for _, pt := range points {
+		if len(pt) < 2 {
+			continue
+		}
+		if pt[0] < minX {
+			minX = pt[0]
+		}
+		if pt[1] < minY {
+			minY = pt[1]
+		}
+		if pt[0] > maxX {
+			maxX = pt[0]
+		}
+		if pt[1] > maxY {
+			maxY = pt[1]
+		}
+	}
+	w := maxX - minX
+	if w <= 0 {
+		return WordBox{}, false
+	}
+	h := maxY - minY
+	if h < 20 {
+		h = 20
+	}
+	return WordBox{X: minX, Y: minY - h/2, Width: w, Height: h}, true
 }
 
 func boundingBoxFromPolygon(points [][]int) (WordBox, bool) {
