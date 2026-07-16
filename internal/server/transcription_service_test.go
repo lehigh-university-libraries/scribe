@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -235,6 +236,108 @@ func TestResumedTranscriptionProgressClampsToTotal(t *testing.T) {
 	}, 5)
 	if completed != 5 || failed != 0 || startIndex != 5 {
 		t.Fatalf("completed=%d failed=%d startIndex=%d, want 5/0/5", completed, failed, startIndex)
+	}
+}
+
+func TestSeedTranscriptionJobOCRRunUsesActualCompletedCount(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	itemStore := store.NewItemStore(db)
+	contextStore := store.NewContextStore(db)
+	annotationStore := store.NewAnnotationStore(db)
+	ocrRunStore := store.NewOCRRunStore(db)
+	handler := &Handler{
+		annotations: annotationStore,
+		ocrRuns:     ocrRunStore,
+	}
+
+	userID := createTestUser(t, db, uniqueName("seed-user"))
+	workspaceID := createTestWorkspace(t, db, userID, uniqueName("seed-workspace"))
+	contextRow, err := contextStore.Create(ctx, store.Context{
+		Name:                  uniqueName("seed-context"),
+		SegmentationModel:     "scribe",
+		TranscriptionProvider: "ollama",
+		TranscriptionModel:    "seed-model",
+	})
+	if err != nil {
+		t.Fatalf("create context: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = contextStore.Delete(context.Background(), contextRow.ID)
+	})
+
+	item, err := itemStore.Create(ctx, dbstore.CreateItemParams{
+		ID:          uniqueName("seed-item"),
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+		Name:        "Seed Item",
+		SourceType:  "upload",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM item_images WHERE item_id = ?`, item.ID)
+		_ = itemStore.Delete(context.Background(), item.ID)
+	})
+
+	createImageWithAnnotation := func(t *testing.T, sequence int) store.ItemImage {
+		t.Helper()
+		image, err := itemStore.AddImage(ctx, dbstore.CreateItemImageParams{
+			ItemID:   item.ID,
+			Sequence: uint32(sequence),
+			ImageURL: fmt.Sprintf("https://example.test/seed-%d.jpg", sequence),
+		})
+		if err != nil {
+			t.Fatalf("add image %d: %v", sequence, err)
+		}
+		annotationID := fmt.Sprintf("%s/annotation/line-%d", image.CanvasURI, sequence)
+		payload := fmt.Sprintf(`{
+			"id":%q,
+			"type":"Annotation",
+			"motivation":"supplementing",
+			"textGranularity":"line",
+			"body":[{"type":"TextualBody","value":"Seeded text %d","format":"text/plain"}],
+			"target":{"source":{"id":%q,"type":"Canvas"},"selector":{"type":"FragmentSelector","value":"xywh=10,20,100,30"}}
+		}`, annotationID, sequence, image.CanvasURI)
+		if err := annotationStore.Upsert(ctx, annotationID, image.CanvasURI, payload); err != nil {
+			t.Fatalf("upsert annotation %d: %v", sequence, err)
+		}
+		t.Cleanup(func() {
+			_ = annotationStore.Delete(context.Background(), annotationID)
+		})
+		return image
+	}
+
+	completedImage := createImageWithAnnotation(t, 1)
+	job := &store.TranscriptionJob{
+		ID:                uint64(time.Now().UnixNano()),
+		ItemImageID:       completedImage.ID,
+		CompletedSegments: 0,
+	}
+	if err := handler.seedTranscriptionJobOCRRun(ctx, job, contextRow, completedImage, 1); err != nil {
+		t.Fatalf("seed completed OCR run: %v", err)
+	}
+	run, err := ocrRunStore.GetByItemImageID(ctx, completedImage.ID)
+	if err != nil {
+		t.Fatalf("get seeded OCR run: %v", err)
+	}
+	if run.OriginalText != "Seeded text 1" {
+		t.Fatalf("OriginalText = %q, want %q", run.OriginalText, "Seeded text 1")
+	}
+
+	emptyImage := createImageWithAnnotation(t, 2)
+	emptyJob := &store.TranscriptionJob{
+		ID:                uint64(time.Now().UnixNano() + 1),
+		ItemImageID:       emptyImage.ID,
+		CompletedSegments: 1,
+	}
+	if err := handler.seedTranscriptionJobOCRRun(ctx, emptyJob, contextRow, emptyImage, 0); err != nil {
+		t.Fatalf("seed empty OCR run: %v", err)
+	}
+	if _, err := ocrRunStore.GetByItemImageID(ctx, emptyImage.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("empty job OCR run error = %v, want sql.ErrNoRows", err)
 	}
 }
 

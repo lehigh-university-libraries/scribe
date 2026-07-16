@@ -565,7 +565,7 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	}
 
 	slog.Info("Transcription job complete", "job_id", job.ID, "completed", completed, "failed", failed)
-	if err := h.seedTranscriptionJobOCRRun(ctx, job, pctx, img); err != nil {
+	if err := h.seedTranscriptionJobOCRRun(ctx, job, pctx, img, completed); err != nil {
 		slog.Warn("Failed to seed OCR run metrics for transcription job", "job_id", job.ID, "item_image_id", job.ItemImageID, "error", err)
 	}
 	evt := h.newCloudEvent("dev.scribe.transcription.completed", subjectForItemImage(job.ItemImageID), map[string]any{
@@ -586,11 +586,11 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	return nil
 }
 
-func (h *Handler) seedTranscriptionJobOCRRun(ctx context.Context, job *store.TranscriptionJob, pctx store.Context, img store.ItemImage) error {
+func (h *Handler) seedTranscriptionJobOCRRun(ctx context.Context, job *store.TranscriptionJob, pctx store.Context, img store.ItemImage, completed int) error {
 	if h.ocrRuns == nil || h.annotations == nil {
 		return nil
 	}
-	if job.CompletedSegments == 0 {
+	if completed == 0 {
 		return nil
 	}
 	if _, err := h.ocrRuns.GetByItemImageID(ctx, job.ItemImageID); err == nil {
