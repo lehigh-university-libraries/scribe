@@ -10,6 +10,11 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 run_tests="
+    cd /app/web
+    npm ci
+    npm test
+    npm run build
+    cd /app/mirador-scribe
     npm ci
     npm test
     npm run build
@@ -17,15 +22,17 @@ run_tests="
 
 if docker run --rm \
   --mount "type=bind,src=${ROOT_DIR},dst=/app" \
-  -w /app/web \
+  -w /app \
   "$FRONTEND_TEST_IMAGE" \
-  sh -c 'test -f package.json' >/dev/null 2>&1; then
+  sh -c 'test -f web/package.json && test -f mirador-scribe/package.json' >/dev/null 2>&1; then
   docker run --rm \
     --mount "type=bind,src=${ROOT_DIR},dst=/app" \
     --mount "type=volume,dst=/app/web/node_modules" \
     --mount "type=volume,dst=/app/web/dist" \
+    --mount "type=volume,dst=/app/mirador-scribe/node_modules" \
+    --mount "type=volume,dst=/app/mirador-scribe/dist" \
     -e CI=true \
-    -w /app/web \
+    -w /app \
     "$FRONTEND_TEST_IMAGE" \
     sh -lc "$run_tests"
   exit 0
@@ -34,7 +41,7 @@ fi
 container_id="$(
   docker create \
     -e CI=true \
-    -w /app/web \
+    -w /app \
     "$FRONTEND_TEST_IMAGE" \
     sh -lc "$run_tests"
 )"
@@ -43,5 +50,5 @@ cleanup() {
 }
 trap cleanup EXIT
 
-tar --exclude=.git --exclude=web/node_modules --exclude=web/dist -C "$ROOT_DIR" -cf - . | docker cp - "$container_id:/app"
+tar --exclude=.git --exclude=web/node_modules --exclude=web/dist --exclude=mirador-scribe/node_modules --exclude=mirador-scribe/dist -C "$ROOT_DIR" -cf - . | docker cp - "$container_id:/app"
 docker start -a "$container_id"

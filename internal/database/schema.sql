@@ -135,6 +135,9 @@ CREATE TABLE IF NOT EXISTS ocr_runs (
   INDEX idx_ocr_runs_context (context_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+ALTER TABLE ocr_runs
+  ADD INDEX IF NOT EXISTS idx_ocr_runs_context_image (context_id, item_image_id);
+
 CREATE TABLE IF NOT EXISTS annotations (
   id VARCHAR(512) PRIMARY KEY,
   canvas_uri VARCHAR(1024) NOT NULL,

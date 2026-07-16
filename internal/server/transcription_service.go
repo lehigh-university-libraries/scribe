@@ -590,6 +590,9 @@ func (h *Handler) seedTranscriptionJobOCRRun(ctx context.Context, job *store.Tra
 	if h.ocrRuns == nil || h.annotations == nil {
 		return nil
 	}
+	if job.CompletedSegments == 0 {
+		return nil
+	}
 	if _, err := h.ocrRuns.GetByItemImageID(ctx, job.ItemImageID); err == nil {
 		return nil
 	} else if !errors.Is(err, sql.ErrNoRows) {

@@ -59,19 +59,37 @@ resource "google_service_account_iam_member" "vault_gcp_auth_instance_service_ac
   member             = "serviceAccount:${module.vault[0].gsa}"
 }
 
-resource "google_service_account_iam_member" "vault_gcp_auth_app_service_account_key_admin" {
+resource "google_project_iam_custom_role" "vault_gcp_auth_key_verifier" {
+  count = local.vault_is_owner_workspace ? 1 : 0
+
+  project     = var.project_id
+  role_id     = "vaultGcpAuthKeyVerifier"
+  title       = "Vault GCP Auth Key Verifier"
+  description = "Allows Vault's GCP auth backend to verify service-account JWT signing keys without creating or deleting keys."
+  permissions = [
+    "iam.serviceAccountKeys.get",
+  ]
+  stage           = "GA"
+  deletion_policy = "PREVENT"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_service_account_iam_member" "vault_gcp_auth_app_service_account_key_verifier" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
   service_account_id = module.scribe.appGsa.name
-  role               = "roles/iam.serviceAccountKeyAdmin"
+  role               = google_project_iam_custom_role.vault_gcp_auth_key_verifier[0].id
   member             = "serviceAccount:${module.vault[0].gsa}"
 }
 
-resource "google_service_account_iam_member" "vault_gcp_auth_instance_service_account_key_admin" {
+resource "google_service_account_iam_member" "vault_gcp_auth_instance_service_account_key_verifier" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
   service_account_id = module.scribe.instance.gsa.name
-  role               = "roles/iam.serviceAccountKeyAdmin"
+  role               = google_project_iam_custom_role.vault_gcp_auth_key_verifier[0].id
   member             = "serviceAccount:${module.vault[0].gsa}"
 }
 

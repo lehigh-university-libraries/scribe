@@ -17,7 +17,8 @@
   "scripts": {
     "build": "vite build",
     "clean": "rm -rf dist",
-    "start": "vite"
+    "start": "vite",
+    "test": "vitest run"
   },
   "peerDependencies": {
     "@emotion/react": ">=11",
@@ -38,6 +39,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "5.2.0",
     "openseadragon": "6.0.2",
+    "vitest": "^4.1.9",
     "vite": "7.3.5"
   }
 }

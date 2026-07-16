@@ -73,27 +73,47 @@ func (h *Handler) enqueueWebhooks(evt cloudEvent) {
 
 // StartWebhookDispatcher starts durable webhook delivery workers until ctx is cancelled.
 func (h *Handler) StartWebhookDispatcher(ctx context.Context) {
-	if h.transcriptionJobs == nil || len(h.webhookURLs) == 0 {
+	if h.transcriptionJobs == nil {
+		return
+	}
+	h.retainWebhookEvents(ctx)
+	h.startWebhookEventRetention(ctx)
+	if len(h.webhookURLs) == 0 {
 		return
 	}
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
-		retentionTicker := time.NewTicker(time.Hour)
 		defer ticker.Stop()
-		defer retentionTicker.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				h.dispatchWebhookBatch(ctx)
-			case <-retentionTicker.C:
-				if err := h.transcriptionJobs.RetainWebhookEvents(ctx, 30*24*time.Hour); err != nil {
-					slog.Warn("Failed to retain webhook events", "error", err)
-				}
 			}
 		}
 	}()
+}
+
+func (h *Handler) startWebhookEventRetention(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				h.retainWebhookEvents(ctx)
+			}
+		}
+	}()
+}
+
+func (h *Handler) retainWebhookEvents(ctx context.Context) {
+	if err := h.transcriptionJobs.RetainWebhookEvents(ctx, 30*24*time.Hour); err != nil {
+		slog.Warn("Failed to retain webhook events", "error", err)
+	}
 }
 
 func (h *Handler) StartProviderCallAuditRetention(ctx context.Context) {
@@ -104,6 +124,7 @@ func (h *Handler) StartProviderCallAuditRetention(ctx context.Context) {
 	if retention <= 0 {
 		retention = 30 * 24 * time.Hour
 	}
+	h.retainProviderCallAudits(ctx, retention)
 	go func() {
 		ticker := time.NewTicker(time.Hour)
 		defer ticker.Stop()
@@ -112,12 +133,16 @@ func (h *Handler) StartProviderCallAuditRetention(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := h.providerCallAudits.Retain(ctx, retention); err != nil {
-					slog.Warn("Failed to retain provider call audits", "error", err)
-				}
+				h.retainProviderCallAudits(ctx, retention)
 			}
 		}
 	}()
+}
+
+func (h *Handler) retainProviderCallAudits(ctx context.Context, retention time.Duration) {
+	if err := h.providerCallAudits.Retain(ctx, retention); err != nil {
+		slog.Warn("Failed to retain provider call audits", "error", err)
+	}
 }
 
 func (h *Handler) dispatchWebhookBatch(ctx context.Context) {
