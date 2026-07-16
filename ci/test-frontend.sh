@@ -9,11 +9,11 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 127
 fi
 
-run_tests='
+run_tests="
     npm ci
     npm test
     npm run build
-  '
+  "
 
 if docker run --rm \
   --mount "type=bind,src=${ROOT_DIR},dst=/app" \

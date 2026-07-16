@@ -27,11 +27,11 @@ if [ -n "$MARIADB_ID" ]; then
 fi
 
 GO_TEST_IMAGE="golang:1.26-alpine@sha256:91eda9776261207ea25fd06b5b7fed8d397dd2c0a283e77f2ab6e91bfa71079d"
-run_tests='
-    export PATH="/usr/local/go/bin:$PATH"
+run_tests="
+    export PATH=\"/usr/local/go/bin:\$PATH\"
     apk add --no-cache build-base >/dev/null
     go test -v -race ./...
-  '
+  "
 
 if docker run --rm -v "$PWD:/app" -w /app "$GO_TEST_IMAGE" sh -c 'test -f go.mod' >/dev/null 2>&1; then
   # shellcheck disable=SC2086
