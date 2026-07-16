@@ -1,5 +1,5 @@
 # cloud-compose 0.6.x kept GCP resources directly under module.scribe.
-# cloud-compose 1.2.x moved them under a counted module.scribe.module.gcp[0].
+# cloud-compose 1.2.x and 1.3.x move them under a counted module.scribe.module.gcp[0].
 # The upstream module includes the first move, but not the counted-module
 # instance hop Terraform needs for our existing prod/dev state.
 moved {

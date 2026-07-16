@@ -450,7 +450,11 @@ check "shared_internal_repository_ready" {
 
 module "cloud_compose_foundation" {
   count  = local.vault_is_owner_workspace ? 1 : 0
-  source = "git::https://github.com/libops/cloud-compose//modules/gcp-foundation?ref=1.2.1"
+  source = "git::https://github.com/libops/cloud-compose//modules/gcp-foundation?ref=1.3.0"
+  providers = {
+    google      = google
+    google-beta = google-beta
+  }
 
   service_project_id = var.project_id
 }
@@ -466,7 +470,7 @@ provider "vault" {
 }
 
 module "scribe" {
-  source = "git::https://github.com/libops/cloud-compose?ref=1.2.1"
+  source = "git::https://github.com/libops/cloud-compose?ref=1.3.0"
   providers = {
     google = google
   }
