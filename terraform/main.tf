@@ -483,6 +483,14 @@ module "scribe" {
     region         = var.region
     zone           = var.zone
 
+    identity = {
+      # cloud-compose 1.3.0 mints and rotates the scribe app SA key into
+      # secrets/GOOGLE_APPLICATION_CREDENTIALS. The app requires that file to
+      # sign its Vault GCP-IAM login JWT (metadata signJwt is blocked on the VM),
+      # so managed credentials must stay enabled.
+      app_credentials_enabled = true
+    }
+
     instance = {
       machine_type = var.machine_type
       os           = "cos-125-19216-395-4"
