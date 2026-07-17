@@ -39,7 +39,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "5.2.0",
     "openseadragon": "6.0.2",
-    "vitest": "^4.1.9",
+    "vitest": "4.1.10",
     "vite": "7.3.5"
   }
 }
