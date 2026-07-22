@@ -32,6 +32,8 @@ const (
 	TranscriptionJobStatus_TRANSCRIPTION_JOB_STATUS_RUNNING     TranscriptionJobStatus = 2
 	TranscriptionJobStatus_TRANSCRIPTION_JOB_STATUS_COMPLETED   TranscriptionJobStatus = 3
 	TranscriptionJobStatus_TRANSCRIPTION_JOB_STATUS_FAILED      TranscriptionJobStatus = 4
+	TranscriptionJobStatus_TRANSCRIPTION_JOB_STATUS_CANCELED    TranscriptionJobStatus = 5
+	TranscriptionJobStatus_TRANSCRIPTION_JOB_STATUS_SUPERSEDED  TranscriptionJobStatus = 6
 )
 
 // Enum value maps for TranscriptionJobStatus.
@@ -42,6 +44,8 @@ var (
 		2: "TRANSCRIPTION_JOB_STATUS_RUNNING",
 		3: "TRANSCRIPTION_JOB_STATUS_COMPLETED",
 		4: "TRANSCRIPTION_JOB_STATUS_FAILED",
+		5: "TRANSCRIPTION_JOB_STATUS_CANCELED",
+		6: "TRANSCRIPTION_JOB_STATUS_SUPERSEDED",
 	}
 	TranscriptionJobStatus_value = map[string]int32{
 		"TRANSCRIPTION_JOB_STATUS_UNSPECIFIED": 0,
@@ -49,6 +53,8 @@ var (
 		"TRANSCRIPTION_JOB_STATUS_RUNNING":     2,
 		"TRANSCRIPTION_JOB_STATUS_COMPLETED":   3,
 		"TRANSCRIPTION_JOB_STATUS_FAILED":      4,
+		"TRANSCRIPTION_JOB_STATUS_CANCELED":    5,
+		"TRANSCRIPTION_JOB_STATUS_SUPERSEDED":  6,
 	}
 )
 
@@ -79,6 +85,190 @@ func (TranscriptionJobStatus) EnumDescriptor() ([]byte, []int) {
 	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{0}
 }
 
+// TranscriptionJobAttemptOutcome is the terminal reason for one immutable
+// worker claim. RUNNING is the only non-terminal value.
+type TranscriptionJobAttemptOutcome int32
+
+const (
+	TranscriptionJobAttemptOutcome_TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_UNSPECIFIED      TranscriptionJobAttemptOutcome = 0
+	TranscriptionJobAttemptOutcome_TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RUNNING          TranscriptionJobAttemptOutcome = 1
+	TranscriptionJobAttemptOutcome_TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_COMPLETED        TranscriptionJobAttemptOutcome = 2
+	TranscriptionJobAttemptOutcome_TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RETRYABLE_FAILED TranscriptionJobAttemptOutcome = 3
+	TranscriptionJobAttemptOutcome_TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_FAILED           TranscriptionJobAttemptOutcome = 4
+	TranscriptionJobAttemptOutcome_TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_CANCELED         TranscriptionJobAttemptOutcome = 5
+	TranscriptionJobAttemptOutcome_TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_SUPERSEDED       TranscriptionJobAttemptOutcome = 6
+	TranscriptionJobAttemptOutcome_TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_LEASE_EXPIRED    TranscriptionJobAttemptOutcome = 7
+)
+
+// Enum value maps for TranscriptionJobAttemptOutcome.
+var (
+	TranscriptionJobAttemptOutcome_name = map[int32]string{
+		0: "TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_UNSPECIFIED",
+		1: "TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RUNNING",
+		2: "TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_COMPLETED",
+		3: "TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RETRYABLE_FAILED",
+		4: "TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_FAILED",
+		5: "TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_CANCELED",
+		6: "TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_SUPERSEDED",
+		7: "TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_LEASE_EXPIRED",
+	}
+	TranscriptionJobAttemptOutcome_value = map[string]int32{
+		"TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_UNSPECIFIED":      0,
+		"TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RUNNING":          1,
+		"TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_COMPLETED":        2,
+		"TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RETRYABLE_FAILED": 3,
+		"TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_FAILED":           4,
+		"TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_CANCELED":         5,
+		"TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_SUPERSEDED":       6,
+		"TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_LEASE_EXPIRED":    7,
+	}
+)
+
+func (x TranscriptionJobAttemptOutcome) Enum() *TranscriptionJobAttemptOutcome {
+	p := new(TranscriptionJobAttemptOutcome)
+	*p = x
+	return p
+}
+
+func (x TranscriptionJobAttemptOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TranscriptionJobAttemptOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_scribe_v1_transcription_proto_enumTypes[1].Descriptor()
+}
+
+func (TranscriptionJobAttemptOutcome) Type() protoreflect.EnumType {
+	return &file_scribe_v1_transcription_proto_enumTypes[1]
+}
+
+func (x TranscriptionJobAttemptOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TranscriptionJobAttemptOutcome.Descriptor instead.
+func (TranscriptionJobAttemptOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{1}
+}
+
+// TranscriptionJobAttempt is the auditable history of one worker claim. Lease
+// tokens are intentionally not exposed through the application API.
+type TranscriptionJobAttempt struct {
+	state               protoimpl.MessageState         `protogen:"open.v1"`
+	JobId               uint64                         `protobuf:"varint,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	AttemptNumber       uint32                         `protobuf:"varint,2,opt,name=attempt_number,json=attemptNumber,proto3" json:"attempt_number,omitempty"`
+	InputRevision       uint64                         `protobuf:"varint,3,opt,name=input_revision,json=inputRevision,proto3" json:"input_revision,omitempty"`
+	ContextSnapshotJson string                         `protobuf:"bytes,4,opt,name=context_snapshot_json,json=contextSnapshotJson,proto3" json:"context_snapshot_json,omitempty"`
+	LeaseOwner          string                         `protobuf:"bytes,5,opt,name=lease_owner,json=leaseOwner,proto3" json:"lease_owner,omitempty"`
+	Outcome             TranscriptionJobAttemptOutcome `protobuf:"varint,6,opt,name=outcome,proto3,enum=scribe.v1.TranscriptionJobAttemptOutcome" json:"outcome,omitempty"`
+	SafeErrorMessage    string                         `protobuf:"bytes,7,opt,name=safe_error_message,json=safeErrorMessage,proto3" json:"safe_error_message,omitempty"`
+	ResultRevision      uint64                         `protobuf:"varint,8,opt,name=result_revision,json=resultRevision,proto3" json:"result_revision,omitempty"`
+	StartedAt           string                         `protobuf:"bytes,9,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	FinishedAt          string                         `protobuf:"bytes,10,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *TranscriptionJobAttempt) Reset() {
+	*x = TranscriptionJobAttempt{}
+	mi := &file_scribe_v1_transcription_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TranscriptionJobAttempt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TranscriptionJobAttempt) ProtoMessage() {}
+
+func (x *TranscriptionJobAttempt) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_transcription_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TranscriptionJobAttempt.ProtoReflect.Descriptor instead.
+func (*TranscriptionJobAttempt) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *TranscriptionJobAttempt) GetJobId() uint64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+func (x *TranscriptionJobAttempt) GetAttemptNumber() uint32 {
+	if x != nil {
+		return x.AttemptNumber
+	}
+	return 0
+}
+
+func (x *TranscriptionJobAttempt) GetInputRevision() uint64 {
+	if x != nil {
+		return x.InputRevision
+	}
+	return 0
+}
+
+func (x *TranscriptionJobAttempt) GetContextSnapshotJson() string {
+	if x != nil {
+		return x.ContextSnapshotJson
+	}
+	return ""
+}
+
+func (x *TranscriptionJobAttempt) GetLeaseOwner() string {
+	if x != nil {
+		return x.LeaseOwner
+	}
+	return ""
+}
+
+func (x *TranscriptionJobAttempt) GetOutcome() TranscriptionJobAttemptOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return TranscriptionJobAttemptOutcome_TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_UNSPECIFIED
+}
+
+func (x *TranscriptionJobAttempt) GetSafeErrorMessage() string {
+	if x != nil {
+		return x.SafeErrorMessage
+	}
+	return ""
+}
+
+func (x *TranscriptionJobAttempt) GetResultRevision() uint64 {
+	if x != nil {
+		return x.ResultRevision
+	}
+	return 0
+}
+
+func (x *TranscriptionJobAttempt) GetStartedAt() string {
+	if x != nil {
+		return x.StartedAt
+	}
+	return ""
+}
+
+func (x *TranscriptionJobAttempt) GetFinishedAt() string {
+	if x != nil {
+		return x.FinishedAt
+	}
+	return ""
+}
+
 // TranscriptionJob represents a batch transcription job for a single item image.
 // One job covers all line-level annotations on the canvas; progress is tracked
 // segment by segment so the editor overlay can visualise the work in real time.
@@ -97,17 +287,21 @@ type TranscriptionJob struct {
 	// editor overlay can highlight it without a separate lookup.
 	CurrentAnnotationJson string `protobuf:"bytes,9,opt,name=current_annotation_json,json=currentAnnotationJson,proto3" json:"current_annotation_json,omitempty"`
 	// annotation JSON of the most recently completed segment (with enriched text).
-	LastResultAnnotationJson string `protobuf:"bytes,10,opt,name=last_result_annotation_json,json=lastResultAnnotationJson,proto3" json:"last_result_annotation_json,omitempty"`
-	ErrorMessage             string `protobuf:"bytes,11,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	CreatedAt                string `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt                string `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	LastResultAnnotationJson string                     `protobuf:"bytes,10,opt,name=last_result_annotation_json,json=lastResultAnnotationJson,proto3" json:"last_result_annotation_json,omitempty"`
+	ErrorMessage             string                     `protobuf:"bytes,11,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	CreatedAt                string                     `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt                string                     `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	InputRevision            uint64                     `protobuf:"varint,14,opt,name=input_revision,json=inputRevision,proto3" json:"input_revision,omitempty"`
+	AttemptCount             int32                      `protobuf:"varint,15,opt,name=attempt_count,json=attemptCount,proto3" json:"attempt_count,omitempty"`
+	MaxAttempts              int32                      `protobuf:"varint,16,opt,name=max_attempts,json=maxAttempts,proto3" json:"max_attempts,omitempty"`
+	Attempts                 []*TranscriptionJobAttempt `protobuf:"bytes,17,rep,name=attempts,proto3" json:"attempts,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
 
 func (x *TranscriptionJob) Reset() {
 	*x = TranscriptionJob{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[0]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -119,7 +313,7 @@ func (x *TranscriptionJob) String() string {
 func (*TranscriptionJob) ProtoMessage() {}
 
 func (x *TranscriptionJob) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[0]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -132,7 +326,7 @@ func (x *TranscriptionJob) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptionJob.ProtoReflect.Descriptor instead.
 func (*TranscriptionJob) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{0}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *TranscriptionJob) GetId() uint64 {
@@ -226,6 +420,185 @@ func (x *TranscriptionJob) GetUpdatedAt() string {
 	return ""
 }
 
+func (x *TranscriptionJob) GetInputRevision() uint64 {
+	if x != nil {
+		return x.InputRevision
+	}
+	return 0
+}
+
+func (x *TranscriptionJob) GetAttemptCount() int32 {
+	if x != nil {
+		return x.AttemptCount
+	}
+	return 0
+}
+
+func (x *TranscriptionJob) GetMaxAttempts() int32 {
+	if x != nil {
+		return x.MaxAttempts
+	}
+	return 0
+}
+
+func (x *TranscriptionJob) GetAttempts() []*TranscriptionJobAttempt {
+	if x != nil {
+		return x.Attempts
+	}
+	return nil
+}
+
+// TranscriptionJobSummary is the bounded list projection. Per-segment
+// annotation payloads and attempt history are available from GetTranscriptionJob
+// and the stream, but are deliberately excluded from list responses.
+type TranscriptionJobSummary struct {
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Id                  uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	ItemImageId         uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	ContextId           uint64                 `protobuf:"varint,3,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	Status              TranscriptionJobStatus `protobuf:"varint,4,opt,name=status,proto3,enum=scribe.v1.TranscriptionJobStatus" json:"status,omitempty"`
+	TotalSegments       int32                  `protobuf:"varint,5,opt,name=total_segments,json=totalSegments,proto3" json:"total_segments,omitempty"`
+	CompletedSegments   int32                  `protobuf:"varint,6,opt,name=completed_segments,json=completedSegments,proto3" json:"completed_segments,omitempty"`
+	FailedSegments      int32                  `protobuf:"varint,7,opt,name=failed_segments,json=failedSegments,proto3" json:"failed_segments,omitempty"`
+	CurrentAnnotationId string                 `protobuf:"bytes,8,opt,name=current_annotation_id,json=currentAnnotationId,proto3" json:"current_annotation_id,omitempty"`
+	ErrorMessage        string                 `protobuf:"bytes,9,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	CreatedAt           string                 `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt           string                 `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	InputRevision       uint64                 `protobuf:"varint,12,opt,name=input_revision,json=inputRevision,proto3" json:"input_revision,omitempty"`
+	AttemptCount        int32                  `protobuf:"varint,13,opt,name=attempt_count,json=attemptCount,proto3" json:"attempt_count,omitempty"`
+	MaxAttempts         int32                  `protobuf:"varint,14,opt,name=max_attempts,json=maxAttempts,proto3" json:"max_attempts,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *TranscriptionJobSummary) Reset() {
+	*x = TranscriptionJobSummary{}
+	mi := &file_scribe_v1_transcription_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TranscriptionJobSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TranscriptionJobSummary) ProtoMessage() {}
+
+func (x *TranscriptionJobSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_transcription_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TranscriptionJobSummary.ProtoReflect.Descriptor instead.
+func (*TranscriptionJobSummary) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *TranscriptionJobSummary) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *TranscriptionJobSummary) GetItemImageId() uint64 {
+	if x != nil {
+		return x.ItemImageId
+	}
+	return 0
+}
+
+func (x *TranscriptionJobSummary) GetContextId() uint64 {
+	if x != nil {
+		return x.ContextId
+	}
+	return 0
+}
+
+func (x *TranscriptionJobSummary) GetStatus() TranscriptionJobStatus {
+	if x != nil {
+		return x.Status
+	}
+	return TranscriptionJobStatus_TRANSCRIPTION_JOB_STATUS_UNSPECIFIED
+}
+
+func (x *TranscriptionJobSummary) GetTotalSegments() int32 {
+	if x != nil {
+		return x.TotalSegments
+	}
+	return 0
+}
+
+func (x *TranscriptionJobSummary) GetCompletedSegments() int32 {
+	if x != nil {
+		return x.CompletedSegments
+	}
+	return 0
+}
+
+func (x *TranscriptionJobSummary) GetFailedSegments() int32 {
+	if x != nil {
+		return x.FailedSegments
+	}
+	return 0
+}
+
+func (x *TranscriptionJobSummary) GetCurrentAnnotationId() string {
+	if x != nil {
+		return x.CurrentAnnotationId
+	}
+	return ""
+}
+
+func (x *TranscriptionJobSummary) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *TranscriptionJobSummary) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *TranscriptionJobSummary) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *TranscriptionJobSummary) GetInputRevision() uint64 {
+	if x != nil {
+		return x.InputRevision
+	}
+	return 0
+}
+
+func (x *TranscriptionJobSummary) GetAttemptCount() int32 {
+	if x != nil {
+		return x.AttemptCount
+	}
+	return 0
+}
+
+func (x *TranscriptionJobSummary) GetMaxAttempts() int32 {
+	if x != nil {
+		return x.MaxAttempts
+	}
+	return 0
+}
+
 // CreateTranscriptionJobRequest kicks off a batch transcription job for a
 // single item image. The backend will process all line-level annotations on
 // that image's canvas, one at a time, using the resolved or supplied context.
@@ -240,7 +613,7 @@ type CreateTranscriptionJobRequest struct {
 
 func (x *CreateTranscriptionJobRequest) Reset() {
 	*x = CreateTranscriptionJobRequest{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[1]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -252,7 +625,7 @@ func (x *CreateTranscriptionJobRequest) String() string {
 func (*CreateTranscriptionJobRequest) ProtoMessage() {}
 
 func (x *CreateTranscriptionJobRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[1]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -265,7 +638,7 @@ func (x *CreateTranscriptionJobRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTranscriptionJobRequest.ProtoReflect.Descriptor instead.
 func (*CreateTranscriptionJobRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{1}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateTranscriptionJobRequest) GetItemImageId() uint64 {
@@ -291,7 +664,7 @@ type CreateTranscriptionJobResponse struct {
 
 func (x *CreateTranscriptionJobResponse) Reset() {
 	*x = CreateTranscriptionJobResponse{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[2]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -303,7 +676,7 @@ func (x *CreateTranscriptionJobResponse) String() string {
 func (*CreateTranscriptionJobResponse) ProtoMessage() {}
 
 func (x *CreateTranscriptionJobResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[2]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -316,7 +689,7 @@ func (x *CreateTranscriptionJobResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTranscriptionJobResponse.ProtoReflect.Descriptor instead.
 func (*CreateTranscriptionJobResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{2}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CreateTranscriptionJobResponse) GetJobId() uint64 {
@@ -335,7 +708,7 @@ type GetTranscriptionJobRequest struct {
 
 func (x *GetTranscriptionJobRequest) Reset() {
 	*x = GetTranscriptionJobRequest{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[3]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -347,7 +720,7 @@ func (x *GetTranscriptionJobRequest) String() string {
 func (*GetTranscriptionJobRequest) ProtoMessage() {}
 
 func (x *GetTranscriptionJobRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[3]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -360,7 +733,7 @@ func (x *GetTranscriptionJobRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTranscriptionJobRequest.ProtoReflect.Descriptor instead.
 func (*GetTranscriptionJobRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{3}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetTranscriptionJobRequest) GetJobId() uint64 {
@@ -379,7 +752,7 @@ type GetTranscriptionJobResponse struct {
 
 func (x *GetTranscriptionJobResponse) Reset() {
 	*x = GetTranscriptionJobResponse{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[4]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -391,7 +764,7 @@ func (x *GetTranscriptionJobResponse) String() string {
 func (*GetTranscriptionJobResponse) ProtoMessage() {}
 
 func (x *GetTranscriptionJobResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[4]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -404,7 +777,7 @@ func (x *GetTranscriptionJobResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTranscriptionJobResponse.ProtoReflect.Descriptor instead.
 func (*GetTranscriptionJobResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{4}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetTranscriptionJobResponse) GetJob() *TranscriptionJob {
@@ -416,15 +789,19 @@ func (x *GetTranscriptionJobResponse) GetJob() *TranscriptionJob {
 
 type ListTranscriptionJobsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Filter by item_image_id; returns all jobs if zero.
-	ItemImageId   uint64 `protobuf:"varint,1,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	// Filter by item_image_id; returns workspace jobs if zero.
+	ItemImageId uint64 `protobuf:"varint,1,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	// Number of job summaries to return. Defaults to 50 and is capped at 100.
+	PageSize uint32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Opaque workspace- and filter-bound cursor returned by the previous page.
+	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListTranscriptionJobsRequest) Reset() {
 	*x = ListTranscriptionJobsRequest{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[5]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -436,7 +813,7 @@ func (x *ListTranscriptionJobsRequest) String() string {
 func (*ListTranscriptionJobsRequest) ProtoMessage() {}
 
 func (x *ListTranscriptionJobsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[5]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +826,7 @@ func (x *ListTranscriptionJobsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTranscriptionJobsRequest.ProtoReflect.Descriptor instead.
 func (*ListTranscriptionJobsRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{5}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListTranscriptionJobsRequest) GetItemImageId() uint64 {
@@ -459,16 +836,31 @@ func (x *ListTranscriptionJobsRequest) GetItemImageId() uint64 {
 	return 0
 }
 
+func (x *ListTranscriptionJobsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListTranscriptionJobsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
 type ListTranscriptionJobsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Jobs          []*TranscriptionJob    `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Jobs          []*TranscriptionJobSummary `protobuf:"bytes,1,rep,name=jobs,proto3" json:"jobs,omitempty"`
+	NextPageToken string                     `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListTranscriptionJobsResponse) Reset() {
 	*x = ListTranscriptionJobsResponse{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[6]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -480,7 +872,7 @@ func (x *ListTranscriptionJobsResponse) String() string {
 func (*ListTranscriptionJobsResponse) ProtoMessage() {}
 
 func (x *ListTranscriptionJobsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[6]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -493,14 +885,21 @@ func (x *ListTranscriptionJobsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTranscriptionJobsResponse.ProtoReflect.Descriptor instead.
 func (*ListTranscriptionJobsResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{6}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *ListTranscriptionJobsResponse) GetJobs() []*TranscriptionJob {
+func (x *ListTranscriptionJobsResponse) GetJobs() []*TranscriptionJobSummary {
 	if x != nil {
 		return x.Jobs
 	}
 	return nil
+}
+
+func (x *ListTranscriptionJobsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
 }
 
 // StreamTranscriptionJobRequest opens a server-sent-events stream for a job.
@@ -515,7 +914,7 @@ type StreamTranscriptionJobRequest struct {
 
 func (x *StreamTranscriptionJobRequest) Reset() {
 	*x = StreamTranscriptionJobRequest{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[7]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -527,7 +926,7 @@ func (x *StreamTranscriptionJobRequest) String() string {
 func (*StreamTranscriptionJobRequest) ProtoMessage() {}
 
 func (x *StreamTranscriptionJobRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[7]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -540,7 +939,7 @@ func (x *StreamTranscriptionJobRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamTranscriptionJobRequest.ProtoReflect.Descriptor instead.
 func (*StreamTranscriptionJobRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{7}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *StreamTranscriptionJobRequest) GetJobId() uint64 {
@@ -559,7 +958,7 @@ type StreamTranscriptionJobResponse struct {
 
 func (x *StreamTranscriptionJobResponse) Reset() {
 	*x = StreamTranscriptionJobResponse{}
-	mi := &file_scribe_v1_transcription_proto_msgTypes[8]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -571,7 +970,7 @@ func (x *StreamTranscriptionJobResponse) String() string {
 func (*StreamTranscriptionJobResponse) ProtoMessage() {}
 
 func (x *StreamTranscriptionJobResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_transcription_proto_msgTypes[8]
+	mi := &file_scribe_v1_transcription_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -584,10 +983,98 @@ func (x *StreamTranscriptionJobResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamTranscriptionJobResponse.ProtoReflect.Descriptor instead.
 func (*StreamTranscriptionJobResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{8}
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StreamTranscriptionJobResponse) GetJob() *TranscriptionJob {
+	if x != nil {
+		return x.Job
+	}
+	return nil
+}
+
+type CancelTranscriptionJobRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	JobId         uint64                 `protobuf:"varint,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelTranscriptionJobRequest) Reset() {
+	*x = CancelTranscriptionJobRequest{}
+	mi := &file_scribe_v1_transcription_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelTranscriptionJobRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelTranscriptionJobRequest) ProtoMessage() {}
+
+func (x *CancelTranscriptionJobRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_transcription_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelTranscriptionJobRequest.ProtoReflect.Descriptor instead.
+func (*CancelTranscriptionJobRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *CancelTranscriptionJobRequest) GetJobId() uint64 {
+	if x != nil {
+		return x.JobId
+	}
+	return 0
+}
+
+type CancelTranscriptionJobResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Job           *TranscriptionJob      `protobuf:"bytes,1,opt,name=job,proto3" json:"job,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelTranscriptionJobResponse) Reset() {
+	*x = CancelTranscriptionJobResponse{}
+	mi := &file_scribe_v1_transcription_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelTranscriptionJobResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelTranscriptionJobResponse) ProtoMessage() {}
+
+func (x *CancelTranscriptionJobResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_transcription_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelTranscriptionJobResponse.ProtoReflect.Descriptor instead.
+func (*CancelTranscriptionJobResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_transcription_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *CancelTranscriptionJobResponse) GetJob() *TranscriptionJob {
 	if x != nil {
 		return x.Job
 	}
@@ -598,7 +1085,22 @@ var File_scribe_v1_transcription_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_transcription_proto_rawDesc = "" +
 	"\n" +
-	"\x1dscribe/v1/transcription.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xad\x04\n" +
+	"\x1dscribe/v1/transcription.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xaf\x03\n" +
+	"\x17TranscriptionJobAttempt\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\x04R\x05jobId\x12%\n" +
+	"\x0eattempt_number\x18\x02 \x01(\rR\rattemptNumber\x12%\n" +
+	"\x0einput_revision\x18\x03 \x01(\x04R\rinputRevision\x122\n" +
+	"\x15context_snapshot_json\x18\x04 \x01(\tR\x13contextSnapshotJson\x12\x1f\n" +
+	"\vlease_owner\x18\x05 \x01(\tR\n" +
+	"leaseOwner\x12C\n" +
+	"\aoutcome\x18\x06 \x01(\x0e2).scribe.v1.TranscriptionJobAttemptOutcomeR\aoutcome\x12,\n" +
+	"\x12safe_error_message\x18\a \x01(\tR\x10safeErrorMessage\x12'\n" +
+	"\x0fresult_revision\x18\b \x01(\x04R\x0eresultRevision\x12\x1d\n" +
+	"\n" +
+	"started_at\x18\t \x01(\tR\tstartedAt\x12\x1f\n" +
+	"\vfinished_at\x18\n" +
+	" \x01(\tR\n" +
+	"finishedAt\"\xdc\x05\n" +
 	"\x10TranscriptionJob\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1d\n" +
@@ -616,7 +1118,30 @@ const file_scribe_v1_transcription_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\f \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\r \x01(\tR\tupdatedAt\"n\n" +
+	"updated_at\x18\r \x01(\tR\tupdatedAt\x12%\n" +
+	"\x0einput_revision\x18\x0e \x01(\x04R\rinputRevision\x12#\n" +
+	"\rattempt_count\x18\x0f \x01(\x05R\fattemptCount\x12!\n" +
+	"\fmax_attempts\x18\x10 \x01(\x05R\vmaxAttempts\x12>\n" +
+	"\battempts\x18\x11 \x03(\v2\".scribe.v1.TranscriptionJobAttemptR\battempts\"\xac\x04\n" +
+	"\x17TranscriptionJobSummary\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\"\n" +
+	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1d\n" +
+	"\n" +
+	"context_id\x18\x03 \x01(\x04R\tcontextId\x129\n" +
+	"\x06status\x18\x04 \x01(\x0e2!.scribe.v1.TranscriptionJobStatusR\x06status\x12%\n" +
+	"\x0etotal_segments\x18\x05 \x01(\x05R\rtotalSegments\x12-\n" +
+	"\x12completed_segments\x18\x06 \x01(\x05R\x11completedSegments\x12'\n" +
+	"\x0ffailed_segments\x18\a \x01(\x05R\x0efailedSegments\x122\n" +
+	"\x15current_annotation_id\x18\b \x01(\tR\x13currentAnnotationId\x12#\n" +
+	"\rerror_message\x18\t \x01(\tR\ferrorMessage\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\n" +
+	" \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\v \x01(\tR\tupdatedAt\x12%\n" +
+	"\x0einput_revision\x18\f \x01(\x04R\rinputRevision\x12#\n" +
+	"\rattempt_count\x18\r \x01(\x05R\fattemptCount\x12!\n" +
+	"\fmax_attempts\x18\x0e \x01(\x05R\vmaxAttempts\"n\n" +
 	"\x1dCreateTranscriptionJobRequest\x12.\n" +
 	"\ritem_image_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\vitemImageId\x12\x1d\n" +
@@ -628,24 +1153,45 @@ const file_scribe_v1_transcription_proto_rawDesc = "" +
 	"\x06job_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05jobId\"L\n" +
 	"\x1bGetTranscriptionJobResponse\x12-\n" +
-	"\x03job\x18\x01 \x01(\v2\x1b.scribe.v1.TranscriptionJobR\x03job\"B\n" +
+	"\x03job\x18\x01 \x01(\v2\x1b.scribe.v1.TranscriptionJobR\x03job\"\x91\x01\n" +
 	"\x1cListTranscriptionJobsRequest\x12\"\n" +
-	"\ritem_image_id\x18\x01 \x01(\x04R\vitemImageId\"P\n" +
-	"\x1dListTranscriptionJobsResponse\x12/\n" +
-	"\x04jobs\x18\x01 \x03(\v2\x1b.scribe.v1.TranscriptionJobR\x04jobs\"B\n" +
+	"\ritem_image_id\x18\x01 \x01(\x04R\vitemImageId\x12$\n" +
+	"\tpage_size\x18\x02 \x01(\rB\a\xbaH\x04*\x02\x18dR\bpageSize\x12'\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x04R\tpageToken\"\x7f\n" +
+	"\x1dListTranscriptionJobsResponse\x126\n" +
+	"\x04jobs\x18\x01 \x03(\v2\".scribe.v1.TranscriptionJobSummaryR\x04jobs\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"B\n" +
 	"\x1dStreamTranscriptionJobRequest\x12!\n" +
 	"\x06job_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05jobId\"O\n" +
 	"\x1eStreamTranscriptionJobResponse\x12-\n" +
-	"\x03job\x18\x01 \x01(\v2\x1b.scribe.v1.TranscriptionJobR\x03job*\xdb\x01\n" +
+	"\x03job\x18\x01 \x01(\v2\x1b.scribe.v1.TranscriptionJobR\x03job\"B\n" +
+	"\x1dCancelTranscriptionJobRequest\x12!\n" +
+	"\x06job_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\x05jobId\"O\n" +
+	"\x1eCancelTranscriptionJobResponse\x12-\n" +
+	"\x03job\x18\x01 \x01(\v2\x1b.scribe.v1.TranscriptionJobR\x03job*\xab\x02\n" +
 	"\x16TranscriptionJobStatus\x12(\n" +
 	"$TRANSCRIPTION_JOB_STATUS_UNSPECIFIED\x10\x00\x12$\n" +
 	" TRANSCRIPTION_JOB_STATUS_PENDING\x10\x01\x12$\n" +
 	" TRANSCRIPTION_JOB_STATUS_RUNNING\x10\x02\x12&\n" +
 	"\"TRANSCRIPTION_JOB_STATUS_COMPLETED\x10\x03\x12#\n" +
-	"\x1fTRANSCRIPTION_JOB_STATUS_FAILED\x10\x042\x91\x04\n" +
+	"\x1fTRANSCRIPTION_JOB_STATUS_FAILED\x10\x04\x12%\n" +
+	"!TRANSCRIPTION_JOB_STATUS_CANCELED\x10\x05\x12'\n" +
+	"#TRANSCRIPTION_JOB_STATUS_SUPERSEDED\x10\x06*\xb0\x03\n" +
+	"\x1eTranscriptionJobAttemptOutcome\x121\n" +
+	"-TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_UNSPECIFIED\x10\x00\x12-\n" +
+	")TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RUNNING\x10\x01\x12/\n" +
+	"+TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_COMPLETED\x10\x02\x126\n" +
+	"2TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RETRYABLE_FAILED\x10\x03\x12,\n" +
+	"(TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_FAILED\x10\x04\x12.\n" +
+	"*TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_CANCELED\x10\x05\x120\n" +
+	",TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_SUPERSEDED\x10\x06\x123\n" +
+	"/TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_LEASE_EXPIRED\x10\a2\x92\x05\n" +
 	"\x14TranscriptionService\x12\x86\x01\n" +
-	"\x16CreateTranscriptionJob\x12(.scribe.v1.CreateTranscriptionJobRequest\x1a).scribe.v1.CreateTranscriptionJobResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12v\n" +
+	"\x16CreateTranscriptionJob\x12(.scribe.v1.CreateTranscriptionJobRequest\x1a).scribe.v1.CreateTranscriptionJobResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12\x7f\n" +
+	"\x16CancelTranscriptionJob\x12(.scribe.v1.CancelTranscriptionJobRequest\x1a).scribe.v1.CancelTranscriptionJobResponse\"\x10\x92\xb5\x18\f\x10\x06\x18\x02\"\x06job_id\x12v\n" +
 	"\x13GetTranscriptionJob\x12%.scribe.v1.GetTranscriptionJobRequest\x1a&.scribe.v1.GetTranscriptionJobResponse\"\x10\x92\xb5\x18\f\x10\x06\x18\x01\"\x06job_id\x12t\n" +
 	"\x15ListTranscriptionJobs\x12'.scribe.v1.ListTranscriptionJobsRequest\x1a(.scribe.v1.ListTranscriptionJobsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12\x81\x01\n" +
 	"\x16StreamTranscriptionJob\x12(.scribe.v1.StreamTranscriptionJobRequest\x1a).scribe.v1.StreamTranscriptionJobResponse\"\x10\x92\xb5\x18\f\x10\x06\x18\x01\"\x06job_id0\x01B\xb0\x01\n" +
@@ -664,38 +1210,49 @@ func file_scribe_v1_transcription_proto_rawDescGZIP() []byte {
 	return file_scribe_v1_transcription_proto_rawDescData
 }
 
-var file_scribe_v1_transcription_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_scribe_v1_transcription_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_scribe_v1_transcription_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_scribe_v1_transcription_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_scribe_v1_transcription_proto_goTypes = []any{
 	(TranscriptionJobStatus)(0),            // 0: scribe.v1.TranscriptionJobStatus
-	(*TranscriptionJob)(nil),               // 1: scribe.v1.TranscriptionJob
-	(*CreateTranscriptionJobRequest)(nil),  // 2: scribe.v1.CreateTranscriptionJobRequest
-	(*CreateTranscriptionJobResponse)(nil), // 3: scribe.v1.CreateTranscriptionJobResponse
-	(*GetTranscriptionJobRequest)(nil),     // 4: scribe.v1.GetTranscriptionJobRequest
-	(*GetTranscriptionJobResponse)(nil),    // 5: scribe.v1.GetTranscriptionJobResponse
-	(*ListTranscriptionJobsRequest)(nil),   // 6: scribe.v1.ListTranscriptionJobsRequest
-	(*ListTranscriptionJobsResponse)(nil),  // 7: scribe.v1.ListTranscriptionJobsResponse
-	(*StreamTranscriptionJobRequest)(nil),  // 8: scribe.v1.StreamTranscriptionJobRequest
-	(*StreamTranscriptionJobResponse)(nil), // 9: scribe.v1.StreamTranscriptionJobResponse
+	(TranscriptionJobAttemptOutcome)(0),    // 1: scribe.v1.TranscriptionJobAttemptOutcome
+	(*TranscriptionJobAttempt)(nil),        // 2: scribe.v1.TranscriptionJobAttempt
+	(*TranscriptionJob)(nil),               // 3: scribe.v1.TranscriptionJob
+	(*TranscriptionJobSummary)(nil),        // 4: scribe.v1.TranscriptionJobSummary
+	(*CreateTranscriptionJobRequest)(nil),  // 5: scribe.v1.CreateTranscriptionJobRequest
+	(*CreateTranscriptionJobResponse)(nil), // 6: scribe.v1.CreateTranscriptionJobResponse
+	(*GetTranscriptionJobRequest)(nil),     // 7: scribe.v1.GetTranscriptionJobRequest
+	(*GetTranscriptionJobResponse)(nil),    // 8: scribe.v1.GetTranscriptionJobResponse
+	(*ListTranscriptionJobsRequest)(nil),   // 9: scribe.v1.ListTranscriptionJobsRequest
+	(*ListTranscriptionJobsResponse)(nil),  // 10: scribe.v1.ListTranscriptionJobsResponse
+	(*StreamTranscriptionJobRequest)(nil),  // 11: scribe.v1.StreamTranscriptionJobRequest
+	(*StreamTranscriptionJobResponse)(nil), // 12: scribe.v1.StreamTranscriptionJobResponse
+	(*CancelTranscriptionJobRequest)(nil),  // 13: scribe.v1.CancelTranscriptionJobRequest
+	(*CancelTranscriptionJobResponse)(nil), // 14: scribe.v1.CancelTranscriptionJobResponse
 }
 var file_scribe_v1_transcription_proto_depIdxs = []int32{
-	0, // 0: scribe.v1.TranscriptionJob.status:type_name -> scribe.v1.TranscriptionJobStatus
-	1, // 1: scribe.v1.GetTranscriptionJobResponse.job:type_name -> scribe.v1.TranscriptionJob
-	1, // 2: scribe.v1.ListTranscriptionJobsResponse.jobs:type_name -> scribe.v1.TranscriptionJob
-	1, // 3: scribe.v1.StreamTranscriptionJobResponse.job:type_name -> scribe.v1.TranscriptionJob
-	2, // 4: scribe.v1.TranscriptionService.CreateTranscriptionJob:input_type -> scribe.v1.CreateTranscriptionJobRequest
-	4, // 5: scribe.v1.TranscriptionService.GetTranscriptionJob:input_type -> scribe.v1.GetTranscriptionJobRequest
-	6, // 6: scribe.v1.TranscriptionService.ListTranscriptionJobs:input_type -> scribe.v1.ListTranscriptionJobsRequest
-	8, // 7: scribe.v1.TranscriptionService.StreamTranscriptionJob:input_type -> scribe.v1.StreamTranscriptionJobRequest
-	3, // 8: scribe.v1.TranscriptionService.CreateTranscriptionJob:output_type -> scribe.v1.CreateTranscriptionJobResponse
-	5, // 9: scribe.v1.TranscriptionService.GetTranscriptionJob:output_type -> scribe.v1.GetTranscriptionJobResponse
-	7, // 10: scribe.v1.TranscriptionService.ListTranscriptionJobs:output_type -> scribe.v1.ListTranscriptionJobsResponse
-	9, // 11: scribe.v1.TranscriptionService.StreamTranscriptionJob:output_type -> scribe.v1.StreamTranscriptionJobResponse
-	8, // [8:12] is the sub-list for method output_type
-	4, // [4:8] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	1,  // 0: scribe.v1.TranscriptionJobAttempt.outcome:type_name -> scribe.v1.TranscriptionJobAttemptOutcome
+	0,  // 1: scribe.v1.TranscriptionJob.status:type_name -> scribe.v1.TranscriptionJobStatus
+	2,  // 2: scribe.v1.TranscriptionJob.attempts:type_name -> scribe.v1.TranscriptionJobAttempt
+	0,  // 3: scribe.v1.TranscriptionJobSummary.status:type_name -> scribe.v1.TranscriptionJobStatus
+	3,  // 4: scribe.v1.GetTranscriptionJobResponse.job:type_name -> scribe.v1.TranscriptionJob
+	4,  // 5: scribe.v1.ListTranscriptionJobsResponse.jobs:type_name -> scribe.v1.TranscriptionJobSummary
+	3,  // 6: scribe.v1.StreamTranscriptionJobResponse.job:type_name -> scribe.v1.TranscriptionJob
+	3,  // 7: scribe.v1.CancelTranscriptionJobResponse.job:type_name -> scribe.v1.TranscriptionJob
+	5,  // 8: scribe.v1.TranscriptionService.CreateTranscriptionJob:input_type -> scribe.v1.CreateTranscriptionJobRequest
+	13, // 9: scribe.v1.TranscriptionService.CancelTranscriptionJob:input_type -> scribe.v1.CancelTranscriptionJobRequest
+	7,  // 10: scribe.v1.TranscriptionService.GetTranscriptionJob:input_type -> scribe.v1.GetTranscriptionJobRequest
+	9,  // 11: scribe.v1.TranscriptionService.ListTranscriptionJobs:input_type -> scribe.v1.ListTranscriptionJobsRequest
+	11, // 12: scribe.v1.TranscriptionService.StreamTranscriptionJob:input_type -> scribe.v1.StreamTranscriptionJobRequest
+	6,  // 13: scribe.v1.TranscriptionService.CreateTranscriptionJob:output_type -> scribe.v1.CreateTranscriptionJobResponse
+	14, // 14: scribe.v1.TranscriptionService.CancelTranscriptionJob:output_type -> scribe.v1.CancelTranscriptionJobResponse
+	8,  // 15: scribe.v1.TranscriptionService.GetTranscriptionJob:output_type -> scribe.v1.GetTranscriptionJobResponse
+	10, // 16: scribe.v1.TranscriptionService.ListTranscriptionJobs:output_type -> scribe.v1.ListTranscriptionJobsResponse
+	12, // 17: scribe.v1.TranscriptionService.StreamTranscriptionJob:output_type -> scribe.v1.StreamTranscriptionJobResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_scribe_v1_transcription_proto_init() }
@@ -708,8 +1265,8 @@ func file_scribe_v1_transcription_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_transcription_proto_rawDesc), len(file_scribe_v1_transcription_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   9,
+			NumEnums:      2,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

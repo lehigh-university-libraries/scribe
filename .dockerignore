@@ -1,5 +1,7 @@
 .git
 .github
+.deployed-source
+.rollback-source
 gha-creds-*.json
 ci
 fixtures
@@ -7,7 +9,16 @@ docs
 renovate.json5
 *.md
 docker-compose.*
-.env
+.env*
+.tools
+site
+secrets
+*.pem
+*.key
+*.p12
+*.pfx
+*.tfstate
+*.tfstate.*
 **/node_modules
 web/dist
 mirador-scribe/dist

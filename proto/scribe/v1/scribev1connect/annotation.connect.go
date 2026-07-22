@@ -33,21 +33,18 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// AnnotationServiceGetAnnotationPageProcedure is the fully-qualified name of the
+	// AnnotationService's GetAnnotationPage RPC.
+	AnnotationServiceGetAnnotationPageProcedure = "/scribe.v1.AnnotationService/GetAnnotationPage"
+	// AnnotationServiceSaveAnnotationPageProcedure is the fully-qualified name of the
+	// AnnotationService's SaveAnnotationPage RPC.
+	AnnotationServiceSaveAnnotationPageProcedure = "/scribe.v1.AnnotationService/SaveAnnotationPage"
 	// AnnotationServiceSearchAnnotationsProcedure is the fully-qualified name of the
 	// AnnotationService's SearchAnnotations RPC.
 	AnnotationServiceSearchAnnotationsProcedure = "/scribe.v1.AnnotationService/SearchAnnotations"
 	// AnnotationServiceGetAnnotationProcedure is the fully-qualified name of the AnnotationService's
 	// GetAnnotation RPC.
 	AnnotationServiceGetAnnotationProcedure = "/scribe.v1.AnnotationService/GetAnnotation"
-	// AnnotationServiceCreateAnnotationProcedure is the fully-qualified name of the AnnotationService's
-	// CreateAnnotation RPC.
-	AnnotationServiceCreateAnnotationProcedure = "/scribe.v1.AnnotationService/CreateAnnotation"
-	// AnnotationServiceUpdateAnnotationProcedure is the fully-qualified name of the AnnotationService's
-	// UpdateAnnotation RPC.
-	AnnotationServiceUpdateAnnotationProcedure = "/scribe.v1.AnnotationService/UpdateAnnotation"
-	// AnnotationServiceDeleteAnnotationProcedure is the fully-qualified name of the AnnotationService's
-	// DeleteAnnotation RPC.
-	AnnotationServiceDeleteAnnotationProcedure = "/scribe.v1.AnnotationService/DeleteAnnotation"
 	// AnnotationServicePublishItemImageEditsProcedure is the fully-qualified name of the
 	// AnnotationService's PublishItemImageEdits RPC.
 	AnnotationServicePublishItemImageEditsProcedure = "/scribe.v1.AnnotationService/PublishItemImageEdits"
@@ -66,27 +63,17 @@ const (
 	// AnnotationServiceJoinWordsIntoLineProcedure is the fully-qualified name of the
 	// AnnotationService's JoinWordsIntoLine RPC.
 	AnnotationServiceJoinWordsIntoLineProcedure = "/scribe.v1.AnnotationService/JoinWordsIntoLine"
-	// AnnotationServiceCrosswalkToPlainTextProcedure is the fully-qualified name of the
-	// AnnotationService's CrosswalkToPlainText RPC.
-	AnnotationServiceCrosswalkToPlainTextProcedure = "/scribe.v1.AnnotationService/CrosswalkToPlainText"
-	// AnnotationServiceCrosswalkToHOCRProcedure is the fully-qualified name of the AnnotationService's
-	// CrosswalkToHOCR RPC.
-	AnnotationServiceCrosswalkToHOCRProcedure = "/scribe.v1.AnnotationService/CrosswalkToHOCR"
-	// AnnotationServiceCrosswalkToPageXMLProcedure is the fully-qualified name of the
-	// AnnotationService's CrosswalkToPageXML RPC.
-	AnnotationServiceCrosswalkToPageXMLProcedure = "/scribe.v1.AnnotationService/CrosswalkToPageXML"
-	// AnnotationServiceCrosswalkToALTOXMLProcedure is the fully-qualified name of the
-	// AnnotationService's CrosswalkToALTOXML RPC.
-	AnnotationServiceCrosswalkToALTOXMLProcedure = "/scribe.v1.AnnotationService/CrosswalkToALTOXML"
+	// AnnotationServiceExportAnnotationPageProcedure is the fully-qualified name of the
+	// AnnotationService's ExportAnnotationPage RPC.
+	AnnotationServiceExportAnnotationPageProcedure = "/scribe.v1.AnnotationService/ExportAnnotationPage"
 )
 
 // AnnotationServiceClient is a client for the scribe.v1.AnnotationService service.
 type AnnotationServiceClient interface {
+	GetAnnotationPage(context.Context, *connect.Request[v1.GetAnnotationPageRequest]) (*connect.Response[v1.GetAnnotationPageResponse], error)
+	SaveAnnotationPage(context.Context, *connect.Request[v1.SaveAnnotationPageRequest]) (*connect.Response[v1.SaveAnnotationPageResponse], error)
 	SearchAnnotations(context.Context, *connect.Request[v1.SearchAnnotationsRequest]) (*connect.Response[v1.SearchAnnotationsResponse], error)
 	GetAnnotation(context.Context, *connect.Request[v1.GetAnnotationRequest]) (*connect.Response[v1.GetAnnotationResponse], error)
-	CreateAnnotation(context.Context, *connect.Request[v1.CreateAnnotationRequest]) (*connect.Response[v1.CreateAnnotationResponse], error)
-	UpdateAnnotation(context.Context, *connect.Request[v1.UpdateAnnotationRequest]) (*connect.Response[v1.UpdateAnnotationResponse], error)
-	DeleteAnnotation(context.Context, *connect.Request[v1.DeleteAnnotationRequest]) (*connect.Response[v1.DeleteAnnotationResponse], error)
 	PublishItemImageEdits(context.Context, *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error)
 	// Improve transcription for one line or a full canvas.
 	EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error)
@@ -95,11 +82,8 @@ type AnnotationServiceClient interface {
 	SplitLineIntoTwoLines(context.Context, *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error)
 	JoinLines(context.Context, *connect.Request[v1.JoinLinesRequest]) (*connect.Response[v1.JoinLinesResponse], error)
 	JoinWordsIntoLine(context.Context, *connect.Request[v1.JoinWordsIntoLineRequest]) (*connect.Response[v1.JoinWordsIntoLineResponse], error)
-	// Export / crosswalk operations.
-	CrosswalkToPlainText(context.Context, *connect.Request[v1.CrosswalkToPlainTextRequest]) (*connect.Response[v1.CrosswalkToPlainTextResponse], error)
-	CrosswalkToHOCR(context.Context, *connect.Request[v1.CrosswalkToHOCRRequest]) (*connect.Response[v1.CrosswalkToHOCRResponse], error)
-	CrosswalkToPageXML(context.Context, *connect.Request[v1.CrosswalkToPageXMLRequest]) (*connect.Response[v1.CrosswalkToPageXMLResponse], error)
-	CrosswalkToALTOXML(context.Context, *connect.Request[v1.CrosswalkToALTOXMLRequest]) (*connect.Response[v1.CrosswalkToALTOXMLResponse], error)
+	// Export one exact committed canonical revision to a rebuildable OCR view.
+	ExportAnnotationPage(context.Context, *connect.Request[v1.ExportAnnotationPageRequest]) (*connect.Response[v1.ExportAnnotationPageResponse], error)
 }
 
 // NewAnnotationServiceClient constructs a client for the scribe.v1.AnnotationService service. By
@@ -113,6 +97,18 @@ func NewAnnotationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 	baseURL = strings.TrimRight(baseURL, "/")
 	annotationServiceMethods := v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods()
 	return &annotationServiceClient{
+		getAnnotationPage: connect.NewClient[v1.GetAnnotationPageRequest, v1.GetAnnotationPageResponse](
+			httpClient,
+			baseURL+AnnotationServiceGetAnnotationPageProcedure,
+			connect.WithSchema(annotationServiceMethods.ByName("GetAnnotationPage")),
+			connect.WithClientOptions(opts...),
+		),
+		saveAnnotationPage: connect.NewClient[v1.SaveAnnotationPageRequest, v1.SaveAnnotationPageResponse](
+			httpClient,
+			baseURL+AnnotationServiceSaveAnnotationPageProcedure,
+			connect.WithSchema(annotationServiceMethods.ByName("SaveAnnotationPage")),
+			connect.WithClientOptions(opts...),
+		),
 		searchAnnotations: connect.NewClient[v1.SearchAnnotationsRequest, v1.SearchAnnotationsResponse](
 			httpClient,
 			baseURL+AnnotationServiceSearchAnnotationsProcedure,
@@ -123,24 +119,6 @@ func NewAnnotationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			httpClient,
 			baseURL+AnnotationServiceGetAnnotationProcedure,
 			connect.WithSchema(annotationServiceMethods.ByName("GetAnnotation")),
-			connect.WithClientOptions(opts...),
-		),
-		createAnnotation: connect.NewClient[v1.CreateAnnotationRequest, v1.CreateAnnotationResponse](
-			httpClient,
-			baseURL+AnnotationServiceCreateAnnotationProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("CreateAnnotation")),
-			connect.WithClientOptions(opts...),
-		),
-		updateAnnotation: connect.NewClient[v1.UpdateAnnotationRequest, v1.UpdateAnnotationResponse](
-			httpClient,
-			baseURL+AnnotationServiceUpdateAnnotationProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("UpdateAnnotation")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteAnnotation: connect.NewClient[v1.DeleteAnnotationRequest, v1.DeleteAnnotationResponse](
-			httpClient,
-			baseURL+AnnotationServiceDeleteAnnotationProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("DeleteAnnotation")),
 			connect.WithClientOptions(opts...),
 		),
 		publishItemImageEdits: connect.NewClient[v1.PublishItemImageEditsRequest, v1.PublishItemImageEditsResponse](
@@ -179,28 +157,10 @@ func NewAnnotationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(annotationServiceMethods.ByName("JoinWordsIntoLine")),
 			connect.WithClientOptions(opts...),
 		),
-		crosswalkToPlainText: connect.NewClient[v1.CrosswalkToPlainTextRequest, v1.CrosswalkToPlainTextResponse](
+		exportAnnotationPage: connect.NewClient[v1.ExportAnnotationPageRequest, v1.ExportAnnotationPageResponse](
 			httpClient,
-			baseURL+AnnotationServiceCrosswalkToPlainTextProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("CrosswalkToPlainText")),
-			connect.WithClientOptions(opts...),
-		),
-		crosswalkToHOCR: connect.NewClient[v1.CrosswalkToHOCRRequest, v1.CrosswalkToHOCRResponse](
-			httpClient,
-			baseURL+AnnotationServiceCrosswalkToHOCRProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("CrosswalkToHOCR")),
-			connect.WithClientOptions(opts...),
-		),
-		crosswalkToPageXML: connect.NewClient[v1.CrosswalkToPageXMLRequest, v1.CrosswalkToPageXMLResponse](
-			httpClient,
-			baseURL+AnnotationServiceCrosswalkToPageXMLProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("CrosswalkToPageXML")),
-			connect.WithClientOptions(opts...),
-		),
-		crosswalkToALTOXML: connect.NewClient[v1.CrosswalkToALTOXMLRequest, v1.CrosswalkToALTOXMLResponse](
-			httpClient,
-			baseURL+AnnotationServiceCrosswalkToALTOXMLProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("CrosswalkToALTOXML")),
+			baseURL+AnnotationServiceExportAnnotationPageProcedure,
+			connect.WithSchema(annotationServiceMethods.ByName("ExportAnnotationPage")),
 			connect.WithClientOptions(opts...),
 		),
 	}
@@ -208,21 +168,27 @@ func NewAnnotationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 
 // annotationServiceClient implements AnnotationServiceClient.
 type annotationServiceClient struct {
+	getAnnotationPage     *connect.Client[v1.GetAnnotationPageRequest, v1.GetAnnotationPageResponse]
+	saveAnnotationPage    *connect.Client[v1.SaveAnnotationPageRequest, v1.SaveAnnotationPageResponse]
 	searchAnnotations     *connect.Client[v1.SearchAnnotationsRequest, v1.SearchAnnotationsResponse]
 	getAnnotation         *connect.Client[v1.GetAnnotationRequest, v1.GetAnnotationResponse]
-	createAnnotation      *connect.Client[v1.CreateAnnotationRequest, v1.CreateAnnotationResponse]
-	updateAnnotation      *connect.Client[v1.UpdateAnnotationRequest, v1.UpdateAnnotationResponse]
-	deleteAnnotation      *connect.Client[v1.DeleteAnnotationRequest, v1.DeleteAnnotationResponse]
 	publishItemImageEdits *connect.Client[v1.PublishItemImageEditsRequest, v1.PublishItemImageEditsResponse]
 	enrichAnnotation      *connect.Client[v1.EnrichAnnotationRequest, v1.EnrichAnnotationResponse]
 	splitLineIntoWords    *connect.Client[v1.SplitLineIntoWordsRequest, v1.SplitLineIntoWordsResponse]
 	splitLineIntoTwoLines *connect.Client[v1.SplitLineIntoTwoLinesRequest, v1.SplitLineIntoTwoLinesResponse]
 	joinLines             *connect.Client[v1.JoinLinesRequest, v1.JoinLinesResponse]
 	joinWordsIntoLine     *connect.Client[v1.JoinWordsIntoLineRequest, v1.JoinWordsIntoLineResponse]
-	crosswalkToPlainText  *connect.Client[v1.CrosswalkToPlainTextRequest, v1.CrosswalkToPlainTextResponse]
-	crosswalkToHOCR       *connect.Client[v1.CrosswalkToHOCRRequest, v1.CrosswalkToHOCRResponse]
-	crosswalkToPageXML    *connect.Client[v1.CrosswalkToPageXMLRequest, v1.CrosswalkToPageXMLResponse]
-	crosswalkToALTOXML    *connect.Client[v1.CrosswalkToALTOXMLRequest, v1.CrosswalkToALTOXMLResponse]
+	exportAnnotationPage  *connect.Client[v1.ExportAnnotationPageRequest, v1.ExportAnnotationPageResponse]
+}
+
+// GetAnnotationPage calls scribe.v1.AnnotationService.GetAnnotationPage.
+func (c *annotationServiceClient) GetAnnotationPage(ctx context.Context, req *connect.Request[v1.GetAnnotationPageRequest]) (*connect.Response[v1.GetAnnotationPageResponse], error) {
+	return c.getAnnotationPage.CallUnary(ctx, req)
+}
+
+// SaveAnnotationPage calls scribe.v1.AnnotationService.SaveAnnotationPage.
+func (c *annotationServiceClient) SaveAnnotationPage(ctx context.Context, req *connect.Request[v1.SaveAnnotationPageRequest]) (*connect.Response[v1.SaveAnnotationPageResponse], error) {
+	return c.saveAnnotationPage.CallUnary(ctx, req)
 }
 
 // SearchAnnotations calls scribe.v1.AnnotationService.SearchAnnotations.
@@ -233,21 +199,6 @@ func (c *annotationServiceClient) SearchAnnotations(ctx context.Context, req *co
 // GetAnnotation calls scribe.v1.AnnotationService.GetAnnotation.
 func (c *annotationServiceClient) GetAnnotation(ctx context.Context, req *connect.Request[v1.GetAnnotationRequest]) (*connect.Response[v1.GetAnnotationResponse], error) {
 	return c.getAnnotation.CallUnary(ctx, req)
-}
-
-// CreateAnnotation calls scribe.v1.AnnotationService.CreateAnnotation.
-func (c *annotationServiceClient) CreateAnnotation(ctx context.Context, req *connect.Request[v1.CreateAnnotationRequest]) (*connect.Response[v1.CreateAnnotationResponse], error) {
-	return c.createAnnotation.CallUnary(ctx, req)
-}
-
-// UpdateAnnotation calls scribe.v1.AnnotationService.UpdateAnnotation.
-func (c *annotationServiceClient) UpdateAnnotation(ctx context.Context, req *connect.Request[v1.UpdateAnnotationRequest]) (*connect.Response[v1.UpdateAnnotationResponse], error) {
-	return c.updateAnnotation.CallUnary(ctx, req)
-}
-
-// DeleteAnnotation calls scribe.v1.AnnotationService.DeleteAnnotation.
-func (c *annotationServiceClient) DeleteAnnotation(ctx context.Context, req *connect.Request[v1.DeleteAnnotationRequest]) (*connect.Response[v1.DeleteAnnotationResponse], error) {
-	return c.deleteAnnotation.CallUnary(ctx, req)
 }
 
 // PublishItemImageEdits calls scribe.v1.AnnotationService.PublishItemImageEdits.
@@ -280,33 +231,17 @@ func (c *annotationServiceClient) JoinWordsIntoLine(ctx context.Context, req *co
 	return c.joinWordsIntoLine.CallUnary(ctx, req)
 }
 
-// CrosswalkToPlainText calls scribe.v1.AnnotationService.CrosswalkToPlainText.
-func (c *annotationServiceClient) CrosswalkToPlainText(ctx context.Context, req *connect.Request[v1.CrosswalkToPlainTextRequest]) (*connect.Response[v1.CrosswalkToPlainTextResponse], error) {
-	return c.crosswalkToPlainText.CallUnary(ctx, req)
-}
-
-// CrosswalkToHOCR calls scribe.v1.AnnotationService.CrosswalkToHOCR.
-func (c *annotationServiceClient) CrosswalkToHOCR(ctx context.Context, req *connect.Request[v1.CrosswalkToHOCRRequest]) (*connect.Response[v1.CrosswalkToHOCRResponse], error) {
-	return c.crosswalkToHOCR.CallUnary(ctx, req)
-}
-
-// CrosswalkToPageXML calls scribe.v1.AnnotationService.CrosswalkToPageXML.
-func (c *annotationServiceClient) CrosswalkToPageXML(ctx context.Context, req *connect.Request[v1.CrosswalkToPageXMLRequest]) (*connect.Response[v1.CrosswalkToPageXMLResponse], error) {
-	return c.crosswalkToPageXML.CallUnary(ctx, req)
-}
-
-// CrosswalkToALTOXML calls scribe.v1.AnnotationService.CrosswalkToALTOXML.
-func (c *annotationServiceClient) CrosswalkToALTOXML(ctx context.Context, req *connect.Request[v1.CrosswalkToALTOXMLRequest]) (*connect.Response[v1.CrosswalkToALTOXMLResponse], error) {
-	return c.crosswalkToALTOXML.CallUnary(ctx, req)
+// ExportAnnotationPage calls scribe.v1.AnnotationService.ExportAnnotationPage.
+func (c *annotationServiceClient) ExportAnnotationPage(ctx context.Context, req *connect.Request[v1.ExportAnnotationPageRequest]) (*connect.Response[v1.ExportAnnotationPageResponse], error) {
+	return c.exportAnnotationPage.CallUnary(ctx, req)
 }
 
 // AnnotationServiceHandler is an implementation of the scribe.v1.AnnotationService service.
 type AnnotationServiceHandler interface {
+	GetAnnotationPage(context.Context, *connect.Request[v1.GetAnnotationPageRequest]) (*connect.Response[v1.GetAnnotationPageResponse], error)
+	SaveAnnotationPage(context.Context, *connect.Request[v1.SaveAnnotationPageRequest]) (*connect.Response[v1.SaveAnnotationPageResponse], error)
 	SearchAnnotations(context.Context, *connect.Request[v1.SearchAnnotationsRequest]) (*connect.Response[v1.SearchAnnotationsResponse], error)
 	GetAnnotation(context.Context, *connect.Request[v1.GetAnnotationRequest]) (*connect.Response[v1.GetAnnotationResponse], error)
-	CreateAnnotation(context.Context, *connect.Request[v1.CreateAnnotationRequest]) (*connect.Response[v1.CreateAnnotationResponse], error)
-	UpdateAnnotation(context.Context, *connect.Request[v1.UpdateAnnotationRequest]) (*connect.Response[v1.UpdateAnnotationResponse], error)
-	DeleteAnnotation(context.Context, *connect.Request[v1.DeleteAnnotationRequest]) (*connect.Response[v1.DeleteAnnotationResponse], error)
 	PublishItemImageEdits(context.Context, *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error)
 	// Improve transcription for one line or a full canvas.
 	EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error)
@@ -315,11 +250,8 @@ type AnnotationServiceHandler interface {
 	SplitLineIntoTwoLines(context.Context, *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error)
 	JoinLines(context.Context, *connect.Request[v1.JoinLinesRequest]) (*connect.Response[v1.JoinLinesResponse], error)
 	JoinWordsIntoLine(context.Context, *connect.Request[v1.JoinWordsIntoLineRequest]) (*connect.Response[v1.JoinWordsIntoLineResponse], error)
-	// Export / crosswalk operations.
-	CrosswalkToPlainText(context.Context, *connect.Request[v1.CrosswalkToPlainTextRequest]) (*connect.Response[v1.CrosswalkToPlainTextResponse], error)
-	CrosswalkToHOCR(context.Context, *connect.Request[v1.CrosswalkToHOCRRequest]) (*connect.Response[v1.CrosswalkToHOCRResponse], error)
-	CrosswalkToPageXML(context.Context, *connect.Request[v1.CrosswalkToPageXMLRequest]) (*connect.Response[v1.CrosswalkToPageXMLResponse], error)
-	CrosswalkToALTOXML(context.Context, *connect.Request[v1.CrosswalkToALTOXMLRequest]) (*connect.Response[v1.CrosswalkToALTOXMLResponse], error)
+	// Export one exact committed canonical revision to a rebuildable OCR view.
+	ExportAnnotationPage(context.Context, *connect.Request[v1.ExportAnnotationPageRequest]) (*connect.Response[v1.ExportAnnotationPageResponse], error)
 }
 
 // NewAnnotationServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -329,6 +261,18 @@ type AnnotationServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	annotationServiceMethods := v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods()
+	annotationServiceGetAnnotationPageHandler := connect.NewUnaryHandler(
+		AnnotationServiceGetAnnotationPageProcedure,
+		svc.GetAnnotationPage,
+		connect.WithSchema(annotationServiceMethods.ByName("GetAnnotationPage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	annotationServiceSaveAnnotationPageHandler := connect.NewUnaryHandler(
+		AnnotationServiceSaveAnnotationPageProcedure,
+		svc.SaveAnnotationPage,
+		connect.WithSchema(annotationServiceMethods.ByName("SaveAnnotationPage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	annotationServiceSearchAnnotationsHandler := connect.NewUnaryHandler(
 		AnnotationServiceSearchAnnotationsProcedure,
 		svc.SearchAnnotations,
@@ -339,24 +283,6 @@ func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.H
 		AnnotationServiceGetAnnotationProcedure,
 		svc.GetAnnotation,
 		connect.WithSchema(annotationServiceMethods.ByName("GetAnnotation")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceCreateAnnotationHandler := connect.NewUnaryHandler(
-		AnnotationServiceCreateAnnotationProcedure,
-		svc.CreateAnnotation,
-		connect.WithSchema(annotationServiceMethods.ByName("CreateAnnotation")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceUpdateAnnotationHandler := connect.NewUnaryHandler(
-		AnnotationServiceUpdateAnnotationProcedure,
-		svc.UpdateAnnotation,
-		connect.WithSchema(annotationServiceMethods.ByName("UpdateAnnotation")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceDeleteAnnotationHandler := connect.NewUnaryHandler(
-		AnnotationServiceDeleteAnnotationProcedure,
-		svc.DeleteAnnotation,
-		connect.WithSchema(annotationServiceMethods.ByName("DeleteAnnotation")),
 		connect.WithHandlerOptions(opts...),
 	)
 	annotationServicePublishItemImageEditsHandler := connect.NewUnaryHandler(
@@ -395,42 +321,22 @@ func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.H
 		connect.WithSchema(annotationServiceMethods.ByName("JoinWordsIntoLine")),
 		connect.WithHandlerOptions(opts...),
 	)
-	annotationServiceCrosswalkToPlainTextHandler := connect.NewUnaryHandler(
-		AnnotationServiceCrosswalkToPlainTextProcedure,
-		svc.CrosswalkToPlainText,
-		connect.WithSchema(annotationServiceMethods.ByName("CrosswalkToPlainText")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceCrosswalkToHOCRHandler := connect.NewUnaryHandler(
-		AnnotationServiceCrosswalkToHOCRProcedure,
-		svc.CrosswalkToHOCR,
-		connect.WithSchema(annotationServiceMethods.ByName("CrosswalkToHOCR")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceCrosswalkToPageXMLHandler := connect.NewUnaryHandler(
-		AnnotationServiceCrosswalkToPageXMLProcedure,
-		svc.CrosswalkToPageXML,
-		connect.WithSchema(annotationServiceMethods.ByName("CrosswalkToPageXML")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceCrosswalkToALTOXMLHandler := connect.NewUnaryHandler(
-		AnnotationServiceCrosswalkToALTOXMLProcedure,
-		svc.CrosswalkToALTOXML,
-		connect.WithSchema(annotationServiceMethods.ByName("CrosswalkToALTOXML")),
+	annotationServiceExportAnnotationPageHandler := connect.NewUnaryHandler(
+		AnnotationServiceExportAnnotationPageProcedure,
+		svc.ExportAnnotationPage,
+		connect.WithSchema(annotationServiceMethods.ByName("ExportAnnotationPage")),
 		connect.WithHandlerOptions(opts...),
 	)
 	return "/scribe.v1.AnnotationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case AnnotationServiceGetAnnotationPageProcedure:
+			annotationServiceGetAnnotationPageHandler.ServeHTTP(w, r)
+		case AnnotationServiceSaveAnnotationPageProcedure:
+			annotationServiceSaveAnnotationPageHandler.ServeHTTP(w, r)
 		case AnnotationServiceSearchAnnotationsProcedure:
 			annotationServiceSearchAnnotationsHandler.ServeHTTP(w, r)
 		case AnnotationServiceGetAnnotationProcedure:
 			annotationServiceGetAnnotationHandler.ServeHTTP(w, r)
-		case AnnotationServiceCreateAnnotationProcedure:
-			annotationServiceCreateAnnotationHandler.ServeHTTP(w, r)
-		case AnnotationServiceUpdateAnnotationProcedure:
-			annotationServiceUpdateAnnotationHandler.ServeHTTP(w, r)
-		case AnnotationServiceDeleteAnnotationProcedure:
-			annotationServiceDeleteAnnotationHandler.ServeHTTP(w, r)
 		case AnnotationServicePublishItemImageEditsProcedure:
 			annotationServicePublishItemImageEditsHandler.ServeHTTP(w, r)
 		case AnnotationServiceEnrichAnnotationProcedure:
@@ -443,14 +349,8 @@ func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.H
 			annotationServiceJoinLinesHandler.ServeHTTP(w, r)
 		case AnnotationServiceJoinWordsIntoLineProcedure:
 			annotationServiceJoinWordsIntoLineHandler.ServeHTTP(w, r)
-		case AnnotationServiceCrosswalkToPlainTextProcedure:
-			annotationServiceCrosswalkToPlainTextHandler.ServeHTTP(w, r)
-		case AnnotationServiceCrosswalkToHOCRProcedure:
-			annotationServiceCrosswalkToHOCRHandler.ServeHTTP(w, r)
-		case AnnotationServiceCrosswalkToPageXMLProcedure:
-			annotationServiceCrosswalkToPageXMLHandler.ServeHTTP(w, r)
-		case AnnotationServiceCrosswalkToALTOXMLProcedure:
-			annotationServiceCrosswalkToALTOXMLHandler.ServeHTTP(w, r)
+		case AnnotationServiceExportAnnotationPageProcedure:
+			annotationServiceExportAnnotationPageHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -460,24 +360,20 @@ func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.H
 // UnimplementedAnnotationServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAnnotationServiceHandler struct{}
 
+func (UnimplementedAnnotationServiceHandler) GetAnnotationPage(context.Context, *connect.Request[v1.GetAnnotationPageRequest]) (*connect.Response[v1.GetAnnotationPageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.GetAnnotationPage is not implemented"))
+}
+
+func (UnimplementedAnnotationServiceHandler) SaveAnnotationPage(context.Context, *connect.Request[v1.SaveAnnotationPageRequest]) (*connect.Response[v1.SaveAnnotationPageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.SaveAnnotationPage is not implemented"))
+}
+
 func (UnimplementedAnnotationServiceHandler) SearchAnnotations(context.Context, *connect.Request[v1.SearchAnnotationsRequest]) (*connect.Response[v1.SearchAnnotationsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.SearchAnnotations is not implemented"))
 }
 
 func (UnimplementedAnnotationServiceHandler) GetAnnotation(context.Context, *connect.Request[v1.GetAnnotationRequest]) (*connect.Response[v1.GetAnnotationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.GetAnnotation is not implemented"))
-}
-
-func (UnimplementedAnnotationServiceHandler) CreateAnnotation(context.Context, *connect.Request[v1.CreateAnnotationRequest]) (*connect.Response[v1.CreateAnnotationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.CreateAnnotation is not implemented"))
-}
-
-func (UnimplementedAnnotationServiceHandler) UpdateAnnotation(context.Context, *connect.Request[v1.UpdateAnnotationRequest]) (*connect.Response[v1.UpdateAnnotationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.UpdateAnnotation is not implemented"))
-}
-
-func (UnimplementedAnnotationServiceHandler) DeleteAnnotation(context.Context, *connect.Request[v1.DeleteAnnotationRequest]) (*connect.Response[v1.DeleteAnnotationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.DeleteAnnotation is not implemented"))
 }
 
 func (UnimplementedAnnotationServiceHandler) PublishItemImageEdits(context.Context, *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error) {
@@ -504,18 +400,6 @@ func (UnimplementedAnnotationServiceHandler) JoinWordsIntoLine(context.Context, 
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.JoinWordsIntoLine is not implemented"))
 }
 
-func (UnimplementedAnnotationServiceHandler) CrosswalkToPlainText(context.Context, *connect.Request[v1.CrosswalkToPlainTextRequest]) (*connect.Response[v1.CrosswalkToPlainTextResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.CrosswalkToPlainText is not implemented"))
-}
-
-func (UnimplementedAnnotationServiceHandler) CrosswalkToHOCR(context.Context, *connect.Request[v1.CrosswalkToHOCRRequest]) (*connect.Response[v1.CrosswalkToHOCRResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.CrosswalkToHOCR is not implemented"))
-}
-
-func (UnimplementedAnnotationServiceHandler) CrosswalkToPageXML(context.Context, *connect.Request[v1.CrosswalkToPageXMLRequest]) (*connect.Response[v1.CrosswalkToPageXMLResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.CrosswalkToPageXML is not implemented"))
-}
-
-func (UnimplementedAnnotationServiceHandler) CrosswalkToALTOXML(context.Context, *connect.Request[v1.CrosswalkToALTOXMLRequest]) (*connect.Response[v1.CrosswalkToALTOXMLResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.CrosswalkToALTOXML is not implemented"))
+func (UnimplementedAnnotationServiceHandler) ExportAnnotationPage(context.Context, *connect.Request[v1.ExportAnnotationPageRequest]) (*connect.Response[v1.ExportAnnotationPageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.ExportAnnotationPage is not implemented"))
 }

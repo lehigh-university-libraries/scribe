@@ -63,6 +63,9 @@ const (
 	// ContextServiceGetModelCatalogProcedure is the fully-qualified name of the ContextService's
 	// GetModelCatalog RPC.
 	ContextServiceGetModelCatalogProcedure = "/scribe.v1.ContextService/GetModelCatalog"
+	// ContextServiceGetContextMetricsProcedure is the fully-qualified name of the ContextService's
+	// GetContextMetrics RPC.
+	ContextServiceGetContextMetricsProcedure = "/scribe.v1.ContextService/GetContextMetrics"
 )
 
 // ContextServiceClient is a client for the scribe.v1.ContextService service.
@@ -77,6 +80,7 @@ type ContextServiceClient interface {
 	DeleteSelectionRule(context.Context, *connect.Request[v1.DeleteSelectionRuleRequest]) (*connect.Response[v1.DeleteSelectionRuleResponse], error)
 	ResolveContext(context.Context, *connect.Request[v1.ResolveContextRequest]) (*connect.Response[v1.ResolveContextResponse], error)
 	GetModelCatalog(context.Context, *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error)
+	GetContextMetrics(context.Context, *connect.Request[v1.GetContextMetricsRequest]) (*connect.Response[v1.GetContextMetricsResponse], error)
 }
 
 // NewContextServiceClient constructs a client for the scribe.v1.ContextService service. By default,
@@ -150,6 +154,12 @@ func NewContextServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(contextServiceMethods.ByName("GetModelCatalog")),
 			connect.WithClientOptions(opts...),
 		),
+		getContextMetrics: connect.NewClient[v1.GetContextMetricsRequest, v1.GetContextMetricsResponse](
+			httpClient,
+			baseURL+ContextServiceGetContextMetricsProcedure,
+			connect.WithSchema(contextServiceMethods.ByName("GetContextMetrics")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -165,6 +175,7 @@ type contextServiceClient struct {
 	deleteSelectionRule *connect.Client[v1.DeleteSelectionRuleRequest, v1.DeleteSelectionRuleResponse]
 	resolveContext      *connect.Client[v1.ResolveContextRequest, v1.ResolveContextResponse]
 	getModelCatalog     *connect.Client[v1.GetModelCatalogRequest, v1.GetModelCatalogResponse]
+	getContextMetrics   *connect.Client[v1.GetContextMetricsRequest, v1.GetContextMetricsResponse]
 }
 
 // ListContexts calls scribe.v1.ContextService.ListContexts.
@@ -217,6 +228,11 @@ func (c *contextServiceClient) GetModelCatalog(ctx context.Context, req *connect
 	return c.getModelCatalog.CallUnary(ctx, req)
 }
 
+// GetContextMetrics calls scribe.v1.ContextService.GetContextMetrics.
+func (c *contextServiceClient) GetContextMetrics(ctx context.Context, req *connect.Request[v1.GetContextMetricsRequest]) (*connect.Response[v1.GetContextMetricsResponse], error) {
+	return c.getContextMetrics.CallUnary(ctx, req)
+}
+
 // ContextServiceHandler is an implementation of the scribe.v1.ContextService service.
 type ContextServiceHandler interface {
 	ListContexts(context.Context, *connect.Request[v1.ListContextsRequest]) (*connect.Response[v1.ListContextsResponse], error)
@@ -229,6 +245,7 @@ type ContextServiceHandler interface {
 	DeleteSelectionRule(context.Context, *connect.Request[v1.DeleteSelectionRuleRequest]) (*connect.Response[v1.DeleteSelectionRuleResponse], error)
 	ResolveContext(context.Context, *connect.Request[v1.ResolveContextRequest]) (*connect.Response[v1.ResolveContextResponse], error)
 	GetModelCatalog(context.Context, *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error)
+	GetContextMetrics(context.Context, *connect.Request[v1.GetContextMetricsRequest]) (*connect.Response[v1.GetContextMetricsResponse], error)
 }
 
 // NewContextServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -298,6 +315,12 @@ func NewContextServiceHandler(svc ContextServiceHandler, opts ...connect.Handler
 		connect.WithSchema(contextServiceMethods.ByName("GetModelCatalog")),
 		connect.WithHandlerOptions(opts...),
 	)
+	contextServiceGetContextMetricsHandler := connect.NewUnaryHandler(
+		ContextServiceGetContextMetricsProcedure,
+		svc.GetContextMetrics,
+		connect.WithSchema(contextServiceMethods.ByName("GetContextMetrics")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/scribe.v1.ContextService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ContextServiceListContextsProcedure:
@@ -320,6 +343,8 @@ func NewContextServiceHandler(svc ContextServiceHandler, opts ...connect.Handler
 			contextServiceResolveContextHandler.ServeHTTP(w, r)
 		case ContextServiceGetModelCatalogProcedure:
 			contextServiceGetModelCatalogHandler.ServeHTTP(w, r)
+		case ContextServiceGetContextMetricsProcedure:
+			contextServiceGetContextMetricsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -367,4 +392,8 @@ func (UnimplementedContextServiceHandler) ResolveContext(context.Context, *conne
 
 func (UnimplementedContextServiceHandler) GetModelCatalog(context.Context, *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.GetModelCatalog is not implemented"))
+}
+
+func (UnimplementedContextServiceHandler) GetContextMetrics(context.Context, *connect.Request[v1.GetContextMetricsRequest]) (*connect.Response[v1.GetContextMetricsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.GetContextMetrics is not implemented"))
 }

@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lehigh-university-libraries/scribe/internal/servicehttp"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -34,6 +35,7 @@ const (
 	maxRetryAttempts    = 5
 	initialRetryDelay   = 250 * time.Millisecond
 	maxRetryDelay       = 4 * time.Second
+	maxResponseBytes    = 2 << 20
 )
 
 type Client struct {
@@ -61,7 +63,7 @@ func New(addr, token, kvMount, gcpAuthRole string) *Client {
 		staticToken: strings.TrimSpace(token),
 		kvMount:     strings.TrimSpace(kvMount),
 		gcpAuthRole: gcpAuthRole,
-		http:        &http.Client{Timeout: 10 * time.Second},
+		http:        servicehttp.NewClient(10 * time.Second),
 		now:         time.Now,
 	}
 }
@@ -105,12 +107,12 @@ func (c *Client) readV2(ctx context.Context, token, path string) (map[string]str
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, vaultStatusError{operation: "read", path: path, statusCode: resp.StatusCode, body: string(body)}
+		return nil, vaultStatusError{operation: "read", path: path, statusCode: resp.StatusCode}
 	}
 
 	var parsed struct {
@@ -169,12 +171,11 @@ func (c *Client) writeV2(ctx context.Context, token, path string, data map[strin
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	if _, err := readResponseBody(resp.Body); err != nil {
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return vaultStatusError{operation: "write", path: path, statusCode: resp.StatusCode, body: string(body)}
+		return vaultStatusError{operation: "write", path: path, statusCode: resp.StatusCode}
 	}
 	return nil
 }
@@ -207,15 +208,14 @@ func (c *Client) deleteV2(ctx context.Context, token, path string) error {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	if _, err := readResponseBody(resp.Body); err != nil {
 		return err
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return vaultStatusError{operation: "delete", path: path, statusCode: resp.StatusCode, body: string(body)}
+		return vaultStatusError{operation: "delete", path: path, statusCode: resp.StatusCode}
 	}
 	return nil
 }
@@ -224,11 +224,10 @@ type vaultStatusError struct {
 	operation  string
 	path       string
 	statusCode int
-	body       string
 }
 
 func (e vaultStatusError) Error() string {
-	return fmt.Sprintf("vault %s %s: status %d: %s", e.operation, e.path, e.statusCode, e.body)
+	return fmt.Sprintf("vault %s %s: status %d", e.operation, e.path, e.statusCode)
 }
 
 func IsNotFound(err error) bool {
@@ -302,7 +301,7 @@ func (c *Client) loginWithGCP(ctx context.Context) (string, time.Time, bool, err
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp.Body)
 	if err != nil {
 		return "", time.Time{}, false, err
 	}
@@ -311,7 +310,6 @@ func (c *Client) loginWithGCP(ctx context.Context) (string, time.Time, bool, err
 			operation:  "gcp login",
 			path:       "auth/gcp/login",
 			statusCode: resp.StatusCode,
-			body:       string(body),
 		}
 	}
 
@@ -392,7 +390,7 @@ func (c *Client) renewSelf(ctx context.Context, token string) (string, time.Time
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp.Body)
 	if err != nil {
 		return "", time.Time{}, false, err
 	}
@@ -401,7 +399,6 @@ func (c *Client) renewSelf(ctx context.Context, token string) (string, time.Time
 			operation:  "token renew",
 			path:       "auth/token/renew-self",
 			statusCode: resp.StatusCode,
-			body:       string(body),
 		}
 	}
 
@@ -433,7 +430,7 @@ func (c *Client) signedJWTFromCredentials() (string, error) {
 	// Vault IAM auth signs only the compose-mounted credential file so local
 	// overrides cannot silently widen which service account can mint tokens.
 	if filepath.Clean(path) != defaultADCFile {
-		return "", fmt.Errorf("GOOGLE_APPLICATION_CREDENTIALS must point to %s", defaultADCFile)
+		return "", fmt.Errorf("credentials: GOOGLE_APPLICATION_CREDENTIALS must point to %s", defaultADCFile)
 	}
 	raw, err := os.ReadFile(defaultADCFile)
 	if err != nil {
@@ -499,12 +496,12 @@ func (c *Client) signedJWTFromMetadata(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp.Body)
 	if err != nil {
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("iam signJwt status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("iam signJwt status %d", resp.StatusCode)
 	}
 
 	var parsed struct {
@@ -604,14 +601,25 @@ func metadataValue(ctx context.Context, client *http.Client, path string) (strin
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readResponseBody(resp.Body)
 	if err != nil {
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("metadata status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("metadata status %d", resp.StatusCode)
 	}
 	return string(body), nil
+}
+
+func readResponseBody(reader io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(reader, maxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxResponseBytes {
+		return nil, fmt.Errorf("response exceeds %d bytes", maxResponseBytes)
+	}
+	return body, nil
 }
 
 func (c *Client) retry(ctx context.Context, fn func() error) error {

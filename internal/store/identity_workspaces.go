@@ -18,6 +18,13 @@ var (
 	ErrLastWorkspaceAdmin         = errors.New("workspace must retain at least one admin")
 	ErrWorkspaceMemberExists      = errors.New("workspace member already exists")
 	ErrWorkspaceUserNotFound      = errors.New("workspace user not found")
+	ErrWorkspaceAccessLimit       = errors.New("user workspace limit reached")
+	ErrWorkspaceMemberLimit       = errors.New("workspace member limit reached")
+)
+
+const (
+	MaxWorkspaceAccessPerUser = 50
+	MaxWorkspaceMembers       = 100
 )
 
 type WorkspaceMember struct {
@@ -38,37 +45,11 @@ func normalizeWorkspaceMemberRole(raw string) (string, error) {
 }
 
 func (s *IdentityStore) GetWorkspace(ctx context.Context, workspaceID uint64) (Workspace, error) {
-	row := s.pool.QueryRowContext(ctx, `
-SELECT
-  id,
-  organization_id,
-  owner_user_id,
-  name,
-  slug,
-  is_personal,
-  created_by_user_id,
-  created_at,
-  updated_at
-FROM workspaces
-WHERE id = ?
-LIMIT 1
-`, workspaceID)
-
-	var workspaceRow db.Workspace
-	if err := row.Scan(
-		&workspaceRow.ID,
-		&workspaceRow.OrganizationID,
-		&workspaceRow.OwnerUserID,
-		&workspaceRow.Name,
-		&workspaceRow.Slug,
-		&workspaceRow.IsPersonal,
-		&workspaceRow.CreatedByUserID,
-		&workspaceRow.CreatedAt,
-		&workspaceRow.UpdatedAt,
-	); err != nil {
+	row, err := s.q.GetWorkspace(ctx, workspaceID)
+	if err != nil {
 		return Workspace{}, fmt.Errorf("get workspace: %w", err)
 	}
-	return rowToWorkspace(workspaceRow), nil
+	return rowToWorkspace(row), nil
 }
 
 func (s *IdentityStore) CreateWorkspaceForUser(ctx context.Context, userID uint64, name string) (WorkspaceAccess, error) {
@@ -88,16 +69,29 @@ func (s *IdentityStore) CreateWorkspaceForUser(ctx context.Context, userID uint6
 		if err != nil {
 			return WorkspaceAccess{}, fmt.Errorf("begin workspace transaction: %w", err)
 		}
-
-		res, err := tx.ExecContext(ctx, `
-INSERT INTO workspaces (
-  owner_user_id,
-  name,
-  slug,
-  is_personal,
-  created_by_user_id
-) VALUES (?, ?, ?, FALSE, ?)
-`, userID, name, slug, userID)
+		queries := s.q.WithTx(tx)
+		if _, err := queries.LockUserForIdentityAdmissionManual(ctx, userID); err != nil {
+			_ = tx.Rollback()
+			return WorkspaceAccess{}, fmt.Errorf("lock workspace creator: %w", err)
+		}
+		accessCount, err := queries.CountWorkspaceAccessByUserManual(ctx, userID)
+		if err != nil {
+			_ = tx.Rollback()
+			return WorkspaceAccess{}, fmt.Errorf("count user workspaces: %w", err)
+		}
+		if accessCount >= MaxWorkspaceAccessPerUser {
+			_ = tx.Rollback()
+			return WorkspaceAccess{}, ErrWorkspaceAccessLimit
+		}
+		ownerUserID := userID
+		createdByUserID := userID
+		workspaceID, err := queries.CreateWorkspace(ctx, db.CreateWorkspaceParams{
+			OwnerUserID:     &ownerUserID,
+			Name:            name,
+			Slug:            slug,
+			IsPersonal:      false,
+			CreatedByUserID: &createdByUserID,
+		})
 		if err != nil {
 			_ = tx.Rollback()
 			if isDuplicateEntryError(err) {
@@ -105,32 +99,19 @@ INSERT INTO workspaces (
 			}
 			return WorkspaceAccess{}, fmt.Errorf("create workspace: %w", err)
 		}
-
-		workspaceID, err := res.LastInsertId()
-		if err != nil {
+		if err := queries.EnsureStorageQuotaUsage(ctx, workspaceID); err != nil {
 			_ = tx.Rollback()
-			return WorkspaceAccess{}, fmt.Errorf("read workspace id: %w", err)
+			return WorkspaceAccess{}, fmt.Errorf("create workspace quota row: %w", err)
 		}
 
-		if _, err := tx.ExecContext(ctx, `
-INSERT INTO workspace_members (
-  workspace_id,
-  user_id,
-  role
-) VALUES (?, ?, 'admin')
-`, workspaceID, userID); err != nil {
+		if err := queries.CreateWorkspaceMember(ctx, workspaceID, userID, "admin"); err != nil {
 			_ = tx.Rollback()
 			return WorkspaceAccess{}, fmt.Errorf("create workspace membership: %w", err)
 		}
-
 		if err := tx.Commit(); err != nil {
 			return WorkspaceAccess{}, fmt.Errorf("commit workspace creation: %w", err)
 		}
-		createdWorkspaceID, ok := uint64FromNonNegativeInt64(workspaceID)
-		if !ok {
-			return WorkspaceAccess{}, fmt.Errorf("create workspace returned negative id %d", workspaceID)
-		}
-		return s.GetWorkspaceAccess(ctx, userID, createdWorkspaceID)
+		return s.GetWorkspaceAccess(ctx, userID, workspaceID)
 	}
 
 	return WorkspaceAccess{}, fmt.Errorf("create workspace: unable to allocate unique slug")
@@ -150,17 +131,9 @@ func (s *IdentityStore) UpdateWorkspaceName(ctx context.Context, workspaceID uin
 		return Workspace{}, ErrPersonalWorkspaceImmutable
 	}
 
-	res, err := s.pool.ExecContext(ctx, `
-UPDATE workspaces
-SET name = ?
-WHERE id = ?
-`, name, workspaceID)
+	rows, err := s.q.UpdateWorkspaceName(ctx, workspaceID, name)
 	if err != nil {
 		return Workspace{}, fmt.Errorf("update workspace name: %w", err)
-	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return Workspace{}, fmt.Errorf("workspace rows affected: %w", err)
 	}
 	if rows == 0 {
 		return Workspace{}, sql.ErrNoRows
@@ -169,91 +142,29 @@ WHERE id = ?
 }
 
 func (s *IdentityStore) ListWorkspaceMembers(ctx context.Context, workspaceID uint64) ([]WorkspaceMember, error) {
-	rows, err := s.pool.QueryContext(ctx, `
-SELECT
-  wm.workspace_id,
-  wm.role,
-  wm.created_at,
-  u.id,
-  u.name,
-  u.email,
-  u.google_subject,
-  u.picture_url,
-  u.is_admin,
-  u.last_login_at,
-  u.created_at,
-  u.updated_at
-FROM workspace_members wm
-JOIN users u ON u.id = wm.user_id
-WHERE wm.workspace_id = ?
-ORDER BY FIELD(wm.role, 'admin', 'write', 'create', 'read'), LOWER(u.name), LOWER(COALESCE(u.email, ''))
-`, workspaceID)
+	rows, err := s.q.ListWorkspaceMembers(ctx, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("list workspace members: %w", err)
 	}
-	defer rows.Close()
-
-	out := make([]WorkspaceMember, 0)
-	for rows.Next() {
-		member, err := scanWorkspaceMember(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, member)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate workspace members: %w", err)
+	out := make([]WorkspaceMember, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, rowToWorkspaceMember(row))
 	}
 	return out, nil
 }
 
 func (s *IdentityStore) GetWorkspaceMember(ctx context.Context, workspaceID, userID uint64) (WorkspaceMember, error) {
-	rows, err := s.pool.QueryContext(ctx, `
-SELECT
-  wm.workspace_id,
-  wm.role,
-  wm.created_at,
-  u.id,
-  u.name,
-  u.email,
-  u.google_subject,
-  u.picture_url,
-  u.is_admin,
-  u.last_login_at,
-  u.created_at,
-  u.updated_at
-FROM workspace_members wm
-JOIN users u ON u.id = wm.user_id
-WHERE wm.workspace_id = ?
-  AND wm.user_id = ?
-LIMIT 1
-`, workspaceID, userID)
+	row, err := s.q.GetWorkspaceMember(ctx, workspaceID, userID)
 	if err != nil {
 		return WorkspaceMember{}, fmt.Errorf("get workspace member: %w", err)
 	}
-	defer rows.Close()
-	if !rows.Next() {
-		return WorkspaceMember{}, sql.ErrNoRows
-	}
-	member, err := scanWorkspaceMember(rows)
-	if err != nil {
-		return WorkspaceMember{}, err
-	}
-	return member, nil
+	return rowToWorkspaceMember(row), nil
 }
 
 func (s *IdentityStore) AddWorkspaceMemberByEmail(ctx context.Context, workspaceID uint64, email, role string) (WorkspaceMember, error) {
 	role, err := normalizeWorkspaceMemberRole(role)
 	if err != nil {
 		return WorkspaceMember{}, err
-	}
-
-	workspace, err := s.GetWorkspace(ctx, workspaceID)
-	if err != nil {
-		return WorkspaceMember{}, err
-	}
-	if workspace.IsPersonal {
-		return WorkspaceMember{}, ErrPersonalWorkspaceImmutable
 	}
 
 	user, err := s.q.GetUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
@@ -264,18 +175,44 @@ func (s *IdentityStore) AddWorkspaceMemberByEmail(ctx context.Context, workspace
 		return WorkspaceMember{}, fmt.Errorf("lookup member by email: %w", err)
 	}
 
-	_, err = s.pool.ExecContext(ctx, `
-INSERT INTO workspace_members (
-  workspace_id,
-  user_id,
-  role
-) VALUES (?, ?, ?)
-`, workspaceID, user.ID, role)
+	tx, err := s.pool.BeginTx(ctx, nil)
 	if err != nil {
+		return WorkspaceMember{}, fmt.Errorf("add workspace member: begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	queries := s.q.WithTx(tx)
+	workspace, err := queries.LockWorkspace(ctx, workspaceID)
+	if err != nil {
+		return WorkspaceMember{}, err
+	}
+	if workspace.IsPersonal {
+		return WorkspaceMember{}, ErrPersonalWorkspaceImmutable
+	}
+	if _, err := queries.LockUserForIdentityAdmissionManual(ctx, user.ID); err != nil {
+		return WorkspaceMember{}, fmt.Errorf("lock workspace member user: %w", err)
+	}
+	memberCount, err := queries.CountWorkspaceMembersManual(ctx, workspaceID)
+	if err != nil {
+		return WorkspaceMember{}, fmt.Errorf("count workspace members: %w", err)
+	}
+	if memberCount >= MaxWorkspaceMembers {
+		return WorkspaceMember{}, ErrWorkspaceMemberLimit
+	}
+	accessCount, err := queries.CountWorkspaceAccessByUserManual(ctx, user.ID)
+	if err != nil {
+		return WorkspaceMember{}, fmt.Errorf("count user workspaces: %w", err)
+	}
+	if accessCount >= MaxWorkspaceAccessPerUser {
+		return WorkspaceMember{}, ErrWorkspaceAccessLimit
+	}
+	if err := queries.AddWorkspaceMember(ctx, workspaceID, user.ID, role); err != nil {
 		if isDuplicateEntryError(err) {
 			return WorkspaceMember{}, ErrWorkspaceMemberExists
 		}
 		return WorkspaceMember{}, fmt.Errorf("add workspace member: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkspaceMember{}, fmt.Errorf("add workspace member: commit: %w", err)
 	}
 	return s.GetWorkspaceMember(ctx, workspaceID, user.ID)
 }
@@ -286,147 +223,94 @@ func (s *IdentityStore) UpdateWorkspaceMemberRole(ctx context.Context, workspace
 		return WorkspaceMember{}, err
 	}
 
-	workspace, err := s.GetWorkspace(ctx, workspaceID)
+	tx, err := s.pool.BeginTx(ctx, nil)
 	if err != nil {
-		return WorkspaceMember{}, err
+		return WorkspaceMember{}, fmt.Errorf("update workspace member: begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	queries := s.q.WithTx(tx)
+	workspace, err := queries.LockWorkspace(ctx, workspaceID)
+	if err != nil {
+		return WorkspaceMember{}, fmt.Errorf("lock workspace: %w", err)
 	}
 	if workspace.IsPersonal {
 		return WorkspaceMember{}, ErrPersonalWorkspaceImmutable
 	}
-
-	member, err := s.GetWorkspaceMember(ctx, workspaceID, userID)
+	currentRole, err := queries.LockWorkspaceMemberRole(ctx, workspaceID, userID)
 	if err != nil {
-		return WorkspaceMember{}, err
+		return WorkspaceMember{}, fmt.Errorf("lock workspace member: %w", err)
 	}
-	if member.Role == "admin" && role != "admin" {
-		adminCount, err := s.countWorkspaceAdmins(ctx, workspaceID)
-		if err != nil {
-			return WorkspaceMember{}, err
+	if currentRole == "admin" && role != "admin" {
+		adminCount, countErr := queries.CountWorkspaceAdmins(ctx, workspaceID)
+		if countErr != nil {
+			return WorkspaceMember{}, fmt.Errorf("count workspace admins: %w", countErr)
 		}
 		if adminCount <= 1 {
 			return WorkspaceMember{}, ErrLastWorkspaceAdmin
 		}
 	}
 
-	res, err := s.pool.ExecContext(ctx, `
-UPDATE workspace_members
-SET role = ?
-WHERE workspace_id = ?
-  AND user_id = ?
-`, role, workspaceID, userID)
+	rows, err := queries.UpdateWorkspaceMemberRole(ctx, workspaceID, userID, role)
 	if err != nil {
 		return WorkspaceMember{}, fmt.Errorf("update workspace member: %w", err)
 	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return WorkspaceMember{}, fmt.Errorf("workspace member rows affected: %w", err)
-	}
-	if rows == 0 {
+	if rows == 0 && currentRole != role {
 		return WorkspaceMember{}, sql.ErrNoRows
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkspaceMember{}, fmt.Errorf("update workspace member: commit: %w", err)
 	}
 	return s.GetWorkspaceMember(ctx, workspaceID, userID)
 }
 
 func (s *IdentityStore) RemoveWorkspaceMember(ctx context.Context, workspaceID, userID uint64) error {
-	workspace, err := s.GetWorkspace(ctx, workspaceID)
+	tx, err := s.pool.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("remove workspace member: begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	queries := s.q.WithTx(tx)
+	workspace, err := queries.LockWorkspace(ctx, workspaceID)
+	if err != nil {
+		return fmt.Errorf("lock workspace: %w", err)
 	}
 	if workspace.IsPersonal {
 		return ErrPersonalWorkspaceImmutable
 	}
-
-	member, err := s.GetWorkspaceMember(ctx, workspaceID, userID)
+	currentRole, err := queries.LockWorkspaceMemberRole(ctx, workspaceID, userID)
 	if err != nil {
-		return err
+		return fmt.Errorf("lock workspace member: %w", err)
 	}
-	if member.Role == "admin" {
-		adminCount, err := s.countWorkspaceAdmins(ctx, workspaceID)
-		if err != nil {
-			return err
+	if currentRole == "admin" {
+		adminCount, countErr := queries.CountWorkspaceAdmins(ctx, workspaceID)
+		if countErr != nil {
+			return fmt.Errorf("count workspace admins: %w", countErr)
 		}
 		if adminCount <= 1 {
 			return ErrLastWorkspaceAdmin
 		}
 	}
 
-	res, err := s.pool.ExecContext(ctx, `
-DELETE FROM workspace_members
-WHERE workspace_id = ?
-  AND user_id = ?
-`, workspaceID, userID)
+	rows, err := queries.DeleteWorkspaceMember(ctx, workspaceID, userID)
 	if err != nil {
 		return fmt.Errorf("remove workspace member: %w", err)
-	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("workspace member rows affected: %w", err)
 	}
 	if rows == 0 {
 		return sql.ErrNoRows
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("remove workspace member: commit: %w", err)
+	}
 	return nil
 }
 
-func (s *IdentityStore) countWorkspaceAdmins(ctx context.Context, workspaceID uint64) (int, error) {
-	row := s.pool.QueryRowContext(ctx, `
-SELECT COUNT(*)
-FROM workspace_members
-WHERE workspace_id = ?
-  AND role = 'admin'
-`, workspaceID)
-	var count int
-	if err := row.Scan(&count); err != nil {
-		return 0, fmt.Errorf("count workspace admins: %w", err)
+func rowToWorkspaceMember(row db.WorkspaceMemberDetail) WorkspaceMember {
+	return WorkspaceMember{
+		WorkspaceID: row.WorkspaceID,
+		User:        rowToUser(row.User),
+		Role:        row.Role,
+		CreatedAt:   row.CreatedAt,
 	}
-	return count, nil
-}
-
-func scanWorkspaceMember(scanner interface {
-	Scan(dest ...any) error
-}) (WorkspaceMember, error) {
-	var (
-		member        WorkspaceMember
-		email         sql.NullString
-		googleSubject sql.NullString
-		pictureURL    sql.NullString
-		lastLoginAt   sql.NullTime
-		userCreatedAt time.Time
-		userUpdatedAt time.Time
-	)
-
-	if err := scanner.Scan(
-		&member.WorkspaceID,
-		&member.Role,
-		&member.CreatedAt,
-		&member.User.ID,
-		&member.User.Name,
-		&email,
-		&googleSubject,
-		&pictureURL,
-		&member.User.IsAdmin,
-		&lastLoginAt,
-		&userCreatedAt,
-		&userUpdatedAt,
-	); err != nil {
-		return WorkspaceMember{}, fmt.Errorf("scan workspace member: %w", err)
-	}
-
-	member.User.CreatedAt = userCreatedAt
-	member.User.UpdatedAt = userUpdatedAt
-	if email.Valid {
-		member.User.Email = email.String
-	}
-	if googleSubject.Valid {
-		member.User.GoogleSubject = googleSubject.String
-	}
-	if pictureURL.Valid {
-		member.User.PictureURL = pictureURL.String
-	}
-	if lastLoginAt.Valid {
-		member.User.LastLoginAt = lastLoginAt.Time
-	}
-	return member, nil
 }
 
 func isDuplicateEntryError(err error) bool {

@@ -1,7 +1,7 @@
 locals {
   ocr_service_regions = [var.region]
 
-  ocr_config                        = try(yamldecode(file("${local.repo_root}/config.yaml")).ocr, {})
+  ocr_config                        = try(yamldecode(file("${local.repo_root}/config/ocr.yaml")), {})
   kraken_config                     = try(local.ocr_config.kraken, {})
   kraken_segmentation_models        = try(local.kraken_config.segmentation_models, {})
   kraken_transcription_models       = try(local.kraken_config.transcription_models, {})
@@ -14,6 +14,11 @@ locals {
     local.scribe_vm_gsa_email,
     local.scribe_app_gsa_email,
   ]
+
+  ocr_readiness_services = toset(compact([
+    try(local.ocr_services["segmentor"].service_name, ""),
+    try(local.ocr_services["kraken-ocr/${local.kraken_default_transcription_key}"].service_name, ""),
+  ]))
 
   ws_short = trimsuffix(substr(local.workspace_slug, 0, 15), "-")
 
@@ -32,21 +37,7 @@ locals {
         { name = "KRAKEN_MODEL_DIR", value = "/models/kraken" },
         { name = "KRAKEN_TRANSCRIPTION_MODEL", value = try(local.kraken_default_transcription_spec.file, "") },
         { name = "KRAKEN_SEGMENTATION_MODEL", value = try(local.kraken_default_segmentation_spec.file, "") },
-      ]
-    }
-    "image-service" = {
-      route_type         = "image-service"
-      route_key          = "image-service"
-      service_name       = "scribe-image-service-${local.ws_short}"
-      service_account_id = "ocr-img-${local.ws_short}"
-      container_name     = "image-service"
-      cpu                = "2000m"
-      memory             = "4Gi"
-      min_instances      = 0
-      max_instances      = 5
-      env = [
-        { name = "SCRIBE_UPLOADS_BUCKET", value = google_storage_bucket.uploads.name },
-        { name = "SCRIBE_UPLOADS_PREFIX", value = "uploads" },
+        { name = "SEGMENTOR_MAX_CONCURRENCY", value = "1" },
       ]
     }
   }
@@ -67,6 +58,7 @@ locals {
         { name = "KRAKEN_MODEL_DIR", value = "/models/kraken" },
         { name = "KRAKEN_TRANSCRIPTION_MODEL", value = "" },
         { name = "KRAKEN_SEGMENTATION_MODEL", value = spec.file },
+        { name = "SEGMENTOR_MAX_CONCURRENCY", value = "1" },
       ]
     }
   }
@@ -87,6 +79,7 @@ locals {
         { name = "KRAKEN_MODEL_DIR", value = "/models/kraken" },
         { name = "KRAKEN_TRANSCRIPTION_MODEL", value = spec.file },
         { name = "KRAKEN_SEGMENTATION_MODEL", value = try(local.kraken_default_segmentation_spec.file, "") },
+        { name = "SEGMENTOR_MAX_CONCURRENCY", value = "1" },
       ]
     }
   }
@@ -112,9 +105,10 @@ locals {
 }
 
 
-resource "google_service_account" "kraken" {
-  project    = var.project_id
-  account_id = "cr-ocr-${var.name}"
+resource "google_service_account" "ocr_compute" {
+  project     = var.project_id
+  account_id  = trimsuffix(substr("ocr-compute-${local.workspace_slug}", 0, 30), "-")
+  description = "Compute-only OCR identity with no source-document storage access."
 }
 
 module "kraken" {
@@ -124,7 +118,7 @@ module "kraken" {
 
   project_id         = var.project_id
   name               = each.value.service_name
-  service_account_id = google_service_account.kraken.account_id
+  service_account_id = google_service_account.ocr_compute.account_id
   route_type         = each.value.route_type
   route_key          = each.value.route_key
   regions            = local.ocr_service_regions
@@ -142,7 +136,9 @@ module "kraken" {
   invokers       = []
 
   depends_on_iam = [google_artifact_registry_repository_iam_member.cloud_run_reader]
-  depends_on     = [google_service_account.kraken]
+  depends_on = [
+    google_service_account.ocr_compute,
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "kraken_invoker" {
@@ -160,14 +156,26 @@ resource "google_cloud_run_v2_service_iam_member" "kraken_invoker" {
   ]
 }
 
+resource "google_cloud_run_v2_service_iam_member" "ocr_readiness_invoker" {
+  for_each = local.ocr_readiness_services
+
+  project  = var.project_id
+  location = var.region
+  name     = each.value
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.ocr_readiness.email}"
+
+  depends_on = [module.kraken]
+}
+
 check "kraken_default_models_present" {
   assert {
     condition     = local.kraken_default_transcription_key != "" && contains(keys(local.kraken_transcription_models), local.kraken_default_transcription_key)
-    error_message = "config.yaml ocr.kraken.default_transcription_model must reference a key present in ocr.kraken.transcription_models."
+    error_message = "config/ocr.yaml kraken.default_transcription_model must reference a key present in kraken.transcription_models."
   }
 
   assert {
     condition     = local.kraken_default_segmentation_key != "" && contains(keys(local.kraken_segmentation_models), local.kraken_default_segmentation_key)
-    error_message = "config.yaml ocr.kraken.default_segmentation_model must reference a key present in ocr.kraken.segmentation_models."
+    error_message = "config/ocr.yaml kraken.default_segmentation_model must reference a key present in kraken.segmentation_models."
   }
 }

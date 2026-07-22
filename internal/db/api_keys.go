@@ -1,7 +1,7 @@
 package db
 
-// Compatibility wrappers in this file preserve the older store-facing API while
-// delegating SQL execution to sqlc-generated queries in api_keys.sql.
+// Store query adapters in this file are the sole mapping boundary from
+// domain-shaped API-key values to sqlc-generated queries in api_keys.sql.
 
 import (
 	"context"
@@ -18,7 +18,6 @@ type APIKey struct {
 	KeyHash         string
 	Role            string
 	Scopes          sql.NullString
-	LastUsedAt      sql.NullTime
 	ExpiresAt       sql.NullTime
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -43,13 +42,13 @@ func (q *Queries) CreateAPIKey(ctx context.Context, arg CreateAPIKeyParams) (uin
 		KeyPrefix:       arg.KeyPrefix,
 		KeyHash:         arg.KeyHash,
 		Role:            ApiKeysRole(arg.Role),
-		Scopes:          compatRawJSON(arg.Scopes),
-		ExpiresAt:       compatNullTime(arg.ExpiresAt),
+		Scopes:          rawJSON(arg.Scopes),
+		ExpiresAt:       nullTime(arg.ExpiresAt),
 	})
 	if err != nil {
 		return 0, err
 	}
-	return compatLastInsertID(res)
+	return lastInsertID(res)
 }
 
 func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey, error) {
@@ -65,8 +64,7 @@ func (q *Queries) GetAPIKeyByHash(ctx context.Context, keyHash string) (APIKey, 
 		KeyPrefix:       row.KeyPrefix,
 		KeyHash:         row.KeyHash,
 		Role:            string(row.Role),
-		Scopes:          compatRawJSONToNullString(row.Scopes),
-		LastUsedAt:      row.LastUsedAt,
+		Scopes:          rawJSONToNullString(row.Scopes),
 		ExpiresAt:       row.ExpiresAt,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
@@ -86,8 +84,7 @@ func (q *Queries) GetAPIKey(ctx context.Context, id uint64) (APIKey, error) {
 		KeyPrefix:       row.KeyPrefix,
 		KeyHash:         row.KeyHash,
 		Role:            string(row.Role),
-		Scopes:          compatRawJSONToNullString(row.Scopes),
-		LastUsedAt:      row.LastUsedAt,
+		Scopes:          rawJSONToNullString(row.Scopes),
 		ExpiresAt:       row.ExpiresAt,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
@@ -109,8 +106,7 @@ func (q *Queries) ListAPIKeysByWorkspace(ctx context.Context, workspaceID uint64
 			KeyPrefix:       row.KeyPrefix,
 			KeyHash:         row.KeyHash,
 			Role:            string(row.Role),
-			Scopes:          compatRawJSONToNullString(row.Scopes),
-			LastUsedAt:      row.LastUsedAt,
+			Scopes:          rawJSONToNullString(row.Scopes),
 			ExpiresAt:       row.ExpiresAt,
 			CreatedAt:       row.CreatedAt,
 			UpdatedAt:       row.UpdatedAt,
@@ -129,8 +125,4 @@ func (q *Queries) DeleteAPIKeyForWorkspace(ctx context.Context, id, workspaceID 
 		WorkspaceID: workspaceID,
 	})
 	return requireAffectedRow(res, err)
-}
-
-func (q *Queries) TouchAPIKey(ctx context.Context, id uint64) error {
-	return q.TouchAPIKeyManual(ctx, id)
 }

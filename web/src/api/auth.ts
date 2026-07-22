@@ -77,7 +77,7 @@ export async function createProviderSecret(input: CreateProviderSecretRequest): 
     provider: input.provider,
     name: input.name,
     apiKey: input.apiKey,
-    scope: input.scope ?? "user",
+    scope: input.scope ?? "workspace",
   });
   if (!response.providerSecret) {
     throw new Error("no provider secret in response");

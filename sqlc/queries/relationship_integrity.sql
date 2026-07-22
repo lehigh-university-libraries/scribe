@@ -1,0 +1,291 @@
+-- name: AuditRelationshipIntegrityManual :many
+SELECT relationship_name, violation_count
+FROM (
+  SELECT 'workspace_members.parent' AS relationship_name, COUNT(*) AS violation_count
+  FROM workspace_members child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  LEFT JOIN users user_parent ON user_parent.id = child.user_id
+  WHERE workspace_parent.id IS NULL OR user_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'workspaces.actors', COUNT(*)
+  FROM workspaces child
+  LEFT JOIN users owner_parent ON owner_parent.id = child.owner_user_id
+  LEFT JOIN users creator_parent ON creator_parent.id = child.created_by_user_id
+  WHERE (child.owner_user_id IS NOT NULL AND owner_parent.id IS NULL)
+     OR (child.created_by_user_id IS NOT NULL AND creator_parent.id IS NULL)
+
+  UNION ALL
+  SELECT 'auth_sessions.user', COUNT(*)
+  FROM auth_sessions child
+  LEFT JOIN users user_parent ON user_parent.id = child.user_id
+  WHERE user_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'items.owner', COUNT(*)
+  FROM items child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  LEFT JOIN users user_parent ON user_parent.id = child.user_id
+  WHERE workspace_parent.id IS NULL OR user_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'item_images.item', COUNT(*)
+  FROM item_images child
+  LEFT JOIN items item_parent
+    ON item_parent.id = child.item_id
+   AND item_parent.workspace_id = child.workspace_id
+  WHERE item_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'workspace_storage_reservations.workspace', COUNT(*)
+  FROM workspace_storage_reservations child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  WHERE workspace_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'ocr_runs.image_context', COUNT(*)
+  FROM ocr_runs child
+  LEFT JOIN item_images image_parent
+    ON image_parent.id = child.item_image_id
+   AND image_parent.workspace_id = child.workspace_id
+  LEFT JOIN contexts context_parent
+    ON context_parent.id = child.context_id
+   AND context_parent.scope_id IN (0, child.workspace_id)
+  WHERE image_parent.id IS NULL
+     OR (child.context_id IS NOT NULL AND context_parent.id IS NULL)
+
+  UNION ALL
+  SELECT 'current_ocr_runs.run_image', COUNT(*)
+  FROM current_ocr_runs child
+  LEFT JOIN ocr_runs run_parent
+    ON run_parent.session_id = child.session_id
+   AND run_parent.item_image_id = child.item_image_id
+  LEFT JOIN item_images image_parent ON image_parent.id = child.item_image_id
+  WHERE run_parent.session_id IS NULL OR image_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'annotation_pages.image', COUNT(*)
+  FROM annotation_pages child
+  LEFT JOIN item_images image_parent
+    ON image_parent.id = child.item_image_id
+   AND image_parent.workspace_id = child.workspace_id
+  WHERE image_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'annotation_pages.editor', COUNT(*)
+  FROM annotation_pages child
+  LEFT JOIN users editor_parent ON editor_parent.id = child.updated_by_user_id
+  WHERE child.updated_by_user_id IS NOT NULL AND editor_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'annotations.image', COUNT(*)
+  FROM annotations child
+  LEFT JOIN item_images image_parent
+    ON image_parent.id = child.item_image_id
+   AND image_parent.workspace_id = child.workspace_id
+  LEFT JOIN annotation_pages canonical_parent
+    ON canonical_parent.workspace_id = child.workspace_id
+   AND canonical_parent.item_image_id = child.item_image_id
+  WHERE image_parent.id IS NULL OR canonical_parent.item_image_id IS NULL
+
+  UNION ALL
+  SELECT 'published_annotation_pages.image', COUNT(*)
+  FROM published_annotation_pages child
+  LEFT JOIN item_images image_parent
+    ON image_parent.id = child.item_image_id
+   AND image_parent.workspace_id = child.workspace_id
+  LEFT JOIN annotation_pages canonical_parent
+    ON canonical_parent.workspace_id = child.workspace_id
+   AND canonical_parent.item_image_id = child.item_image_id
+  WHERE image_parent.id IS NULL
+     OR canonical_parent.item_image_id IS NULL
+
+  UNION ALL
+  SELECT 'published_annotation_pages.publisher', COUNT(*)
+  FROM published_annotation_pages child
+  LEFT JOIN users publisher_parent ON publisher_parent.id = child.published_by_user_id
+  WHERE child.published_by_user_id IS NOT NULL AND publisher_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'annotation_mirror_outbox.image', COUNT(*)
+  FROM annotation_mirror_outbox child
+  LEFT JOIN item_images image_parent ON image_parent.id = child.item_image_id
+  WHERE image_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'annotation_mirror_tombstones.image', COUNT(*)
+  FROM annotation_mirror_tombstones child
+  LEFT JOIN item_images image_parent ON image_parent.id = child.item_image_id
+  WHERE image_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'contexts.owner', COUNT(*)
+  FROM contexts child
+  LEFT JOIN workspace_members membership_parent
+    ON membership_parent.workspace_id = child.workspace_id
+   AND membership_parent.user_id = child.user_id
+  WHERE (child.workspace_id IS NULL) <> (child.user_id IS NULL)
+     OR (child.workspace_id IS NOT NULL AND membership_parent.user_id IS NULL)
+
+  UNION ALL
+  SELECT 'context_selection_rules.context', COUNT(*)
+  FROM context_selection_rules child
+  LEFT JOIN contexts context_parent ON context_parent.id = child.context_id
+  WHERE context_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'transcription_jobs.image_context', COUNT(*)
+  FROM transcription_jobs child
+  LEFT JOIN item_images image_parent
+    ON image_parent.id = child.item_image_id
+   AND image_parent.workspace_id = child.workspace_id
+  LEFT JOIN contexts context_parent
+    ON context_parent.id = child.context_id
+   AND context_parent.scope_id IN (0, child.workspace_id)
+  WHERE image_parent.id IS NULL
+     OR (child.context_id IS NOT NULL AND context_parent.id IS NULL)
+
+  UNION ALL
+  SELECT 'transcription_job_attempts.job', COUNT(*)
+  FROM transcription_job_attempts child
+  LEFT JOIN transcription_jobs job_parent ON job_parent.id = child.job_id
+  WHERE job_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'upload_batches.item_context', COUNT(*)
+  FROM upload_batches child
+  LEFT JOIN items item_parent
+    ON item_parent.id = child.item_id
+   AND item_parent.workspace_id = child.workspace_id
+  LEFT JOIN contexts context_parent
+    ON context_parent.id = child.context_id
+   AND context_parent.scope_id IN (0, child.workspace_id)
+  WHERE item_parent.id IS NULL
+     OR (child.context_id IS NOT NULL AND context_parent.id IS NULL)
+
+  UNION ALL
+  SELECT 'upload_batch_files.batch_resources', COUNT(*)
+  FROM upload_batch_files child
+  LEFT JOIN upload_batches batch_parent
+    ON batch_parent.workspace_id = child.workspace_id
+   AND batch_parent.id = child.batch_id
+  LEFT JOIN item_images image_parent
+    ON image_parent.workspace_id = child.workspace_id
+   AND image_parent.id = child.item_image_id
+   AND image_parent.item_id = batch_parent.item_id
+  LEFT JOIN transcription_jobs job_parent
+    ON job_parent.workspace_id = child.workspace_id
+   AND job_parent.id = child.transcription_job_id
+   AND job_parent.item_image_id = COALESCE(child.item_image_id, job_parent.item_image_id)
+	LEFT JOIN item_images job_image_parent
+	  ON job_image_parent.workspace_id = child.workspace_id
+	 AND job_image_parent.id = job_parent.item_image_id
+	 AND job_image_parent.item_id = batch_parent.item_id
+  WHERE batch_parent.id IS NULL
+     OR (child.item_image_id IS NOT NULL AND image_parent.id IS NULL)
+	 OR (child.transcription_job_id IS NOT NULL AND (
+	   job_parent.id IS NULL OR job_image_parent.id IS NULL
+	 ))
+
+  UNION ALL
+  SELECT 'provider_call_audits.image_context', COUNT(*)
+  FROM provider_call_audits child
+  LEFT JOIN item_images image_parent
+    ON image_parent.id = child.item_image_id
+   AND image_parent.workspace_id = child.workspace_id
+  LEFT JOIN contexts context_parent
+    ON context_parent.id = child.context_id
+   AND context_parent.scope_id IN (0, child.workspace_id)
+  WHERE (child.item_image_id IS NOT NULL AND image_parent.id IS NULL)
+     OR (child.context_id IS NOT NULL AND context_parent.id IS NULL)
+
+  UNION ALL
+  SELECT 'provider_secrets.owner', COUNT(*)
+  FROM provider_secrets child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  LEFT JOIN users user_parent ON user_parent.id = child.user_id
+  WHERE workspace_parent.id IS NULL
+     OR (child.user_id IS NOT NULL AND user_parent.id IS NULL)
+
+  UNION ALL
+  SELECT 'api_keys.owner', COUNT(*)
+  FROM api_keys child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  LEFT JOIN users user_parent ON user_parent.id = child.created_by_user_id
+  WHERE workspace_parent.id IS NULL OR user_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'external_requests.resource_tuple', COUNT(*)
+  FROM external_requests child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  LEFT JOIN items item_parent
+    ON item_parent.workspace_id = child.workspace_id
+   AND item_parent.id = child.item_id
+  LEFT JOIN item_images image_parent
+    ON image_parent.workspace_id = child.workspace_id
+   AND image_parent.id = child.item_image_id
+   AND (child.item_id IS NULL OR image_parent.item_id = child.item_id)
+  LEFT JOIN transcription_jobs job_parent
+    ON job_parent.workspace_id = child.workspace_id
+   AND job_parent.id = child.transcription_job_id
+   AND (child.item_image_id IS NULL OR job_parent.item_image_id = child.item_image_id)
+  LEFT JOIN item_images job_image_parent ON job_image_parent.id = job_parent.item_image_id
+  LEFT JOIN ocr_runs run_parent
+    ON run_parent.workspace_id = child.workspace_id
+   AND run_parent.session_id = child.session_id
+   AND (child.item_image_id IS NULL OR run_parent.item_image_id = child.item_image_id)
+  LEFT JOIN item_images run_image_parent ON run_image_parent.id = run_parent.item_image_id
+  WHERE workspace_parent.id IS NULL
+     OR (child.item_id IS NOT NULL AND item_parent.id IS NULL)
+     OR (child.item_image_id IS NOT NULL AND image_parent.id IS NULL)
+     OR (child.transcription_job_id IS NOT NULL AND (
+       job_parent.id IS NULL
+       OR (child.item_id IS NOT NULL AND job_image_parent.item_id <> child.item_id)
+     ))
+     OR (child.session_id IS NOT NULL AND (
+       run_parent.session_id IS NULL
+       OR (child.item_id IS NOT NULL AND run_image_parent.item_id <> child.item_id)
+       OR (child.transcription_job_id IS NOT NULL AND run_parent.item_image_id <> job_parent.item_image_id)
+     ))
+
+  UNION ALL
+  SELECT 'event_outbox.workspace', COUNT(*)
+  FROM event_outbox child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  WHERE child.workspace_id IS NOT NULL AND workspace_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'webhook_deliveries.event', COUNT(*)
+  FROM webhook_deliveries child
+  LEFT JOIN event_outbox event_parent ON event_parent.event_id = child.event_id
+  WHERE event_parent.event_id IS NULL
+
+  UNION ALL
+  SELECT 'resource_cleanup_outbox.quota_owner', COUNT(*)
+  FROM resource_cleanup_outbox child
+  LEFT JOIN storage_quota_usage quota_parent ON quota_parent.workspace_id = child.workspace_id
+  WHERE child.workspace_id > 0 AND quota_parent.workspace_id IS NULL
+
+  UNION ALL
+  SELECT 'storage_quota_usage.owner', COUNT(*)
+  FROM storage_quota_usage child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  WHERE child.workspace_id > 0
+    AND workspace_parent.id IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM workspace_storage_reservations reservation
+      WHERE reservation.workspace_id = child.workspace_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM resource_cleanup_outbox cleanup
+      WHERE cleanup.workspace_id = child.workspace_id
+    )
+    AND (
+      child.upload_blob_bytes <> 0 OR child.database_bytes <> 0
+      OR child.item_count <> 0 OR child.image_count <> 0
+      OR child.reserved_upload_blob_bytes <> 0 OR child.reserved_database_bytes <> 0
+      OR child.reserved_item_count <> 0 OR child.reserved_image_count <> 0
+    )
+) violations
+WHERE violation_count > 0
+ORDER BY relationship_name;

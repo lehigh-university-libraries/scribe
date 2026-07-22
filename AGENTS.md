@@ -1,285 +1,165 @@
-# Hardening Plan
+# Scribe hardening and release criteria
 
-This file defines the execution plan to harden this codebase for reliability, maintainability, and production readiness.
+This file is the evidence-based engineering tracker for Scribe. A capability is
+complete only when the implementation, automated acceptance test, generated
+contracts, and relevant documentation are committed and the required CI jobs
+pass. UI text, emitted browser events, unit mocks, or a manually checked box are
+not sufficient evidence by themselves.
 
-## Goals
+## Current status
 
-1. Standardize on Buf/Connect end-to-end.
-2. Remove duplicated API paths and logic drift.
-3. Build a text-first editor around IIIF Presentation 3 annotations and the IIIF Text Granularity Extension.
-4. Add meaningful automated test coverage for critical flows.
-5. Improve operational safety (error handling, observability, persistence correctness).
-6. Keep the backend usable both as a standalone web application and as an API that external IIIF editors and plugins can build on.
+**Release status: not yet approved for production.**
 
-## Non-Goals
+The codebase is greenfield. Backward compatibility and data migrations are not
+constraints for the current hardening pass; prefer a clean invariant over a
+compatibility layer. Do not preserve duplicate persistence or API paths.
 
-1. Broad compatibility requirements unrelated to the current product direction.
-2. Large feature expansion unrelated to OCR/editor reliability.
-3. Replatforming to a different backend language or framework.
-
-## Phase 0: Stabilization Guardrails ✓ COMPLETE
-
-1. ✓ Freeze API surface: no new REST endpoints; all new operations go through Connect.
-2. ✓ CI gates: `fmt`, `lint`, `generate`, `test` required on PR (`.github/workflows/lint-test.yaml`).
-3. ✓ PR template: `.github/pull_request_template.md` includes a definition-of-done checklist.
-
-Exit criteria:
-1. ✓ CI fails on formatting/lint/test regressions.
-2. ✓ PR template includes test evidence for OCR editor flows.
-
-## Phase 1: API Standardization (Connect Only) ✓ COMPLETE
-
-All operations are now served through generated Connect handlers. No REST-only routes remain
-for business logic. The following were migrated from ad-hoc REST handlers:
-
-- `SplitLineIntoWords` — split a line annotation into proportionally-spaced word annotations
-- `SplitLineIntoTwoLines` — split a line annotation at a word boundary into two lines
-- `JoinLines` — merge multiple line annotations into one (union bbox, joined text)
-- `JoinWordsIntoLine` — merge word annotations into a line annotation
-- `CrosswalkToPlainText` — export AnnotationPage as plain text
-- `CrosswalkToHOCR` — export AnnotationPage as hOCR XML
-- `CrosswalkToPageXML` — export AnnotationPage as PAGE XML
-- `CrosswalkToALTOXML` — export AnnotationPage as ALTO XML
-- `ReprocessItemImage` — reprocess an item image with a given context (moved to `ImageProcessingService`)
-
-Naming conventions:
-- Split/join operations use `SplitLine*` / `JoinLines` / `JoinWordsIntoLine` in proto and
-  `splitLine*` / `joinLines` / `joinWordsIntoLine` in the TypeScript adapter.
-- Crosswalk operations use `Crosswalk*` in proto.
-
-Exit criteria:
-1. ✓ Web app uses generated Connect client for all core OCR/editor operations.
-2. ✓ No duplicated business logic between REST and Connect handlers.
-3. ❌ OpenAPI generation from proto in `make generate` (buf.gen.yaml not yet configured).
-
-## Canonical Model Decision
-
-Persist OCR correction state as IIIF Presentation 3 `AnnotationPage` JSON using
-the IIIF Text Granularity Extension.
-
-Import should preserve the finest source granularity available, such as hOCR
-word boxes, rather than collapsing everything to line-level annotations.
-
-The app may store adjacent workflow metadata such as:
-1. `revision`
-2. `updated_by`
-3. `updated_at`
-4. `context_id`
-5. transcription provider/model
-6. source-system sync metadata
-
-Non-goals of persistence:
-1. editor-specific UI state as canonical storage
-2. custom OCR document schema when IIIF AnnotationPage is sufficient
-3. per-line or per-word revert history inside the editor model
-
-## API and Product Decision
-
-Scribe is both:
-1. a standalone web app for ingesting, managing, processing, and QA-editing items
-2. an API surface that editor plugins can call to load, save, transform, enrich,
-   export, and publish canonical IIIF annotations
-
-Architectural preference:
-1. keep canonical annotation mutations on the backend when they are structural or
-   model-driven
-2. let clients call API operations for split/join/transcribe/crosswalk behavior
-   instead of reimplementing those transforms locally
-3. keep browser-only state limited to transient editor concerns such as
-   selection, viewport, and undo/redo
-
-## Auth and Access TODO
-
-This is intentionally deferred so product work can continue, but the direction
-should be treated as settled unless requirements change.
-
-### Access architecture decision
-
-1. Authorization should be enforced at the route/middleware layer, not scattered
-   through individual handlers.
-2. Handlers should assume access has already been granted and focus on product
-   behavior, validation, and persistence.
-3. Route-level middleware should resolve the authenticated principal, load the
-   relevant resource ownership/sharing context, and grant or deny before handler
-   execution.
-4. Shared authorization helpers may exist behind middleware/policy packages, but
-   handler methods should not grow ad-hoc ownership checks.
-
-### Planned identity and RBAC model
-
-1. Users authenticate with Google OAuth.
-2. Use `goth` as the Go OAuth library.
-3. App admins control who can log in.
-4. Admission policy should support:
-   - allow-listing domains such as `foo.edu`
-   - wildcard allow rules such as `*.edu`
-   - deny-listing domains such as `gmail.com` or `bar.edu`
-5. Users can create organizations.
-6. Organizations have members with roles:
-   - `admin`: manage org members and org-level administration
-   - `write`: edit everything in the org
-   - `create`: create new items
-   - `read`: view-only access
-7. Items belong to a user or organization and may later support explicit
-   per-item grants.
-8. Individual items can be shared globally as read-only.
-
-### Future TODOs
-
-1. Add auth middleware that injects principal and access grants into request
-   context before Connect/HTTP handlers run.
-2. Add org/user schema and policy evaluation layer.
-3. Add item visibility rules including org ownership and public read-only
-   sharing.
-4. Add admin UI for login domain policy.
-5. Add API key support later, after OAuth and RBAC are stable.
-
-## Contexts and Metrics Decision
-
-Contexts are first-class backend resources. A context bundles:
-1. a segmentation model
-2. a transcription provider/model
-3. context-selection metadata used to infer or enrich which context should be
-   applied to a supplied image
-
-The current metrics model is intentionally simple:
-1. compare the app's original plain-text output to the final corrected
-   plain-text output
-2. measure document-level Levenshtein distance between those two texts
-3. use that as the primary correction-effort signal for context quality
-
-Segmentation-quality measurement is still TBD and should be designed separately
-from the document-text correction metric.
-
-## Phase 2: Frontend Editor Decomposition ✓ COMPLETE
-
-Split `web/src/main.ts` (314 LOC monolith) into focused modules. Landing page
-redesigned to show a table of the current user's items and support four item
-creation flows.
-
-### Completed modules
-
-| File | Purpose |
-|------|---------|
-| `web/src/lib/util.ts` | Pure utilities: `uint64ToString`, `readFileBytes`, `escHtml` |
-| `web/src/api/transport.ts` | Singleton Connect transport |
-| `web/src/api/annotations.ts` | AnnotationService wrappers: all CRUD + split/join/crosswalk |
-| `web/src/api/items.ts` | ItemService wrappers: list, get, create (manifest), upload (multi), delete |
-| `web/src/api/processing.ts` | ImageProcessingService wrappers: processImageURL, processImageUpload, processHOCR, getOCRRun, saveOCREdits, reprocessItemImage |
-| `web/src/api/context.ts` | ContextService wrappers: full CRUD + selection rules + resolve |
-| `web/src/pages/editor.ts` | Mirador viewer + annotation editor |
-| `web/src/pages/home.ts` | Landing page: items table + 4-tab creation UI |
-| `web/src/main.ts` | Router only (~10 LOC) |
-
-### Home page creation flows
-
-1. **Image URL** — calls `processImageURL` → navigates to `/editor?itemImageId=X`
-2. **Single upload** — calls `processImageUpload` → navigates to editor; auto-submits on file select
-3. **Multi-upload** — calls `uploadItemImages` sequentially (chains `itemId`) → refreshes table
-4. **IIIF Manifest** — calls `createItem(sourceType="manifest")` → refreshes table
-
-### Backend crosswalk tests (also completed this phase)
-
-Golden-file tests added for all four crosswalk format routes in
-`internal/server/annotation_crosswalk_test.go` with fixtures under
-`internal/server/testdata/crosswalk/`. Run with:
+Run the repository contract with:
 
 ```bash
-go test ./internal/server/ -run TestCrosswalk
-# regenerate golden files:
-go test ./internal/server/ -run TestCrosswalk -update
+make ci
 ```
 
-Exit criteria:
-1. ✓ No single frontend file > 500 LOC in editor core path.
-2. Existing editor workflow works unchanged by manual QA script.
+The required GitHub jobs independently verify contracts/lint, tests, security,
+and infrastructure/documentation.
 
-## Phase 3: Editor Replacement (New Current Focus)
+## Settled architecture decisions
 
-Build a custom text-first editor that uses IIIF manifests/canvases for viewport
-geometry but edits canonical IIIF AnnotationPage state directly.
+1. Connect and protobuf are the application API contract. Do not add REST-only
+   business operations.
+2. A complete IIIF Presentation 3 AnnotationPage using the IIIF Text
+   Granularity Extension is canonical OCR correction state.
+3. Canonical pages have Scribe HTTP(S) IDs, workspace/item-image ownership, and
+   monotonic revisions. Imported Canvas IDs are targets and provenance, not
+   tenant keys.
+4. hOCR, PAGE XML, ALTO XML, plain text, metrics, search rows, and public
+   resources are derived from a committed canonical revision.
+5. Structural annotation mutations and model-driven processing live behind
+   backend operations reusable by the bundled app and external editors.
+6. Browser-only state is limited to the local draft, selection, viewport,
+   history, and conflict/rebase presentation.
+7. Authorization is enforced at route middleware/policy boundaries and is
+   side-effect free. Import and processing are explicit authorized operations.
+8. Providers and segmentors are registered capabilities. Workspaces cannot
+   choose an authenticated URL/audience pair.
+9. Keep a modular monolith plus worker until an independently scalable or
+   isolated service boundary is demonstrated.
+10. Pull-request code never executes Terraform or repository scripts with cloud
+    credentials. Preview and production applies use protected environments and
+    immutable reviewed inputs.
 
-Scope:
-1. ✓ Build the main editor flow around canonical IIIF AnnotationPage editing.
-2. ✓ Build a custom editor panel optimized for OCR correction:
-   - ✓ edit line text
-   - ✓ edit word text
-   - ✓ add/delete word
-   - ✓ split line into words
-   - ✓ merge words into line
-   - ✓ split line into two lines
-   - ✓ merge adjacent lines
-   - ✓ adjust bounding boxes (corner handles on selected annotation; drag converts screen→image coords via OSD)
-3. ✓ Keep undo/redo in frontend memory; save full page AnnotationPage snapshots.
-4. ✓ Use backend API operations for structural OCR edits and retranscription so
-   plugins can stay thin and other IIIF editors can reuse the same behavior.
-5. Continue exporting hOCR/PageXML/ALTO/plain text from canonical IIIF annotations.
-6. ✓ Keep the Mirador v4 plugin in-repo as a standalone package (`mirador-scribe/`).
+## Release blockers
 
-Suggested backend/API work:
-1. ❌ Add first-class save/load endpoints for page-level canonical AnnotationPage revisions.
-2. ❌ Store revision metadata adjacent to canonical annotation JSON.
-3. ✓ Helper endpoints for split/join/transcribe/crosswalk are editor-agnostic Connect RPCs.
-4. ❌ Support publish/sync workflows back to source systems using exported formats or public URLs.
+Every item below requires a committed automated acceptance test.
 
-Exit criteria:
-1. Editing a page does not depend on editor-specific canonical metadata.
-2. Save/reload correctness is based on canonical IIIF AnnotationPage state.
-3. Text editing workflows are optimized for OCR correction.
+- [ ] Two workspaces can import the same external manifest and cannot read,
+      mutate, index, export, or publish each other's annotations.
+- [ ] Every editor, worker, public manifest, export, metric, and publication
+      reads the same canonical page repository and revision.
+- [ ] `GetAnnotationPage` and `SaveAnnotationPage(expected_revision)` provide
+      one atomic page save and explicit revision conflicts.
+- [ ] Line-to-word edits, word CRUD, split/join operations, save, reload, public
+      dereference, and exports preserve the same word annotations.
+- [ ] A dirty editor can receive background transcription without becoming
+      falsely clean or losing local changes.
+- [ ] Multi-file ingest applies the selected context and exposes idempotent
+      progress, retry, resume, partial failure, and cancellation.
+- [ ] Job attempts are immutable and fenced by lease token plus input revision;
+      stale attempts cannot overwrite newer corrections.
+- [ ] Valid IIIF v3 manifests, including array `@context` and image `Choice`,
+      import successfully and emitted resources pass `libops/iiif-spec`.
+- [ ] Provider endpoints are administrator-registered exact origins/audiences;
+      credentials and response content are redacted from errors and logs.
+- [ ] Real-browser tests cover focus/keyboard routing, geometry at nonzero
+      offsets and zoom, background rebase, save/reload, and revision conflict.
+- [ ] Backup/restore and job-recovery procedures have been exercised in an
+      isolated environment.
+- [ ] All jobs invoked by `make ci` pass from a clean checkout.
 
-## Phase 4: Test Coverage for Critical Paths ✓ MOSTLY COMPLETE
+## Engineering invariants
 
-1. Backend tests:
-   - ✓ Crosswalk golden-file tests (`annotation_crosswalk_test.go`)
-   - ✓ Manifest ingestion integration tests (`manifest_ingest_test.go`)
-   - ✓ Levenshtein metrics unit test (`metrics/metrics_test.go`)
-   - ✓ Connect handler tests for split/join/save/transcribe
-   - ✓ AnnotationPage revision save semantics
-   - ✓ hOCR parsing/building regressions, including word persistence and Kraken baseline fallback
-   - ✓ Context resolution, context-driven enrichment behavior, and async transcription metrics
-2. Frontend tests:
-   - ✓ Vitest infrastructure exists in `web/`
-   - ✓ AnnotationPage load/edit/save round-trip
-   - ✓ Keyboard routing (`Tab`, `Shift+Tab`, `Cmd/Ctrl+Z`, `Cmd+Delete`)
-   - ✓ Editor actions (`split`, `expand words`, `merge`, `save`, `reload`)
-3. End-to-end smoke tests (containerized):
-   - ✓ process image -> editor -> expand words -> edit -> save -> reload -> changes persist
-   - ✓ import IIIF manifest with `seeAlso` hOCR -> edit line text -> save -> export hOCR persists
-   - ✓ low-touch backend smoke flow for ingestion, processing, persistence, and export
+### Canonical IIIF and persistence
 
-Exit criteria:
-1. Test suite covers the two highest-risk regressions:
-   - ✓ word persistence after save/reload
-   - ✓ editor focus/keyboard correctness.
-2. ✓ CI executes tests in reproducible containerized environment.
+- One `internal/iiif` boundary owns IDs, parse/build, extension semantics,
+  raw-property preservation, and `iiif-spec` validation.
+- Complete workspace-scoped pages and revisions are stored transactionally.
+- Annotation/search rows and legacy export formats are rebuildable views.
+- Versioned database migrations own schema changes once the greenfield schema
+  stabilizes; do not replay a monolithic schema on every process startup.
+- Item deletion is transactional and cleans relational, blob, Triplet, job,
+  and audit state through explicit child-first application deletes and outbox
+  cleanup. The schema has no foreign keys; repository transactions own
+  consistency and cleanup acceptance tests.
 
-## Phase 5: Operational Hardening
+### Editor
 
-1. Structured logging consistency:
-   - include `session_id`, `provider`, `model`, operation, latency.
-2. Error taxonomy:
-   - normalize invalid argument vs internal errors across handlers.
-3. Persistence safety:
-   - explicit source-of-truth rules for `original.hocr` and `corrected.hocr`.
-   - startup integrity check for cache/session directories.
-4. Config hardening:
-   - document required env vars with defaults and validation behavior.
-5. Provider call audit safety:
-   - prompt/request/response body capture is disabled by default.
-   - provider call audit rows are retained for 30 days by default and purged by API/worker loops.
+- A typed editor-session reducer owns base page/revision, local draft,
+  history, pending remote changes, conflict, and save states.
+- OpenSeadragon coordinate conversion lives in one tested geometry module.
+- Edits preserve unknown IIIF page, body, target, selector, service, and extension
+  properties across edits.
+- One documented event bridge connects Mirador and the application shell.
 
-Exit criteria:
-1. Logs are queryable by session/model/provider for debugging.
-2. Failures are diagnosable without code inspection.
+### Processing and extensibility
 
-## Work Order (Recommended)
+- Ingest/reprocess/delete/publish orchestration lives in application use cases
+  with transactions, idempotency, and outbox events.
+- Provider and segmentor descriptors contain models, defaults,
+  capabilities, limits, secret schema, and endpoint policy.
+- Configuration fields are consumed by runtime behavior; unused fields are
+  removed.
+- Unicode is preserved and language/model filtering is explicit and testable.
 
-1. ✓ Phase 1 API standardization.
-2. ✓ Phase 2 frontend decomposition.
-3. Phase 3 editor replacement (in progress).
-4. Phase 4 test expansion.
-5. Phase 5 operational hardening.
+### Security and operations
 
-## Tracking
+- API keys stay hashed, sessions stay secure, body capture stays disabled, and
+  audit retention stays bounded.
+- Request, upload-byte, decoded-pixel, rate, workspace, provider, and
+  stream limits before expensive work.
+- `/livez` reports process liveness; `/readyz` reports persistence readiness.
+- Long-running Compose services are restartable with readiness-aware ordering
+  and graceful termination.
+- Actions, module commits, tools, downloads, and container digests are pinned.
+  Renovate updates all references together.
+- Protected `preview` and `production` environments are required, and GCP
+  Workload Identity Federation claims are restricted to the repository,
+  workflow, ref, and environment.
 
-Create one checklist issue per phase. Do not start a next phase until current phase exit criteria are met.
+### Developer experience and documentation
+
+- `.go-version`, `.nvmrc`, `.tool-versions`, Make targets, Docker images,
+  and CI aligned.
+- Missing Buf, sqlc, or security tools must fail with an installation command;
+  generation and lint may never silently skip.
+- Shell automation may invoke reviewed packaged Python tools needed by Kraken or
+  Zensical, but must never embed Python with `-c`, stdin, or a heredoc. Write
+  repository helpers in Go or Bash; use Node only for the frontend packages.
+- `make generate-check` covers Go, Connect, TypeScript, sqlc, and OpenAPI output.
+- Zensical documentation under `docs/` owns quickstart, architecture,
+  extension guides, API integration, configuration, deployment, observability,
+  backup, and recovery procedures.
+- The README remains a short truthful entry point; detailed operational claims
+  belong in tested documentation.
+
+## Definition of done for a change
+
+- [ ] Source and generated files are formatted and current.
+- [ ] The smallest meaningful unit/contract tests pass.
+- [ ] Cross-boundary behavior has an integration or browser test where drift or
+      concurrency is possible.
+- [ ] Authorization, tenant isolation, input cost, secret/log exposure,
+      idempotency, and failure recovery were considered.
+- [ ] API/configuration/architecture behavior is documented.
+- [ ] `make ci` passes from a clean checkout.
+- [ ] The pull request includes concrete test evidence and any residual risk.
+
+## Documentation
+
+Start at `docs/index.md`. In particular:
+
+- `docs/concepts/canonical-iiif.md`
+- `docs/architecture/data-flow.md`
+- `docs/development/adding-provider.md`
+- `docs/development/adding-rpc.md`
+- `docs/operations/deployment.md`
+- `docs/reference/quality-gates.md`

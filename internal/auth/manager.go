@@ -2,10 +2,15 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,9 +18,12 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
 	optionsv1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -27,9 +35,10 @@ type Manager struct {
 	auth                       config.AuthConfig
 	publicBaseURL              string
 	providerSecretsVaultPrefix string
+	sourceReadToken            string
 	identities                 *store.IdentityStore
 	apiKeys                    *store.APIKeyStore
-	providerSecrets            *store.ProviderSecretStore
+	providerSecrets            providerSecretRepository
 	items                      *store.ItemStore
 	contexts                   *store.ContextStore
 	jobs                       *store.TranscriptionJobStore
@@ -37,12 +46,33 @@ type Manager struct {
 	vault                      vaultClient
 	jwksMu                     sync.Mutex
 	jwksCache                  map[string]cachedJWKS
+	jwksRefresh                singleflight.Group
+	externalIdentityResolver   func(context.Context, uint64, uint64) (store.User, store.WorkspaceAccess, error)
+	backgroundMu               sync.Mutex
+	backgroundWG               sync.WaitGroup
+	backgroundWaiting          bool
+	providerCleanupStarted     bool
+	sessionRetentionStarted    bool
 }
+
+const unmappedProcedurePermission = "authz:unmapped"
 
 type vaultClient interface {
 	Read(context.Context, string) (map[string]string, error)
 	Write(context.Context, string, map[string]string) error
 	Delete(context.Context, string) error
+}
+
+type providerSecretRepository interface {
+	Create(context.Context, store.ProviderSecret) (store.ProviderSecret, error)
+	Activate(context.Context, uint64, uint64) (store.ProviderSecret, error)
+	GetLifecycle(context.Context, uint64, uint64) (store.ProviderSecret, error)
+	MarkPendingCleanup(context.Context, uint64, uint64) error
+	MarkActiveCleanup(context.Context, uint64, uint64) error
+	ListCleanupCandidates(context.Context, time.Time, int) ([]store.ProviderSecret, error)
+	DeleteInactive(context.Context, uint64, uint64) error
+	ListVisible(context.Context, uint64, uint64) ([]store.ProviderSecret, error)
+	GetVisible(context.Context, uint64, uint64, uint64) (store.ProviderSecret, error)
 }
 
 func NewManager(
@@ -60,6 +90,7 @@ func NewManager(
 		auth:                       cfg.Auth,
 		publicBaseURL:              cfg.PublicBaseURL,
 		providerSecretsVaultPrefix: strings.Trim(strings.TrimSpace(cfg.Vault.Paths.ProviderSecrets), "/"),
+		sourceReadToken:            strings.TrimSpace(cfg.IIIF.SourceReadToken),
 		identities:                 identities,
 		apiKeys:                    apiKeys,
 		providerSecrets:            providerSecrets,
@@ -71,6 +102,9 @@ func NewManager(
 	}
 	clientID := strings.TrimSpace(secrets.GoogleOAuthClientID)
 	clientSecret := strings.TrimSpace(secrets.GoogleOAuthClientSecret)
+	if cfg.Auth.PreviewAnonymous {
+		return manager, nil
+	}
 	if clientID == "" || clientSecret == "" {
 		return nil, fmt.Errorf("google oauth requires client id and client secret in Vault")
 	}
@@ -106,8 +140,15 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 }
 
 func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /logout", m.handleLogout)
 	mux.HandleFunc("POST /logout", m.handleLogout)
+	if m.auth.PreviewAnonymous {
+		unavailable := func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "OAuth is disabled for isolated previews", http.StatusNotFound)
+		}
+		mux.HandleFunc("GET /auth/google", unavailable)
+		mux.HandleFunc("GET /auth/callback/google", unavailable)
+		return
+	}
 	if m.google != nil {
 		mux.HandleFunc("GET /auth/google", m.handleGoogleLogin)
 		mux.HandleFunc("GET /auth/callback/google", m.handleGoogleCallback)
@@ -151,6 +192,9 @@ func (i authzInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc
 		}
 		if principal.Anonymous() {
 			return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+		}
+		if rule.GetSessionOnly() && !strings.EqualFold(principal.AuthType, "session") {
+			return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("session authentication required"))
 		}
 		if strings.TrimSpace(rule.GetResourceIdField()) == "" {
 			if err := i.manager.authorizeConnectRule(ctx, principal, conn.Spec().Procedure, rule, nil); err != nil {
@@ -211,6 +255,9 @@ func (m *Manager) authorizeConnectRule(ctx context.Context, principal Principal,
 	if principal.Anonymous() {
 		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
 	}
+	if rule.GetSessionOnly() && !strings.EqualFold(principal.AuthType, "session") {
+		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("session authentication required"))
+	}
 
 	resourceIDField := strings.TrimSpace(rule.GetResourceIdField())
 	if resourceIDField == "" {
@@ -246,6 +293,21 @@ func (m *Manager) anonymousPrincipal() Principal {
 	}
 }
 
+func (m *Manager) previewPrincipal() Principal {
+	return Principal{
+		UserID:             store.AnonymousUserID,
+		Email:              "preview@invalid",
+		Name:               "Scribe preview",
+		IsAdmin:            true,
+		Authenticated:      true,
+		AuthType:           "session",
+		WorkspaceID:        store.AnonymousWorkspaceID,
+		WorkspaceName:      "Preview",
+		WorkspaceRole:      "admin",
+		DefaultWorkspaceID: store.AnonymousWorkspaceID,
+	}
+}
+
 func (m *Manager) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	if m.google == nil {
 		http.Error(w, "Google OAuth is not configured", http.StatusNotFound)
@@ -255,11 +317,13 @@ func (m *Manager) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	if redirectPath == "" {
 		redirectPath = "/"
 	}
-	authURL, err := m.google.BeginAuth(m.googleCallbackURL(r), redirectPath)
+	authURL, stateValue, err := m.google.BeginAuth(m.googleCallbackURL(r), redirectPath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("start google oauth: %v", err), http.StatusInternalServerError)
+		slog.Error("start google oauth", "error_type", fmt.Sprintf("%T", err))
+		http.Error(w, "authentication service unavailable", http.StatusInternalServerError)
 		return
 	}
+	m.setOAuthStateCookie(w, stateValue.State)
 	http.Redirect(w, r, authURL, http.StatusFound) // #nosec G710 -- BeginAuth returns the fixed Google OAuth authorization endpoint plus signed state.
 }
 
@@ -274,9 +338,18 @@ func (m *Manager) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing OAuth code or state", http.StatusBadRequest)
 		return
 	}
+	stateCookie, err := r.Cookie("scribe_oauth_state")
+	m.clearOAuthStateCookie(w)
+	if err != nil || !hmac.Equal([]byte(strings.TrimSpace(stateCookie.Value)), []byte(state)) {
+		http.Error(w, "invalid OAuth browser state", http.StatusUnauthorized)
+		return
+	}
 	profile, stateValue, err := m.google.CompleteAuth(r.Context(), m.googleCallbackURL(r), code, state)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("complete google oauth: %v", err), http.StatusUnauthorized)
+		// OAuth provider errors can embed request or response details. Keep the
+		// client response and structured log free of that untrusted content.
+		slog.Warn("google oauth callback failed", "error_type", fmt.Sprintf("%T", err))
+		http.Error(w, "OAuth authentication failed", http.StatusUnauthorized)
 		return
 	}
 	if !m.emailAllowed(profile.Email) {
@@ -291,16 +364,19 @@ func (m *Manager) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		IsAdmin:    emailInList(profile.Email, m.auth.AdminEmails),
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("persist google user: %v", err), http.StatusInternalServerError)
+		slog.Error("persist google user", "error_type", fmt.Sprintf("%T", err))
+		http.Error(w, "authentication service unavailable", http.StatusInternalServerError)
 		return
 	}
 	token, err := randomString(48)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("generate session token: %v", err), http.StatusInternalServerError)
+		slog.Error("generate auth session token", "error_type", fmt.Sprintf("%T", err))
+		http.Error(w, "authentication service unavailable", http.StatusInternalServerError)
 		return
 	}
-	if err := m.identities.CreateSession(r.Context(), user.ID, token, r.UserAgent(), requestIP(r), m.auth.SessionTTL); err != nil {
-		http.Error(w, fmt.Sprintf("create auth session: %v", err), http.StatusInternalServerError)
+	if err := m.identities.CreateSession(r.Context(), user.ID, token, r.UserAgent(), ClientIP(r), m.auth.SessionTTL); err != nil {
+		slog.Error("create auth session", "error_type", fmt.Sprintf("%T", err))
+		http.Error(w, "authentication service unavailable", http.StatusInternalServerError)
 		return
 	}
 	m.setSessionCookie(w, r, token)
@@ -308,6 +384,10 @@ func (m *Manager) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if !m.logoutRequestSameOrigin(r) {
+		http.Error(w, "cross-origin logout is not allowed", http.StatusForbidden)
+		return
+	}
 	if cookie, err := r.Cookie(m.auth.CookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
 		_ = m.identities.DeleteSession(r.Context(), cookie.Value)
 	}
@@ -320,7 +400,55 @@ func (m *Manager) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
+func (m *Manager) logoutRequestSameOrigin(r *http.Request) bool {
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "cross-site") {
+		return false
+	}
+	rawOrigin := strings.TrimSpace(r.Header.Get("Origin"))
+	if rawOrigin == "" {
+		if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {
+			parsed, err := url.Parse(referer)
+			if err != nil {
+				return false
+			}
+			parsed.Path, parsed.RawQuery, parsed.Fragment = "", "", ""
+			rawOrigin = parsed.String()
+		}
+	}
+	if rawOrigin == "" {
+		// Non-browser API clients do not necessarily send Origin. Browser cross-
+		// site POSTs carry Origin and modern fetch metadata, both checked above.
+		return true
+	}
+	origin, err := url.Parse(rawOrigin)
+	if err != nil || origin.Scheme == "" || origin.Host == "" || origin.User != nil {
+		return false
+	}
+	expectedRaw := strings.TrimSpace(m.publicBaseURL)
+	if expectedRaw == "" {
+		expectedRaw = requestPublicBaseURL(r, "")
+	}
+	expected, err := url.Parse(expectedRaw)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(origin.Scheme, expected.Scheme) && strings.EqualFold(origin.Host, expected.Host)
+}
+
 func (m *Manager) authenticateRequest(r *http.Request) (Principal, error) {
+	if bearer := bearerTokenFromRequest(r); bearer != "" && constantTimeTokenEqual(bearer, m.sourceReadToken) {
+		if !isExactTripletSourceRequest(r) {
+			return Principal{}, fmt.Errorf("triplet source credential is not valid for this route")
+		}
+		return Principal{
+			Name:          "Triplet image source reader",
+			Authenticated: true,
+			AuthType:      "triplet_source",
+		}, nil
+	}
+	if m.auth.PreviewAnonymous {
+		return m.previewPrincipal(), nil
+	}
 	if rawKey := strings.TrimSpace(r.Header.Get("X-Scribe-API-Key")); rawKey != "" {
 		return m.apiKeyPrincipal(r.Context(), rawKey)
 	}
@@ -369,6 +497,9 @@ func (m *Manager) authenticateRequest(r *http.Request) (Principal, error) {
 }
 
 func (m *Manager) apiKeyPrincipal(ctx context.Context, rawKey string) (Principal, error) {
+	if m.apiKeys == nil || m.identities == nil {
+		return Principal{}, fmt.Errorf("api key authentication is unavailable")
+	}
 	apiKey, err := m.apiKeys.GetByToken(ctx, rawKey)
 	if err != nil {
 		return Principal{}, err
@@ -377,26 +508,44 @@ func (m *Manager) apiKeyPrincipal(ctx context.Context, rawKey string) (Principal
 	if err != nil {
 		return Principal{}, err
 	}
-	workspaceName := ""
-	if access, accessErr := m.identities.GetWorkspaceAccess(ctx, apiKey.CreatedByUserID, apiKey.WorkspaceID); accessErr == nil {
-		workspaceName = access.Workspace.Name
+	access, err := m.identities.GetWorkspaceAccess(ctx, apiKey.CreatedByUserID, apiKey.WorkspaceID)
+	if err != nil {
+		return Principal{}, err
 	}
 	return Principal{
 		UserID:             apiKey.CreatedByUserID,
 		Email:              user.Email,
 		Name:               user.Name,
 		PictureURL:         user.PictureURL,
-		IsAdmin:            user.IsAdmin,
 		Authenticated:      true,
 		AuthType:           "api_key",
 		WorkspaceID:        apiKey.WorkspaceID,
-		WorkspaceName:      workspaceName,
-		WorkspaceRole:      apiKey.Role,
+		WorkspaceName:      access.Workspace.Name,
+		WorkspaceRole:      leastPrivilegedWorkspaceRole(apiKey.Role, access.Role),
 		DefaultWorkspaceID: apiKey.WorkspaceID,
 		APIKeyID:           apiKey.ID,
 		APIKeyName:         apiKey.Name,
 		Scopes:             apiKey.Scopes,
 	}, nil
+}
+
+func constantTimeTokenEqual(candidate, expected string) bool {
+	if expected == "" {
+		return false
+	}
+	candidateDigest := sha256.Sum256([]byte(candidate))
+	expectedDigest := sha256.Sum256([]byte(expected))
+	return subtle.ConstantTimeCompare(candidateDigest[:], expectedDigest[:]) == 1
+}
+
+func isExactTripletSourceRequest(r *http.Request) bool {
+	if r == nil || r.URL == nil || r.URL.RawQuery != "" || r.URL.Fragment != "" {
+		return false
+	}
+	if !IsPublicUploadSourceRequest(r.URL.Path, r.Method) {
+		return false
+	}
+	return r.URL.RawPath == "" || r.URL.EscapedPath() == r.URL.Path
 }
 
 func requestedWorkspaceID(r *http.Request) (uint64, error) {
@@ -434,9 +583,31 @@ func looksLikeJWT(raw string) bool {
 }
 
 func (m *Manager) requiresAuthenticatedAPI(r *http.Request) bool {
-	path := strings.TrimSpace(r.URL.Path)
+	path := r.URL.Path
+	if IsPublicUploadSourceRequest(path, r.Method) {
+		return false
+	}
+	if strings.HasPrefix(path, "/scribe.v1.") {
+		rule, err := extractAuthzRule(path)
+		// Unknown procedures and descriptor failures are protected at the HTTP
+		// boundary. This rejects anonymous large RPCs before Connect reads or
+		// validates their bodies while preserving explicitly anonymous methods.
+		return err != nil || rule == nil || !rule.GetAllowAnonymous()
+	}
 	return strings.HasPrefix(path, "/v1/") ||
-		strings.HasPrefix(path, "/scribe.v1.")
+		strings.HasPrefix(path, "/static/uploads/")
+}
+
+// IsPublicUploadSourceRequest identifies the exact immutable source-byte
+// routes that may have a public publication grant. Reaching the handler is not
+// itself authorization: the handler still requires either annotation-read
+// access to a referencing workspace or an explicit published page snapshot.
+func IsPublicUploadSourceRequest(requestPath, method string) bool {
+	if method != http.MethodGet && method != http.MethodHead {
+		return false
+	}
+	_, ok := uploadref.ImmutableNameFromURL(requestPath)
+	return ok
 }
 
 func (m *Manager) authorizeProcedure(ctx context.Context, principal Principal, procedure string, level optionsv1.AccessLevel) (bool, error) {
@@ -493,9 +664,69 @@ func (m *Manager) authorizeResource(ctx context.Context, principal Principal, pr
 			return workspaceRoleAllowsPermission(access.Role, "workspaces:admin"), nil
 		}
 		return workspaceRoleAllowsPermission(access.Role, "workspaces:read"), nil
-	default:
+	case optionsv1.ResourceType_RESOURCE_TYPE_UPLOAD_BATCH:
+		return m.items.WorkspaceOwnsUploadBatch(ctx, principal.WorkspaceID, resourceID)
+	case optionsv1.ResourceType_RESOURCE_TYPE_SELECTION_RULE:
+		ruleID, err := strconv.ParseUint(resourceID, 10, 64)
+		if err != nil {
+			return false, nil
+		}
+		return m.contexts.WorkspaceOwnsSelectionRule(ctx, principal.WorkspaceID, ruleID)
+	case optionsv1.ResourceType_RESOURCE_TYPE_API_KEY:
+		keyID, err := strconv.ParseUint(resourceID, 10, 64)
+		if err != nil {
+			return false, nil
+		}
+		key, err := m.apiKeys.Get(ctx, keyID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return key.WorkspaceID == principal.WorkspaceID, nil
+	case optionsv1.ResourceType_RESOURCE_TYPE_PROVIDER_SECRET:
+		secretID, err := strconv.ParseUint(resourceID, 10, 64)
+		if err != nil {
+			return false, nil
+		}
+		secret, err := m.providerSecrets.GetVisible(ctx, secretID, principal.WorkspaceID, principal.UserID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if secret.Scope == "workspace" && !principal.IsAdmin && !strings.EqualFold(principal.WorkspaceRole, "admin") {
+			return false, nil
+		}
 		return true, nil
+	case optionsv1.ResourceType_RESOURCE_TYPE_USER:
+		return principal.Authenticated, nil
+	default:
+		return false, fmt.Errorf("unsupported authorization resource %s", resource.String())
 	}
+}
+
+func leastPrivilegedWorkspaceRole(left, right string) string {
+	rank := func(role string) int {
+		switch strings.ToLower(strings.TrimSpace(role)) {
+		case "admin":
+			return 4
+		case "write":
+			return 3
+		case "create":
+			return 2
+		case "read":
+			return 1
+		default:
+			return 0
+		}
+	}
+	if rank(left) <= rank(right) {
+		return strings.ToLower(strings.TrimSpace(left))
+	}
+	return strings.ToLower(strings.TrimSpace(right))
 }
 
 func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLevel) string {
@@ -506,19 +737,19 @@ func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLeve
 		return "workspaces:read"
 	case "/scribe.v1.WorkspaceService/CreateWorkspace":
 		return ""
-	case "/scribe.v1.ItemService/ListItems", "/scribe.v1.ItemService/GetItem", "/scribe.v1.ImageProcessingService/GetOCRRun":
+	case "/scribe.v1.ItemService/ListItems", "/scribe.v1.ItemService/GetItem", "/scribe.v1.ItemService/GetEditorManifest", "/scribe.v1.ItemService/GetUploadBatch", "/scribe.v1.ItemService/ListItemProviderCallAudits", "/scribe.v1.ImageProcessingService/GetOCRRun":
 		return "items:read"
-	case "/scribe.v1.ItemService/CreateItem", "/scribe.v1.ImageProcessingService/ProcessImageURL", "/scribe.v1.ImageProcessingService/ProcessImageUpload", "/scribe.v1.ImageProcessingService/ProcessHOCR":
+	case "/scribe.v1.ItemService/ImportManifest", "/scribe.v1.ItemService/StartUploadBatch", "/scribe.v1.ImageProcessingService/ProcessImageURL", "/scribe.v1.ImageProcessingService/ProcessHOCR":
 		return "items:create"
-	case "/scribe.v1.ItemService/UploadItemImage", "/scribe.v1.ItemService/DeleteItem", "/scribe.v1.ImageProcessingService/ReprocessItemImage":
+	case "/scribe.v1.ItemService/UploadItemImage", "/scribe.v1.ItemService/CancelUploadBatch", "/scribe.v1.ItemService/DeleteItem", "/scribe.v1.ImageProcessingService/ReprocessItemImage":
 		return "items:write"
-	case "/scribe.v1.ContextService/ListContexts", "/scribe.v1.ContextService/GetContext", "/scribe.v1.ContextService/ListSelectionRules", "/scribe.v1.ContextService/ResolveContext":
+	case "/scribe.v1.ContextService/ListContexts", "/scribe.v1.ContextService/GetContext", "/scribe.v1.ContextService/ListSelectionRules", "/scribe.v1.ContextService/ResolveContext", "/scribe.v1.ContextService/GetModelCatalog", "/scribe.v1.ContextService/GetContextMetrics":
 		return "contexts:read"
 	case "/scribe.v1.ContextService/CreateContext", "/scribe.v1.ContextService/UpdateContext", "/scribe.v1.ContextService/DeleteContext", "/scribe.v1.ContextService/CreateSelectionRule", "/scribe.v1.ContextService/DeleteSelectionRule":
 		return "contexts:write"
 	case "/scribe.v1.TranscriptionService/GetTranscriptionJob", "/scribe.v1.TranscriptionService/ListTranscriptionJobs", "/scribe.v1.TranscriptionService/StreamTranscriptionJob":
 		return "transcription:read"
-	case "/scribe.v1.TranscriptionService/CreateTranscriptionJob":
+	case "/scribe.v1.TranscriptionService/CreateTranscriptionJob", "/scribe.v1.TranscriptionService/CancelTranscriptionJob":
 		return "transcription:write"
 	case "/scribe.v1.AuthService/ListAPIKeys", "/scribe.v1.AuthService/CreateAPIKey", "/scribe.v1.AuthService/DeleteAPIKey":
 		return "admin:api_keys"
@@ -526,49 +757,64 @@ func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLeve
 		return "contexts:read"
 	case "/scribe.v1.AuthService/CreateProviderSecret", "/scribe.v1.AuthService/DeleteProviderSecret":
 		return "contexts:write"
-	case "/scribe.v1.AnnotationService/SearchAnnotations", "/scribe.v1.AnnotationService/GetAnnotation", "/scribe.v1.AnnotationService/CrosswalkToPlainText", "/scribe.v1.AnnotationService/CrosswalkToHOCR", "/scribe.v1.AnnotationService/CrosswalkToPageXML", "/scribe.v1.AnnotationService/CrosswalkToALTOXML":
+	case "/scribe.v1.AnnotationService/GetAnnotationPage", "/scribe.v1.AnnotationService/SearchAnnotations", "/scribe.v1.AnnotationService/GetAnnotation", "/scribe.v1.AnnotationService/ExportAnnotationPage", "/scribe.v1.ItemService/PrepareItemExport":
 		return "annotations:read"
-	case "/scribe.v1.AnnotationService/CreateAnnotation", "/scribe.v1.AnnotationService/UpdateAnnotation", "/scribe.v1.AnnotationService/DeleteAnnotation", "/scribe.v1.AnnotationService/PublishItemImageEdits", "/scribe.v1.AnnotationService/EnrichAnnotation", "/scribe.v1.AnnotationService/SplitLineIntoWords", "/scribe.v1.AnnotationService/SplitLineIntoTwoLines", "/scribe.v1.AnnotationService/JoinLines", "/scribe.v1.AnnotationService/JoinWordsIntoLine", "/scribe.v1.ImageProcessingService/SaveOCREdits":
+	case "/scribe.v1.AnnotationService/SaveAnnotationPage", "/scribe.v1.AnnotationService/PublishItemImageEdits", "/scribe.v1.AnnotationService/EnrichAnnotation", "/scribe.v1.AnnotationService/SplitLineIntoWords", "/scribe.v1.AnnotationService/SplitLineIntoTwoLines", "/scribe.v1.AnnotationService/JoinLines", "/scribe.v1.AnnotationService/JoinWordsIntoLine":
 		return "annotations:write"
 	default:
-		return "authz:unmapped"
+		return unmappedProcedurePermission
 	}
 }
 
 func requiredPermissionForPath(path, method string) string {
+	if IsPublicUploadSourceRequest(path, method) {
+		return ""
+	}
 	if strings.HasPrefix(path, "/scribe.v1.") {
-		return requiredPermissionForProcedure(path, optionsv1.AccessLevel_ACCESS_LEVEL_READ)
+		// Connect authorization is owned by the protobuf method descriptor and
+		// authz interceptor. The HTTP middleware only authenticates and attaches
+		// the principal; duplicating RPC policy here can contradict allow_anonymous
+		// or resource-scoped rules before the interceptor sees the request.
+		return ""
 	}
 	switch {
+	case (method == http.MethodGet || method == http.MethodHead) && strings.HasPrefix(path, "/static/uploads/"):
+		return "annotations:read"
 	case path == "/v1/events":
 		return "transcription:read"
-	case strings.HasSuffix(path, "/provider-call-audits"):
-		return "items:read"
-	case strings.HasSuffix(path, "/manifest"), strings.HasSuffix(path, "/hocr"), strings.HasSuffix(path, "/export"):
-		return "items:read"
-	case strings.HasSuffix(path, "/annotations"):
+	case (method == http.MethodGet || method == http.MethodHead) && strings.HasPrefix(path, "/v1/item-exports/"):
 		return "annotations:read"
-	case strings.HasPrefix(path, "/v1/contexts/") && strings.HasSuffix(path, "/metrics"):
-		return "contexts:read"
+	case (method == http.MethodGet || method == http.MethodHead) && strings.HasSuffix(path, "/hocr"):
+		return "annotations:read"
 	default:
 		return ""
 	}
 }
 
 func secretKeyHint(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	runes := []rune(raw)
+	if len(runes) == 0 {
 		return ""
 	}
-	if len(raw) <= 4 {
-		return raw
+	if len(runes) <= 4 {
+		return strings.Repeat("*", len(runes))
 	}
-	return raw[len(raw)-4:]
+	return "…" + string(runes[len(runes)-4:])
 }
 
 func principalHasPermission(principal Principal, permission string) bool {
-	if !principal.Authenticated {
+	// An RPC missing from the explicit procedure table is a deployment error,
+	// never a permission namespace that an administrator or wildcard API key
+	// may inherit. Keep this check ahead of every administrator/scope bypass.
+	if !principal.Authenticated || permission == unmappedProcedurePermission {
 		return false
+	}
+	// API keys and mapped external JWTs are delegated credentials whose
+	// configured workspace role and scopes are always authoritative. They must
+	// never inherit broader session or system-administrator privileges.
+	if principal.AuthType == "api_key" || principal.AuthType == "external_jwt" {
+		return workspaceRoleAllowsPermission(principal.WorkspaceRole, permission) &&
+			scopeListAllows(principal.Scopes, permission)
 	}
 	if principal.IsAdmin {
 		return true
@@ -576,10 +822,7 @@ func principalHasPermission(principal Principal, permission string) bool {
 	if !workspaceRoleAllowsPermission(principal.WorkspaceRole, permission) {
 		return false
 	}
-	if principal.AuthType != "api_key" {
-		return true
-	}
-	return scopeListAllows(principal.Scopes, permission)
+	return true
 }
 
 func workspaceRoleAllowsPermission(role, permission string) bool {
@@ -665,6 +908,30 @@ func (m *Manager) setSessionCookie(w http.ResponseWriter, r *http.Request, token
 	})
 }
 
+func (m *Manager) setOAuthStateCookie(w http.ResponseWriter, state string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "scribe_oauth_state",
+		Value:    state,
+		Path:     m.auth.GoogleCallbackPath,
+		MaxAge:   maxAgeSeconds(oauthStateLifetime),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (m *Manager) clearOAuthStateCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "scribe_oauth_state",
+		Value:    "",
+		Path:     m.auth.GoogleCallbackPath,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
 func (m *Manager) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.auth.CookieName,
@@ -685,22 +952,48 @@ func maxAgeSeconds(ttl time.Duration) int {
 	return int(ttl / time.Second)
 }
 
-func requestIP(r *http.Request) string {
-	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
+// ClientIP resolves the closest untrusted address in a proxy chain. Forwarded
+// headers are ignored unless the direct peer belongs to an explicitly
+// configured trusted network, so private-address spoofing fails closed.
+func ClientIP(r *http.Request) string {
+	return clientIPFrom(r, config.Get().Config.Server.TrustedProxyCIDRs)
+}
+
+func clientIPFrom(r *http.Request, trustedProxyCIDRs config.CIDRList) string {
+	remote := strings.TrimSpace(r.RemoteAddr)
+	if host, _, err := net.SplitHostPort(remote); err == nil {
+		remote = host
+	}
+	if !trustedProxyIP(remote, trustedProxyCIDRs) {
+		return remote
+	}
+
+	chain := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(chain) - 1; i >= 0; i-- {
+		candidate := strings.Trim(strings.TrimSpace(chain[i]), "[]")
+		ip := net.ParseIP(candidate)
+		if ip == nil || trustedProxyIP(candidate, trustedProxyCIDRs) {
+			continue
 		}
+		return ip.String()
 	}
-	if realIP := strings.TrimSpace(r.Header.Get("X-Real-Ip")); realIP != "" {
-		return realIP
+	if realIP := strings.Trim(strings.TrimSpace(r.Header.Get("X-Real-Ip")), "[]"); net.ParseIP(realIP) != nil && !trustedProxyIP(realIP, trustedProxyCIDRs) {
+		return net.ParseIP(realIP).String()
 	}
-	return r.RemoteAddr
+	return remote
+}
+
+func trustedProxyIP(raw string, cidrs config.CIDRList) bool {
+	return config.AddressInCIDRs(raw, cidrs)
 }
 
 func safeRedirectPath(raw string) string {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
+	if raw == "" || len(raw) > 2048 || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") || strings.ContainsAny(raw, "\\\r\n") {
+		return "/"
+	}
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || parsed.IsAbs() || parsed.Host != "" {
 		return "/"
 	}
 	return raw

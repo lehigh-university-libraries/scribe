@@ -1,17 +1,140 @@
 name: Create release
+
 on:
   pull_request_target:
     branches:
       - main
     types:
       - closed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trusted-main-release
+  cancel-in-progress: false
+
 jobs:
   release:
     if: github.event.pull_request.merged == true && !contains(github.event.pull_request.title, 'skip-release')
-    uses: lehigh-university-libraries/gha/.github/workflows/bump-release.yaml@e26d86abfbe300be4d93570b666651c11471995b # main
-    with:
-      workflow_file: goreleaser.yaml
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release
     permissions:
       contents: write
-      actions: write
-    secrets: inherit
+    steps:
+      - name: Checkout reviewed main release source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify reviewed merge is present on main
+        id: source
+        env:
+          MERGED_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "pull_request_target"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "${{ github.event.pull_request.merged }}" = "true"
+          [[ "$MERGED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git symbolic-ref --short HEAD)" = "main"
+          git merge-base --is-ancestor "$MERGED_SHA" refs/remotes/origin/main
+          git checkout --detach "$MERGED_SHA"
+          test "$(git rev-parse HEAD)" = "$MERGED_SHA"
+          git branch --force release-candidate "$MERGED_SHA"
+          echo "release_sha=$MERGED_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve out-of-order release coverage
+        id: coverage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.source.outputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$(./ci/release-coverage.sh)"
+          case "$state" in
+            release) echo "release_required=true" >> "$GITHUB_OUTPUT" ;;
+            covered) echo "release_required=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unexpected coverage state: $state" >&2; exit 1 ;;
+          esac
+
+      - name: Install hash-pinned AutoTag
+        if: steps.coverage.outputs.release_required == 'true'
+        env:
+          AUTOTAG_BINARY: autotag_linux_amd64
+          AUTOTAG_REPOSITORY: autotag-dev/autotag
+          AUTOTAG_SHA256: 7b34c34316b8dd57b43ca0b08454ba57baf6472bef4e5ea46215b6ef5cd96146
+          AUTOTAG_VERSION: v1.4.1
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download "$AUTOTAG_VERSION" \
+            --repo "$AUTOTAG_REPOSITORY" \
+            --pattern "$AUTOTAG_BINARY" \
+            --dir "$RUNNER_TEMP"
+          autotag_path="$RUNNER_TEMP/$AUTOTAG_BINARY"
+          echo "$AUTOTAG_SHA256  $autotag_path" | sha256sum -c -
+          chmod 0755 "$autotag_path"
+          echo "AUTOTAG_BIN=$autotag_path" >> "$GITHUB_ENV"
+
+      - name: Create or reuse the exact reviewed merge tag
+        if: steps.coverage.outputs.release_required == 'true'
+        id: tag
+        env:
+          AUTOTAG_BRANCH: release-candidate
+          RELEASE_SHA: ${{ steps.source.outputs.release_sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(./ci/release-tag.sh)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare exact release draft
+        if: steps.coverage.outputs.release_required == 'true'
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.source.outputs.release_sha }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$(./ci/release-draft.sh prepare)"
+          case "$state" in
+            publish) echo "publish_required=true" >> "$GITHUB_OUTPUT" ;;
+            complete) echo "publish_required=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unexpected release state: $state" >&2; exit 1 ;;
+          esac
+
+      - name: Set up Go
+        if: steps.release.outputs.publish_required == 'true'
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+
+      - name: Build and publish the reviewed release
+        if: steps.release.outputs.publish_required == 'true'
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7
+        with:
+          distribution: goreleaser
+          version: v2.17.0
+          args: release --clean
+        env:
+          GORELEASER_CURRENT_TAG: ${{ steps.tag.outputs.tag }}
+          GITHUB_TOKEN: ${{ github.token }}
+          HOMEBREW_REPO_TOKEN: ${{ secrets.HOMEBREW_REPO_GHAT }}
+
+      - name: Publish completed release draft
+        if: steps.release.outputs.publish_required == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.source.outputs.release_sha }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: ./ci/release-draft.sh publish

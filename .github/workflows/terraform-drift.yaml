@@ -9,26 +9,50 @@ permissions:
   contents: read
   issues: write
   id-token: write
-  packages: read
 
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
     env:
       GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      GSA_EMAIL: ${{ secrets.GSA }}
+      TF_VAR_terraform_state_backup_audited: "true"
       TF_PLAN_DETAILED_EXITCODE: "true"
-      SCRIBE_API_IMAGE: ghcr.io/lehigh-university-libraries/scribe:main
-      SCRIBE_FRONTEND_IMAGE: ghcr.io/lehigh-university-libraries/scribe-frontend:main
-      VAULT_ADMIN_EMAILS: '["jjc223@lehigh.edu"]'
-      VAULT_CI_SERVICE_ACCOUNT_EMAILS: '["${{ secrets.GSA }}"]'
+      # The protected deploy identity is the only automation identity allowed
+      # to recover Terraform's Vault management token. The ordinary Vault CI
+      # role is intentionally limited to preview database secrets and cannot
+      # read or mutate auth/policy configuration.
+      VAULT_BOOTSTRAP_MODE: root-token
     steps:
+      - name: Validate protected configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || { echo "Drift plans must run from main" >&2; exit 1; }
+          test -n "$GCLOUD_PROJECT" || { echo "GCLOUD_PROJECT must be set" >&2; exit 1; }
+          test -n "$TF_STATE_BUCKET" || { echo "TF_STATE_BUCKET must be set" >&2; exit 1; }
+          [[ "$GSA_EMAIL" =~ ^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$ ]] || { echo "GSA must be a service-account email" >&2; exit 1; }
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
       - name: Install Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: 1.15.2
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: 576.0.0
 
       - name: Authenticate to Google Cloud
         id: auth
@@ -41,86 +65,103 @@ jobs:
             https://www.googleapis.com/auth/cloud-platform
             https://www.googleapis.com/auth/userinfo.email
 
+      - name: Verify production deploy WIF trust boundary
+        env:
+          WIF_EXPECTED_ENVIRONMENT: production
+          WIF_IDENTITY_CLASS: deploy
+          WIF_PROVIDER: ${{ secrets.GCLOUD_OIDC_POOL }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.GSA }}
+        run: ./ci/verify-gcp-wif.sh
+
       - name: Configure gcloud
         run: |
           gcloud config set project "${GCLOUD_PROJECT}"
           gcloud config set disable_prompts true
 
-      - name: "GHCR login"
-        uses: "docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee" # v4
-        with:
-          registry: "ghcr.io"
-          username: "${{ github.actor }}"
-          password: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Verify external Terraform state recovery policy
+        env:
+          BACKUP_AUDIT_SCOPE: state
+        run: ./ci/verify-cloud-backups.sh
 
-      - name: Resolve pinned GHCR images
+      - name: Read immutable deployed inputs
+        id: deployed
         shell: bash
         run: |
-          api_image="$(./ci/resolve-ghcr-image.sh "$SCRIBE_API_IMAGE")"
-          frontend_image="$(./ci/resolve-ghcr-image.sh "$SCRIBE_FRONTEND_IMAGE")"
-          echo "SCRIBE_API_IMAGE=$api_image" >> "$GITHUB_ENV"
-          echo "SCRIBE_FRONTEND_IMAGE=$frontend_image" >> "$GITHUB_ENV"
+          set -euo pipefail
+          terraform -chdir=terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="prefix=scribe"
+          terraform -chdir=terraform workspace select prod
+          deployed="$(terraform -chdir=terraform output -json deployment_inputs | ./ci/resolve-rollback-inputs.sh -)"
+          [ "$(jq -r '.configuration.project_id' <<<"$deployed")" = "$GCLOUD_PROJECT" ] || {
+            echo "Recorded deployment project does not match the protected drift project." >&2
+            exit 1
+          }
+          {
+            echo "DEPLOY_BRANCH=$(jq -r '.docker_compose_sha' <<<"$deployed")"
+            echo "SCRIBE_API_IMAGE=$(jq -r '.api_image' <<<"$deployed")"
+            echo "SCRIBE_DATA_GENERATION=$(jq -r '.data_generation' <<<"$deployed")"
+            echo "SCRIBE_FRONTEND_GAR_IMAGE=$(jq -r '.frontend_gar_image' <<<"$deployed")"
+            echo "SCRIBE_OCR_IMAGES_JSON=$(jq -c '.ocr_service_images' <<<"$deployed")"
+            echo "SCRIBE_REGION=$(jq -r '.configuration.region' <<<"$deployed")"
+            echo "SCRIBE_ZONE=$(jq -r '.configuration.zone' <<<"$deployed")"
+            echo "ALLOWED_IPS=$(jq -c '.configuration.allowed_ips' <<<"$deployed")"
+            echo "ALLOWED_SSH_IPV4=$(jq -c '.configuration.allowed_ssh_ipv4' <<<"$deployed")"
+            echo "ALLOWED_SSH_IPV6=$(jq -c '.configuration.allowed_ssh_ipv6' <<<"$deployed")"
+            echo "VAULT_ADMIN_EMAILS=$(jq -c '.configuration.vault_admin_emails' <<<"$deployed")"
+            echo "VAULT_CI_SERVICE_ACCOUNT_EMAILS=$(jq -c '.configuration.vault_ci_service_account_emails' <<<"$deployed")"
+            echo "TF_VAR_monitoring_notification_channels=$(jq -c '.configuration.monitoring_notification_channels' <<<"$deployed")"
+            echo "TF_VAR_backup_restore_service_account_email=$(jq -r '.configuration.backup_restore_service_account_email' <<<"$deployed")"
+            echo "TF_VAR_network_ip_cidr_range=$(jq -r '.configuration.network_ip_cidr_range' <<<"$deployed")"
+            echo "TF_VAR_compose_network_cidr=$(jq -r '.configuration.compose_network_cidr' <<<"$deployed")"
+            echo "TF_VAR_transcription_max_active_jobs_per_workspace=$(jq -r '.configuration.transcription_max_active_jobs_per_workspace' <<<"$deployed")"
+            echo "TF_VAR_storage_max_bytes_per_workspace=$(jq -r '.configuration.storage_max_bytes_per_workspace' <<<"$deployed")"
+            echo "TF_VAR_storage_max_bytes_total=$(jq -r '.configuration.storage_max_bytes_total' <<<"$deployed")"
+            echo "TF_VAR_storage_max_items_per_workspace=$(jq -r '.configuration.storage_max_items_per_workspace' <<<"$deployed")"
+            echo "TF_VAR_storage_max_items_total=$(jq -r '.configuration.storage_max_items_total' <<<"$deployed")"
+            echo "TF_VAR_storage_max_images_per_workspace=$(jq -r '.configuration.storage_max_images_per_workspace' <<<"$deployed")"
+            echo "TF_VAR_storage_max_images_total=$(jq -r '.configuration.storage_max_images_total' <<<"$deployed")"
+            echo "TF_VAR_storage_reservation_ttl=$(jq -r '.configuration.storage_reservation_ttl' <<<"$deployed")"
+            echo "TF_VAR_storage_normalization_cache_max_bytes=$(jq -r '.configuration.storage_normalization_cache_max_bytes' <<<"$deployed")"
+            echo "TF_VAR_storage_normalization_cache_max_age=$(jq -r '.configuration.storage_normalization_cache_max_age' <<<"$deployed")"
+            echo "TF_VAR_iiif_max_manifest_canvases=$(jq -r '.configuration.iiif_max_manifest_canvases' <<<"$deployed")"
+            echo "TF_VAR_iiif_max_manifest_import_bytes=$(jq -r '.configuration.iiif_max_manifest_import_bytes' <<<"$deployed")"
+          } >> "$GITHUB_ENV"
+          echo "compose_sha=$(jq -r '.docker_compose_sha' <<<"$deployed")" >> "$GITHUB_OUTPUT"
 
-      - name: Authenticate Vault admin header token
-        id: auth_vault_access
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+      - name: Checkout deployed production source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/userinfo.email
-          create_credentials_file: false
+          ref: ${{ steps.deployed.outputs.compose_sha }}
+          fetch-depth: 0
+          path: .deployed-source
+          persist-credentials: false
 
-      - name: Resolve Vault address
-        id: vault_addr
-        shell: bash
-        run: |
-          vault_addr="$(gcloud run services describe vault-server-prod --region us-east5 --format='value(status.url)')"
-          vault_audience="$(gcloud run services describe vault-server-prod --region us-east5 --format='value(uri)')"
-          if [ -z "$vault_audience" ]; then
-            vault_audience="$vault_addr"
-          fi
-          echo "vault_addr=$vault_addr" >> "$GITHUB_OUTPUT"
-          echo "vault_audience=$vault_audience" >> "$GITHUB_OUTPUT"
-
-      - name: Compute Vault CI role name
-        id: vault_role
+      - name: Verify deployed production source
         shell: bash
         env:
-          VAULT_GSA: ${{ secrets.GSA }}
+          CURRENT_SHA: ${{ github.sha }}
+          DEPLOYED_SHA: ${{ steps.deployed.outputs.compose_sha }}
         run: |
-          sanitized="$(printf '%s' "$VAULT_GSA" | sed 's/@/-at-/g; s/\./-/g')"
-          echo "role_name=ci-${sanitized}" >> "$GITHUB_OUTPUT"
-
-      - name: Authenticate Google ID token for Vault
-        id: auth_vault_id
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: id_token
-          id_token_audience: ${{ steps.vault_addr.outputs.vault_audience }}
-          id_token_include_email: true
-          create_credentials_file: false
-
-      - name: Login to Vault
-        shell: bash
-        env:
-          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
-          VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
-          VAULT_ID_TOKEN: ${{ steps.auth_vault_id.outputs.id_token }}
-          VAULT_ROLE: ${{ steps.vault_role.outputs.role_name }}
-        run: bash ./ci/vault-login.sh
+          set -euo pipefail
+          [ "$(git -C .deployed-source rev-parse HEAD)" = "$DEPLOYED_SHA" ]
+          git -C .deployed-source cat-file -e "${CURRENT_SHA}^{commit}"
+          git -C .deployed-source merge-base --is-ancestor "$DEPLOYED_SHA" "$CURRENT_SHA" || {
+            echo "Recorded production source is not an ancestor of main." >&2
+            exit 1
+          }
 
       - name: Run detailed production plan
         shell: bash
-        run: make tf-prod ACTION=plan
+        working-directory: .deployed-source
+        run: make tf-prod BRANCH="$DEPLOY_BRANCH" ACTION=plan
 
   open-issue:
     if: failure() && github.event_name == 'schedule'
     needs: [plan]
     runs-on: ubuntu-24.04
     permissions:
+      contents: read
       issues: write
     steps:
       - name: Open drift issue

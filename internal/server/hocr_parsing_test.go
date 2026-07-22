@@ -1,11 +1,13 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
 )
 
@@ -127,8 +129,7 @@ func TestParseHOCRLines_EmptyInput(t *testing.T) {
 }
 
 // TestParseHOCRLines_NoWords verifies that a line with no word spans still
-// produces a line annotation (with the line ID used as the text via
-// joinLineWords's fallback).
+// preserves its segment geometry with empty transcription text.
 func TestParseHOCRLines_NoWords(t *testing.T) {
 	noWordsHOCR := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -155,6 +156,69 @@ func TestParseHOCRLines_NoWords(t *testing.T) {
 	text := joinLineWords(line)
 	if text != "" {
 		t.Errorf("joinLineWords on empty line = %q; want empty string", text)
+	}
+}
+
+// TestSegmentOnlyEmptyLineBuildsValidIIIFAnnotationPage protects segmentors
+// that return geometry before a transcription provider has supplied text. The
+// empty TextualBody is intentional canonical state, not an absent body.
+func TestSegmentOnlyEmptyLineBuildsValidIIIFAnnotationPage(t *testing.T) {
+	const segmentOnlyHOCR = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html>
+  <body>
+    <div class="ocr_page" id="page_1" title="bbox 0 0 2160 3632">
+      <span class="ocr_line" id="segment_1" title="bbox 125 240 975 296"></span>
+    </div>
+  </body>
+</html>`
+	const canvasURI = "https://images.example/canvas/page-1"
+
+	lines, err := hocr.ParseHOCRLines(segmentOnlyHOCR)
+	if err != nil {
+		t.Fatalf("ParseHOCRLines: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("ParseHOCRLines returned %d lines; want 1", len(lines))
+	}
+	if got := lineAnnotationText(lines[0]); got != "" {
+		t.Fatalf("lineAnnotationText = %q; want empty segment text", got)
+	}
+
+	items := buildLineAnnotations("segment-only-run", canvasURI, lines)
+	if len(items) != 1 {
+		t.Fatalf("buildLineAnnotations returned %d items; want 1", len(items))
+	}
+	page, err := iiif.NewAnnotationPage(iiif.PageIdentity{
+		PublicBaseURL: "https://scribe.example",
+		ItemImageID:   42,
+		CanvasURI:     canvasURI,
+	}, items)
+	if err != nil {
+		t.Fatalf("NewAnnotationPage: %v", err)
+	}
+	if err := iiif.ValidateAnnotationPage(page); err != nil {
+		t.Fatalf("libops/iiif-spec rejected segment-only AnnotationPage: %v", err)
+	}
+
+	var document struct {
+		Items []struct {
+			Body []struct {
+				Type    string `json:"type"`
+				Purpose string `json:"purpose"`
+				Value   string `json:"value"`
+			} `json:"body"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(page, &document); err != nil {
+		t.Fatalf("decode AnnotationPage: %v", err)
+	}
+	if len(document.Items) != 1 || len(document.Items[0].Body) != 1 {
+		t.Fatalf("AnnotationPage body count = %d; want one TextualBody", len(document.Items[0].Body))
+	}
+	body := document.Items[0].Body[0]
+	if body.Type != "TextualBody" || body.Purpose != "supplementing" || body.Value != "" {
+		t.Fatalf("AnnotationPage body = %#v; want empty supplementing TextualBody", body)
 	}
 }
 

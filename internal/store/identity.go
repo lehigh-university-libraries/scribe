@@ -5,11 +5,14 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	db "github.com/lehigh-university-libraries/scribe/internal/db"
 )
 
@@ -59,6 +62,11 @@ type IdentityStore struct {
 	q    *db.Queries
 }
 
+const (
+	MaxAuthSessionsPerUser            = 20
+	identityConvergenceReleaseTimeout = 5 * time.Second
+)
+
 func NewIdentityStore(pool *sql.DB) *IdentityStore {
 	return &IdentityStore{
 		pool: pool,
@@ -81,66 +89,138 @@ func (s *IdentityStore) EnsureGoogleUser(ctx context.Context, profile GoogleProf
 		profile.Name = profile.Email
 	}
 
-	var (
-		user User
-		err  error
-	)
-	row, err := s.q.GetUserByGoogleSubject(ctx, profile.Subject)
-	switch err {
-	case nil:
-		if updateErr := s.q.UpdateUserAuthProfile(ctx, db.UpdateUserAuthProfileParams{
-			ID:            row.ID,
-			Name:          profile.Name,
-			Email:         profile.Email,
-			GoogleSubject: profile.Subject,
-			PictureURL:    profile.PictureURL,
-			IsAdmin:       profile.IsAdmin,
-		}); updateErr != nil {
-			return User{}, Workspace{}, fmt.Errorf("update user auth profile: %w", updateErr)
-		}
-		user, err = s.GetUser(ctx, row.ID)
-	case sql.ErrNoRows:
-		row, err = s.q.GetUserByEmail(ctx, profile.Email)
+	for attempt := 0; attempt < 16; attempt++ {
+		user, workspace, err := s.ensureGoogleIdentity(ctx, profile)
 		if err == nil {
-			if updateErr := s.q.UpdateUserAuthProfile(ctx, db.UpdateUserAuthProfileParams{
-				ID:            row.ID,
-				Name:          profile.Name,
-				Email:         profile.Email,
-				GoogleSubject: profile.Subject,
-				PictureURL:    profile.PictureURL,
-				IsAdmin:       profile.IsAdmin,
-			}); updateErr != nil {
-				return User{}, Workspace{}, fmt.Errorf("link user auth profile: %w", updateErr)
-			}
-			user, err = s.GetUser(ctx, row.ID)
-			break
+			return user, workspace, nil
 		}
-		if err != sql.ErrNoRows {
+		if !isIdentityConvergenceError(err) {
+			return User{}, Workspace{}, err
+		}
+	}
+	return User{}, Workspace{}, fmt.Errorf("ensure Google identity: concurrent identity creation did not converge")
+}
+
+func (s *IdentityStore) ensureGoogleIdentity(ctx context.Context, profile GoogleProfile) (userResult User, workspaceResult Workspace, returnErr error) {
+	if s == nil || s.pool == nil {
+		return User{}, Workspace{}, fmt.Errorf("ensure Google identity: store is not configured")
+	}
+	conn, err := s.pool.Conn(ctx)
+	if err != nil {
+		return User{}, Workspace{}, fmt.Errorf("ensure Google identity: reserve connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	lockQueries := db.New(conn)
+	acquiredLocks := make([]string, 0, 2)
+	defer func() {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), identityConvergenceReleaseTimeout)
+		defer cancel()
+		for index := len(acquiredLocks) - 1; index >= 0; index-- {
+			released, err := lockQueries.ReleaseIdentityConvergenceLockManual(releaseCtx, acquiredLocks[index])
+			if returnErr == nil && err != nil {
+				returnErr = fmt.Errorf("ensure Google identity: release convergence lock: %w", err)
+			} else if returnErr == nil && !released {
+				returnErr = fmt.Errorf("ensure Google identity: convergence lock was not owned")
+			}
+		}
+	}()
+	for _, lockName := range identityConvergenceLockNames(profile) {
+		acquired, err := lockQueries.AcquireIdentityConvergenceLockManual(ctx, lockName)
+		if err != nil {
+			return User{}, Workspace{}, fmt.Errorf("ensure Google identity: acquire convergence lock: %w", err)
+		}
+		if !acquired {
+			return User{}, Workspace{}, fmt.Errorf("ensure Google identity: convergence lock acquisition timed out")
+		}
+		acquiredLocks = append(acquiredLocks, lockName)
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, Workspace{}, fmt.Errorf("ensure Google identity: begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	queries := db.New(tx)
+
+	subjectRow, err := queries.LockUserByGoogleSubjectForIdentityManual(ctx, nullableString(profile.Subject))
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return User{}, Workspace{}, fmt.Errorf("get user by subject: %w", err)
+	}
+	row := subjectRow.User
+	if errors.Is(err, sql.ErrNoRows) {
+		emailRow, emailErr := queries.LockUserByEmailForIdentityManual(ctx, nullableString(profile.Email))
+		err = emailErr
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return User{}, Workspace{}, fmt.Errorf("get user by email: %w", err)
 		}
-		id, createErr := s.q.CreateUser(ctx, db.CreateUserParams{
+		row = emailRow.User
+	}
+	userID := row.ID
+	if errors.Is(err, sql.ErrNoRows) {
+		userID, err = queries.CreateUser(ctx, db.CreateUserParams{
 			Name:          profile.Name,
 			Email:         profile.Email,
 			GoogleSubject: profile.Subject,
 			PictureURL:    profile.PictureURL,
 			IsAdmin:       profile.IsAdmin,
 		})
-		if createErr != nil {
-			return User{}, Workspace{}, fmt.Errorf("create user: %w", createErr)
+		if err != nil {
+			return User{}, Workspace{}, fmt.Errorf("create user: %w", err)
 		}
-		user, err = s.GetUser(ctx, id)
-	default:
-		return User{}, Workspace{}, fmt.Errorf("get user by subject: %w", err)
 	}
+	if _, err := queries.LockUserForIdentityAdmissionManual(ctx, userID); err != nil {
+		return User{}, Workspace{}, fmt.Errorf("lock Google identity: %w", err)
+	}
+	if err := queries.UpdateUserAuthProfile(ctx, db.UpdateUserAuthProfileParams{
+		ID:            userID,
+		Name:          profile.Name,
+		Email:         profile.Email,
+		GoogleSubject: profile.Subject,
+		PictureURL:    profile.PictureURL,
+		IsAdmin:       profile.IsAdmin,
+	}); err != nil {
+		return User{}, Workspace{}, fmt.Errorf("update user auth profile: %w", err)
+	}
+	userRow, err := queries.GetUser(ctx, userID)
+	if err != nil {
+		return User{}, Workspace{}, fmt.Errorf("reload Google identity: %w", err)
+	}
+	workspaceRow, err := ensurePersonalWorkspaceTx(ctx, queries, rowToUser(userRow))
 	if err != nil {
 		return User{}, Workspace{}, err
 	}
+	if err := tx.Commit(); err != nil {
+		return User{}, Workspace{}, fmt.Errorf("ensure Google identity: commit: %w", err)
+	}
+	return rowToUser(userRow), workspaceRow, nil
+}
 
-	workspace, err := s.ensurePersonalWorkspace(ctx, user)
-	if err != nil {
-		return User{}, Workspace{}, err
+func identityConvergenceLockNames(profile GoogleProfile) []string {
+	values := []string{"subject\x00" + profile.Subject, "email\x00" + profile.Email}
+	names := make([]string, 0, len(values))
+	for _, value := range values {
+		sum := sha256.Sum256([]byte(value))
+		names = append(names, "scribe:identity:"+hex.EncodeToString(sum[:16]))
 	}
-	return user, workspace, nil
+	sort.Strings(names)
+	return names
+}
+
+func isIdentityConvergenceError(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	if !errors.As(err, &mysqlErr) {
+		return false
+	}
+	switch mysqlErr.Number {
+	case 1020, // record changed between a consistent read and a locking read
+		1062, // duplicate email, subject, personal workspace, or membership
+		1205, // lock wait timeout while another identity transaction commits
+		1213: // deadlock victim during absent-key gap-lock convergence
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *IdentityStore) GetUser(ctx context.Context, id uint64) (User, error) {
@@ -153,13 +233,65 @@ func (s *IdentityStore) GetUser(ctx context.Context, id uint64) (User, error) {
 
 func (s *IdentityStore) CreateSession(ctx context.Context, userID uint64, rawToken, userAgent, ipAddress string, ttl time.Duration) error {
 	tokenHash := hashSessionToken(rawToken)
-	return s.q.CreateAuthSession(ctx, db.CreateAuthSessionParams{
+	tx, err := s.pool.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("create session: begin admission transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	queries := s.q.WithTx(tx)
+	if _, err := queries.LockUserForIdentityAdmissionManual(ctx, userID); err != nil {
+		return fmt.Errorf("create session: lock user: %w", err)
+	}
+	if err := queries.DeleteExpiredAuthSessionsForUserManual(ctx, userID); err != nil {
+		return fmt.Errorf("create session: remove expired sessions: %w", err)
+	}
+	count, err := queries.CountAuthSessionsForUserManual(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("create session: count sessions: %w", err)
+	}
+	for count >= MaxAuthSessionsPerUser {
+		result, deleteErr := queries.DeleteOldestAuthSessionForUserManual(ctx, userID)
+		if deleteErr != nil {
+			return fmt.Errorf("create session: evict oldest session: %w", deleteErr)
+		}
+		removed, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return fmt.Errorf("create session: verify eviction: %w", rowsErr)
+		}
+		if removed != 1 {
+			return fmt.Errorf("create session: session admission state changed")
+		}
+		count--
+	}
+	if err := queries.CreateAuthSession(ctx, db.CreateAuthSessionParams{
 		TokenHash: tokenHash,
 		UserID:    userID,
 		ExpiresAt: time.Now().UTC().Add(ttl),
 		UserAgent: userAgent,
 		IPAddress: ipAddress,
-	})
+	}); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("create session: commit admission: %w", err)
+	}
+	return nil
+}
+
+func (s *IdentityStore) RetainExpiredSessions(ctx context.Context, cutoff time.Time) error {
+	for {
+		result, err := s.q.DeleteExpiredAuthSessionsBatchManual(ctx, cutoff.UTC())
+		if err != nil {
+			return fmt.Errorf("retain expired sessions: %w", err)
+		}
+		removed, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("retain expired sessions: verify batch: %w", err)
+		}
+		if removed < 1000 {
+			return nil
+		}
+	}
 }
 
 func (s *IdentityStore) GetSession(ctx context.Context, rawToken string) (IdentitySession, error) {
@@ -168,14 +300,13 @@ func (s *IdentityStore) GetSession(ctx context.Context, rawToken string) (Identi
 		return IdentitySession{}, err
 	}
 	if time.Now().UTC().After(sessionRow.ExpiresAt) {
-		_ = s.q.DeleteAuthSessionByTokenHash(ctx, sessionRow.TokenHash)
 		return IdentitySession{}, sql.ErrNoRows
 	}
 	user, err := s.GetUser(ctx, sessionRow.UserID)
 	if err != nil {
 		return IdentitySession{}, err
 	}
-	workspace, err := s.ensurePersonalWorkspace(ctx, user)
+	workspace, err := s.getPersonalWorkspace(ctx, user.ID)
 	if err != nil {
 		return IdentitySession{}, err
 	}
@@ -183,7 +314,6 @@ func (s *IdentityStore) GetSession(ctx context.Context, rawToken string) (Identi
 	if err != nil {
 		return IdentitySession{}, err
 	}
-	_ = s.q.TouchAuthSession(ctx, sessionRow.TokenHash)
 	return IdentitySession{User: user, Workspace: workspace, Role: access.Role}, nil
 }
 
@@ -191,9 +321,15 @@ func (s *IdentityStore) DeleteSession(ctx context.Context, rawToken string) erro
 	return s.q.DeleteAuthSessionByTokenHash(ctx, hashSessionToken(rawToken))
 }
 
-func (s *IdentityStore) ensurePersonalWorkspace(ctx context.Context, user User) (Workspace, error) {
-	row, err := s.q.GetPersonalWorkspaceByUserID(ctx, user.ID)
+func ensurePersonalWorkspaceTx(ctx context.Context, queries *db.Queries, user User) (Workspace, error) {
+	row, err := queries.GetPersonalWorkspaceByUserID(ctx, user.ID)
 	if err == nil {
+		if err := queries.EnsureStorageQuotaUsage(ctx, row.ID); err != nil {
+			return Workspace{}, fmt.Errorf("repair personal workspace quota row: %w", err)
+		}
+		if err := queries.CreateWorkspaceMember(ctx, row.ID, user.ID, "admin"); err != nil {
+			return Workspace{}, fmt.Errorf("repair personal workspace membership: %w", err)
+		}
 		return rowToWorkspace(row), nil
 	}
 	if err != sql.ErrNoRows {
@@ -201,7 +337,7 @@ func (s *IdentityStore) ensurePersonalWorkspace(ctx context.Context, user User) 
 	}
 	ownerUserID := user.ID
 	createdByUserID := user.ID
-	workspaceID, err := s.q.CreateWorkspace(ctx, db.CreateWorkspaceParams{
+	workspaceID, err := queries.CreateWorkspace(ctx, db.CreateWorkspaceParams{
 		OwnerUserID:     &ownerUserID,
 		Name:            personalWorkspaceName(user),
 		Slug:            fmt.Sprintf("user-%d-personal", user.ID),
@@ -211,12 +347,23 @@ func (s *IdentityStore) ensurePersonalWorkspace(ctx context.Context, user User) 
 	if err != nil {
 		return Workspace{}, fmt.Errorf("create personal workspace: %w", err)
 	}
-	if err := s.q.CreateWorkspaceMember(ctx, workspaceID, user.ID, "admin"); err != nil {
+	if err := queries.EnsureStorageQuotaUsage(ctx, workspaceID); err != nil {
+		return Workspace{}, fmt.Errorf("create personal workspace quota row: %w", err)
+	}
+	if err := queries.CreateWorkspaceMember(ctx, workspaceID, user.ID, "admin"); err != nil {
 		return Workspace{}, fmt.Errorf("create personal workspace membership: %w", err)
 	}
-	row, err = s.q.GetPersonalWorkspaceByUserID(ctx, user.ID)
+	row, err = queries.GetPersonalWorkspaceByUserID(ctx, user.ID)
 	if err != nil {
 		return Workspace{}, fmt.Errorf("reload personal workspace: %w", err)
+	}
+	return rowToWorkspace(row), nil
+}
+
+func (s *IdentityStore) getPersonalWorkspace(ctx context.Context, userID uint64) (Workspace, error) {
+	row, err := s.q.GetPersonalWorkspaceByUserID(ctx, userID)
+	if err != nil {
+		return Workspace{}, err
 	}
 	return rowToWorkspace(row), nil
 }
@@ -234,11 +381,7 @@ func (s *IdentityStore) GetWorkspaceAccess(ctx context.Context, userID, workspac
 
 func (s *IdentityStore) ResolveWorkspaceAccess(ctx context.Context, userID, requestedWorkspaceID uint64) (WorkspaceAccess, error) {
 	if requestedWorkspaceID == 0 {
-		user, err := s.GetUser(ctx, userID)
-		if err != nil {
-			return WorkspaceAccess{}, err
-		}
-		workspace, err := s.ensurePersonalWorkspace(ctx, user)
+		workspace, err := s.getPersonalWorkspace(ctx, userID)
 		if err != nil {
 			return WorkspaceAccess{}, err
 		}

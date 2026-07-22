@@ -1,0 +1,29 @@
+# Deploy-time OCR image and Cloud Run metadata. Runtime application defaults
+# remain in config.yaml; CI and Terraform are the only consumers of this file.
+kraken:
+  pip_spec: "kraken==7.0.2"
+  default_segmentation_model: kraken
+  default_transcription_model: catmus-print-fondue-large.mlmodel
+  segmentation_models:
+    kraken:
+      file: blla.mlmodel
+      doi: "10.5281/zenodo.14602569"
+      sha256: "77a638a83c9e535620827a09e410ed36391e9e8e8126d5796a0f15b978186056"
+  transcription_models:
+    catmus-print-fondue-large.mlmodel:
+      file: catmus-print-fondue-large.mlmodel
+      doi: "10.5281/zenodo.10592716"
+      sha256: "1ed39e732b26ccdd0f14b9abd3edc66c4b04a02e3d827d7f9e96a7fe7b585b64"
+ollama:
+  base_image: "ollama/ollama:0.19.0@sha256:bf240c2847a8bc7b2c630b85dab5d1dedcba257b551d5fc9b290ce544d59272a"
+  cloud_run:
+    regions: ["us-east4"]
+    memory: "16Gi"
+    cpu: "4000m"
+    gpu_count: 1
+    min_instances: 0
+    max_instances: 1
+    skip_neg: true
+  models:
+    glm-ocr:bf16:
+      manifest_digest: "6effedd0dc8aec66ad86c94b8099395376e212f22c87a9d7147c422f7e447be4"

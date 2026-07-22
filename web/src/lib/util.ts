@@ -57,8 +57,8 @@ function serialize(value: unknown): string {
 
 // The single safe rendering model for the app shell: build markup with the
 // html`` tagged template. Every ${interpolation} is escaped unless it is itself
-// a TrustedHTML (a nested html`` fragment, an array of them, or an explicit
-// raw() value). Raw, un-escaped interpolation can no longer sneak in.
+// a TrustedHTML produced by a nested html`` fragment (or an array of them).
+// There is deliberately no public raw-markup escape hatch.
 export function html(strings: TemplateStringsArray, ...values: unknown[]): TrustedHTML {
   let out = strings[0];
   for (let i = 0; i < values.length; i++) {
@@ -66,13 +66,6 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): Trust
     out += strings[i + 1];
   }
   return mark(out);
-}
-
-// The one audited sink for intentionally raw HTML (e.g. a trusted, developer
-// authored constant such as inline SVG icon markup). SECURITY: never pass
-// runtime/user-derived data here — route that through html`` so it is escaped.
-export function raw(value: string): TrustedHTML {
-  return mark(value);
 }
 
 export function setHTML(element: Element, markup: TrustedHTML): void {

@@ -2,8 +2,8 @@
 // @generated from file scribe/v1/annotation.proto (package scribe.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import { file_scribe_v1_options_v1_auth } from "./options/v1/auth_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -12,16 +12,32 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file scribe/v1/annotation.proto.
  */
 export const file_scribe_v1_annotation: GenFile = /*@__PURE__*/
-  fileDesc("ChpzY3JpYmUvdjEvYW5ub3RhdGlvbi5wcm90bxIJc2NyaWJlLnYxIkAKGFNlYXJjaEFubm90YXRpb25zUmVxdWVzdBIkCgpjYW52YXNfdXJpGAEgASgJQhC6SA3IAQFyCDIGLipcUy4qIjkKGVNlYXJjaEFubm90YXRpb25zUmVzcG9uc2USHAoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAkiNAoUR2V0QW5ub3RhdGlvblJlcXVlc3QSHAoCaWQYASABKAlCELpIDcgBAXIIMgYuKlxTLioiMAoVR2V0QW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJEChdDcmVhdGVBbm5vdGF0aW9uUmVxdWVzdBIpCg9hbm5vdGF0aW9uX2pzb24YASABKAlCELpIDcgBAXIIMgYuKlxTLioiMwoYQ3JlYXRlQW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJEChdVcGRhdGVBbm5vdGF0aW9uUmVxdWVzdBIpCg9hbm5vdGF0aW9uX2pzb24YASABKAlCELpIDcgBAXIIMgYuKlxTLioiMwoYVXBkYXRlQW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSI4ChdEZWxldGVBbm5vdGF0aW9uUmVxdWVzdBIdCgN1cmkYASABKAlCELpIDcgBAXIIMgYuKlxTLioiGgoYRGVsZXRlQW5ub3RhdGlvblJlc3BvbnNlIkEKHFB1Ymxpc2hJdGVtSW1hZ2VFZGl0c1JlcXVlc3QSIQoNaXRlbV9pbWFnZV9pZBgBIAEoBEIKukgHyAEBMgIgACJ+Ch1QdWJsaXNoSXRlbUltYWdlRWRpdHNSZXNwb25zZRIVCg1pdGVtX2ltYWdlX2lkGAEgASgEEhIKCmNhbnZhc191cmkYAiABKAkSHAoUYW5ub3RhdGlvbl9wYWdlX2pzb24YAyABKAkSFAoMcHVibGlzaGVkX2F0GAQgASgJIo0CChdFbnJpY2hBbm5vdGF0aW9uUmVxdWVzdBIcCgVzY29wZRgBIAEoCUINukgKcggyBi4qXFMuKhImCg9hbm5vdGF0aW9uX2pzb24YAiABKAlCDbpICnIIMgYuKlxTLioSEgoKY29udGV4dF9pZBgDIAEoBDqXAbpIkwEakAEKF2VucmljaF9hbm5vdGF0aW9uLnNjb3BlEhpzY29wZSBtdXN0IGJlIGxpbmUgb3IgcGFnZRpZKHRoaXMuc2NvcGUgPT0gJ2xpbmUnIHx8IHRoaXMuc2NvcGUgPT0gJ3BhZ2UnKSAmJiB0aGlzLmFubm90YXRpb25fanNvbi5tYXRjaGVzKCcuKlxcUy4qJykiMwoYRW5yaWNoQW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJVChlTcGxpdExpbmVJbnRvV29yZHNSZXF1ZXN0EikKD2Fubm90YXRpb25fanNvbhgBIAEoCUIQukgNyAEBcggyBi4qXFMuKhINCgV3b3JkcxgCIAMoCSI6ChpTcGxpdExpbmVJbnRvV29yZHNSZXNwb25zZRIcChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgBIAEoCSJgChxTcGxpdExpbmVJbnRvVHdvTGluZXNSZXF1ZXN0EikKD2Fubm90YXRpb25fanNvbhgBIAEoCUIQukgNyAEBcggyBi4qXFMuKhIVCg1zcGxpdF9hdF93b3JkGAIgASgFIjkKHVNwbGl0TGluZUludG9Ud29MaW5lc1Jlc3BvbnNlEhgKEGFubm90YXRpb25fanNvbnMYASADKAkiNgoQSm9pbkxpbmVzUmVxdWVzdBIiChBhbm5vdGF0aW9uX2pzb25zGAEgAygJQgi6SAWSAQIIAiIsChFKb2luTGluZXNSZXNwb25zZRIXCg9hbm5vdGF0aW9uX2pzb24YASABKAkiPgoYSm9pbldvcmRzSW50b0xpbmVSZXF1ZXN0EiIKEGFubm90YXRpb25fanNvbnMYASADKAlCCLpIBZIBAggCIjQKGUpvaW5Xb3Jkc0ludG9MaW5lUmVzcG9uc2USFwoPYW5ub3RhdGlvbl9qc29uGAEgASgJIqECChtDcm9zc3dhbGtUb1BsYWluVGV4dFJlcXVlc3QSLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAlCELpIDXILMgleJHwuKlxTLioSKQoPYW5ub3RhdGlvbl9qc29uGAIgASgJQhC6SA1yCzIJXiR8LipcUy4qOqYBukiiARqfAQoPY3Jvc3N3YWxrLmlucHV0EjNhbm5vdGF0aW9uX3BhZ2VfanNvbiBvciBhbm5vdGF0aW9uX2pzb24gaXMgcmVxdWlyZWQaV3RoaXMuYW5ub3RhdGlvbl9wYWdlX2pzb24ubWF0Y2hlcygnLipcXFMuKicpIHx8IHRoaXMuYW5ub3RhdGlvbl9qc29uLm1hdGNoZXMoJy4qXFxTLionKSI/ChxDcm9zc3dhbGtUb1BsYWluVGV4dFJlc3BvbnNlEg4KBmZvcm1hdBgBIAEoCRIPCgdjb250ZW50GAIgASgJIpwCChZDcm9zc3dhbGtUb0hPQ1JSZXF1ZXN0Ei4KFGFubm90YXRpb25fcGFnZV9qc29uGAEgASgJQhC6SA1yCzIJXiR8LipcUy4qEikKD2Fubm90YXRpb25fanNvbhgCIAEoCUIQukgNcgsyCV4kfC4qXFMuKjqmAbpIogEanwEKD2Nyb3Nzd2Fsay5pbnB1dBIzYW5ub3RhdGlvbl9wYWdlX2pzb24gb3IgYW5ub3RhdGlvbl9qc29uIGlzIHJlcXVpcmVkGld0aGlzLmFubm90YXRpb25fcGFnZV9qc29uLm1hdGNoZXMoJy4qXFxTLionKSB8fCB0aGlzLmFubm90YXRpb25fanNvbi5tYXRjaGVzKCcuKlxcUy4qJykiOgoXQ3Jvc3N3YWxrVG9IT0NSUmVzcG9uc2USDgoGZm9ybWF0GAEgASgJEg8KB2NvbnRlbnQYAiABKAkinwIKGUNyb3Nzd2Fsa1RvUGFnZVhNTFJlcXVlc3QSLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAlCELpIDXILMgleJHwuKlxTLioSKQoPYW5ub3RhdGlvbl9qc29uGAIgASgJQhC6SA1yCzIJXiR8LipcUy4qOqYBukiiARqfAQoPY3Jvc3N3YWxrLmlucHV0EjNhbm5vdGF0aW9uX3BhZ2VfanNvbiBvciBhbm5vdGF0aW9uX2pzb24gaXMgcmVxdWlyZWQaV3RoaXMuYW5ub3RhdGlvbl9wYWdlX2pzb24ubWF0Y2hlcygnLipcXFMuKicpIHx8IHRoaXMuYW5ub3RhdGlvbl9qc29uLm1hdGNoZXMoJy4qXFxTLionKSI9ChpDcm9zc3dhbGtUb1BhZ2VYTUxSZXNwb25zZRIOCgZmb3JtYXQYASABKAkSDwoHY29udGVudBgCIAEoCSKfAgoZQ3Jvc3N3YWxrVG9BTFRPWE1MUmVxdWVzdBIuChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgBIAEoCUIQukgNcgsyCV4kfC4qXFMuKhIpCg9hbm5vdGF0aW9uX2pzb24YAiABKAlCELpIDXILMgleJHwuKlxTLio6pgG6SKIBGp8BCg9jcm9zc3dhbGsuaW5wdXQSM2Fubm90YXRpb25fcGFnZV9qc29uIG9yIGFubm90YXRpb25fanNvbiBpcyByZXF1aXJlZBpXdGhpcy5hbm5vdGF0aW9uX3BhZ2VfanNvbi5tYXRjaGVzKCcuKlxcUy4qJykgfHwgdGhpcy5hbm5vdGF0aW9uX2pzb24ubWF0Y2hlcygnLipcXFMuKicpIj0KGkNyb3Nzd2Fsa1RvQUxUT1hNTFJlc3BvbnNlEg4KBmZvcm1hdBgBIAEoCRIPCgdjb250ZW50GAIgASgJMs0MChFBbm5vdGF0aW9uU2VydmljZRJoChFTZWFyY2hBbm5vdGF0aW9ucxIjLnNjcmliZS52MS5TZWFyY2hBbm5vdGF0aW9uc1JlcXVlc3QaJC5zY3JpYmUudjEuU2VhcmNoQW5ub3RhdGlvbnNSZXNwb25zZSIIkrUYBBACGAESXAoNR2V0QW5ub3RhdGlvbhIfLnNjcmliZS52MS5HZXRBbm5vdGF0aW9uUmVxdWVzdBogLnNjcmliZS52MS5HZXRBbm5vdGF0aW9uUmVzcG9uc2UiCJK1GAQQAhgBEmUKEENyZWF0ZUFubm90YXRpb24SIi5zY3JpYmUudjEuQ3JlYXRlQW5ub3RhdGlvblJlcXVlc3QaIy5zY3JpYmUudjEuQ3JlYXRlQW5ub3RhdGlvblJlc3BvbnNlIgiStRgEEAIYAhJlChBVcGRhdGVBbm5vdGF0aW9uEiIuc2NyaWJlLnYxLlVwZGF0ZUFubm90YXRpb25SZXF1ZXN0GiMuc2NyaWJlLnYxLlVwZGF0ZUFubm90YXRpb25SZXNwb25zZSIIkrUYBBACGAISZQoQRGVsZXRlQW5ub3RhdGlvbhIiLnNjcmliZS52MS5EZWxldGVBbm5vdGF0aW9uUmVxdWVzdBojLnNjcmliZS52MS5EZWxldGVBbm5vdGF0aW9uUmVzcG9uc2UiCJK1GAQQAhgCEoMBChVQdWJsaXNoSXRlbUltYWdlRWRpdHMSJy5zY3JpYmUudjEuUHVibGlzaEl0ZW1JbWFnZUVkaXRzUmVxdWVzdBooLnNjcmliZS52MS5QdWJsaXNoSXRlbUltYWdlRWRpdHNSZXNwb25zZSIXkrUYExAEGAIiDWl0ZW1faW1hZ2VfaWQSZQoQRW5yaWNoQW5ub3RhdGlvbhIiLnNjcmliZS52MS5FbnJpY2hBbm5vdGF0aW9uUmVxdWVzdBojLnNjcmliZS52MS5FbnJpY2hBbm5vdGF0aW9uUmVzcG9uc2UiCJK1GAQQAhgCEmsKElNwbGl0TGluZUludG9Xb3JkcxIkLnNjcmliZS52MS5TcGxpdExpbmVJbnRvV29yZHNSZXF1ZXN0GiUuc2NyaWJlLnYxLlNwbGl0TGluZUludG9Xb3Jkc1Jlc3BvbnNlIgiStRgEEAIYAhJ0ChVTcGxpdExpbmVJbnRvVHdvTGluZXMSJy5zY3JpYmUudjEuU3BsaXRMaW5lSW50b1R3b0xpbmVzUmVxdWVzdBooLnNjcmliZS52MS5TcGxpdExpbmVJbnRvVHdvTGluZXNSZXNwb25zZSIIkrUYBBACGAISUAoJSm9pbkxpbmVzEhsuc2NyaWJlLnYxLkpvaW5MaW5lc1JlcXVlc3QaHC5zY3JpYmUudjEuSm9pbkxpbmVzUmVzcG9uc2UiCJK1GAQQAhgCEmgKEUpvaW5Xb3Jkc0ludG9MaW5lEiMuc2NyaWJlLnYxLkpvaW5Xb3Jkc0ludG9MaW5lUmVxdWVzdBokLnNjcmliZS52MS5Kb2luV29yZHNJbnRvTGluZVJlc3BvbnNlIgiStRgEEAIYAhJxChRDcm9zc3dhbGtUb1BsYWluVGV4dBImLnNjcmliZS52MS5Dcm9zc3dhbGtUb1BsYWluVGV4dFJlcXVlc3QaJy5zY3JpYmUudjEuQ3Jvc3N3YWxrVG9QbGFpblRleHRSZXNwb25zZSIIkrUYBBACGAESYgoPQ3Jvc3N3YWxrVG9IT0NSEiEuc2NyaWJlLnYxLkNyb3Nzd2Fsa1RvSE9DUlJlcXVlc3QaIi5zY3JpYmUudjEuQ3Jvc3N3YWxrVG9IT0NSUmVzcG9uc2UiCJK1GAQQAhgBEmsKEkNyb3Nzd2Fsa1RvUGFnZVhNTBIkLnNjcmliZS52MS5Dcm9zc3dhbGtUb1BhZ2VYTUxSZXF1ZXN0GiUuc2NyaWJlLnYxLkNyb3Nzd2Fsa1RvUGFnZVhNTFJlc3BvbnNlIgiStRgEEAIYARJrChJDcm9zc3dhbGtUb0FMVE9YTUwSJC5zY3JpYmUudjEuQ3Jvc3N3YWxrVG9BTFRPWE1MUmVxdWVzdBolLnNjcmliZS52MS5Dcm9zc3dhbGtUb0FMVE9YTUxSZXNwb25zZSIIkrUYBBACGAFCrQEKDWNvbS5zY3JpYmUudjFCD0Fubm90YXRpb25Qcm90b1ABWkZnaXRodWIuY29tL2xlaGlnaC11bml2ZXJzaXR5LWxpYnJhcmllcy9zY3JpYmUvcHJvdG8vc2NyaWJlL3YxO3NjcmliZXYxogIDU1hYqgIJU2NyaWJlLlYxygIJU2NyaWJlXFYx4gIVU2NyaWJlXFYxXEdQQk1ldGFkYXRh6gIKU2NyaWJlOjpWMWIGcHJvdG8z", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
+  fileDesc("ChpzY3JpYmUvdjEvYW5ub3RhdGlvbi5wcm90bxIJc2NyaWJlLnYxIp0BChhTZWFyY2hBbm5vdGF0aW9uc1JlcXVlc3QSIQoNaXRlbV9pbWFnZV9pZBgBIAEoBEIKukgHyAEBMgIgABInCgpjYW52YXNfdXJpGAIgASgJQhO6SBByDhiAEDIJXiR8LipcUy4qEjUKC2dyYW51bGFyaXR5GAMgASgOMiAuc2NyaWJlLnYxLkFubm90YXRpb25HcmFudWxhcml0eSJLChlTZWFyY2hBbm5vdGF0aW9uc1Jlc3BvbnNlEhwKFGFubm90YXRpb25fcGFnZV9qc29uGAEgASgJEhAKCHJldmlzaW9uGAIgASgEIj0KGEdldEFubm90YXRpb25QYWdlUmVxdWVzdBIhCg1pdGVtX2ltYWdlX2lkGAEgASgEQgq6SAfIAQEyAiAAIooBChlHZXRBbm5vdGF0aW9uUGFnZVJlc3BvbnNlEhUKDWl0ZW1faW1hZ2VfaWQYASABKAQSEgoKY2FudmFzX3VyaRgCIAEoCRIcChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgDIAEoCRIQCghyZXZpc2lvbhgEIAEoBBISCgp1cGRhdGVkX2F0GAUgASgJIokBChlTYXZlQW5ub3RhdGlvblBhZ2VSZXF1ZXN0EiEKDWl0ZW1faW1hZ2VfaWQYASABKARCCrpIB8gBATICIAASLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YAiABKAlCELpIDcgBAXIIMgYuKlxTLioSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAyABKAQiiwEKGlNhdmVBbm5vdGF0aW9uUGFnZVJlc3BvbnNlEhUKDWl0ZW1faW1hZ2VfaWQYASABKAQSEgoKY2FudmFzX3VyaRgCIAEoCRIcChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgDIAEoCRIQCghyZXZpc2lvbhgEIAEoBBISCgp1cGRhdGVkX2F0GAUgASgJIlcKFEdldEFubm90YXRpb25SZXF1ZXN0EiEKDWl0ZW1faW1hZ2VfaWQYASABKARCCrpIB8gBATICIAASHAoCaWQYAiABKAlCELpIDcgBAXIIMgYuKlxTLioiMAoVR2V0QW5ub3RhdGlvblJlc3BvbnNlEhcKD2Fubm90YXRpb25fanNvbhgBIAEoCSJoChxQdWJsaXNoSXRlbUltYWdlRWRpdHNSZXF1ZXN0EiEKDWl0ZW1faW1hZ2VfaWQYASABKARCCrpIB8gBATICIAASJQoRZXhwZWN0ZWRfcmV2aXNpb24YAiABKARCCrpIB8gBATICIAAirgEKHVB1Ymxpc2hJdGVtSW1hZ2VFZGl0c1Jlc3BvbnNlEhUKDWl0ZW1faW1hZ2VfaWQYASABKAQSEgoKY2FudmFzX3VyaRgCIAEoCRIcChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgDIAEoCRIUCgxwdWJsaXNoZWRfYXQYBCABKAkSGgoScHVibGlzaGVkX3JldmlzaW9uGAUgASgEEhIKCnB1YmxpY191cmwYBiABKAki/wIKF0VucmljaEFubm90YXRpb25SZXF1ZXN0EiEKDWl0ZW1faW1hZ2VfaWQYASABKARCCrpIB8gBATICIAASHAoFc2NvcGUYAiABKAlCDbpICnIIMgYuKlxTLioSJgoPYW5ub3RhdGlvbl9qc29uGAMgASgJQg26SApyCDIGLipcUy4qEhIKCmNvbnRleHRfaWQYBCABKAQ65gG6SOIBGt8BChdlbnJpY2hfYW5ub3RhdGlvbi5zY29wZRJOaXRlbV9pbWFnZV9pZCBhbmQgYW5ub3RhdGlvbl9qc29uIGFyZSByZXF1aXJlZCwgYW5kIHNjb3BlIG11c3QgYmUgbGluZSBvciBwYWdlGnR0aGlzLml0ZW1faW1hZ2VfaWQgPiAwdSAmJiAodGhpcy5zY29wZSA9PSAnbGluZScgfHwgdGhpcy5zY29wZSA9PSAncGFnZScpICYmIHRoaXMuYW5ub3RhdGlvbl9qc29uLm1hdGNoZXMoJy4qXFxTLionKSIzChhFbnJpY2hBbm5vdGF0aW9uUmVzcG9uc2USFwoPYW5ub3RhdGlvbl9qc29uGAEgASgJIrYDChlTcGxpdExpbmVJbnRvV29yZHNSZXF1ZXN0EiEKDWl0ZW1faW1hZ2VfaWQYASABKARCCrpIB8gBATICIAASLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YAiABKAlCELpIDcgBAXIIMgYuKlxTLioSMAoWc2VsZWN0ZWRfYW5ub3RhdGlvbl9pZBgDIAEoCUIQukgNyAEBcggyBi4qXFMuKhIgCgV3b3JkcxgEIAMoCUIRukgOkgELEJBOIgZyBCiAgAE68QG6SO0BGuoBCh9zcGxpdF9saW5lX2ludG9fd29yZHMuc2VsZWN0aW9uEkxpdGVtX2ltYWdlX2lkLCBhbm5vdGF0aW9uX3BhZ2VfanNvbiwgYW5kIHNlbGVjdGVkX2Fubm90YXRpb25faWQgYXJlIHJlcXVpcmVkGnl0aGlzLml0ZW1faW1hZ2VfaWQgPiAwdSAmJiB0aGlzLmFubm90YXRpb25fcGFnZV9qc29uLm1hdGNoZXMoJy4qXFxTLionKSAmJiB0aGlzLnNlbGVjdGVkX2Fubm90YXRpb25faWQubWF0Y2hlcygnLipcXFMuKicpIjoKGlNwbGl0TGluZUludG9Xb3Jkc1Jlc3BvbnNlEhwKFGFubm90YXRpb25fcGFnZV9qc29uGAEgASgJIrsDChxTcGxpdExpbmVJbnRvVHdvTGluZXNSZXF1ZXN0EiEKDWl0ZW1faW1hZ2VfaWQYASABKARCCrpIB8gBATICIAASLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YAiABKAlCELpIDcgBAXIIMgYuKlxTLioSMAoWc2VsZWN0ZWRfYW5ub3RhdGlvbl9pZBgDIAEoCUIQukgNyAEBcggyBi4qXFMuKhIeCg1zcGxpdF9hdF93b3JkGAQgASgFQge6SAQaAigAOvUBukjxARruAQojc3BsaXRfbGluZV9pbnRvX3R3b19saW5lcy5zZWxlY3Rpb24STGl0ZW1faW1hZ2VfaWQsIGFubm90YXRpb25fcGFnZV9qc29uLCBhbmQgc2VsZWN0ZWRfYW5ub3RhdGlvbl9pZCBhcmUgcmVxdWlyZWQaeXRoaXMuaXRlbV9pbWFnZV9pZCA+IDB1ICYmIHRoaXMuYW5ub3RhdGlvbl9wYWdlX2pzb24ubWF0Y2hlcygnLipcXFMuKicpICYmIHRoaXMuc2VsZWN0ZWRfYW5ub3RhdGlvbl9pZC5tYXRjaGVzKCcuKlxcUy4qJykiPQodU3BsaXRMaW5lSW50b1R3b0xpbmVzUmVzcG9uc2USHAoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAki0wMKEEpvaW5MaW5lc1JlcXVlc3QSIQoNaXRlbV9pbWFnZV9pZBgBIAEoBEIKukgHyAEBMgIgABIuChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgCIAEoCUIQukgNyAEBcggyBi4qXFMuKhIxChdzZWxlY3RlZF9hbm5vdGF0aW9uX2lkcxgDIAMoCUIQukgNyAEBkgEHCAIQkE4YATq4ArpItAIasQIKFGpvaW5fbGluZXMuc2VsZWN0aW9uEmRpdGVtX2ltYWdlX2lkLCBhbm5vdGF0aW9uX3BhZ2VfanNvbiwgYW5kIGF0IGxlYXN0IHR3byBub24tZW1wdHkgc2VsZWN0ZWRfYW5ub3RhdGlvbl9pZHMgYXJlIHJlcXVpcmVkGrIBdGhpcy5pdGVtX2ltYWdlX2lkID4gMHUgJiYgdGhpcy5hbm5vdGF0aW9uX3BhZ2VfanNvbi5tYXRjaGVzKCcuKlxcUy4qJykgJiYgdGhpcy5zZWxlY3RlZF9hbm5vdGF0aW9uX2lkcy5zaXplKCkgPj0gMiAmJiB0aGlzLnNlbGVjdGVkX2Fubm90YXRpb25faWRzLmFsbChpZCwgaWQubWF0Y2hlcygnLipcXFMuKicpKSIxChFKb2luTGluZXNSZXNwb25zZRIcChRhbm5vdGF0aW9uX3BhZ2VfanNvbhgBIAEoCSLlAwoYSm9pbldvcmRzSW50b0xpbmVSZXF1ZXN0EiEKDWl0ZW1faW1hZ2VfaWQYASABKARCCrpIB8gBATICIAASLgoUYW5ub3RhdGlvbl9wYWdlX2pzb24YAiABKAlCELpIDcgBAXIIMgYuKlxTLioSMQoXc2VsZWN0ZWRfYW5ub3RhdGlvbl9pZHMYAyADKAlCELpIDcgBAZIBBwgCEJBOGAE6wgK6SL4CGrsCCh5qb2luX3dvcmRzX2ludG9fbGluZS5zZWxlY3Rpb24SZGl0ZW1faW1hZ2VfaWQsIGFubm90YXRpb25fcGFnZV9qc29uLCBhbmQgYXQgbGVhc3QgdHdvIG5vbi1lbXB0eSBzZWxlY3RlZF9hbm5vdGF0aW9uX2lkcyBhcmUgcmVxdWlyZWQasgF0aGlzLml0ZW1faW1hZ2VfaWQgPiAwdSAmJiB0aGlzLmFubm90YXRpb25fcGFnZV9qc29uLm1hdGNoZXMoJy4qXFxTLionKSAmJiB0aGlzLnNlbGVjdGVkX2Fubm90YXRpb25faWRzLnNpemUoKSA+PSAyICYmIHRoaXMuc2VsZWN0ZWRfYW5ub3RhdGlvbl9pZHMuYWxsKGlkLCBpZC5tYXRjaGVzKCcuKlxcUy4qJykpIjkKGUpvaW5Xb3Jkc0ludG9MaW5lUmVzcG9uc2USHAoUYW5ub3RhdGlvbl9wYWdlX2pzb24YASABKAki2wIKG0V4cG9ydEFubm90YXRpb25QYWdlUmVxdWVzdBIhCg1pdGVtX2ltYWdlX2lkGAEgASgEQgq6SAfIAQEyAiAAEiUKEWV4cGVjdGVkX3JldmlzaW9uGAIgASgEQgq6SAfIAQEyAiAAEkAKBmZvcm1hdBgDIAEoDjIhLnNjcmliZS52MS5Bbm5vdGF0aW9uRXhwb3J0Rm9ybWF0Qg26SArIAQGCAQQQASAAOq8BukirARqoAQofZXhwb3J0X2Fubm90YXRpb25fcGFnZS5yZXF1aXJlZBI5aXRlbV9pbWFnZV9pZCwgZXhwZWN0ZWRfcmV2aXNpb24sIGFuZCBmb3JtYXQgYXJlIHJlcXVpcmVkGkp0aGlzLml0ZW1faW1hZ2VfaWQgPiAwdSAmJiB0aGlzLmV4cGVjdGVkX3JldmlzaW9uID4gMHUgJiYgdGhpcy5mb3JtYXQgIT0gMCJ+ChxFeHBvcnRBbm5vdGF0aW9uUGFnZVJlc3BvbnNlEhUKDWl0ZW1faW1hZ2VfaWQYASABKAQSEAoIcmV2aXNpb24YAiABKAQSEgoKbWVkaWFfdHlwZRgDIAEoCRIPCgdjb250ZW50GAQgASgMEhAKCGZpbGVuYW1lGAUgASgJKqwCChVBbm5vdGF0aW9uR3JhbnVsYXJpdHkSJgoiQU5OT1RBVElPTl9HUkFOVUxBUklUWV9VTlNQRUNJRklFRBAAEh4KGkFOTk9UQVRJT05fR1JBTlVMQVJJVFlfQUxMEAESHwobQU5OT1RBVElPTl9HUkFOVUxBUklUWV9QQUdFEAISIAocQU5OT1RBVElPTl9HUkFOVUxBUklUWV9CTE9DSxADEiQKIEFOTk9UQVRJT05fR1JBTlVMQVJJVFlfUEFSQUdSQVBIEAQSHwobQU5OT1RBVElPTl9HUkFOVUxBUklUWV9MSU5FEAUSHwobQU5OT1RBVElPTl9HUkFOVUxBUklUWV9XT1JEEAYSIAocQU5OT1RBVElPTl9HUkFOVUxBUklUWV9HTFlQSBAHKtwBChZBbm5vdGF0aW9uRXhwb3J0Rm9ybWF0EigKJEFOTk9UQVRJT05fRVhQT1JUX0ZPUk1BVF9VTlNQRUNJRklFRBAAEicKI0FOTk9UQVRJT05fRVhQT1JUX0ZPUk1BVF9QTEFJTl9URVhUEAESIQodQU5OT1RBVElPTl9FWFBPUlRfRk9STUFUX0hPQ1IQAhIlCiFBTk5PVEFUSU9OX0VYUE9SVF9GT1JNQVRfUEFHRV9YTUwQAxIlCiFBTk5PVEFUSU9OX0VYUE9SVF9GT1JNQVRfQUxUT19YTUwQBDLJCgoRQW5ub3RhdGlvblNlcnZpY2USdwoRR2V0QW5ub3RhdGlvblBhZ2USIy5zY3JpYmUudjEuR2V0QW5ub3RhdGlvblBhZ2VSZXF1ZXN0GiQuc2NyaWJlLnYxLkdldEFubm90YXRpb25QYWdlUmVzcG9uc2UiF5K1GBMQBBgBIg1pdGVtX2ltYWdlX2lkEnoKElNhdmVBbm5vdGF0aW9uUGFnZRIkLnNjcmliZS52MS5TYXZlQW5ub3RhdGlvblBhZ2VSZXF1ZXN0GiUuc2NyaWJlLnYxLlNhdmVBbm5vdGF0aW9uUGFnZVJlc3BvbnNlIheStRgTEAQYAiINaXRlbV9pbWFnZV9pZBJ3ChFTZWFyY2hBbm5vdGF0aW9ucxIjLnNjcmliZS52MS5TZWFyY2hBbm5vdGF0aW9uc1JlcXVlc3QaJC5zY3JpYmUudjEuU2VhcmNoQW5ub3RhdGlvbnNSZXNwb25zZSIXkrUYExAEGAEiDWl0ZW1faW1hZ2VfaWQSawoNR2V0QW5ub3RhdGlvbhIfLnNjcmliZS52MS5HZXRBbm5vdGF0aW9uUmVxdWVzdBogLnNjcmliZS52MS5HZXRBbm5vdGF0aW9uUmVzcG9uc2UiF5K1GBMQBBgBIg1pdGVtX2ltYWdlX2lkEoMBChVQdWJsaXNoSXRlbUltYWdlRWRpdHMSJy5zY3JpYmUudjEuUHVibGlzaEl0ZW1JbWFnZUVkaXRzUmVxdWVzdBooLnNjcmliZS52MS5QdWJsaXNoSXRlbUltYWdlRWRpdHNSZXNwb25zZSIXkrUYExAEGAIiDWl0ZW1faW1hZ2VfaWQSdAoQRW5yaWNoQW5ub3RhdGlvbhIiLnNjcmliZS52MS5FbnJpY2hBbm5vdGF0aW9uUmVxdWVzdBojLnNjcmliZS52MS5FbnJpY2hBbm5vdGF0aW9uUmVzcG9uc2UiF5K1GBMQBBgCIg1pdGVtX2ltYWdlX2lkEnoKElNwbGl0TGluZUludG9Xb3JkcxIkLnNjcmliZS52MS5TcGxpdExpbmVJbnRvV29yZHNSZXF1ZXN0GiUuc2NyaWJlLnYxLlNwbGl0TGluZUludG9Xb3Jkc1Jlc3BvbnNlIheStRgTEAQYAiINaXRlbV9pbWFnZV9pZBKDAQoVU3BsaXRMaW5lSW50b1R3b0xpbmVzEicuc2NyaWJlLnYxLlNwbGl0TGluZUludG9Ud29MaW5lc1JlcXVlc3QaKC5zY3JpYmUudjEuU3BsaXRMaW5lSW50b1R3b0xpbmVzUmVzcG9uc2UiF5K1GBMQBBgCIg1pdGVtX2ltYWdlX2lkEl8KCUpvaW5MaW5lcxIbLnNjcmliZS52MS5Kb2luTGluZXNSZXF1ZXN0Ghwuc2NyaWJlLnYxLkpvaW5MaW5lc1Jlc3BvbnNlIheStRgTEAQYAiINaXRlbV9pbWFnZV9pZBJ3ChFKb2luV29yZHNJbnRvTGluZRIjLnNjcmliZS52MS5Kb2luV29yZHNJbnRvTGluZVJlcXVlc3QaJC5zY3JpYmUudjEuSm9pbldvcmRzSW50b0xpbmVSZXNwb25zZSIXkrUYExAEGAIiDWl0ZW1faW1hZ2VfaWQSgAEKFEV4cG9ydEFubm90YXRpb25QYWdlEiYuc2NyaWJlLnYxLkV4cG9ydEFubm90YXRpb25QYWdlUmVxdWVzdBonLnNjcmliZS52MS5FeHBvcnRBbm5vdGF0aW9uUGFnZVJlc3BvbnNlIheStRgTEAQYASINaXRlbV9pbWFnZV9pZEKtAQoNY29tLnNjcmliZS52MUIPQW5ub3RhdGlvblByb3RvUAFaRmdpdGh1Yi5jb20vbGVoaWdoLXVuaXZlcnNpdHktbGlicmFyaWVzL3NjcmliZS9wcm90by9zY3JpYmUvdjE7c2NyaWJldjGiAgNTWFiqAglTY3JpYmUuVjHKAglTY3JpYmVcVjHiAhVTY3JpYmVcVjFcR1BCTWV0YWRhdGHqAgpTY3JpYmU6OlYxYgZwcm90bzM", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
 
 /**
  * @generated from message scribe.v1.SearchAnnotationsRequest
  */
 export type SearchAnnotationsRequest = Message<"scribe.v1.SearchAnnotationsRequest"> & {
   /**
-   * @generated from field: string canvas_uri = 1;
+   * item_image_id is the canonical, tenant-scoped resource identifier.
+   *
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
+   * Optional interoperability consistency check. The value is treated as an
+   * opaque Canvas ID and must match the item's stored target; it is never a
+   * lookup or authorization key.
+   *
+   * @generated from field: string canvas_uri = 2;
    */
   canvasUri: string;
+
+  /**
+   * @generated from field: scribe.v1.AnnotationGranularity granularity = 3;
+   */
+  granularity: AnnotationGranularity;
 };
 
 /**
@@ -41,6 +57,11 @@ export type SearchAnnotationsResponse = Message<"scribe.v1.SearchAnnotationsResp
    * @generated from field: string annotation_page_json = 1;
    */
   annotationPageJson: string;
+
+  /**
+   * @generated from field: uint64 revision = 2;
+   */
+  revision: bigint;
 };
 
 /**
@@ -51,13 +72,143 @@ export const SearchAnnotationsResponseSchema: GenMessage<SearchAnnotationsRespon
   messageDesc(file_scribe_v1_annotation, 1);
 
 /**
+ * GetAnnotationPageRequest loads the canonical IIIF Presentation 3
+ * AnnotationPage for one item image.
+ *
+ * @generated from message scribe.v1.GetAnnotationPageRequest
+ */
+export type GetAnnotationPageRequest = Message<"scribe.v1.GetAnnotationPageRequest"> & {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+};
+
+/**
+ * Describes the message scribe.v1.GetAnnotationPageRequest.
+ * Use `create(GetAnnotationPageRequestSchema)` to create a new message.
+ */
+export const GetAnnotationPageRequestSchema: GenMessage<GetAnnotationPageRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_annotation, 2);
+
+/**
+ * @generated from message scribe.v1.GetAnnotationPageResponse
+ */
+export type GetAnnotationPageResponse = Message<"scribe.v1.GetAnnotationPageResponse"> & {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: string canvas_uri = 2;
+   */
+  canvasUri: string;
+
+  /**
+   * @generated from field: string annotation_page_json = 3;
+   */
+  annotationPageJson: string;
+
+  /**
+   * @generated from field: uint64 revision = 4;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: string updated_at = 5;
+   */
+  updatedAt: string;
+};
+
+/**
+ * Describes the message scribe.v1.GetAnnotationPageResponse.
+ * Use `create(GetAnnotationPageResponseSchema)` to create a new message.
+ */
+export const GetAnnotationPageResponseSchema: GenMessage<GetAnnotationPageResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_annotation, 3);
+
+/**
+ * SaveAnnotationPageRequest atomically replaces one canonical page. A zero
+ * expected_revision creates the page; every subsequent save must provide the
+ * exact current revision.
+ *
+ * @generated from message scribe.v1.SaveAnnotationPageRequest
+ */
+export type SaveAnnotationPageRequest = Message<"scribe.v1.SaveAnnotationPageRequest"> & {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: string annotation_page_json = 2;
+   */
+  annotationPageJson: string;
+
+  /**
+   * @generated from field: uint64 expected_revision = 3;
+   */
+  expectedRevision: bigint;
+};
+
+/**
+ * Describes the message scribe.v1.SaveAnnotationPageRequest.
+ * Use `create(SaveAnnotationPageRequestSchema)` to create a new message.
+ */
+export const SaveAnnotationPageRequestSchema: GenMessage<SaveAnnotationPageRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_annotation, 4);
+
+/**
+ * @generated from message scribe.v1.SaveAnnotationPageResponse
+ */
+export type SaveAnnotationPageResponse = Message<"scribe.v1.SaveAnnotationPageResponse"> & {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: string canvas_uri = 2;
+   */
+  canvasUri: string;
+
+  /**
+   * @generated from field: string annotation_page_json = 3;
+   */
+  annotationPageJson: string;
+
+  /**
+   * @generated from field: uint64 revision = 4;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: string updated_at = 5;
+   */
+  updatedAt: string;
+};
+
+/**
+ * Describes the message scribe.v1.SaveAnnotationPageResponse.
+ * Use `create(SaveAnnotationPageResponseSchema)` to create a new message.
+ */
+export const SaveAnnotationPageResponseSchema: GenMessage<SaveAnnotationPageResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_annotation, 5);
+
+/**
  * @generated from message scribe.v1.GetAnnotationRequest
  */
 export type GetAnnotationRequest = Message<"scribe.v1.GetAnnotationRequest"> & {
   /**
-   * Bare ID suffix (the part after /v1/annotations/3/item/)
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
+   * Complete canonical Scribe annotation ID from the current page.
    *
-   * @generated from field: string id = 1;
+   * @generated from field: string id = 2;
    */
   id: string;
 };
@@ -67,7 +218,7 @@ export type GetAnnotationRequest = Message<"scribe.v1.GetAnnotationRequest"> & {
  * Use `create(GetAnnotationRequestSchema)` to create a new message.
  */
 export const GetAnnotationRequestSchema: GenMessage<GetAnnotationRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 2);
+  messageDesc(file_scribe_v1_annotation, 6);
 
 /**
  * @generated from message scribe.v1.GetAnnotationResponse
@@ -84,105 +235,7 @@ export type GetAnnotationResponse = Message<"scribe.v1.GetAnnotationResponse"> &
  * Use `create(GetAnnotationResponseSchema)` to create a new message.
  */
 export const GetAnnotationResponseSchema: GenMessage<GetAnnotationResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 3);
-
-/**
- * @generated from message scribe.v1.CreateAnnotationRequest
- */
-export type CreateAnnotationRequest = Message<"scribe.v1.CreateAnnotationRequest"> & {
-  /**
-   * @generated from field: string annotation_json = 1;
-   */
-  annotationJson: string;
-};
-
-/**
- * Describes the message scribe.v1.CreateAnnotationRequest.
- * Use `create(CreateAnnotationRequestSchema)` to create a new message.
- */
-export const CreateAnnotationRequestSchema: GenMessage<CreateAnnotationRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 4);
-
-/**
- * @generated from message scribe.v1.CreateAnnotationResponse
- */
-export type CreateAnnotationResponse = Message<"scribe.v1.CreateAnnotationResponse"> & {
-  /**
-   * @generated from field: string annotation_json = 1;
-   */
-  annotationJson: string;
-};
-
-/**
- * Describes the message scribe.v1.CreateAnnotationResponse.
- * Use `create(CreateAnnotationResponseSchema)` to create a new message.
- */
-export const CreateAnnotationResponseSchema: GenMessage<CreateAnnotationResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 5);
-
-/**
- * @generated from message scribe.v1.UpdateAnnotationRequest
- */
-export type UpdateAnnotationRequest = Message<"scribe.v1.UpdateAnnotationRequest"> & {
-  /**
-   * @generated from field: string annotation_json = 1;
-   */
-  annotationJson: string;
-};
-
-/**
- * Describes the message scribe.v1.UpdateAnnotationRequest.
- * Use `create(UpdateAnnotationRequestSchema)` to create a new message.
- */
-export const UpdateAnnotationRequestSchema: GenMessage<UpdateAnnotationRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 6);
-
-/**
- * @generated from message scribe.v1.UpdateAnnotationResponse
- */
-export type UpdateAnnotationResponse = Message<"scribe.v1.UpdateAnnotationResponse"> & {
-  /**
-   * @generated from field: string annotation_json = 1;
-   */
-  annotationJson: string;
-};
-
-/**
- * Describes the message scribe.v1.UpdateAnnotationResponse.
- * Use `create(UpdateAnnotationResponseSchema)` to create a new message.
- */
-export const UpdateAnnotationResponseSchema: GenMessage<UpdateAnnotationResponse> = /*@__PURE__*/
   messageDesc(file_scribe_v1_annotation, 7);
-
-/**
- * @generated from message scribe.v1.DeleteAnnotationRequest
- */
-export type DeleteAnnotationRequest = Message<"scribe.v1.DeleteAnnotationRequest"> & {
-  /**
-   * @generated from field: string uri = 1;
-   */
-  uri: string;
-};
-
-/**
- * Describes the message scribe.v1.DeleteAnnotationRequest.
- * Use `create(DeleteAnnotationRequestSchema)` to create a new message.
- */
-export const DeleteAnnotationRequestSchema: GenMessage<DeleteAnnotationRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 8);
-
-/**
- * @generated from message scribe.v1.DeleteAnnotationResponse
- */
-export type DeleteAnnotationResponse = Message<"scribe.v1.DeleteAnnotationResponse"> & {
-};
-
-/**
- * Describes the message scribe.v1.DeleteAnnotationResponse.
- * Use `create(DeleteAnnotationResponseSchema)` to create a new message.
- */
-export const DeleteAnnotationResponseSchema: GenMessage<DeleteAnnotationResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 9);
 
 /**
  * @generated from message scribe.v1.PublishItemImageEditsRequest
@@ -192,6 +245,14 @@ export type PublishItemImageEditsRequest = Message<"scribe.v1.PublishItemImageEd
    * @generated from field: uint64 item_image_id = 1;
    */
   itemImageId: bigint;
+
+  /**
+   * The draft revision the caller just saved. Publication fails explicitly if
+   * a newer correction was committed before this transaction acquired its lock.
+   *
+   * @generated from field: uint64 expected_revision = 2;
+   */
+  expectedRevision: bigint;
 };
 
 /**
@@ -199,7 +260,7 @@ export type PublishItemImageEditsRequest = Message<"scribe.v1.PublishItemImageEd
  * Use `create(PublishItemImageEditsRequestSchema)` to create a new message.
  */
 export const PublishItemImageEditsRequestSchema: GenMessage<PublishItemImageEditsRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 10);
+  messageDesc(file_scribe_v1_annotation, 8);
 
 /**
  * @generated from message scribe.v1.PublishItemImageEditsResponse
@@ -224,6 +285,16 @@ export type PublishItemImageEditsResponse = Message<"scribe.v1.PublishItemImageE
    * @generated from field: string published_at = 4;
    */
   publishedAt: string;
+
+  /**
+   * @generated from field: uint64 published_revision = 5;
+   */
+  publishedRevision: bigint;
+
+  /**
+   * @generated from field: string public_url = 6;
+   */
+  publicUrl: string;
 };
 
 /**
@@ -231,7 +302,7 @@ export type PublishItemImageEditsResponse = Message<"scribe.v1.PublishItemImageE
  * Use `create(PublishItemImageEditsResponseSchema)` to create a new message.
  */
 export const PublishItemImageEditsResponseSchema: GenMessage<PublishItemImageEditsResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 11);
+  messageDesc(file_scribe_v1_annotation, 9);
 
 /**
  * EnrichAnnotationRequest sends a IIIF annotation (one line or an entire
@@ -242,21 +313,29 @@ export const PublishItemImageEditsResponseSchema: GenMessage<PublishItemImageEdi
  */
 export type EnrichAnnotationRequest = Message<"scribe.v1.EnrichAnnotationRequest"> & {
   /**
+   * Exact tenant-scoped image whose region will be transcribed. Canvas IDs are
+   * targets/provenance and are not authorization or lookup keys.
+   *
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
    * "line" = single Annotation JSON; "page" = full AnnotationPage JSON
    *
-   * @generated from field: string scope = 1;
+   * @generated from field: string scope = 2;
    */
   scope: string;
 
   /**
-   * @generated from field: string annotation_json = 2;
+   * @generated from field: string annotation_json = 3;
    */
   annotationJson: string;
 
   /**
    * Optional: override context used for transcription
    *
-   * @generated from field: uint64 context_id = 3;
+   * @generated from field: uint64 context_id = 4;
    */
   contextId: bigint;
 };
@@ -266,7 +345,7 @@ export type EnrichAnnotationRequest = Message<"scribe.v1.EnrichAnnotationRequest
  * Use `create(EnrichAnnotationRequestSchema)` to create a new message.
  */
 export const EnrichAnnotationRequestSchema: GenMessage<EnrichAnnotationRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 12);
+  messageDesc(file_scribe_v1_annotation, 10);
 
 /**
  * @generated from message scribe.v1.EnrichAnnotationResponse
@@ -283,22 +362,33 @@ export type EnrichAnnotationResponse = Message<"scribe.v1.EnrichAnnotationRespon
  * Use `create(EnrichAnnotationResponseSchema)` to create a new message.
  */
 export const EnrichAnnotationResponseSchema: GenMessage<EnrichAnnotationResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 13);
+  messageDesc(file_scribe_v1_annotation, 11);
 
 /**
- * Split a line annotation into proportionally-spaced word annotations.
- * If words is empty the line text is tokenised on whitespace.
+ * Transform one selected line in a complete AnnotationPage into
+ * proportionally-spaced word annotations. If words is empty the selected
+ * line's text is tokenised on whitespace.
  *
  * @generated from message scribe.v1.SplitLineIntoWordsRequest
  */
 export type SplitLineIntoWordsRequest = Message<"scribe.v1.SplitLineIntoWordsRequest"> & {
   /**
-   * @generated from field: string annotation_json = 1;
+   * @generated from field: uint64 item_image_id = 1;
    */
-  annotationJson: string;
+  itemImageId: bigint;
 
   /**
-   * @generated from field: repeated string words = 2;
+   * @generated from field: string annotation_page_json = 2;
+   */
+  annotationPageJson: string;
+
+  /**
+   * @generated from field: string selected_annotation_id = 3;
+   */
+  selectedAnnotationId: string;
+
+  /**
+   * @generated from field: repeated string words = 4;
    */
   words: string[];
 };
@@ -308,14 +398,14 @@ export type SplitLineIntoWordsRequest = Message<"scribe.v1.SplitLineIntoWordsReq
  * Use `create(SplitLineIntoWordsRequestSchema)` to create a new message.
  */
 export const SplitLineIntoWordsRequestSchema: GenMessage<SplitLineIntoWordsRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 14);
+  messageDesc(file_scribe_v1_annotation, 12);
 
 /**
  * @generated from message scribe.v1.SplitLineIntoWordsResponse
  */
 export type SplitLineIntoWordsResponse = Message<"scribe.v1.SplitLineIntoWordsResponse"> & {
   /**
-   * Full AnnotationPage JSON containing the new word annotations.
+   * Complete transformed AnnotationPage JSON.
    *
    * @generated from field: string annotation_page_json = 1;
    */
@@ -327,23 +417,34 @@ export type SplitLineIntoWordsResponse = Message<"scribe.v1.SplitLineIntoWordsRe
  * Use `create(SplitLineIntoWordsResponseSchema)` to create a new message.
  */
 export const SplitLineIntoWordsResponseSchema: GenMessage<SplitLineIntoWordsResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 15);
+  messageDesc(file_scribe_v1_annotation, 13);
 
 /**
- * Split a line annotation into two lines at a word boundary.
+ * Transform one selected line in a complete AnnotationPage into two lines at
+ * a word boundary.
  *
  * @generated from message scribe.v1.SplitLineIntoTwoLinesRequest
  */
 export type SplitLineIntoTwoLinesRequest = Message<"scribe.v1.SplitLineIntoTwoLinesRequest"> & {
   /**
-   * @generated from field: string annotation_json = 1;
+   * @generated from field: uint64 item_image_id = 1;
    */
-  annotationJson: string;
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: string annotation_page_json = 2;
+   */
+  annotationPageJson: string;
+
+  /**
+   * @generated from field: string selected_annotation_id = 3;
+   */
+  selectedAnnotationId: string;
 
   /**
    * 0 means split at midpoint.
    *
-   * @generated from field: int32 split_at_word = 2;
+   * @generated from field: int32 split_at_word = 4;
    */
   splitAtWord: number;
 };
@@ -353,16 +454,18 @@ export type SplitLineIntoTwoLinesRequest = Message<"scribe.v1.SplitLineIntoTwoLi
  * Use `create(SplitLineIntoTwoLinesRequestSchema)` to create a new message.
  */
 export const SplitLineIntoTwoLinesRequestSchema: GenMessage<SplitLineIntoTwoLinesRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 16);
+  messageDesc(file_scribe_v1_annotation, 14);
 
 /**
  * @generated from message scribe.v1.SplitLineIntoTwoLinesResponse
  */
 export type SplitLineIntoTwoLinesResponse = Message<"scribe.v1.SplitLineIntoTwoLinesResponse"> & {
   /**
-   * @generated from field: repeated string annotation_jsons = 1;
+   * Complete transformed AnnotationPage JSON.
+   *
+   * @generated from field: string annotation_page_json = 1;
    */
-  annotationJsons: string[];
+  annotationPageJson: string;
 };
 
 /**
@@ -370,18 +473,29 @@ export type SplitLineIntoTwoLinesResponse = Message<"scribe.v1.SplitLineIntoTwoL
  * Use `create(SplitLineIntoTwoLinesResponseSchema)` to create a new message.
  */
 export const SplitLineIntoTwoLinesResponseSchema: GenMessage<SplitLineIntoTwoLinesResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 17);
+  messageDesc(file_scribe_v1_annotation, 15);
 
 /**
- * Join two or more line annotations into one (union bbox, concatenated text).
+ * Transform two or more selected lines in a complete AnnotationPage into one
+ * line (union bbox, concatenated text).
  *
  * @generated from message scribe.v1.JoinLinesRequest
  */
 export type JoinLinesRequest = Message<"scribe.v1.JoinLinesRequest"> & {
   /**
-   * @generated from field: repeated string annotation_jsons = 1;
+   * @generated from field: uint64 item_image_id = 1;
    */
-  annotationJsons: string[];
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: string annotation_page_json = 2;
+   */
+  annotationPageJson: string;
+
+  /**
+   * @generated from field: repeated string selected_annotation_ids = 3;
+   */
+  selectedAnnotationIds: string[];
 };
 
 /**
@@ -389,16 +503,18 @@ export type JoinLinesRequest = Message<"scribe.v1.JoinLinesRequest"> & {
  * Use `create(JoinLinesRequestSchema)` to create a new message.
  */
 export const JoinLinesRequestSchema: GenMessage<JoinLinesRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 18);
+  messageDesc(file_scribe_v1_annotation, 16);
 
 /**
  * @generated from message scribe.v1.JoinLinesResponse
  */
 export type JoinLinesResponse = Message<"scribe.v1.JoinLinesResponse"> & {
   /**
-   * @generated from field: string annotation_json = 1;
+   * Complete transformed AnnotationPage JSON.
+   *
+   * @generated from field: string annotation_page_json = 1;
    */
-  annotationJson: string;
+  annotationPageJson: string;
 };
 
 /**
@@ -406,16 +522,29 @@ export type JoinLinesResponse = Message<"scribe.v1.JoinLinesResponse"> & {
  * Use `create(JoinLinesResponseSchema)` to create a new message.
  */
 export const JoinLinesResponseSchema: GenMessage<JoinLinesResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 19);
+  messageDesc(file_scribe_v1_annotation, 17);
 
 /**
+ * Transform two or more selected word annotations in a complete
+ * AnnotationPage into one line annotation.
+ *
  * @generated from message scribe.v1.JoinWordsIntoLineRequest
  */
 export type JoinWordsIntoLineRequest = Message<"scribe.v1.JoinWordsIntoLineRequest"> & {
   /**
-   * @generated from field: repeated string annotation_jsons = 1;
+   * @generated from field: uint64 item_image_id = 1;
    */
-  annotationJsons: string[];
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: string annotation_page_json = 2;
+   */
+  annotationPageJson: string;
+
+  /**
+   * @generated from field: repeated string selected_annotation_ids = 3;
+   */
+  selectedAnnotationIds: string[];
 };
 
 /**
@@ -423,16 +552,18 @@ export type JoinWordsIntoLineRequest = Message<"scribe.v1.JoinWordsIntoLineReque
  * Use `create(JoinWordsIntoLineRequestSchema)` to create a new message.
  */
 export const JoinWordsIntoLineRequestSchema: GenMessage<JoinWordsIntoLineRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 20);
+  messageDesc(file_scribe_v1_annotation, 18);
 
 /**
  * @generated from message scribe.v1.JoinWordsIntoLineResponse
  */
 export type JoinWordsIntoLineResponse = Message<"scribe.v1.JoinWordsIntoLineResponse"> & {
   /**
-   * @generated from field: string annotation_json = 1;
+   * Complete transformed AnnotationPage JSON.
+   *
+   * @generated from field: string annotation_page_json = 1;
    */
-  annotationJson: string;
+  annotationPageJson: string;
 };
 
 /**
@@ -440,206 +571,186 @@ export type JoinWordsIntoLineResponse = Message<"scribe.v1.JoinWordsIntoLineResp
  * Use `create(JoinWordsIntoLineResponseSchema)` to create a new message.
  */
 export const JoinWordsIntoLineResponseSchema: GenMessage<JoinWordsIntoLineResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_annotation, 19);
+
+/**
+ * @generated from message scribe.v1.ExportAnnotationPageRequest
+ */
+export type ExportAnnotationPageRequest = Message<"scribe.v1.ExportAnnotationPageRequest"> & {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
+   * The exact committed revision to export. A stale value fails explicitly so
+   * callers can never mistake a newer background result for their saved draft.
+   *
+   * @generated from field: uint64 expected_revision = 2;
+   */
+  expectedRevision: bigint;
+
+  /**
+   * @generated from field: scribe.v1.AnnotationExportFormat format = 3;
+   */
+  format: AnnotationExportFormat;
+};
+
+/**
+ * Describes the message scribe.v1.ExportAnnotationPageRequest.
+ * Use `create(ExportAnnotationPageRequestSchema)` to create a new message.
+ */
+export const ExportAnnotationPageRequestSchema: GenMessage<ExportAnnotationPageRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_annotation, 20);
+
+/**
+ * @generated from message scribe.v1.ExportAnnotationPageResponse
+ */
+export type ExportAnnotationPageResponse = Message<"scribe.v1.ExportAnnotationPageResponse"> & {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: uint64 revision = 2;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: string media_type = 3;
+   */
+  mediaType: string;
+
+  /**
+   * @generated from field: bytes content = 4;
+   */
+  content: Uint8Array;
+
+  /**
+   * @generated from field: string filename = 5;
+   */
+  filename: string;
+};
+
+/**
+ * Describes the message scribe.v1.ExportAnnotationPageResponse.
+ * Use `create(ExportAnnotationPageResponseSchema)` to create a new message.
+ */
+export const ExportAnnotationPageResponseSchema: GenMessage<ExportAnnotationPageResponse> = /*@__PURE__*/
   messageDesc(file_scribe_v1_annotation, 21);
 
 /**
- * Crosswalk: convert an AnnotationPage (or single annotation) to an export format.
+ * @generated from enum scribe.v1.AnnotationGranularity
+ */
+export enum AnnotationGranularity {
+  /**
+   * @generated from enum value: ANNOTATION_GRANULARITY_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: ANNOTATION_GRANULARITY_ALL = 1;
+   */
+  ALL = 1,
+
+  /**
+   * @generated from enum value: ANNOTATION_GRANULARITY_PAGE = 2;
+   */
+  PAGE = 2,
+
+  /**
+   * @generated from enum value: ANNOTATION_GRANULARITY_BLOCK = 3;
+   */
+  BLOCK = 3,
+
+  /**
+   * @generated from enum value: ANNOTATION_GRANULARITY_PARAGRAPH = 4;
+   */
+  PARAGRAPH = 4,
+
+  /**
+   * @generated from enum value: ANNOTATION_GRANULARITY_LINE = 5;
+   */
+  LINE = 5,
+
+  /**
+   * @generated from enum value: ANNOTATION_GRANULARITY_WORD = 6;
+   */
+  WORD = 6,
+
+  /**
+   * @generated from enum value: ANNOTATION_GRANULARITY_GLYPH = 7;
+   */
+  GLYPH = 7,
+}
+
+/**
+ * Describes the enum scribe.v1.AnnotationGranularity.
+ */
+export const AnnotationGranularitySchema: GenEnum<AnnotationGranularity> = /*@__PURE__*/
+  enumDesc(file_scribe_v1_annotation, 0);
+
+/**
+ * AnnotationExportFormat selects a rebuildable view of one committed canonical
+ * AnnotationPage. Export operations never accept caller-supplied annotation
+ * JSON, so every format is derived from the same tenant-owned revision.
  *
- * @generated from message scribe.v1.CrosswalkToPlainTextRequest
+ * @generated from enum scribe.v1.AnnotationExportFormat
  */
-export type CrosswalkToPlainTextRequest = Message<"scribe.v1.CrosswalkToPlainTextRequest"> & {
+export enum AnnotationExportFormat {
   /**
-   * Provide one of the two fields; annotation_page_json takes priority.
-   *
-   * @generated from field: string annotation_page_json = 1;
+   * @generated from enum value: ANNOTATION_EXPORT_FORMAT_UNSPECIFIED = 0;
    */
-  annotationPageJson: string;
+  UNSPECIFIED = 0,
 
   /**
-   * @generated from field: string annotation_json = 2;
+   * @generated from enum value: ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT = 1;
    */
-  annotationJson: string;
-};
+  PLAIN_TEXT = 1,
+
+  /**
+   * @generated from enum value: ANNOTATION_EXPORT_FORMAT_HOCR = 2;
+   */
+  HOCR = 2,
+
+  /**
+   * @generated from enum value: ANNOTATION_EXPORT_FORMAT_PAGE_XML = 3;
+   */
+  PAGE_XML = 3,
+
+  /**
+   * @generated from enum value: ANNOTATION_EXPORT_FORMAT_ALTO_XML = 4;
+   */
+  ALTO_XML = 4,
+}
 
 /**
- * Describes the message scribe.v1.CrosswalkToPlainTextRequest.
- * Use `create(CrosswalkToPlainTextRequestSchema)` to create a new message.
+ * Describes the enum scribe.v1.AnnotationExportFormat.
  */
-export const CrosswalkToPlainTextRequestSchema: GenMessage<CrosswalkToPlainTextRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 22);
-
-/**
- * @generated from message scribe.v1.CrosswalkToPlainTextResponse
- */
-export type CrosswalkToPlainTextResponse = Message<"scribe.v1.CrosswalkToPlainTextResponse"> & {
-  /**
-   * MIME type of the exported content
-   *
-   * @generated from field: string format = 1;
-   */
-  format: string;
-
-  /**
-   * @generated from field: string content = 2;
-   */
-  content: string;
-};
-
-/**
- * Describes the message scribe.v1.CrosswalkToPlainTextResponse.
- * Use `create(CrosswalkToPlainTextResponseSchema)` to create a new message.
- */
-export const CrosswalkToPlainTextResponseSchema: GenMessage<CrosswalkToPlainTextResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 23);
-
-/**
- * @generated from message scribe.v1.CrosswalkToHOCRRequest
- */
-export type CrosswalkToHOCRRequest = Message<"scribe.v1.CrosswalkToHOCRRequest"> & {
-  /**
-   * Provide one of the two fields; annotation_page_json takes priority.
-   *
-   * @generated from field: string annotation_page_json = 1;
-   */
-  annotationPageJson: string;
-
-  /**
-   * @generated from field: string annotation_json = 2;
-   */
-  annotationJson: string;
-};
-
-/**
- * Describes the message scribe.v1.CrosswalkToHOCRRequest.
- * Use `create(CrosswalkToHOCRRequestSchema)` to create a new message.
- */
-export const CrosswalkToHOCRRequestSchema: GenMessage<CrosswalkToHOCRRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 24);
-
-/**
- * @generated from message scribe.v1.CrosswalkToHOCRResponse
- */
-export type CrosswalkToHOCRResponse = Message<"scribe.v1.CrosswalkToHOCRResponse"> & {
-  /**
-   * MIME type of the exported content
-   *
-   * @generated from field: string format = 1;
-   */
-  format: string;
-
-  /**
-   * @generated from field: string content = 2;
-   */
-  content: string;
-};
-
-/**
- * Describes the message scribe.v1.CrosswalkToHOCRResponse.
- * Use `create(CrosswalkToHOCRResponseSchema)` to create a new message.
- */
-export const CrosswalkToHOCRResponseSchema: GenMessage<CrosswalkToHOCRResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 25);
-
-/**
- * @generated from message scribe.v1.CrosswalkToPageXMLRequest
- */
-export type CrosswalkToPageXMLRequest = Message<"scribe.v1.CrosswalkToPageXMLRequest"> & {
-  /**
-   * Provide one of the two fields; annotation_page_json takes priority.
-   *
-   * @generated from field: string annotation_page_json = 1;
-   */
-  annotationPageJson: string;
-
-  /**
-   * @generated from field: string annotation_json = 2;
-   */
-  annotationJson: string;
-};
-
-/**
- * Describes the message scribe.v1.CrosswalkToPageXMLRequest.
- * Use `create(CrosswalkToPageXMLRequestSchema)` to create a new message.
- */
-export const CrosswalkToPageXMLRequestSchema: GenMessage<CrosswalkToPageXMLRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 26);
-
-/**
- * @generated from message scribe.v1.CrosswalkToPageXMLResponse
- */
-export type CrosswalkToPageXMLResponse = Message<"scribe.v1.CrosswalkToPageXMLResponse"> & {
-  /**
-   * MIME type of the exported content
-   *
-   * @generated from field: string format = 1;
-   */
-  format: string;
-
-  /**
-   * @generated from field: string content = 2;
-   */
-  content: string;
-};
-
-/**
- * Describes the message scribe.v1.CrosswalkToPageXMLResponse.
- * Use `create(CrosswalkToPageXMLResponseSchema)` to create a new message.
- */
-export const CrosswalkToPageXMLResponseSchema: GenMessage<CrosswalkToPageXMLResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 27);
-
-/**
- * @generated from message scribe.v1.CrosswalkToALTOXMLRequest
- */
-export type CrosswalkToALTOXMLRequest = Message<"scribe.v1.CrosswalkToALTOXMLRequest"> & {
-  /**
-   * Provide one of the two fields; annotation_page_json takes priority.
-   *
-   * @generated from field: string annotation_page_json = 1;
-   */
-  annotationPageJson: string;
-
-  /**
-   * @generated from field: string annotation_json = 2;
-   */
-  annotationJson: string;
-};
-
-/**
- * Describes the message scribe.v1.CrosswalkToALTOXMLRequest.
- * Use `create(CrosswalkToALTOXMLRequestSchema)` to create a new message.
- */
-export const CrosswalkToALTOXMLRequestSchema: GenMessage<CrosswalkToALTOXMLRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 28);
-
-/**
- * @generated from message scribe.v1.CrosswalkToALTOXMLResponse
- */
-export type CrosswalkToALTOXMLResponse = Message<"scribe.v1.CrosswalkToALTOXMLResponse"> & {
-  /**
-   * MIME type of the exported content
-   *
-   * @generated from field: string format = 1;
-   */
-  format: string;
-
-  /**
-   * @generated from field: string content = 2;
-   */
-  content: string;
-};
-
-/**
- * Describes the message scribe.v1.CrosswalkToALTOXMLResponse.
- * Use `create(CrosswalkToALTOXMLResponseSchema)` to create a new message.
- */
-export const CrosswalkToALTOXMLResponseSchema: GenMessage<CrosswalkToALTOXMLResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_annotation, 29);
+export const AnnotationExportFormatSchema: GenEnum<AnnotationExportFormat> = /*@__PURE__*/
+  enumDesc(file_scribe_v1_annotation, 1);
 
 /**
  * @generated from service scribe.v1.AnnotationService
  */
 export const AnnotationService: GenService<{
+  /**
+   * @generated from rpc scribe.v1.AnnotationService.GetAnnotationPage
+   */
+  getAnnotationPage: {
+    methodKind: "unary";
+    input: typeof GetAnnotationPageRequestSchema;
+    output: typeof GetAnnotationPageResponseSchema;
+  },
+  /**
+   * @generated from rpc scribe.v1.AnnotationService.SaveAnnotationPage
+   */
+  saveAnnotationPage: {
+    methodKind: "unary";
+    input: typeof SaveAnnotationPageRequestSchema;
+    output: typeof SaveAnnotationPageResponseSchema;
+  },
   /**
    * @generated from rpc scribe.v1.AnnotationService.SearchAnnotations
    */
@@ -655,30 +766,6 @@ export const AnnotationService: GenService<{
     methodKind: "unary";
     input: typeof GetAnnotationRequestSchema;
     output: typeof GetAnnotationResponseSchema;
-  },
-  /**
-   * @generated from rpc scribe.v1.AnnotationService.CreateAnnotation
-   */
-  createAnnotation: {
-    methodKind: "unary";
-    input: typeof CreateAnnotationRequestSchema;
-    output: typeof CreateAnnotationResponseSchema;
-  },
-  /**
-   * @generated from rpc scribe.v1.AnnotationService.UpdateAnnotation
-   */
-  updateAnnotation: {
-    methodKind: "unary";
-    input: typeof UpdateAnnotationRequestSchema;
-    output: typeof UpdateAnnotationResponseSchema;
-  },
-  /**
-   * @generated from rpc scribe.v1.AnnotationService.DeleteAnnotation
-   */
-  deleteAnnotation: {
-    methodKind: "unary";
-    input: typeof DeleteAnnotationRequestSchema;
-    output: typeof DeleteAnnotationResponseSchema;
   },
   /**
    * @generated from rpc scribe.v1.AnnotationService.PublishItemImageEdits
@@ -733,38 +820,14 @@ export const AnnotationService: GenService<{
     output: typeof JoinWordsIntoLineResponseSchema;
   },
   /**
-   * Export / crosswalk operations.
+   * Export one exact committed canonical revision to a rebuildable OCR view.
    *
-   * @generated from rpc scribe.v1.AnnotationService.CrosswalkToPlainText
+   * @generated from rpc scribe.v1.AnnotationService.ExportAnnotationPage
    */
-  crosswalkToPlainText: {
+  exportAnnotationPage: {
     methodKind: "unary";
-    input: typeof CrosswalkToPlainTextRequestSchema;
-    output: typeof CrosswalkToPlainTextResponseSchema;
-  },
-  /**
-   * @generated from rpc scribe.v1.AnnotationService.CrosswalkToHOCR
-   */
-  crosswalkToHOCR: {
-    methodKind: "unary";
-    input: typeof CrosswalkToHOCRRequestSchema;
-    output: typeof CrosswalkToHOCRResponseSchema;
-  },
-  /**
-   * @generated from rpc scribe.v1.AnnotationService.CrosswalkToPageXML
-   */
-  crosswalkToPageXML: {
-    methodKind: "unary";
-    input: typeof CrosswalkToPageXMLRequestSchema;
-    output: typeof CrosswalkToPageXMLResponseSchema;
-  },
-  /**
-   * @generated from rpc scribe.v1.AnnotationService.CrosswalkToALTOXML
-   */
-  crosswalkToALTOXML: {
-    methodKind: "unary";
-    input: typeof CrosswalkToALTOXMLRequestSchema;
-    output: typeof CrosswalkToALTOXMLResponseSchema;
+    input: typeof ExportAnnotationPageRequestSchema;
+    output: typeof ExportAnnotationPageResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_scribe_v1_annotation, 0);

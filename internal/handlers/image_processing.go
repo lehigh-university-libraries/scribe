@@ -1,282 +1,252 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/binary"
+	"errors"
 	"fmt"
-	"log/slog"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
-	"github.com/lehigh-university-libraries/scribe/internal/utils"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadlimits"
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 )
 
 const (
-	maxRemoteImageBytes   int64 = 100 << 20
-	maxRemoteHOCRBytes    int64 = 10 << 20
+	maxRemoteImageBytes   int64 = uploadlimits.MaxImageBytes
 	maxUploadedImageBytes       = maxRemoteImageBytes
+	maxImageDimension           = uploadlimits.MaxImageDimension
+	maxImagePixels              = uploadlimits.MaxImagePixels
 )
 
-func (h *Handler) processImageFile(fileData []byte, filename string) (*ImageProcessResult, error) {
-	return h.processImageFileWithProviderAndModel(fileData, filename, "", "")
+type invalidImageError struct {
+	message string
 }
 
-func (h *Handler) processImageFileWithProviderAndModel(fileData []byte, filename, provider, model string) (*ImageProcessResult, error) {
-	if err := validateUploadedImageData(fileData); err != nil {
-		return nil, err
-	}
-
-	contentHash := utils.CalculateDataHash(fileData)
-	ext := safeImageExtension(filepath.Ext(filename))
-	imageFilename := contentHash + ext
-	imageFilePath, err := h.saveUploadedImageBytes(context.Background(), imageFilename, fileData, "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to save image: %w", err)
-	}
-
-	slog.Info("Image saved", "filename", imageFilename, "content_hash", contentHash)
-
-	width, height := utils.GetImageDimensions(imageFilePath)
-	hocrXML, err := h.processHOCRWithProviderAndModel(imageFilePath, contentHash, provider, model)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process hOCR: %w", err)
-	}
-
-	return &ImageProcessResult{
-		ImageFilename: imageFilename,
-		ImageFilePath: imageFilePath,
-		HOCRXML:       hocrXML,
-		Width:         width,
-		Height:        height,
-		ContentHash:   contentHash,
-	}, nil
+func (e *invalidImageError) Error() string {
+	return e.message
 }
 
-func (h *Handler) downloadImageFromURL(ctx context.Context, imageURL string) ([]byte, string, error) {
+func invalidImageErrorf(format string, args ...any) error {
+	return &invalidImageError{message: fmt.Sprintf(format, args...)}
+}
+
+// IsInvalidImageError reports whether an image-processing failure is safe to
+// return as client input feedback. All other pipeline errors may contain local
+// paths, provider diagnostics, or infrastructure details and must be logged
+// server-side instead.
+func IsInvalidImageError(err error) bool {
+	var invalid *invalidImageError
+	return errors.As(err, &invalid)
+}
+
+func (h *Handler) downloadImageFromURL(ctx context.Context, imageURL string) ([]byte, error) {
 	resp, err := safehttp.Get(ctx, imageURL)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to download image: %w", err)
+		return nil, fmt.Errorf("failed to download image: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("failed to download image: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to download image: HTTP %d", resp.StatusCode)
 	}
 
 	imageData, err := safehttp.ReadAllLimit(resp.Body, maxRemoteImageBytes)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to read image data: %w", err)
+		return nil, fmt.Errorf("failed to read image data: %w", err)
 	}
 
-	contentType := resp.Header.Get("Content-Type")
-	return imageData, contentType, nil
-}
-
-func (h *Handler) processImageFromURL(imageURL string) (*ImageProcessResult, error) {
-	return h.processImageFromURLWithProviderAndModel(imageURL, "", "")
-}
-
-func (h *Handler) processImageFromURLWithProviderAndModel(imageURL, provider, model string) (*ImageProcessResult, error) {
-	return h.processImageFromURLWithContext(context.Background(), imageURL, provider, model)
-}
-
-func (h *Handler) processImageFromURLWithContext(ctx context.Context, imageURL, provider, model string) (*ImageProcessResult, error) {
-	// Download image from URL
-	imageData, contentType, err := h.downloadImageFromURL(ctx, imageURL)
-	if err != nil {
-		return nil, err
-	}
-
-	return h.processImageFromDataWithContext(ctx, imageData, contentType, imageURL, provider, model)
-}
-
-func (h *Handler) processImageFromDataWithContext(ctx context.Context, imageData []byte, contentType, sourceURL, provider, model string) (*ImageProcessResult, error) {
-	if err := validateUploadedImageData(imageData); err != nil {
-		return nil, err
-	}
-
-	// Convert JP2/TIFF images using Houdini if needed
-	originalImageData := imageData
-	if needsHoudiniConversion(contentType, sourceURL) {
-		slog.Info("Image requires Houdini conversion", "content_type", contentType, "url", sourceURL)
-		convertedData, err := h.convertImageViaHoudini(ctx, imageData, contentType)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert image via Houdini: %w", err)
-		}
-		imageData = convertedData
-		contentType = "image/jpeg"
-		if err := validateUploadedImageData(imageData); err != nil {
-			return nil, err
-		}
-	}
-
-	contentHash := utils.CalculateDataHash(originalImageData)
-
-	// Determine file extension from content type
-	ext := h.getFileExtension(contentType, sourceURL)
-
-	if err := h.ensureUploadsDir(); err != nil {
-		return nil, fmt.Errorf("failed to create uploads directory: %w", err)
-	}
-
-	imageFilename := contentHash + ext
-	imageFilePath, err := h.saveUploadedImageBytes(ctx, imageFilename, imageData, contentType)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save image: %w", err)
-	}
-
-	slog.Info("Image processed and saved", "filename", imageFilename, "content_hash", contentHash, "source", sourceURL)
-
-	// Get image dimensions
-	width, height := utils.GetImageDimensions(imageFilePath)
-
-	// Process hOCR
-	hocrXML, err := h.processHOCRWithProviderAndModel(imageFilePath, contentHash, provider, model)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process hOCR: %w", err)
-	}
-
-	return &ImageProcessResult{
-		ImageFilename: imageFilename,
-		ImageFilePath: imageFilePath,
-		HOCRXML:       hocrXML,
-		Width:         width,
-		Height:        height,
-		ContentHash:   contentHash,
-	}, nil
+	// The upstream Content-Type is attacker-controlled and deliberately ignored.
+	return imageData, nil
 }
 
 func validateUploadedImageData(fileData []byte) error {
+	_, err := uploadedImageConfig(fileData)
+	return err
+}
+
+func uploadedImageConfig(fileData []byte) (image.Config, error) {
 	if len(fileData) == 0 {
-		return fmt.Errorf("image data is required")
+		return image.Config{}, invalidImageErrorf("image data is required")
 	}
 	if int64(len(fileData)) > maxUploadedImageBytes {
-		return fmt.Errorf("image data exceeds 100 MiB limit")
+		return image.Config{}, invalidImageErrorf("image data exceeds 100 MiB limit")
+	}
+	mediaType, _, err := canonicalImageMediaType(fileData)
+	if err != nil {
+		return image.Config{}, err
+	}
+	var cfg image.Config
+	if mediaType == "image/jp2" {
+		cfg.Width, cfg.Height, err = decodeJPEG2000Dimensions(fileData)
+	} else {
+		cfg, _, err = image.DecodeConfig(bytes.NewReader(fileData))
+	}
+	if err != nil {
+		return image.Config{}, invalidImageErrorf("invalid %s image data", mediaType)
+	}
+	if err := validateImageDimensions(cfg.Width, cfg.Height); err != nil {
+		return image.Config{}, err
+	}
+	return cfg, nil
+}
+
+// ValidateUploadedImageData applies the public upload size, type, dimension,
+// and decoded-pixel limits without invoking storage or a model provider.
+func ValidateUploadedImageData(fileData []byte) error {
+	return validateUploadedImageData(fileData)
+}
+
+// UploadedImageDimensions validates an upload and returns the decoded Canvas
+// dimensions used by canonical IIIF geometry checks. The configured limits
+// keep both values safely within uint32.
+func UploadedImageDimensions(fileData []byte) (uint32, uint32, error) {
+	cfg, err := uploadedImageConfig(fileData)
+	if err != nil {
+		return 0, 0, err
+	}
+	return uint32(cfg.Width), uint32(cfg.Height), nil // #nosec G115 -- validated against maxImageDimension.
+}
+
+// UploadedImageMediaType returns the canonical media type recognized by the
+// upload validator. Raw-source delivery and model requests share this one
+// signature implementation so TIFF and JPEG 2000 are not admitted at upload
+// time and then rejected when Triplet reads the immutable source.
+func UploadedImageMediaType(fileData []byte) (string, error) {
+	mediaType, _, err := canonicalImageMediaType(fileData)
+	return mediaType, err
+}
+
+func validateImageDimensions(width, height int) error {
+	if err := uploadlimits.ValidateImageDimensions(width, height); err != nil {
+		return invalidImageErrorf("%s", err)
 	}
 	return nil
 }
 
-func (h *Handler) getFileExtension(contentType, sourceURL string) string {
-	ext := ".jpg" // default
-	switch contentType {
+func canonicalImageMediaType(data []byte) (string, string, error) {
+	detected := strings.ToLower(strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0]))
+	switch detected {
+	case "image/jpeg":
+		return "image/jpeg", ".jpg", nil
 	case "image/png":
-		ext = ".png"
+		return "image/png", ".png", nil
 	case "image/gif":
-		ext = ".gif"
+		return "image/gif", ".gif", nil
 	case "image/webp":
-		ext = ".webp"
-	default:
-		// Try to get extension from URL
-		if urlExt := filepath.Ext(sourceURL); urlExt != "" {
-			ext = safeImageExtension(urlExt)
-		}
+		return "image/webp", ".webp", nil
 	}
-	return ext
+	// net/http intentionally classifies TIFF and JPEG 2000 signatures as
+	// application/octet-stream, so recognize those formats explicitly.
+	if len(data) >= 4 && ((data[0] == 'I' && data[1] == 'I' && data[2] == 42 && data[3] == 0) ||
+		(data[0] == 'M' && data[1] == 'M' && data[2] == 0 && data[3] == 42)) {
+		return "image/tiff", ".tiff", nil
+	}
+	if len(data) >= 4 && data[0] == 0xff && data[1] == 0x4f && data[2] == 0xff && data[3] == 0x51 {
+		return "image/jp2", ".jp2", nil
+	}
+	if len(data) >= 12 && bytes.Equal(data[:12], []byte{0, 0, 0, 12, 'j', 'P', ' ', ' ', 13, 10, 0x87, 10}) {
+		return "image/jp2", ".jp2", nil
+	}
+	return "", "", invalidImageErrorf("unsupported image content type %q", detected)
 }
 
-func safeImageExtension(ext string) string {
-	switch strings.ToLower(strings.TrimSpace(ext)) {
-	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".jp2", ".j2k", ".jpx", ".tif", ".tiff":
-		return strings.ToLower(strings.TrimSpace(ext))
-	default:
-		return ".jpg"
+func decodeJPEG2000Dimensions(data []byte) (int, int, error) {
+	if len(data) >= 2 && data[0] == 0xff && data[1] == 0x4f {
+		return decodeJPEG2000CodestreamDimensions(data)
 	}
-}
-
-func (h *Handler) processHOCRWithProviderAndModel(imageFilePath, contentHash, provider, model string) (string, error) {
-	_ = provider
-	hocrFilename := buildHOCRBoxesCacheFilename(contentHash, model)
-	hocrFilePath := filepath.Join("uploads", hocrFilename)
-
-	// Check cache first
-	if _, err := os.Stat(hocrFilePath); err == nil {
-		hocrData, err := safefile.ReadFile(hocrFilePath)
-		if err != nil {
-			slog.Warn("Failed to read existing hOCR file", "error", err, "path", hocrFilePath)
-		} else {
-			slog.Info("Using cached hOCR", "filename", hocrFilename)
-			return string(hocrData), nil
-		}
+	if len(data) < 12 || !bytes.Equal(data[:12], []byte{0, 0, 0, 12, 'j', 'P', ' ', ' ', 13, 10, 0x87, 10}) {
+		return 0, 0, fmt.Errorf("missing JPEG 2000 signature")
 	}
-
-	// Generate detection-only hOCR (line boxes only). Transcription is done in editor.
-	hocrXML, err := h.getDetectedHOCRForImage(imageFilePath)
+	width, height, found, err := findJP2ImageHeader(data[12:], 0)
 	if err != nil {
-		return "", fmt.Errorf("failed to process image with OCR: %w", err)
+		return 0, 0, err
 	}
-
-	// Cache the result
-	if err := os.WriteFile(hocrFilePath, []byte(hocrXML), 0o600); err != nil { // #nosec G703 -- cache filename is derived from a SHA-256 content hash and fixed suffixes.
-		slog.Warn("Failed to save hOCR file", "error", err)
-	} else {
-		slog.Info("hOCR cached", "filename", hocrFilename)
+	if !found {
+		return 0, 0, fmt.Errorf("missing JPEG 2000 image header")
 	}
-
-	return hocrXML, nil
+	return width, height, nil
 }
 
-func buildHOCRBoxesCacheFilename(imageHash, model string) string {
-	normalizedModel := strings.TrimSpace(strings.ToLower(model))
-	if normalizedModel == "" {
-		return imageHash + "_boxes.xml"
+func decodeJPEG2000CodestreamDimensions(data []byte) (int, int, error) {
+	// SIZ is the first marker segment after the SOC marker. Its reference-grid
+	// extent minus origin is the decoded image size.
+	if len(data) < 24 || data[2] != 0xff || data[3] != 0x51 {
+		return 0, 0, fmt.Errorf("missing JPEG 2000 SIZ marker")
 	}
-
-	modelHash := sha256.Sum256([]byte(normalizedModel))
-	return imageHash + "_boxes_" + hex.EncodeToString(modelHash[:8]) + ".xml"
+	segmentLength := int(binary.BigEndian.Uint16(data[4:6]))
+	if segmentLength < 38 || 4+segmentLength > len(data) {
+		return 0, 0, fmt.Errorf("invalid JPEG 2000 SIZ marker")
+	}
+	xSize := binary.BigEndian.Uint32(data[8:12])
+	ySize := binary.BigEndian.Uint32(data[12:16])
+	xOrigin := binary.BigEndian.Uint32(data[16:20])
+	yOrigin := binary.BigEndian.Uint32(data[20:24])
+	return boundedDimensions(xSize, ySize, xOrigin, yOrigin)
 }
 
-func (h *Handler) extractFilenameFromURL(imageURL, contentHash string) string {
-	if urlParts := strings.Split(imageURL, "/"); len(urlParts) > 0 {
-		lastPart := urlParts[len(urlParts)-1]
-		if lastPart != "" && strings.Contains(lastPart, ".") {
-			return strings.TrimSuffix(lastPart, filepath.Ext(lastPart))
+func findJP2ImageHeader(data []byte, depth int) (int, int, bool, error) {
+	if depth > 4 {
+		return 0, 0, false, fmt.Errorf("jpeg 2000 box nesting is too deep")
+	}
+	for offset := 0; offset < len(data); {
+		if len(data)-offset < 8 {
+			return 0, 0, false, fmt.Errorf("truncated JPEG 2000 box")
 		}
+		boxLength := uint64(binary.BigEndian.Uint32(data[offset : offset+4]))
+		boxType := string(data[offset+4 : offset+8])
+		headerLength := uint64(8)
+		switch boxLength {
+		case 1:
+			if len(data)-offset < 16 {
+				return 0, 0, false, fmt.Errorf("truncated extended JPEG 2000 box")
+			}
+			boxLength = binary.BigEndian.Uint64(data[offset+8 : offset+16])
+			headerLength = 16
+		case 0:
+			boxLength = uint64(len(data) - offset)
+		}
+		if boxLength < headerLength || boxLength > uint64(len(data)-offset) {
+			return 0, 0, false, fmt.Errorf("invalid JPEG 2000 box length")
+		}
+		// Both lengths are bounded by len(data)-offset immediately above, so
+		// they fit the platform int used by slice indexes.
+		payload := data[offset+int(headerLength) : offset+int(boxLength)] // #nosec G115 -- bounded by the current slice length.
+		switch boxType {
+		case "ihdr":
+			if len(payload) < 14 {
+				return 0, 0, false, fmt.Errorf("truncated JPEG 2000 image header")
+			}
+			height := binary.BigEndian.Uint32(payload[0:4])
+			width := binary.BigEndian.Uint32(payload[4:8])
+			boundedWidth, boundedHeight, boundsErr := boundedDimensions(width, height, 0, 0)
+			return boundedWidth, boundedHeight, true, boundsErr
+		case "jp2h":
+			width, height, found, findErr := findJP2ImageHeader(payload, depth+1)
+			if findErr != nil || found {
+				return width, height, found, findErr
+			}
+		}
+		offset += int(boxLength) // #nosec G115 -- bounded by len(data)-offset above.
 	}
-	return contentHash
+	return 0, 0, false, nil
 }
 
-func (h *Handler) createSessionFromURL(imageURL string) (string, error) {
-	result, err := h.processImageFromURL(imageURL)
-	if err != nil {
-		return "", err
+func boundedDimensions(xSize, ySize, xOrigin, yOrigin uint32) (int, int, error) {
+	if xSize <= xOrigin || ySize <= yOrigin {
+		return 0, 0, fmt.Errorf("invalid JPEG 2000 image extent")
 	}
-
-	filename := safeSessionName(h.extractFilenameFromURL(imageURL, result.ContentHash))
-	sessionID := fmt.Sprintf("%s_%d", filename, time.Now().Unix())
-
-	config := SessionConfig{
-		Model:       "",
-		Prompt:      "",
-		Temperature: 0.0,
+	width, height := uint64(xSize-xOrigin), uint64(ySize-yOrigin)
+	maxIntValue := uint64(^uint(0) >> 1)
+	if width > maxIntValue || height > maxIntValue {
+		return 0, 0, fmt.Errorf("jpeg 2000 image extent overflows platform integers")
 	}
-
-	session := h.createImageSession(sessionID, result, config)
-	h.sessionStore.Set(sessionID, session)
-
-	slog.Info("Session created from URL", "session_id", sessionID, "url", imageURL)
-	return sessionID, nil
-}
-
-// needsHoudiniConversion checks if the image format requires Houdini conversion
-func needsHoudiniConversion(contentType, url string) bool {
-	// Check content type first
-	switch contentType {
-	case "image/jp2", "image/jpeg2000", "image/tiff", "image/tif":
-		return true
-	}
-
-	// Check file extension from URL as fallback
-	ext := strings.ToLower(filepath.Ext(url))
-	switch ext {
-	case ".jp2", ".jpx", ".j2k", ".tiff", ".tif":
-		return true
-	}
-
-	return false
+	return int(width), int(height), nil
 }

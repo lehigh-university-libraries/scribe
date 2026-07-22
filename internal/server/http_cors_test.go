@@ -3,19 +3,19 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 )
 
 func TestCORSAllowsConfiguredOrigin(t *testing.T) {
-	config.Init(config.Runtime{Config: config.Config{
-		PublicBaseURL: "https://scribe.example",
-		CORS: config.CORSConfig{
-			AllowedOrigins: []string{"https://plugin.example"},
-		},
-	}})
-	t.Cleanup(func() { config.Init(config.Runtime{}) })
+	previous := config.Get()
+	configured := previous
+	configured.Config.PublicBaseURL = "https://scribe.example"
+	configured.Config.CORS.AllowedOrigins = []string{"https://plugin.example"}
+	config.Init(configured)
+	t.Cleanup(func() { config.Init(previous) })
 
 	handler := &Handler{mux: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -38,9 +38,40 @@ func TestCORSAllowsConfiguredOrigin(t *testing.T) {
 	}
 }
 
+func TestCORSRejectsUnknownOriginBeforeDispatch(t *testing.T) {
+	previous := config.Get()
+	configured := previous
+	configured.Config.PublicBaseURL = "https://scribe.example"
+	configured.Config.CORS.AllowedOrigins = nil
+	config.Init(configured)
+	t.Cleanup(func() { config.Init(previous) })
+
+	var called atomic.Bool
+	handler := &Handler{mux: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called.Store(true)
+		w.WriteHeader(http.StatusOK)
+	})}
+	req := httptest.NewRequest(http.MethodPost, "https://scribe.example/v1/items", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+	if called.Load() {
+		t.Fatal("request reached the application handler")
+	}
+}
+
 func TestCORSRejectsUnknownPreflightOrigin(t *testing.T) {
-	config.Init(config.Runtime{Config: config.Config{PublicBaseURL: "https://scribe.example"}})
-	t.Cleanup(func() { config.Init(config.Runtime{}) })
+	previous := config.Get()
+	configured := previous
+	configured.Config.PublicBaseURL = "https://scribe.example"
+	configured.Config.CORS.AllowedOrigins = nil
+	config.Init(configured)
+	t.Cleanup(func() { config.Init(previous) })
 
 	handler := &Handler{mux: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -61,8 +92,9 @@ func TestCORSRejectsUnknownPreflightOrigin(t *testing.T) {
 }
 
 func TestCORSAllowsSameOriginWithPort(t *testing.T) {
+	previous := config.Get()
 	config.Init(config.Runtime{})
-	t.Cleanup(func() { config.Init(config.Runtime{}) })
+	t.Cleanup(func() { config.Init(previous) })
 
 	handler := &Handler{mux: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

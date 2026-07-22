@@ -1,5 +1,6 @@
 locals {
-  ollama_models                  = try(local.ocr_config.ollama.models, [])
+  ollama_model_specs             = try(local.ocr_config.ollama.models, {})
+  ollama_models                  = sort(keys(local.ollama_model_specs))
   shared_ollama_services_enabled = terraform.workspace == "prod" && length(local.ollama_models) > 0
   ollama_preview_iam_enabled     = terraform.workspace != "prod" && length(local.ollama_models) > 0
   ollama_cloud_run               = try(local.ocr_config.ollama.cloud_run, {})
@@ -126,5 +127,20 @@ resource "google_cloud_run_v2_service_iam_member" "ollama_preview_invoker" {
 
   depends_on = [
     module.scribe,
+  ]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "ollama_readiness_invoker" {
+  for_each = local.shared_ollama_services_enabled && contains(local.ollama_models, local.default_ollama_model) ? toset([local.ollama_regions[0]]) : toset([])
+
+  project  = var.project_id
+  location = each.value
+  name     = local.ollama_service_names[local.default_ollama_model]
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.ocr_readiness.email}"
+
+  depends_on = [
+    google_service_account.ocr_readiness,
+    module.ollama_services,
   ]
 }

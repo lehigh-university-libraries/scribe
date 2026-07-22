@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadlimits"
 	"github.com/otiai10/gosseract/v2"
 )
 
@@ -29,7 +30,7 @@ func (p *TesseractProvider) DetectWords(ctx context.Context, imagePath string) (
 	client := gosseract.NewClient()
 	defer client.Close()
 
-	imageData, err := safefile.ReadFile(imagePath)
+	imageData, err := safefile.ReadFileLimit(imagePath, uploadlimits.MaxImageBytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read image: %w", err)
 	}

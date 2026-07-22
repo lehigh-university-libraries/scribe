@@ -1,337 +1,530 @@
 name: Terraform Preview
 
+# Preview deployment runs automatically for same-repository pull requests. The
+# workflow definition and every cloud-credentialed script come from the trusted
+# base commit; only credential-free tests and image builds use the PR head.
+# Forks are skipped, and closing a PR destroys its preview automatically.
 on:
-  pull_request:
-    branches:
-      - main
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - closed
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request to preview or destroy.
+        required: true
+        type: number
+      action:
+        description: Preview lifecycle action.
+        required: true
+        type: choice
+        default: deploy
+        options: [deploy, destroy]
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, closed]
+
+permissions:
+  contents: read
 
 concurrency:
-  group: terraform-preview-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: terraform-preview-pr-${{ inputs.pr_number || github.event.pull_request.number }}
+  cancel-in-progress: false
 
 jobs:
-  prepare-image-tag:
-    if: github.event.action != 'closed'
+  prepare:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
-      tag: ${{ steps.image-tag.outputs.tag }}
-      image_tag: ${{ steps.image-tag.outputs.image_tag }}
-      frontend_image_tag: ${{ steps.image-tag.outputs.frontend_image_tag }}
-      frontend_gar_image: ${{ steps.image-tag.outputs.frontend_gar_image }}
-      frontend_gar_image_tag: ${{ steps.image-tag.outputs.frontend_gar_image_tag }}
-      backend_origin: ${{ steps.image-tag.outputs.backend_origin }}
+      backend_origin: ${{ steps.resolve.outputs.backend_origin }}
+      base_sha: ${{ steps.resolve.outputs.base_sha }}
+      frontend_gar_image_tag: ${{ steps.resolve.outputs.frontend_gar_image_tag }}
+      frontend_image_tag: ${{ steps.resolve.outputs.frontend_image_tag }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
+      mode: ${{ steps.resolve.outputs.mode }}
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      region: ${{ steps.resolve.outputs.region }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      zone: ${{ steps.resolve.outputs.zone }}
     env:
       GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+      SCRIBE_REGION: ${{ vars.SCRIBE_REGION != '' && vars.SCRIBE_REGION || 'us-east5' }}
       SCRIBE_ZONE: ${{ vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || 'us-east5-b' }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Validate workflow variables
-        shell: bash
-        run: |
-          if [ -z "$GCLOUD_PROJECT" ]; then
-            echo "GitHub Actions variable GCLOUD_PROJECT must be set." >&2
-            exit 1
-          fi
-      - name: Sanitize PR image tag
-        id: image-tag
+      - name: Checkout protected preview orchestration
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - id: resolve
+        name: Resolve immutable preview inputs
         env:
-          RAW_TAG: ${{ github.event.pull_request.head.ref }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          TAG=$(echo "$RAW_TAG" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}')
-          GAR_REPO="us-docker.pkg.dev/${GCLOUD_PROJECT}/internal"
-          {
-            echo "tag=$TAG"
-            echo "image_tag=ghcr.io/lehigh-university-libraries/scribe:$TAG"
-            echo "frontend_image_tag=ghcr.io/lehigh-university-libraries/scribe-frontend:$TAG"
-            echo "frontend_gar_image=${GAR_REPO}/scribe-frontend"
-            echo "frontend_gar_image_tag=${GAR_REPO}/scribe-frontend:$TAG"
-            echo "backend_origin=http://scribe-pr-${PR_NUMBER}.${SCRIBE_ZONE}.c.${GCLOUD_PROJECT}.internal"
-          } >> "$GITHUB_OUTPUT"
+          DISPATCH_ACTION: ${{ inputs.action }}
+          DISPATCH_PR: ${{ inputs.pr_number }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_PREVIOUS_BASE_REF: ${{ github.event.changes.base.ref.from }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: ./ci/resolve-preview-inputs.sh
 
-  build-push:
-    if: github.event.action != 'closed'
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@e26d86abfbe300be4d93570b666651c11471995b # main
+  lint-test:
+    if: needs.prepare.outputs.mode == 'apply'
+    needs: [prepare]
+    uses: ./.github/workflows/lint-test.yaml
     permissions:
       contents: read
-      packages: write
-    secrets: inherit
+    with:
+      checkout_ref: ${{ needs.prepare.outputs.head_sha }}
+
+  build-backend:
+    if: needs.prepare.outputs.mode == 'apply'
+    needs: [prepare, lint-test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+      - name: Build credential-free backend OCI archive
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          outputs: type=oci,dest=${{ runner.temp }}/scribe-backend.oci.tar
+          tags: ${{ needs.prepare.outputs.image_tag }}
+          provenance: true
+          sbom: true
+      - name: Upload backend OCI archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: preview-backend-${{ needs.prepare.outputs.head_sha }}
+          path: ${{ runner.temp }}/scribe-backend.oci.tar
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
 
   build-frontend:
-    if: github.event.action != 'closed'
-    needs: [prepare-image-tag]
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@e26d86abfbe300be4d93570b666651c11471995b # main
+    if: needs.prepare.outputs.mode == 'apply'
+    needs: [prepare, lint-test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
-      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+      - name: Build local frontend smoke image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: Dockerfile.frontend
+          platforms: linux/amd64
+          load: true
+          tags: scribe-frontend:${{ needs.prepare.outputs.head_sha }}
+          build-args: |
+            SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare.outputs.backend_origin }}
+      - name: Smoke-test the packaged frontend runtime
+        env:
+          FRONTEND_IMAGE: scribe-frontend:${{ needs.prepare.outputs.head_sha }}
+        run: ./ci/frontend-image-smoke.sh "$FRONTEND_IMAGE"
+      - name: Build credential-free frontend OCI archive
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: Dockerfile.frontend
+          platforms: linux/amd64
+          outputs: type=oci,dest=${{ runner.temp }}/scribe-frontend.oci.tar
+          tags: ${{ needs.prepare.outputs.frontend_image_tag }}
+          provenance: true
+          sbom: true
+          build-args: |
+            SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare.outputs.backend_origin }}
+      - name: Upload frontend OCI archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: preview-frontend-${{ needs.prepare.outputs.head_sha }}
+          path: ${{ runner.temp }}/scribe-frontend.oci.tar
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  publish-images:
+    if: needs.prepare.outputs.mode == 'apply'
+    needs: [prepare, build-backend, build-frontend]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: preview
+    permissions:
       contents: read
       packages: write
-    secrets: inherit
-    with:
-      image: scribe-frontend
-      file: Dockerfile.frontend
-      gar_image: ${{ needs.prepare-image-tag.outputs.frontend_gar_image }}
-      build_args: |
-        SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}
-        SCRIBE_FRONTEND_IIIF_ORIGIN=${{ needs.prepare-image-tag.outputs.backend_origin }}:8081
+    outputs:
+      backend_image: ${{ steps.publish.outputs.backend_image }}
+      frontend_image: ${{ steps.publish.outputs.frontend_image }}
+    steps:
+      - name: Checkout protected scanner implementation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - name: Download backend OCI archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: preview-backend-${{ needs.prepare.outputs.head_sha }}
+          path: ${{ runner.temp }}/preview-images
+      - name: Download frontend OCI archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: preview-frontend-${{ needs.prepare.outputs.head_sha }}
+          path: ${{ runner.temp }}/preview-images
+      - name: Authenticate to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: publish
+        name: Publish reviewed OCI archives by digest
+        env:
+          BACKEND_TAG: ${{ needs.prepare.outputs.image_tag }}
+          FRONTEND_TAG: ${{ needs.prepare.outputs.frontend_image_tag }}
+          SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:c7d3c512612f52805023cd38351081dad7e2729fc13d14b701e47c7c8bdd6615
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_dir="$RUNNER_TEMP/preview-images"
+          auth_file="$HOME/.docker/config.json"
+          test -s "$image_dir/scribe-backend.oci.tar"
+          test -s "$image_dir/scribe-frontend.oci.tar"
+          test -s "$auth_file"
+          skopeo=(
+            docker run --rm --read-only --cap-drop=ALL
+            --security-opt no-new-privileges
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m
+            --tmpfs /var/tmp:rw,nosuid,nodev,noexec,size=64m
+            --volume "$image_dir:/images:ro"
+            --volume "$auth_file:/auth/config.json:ro"
+            "$SKOPEO_IMAGE"
+          )
+          "${skopeo[@]}" copy --all --authfile /auth/config.json \
+            oci-archive:/images/scribe-backend.oci.tar "docker://${BACKEND_TAG}"
+          "${skopeo[@]}" copy --all --authfile /auth/config.json \
+            oci-archive:/images/scribe-frontend.oci.tar "docker://${FRONTEND_TAG}"
+          backend_digest="$("${skopeo[@]}" inspect --authfile /auth/config.json --format '{{.Digest}}' "docker://${BACKEND_TAG}")"
+          frontend_digest="$("${skopeo[@]}" inspect --authfile /auth/config.json --format '{{.Digest}}' "docker://${FRONTEND_TAG}")"
+          [[ "$backend_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$frontend_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          {
+            echo "backend_image=${BACKEND_TAG%:*}@${backend_digest}"
+            echo "frontend_image=${FRONTEND_TAG%:*}@${frontend_digest}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Scan exact published preview images
+        env:
+          BACKEND_IMAGE: ${{ steps.publish.outputs.backend_image }}
+          FRONTEND_IMAGE: ${{ steps.publish.outputs.frontend_image }}
+        run: |
+          ./ci/image-vulnerability-scan.sh "$BACKEND_IMAGE"
+          ./ci/image-vulnerability-scan.sh "$FRONTEND_IMAGE"
 
   build-ocr:
-    if: github.event.action != 'closed'
-    needs: [prepare-image-tag]
+    if: needs.prepare.outputs.mode == 'apply'
+    needs: [prepare, lint-test]
     uses: ./.github/workflows/build-ocr.yaml
     permissions:
       id-token: write
       contents: read
-      packages: write
-    secrets: inherit
     with:
-      checkout_ref: ${{ github.event.pull_request.head.sha }}
-      workspace_slug: pr-${{ github.event.pull_request.number }}
-      image_tag: ${{ needs.prepare-image-tag.outputs.tag }}
+      checkout_ref: ${{ needs.prepare.outputs.base_sha }}
+      workspace_slug: pr-${{ needs.prepare.outputs.pr_number }}
+      image_tag: ${{ needs.prepare.outputs.base_sha }}
+      environment_name: preview
+      build_images: false
 
-  sync-dev-shared:
-    if: github.event.action != 'closed'
-    needs: [prepare-image-tag, build-ocr]
-    runs-on: ubuntu-24.04
-    concurrency:
-      group: terraform-preview-dev-shared
-      cancel-in-progress: false
-    permissions:
-      id-token: write
-      contents: read
-      packages: write
-    env:
-      GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
-      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-      ALLOWED_IPS: ${{ vars.ALLOWED_IPS }}
-      ALLOWED_SSH_IPV4: ${{ vars.ALLOWED_SSH_IPV4 }}
-      SCRIBE_API_IMAGE: ${{ needs.prepare-image-tag.outputs.image_tag }}
-      SCRIBE_FRONTEND_IMAGE: ${{ needs.prepare-image-tag.outputs.frontend_image_tag }}
-      SCRIBE_FRONTEND_GAR_IMAGE: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
-      SCRIBE_OCR_IMAGES_JSON: ${{ needs.build-ocr.outputs.images_json }}
-      VAULT_ADMIN_EMAILS: '["jjc223@lehigh.edu"]'
-      VAULT_CI_SERVICE_ACCOUNT_EMAILS: '["${{ secrets.GSA }}"]'
-    steps:
-      - name: Validate workflow variables
-        shell: bash
-        run: |
-          if [ -z "$GCLOUD_PROJECT" ]; then
-            echo "GitHub Actions variable GCLOUD_PROJECT must be set." >&2
-            exit 1
-          fi
-
-      - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-
-      - name: Install Terraform
-        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
-        with:
-          terraform_version: 1.15.2
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
-        with:
-          version: latest
-
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: access_token
-          access_token_scopes: |-
-            https://www.googleapis.com/auth/cloud-platform
-            https://www.googleapis.com/auth/userinfo.email
-
-      - name: Configure gcloud
-        run: |
-          gcloud config set project "${GCLOUD_PROJECT}"
-          gcloud config set disable_prompts true
-
-      - name: "GAR login"
-        uses: "docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee" # v4
-        with:
-          registry: "us-docker.pkg.dev"
-          username: "oauth2accesstoken"
-          password: "${{ steps.auth.outputs.access_token }}"
-
-      - name: Authenticate Vault admin header token
-        id: auth_vault_access
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/userinfo.email
-          create_credentials_file: false
-
-      - name: Resolve shared dev Vault address
-        id: vault_addr
-        shell: bash
-        run: |
-          vault_addr="$(gcloud run services describe vault-server-dev --region us-east5 --format='value(status.url)')"
-          vault_audience="$(gcloud run services describe vault-server-dev --region us-east5 --format='value(uri)')"
-          if [ -z "$vault_addr" ]; then
-            echo "Failed to resolve Vault address for vault-server-dev" >&2
-            exit 1
-          fi
-          if [ -z "$vault_audience" ]; then
-            vault_audience="$vault_addr"
-          fi
-          echo "vault_addr=$vault_addr" >> "$GITHUB_OUTPUT"
-          echo "vault_audience=$vault_audience" >> "$GITHUB_OUTPUT"
-
-      - name: Compute Vault CI role name
-        id: vault_role
-        shell: bash
-        env:
-          VAULT_GSA: ${{ secrets.GSA }}
-        run: |
-          sanitized="$(printf '%s' "$VAULT_GSA" | sed 's/@/-at-/g; s/\./-/g')"
-          echo "role_name=ci-${sanitized}" >> "$GITHUB_OUTPUT"
-
-      - name: Authenticate Google ID token for Vault
-        id: auth_vault_id
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: id_token
-          id_token_audience: ${{ steps.vault_addr.outputs.vault_audience }}
-          id_token_include_email: true
-          create_credentials_file: false
-
-      - name: Login to shared dev Vault
-        shell: bash
-        env:
-          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
-          VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
-          VAULT_ID_TOKEN: ${{ steps.auth_vault_id.outputs.id_token }}
-          VAULT_ROLE: ${{ steps.vault_role.outputs.role_name }}
-        run: |
-          if bash ./ci/vault-login.sh; then
-            exit 0
-          fi
-
-          echo "Vault CI role login failed; continuing so the shared dev Vault owner workspace can bootstrap the role." >&2
-
-      - name: Sync shared dev owner resources
-        shell: bash
-        env:
-          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-          VAULT_BOOTSTRAP_MODE: jwt-or-root-token
-        run: |
-          set -o pipefail
-          make tf-dev-vault BRANCH="$PR_BRANCH" ACTION=apply
-          make tf-dev-ocr BRANCH="$PR_BRANCH" ACTION=apply
-
-  lint-test:
-    if: github.event.action != 'closed'
-    uses: ./.github/workflows/lint-test.yaml
-    permissions:
-      contents: read
-    secrets: inherit
-    with:
-      checkout_ref: ${{ github.event.pull_request.head.sha }}
-
-  preview:
-    if: github.event.action != 'closed'
-    needs: [prepare-image-tag, sync-dev-shared, build-push, build-frontend, build-ocr, lint-test]
+  deploy:
+    if: needs.prepare.outputs.mode == 'apply'
+    needs: [prepare, lint-test, build-backend, build-frontend, publish-images, build-ocr]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
       contents: read
-      packages: write
+      packages: read
     secrets: inherit
     with:
       mode: apply
       environment_name: preview
-      tf_workspace: pr-${{ github.event.pull_request.number }}
-      site_name: scribe-pr-${{ github.event.pull_request.number }}
-      docker_compose_branch: ${{ github.event.pull_request.head.ref }}
-      checkout_ref: ${{ github.event.pull_request.head.sha }}
-      pr_number: "${{ github.event.pull_request.number }}"
-      run_snapshots: "false"
-      push_image: false
-      image_tag: ${{ needs.prepare-image-tag.outputs.image_tag }}
-      frontend_image_tag: ${{ needs.prepare-image-tag.outputs.frontend_image_tag }}
-      frontend_gar_image_tag: ${{ needs.prepare-image-tag.outputs.frontend_gar_image_tag }}
+      tf_workspace: pr-${{ needs.prepare.outputs.pr_number }}
+      site_name: scribe-pr-${{ needs.prepare.outputs.pr_number }}
+      docker_compose_branch: ${{ needs.prepare.outputs.base_sha }}
+      checkout_ref: ${{ needs.prepare.outputs.base_sha }}
+      pr_number: ${{ needs.prepare.outputs.pr_number }}
+      image_tag: ${{ needs.publish-images.outputs.backend_image }}
+      frontend_image_tag: ${{ needs.publish-images.outputs.frontend_image }}
+      frontend_gar_image_tag: ${{ needs.prepare.outputs.frontend_gar_image_tag }}
       ocr_images_json: ${{ needs.build-ocr.outputs.images_json }}
+      region: ${{ needs.prepare.outputs.region }}
+      zone: ${{ needs.prepare.outputs.zone }}
 
-  preview-comment:
-    if: always() && github.event.action != 'closed'
-    needs: [preview, lint-test]
-    runs-on: ubuntu-24.04
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Post preview status comment
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const issue_number = context.issue.number;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const commentIdentifier = '<!-- terraform-preview-comment -->';
-            const previewUrl = `${{ needs.preview.outputs.preview_url }}`;
-            const status = `${{ needs.preview.outputs.status || needs.preview.result }}`;
-            const newCommentBody = `#### Terraform Preview
-            ${commentIdentifier}
-            Environment: \`scribe-pr-${{ github.event.pull_request.number }}\`
-            Workspace: \`pr-${{ github.event.pull_request.number }}\`
-            Action: \`apply\`
-            Status: \`${status}\`
-            ${previewUrl ? `URL: ${previewUrl}` : '' }
-
-            Full Terraform output is intentionally not posted here.
-            Review the workflow run logs for details.`;
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner,
-              repo,
-              issue_number
-            });
-
-            const existingComment = comments.find(comment => comment.body.includes(commentIdentifier));
-
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner,
-                repo,
-                comment_id: existingComment.id,
-                body: newCommentBody
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number,
-                body: newCommentBody
-              });
-            }
-
-  destroy-preview:
-    if: github.event.action == 'closed'
+  destroy:
+    if: needs.prepare.outputs.mode == 'destroy'
+    needs: [prepare]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
       contents: read
-      packages: write
     secrets: inherit
     with:
       mode: destroy
       environment_name: preview
-      tf_workspace: pr-${{ github.event.pull_request.number }}
-      site_name: scribe-pr-${{ github.event.pull_request.number }}
-      docker_compose_branch: ${{ github.event.pull_request.head.ref }}
-      checkout_ref: ${{ github.event.pull_request.head.sha }}
-      pr_number: "${{ github.event.pull_request.number }}"
-      run_snapshots: "false"
-      push_image: false
+      tf_workspace: pr-${{ needs.prepare.outputs.pr_number }}
+      site_name: scribe-pr-${{ needs.prepare.outputs.pr_number }}
+      docker_compose_branch: ${{ needs.prepare.outputs.base_sha }}
+      checkout_ref: ${{ needs.prepare.outputs.base_sha }}
+      pr_number: ${{ needs.prepare.outputs.pr_number }}
+      region: ${{ needs.prepare.outputs.region }}
+      zone: ${{ needs.prepare.outputs.zone }}
+
+  record-preview-deployment:
+    if: always() && (needs.prepare.outputs.mode == 'apply' || needs.prepare.outputs.mode == 'destroy')
+    needs: [prepare, deploy, destroy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      deployments: write
+      pull-requests: read
+    steps:
+      - name: Record exact PR-head preview evidence
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          DEPLOY_STATUS: ${{ needs.deploy.outputs.status }}
+          DESTROY_RESULT: ${{ needs.destroy.result }}
+          DESTROY_STATUS: ${{ needs.destroy.outputs.status }}
+          HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
+          PREVIEW_MODE: ${{ needs.prepare.outputs.mode }}
+          PREVIEW_URL: ${{ needs.deploy.outputs.preview_url }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_ID: ${{ github.run_id }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const environment = 'preview';
+            const headSha = process.env.HEAD_SHA || '';
+            const mode = process.env.PREVIEW_MODE || '';
+            const prNumber = Number(process.env.PR_NUMBER || '');
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${process.env.RUN_ID}`;
+
+            if (!/^[0-9a-f]{40}$/.test(headSha)) throw new Error('validated preview head SHA is missing');
+            if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error('validated preview PR number is missing');
+            if (mode !== 'apply' && mode !== 'destroy') throw new Error('preview evidence mode must be apply or destroy');
+
+            const deploymentPayload = (deployment) => {
+              if (deployment.payload && typeof deployment.payload === 'object') return deployment.payload;
+              if (typeof deployment.payload !== 'string' || deployment.payload === '') return {};
+              try {
+                return JSON.parse(deployment.payload);
+              } catch {
+                return {};
+              }
+            };
+            const belongsToPR = (deployment) => Number(deploymentPayload(deployment).pr_number) === prNumber;
+            const listPRDeployments = async () => {
+              const deployments = await github.paginate(github.rest.repos.listDeployments, {
+                owner,
+                repo,
+                environment,
+                per_page: 100,
+              });
+              return deployments.filter(belongsToPR);
+            };
+            const latestState = async (deploymentId) => {
+              const response = await github.rest.repos.listDeploymentStatuses({
+                owner,
+                repo,
+                deployment_id: deploymentId,
+                per_page: 1,
+              });
+              return response.data[0]?.state || '';
+            };
+            const postStatus = async (deploymentId, state, description, environmentUrl = '') => {
+              const request = {
+                owner,
+                repo,
+                deployment_id: deploymentId,
+                state,
+                environment,
+                auto_inactive: false,
+                description: description.slice(0, 140),
+                log_url: runUrl,
+              };
+              if (environmentUrl !== '') request.environment_url = environmentUrl;
+              await github.rest.repos.createDeploymentStatus(request);
+            };
+            const inactivate = async (deployments, description) => {
+              for (const deployment of deployments) {
+                if (await latestState(deployment.id) === 'inactive') continue;
+                await postStatus(deployment.id, 'inactive', description);
+              }
+            };
+            const createDeployment = async (phase) => {
+              const response = await github.rest.repos.createDeployment({
+                owner,
+                repo,
+                ref: headSha,
+                task: 'deploy',
+                auto_merge: false,
+                required_contexts: [],
+                environment,
+                description: `Scribe PR #${prNumber} preview ${phase}`,
+                transient_environment: true,
+                production_environment: false,
+                payload: {
+                  pr_number: prNumber,
+                  head_sha: headSha,
+                  phase,
+                  run_id: Number(process.env.RUN_ID),
+                  run_attempt: Number(process.env.RUN_ATTEMPT),
+                },
+              });
+              if (
+                !response.data
+                || !Number.isSafeInteger(response.data.id)
+                || response.data.sha !== headSha
+              ) {
+                throw new Error('GitHub did not create exact-head preview deployment evidence');
+              }
+              return response.data.id;
+            };
+            const validPreviewURL = () => {
+              const raw = process.env.PREVIEW_URL || '';
+              try {
+                const parsed = new URL(raw);
+                const expectedPrefix = `scribe-pr-${prNumber}-`;
+                if (
+                  parsed.protocol !== 'https:'
+                  || parsed.username !== ''
+                  || parsed.password !== ''
+                  || parsed.pathname !== '/'
+                  || parsed.search !== ''
+                  || parsed.hash !== ''
+                  || !parsed.hostname.startsWith(expectedPrefix)
+                  || !parsed.hostname.endsWith('.run.app')
+                ) return '';
+                return parsed.toString();
+              } catch {
+                return '';
+              }
+            };
+
+            if (mode === 'destroy') {
+              const prior = await listPRDeployments();
+              const destroySucceeded = process.env.DESTROY_RESULT === 'success'
+                && process.env.DESTROY_STATUS === 'success';
+              if (destroySucceeded) {
+                await inactivate(prior, `Preview PR #${prNumber} was destroyed`);
+                core.notice(`Marked ${prior.length} preview deployment(s) inactive for PR #${prNumber}.`);
+                return;
+              }
+
+              await inactivate(prior, `Preview PR #${prNumber} teardown failed`);
+              const deploymentId = await createDeployment('destroy-failed');
+              try {
+                await postStatus(deploymentId, 'in_progress', `Preview PR #${prNumber} teardown evidence pending`);
+                await postStatus(deploymentId, 'error', `Preview PR #${prNumber} teardown failed`);
+              } catch (error) {
+                try {
+                  await postStatus(deploymentId, 'error', `Preview PR #${prNumber} teardown evidence failed`);
+                } catch (statusError) {
+                  core.error(`Could not record terminal teardown error: ${statusError.name}`);
+                }
+                throw error;
+              }
+              core.setFailed(`Preview teardown failed for PR #${prNumber}.`);
+              return;
+            }
+
+            const live = (await github.rest.pulls.get({ owner, repo, pull_number: prNumber })).data;
+            const isCurrentHead = live.state === 'open'
+              && live.base.ref === 'main'
+              && live.head.repo?.full_name === `${owner}/${repo}`
+              && live.head.sha === headSha;
+            if (!isCurrentHead) {
+              const stale = (await listPRDeployments()).filter((deployment) => deployment.sha === headSha);
+              await inactivate(stale, `Stale preview run for PR #${prNumber}`);
+              core.notice(`Skipped stale preview evidence for PR #${prNumber} at ${headSha}.`);
+              return;
+            }
+
+            const prior = await listPRDeployments();
+            await inactivate(prior, `Superseded preview for PR #${prNumber}`);
+            const deploymentId = await createDeployment('apply');
+            let terminalState = 'failure';
+            let terminalDescription = `Preview deployment failed for PR #${prNumber}`;
+            let environmentUrl = '';
+            if (process.env.DEPLOY_RESULT === 'success' && process.env.DEPLOY_STATUS === 'success') {
+              environmentUrl = validPreviewURL();
+              if (environmentUrl !== '') {
+                terminalState = 'success';
+                terminalDescription = `Preview readiness passed for PR #${prNumber}`;
+              } else {
+                terminalState = 'error';
+                terminalDescription = `Preview URL attestation failed for PR #${prNumber}`;
+              }
+            } else if (process.env.DEPLOY_RESULT === 'cancelled' || process.env.DEPLOY_RESULT === 'skipped') {
+              terminalState = 'error';
+              terminalDescription = `Preview deployment did not run for PR #${prNumber}`;
+            }
+
+            try {
+              await postStatus(deploymentId, 'in_progress', `Preview evidence pending for PR #${prNumber}`);
+              await postStatus(deploymentId, terminalState, terminalDescription, environmentUrl);
+            } catch (error) {
+              try {
+                await postStatus(deploymentId, 'error', `Preview evidence recording failed for PR #${prNumber}`);
+              } catch (statusError) {
+                core.error(`Could not record terminal deployment error: ${statusError.name}`);
+              }
+              throw error;
+            }
+            if (terminalState !== 'success') core.setFailed(terminalDescription);
+
+  preview-comment:
+    if: always() && needs.prepare.outputs.mode == 'apply'
+    needs: [prepare, deploy]
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          PREVIEW_STATUS: ${{ needs.deploy.outputs.status || needs.deploy.result }}
+          PREVIEW_URL: ${{ needs.deploy.outputs.preview_url }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const marker = '<!-- terraform-preview-comment -->';
+            const body = `#### Terraform Preview\n${marker}\nStatus: \`${process.env.PREVIEW_STATUS}\`\n${process.env.PREVIEW_URL ? `URL: ${process.env.PREVIEW_URL}` : ''}`;
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: Number(process.env.PR_NUMBER)
+            });
+            const existing = comments.find(comment => comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: Number(process.env.PR_NUMBER), body });
+            }

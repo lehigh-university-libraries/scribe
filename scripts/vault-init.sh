@@ -2,10 +2,17 @@
 
 set -eu
 
+VAULT_RETRY_LIB="${VAULT_RETRY_LIB:-/usr/local/lib/scribe/vault-retry.sh}"
+if [ ! -r "$VAULT_RETRY_LIB" ]; then
+  echo "Vault retry helper is unavailable." >&2
+  exit 1
+fi
+# shellcheck disable=SC1090 # The deployment intentionally supports an absolute override.
+. "$VAULT_RETRY_LIB"
+
 require_env() {
   name="$1"
-  eval "value=\${$name:-}"
-  if [ -z "$value" ]; then
+  if ! value="$(printenv "$name")" || [ -z "$value" ]; then
     echo "Missing required environment variable: $name" >&2
     exit 1
   fi
@@ -20,7 +27,7 @@ vault_read_secret() {
   response_file="$2"
   status_file="$3"
   if [ -n "${VAULT_ADMIN_TOKEN:-}" ]; then
-    if curl -fsS -o "$response_file" -w '%{http_code}' \
+    if curl -fsS --connect-timeout 5 --max-time 30 -o "$response_file" -w '%{http_code}' \
       -H "X-Vault-Token: $VAULT_TOKEN" \
       -H "X-Admin-Token: $VAULT_ADMIN_TOKEN" \
       "$endpoint" >"$status_file"; then
@@ -29,7 +36,7 @@ vault_read_secret() {
     return 1
   fi
 
-  if curl -fsS -o "$response_file" -w '%{http_code}' \
+  if curl -fsS --connect-timeout 5 --max-time 30 -o "$response_file" -w '%{http_code}' \
     -H "X-Vault-Token: $VAULT_TOKEN" \
     "$endpoint" >"$status_file"; then
     return 0
@@ -40,14 +47,13 @@ vault_read_secret() {
 write_secret_file() {
   destination="$1"
   value="$2"
-  tmp_file="$(mktemp)"
+  tmp_file="$(mktemp "${destination}.tmp.XXXXXX")"
 
   printf '%s' "$value" > "$tmp_file"
-  mv "$tmp_file" "$destination"
-
   if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
-    chown "${HOST_UID}:${HOST_GID}" "$destination"
+    chown "${HOST_UID}:${HOST_GID}" "$tmp_file"
   fi
+  mv "$tmp_file" "$destination"
 }
 
 require_env "VAULT_ADDRESS"
@@ -57,10 +63,7 @@ require_env "GOOGLE_APPLICATION_CREDENTIALS"
 VAULT_KV_MOUNT="${VAULT_KV_MOUNT:-secret}"
 VAULT_SECRET_PREFIX="${VAULT_SECRET_PREFIX:-scribe/dev}"
 VAULT_DATABASE_APP_PATH="${VAULT_DATABASE_APP_PATH:-${VAULT_DATABASE_PATH:-${VAULT_SECRET_PREFIX}/database/app}}"
-VAULT_DATABASE_ROOT_PATH="${VAULT_DATABASE_ROOT_PATH:-${VAULT_SECRET_PREFIX}/database/root}"
 OUT_DIR="${OUT_DIR:-/out}"
-
-apk add --no-cache curl jq openssl >/dev/null
 
 if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
   echo "Credentials file not found: $GOOGLE_APPLICATION_CREDENTIALS" >&2
@@ -101,29 +104,48 @@ signature="$(
     | base64url
 )"
 
-login_response="$(
-  curl -fsS \
+login_response="$(mktemp)"
+login_status="$(mktemp)"
+login_once() {
+  : >"$login_response"
+  : >"$login_status"
+  if ! curl -sS \
+    --connect-timeout 5 \
+    --max-time 30 \
+    -o "$login_response" \
+    -w '%{http_code}' \
     -H "Content-Type: application/json" \
     -X POST \
     -d "$(jq -cn --arg role "$VAULT_GCP_AUTH_ROLE" --arg jwt "${unsigned}.${signature}" '{role: $role, jwt: $jwt}')" \
-    "${VAULT_ADDRESS%/}/v1/auth/gcp/login"
-)"
-VAULT_TOKEN="$(printf '%s' "$login_response" | jq -r '.auth.client_token // empty')"
-if [ -z "$VAULT_TOKEN" ]; then
-  echo "Vault GCP login response did not include auth.client_token." >&2
+    "${VAULT_ADDRESS%/}/v1/auth/gcp/login" >"$login_status"; then
+    return 1
+  fi
+  status="$(tr -d '\r\n' <"$login_status")"
+  case "$status" in
+    2??) ;;
+    *) return 1 ;;
+  esac
+  VAULT_TOKEN="$(jq -r '.auth.client_token // empty' "$login_response")"
+  [ -n "$VAULT_TOKEN" ]
+}
+if ! vault_retry "Vault GCP login" login_once; then
+  echo "Vault GCP login did not become available; response body withheld." >&2
   exit 1
 fi
+export VAULT_TOKEN
 
 secret_response="$(mktemp)"
 secret_status="$(mktemp)"
-trap 'rm -f "$key_file" "$secret_response" "$secret_status"' EXIT INT TERM
+trap 'rm -f "$key_file" "$login_response" "$login_status" "$secret_response" "$secret_status"' EXIT INT TERM
 
 v2_endpoint="${VAULT_ADDRESS%/}/v1/${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_APP_PATH}"
 
-if ! vault_read_secret "$v2_endpoint" "$secret_response" "$secret_status"; then
-	cat "$secret_response" >&2
-	echo "Failed to read Vault database app secret from ${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_APP_PATH}" >&2
-	exit 1
+read_database_secret_once() {
+  vault_read_secret "$v2_endpoint" "$secret_response" "$secret_status"
+}
+if ! vault_retry "Vault database app secret read" read_database_secret_once; then
+  echo "Failed to read Vault database app secret from ${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_APP_PATH}; response body withheld." >&2
+  exit 1
 fi
 password="$(jq -r '.data.data.password // empty' "$secret_response")"
 if [ -z "$password" ]; then
@@ -131,18 +153,5 @@ if [ -z "$password" ]; then
   exit 1
 fi
 
-v2_endpoint="${VAULT_ADDRESS%/}/v1/${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_ROOT_PATH}"
-if ! vault_read_secret "$v2_endpoint" "$secret_response" "$secret_status"; then
-  cat "$secret_response" >&2
-  echo "Failed to read Vault database root secret from ${VAULT_KV_MOUNT}/data/${VAULT_DATABASE_ROOT_PATH}" >&2
-  exit 1
-fi
-root_password="$(jq -r '.data.data.root_password // empty' "$secret_response")"
-if [ -z "$root_password" ]; then
-  echo "Vault database root secret ${VAULT_KV_MOUNT}/${VAULT_DATABASE_ROOT_PATH} is missing root_password." >&2
-  exit 1
-fi
-
 mkdir -p "$OUT_DIR"
 write_secret_file "${OUT_DIR}/mariadb_password" "$password"
-write_secret_file "${OUT_DIR}/mariadb_root_password" "$root_password"

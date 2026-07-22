@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GO_TEST_IMAGE="${GO_TEST_IMAGE:-golang:1.26-alpine@sha256:91eda9776261207ea25fd06b5b7fed8d397dd2c0a283e77f2ab6e91bfa71079d}"
+GO_TEST_IMAGE="${GO_TEST_IMAGE:-golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2}"
 
 cd "${ROOT_DIR}"
 
@@ -13,7 +13,7 @@ fi
 
 test -f .env || cp sample.env .env
 bash generate-secrets.sh
-docker compose up -d mariadb
+docker compose up -d --wait --wait-timeout 120 mariadb
 
 MARIADB_ID="$(docker compose ps -q mariadb | head -1)"
 if [ -z "${MARIADB_ID}" ]; then
@@ -35,13 +35,42 @@ else
   DB_PASSWORD="scribe"
 fi
 
-docker run --rm \
+TEST_DSN_VALUE="${DB_USER}:${DB_PASSWORD}@tcp(mariadb:3306)/${DB_NAME}?parseTime=true"
+# This script is evaluated inside the Go test container, where PATH must expand.
+# shellcheck disable=SC2016
+RUN_TESTS='
+  export PATH="/usr/local/go/bin:$PATH"
+  apk add --no-cache build-base >/dev/null
+  # Both packages use the same acceptance schema. Keep their package binaries
+  # sequential while retaining concurrency inside each package, and bypass the
+  # test-result entries held in the persistent build cache.
+  go test -p=1 -count=1 -v ./internal/server ./internal/store \
+    -run "TestManifestIngestLoadsHOCRAnnotations|TestAnnotationPageRevisionSaveSemantics|TestEnrichAnnotationPageIsAtomicAndPreservesPageProperties|TestExternalCanvasResolutionDuringEnrichmentIsTenantScoped|TestAnnotationCRUDPreservesCanonicalPageProperties|TestAnnotationMutationCarriesLoadedRevisionThroughOneCAS|TestAnnotationPagesAreWorkspaceIsolatedAndRevisioned|TestTranscriptionCommitAtomicallyFencesAndCompletesJob|TestTranscriptionJobRequiresCanonicalInputRevision"
+'
+
+container_id="$(docker create \
   --network "${NETWORK}" \
-  --mount "type=bind,src=${ROOT_DIR},dst=/app" \
-  -e "TEST_DSN=${DB_USER}:${DB_PASSWORD}@tcp(mariadb:3306)/${DB_NAME}?parseTime=true" \
+  --mount "type=volume,src=scribe-go-test-build-cache-v1,dst=/root/.cache/go-build" \
+  --mount "type=volume,src=scribe-go-test-mod-cache-v1,dst=/go/pkg/mod" \
+  -e "TEST_DSN=${TEST_DSN_VALUE}" \
   -w /app \
   "${GO_TEST_IMAGE}" \
-  sh -lc '
-    apk add --no-cache build-base >/dev/null
-    go test -v ./internal/server -run "TestManifestIngestLoadsHOCRAnnotations|TestAnnotationPageRevisionSaveSemantics" -count=1
-  '
+  sh -lc "${RUN_TESTS}")"
+cleanup() {
+  docker rm -f "${container_id}" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+tar \
+  --exclude=.env \
+  --exclude=.git \
+  --exclude=.tools \
+  --exclude='gha-creds-*.json' \
+  --exclude=secrets \
+  --exclude=terraform/.terraform \
+  --exclude=site \
+  --exclude='web/node_modules*' \
+  --exclude=web/dist \
+  --exclude='mirador-scribe/node_modules*' \
+  --exclude=mirador-scribe/dist \
+  -C "${ROOT_DIR}" -cf - . | docker cp - "${container_id}:/app"
+docker start -a "${container_id}"

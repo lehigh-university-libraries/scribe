@@ -9,12 +9,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/database"
 	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
+	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
 
 // minimalHOCR is a valid hOCR document with two lines and three words.
@@ -88,8 +94,10 @@ func TestExtractCanvasesV2HocrURL(t *testing.T) {
 				"@type": "sc:Sequence",
 				"canvases": []any{
 					map[string]any{
-						"@id":   "https://example.org/canvas/1",
-						"label": "Page 1",
+						"@id":    "https://example.org/canvas/1",
+						"label":  "Page 1",
+						"width":  2160,
+						"height": 3632,
 						"images": []any{
 							map[string]any{
 								"resource": map[string]any{
@@ -116,28 +124,242 @@ func TestExtractCanvasesV2HocrURL(t *testing.T) {
 	if canvases[0].hocrURL != "https://example.org/hocr.xml" {
 		t.Errorf("hocrURL = %q; want %q", canvases[0].hocrURL, "https://example.org/hocr.xml")
 	}
-}
-
-// TestManifestURLCandidates verifies that the /manifest suffix is tried first.
-func TestManifestURLCandidates(t *testing.T) {
-	canvasURI := "https://preserve.example.org/node/70000/canvas/237948"
-	candidates := manifestURLCandidatesFromCanvasURI(canvasURI)
-	if len(candidates) < 2 {
-		t.Fatalf("got %d candidates; want at least 2", len(candidates))
-	}
-	if candidates[0] != "https://preserve.example.org/node/70000/manifest" {
-		t.Errorf("candidates[0] = %q; want .../manifest suffix first", candidates[0])
-	}
-	if candidates[1] != "https://preserve.example.org/node/70000" {
-		t.Errorf("candidates[1] = %q; want bare base as fallback", candidates[1])
+	if canvases[0].width != 2160 || canvases[0].height != 3632 {
+		t.Errorf("dimensions = %dx%d; want 2160x3632", canvases[0].width, canvases[0].height)
 	}
 }
 
-// TestManifestURLCandidatesNoCanvas verifies that an unrecognised URI returns nothing.
-func TestManifestURLCandidatesNoCanvas(t *testing.T) {
-	got := manifestURLCandidatesFromCanvasURI("https://example.org/no-canvas-segment")
-	if len(got) != 0 {
-		t.Errorf("expected no candidates, got %v", got)
+func TestExtractCanvasesRejectsNonPublicPaintingBody(t *testing.T) {
+	for name, imageURL := range map[string]string{
+		"application upload alias": "/static/uploads/existing.jpg",
+		"embedded credentials":     "https://user:password@example.org/image.jpg",
+	} {
+		t.Run(name, func(t *testing.T) {
+			manifest := map[string]any{
+				"@context": "http://iiif.io/api/presentation/2/context.json",
+				"@type":    "sc:Manifest",
+				"sequences": []any{map[string]any{"canvases": []any{map[string]any{
+					"@id": "https://example.org/canvas/1",
+					"images": []any{map[string]any{"resource": map[string]any{
+						"@id": imageURL,
+					}}},
+				}}}},
+			}
+			if _, err := extractCanvasesFromManifest(manifest); err == nil {
+				t.Fatalf("extractCanvasesFromManifest accepted %q", imageURL)
+			}
+		})
+	}
+}
+
+func TestExtractCanvasesV3PreservesCanvasDimensionsWithImageChoice(t *testing.T) {
+	manifest := map[string]any{
+		"@context": "http://iiif.io/api/presentation/3/context.json",
+		"id":       "https://example.org/manifest/1",
+		"type":     "Manifest",
+		"label":    map[string]any{"none": []any{"Test"}},
+		"items": []any{map[string]any{
+			"id":     "https://example.org/canvas/1",
+			"type":   "Canvas",
+			"label":  map[string]any{"none": []any{"Page 1"}},
+			"width":  float64(4096),
+			"height": float64(3072),
+			"items": []any{map[string]any{
+				"id":   "https://example.org/canvas/1/painting",
+				"type": "AnnotationPage",
+				"items": []any{map[string]any{
+					"id":         "https://example.org/canvas/1/painting/image",
+					"type":       "Annotation",
+					"motivation": "painting",
+					"target":     "https://example.org/canvas/1",
+					"body": map[string]any{
+						"type": "Choice",
+						"items": []any{
+							map[string]any{"id": "https://example.org/image/full/max/0/default.jpg", "type": "Image", "format": "image/jpeg"},
+						},
+					},
+				}},
+			}},
+		}},
+	}
+
+	canvases, err := extractCanvasesFromManifest(manifest)
+	if err != nil {
+		t.Fatalf("extractCanvasesFromManifest: %v", err)
+	}
+	if len(canvases) != 1 {
+		t.Fatalf("got %d canvases; want 1", len(canvases))
+	}
+	if canvases[0].width != 4096 || canvases[0].height != 3072 {
+		t.Fatalf("dimensions = %dx%d; want 4096x3072", canvases[0].width, canvases[0].height)
+	}
+}
+
+func TestExtractCanvasesV3ChoiceSelectsFirstSupportedPublicImage(t *testing.T) {
+	painting := map[string]any{
+		"id": "https://example.org/annotation/choice", "type": "Annotation", "motivation": "painting", "target": "https://example.org/canvas/choice",
+		"body": map[string]any{"type": "Choice", "items": []any{
+			map[string]any{"id": "https://example.org/transcript.txt", "type": "Text", "format": "text/plain"},
+			map[string]any{"id": "https://example.org/vector.svg", "type": "Image", "format": "image/svg+xml"},
+			map[string]any{"id": "https://user:password@example.org/private.jpg", "type": "Image", "format": "image/jpeg"},
+			map[string]any{"type": "SpecificResource", "source": map[string]any{"id": "https://example.org/supported.png", "type": "Image", "format": "image/png"}},
+		}},
+	}
+	paintingPage := map[string]any{
+		"id": "https://example.org/page/choice", "type": "AnnotationPage", "items": []any{painting},
+	}
+	canvas := map[string]any{
+		"id": "https://example.org/canvas/choice", "type": "Canvas", "width": 1000, "height": 800,
+		"items": []any{paintingPage},
+	}
+	manifest := map[string]any{
+		"@context": "http://iiif.io/api/presentation/3/context.json",
+		"id":       "https://example.org/manifest/choice",
+		"type":     "Manifest",
+		"label":    map[string]any{"none": []any{"Choice"}},
+		"items":    []any{canvas},
+	}
+
+	canvases, err := extractCanvasesFromManifest(manifest)
+	if err != nil {
+		t.Fatalf("extractCanvasesFromManifest: %v", err)
+	}
+	if got := canvases[0].imageURL; got != "https://example.org/supported.png" {
+		t.Fatalf("selected image = %q, want supported public Image", got)
+	}
+
+	painting["body"] = map[string]any{
+		"type": "Choice", "items": []any{
+			map[string]any{"id": "https://example.org/vector.svg", "type": "Image", "format": "image/svg+xml"},
+			map[string]any{"id": "https://user:password@example.org/private.jpg", "type": "Image", "format": "image/jpeg"},
+		},
+	}
+	if _, err := extractCanvasesFromManifest(manifest); err == nil {
+		t.Fatal("Choice without a supported public Image was accepted")
+	}
+}
+
+func TestExtractCanvasesV3RequiresPaintingMotivationAndExactTarget(t *testing.T) {
+	const canvasID = "https://example.org/canvas/strict-painting"
+	painting := map[string]any{
+		"id":         "https://example.org/annotation/strict-painting",
+		"type":       "Annotation",
+		"motivation": "painting",
+		"target":     canvasID,
+		"body":       map[string]any{"id": "https://example.org/image.jpg", "type": "Image", "format": "image/jpeg"},
+	}
+	manifest := map[string]any{
+		"@context": "http://iiif.io/api/presentation/3/context.json",
+		"id":       "https://example.org/manifest/strict-painting",
+		"type":     "Manifest",
+		"items": []any{map[string]any{
+			"id": canvasID, "type": "Canvas",
+			"items": []any{map[string]any{
+				"id": "https://example.org/page/strict-painting", "type": "AnnotationPage", "items": []any{painting},
+			}},
+		}},
+	}
+
+	if _, err := extractCanvasesFromManifest(manifest); err != nil {
+		t.Fatalf("valid painting annotation rejected: %v", err)
+	}
+	delete(painting, "motivation")
+	if _, err := extractCanvasesFromManifest(manifest); err == nil || !strings.Contains(err.Error(), "painting motivation") {
+		t.Fatalf("missing painting motivation error = %v", err)
+	}
+	painting["motivation"] = "painting"
+	painting["target"] = "https://example.org/canvas/other"
+	if _, err := extractCanvasesFromManifest(manifest); err == nil || !strings.Contains(err.Error(), "exactly match") {
+		t.Fatalf("mismatched painting target error = %v", err)
+	}
+	painting["target"] = canvasID + "#xywh=0,0,10,10"
+	if _, err := extractCanvasesFromManifest(manifest); err == nil || !strings.Contains(err.Error(), "exactly match") {
+		t.Fatalf("fragment painting target error = %v", err)
+	}
+}
+
+func TestExtractCanvasesRejectsIncompleteAndDuplicateCanvasSets(t *testing.T) {
+	validV3Canvas := func(id string) map[string]any {
+		return map[string]any{
+			"id": id, "type": "Canvas",
+			"items": []any{map[string]any{
+				"id": id + "/page", "type": "AnnotationPage",
+				"items": []any{map[string]any{
+					"id": id + "/painting", "type": "Annotation", "motivation": "painting", "target": id,
+					"body": map[string]any{"id": "https://example.org/image.jpg", "type": "Image", "format": "image/jpeg"},
+				}},
+			}},
+		}
+	}
+	const duplicateID = "https://example.org/canvas/duplicate"
+	duplicateManifest := map[string]any{
+		"@context": "http://iiif.io/api/presentation/3/context.json",
+		"id":       "https://example.org/manifest/duplicate",
+		"type":     "Manifest",
+		"items":    []any{validV3Canvas(duplicateID), validV3Canvas(duplicateID)},
+	}
+	if _, err := extractCanvasesFromManifest(duplicateManifest); err == nil || !strings.Contains(err.Error(), "duplicates") {
+		t.Fatalf("duplicate Canvas ID error = %v", err)
+	}
+
+	incompleteManifest := map[string]any{
+		"@context": "http://iiif.io/api/presentation/3/context.json",
+		"id":       "https://example.org/manifest/incomplete",
+		"type":     "Manifest",
+		"items": []any{
+			validV3Canvas("https://example.org/canvas/complete"),
+			map[string]any{"id": "https://example.org/canvas/missing-image", "type": "Canvas", "items": []any{}},
+		},
+	}
+	if _, err := extractCanvasesFromManifest(incompleteManifest); err == nil || !strings.Contains(err.Error(), "supported public painting Image") {
+		t.Fatalf("incomplete Canvas error = %v", err)
+	}
+
+	validV2Canvas := func(id string) map[string]any {
+		return map[string]any{
+			"@id": id, "@type": "sc:Canvas",
+			"images": []any{map[string]any{
+				"@id": id + "/painting", "@type": "oa:Annotation", "motivation": "sc:painting", "on": id,
+				"resource": map[string]any{"@id": "https://example.org/image.jpg", "@type": "dctypes:Image", "format": "image/jpeg"},
+			}},
+		}
+	}
+	duplicateV2Manifest := map[string]any{
+		"@context": "http://iiif.io/api/presentation/2/context.json", "@type": "sc:Manifest",
+		"sequences": []any{map[string]any{"canvases": []any{validV2Canvas(duplicateID), validV2Canvas(duplicateID)}}},
+	}
+	if _, err := extractCanvasesFromManifest(duplicateV2Manifest); err == nil || !strings.Contains(err.Error(), "duplicates") {
+		t.Fatalf("duplicate Presentation 2 Canvas ID error = %v", err)
+	}
+	incompleteV2Manifest := map[string]any{
+		"@context": "http://iiif.io/api/presentation/2/context.json", "@type": "sc:Manifest",
+		"sequences": []any{map[string]any{"canvases": []any{
+			validV2Canvas("https://example.org/canvas/v2-complete"),
+			map[string]any{"@id": "https://example.org/canvas/v2-missing-image", "@type": "sc:Canvas", "images": []any{}},
+		}}},
+	}
+	if _, err := extractCanvasesFromManifest(incompleteV2Manifest); err == nil || !strings.Contains(err.Error(), "supported painting Image") {
+		t.Fatalf("incomplete Presentation 2 Canvas error = %v", err)
+	}
+}
+
+func TestExtractCanvasesRejectsOverlongSourceCanvasURI(t *testing.T) {
+	canvasID := "https://example.org/canvas/" + strings.Repeat("a", iiif.MaxCanvasURIBytes)
+	painting := map[string]any{
+		"type": "Annotation", "motivation": "painting", "target": canvasID,
+		"body": map[string]any{"id": "https://example.org/image.jpg", "type": "Image"},
+	}
+	paintingPage := map[string]any{"type": "AnnotationPage", "items": []any{painting}}
+	canvas := map[string]any{
+		"id": canvasID, "type": "Canvas",
+		"items": []any{paintingPage},
+	}
+	manifest := map[string]any{
+		"@context": "http://iiif.io/api/presentation/3/context.json", "id": "https://example.org/manifest", "type": "Manifest",
+		"items": []any{canvas},
+	}
+	if _, err := extractCanvasesFromManifest(manifest); err == nil || !strings.Contains(err.Error(), "source URI exceeds") {
+		t.Fatalf("overlong source Canvas URI error = %v", err)
 	}
 }
 
@@ -147,6 +369,13 @@ func TestManifestURLCandidatesNoCanvas(t *testing.T) {
 // returns the pool. The test is skipped if TEST_DSN is not set.
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
+	runtime := config.Get()
+	if strings.TrimSpace(runtime.Config.Annotation.TripletPresentationBase) == "" {
+		runtime.Config.Annotation.TripletPresentationBase = "https://scribe.test/presentation/v3"
+		runtime.Config.Annotation.TripletPresentationInternalBase = "http://triplet:8080/presentation/v3"
+		runtime.Config.Annotation.TripletPresentationWriteToken = "test-triplet-presentation-write-token-32-bytes-minimum"
+		config.Init(runtime)
+	}
 	dsn := os.Getenv("TEST_DSN")
 	if dsn == "" {
 		t.Skip("TEST_DSN not set; skipping integration test (set to e.g. 'user:pass@tcp(127.0.0.1:3306)/testdb')")
@@ -217,7 +446,7 @@ func buildIIIFv2Manifest(baseURL string) string {
 //
 //  1. A mock IIIF server serves a v2 manifest whose canvas seeAlso points to a
 //     mock hOCR document.
-//  2. The manifest is ingested via the HTTP API (Connect RPC CreateItem).
+//  2. The manifest is ingested via the HTTP API (Connect RPC ImportManifest).
 //  3. The IIIF annotations endpoint for the resulting item-image is called.
 //  4. The response must be a valid IIIF AnnotationPage with line annotations
 //     whose body text is derived from the mock hOCR.
@@ -263,22 +492,22 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 		t.Fatalf("seed context: %v", err)
 	}
 
-	// — step 2: ingest the manifest via Connect RPC CreateItem —
+	// — step 2: ingest the manifest via Connect RPC ImportManifest —
 	manifestURL := iiifServer.URL + "/manifest"
-	reqBody := fmt.Sprintf(`{"name":"Test Manifest","sourceType":"manifest","sourceUrl":%q}`, manifestURL)
+	reqBody := fmt.Sprintf(`{"name":"Test Manifest","manifestUrl":%q,"idempotencyKey":"manifest-ingest-e2e"}`, manifestURL)
 	createReq, _ := http.NewRequest(http.MethodPost,
-		appServer.URL+"/scribe.v1.ItemService/CreateItem",
+		appServer.URL+"/scribe.v1.ItemService/ImportManifest",
 		strings.NewReader(reqBody))
 	createReq.Header.Set("Content-Type", "application/json")
 	createReq.Header.Set("Connect-Protocol-Version", "1")
 
 	createResp, err := http.DefaultClient.Do(createReq)
 	if err != nil {
-		t.Fatalf("CreateItem request: %v", err)
+		t.Fatalf("ImportManifest request: %v", err)
 	}
 	defer createResp.Body.Close()
 	if createResp.StatusCode != http.StatusOK {
-		t.Fatalf("CreateItem status %d", createResp.StatusCode)
+		t.Fatalf("ImportManifest status %d", createResp.StatusCode)
 	}
 
 	var createBody struct {
@@ -287,20 +516,29 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 			Images []struct {
 				ID        string `json:"id"`
 				CanvasUri string `json:"canvasUri"`
+				Width     uint32 `json:"width"`
+				Height    uint32 `json:"height"`
 			} `json:"images"`
 		} `json:"item"`
 	}
 	if err := json.NewDecoder(createResp.Body).Decode(&createBody); err != nil {
-		t.Fatalf("decode CreateItem response: %v", err)
+		t.Fatalf("decode ImportManifest response: %v", err)
 	}
 	if len(createBody.Item.Images) == 0 {
-		t.Fatal("CreateItem returned no images")
+		t.Fatal("ImportManifest returned no images")
 	}
 	itemImageID := createBody.Item.Images[0].ID
 	if itemImageID == "" || itemImageID == "0" {
-		t.Fatalf("CreateItem returned bad image id: %q", itemImageID)
+		t.Fatalf("ImportManifest returned bad image id: %q", itemImageID)
+	}
+	if got := createBody.Item.Images[0]; got.Width != 2160 || got.Height != 3632 {
+		t.Fatalf("ImportManifest dimensions = %dx%d; want 2160x3632", got.Width, got.Height)
 	}
 	t.Logf("item_image_id = %s", itemImageID)
+	numericItemImageID, err := strconv.ParseUint(itemImageID, 10, 64)
+	if err != nil {
+		t.Fatalf("parse item image id: %v", err)
+	}
 
 	// Clean up the created item after the test.
 	t.Cleanup(func() {
@@ -311,6 +549,31 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 		delReq.Header.Set("Connect-Protocol-Version", "1")
 		_, _ = http.DefaultClient.Do(delReq)
 	})
+
+	// The editor loads its draft Manifest through the typed application API;
+	// Triplet is the only HTTP server for published Presentation resources.
+	editorManifest, err := h.GetEditorManifest(context.Background(), connect.NewRequest(&scribev1.GetEditorManifestRequest{
+		ItemImageId: numericItemImageID,
+	}))
+	if err != nil {
+		t.Fatalf("GetEditorManifest: %v", err)
+	}
+	itemManifestPayload := []byte(editorManifest.Msg.GetManifestJson())
+	if err := iiif.ValidateManifest(itemManifestPayload); err != nil {
+		t.Fatalf("item manifest failed libops IIIF validation: %v", err)
+	}
+	var emittedManifest struct {
+		Items []struct {
+			Width  uint32 `json:"width"`
+			Height uint32 `json:"height"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(itemManifestPayload, &emittedManifest); err != nil {
+		t.Fatalf("decode emitted item manifest: %v", err)
+	}
+	if len(emittedManifest.Items) != 1 || emittedManifest.Items[0].Width != 2160 || emittedManifest.Items[0].Height != 3632 {
+		t.Fatalf("emitted Canvas dimensions = %#v; want 2160x3632", emittedManifest.Items)
+	}
 
 	// — step 3: call GetOCRRun (mirrors what the editor does before loading Mirador) —
 	getRunReq, _ := http.NewRequest(http.MethodPost,
@@ -339,38 +602,53 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	}
 	t.Logf("run.imageUrl = %s, run.model = %s", runBody.ImageURL, runBody.Model)
 
-	// — step 4: call the IIIF annotations endpoint (what Mirador's adapter calls) —
-	annURL := fmt.Sprintf("%s/v1/item-images/%s/annotations", appServer.URL, itemImageID)
-	annResp, err := http.Get(annURL)
+	// — step 4: explicitly publish the current canonical revision, then build
+	// the immutable Presentation graph dispatched to Triplet. —
+	canonical, err := annotationStore.LoadPage(context.Background(), store.AnonymousWorkspaceID, numericItemImageID)
 	if err != nil {
-		t.Fatalf("GET annotations: %v", err)
+		t.Fatalf("load canonical page before publication: %v", err)
 	}
-	defer annResp.Body.Close()
-	if annResp.StatusCode != http.StatusOK {
-		t.Fatalf("annotations status %d", annResp.StatusCode)
+	if _, err := annotationStore.PublishPage(context.Background(), store.AnonymousWorkspaceID, numericItemImageID, store.AnnotationPublicationOptions{
+		ExpectedRevision: canonical.Revision,
+	}); err != nil {
+		t.Fatalf("publish canonical page: %v", err)
+	}
+	resources, err := h.buildPublishedPresentationResources(context.Background(), numericItemImageID)
+	if err != nil {
+		t.Fatalf("build published Triplet graph: %v", err)
+	}
+	var annotationPagePayload []byte
+	for _, resource := range resources {
+		if resource.ID == canonical.PageID {
+			annotationPagePayload = resource.Payload
+			break
+		}
+	}
+	if len(annotationPagePayload) == 0 {
+		t.Fatalf("published Triplet graph omitted canonical page %q", canonical.PageID)
 	}
 
 	var annPage struct {
 		Type  string           `json:"type"`
 		Items []map[string]any `json:"items"`
 	}
-	if err := json.NewDecoder(annResp.Body).Decode(&annPage); err != nil {
+	if err := json.Unmarshal(annotationPagePayload, &annPage); err != nil {
 		t.Fatalf("decode annotation page: %v", err)
 	}
 	if annPage.Type != "AnnotationPage" {
 		t.Errorf("type = %q; want AnnotationPage", annPage.Type)
 	}
-	// The hOCR has 2 lines → expect 2 line annotations.
-	if len(annPage.Items) != 2 {
-		t.Errorf("got %d annotation items; want 2 (one per hOCR line)", len(annPage.Items))
+	// Preserve the finest available hOCR geometry: two lines and three words.
+	if len(annPage.Items) != 5 {
+		t.Errorf("got %d annotation items; want 5 line/word annotations", len(annPage.Items))
 	}
 	// Verify each item has the expected IIIF structure.
 	for i, item := range annPage.Items {
 		if item["type"] != "Annotation" {
 			t.Errorf("item[%d].type = %v; want Annotation", i, item["type"])
 		}
-		if item["textGranularity"] != "line" {
-			t.Errorf("item[%d].textGranularity = %v; want line", i, item["textGranularity"])
+		if item["textGranularity"] != "line" && item["textGranularity"] != "word" {
+			t.Errorf("item[%d].textGranularity = %v; want line or word", i, item["textGranularity"])
 		}
 		body, _ := item["body"].([]any)
 		if len(body) == 0 {
@@ -402,7 +680,7 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	searchReq, _ := http.NewRequest(
 		http.MethodPost,
 		appServer.URL+"/scribe.v1.AnnotationService/SearchAnnotations",
-		strings.NewReader(fmt.Sprintf(`{"canvasUri":%q}`, createBody.Item.Images[0].CanvasUri)),
+		strings.NewReader(fmt.Sprintf(`{"itemImageId":%q,"canvasUri":%q}`, itemImageID, createBody.Item.Images[0].CanvasUri)),
 	)
 	searchReq.Header.Set("Content-Type", "application/json")
 	searchReq.Header.Set("Connect-Protocol-Version", "1")
@@ -433,8 +711,8 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	if searchPage.Type != "AnnotationPage" {
 		t.Errorf("search type = %q; want AnnotationPage", searchPage.Type)
 	}
-	if len(searchPage.Items) != 2 {
-		t.Errorf("search returned %d items; want 2 line annotations", len(searchPage.Items))
+	if len(searchPage.Items) != 5 {
+		t.Errorf("search returned %d items; want all 5 canonical annotations", len(searchPage.Items))
 	}
 	lineCount := 0
 	wordCount := 0
@@ -455,12 +733,40 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 	if lineCount != 2 {
 		t.Errorf("search returned %d line annotations; want 2", lineCount)
 	}
-	if wordCount != 0 {
-		t.Errorf("search returned %d word annotations; want 0 by default", wordCount)
+	if wordCount != 3 {
+		t.Errorf("search returned %d word annotations; want 3", wordCount)
 	}
 }
 
-func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
+func TestAddImageRejectsMissingCanvasURI(t *testing.T) {
+	db := openTestDB(t)
+	itemStore := store.NewItemStore(db)
+	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
+		ID:          t.Name(),
+		UserID:      store.AnonymousUserID,
+		WorkspaceID: 1,
+		Name:        "Test Item",
+		SourceType:  "upload",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	t.Cleanup(func() { _ = itemStore.DeleteForWorkspace(context.Background(), item.ID, item.WorkspaceID) })
+	_, err = itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
+		ItemID:   item.ID,
+		Sequence: 1,
+		ImageURL: "https://example.org/image.jpg",
+	})
+	if err == nil || !strings.Contains(err.Error(), "canvas uri") {
+		t.Fatalf("AddImage missing Canvas error = %v", err)
+	}
+	var imageCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM item_images WHERE item_id = ?`, item.ID).Scan(&imageCount); err != nil || imageCount != 0 {
+		t.Fatalf("missing-Canvas image count = %d/%v, want 0", imageCount, err)
+	}
+}
+
+func TestGetAnnotationPageDoesNotInitializeMissingCanonicalPage(t *testing.T) {
 	db := openTestDB(t)
 
 	ocrRunStore := store.NewOCRRunStore(db)
@@ -470,8 +776,6 @@ func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
 	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
 	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
-	appServer := httptest.NewServer(h)
-	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
 		ID:          t.Name(),
@@ -483,10 +787,10 @@ func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create item: %v", err)
 	}
+	t.Cleanup(func() { _ = itemStore.DeleteForWorkspace(context.Background(), item.ID, item.WorkspaceID) })
 	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
-		ItemID:   item.ID,
-		Sequence: 1,
-		ImageURL: "https://example.org/image.jpg",
+		ItemID: item.ID, Sequence: 1, ImageURL: "https://example.org/image.jpg", CanvasURI: "https://example.org/canvas/read-only-missing-page",
+		Width: 2160, Height: 3632,
 	})
 	if err != nil {
 		t.Fatalf("add item image: %v", err)
@@ -503,27 +807,22 @@ func TestGetIIIFManifestPersistsMissingCanvasURI(t *testing.T) {
 		t.Fatalf("create ocr run: %v", err)
 	}
 
-	manifestURL := fmt.Sprintf("%s/v1/item-images/%d/manifest", appServer.URL, img.ID)
-	resp, err := http.Get(manifestURL)
-	if err != nil {
-		t.Fatalf("GET manifest: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("manifest status %d", resp.StatusCode)
+	if _, err := h.GetAnnotationPage(context.Background(), connect.NewRequest(&scribev1.GetAnnotationPageRequest{
+		ItemImageId: img.ID,
+	})); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("GetAnnotationPage error = %v; want not_found", err)
 	}
 
 	updated, err := itemStore.GetImage(context.Background(), img.ID)
 	if err != nil {
 		t.Fatalf("get updated item image: %v", err)
 	}
-	want := fmt.Sprintf("http://127.0.0.1/v1/item-images/%d/manifest/canvas/page-1", img.ID)
-	if updated.CanvasURI != want {
-		t.Fatalf("canvas_uri = %q; want %q", updated.CanvasURI, want)
+	if updated.CanvasURI != img.CanvasURI {
+		t.Fatalf("canvas_uri = %q; read-only annotation GET changed %q", updated.CanvasURI, img.CanvasURI)
 	}
 }
 
-func TestGetIIIFAnnotationsPersistsMissingCanvasURI(t *testing.T) {
+func TestGetEditorManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
 	db := openTestDB(t)
 
 	ocrRunStore := store.NewOCRRunStore(db)
@@ -533,71 +832,6 @@ func TestGetIIIFAnnotationsPersistsMissingCanvasURI(t *testing.T) {
 	transcriptionJobStore := store.NewTranscriptionJobStore(db)
 
 	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
-	appServer := httptest.NewServer(h)
-	t.Cleanup(appServer.Close)
-
-	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
-		ID:          t.Name(),
-		UserID:      store.AnonymousUserID,
-		WorkspaceID: 1,
-		Name:        "Test Item",
-		SourceType:  "upload",
-	})
-	if err != nil {
-		t.Fatalf("create item: %v", err)
-	}
-	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
-		ItemID:   item.ID,
-		Sequence: 1,
-		ImageURL: "https://example.org/image.jpg",
-	})
-	if err != nil {
-		t.Fatalf("add item image: %v", err)
-	}
-	if err := ocrRunStore.Create(context.Background(), store.OCRRun{
-		SessionID:    t.Name() + "-session",
-		ItemImageID:  &img.ID,
-		ImageURL:     img.ImageURL,
-		Provider:     "test",
-		Model:        "test",
-		OriginalHOCR: minimalHOCR,
-		OriginalText: "Course Catalog\n1908-1909",
-	}); err != nil {
-		t.Fatalf("create ocr run: %v", err)
-	}
-
-	annotationsURL := fmt.Sprintf("%s/v1/item-images/%d/annotations", appServer.URL, img.ID)
-	resp, err := http.Get(annotationsURL)
-	if err != nil {
-		t.Fatalf("GET annotations: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("annotations status %d", resp.StatusCode)
-	}
-
-	updated, err := itemStore.GetImage(context.Background(), img.ID)
-	if err != nil {
-		t.Fatalf("get updated item image: %v", err)
-	}
-	want := fmt.Sprintf("http://127.0.0.1/v1/item-images/%d/manifest/canvas/page-1", img.ID)
-	if updated.CanvasURI != want {
-		t.Fatalf("canvas_uri = %q; want %q", updated.CanvasURI, want)
-	}
-}
-
-func TestGetIIIFManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
-	db := openTestDB(t)
-
-	ocrRunStore := store.NewOCRRunStore(db)
-	itemStore := store.NewItemStore(db)
-	contextStore := store.NewContextStore(db)
-	annotationStore := store.NewAnnotationStore(db)
-	transcriptionJobStore := store.NewTranscriptionJobStore(db)
-
-	h := NewHandler(ocrRunStore, itemStore, contextStore, annotationStore, transcriptionJobStore, nil, nil, nil)
-	appServer := httptest.NewServer(h)
-	t.Cleanup(appServer.Close)
 
 	item, err := itemStore.Create(context.Background(), dbstore.CreateItemParams{
 		ID:          t.Name(),
@@ -609,12 +843,15 @@ func TestGetIIIFManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create item: %v", err)
 	}
+	t.Cleanup(func() { _ = itemStore.DeleteForWorkspace(context.Background(), item.ID, item.WorkspaceID) })
 	const existingCanvasURI = "https://example.org/external/canvas/1"
 	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
 		ItemID:    item.ID,
 		Sequence:  1,
 		ImageURL:  "https://example.org/image.jpg",
 		CanvasURI: existingCanvasURI,
+		Width:     2160,
+		Height:    3632,
 	})
 	if err != nil {
 		t.Fatalf("add item image: %v", err)
@@ -630,15 +867,22 @@ func TestGetIIIFManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create ocr run: %v", err)
 	}
-
-	manifestURL := fmt.Sprintf("%s/v1/item-images/%d/manifest", appServer.URL, img.ID)
-	resp, err := http.Get(manifestURL)
+	run, err := ocrRunStore.GetByItemImageID(context.Background(), img.ID)
 	if err != nil {
-		t.Fatalf("GET manifest: %v", err)
+		t.Fatalf("load OCR run: %v", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("manifest status %d", resp.StatusCode)
+	if err := h.ensureItemImageCanvasAndAnnotations(context.Background(), run, img.ID, nil); err != nil {
+		t.Fatalf("initialize canonical page: %v", err)
+	}
+
+	editorManifest, err := h.GetEditorManifest(context.Background(), connect.NewRequest(&scribev1.GetEditorManifestRequest{
+		ItemImageId: img.ID,
+	}))
+	if err != nil {
+		t.Fatalf("GetEditorManifest: %v", err)
+	}
+	if err := iiif.ValidateManifest([]byte(editorManifest.Msg.GetManifestJson())); err != nil {
+		t.Fatalf("editor Manifest failed IIIF validation: %v", err)
 	}
 
 	updated, err := itemStore.GetImage(context.Background(), img.ID)
@@ -674,10 +918,11 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 	if err != nil {
 		t.Fatalf("create item: %v", err)
 	}
+	t.Cleanup(func() { _ = itemStore.DeleteForWorkspace(context.Background(), item.ID, item.WorkspaceID) })
+	canvasURI := "https://example.org/canvas/search-bootstrap"
 	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
-		ItemID:   item.ID,
-		Sequence: 1,
-		ImageURL: "https://example.org/image.jpg",
+		ItemID: item.ID, Sequence: 1, ImageURL: "https://example.org/image.jpg", CanvasURI: canvasURI,
+		Width: 2160, Height: 3632,
 	})
 	if err != nil {
 		t.Fatalf("add item image: %v", err)
@@ -694,20 +939,17 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 		t.Fatalf("create ocr run: %v", err)
 	}
 
-	manifestURL := fmt.Sprintf("%s/v1/item-images/%d/manifest", appServer.URL, img.ID)
-	resp, err := http.Get(manifestURL)
+	run, err := ocrRunStore.GetByItemImageID(context.Background(), img.ID)
 	if err != nil {
-		t.Fatalf("GET manifest: %v", err)
+		t.Fatalf("load OCR run: %v", err)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("manifest status %d", resp.StatusCode)
+	if err := h.ensureItemImageCanvasAndAnnotations(context.Background(), run, img.ID, nil); err != nil {
+		t.Fatalf("explicitly initialize canonical annotation page: %v", err)
 	}
-
 	searchReq, _ := http.NewRequest(
 		http.MethodPost,
 		appServer.URL+"/scribe.v1.AnnotationService/SearchAnnotations",
-		strings.NewReader(fmt.Sprintf(`{"canvasUri":%q}`, manifestURL+"/canvas/page-1")),
+		strings.NewReader(fmt.Sprintf(`{"itemImageId":%q,"canvasUri":%q}`, strconv.FormatUint(img.ID, 10), canvasURI)),
 	)
 	searchReq.Header.Set("Content-Type", "application/json")
 	searchReq.Header.Set("Connect-Protocol-Version", "1")
@@ -720,7 +962,7 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 		t.Fatalf("SearchAnnotations status %d", searchResp.StatusCode)
 	}
 
-	payloads, err := annotationStore.SearchByCanvas(context.Background(), manifestURL+"/canvas/page-1")
+	payloads, err := annotationStore.SearchIndex(context.Background(), store.AnonymousWorkspaceID, img.ID)
 	if err != nil {
 		t.Fatalf("search persisted annotations: %v", err)
 	}
@@ -729,7 +971,67 @@ func TestSearchAnnotationsPersistsBootstrappedInternalAnnotations(t *testing.T) 
 	}
 }
 
-func TestSearchAnnotationsSupportsAllGranularity(t *testing.T) {
+func TestInitialAnnotationCreateCannotOverwriteConcurrentCorrection(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+	itemStore := store.NewItemStore(database)
+	annotationStore := store.NewAnnotationStore(database)
+	handler := NewHandler(nil, itemStore, nil, annotationStore, nil, nil, nil, nil)
+
+	item, err := itemStore.Create(ctx, dbstore.CreateItemParams{
+		ID: t.Name(), UserID: store.AnonymousUserID, WorkspaceID: store.AnonymousWorkspaceID,
+		Name: "initializer race", SourceType: "upload",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	t.Cleanup(func() { _ = itemStore.DeleteForWorkspace(context.Background(), item.ID, item.WorkspaceID) })
+	image, err := itemStore.AddImage(ctx, dbstore.CreateItemImageParams{
+		ItemID: item.ID, Sequence: 1, ImageURL: "https://example.org/race.jpg", CanvasURI: "https://example.org/canvas/initializer-race",
+		Width: 2160, Height: 3632,
+	})
+	if err != nil {
+		t.Fatalf("add item image: %v", err)
+	}
+	identity := iiif.PageIdentity{PublicBaseURL: handler.publicAnnotationBaseURL(), ItemImageID: image.ID, CanvasURI: image.CanvasURI}
+	pageID, err := iiif.CanonicalPageID(identity.PublicBaseURL, image.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineID, err := iiif.AnnotationID(pageID, "corrected-line")
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrected := transcriptionAnnotation(lineID, "line", "human correction", image.CanvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20})
+	payload, err := iiif.NewAnnotationPage(identity, []any{corrected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := annotationStore.SavePage(ctx, store.AnnotationPage{
+		WorkspaceID: store.AnonymousWorkspaceID, ItemImageID: image.ID, PageID: pageID, CanvasURI: image.CanvasURI, Payload: string(payload),
+	}, 0)
+	if err != nil {
+		t.Fatalf("save concurrent correction: %v", err)
+	}
+	created, err := handler.createInitialAnnotationPage(ctx, image, []any{
+		transcriptionAnnotation(testAnnotationID("stale-initializer"), "line", "stale model output", image.CanvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20}),
+	})
+	if err != nil {
+		t.Fatalf("atomic initializer: %v", err)
+	}
+	if created {
+		t.Fatal("initializer reported creation over an existing canonical revision")
+	}
+	current, err := annotationStore.LoadPage(ctx, store.AnonymousWorkspaceID, image.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Revision != saved.Revision || !strings.Contains(current.Payload, "human correction") || strings.Contains(current.Payload, "stale model output") {
+		t.Fatalf("initializer changed concurrent correction at revision %d: %s", current.Revision, current.Payload)
+	}
+}
+
+func TestSearchAnnotationsUsesTypedGranularityAndPreservesCanvasQuery(t *testing.T) {
 	db := openTestDB(t)
 
 	ocrRunStore := store.NewOCRRunStore(db)
@@ -753,10 +1055,11 @@ func TestSearchAnnotationsSupportsAllGranularity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create item: %v", err)
 	}
+	t.Cleanup(func() { _ = itemStore.DeleteForWorkspace(context.Background(), item.ID, item.WorkspaceID) })
+	canonicalCanvasURI := "https://example.org/canvas/all-granularities?collection=archives&view=transcript"
 	img, err := itemStore.AddImage(context.Background(), dbstore.CreateItemImageParams{
-		ItemID:   item.ID,
-		Sequence: 1,
-		ImageURL: "https://example.org/image.jpg",
+		ItemID: item.ID, Sequence: 1, ImageURL: "https://example.org/image.jpg", CanvasURI: canonicalCanvasURI,
+		Width: 2160, Height: 3632,
 	})
 	if err != nil {
 		t.Fatalf("add item image: %v", err)
@@ -772,13 +1075,19 @@ func TestSearchAnnotationsSupportsAllGranularity(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create ocr run: %v", err)
 	}
+	run, err := ocrRunStore.GetByItemImageID(context.Background(), img.ID)
+	if err != nil {
+		t.Fatalf("load OCR run: %v", err)
+	}
+	if err := h.ensureItemImageCanvasAndAnnotations(context.Background(), run, img.ID, nil); err != nil {
+		t.Fatalf("explicitly initialize canonical annotation page: %v", err)
+	}
 
-	manifestURL := fmt.Sprintf("%s/v1/item-images/%d/manifest", appServer.URL, img.ID)
-	canvasURI := manifestURL + "/canvas/page-1?textGranularity=all"
+	canvasURI := "  " + canonicalCanvasURI + "  "
 	searchReq, _ := http.NewRequest(
 		http.MethodPost,
 		appServer.URL+"/scribe.v1.AnnotationService/SearchAnnotations",
-		strings.NewReader(fmt.Sprintf(`{"canvasUri":%q}`, canvasURI)),
+		strings.NewReader(fmt.Sprintf(`{"itemImageId":%q,"canvasUri":%q,"granularity":"ANNOTATION_GRANULARITY_ALL"}`, strconv.FormatUint(img.ID, 10), canvasURI)),
 	)
 	searchReq.Header.Set("Content-Type", "application/json")
 	searchReq.Header.Set("Connect-Protocol-Version", "1")
@@ -806,15 +1115,35 @@ func TestSearchAnnotationsSupportsAllGranularity(t *testing.T) {
 	if len(page.Items) != 5 {
 		t.Fatalf("search returned %d items; want 5 when requesting all granularities", len(page.Items))
 	}
+	wordResponse, err := h.SearchAnnotations(context.Background(), connect.NewRequest(&scribev1.SearchAnnotationsRequest{
+		ItemImageId: img.ID,
+		CanvasUri:   canvasURI,
+		Granularity: scribev1.AnnotationGranularity_ANNOTATION_GRANULARITY_WORD,
+	}))
+	if err != nil {
+		t.Fatalf("typed word SearchAnnotations: %v", err)
+	}
+	if err := json.Unmarshal([]byte(wordResponse.Msg.GetAnnotationPageJson()), &page); err != nil {
+		t.Fatalf("decode typed word search page: %v", err)
+	}
+	if len(page.Items) != 3 {
+		t.Fatalf("typed word search returned %d items; want 3", len(page.Items))
+	}
+	for index, annotation := range page.Items {
+		if annotation["textGranularity"] != "word" {
+			t.Fatalf("typed word search item %d granularity = %v; want word", index, annotation["textGranularity"])
+		}
+	}
 }
 
 // TestAnnotationPageRevisionSaveSemantics verifies the two-version save contract:
 //
-//  1. Original generated annotations are preserved in original_hocr (never mutated).
-//  2. Edits via UpdateAnnotation overwrite the previous edit, not accumulate history.
+//  1. Original generated annotations are preserved in original_hocr provenance.
+//  2. Full-page CAS saves overwrite the previous edit, not accumulate history.
 //  3. SearchAnnotations returns the latest edited state after a save.
 //  4. A second save overwrites the first (no revision history accumulates).
-//  5. The hOCR endpoint still returns the original after edits.
+//  5. The hOCR endpoint derives the latest canonical correction while the OCR
+//     provenance row remains immutable.
 func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 	db := openTestDB(t)
 
@@ -859,17 +1188,17 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 	// Ingest a manifest.
 	manifestURL := iiifServer.URL + "/manifest"
 	createReq, _ := http.NewRequest(http.MethodPost,
-		appServer.URL+"/scribe.v1.ItemService/CreateItem",
-		strings.NewReader(fmt.Sprintf(`{"name":"Rev Test","sourceType":"manifest","sourceUrl":%q}`, manifestURL)))
+		appServer.URL+"/scribe.v1.ItemService/ImportManifest",
+		strings.NewReader(fmt.Sprintf(`{"name":"Rev Test","manifestUrl":%q,"idempotencyKey":"manifest-revision-e2e"}`, manifestURL)))
 	createReq.Header.Set("Content-Type", "application/json")
 	createReq.Header.Set("Connect-Protocol-Version", "1")
 	createResp, err := http.DefaultClient.Do(createReq)
 	if err != nil {
-		t.Fatalf("CreateItem: %v", err)
+		t.Fatalf("ImportManifest: %v", err)
 	}
 	defer createResp.Body.Close()
 	if createResp.StatusCode != http.StatusOK {
-		t.Fatalf("CreateItem status %d", createResp.StatusCode)
+		t.Fatalf("ImportManifest status %d", createResp.StatusCode)
 	}
 	var createBody struct {
 		Item struct {
@@ -881,13 +1210,17 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 		} `json:"item"`
 	}
 	if err := json.NewDecoder(createResp.Body).Decode(&createBody); err != nil {
-		t.Fatalf("decode CreateItem: %v", err)
+		t.Fatalf("decode ImportManifest: %v", err)
 	}
 	if len(createBody.Item.Images) == 0 {
-		t.Fatal("no images in CreateItem response")
+		t.Fatal("no images in ImportManifest response")
 	}
 	itemImageID := createBody.Item.Images[0].ID
 	canvasURI := createBody.Item.Images[0].CanvasUri
+	parsedItemImageID, err := strconv.ParseUint(itemImageID, 10, 64)
+	if err != nil {
+		t.Fatalf("parse item image id: %v", err)
+	}
 	t.Cleanup(func() {
 		delReq, _ := http.NewRequest(http.MethodPost,
 			appServer.URL+"/scribe.v1.ItemService/DeleteItem",
@@ -902,7 +1235,7 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 		t.Helper()
 		req, _ := http.NewRequest(http.MethodPost,
 			appServer.URL+"/scribe.v1.AnnotationService/SearchAnnotations",
-			strings.NewReader(fmt.Sprintf(`{"canvasUri":%q}`, canvasURI)))
+			strings.NewReader(fmt.Sprintf(`{"itemImageId":%q,"canvasUri":%q}`, itemImageID, canvasURI)))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Connect-Protocol-Version", "1")
 		resp, err := http.DefaultClient.Do(req)
@@ -937,6 +1270,47 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 		item, _ := body[0].(map[string]any)
 		return fmt.Sprintf("%v", item["value"])
 	}
+	saveAnnotationText := func(t *testing.T, annotationID, text string) {
+		t.Helper()
+		current, err := h.GetAnnotationPage(context.Background(), connect.NewRequest(&scribev1.GetAnnotationPageRequest{
+			ItemImageId: parsedItemImageID,
+		}))
+		if err != nil {
+			t.Fatalf("GetAnnotationPage: %v", err)
+		}
+		var page map[string]any
+		if err := json.Unmarshal([]byte(current.Msg.GetAnnotationPageJson()), &page); err != nil {
+			t.Fatalf("decode canonical annotation page: %v", err)
+		}
+		items, _ := page["items"].([]any)
+		found := false
+		for _, raw := range items {
+			annotation, _ := raw.(map[string]any)
+			if fmt.Sprintf("%v", annotation["id"]) != annotationID {
+				continue
+			}
+			annotation["body"] = []any{map[string]any{
+				"type": "TextualBody", "purpose": "supplementing",
+				"format": "text/plain", "value": text,
+			}}
+			found = true
+			break
+		}
+		if !found {
+			t.Fatalf("annotation %q not found in canonical page", annotationID)
+		}
+		payload, err := json.Marshal(page)
+		if err != nil {
+			t.Fatalf("encode canonical annotation page: %v", err)
+		}
+		if _, err := h.SaveAnnotationPage(context.Background(), connect.NewRequest(&scribev1.SaveAnnotationPageRequest{
+			ItemImageId:        parsedItemImageID,
+			AnnotationPageJson: string(payload),
+			ExpectedRevision:   current.Msg.GetRevision(),
+		})); err != nil {
+			t.Fatalf("SaveAnnotationPage: %v", err)
+		}
+	}
 
 	// --- Step 1: bootstrap from hOCR (no edits yet) ---
 	items := searchAnnotations(t)
@@ -959,31 +1333,8 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 	originalText := annotationText(firstLine)
 	t.Logf("step 1: original text = %q, id = %s", originalText, firstLineID)
 
-	// --- Step 2: edit the annotation via UpdateAnnotation ---
-	edited := make(map[string]any)
-	for k, v := range firstLine {
-		edited[k] = v
-	}
-	edited["body"] = []any{map[string]any{
-		"type": "TextualBody", "purpose": "supplementing",
-		"format": "text/plain", "value": "First Edit",
-	}}
-	editedJSON, _ := json.Marshal(edited)
-	updateBody, _ := json.Marshal(map[string]string{"annotationJson": string(editedJSON)})
-
-	updateReq, _ := http.NewRequest(http.MethodPost,
-		appServer.URL+"/scribe.v1.AnnotationService/UpdateAnnotation",
-		strings.NewReader(string(updateBody)))
-	updateReq.Header.Set("Content-Type", "application/json")
-	updateReq.Header.Set("Connect-Protocol-Version", "1")
-	updateResp, err := http.DefaultClient.Do(updateReq)
-	if err != nil {
-		t.Fatalf("step 2: UpdateAnnotation: %v", err)
-	}
-	defer updateResp.Body.Close()
-	if updateResp.StatusCode != http.StatusOK {
-		t.Fatalf("step 2: UpdateAnnotation status %d", updateResp.StatusCode)
-	}
+	// --- Step 2: edit the annotation in the local page and save one CAS ---
+	saveAnnotationText(t, firstLineID, "First Edit")
 
 	// --- Step 3: verify SearchAnnotations returns the edited text ---
 	itemsAfterEdit1 := searchAnnotations(t)
@@ -1000,31 +1351,8 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 		t.Error("step 3: edited annotation not found in search results")
 	}
 
-	// --- Step 4: second edit overwrites first (no history accumulation) ---
-	edited2 := make(map[string]any)
-	for k, v := range firstLine {
-		edited2[k] = v
-	}
-	edited2["body"] = []any{map[string]any{
-		"type": "TextualBody", "purpose": "supplementing",
-		"format": "text/plain", "value": "Second Edit",
-	}}
-	edited2JSON, _ := json.Marshal(edited2)
-	updateBody2, _ := json.Marshal(map[string]string{"annotationJson": string(edited2JSON)})
-
-	updateReq2, _ := http.NewRequest(http.MethodPost,
-		appServer.URL+"/scribe.v1.AnnotationService/UpdateAnnotation",
-		strings.NewReader(string(updateBody2)))
-	updateReq2.Header.Set("Content-Type", "application/json")
-	updateReq2.Header.Set("Connect-Protocol-Version", "1")
-	updateResp2, err := http.DefaultClient.Do(updateReq2)
-	if err != nil {
-		t.Fatalf("step 4: UpdateAnnotation: %v", err)
-	}
-	defer updateResp2.Body.Close()
-	if updateResp2.StatusCode != http.StatusOK {
-		t.Fatalf("step 4: UpdateAnnotation status %d", updateResp2.StatusCode)
-	}
+	// --- Step 4: a second full-page save overwrites the first ---
+	saveAnnotationText(t, firstLineID, "Second Edit")
 
 	itemsAfterEdit2 := searchAnnotations(t)
 	var found2 bool
@@ -1040,19 +1368,34 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 	if !found2 {
 		t.Error("step 4: annotation not found after second edit")
 	}
-	// The annotation table should have exactly one row for this id (no history).
-	var rowCount int
-	if err := db.QueryRowContext(context.Background(),
-		`SELECT COUNT(*) FROM annotations WHERE id = ?`, firstLineID,
-	).Scan(&rowCount); err != nil {
-		t.Fatalf("step 4: count annotations: %v", err)
+	// The tenant-scoped derived index should have exactly one current row for
+	// this id; revision history is adjacent to the canonical page, not duplicated
+	// annotation rows.
+	indexed, err := annotationStore.SearchIndex(context.Background(), store.AnonymousWorkspaceID, parsedItemImageID)
+	if err != nil {
+		t.Fatalf("step 4: search annotation index: %v", err)
+	}
+	rowCount := 0
+	for _, entry := range indexed {
+		if entry.ID == firstLineID {
+			rowCount++
+		}
 	}
 	if rowCount != 1 {
 		t.Errorf("step 4: %d rows for annotation id; want exactly 1 (no history)", rowCount)
 	}
 
-	// --- Step 5: original hOCR endpoint is unchanged ---
-	hocrURL := fmt.Sprintf("%s/v1/item-images/%s/hocr", appServer.URL, itemImageID)
+	// --- Step 5: hOCR is derived from canonical state; provenance is unchanged ---
+	currentForExport, err := h.GetAnnotationPage(context.Background(), connect.NewRequest(&scribev1.GetAnnotationPageRequest{
+		ItemImageId: parsedItemImageID,
+	}))
+	if err != nil {
+		t.Fatalf("step 5: load canonical revision: %v", err)
+	}
+	hocrURL := fmt.Sprintf(
+		"%s/v1/item-images/%s/annotations/revisions/%d/hocr",
+		appServer.URL, itemImageID, currentForExport.Msg.GetRevision(),
+	)
 	hocrResp, err := http.Get(hocrURL)
 	if err != nil {
 		t.Fatalf("step 5: GET hocr: %v", err)
@@ -1061,15 +1404,29 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 	if hocrResp.StatusCode != http.StatusOK {
 		t.Fatalf("step 5: hOCR status %d", hocrResp.StatusCode)
 	}
+	wantDisposition := fmt.Sprintf(`attachment; filename="item-%s.hocr"`, itemImageID)
+	if got := hocrResp.Header.Get("Content-Disposition"); got != wantDisposition {
+		t.Fatalf("step 5: hOCR Content-Disposition = %q; want %q", got, wantDisposition)
+	}
+	if got := hocrResp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("step 5: hOCR X-Content-Type-Options = %q; want nosniff", got)
+	}
 	var hocrBody strings.Builder
 	if _, err := io.Copy(&hocrBody, hocrResp.Body); err != nil {
 		t.Fatalf("step 5: read hocr body: %v", err)
 	}
-	if !strings.Contains(hocrBody.String(), "Course") || !strings.Contains(hocrBody.String(), "Catalog") {
-		t.Errorf("step 5: original hOCR missing expected text: %s", hocrBody.String())
+	if !strings.Contains(hocrBody.String(), "Second") || !strings.Contains(hocrBody.String(), "Edit") {
+		t.Errorf("step 5: canonical hOCR missing latest correction: %s", hocrBody.String())
 	}
-	// The original text should not contain our edits.
-	if strings.Contains(hocrBody.String(), "First Edit") || strings.Contains(hocrBody.String(), "Second Edit") {
-		t.Error("step 5: original hOCR was mutated by edits (should be immutable)")
+	if strings.Contains(hocrBody.String(), "Course") || strings.Contains(hocrBody.String(), "Catalog") || strings.Contains(hocrBody.String(), "First Edit") {
+		t.Error("step 5: derived hOCR exposed stale canonical text")
+	}
+	baseline, err := ocrRunStore.GetByItemImageID(context.Background(), parsedItemImageID)
+	if err != nil {
+		t.Fatalf("step 5: load immutable OCR provenance: %v", err)
+	}
+	if !strings.Contains(baseline.OriginalHOCR, "Course") || !strings.Contains(baseline.OriginalHOCR, "Catalog") ||
+		strings.Contains(baseline.OriginalHOCR, "First Edit") || strings.Contains(baseline.OriginalHOCR, "Second Edit") {
+		t.Error("step 5: original OCR provenance was mutated")
 	}
 }

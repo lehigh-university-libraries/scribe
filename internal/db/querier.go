@@ -11,116 +11,303 @@ import (
 )
 
 type Querier interface {
+	// Name-locking is connection scoped and intentionally wraps the entire
+	// identity transaction. The caller hashes subject/email values before use so
+	// lock names never expose identity data through MariaDB diagnostics.
+	AcquireIdentityConvergenceLockManual(ctx context.Context, lockName string) (bool, error)
+	ActivateProviderSecretManual(ctx context.Context, arg ActivateProviderSecretManualParams) (sql.Result, error)
+	AddStorageQuotaReserved(ctx context.Context, arg AddStorageQuotaReservedParams) error
+	AddStorageQuotaUsed(ctx context.Context, arg AddStorageQuotaUsedParams) error
+	AddWorkspaceMemberManual(ctx context.Context, arg AddWorkspaceMemberManualParams) error
+	AnnotationPageResourceExistsManual(ctx context.Context, arg AnnotationPageResourceExistsManualParams) (bool, error)
+	AuditRelationshipIntegrityManual(ctx context.Context) ([]AuditRelationshipIntegrityManualRow, error)
+	BindStorageQuotaReservationResource(ctx context.Context, arg BindStorageQuotaReservationResourceParams) (sql.Result, error)
+	CancelTranscriptionJobManual(ctx context.Context, id uint64) (sql.Result, error)
+	CancelUploadBatchFilesManual(ctx context.Context, arg CancelUploadBatchFilesManualParams) error
+	CancelUploadBatchJobsManual(ctx context.Context, arg CancelUploadBatchJobsManualParams) error
+	CancelUploadBatchManual(ctx context.Context, arg CancelUploadBatchManualParams) (int64, error)
 	ClaimLeasedTranscriptionJobByIDManual(ctx context.Context, id uint64) (TranscriptionJob, error)
 	ClaimNextLeasedTranscriptionJobManual(ctx context.Context) (TranscriptionJob, error)
 	ClaimNextLeasedTranscriptionJobOlderThanManual(ctx context.Context, cutoff time.Time) (TranscriptionJob, error)
-	ClaimNextPendingTranscriptionJobManual(ctx context.Context) (TranscriptionJob, error)
+	ClaimUploadBatchFileManual(ctx context.Context, arg ClaimUploadBatchFileManualParams) (int64, error)
 	ClaimWebhookDeliveriesManual(ctx context.Context, limit int32) ([]ClaimWebhookDeliveriesManualRow, error)
-	CompleteExternalRequestManual(ctx context.Context, arg CompleteExternalRequestManualParams) error
+	ClearDefaultContextsForScopeManual(ctx context.Context, arg ClearDefaultContextsForScopeManualParams) error
+	ClearOCRRunContextLinksManual(ctx context.Context, contextID sql.NullInt64) error
+	ClearProviderAuditContextLinksManual(ctx context.Context, contextID sql.NullInt64) error
+	ClearTranscriptionJobContextLinksManual(ctx context.Context, contextID sql.NullInt64) error
+	ClearUploadBatchContextLinksManual(ctx context.Context, contextID sql.NullInt64) error
+	ClearUploadBatchFileResourcesManual(ctx context.Context, arg ClearUploadBatchFileResourcesManualParams) (int64, error)
+	CompleteAnnotationMirror(ctx context.Context, arg CompleteAnnotationMirrorParams) (sql.Result, error)
+	CompleteExternalRequestManual(ctx context.Context, arg CompleteExternalRequestManualParams) (sql.Result, error)
+	CompleteFencedUploadResourceCleanup(ctx context.Context, arg CompleteFencedUploadResourceCleanupParams) (sql.Result, error)
+	CompleteResourceCleanup(ctx context.Context, arg CompleteResourceCleanupParams) (sql.Result, error)
 	CompleteTranscriptionJobLeasedManual(ctx context.Context, arg CompleteTranscriptionJobLeasedManualParams) (sql.Result, error)
-	CompleteTranscriptionJobManual(ctx context.Context, id uint64) error
+	CompleteUploadBatchFileManual(ctx context.Context, arg CompleteUploadBatchFileManualParams) (int64, error)
+	CompleteUploadBatchIfReadyManual(ctx context.Context, arg CompleteUploadBatchIfReadyManualParams) (int64, error)
+	CountAPIKeysByWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
+	CountActiveTranscriptionJobsByWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
+	CountAuthSessionsForUserManual(ctx context.Context, userID uint64) (int64, error)
+	CountItemImagesByURLManual(ctx context.Context, imageUrl string) (int64, error)
+	CountProviderSecretsByWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
+	CountSelectionRulesForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (int64, error)
+	CountTerminalTranscriptionJobsForWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
+	CountWorkspaceAccessByUserManual(ctx context.Context, userID uint64) (int64, error)
+	CountWorkspaceAdminsManual(ctx context.Context, workspaceID uint64) (int64, error)
+	CountWorkspaceMembersManual(ctx context.Context, workspaceID uint64) (int64, error)
 	CreateAPIKeyManual(ctx context.Context, arg CreateAPIKeyManualParams) (sql.Result, error)
+	CreateAnnotationIndexEntryManual(ctx context.Context, arg CreateAnnotationIndexEntryManualParams) error
+	CreateAnnotationPageManual(ctx context.Context, arg CreateAnnotationPageManualParams) (sql.Result, error)
 	CreateAuthSessionManual(ctx context.Context, arg CreateAuthSessionManualParams) error
 	CreateContextManual(ctx context.Context, arg CreateContextManualParams) (sql.Result, error)
 	CreateItemImageManual(ctx context.Context, arg CreateItemImageManualParams) (sql.Result, error)
 	CreateItemManual(ctx context.Context, arg CreateItemManualParams) error
 	CreateProviderSecretManual(ctx context.Context, arg CreateProviderSecretManualParams) (sql.Result, error)
 	CreateSelectionRuleManual(ctx context.Context, arg CreateSelectionRuleManualParams) (sql.Result, error)
-	CreateSessionManual(ctx context.Context, arg CreateSessionManualParams) error
 	CreateTranscriptionJobManual(ctx context.Context, arg CreateTranscriptionJobManualParams) (sql.Result, error)
+	CreateUploadBatchTranscriptionJobManual(ctx context.Context, arg CreateUploadBatchTranscriptionJobManualParams) (sql.Result, error)
 	CreateUserManual(ctx context.Context, arg CreateUserManualParams) (sql.Result, error)
 	CreateWorkspaceManual(ctx context.Context, arg CreateWorkspaceManualParams) (sql.Result, error)
 	CreateWorkspaceMemberManual(ctx context.Context, arg CreateWorkspaceMemberManualParams) error
 	DeferTranscriptionJobLeaseManual(ctx context.Context, arg DeferTranscriptionJobLeaseManualParams) (sql.Result, error)
 	DeleteAPIKeyForWorkspaceManual(ctx context.Context, arg DeleteAPIKeyForWorkspaceManualParams) (sql.Result, error)
 	DeleteAPIKeyManual(ctx context.Context, id uint64) error
-	DeleteAnnotationManual(ctx context.Context, id string) error
-	DeleteAnnotationsByCanvasManual(ctx context.Context, canvasUri string) error
+	DeleteAnnotationIndexForItemResourceGraph(ctx context.Context, arg DeleteAnnotationIndexForItemResourceGraphParams) error
+	DeleteAnnotationIndexForPageManual(ctx context.Context, arg DeleteAnnotationIndexForPageManualParams) error
+	DeleteAnnotationMirrorTombstones(ctx context.Context, itemImageID uint64) error
+	DeleteAnnotationMirrorTombstonesForItemResourceGraph(ctx context.Context, arg DeleteAnnotationMirrorTombstonesForItemResourceGraphParams) error
+	DeleteAnnotationMirrorsForItemResourceGraph(ctx context.Context, arg DeleteAnnotationMirrorsForItemResourceGraphParams) error
+	DeleteAnnotationPagesForItemResourceGraph(ctx context.Context, arg DeleteAnnotationPagesForItemResourceGraphParams) error
 	DeleteAuthSessionByTokenHashManual(ctx context.Context, tokenHash string) error
 	DeleteContextForWorkspaceManual(ctx context.Context, arg DeleteContextForWorkspaceManualParams) (sql.Result, error)
-	DeleteContextManual(ctx context.Context, id uint64) error
-	DeleteDeliveredWebhookDeliveriesBeforeManual(ctx context.Context, cutoff time.Time) error
-	DeleteEventOutboxBeforeManual(ctx context.Context, cutoff time.Time) error
+	DeleteContextManual(ctx context.Context, id uint64) (sql.Result, error)
+	DeleteCurrentOCRRunsForItemResourceGraph(ctx context.Context, arg DeleteCurrentOCRRunsForItemResourceGraphParams) error
+	DeleteDeliveredWebhookDeliveriesBeforeManual(ctx context.Context, cutoff time.Time) (sql.Result, error)
+	DeleteEventOutboxForIDsManual(ctx context.Context, eventIds []string) (sql.Result, error)
+	DeleteExpiredAuthSessionsBatchManual(ctx context.Context, cutoff time.Time) (sql.Result, error)
+	DeleteExpiredAuthSessionsForUserManual(ctx context.Context, userID uint64) error
+	DeleteExpiredProviderAuditBatch(ctx context.Context, arg DeleteExpiredProviderAuditBatchParams) (sql.Result, error)
+	// The application owns relational lifecycle semantics. Every query below is
+	// scoped by the authoritative workspace/item pair and optionally one image.
+	// Passing item_image_id = 0 selects the complete item graph.
+	DeleteExternalRequestsForItemResourceGraph(ctx context.Context, arg DeleteExternalRequestsForItemResourceGraphParams) error
+	DeleteInactiveProviderSecretManual(ctx context.Context, arg DeleteInactiveProviderSecretManualParams) (sql.Result, error)
 	DeleteItemForWorkspaceManual(ctx context.Context, arg DeleteItemForWorkspaceManualParams) (sql.Result, error)
-	DeleteItemManual(ctx context.Context, id string) error
+	DeleteItemImageForWorkspaceManual(ctx context.Context, arg DeleteItemImageForWorkspaceManualParams) (sql.Result, error)
+	DeleteItemImagesForItemResourceGraph(ctx context.Context, arg DeleteItemImagesForItemResourceGraphParams) error
+	DeleteOCRRunsForItemResourceGraph(ctx context.Context, arg DeleteOCRRunsForItemResourceGraphParams) error
+	DeleteOldestAuthSessionForUserManual(ctx context.Context, userID uint64) (sql.Result, error)
+	DeleteOrphanStorageQuotaUsage(ctx context.Context) error
 	DeleteOrphanedEventOutboxBeforeManual(ctx context.Context, cutoff time.Time) error
+	DeleteProviderAuditsForItemResourceGraph(ctx context.Context, arg DeleteProviderAuditsForItemResourceGraphParams) error
+	DeletePublishedPagesForItemResourceGraph(ctx context.Context, arg DeletePublishedPagesForItemResourceGraphParams) error
+	DeleteResourceCleanupByKindKey(ctx context.Context, arg DeleteResourceCleanupByKindKeyParams) (sql.Result, error)
+	DeleteRetainableExternalRequestsManual(ctx context.Context, cutoff time.Time) (sql.Result, error)
+	DeleteRetainedTerminalTranscriptionJobManual(ctx context.Context, arg DeleteRetainedTerminalTranscriptionJobManualParams) (sql.Result, error)
+	DeleteRetainedTranscriptionJobAttemptsManual(ctx context.Context, jobID uint64) error
 	DeleteSelectionRuleForWorkspaceManual(ctx context.Context, arg DeleteSelectionRuleForWorkspaceManualParams) (sql.Result, error)
 	DeleteSelectionRuleManual(ctx context.Context, id uint64) error
-	DeleteUserProviderSecretManual(ctx context.Context, arg DeleteUserProviderSecretManualParams) (sql.Result, error)
-	DeleteWorkspaceProviderSecretManual(ctx context.Context, arg DeleteWorkspaceProviderSecretManualParams) (sql.Result, error)
+	DeleteSelectionRulesForContextManual(ctx context.Context, contextID uint64) error
+	DeleteStorageQuotaReservation(ctx context.Context, arg DeleteStorageQuotaReservationParams) (sql.Result, error)
+	DeleteTranscriptionAttemptsForItemResourceGraph(ctx context.Context, arg DeleteTranscriptionAttemptsForItemResourceGraphParams) error
+	DeleteTranscriptionJobsForItemResourceGraph(ctx context.Context, arg DeleteTranscriptionJobsForItemResourceGraphParams) error
+	DeleteUploadBatchFilesForItemResourceGraph(ctx context.Context, arg DeleteUploadBatchFilesForItemResourceGraphParams) error
+	DeleteUploadBatchesForItemResourceGraph(ctx context.Context, arg DeleteUploadBatchesForItemResourceGraphParams) error
+	DeleteWebhookDeliveriesForEventIDsManual(ctx context.Context, eventIds []string) error
+	DeleteWorkspaceMemberManual(ctx context.Context, arg DeleteWorkspaceMemberManualParams) (sql.Result, error)
+	DetachExternalRequestsFromRetainedJobManual(ctx context.Context, arg DetachExternalRequestsFromRetainedJobManualParams) error
+	DetachUploadBatchFilesForItemImageResourceGraph(ctx context.Context, arg DetachUploadBatchFilesForItemImageResourceGraphParams) error
+	DetachUploadBatchFilesFromRetainedJobManual(ctx context.Context, arg DetachUploadBatchFilesFromRetainedJobManualParams) error
+	EnsureStorageQuotaUsage(ctx context.Context, workspaceID uint64) error
+	EnsureUploadBatchImageManual(ctx context.Context, arg EnsureUploadBatchImageManualParams) (sql.Result, error)
 	ExtendTranscriptionJobLeaseManual(ctx context.Context, arg ExtendTranscriptionJobLeaseManualParams) (sql.Result, error)
-	FailExternalRequestManual(ctx context.Context, arg FailExternalRequestManualParams) error
-	FailTranscriptionJobManual(ctx context.Context, arg FailTranscriptionJobManualParams) error
+	FailExhaustedAnnotationMirrors(ctx context.Context) error
+	FailExhaustedResourceCleanups(ctx context.Context) error
+	FailExpiredExhaustedWebhookDeliveriesManual(ctx context.Context) error
+	FailExpiredTranscriptionJobManual(ctx context.Context, arg FailExpiredTranscriptionJobManualParams) (sql.Result, error)
+	FailExternalRequestManual(ctx context.Context, arg FailExternalRequestManualParams) (sql.Result, error)
+	FailUploadBatchFileManual(ctx context.Context, arg FailUploadBatchFileManualParams) (int64, error)
+	FenceUploadResourceCleanup(ctx context.Context, arg FenceUploadResourceCleanupParams) (sql.Result, error)
 	FindPreferredProviderSecretManual(ctx context.Context, arg FindPreferredProviderSecretManualParams) (ProviderSecret, error)
+	FinishTranscriptionJobAttemptManual(ctx context.Context, arg FinishTranscriptionJobAttemptManualParams) (sql.Result, error)
 	GetAPIKeyByHashManual(ctx context.Context, keyHash string) (ApiKey, error)
 	GetAPIKeyManual(ctx context.Context, id uint64) (ApiKey, error)
-	GetAnnotationManual(ctx context.Context, id string) (Annotation, error)
+	GetActiveTranscriptionJobByItemImageManual(ctx context.Context, itemImageID sql.NullInt64) (TranscriptionJob, error)
+	GetAnnotationIndexEntryManual(ctx context.Context, arg GetAnnotationIndexEntryManualParams) (Annotation, error)
+	GetAnnotationMirrorTombstones(ctx context.Context, itemImageID uint64) (AnnotationMirrorTombstone, error)
+	GetAnnotationMirrorTombstonesForUpdate(ctx context.Context, itemImageID uint64) (AnnotationMirrorTombstone, error)
+	GetAnnotationPageManual(ctx context.Context, arg GetAnnotationPageManualParams) (AnnotationPage, error)
 	GetAuthSessionByTokenHashManual(ctx context.Context, tokenHash string) (AuthSession, error)
+	GetCanonicalRevisionForItemImageManual(ctx context.Context, itemImageID uint64) (uint64, error)
 	GetContextManual(ctx context.Context, id uint64) (Context, error)
-	GetContextOCRRunMetricsManual(ctx context.Context, contextID sql.NullInt64) (GetContextOCRRunMetricsManualRow, error)
+	GetContextOCRRunMetricsManual(ctx context.Context, arg GetContextOCRRunMetricsManualParams) (GetContextOCRRunMetricsManualRow, error)
+	GetDefaultContextForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (Context, error)
 	GetDefaultContextManual(ctx context.Context) (Context, error)
+	GetEventOutboxHighWaterForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (interface{}, error)
 	GetEventOutboxHighWaterManual(ctx context.Context) (interface{}, error)
+	GetExternalRequestManual(ctx context.Context, arg GetExternalRequestManualParams) (ExternalRequest, error)
+	GetItemDurableDatabaseBytes(ctx context.Context, arg GetItemDurableDatabaseBytesParams) (int64, error)
 	GetItemForWorkspaceManual(ctx context.Context, arg GetItemForWorkspaceManualParams) (Item, error)
-	GetItemImageByCanvasURIForWorkspaceManual(ctx context.Context, arg GetItemImageByCanvasURIForWorkspaceManualParams) (GetItemImageByCanvasURIForWorkspaceManualRow, error)
-	GetItemImageByCanvasURIManual(ctx context.Context, canvasUri sql.NullString) (GetItemImageByCanvasURIManualRow, error)
+	GetItemImageDurableDatabaseBytes(ctx context.Context, arg GetItemImageDurableDatabaseBytesParams) (int64, error)
 	GetItemImageForWorkspaceManual(ctx context.Context, arg GetItemImageForWorkspaceManualParams) (GetItemImageForWorkspaceManualRow, error)
-	GetItemImageManual(ctx context.Context, id uint64) (GetItemImageManualRow, error)
+	GetItemImageManual(ctx context.Context, id uint64) (ItemImage, error)
 	GetItemManual(ctx context.Context, id string) (Item, error)
-	GetOCRRunByItemImageIDManual(ctx context.Context, itemImageID sql.NullInt64) (OcrRun, error)
+	GetOCRRunByItemImageIDManual(ctx context.Context, itemImageID uint64) (OcrRun, error)
 	GetOCRRunManual(ctx context.Context, sessionID string) (OcrRun, error)
 	GetPersonalWorkspaceByUserIDManual(ctx context.Context, userID sql.NullInt64) (Workspace, error)
+	GetProviderSecretLifecycleManual(ctx context.Context, arg GetProviderSecretLifecycleManualParams) (ProviderSecret, error)
 	GetProviderSecretVisibleToUserManual(ctx context.Context, arg GetProviderSecretVisibleToUserManualParams) (ProviderSecret, error)
-	GetSessionManual(ctx context.Context, id string) (Session, error)
+	GetPublishedAnnotationPage(ctx context.Context, itemImageID uint64) (PublishedAnnotationPage, error)
+	GetPublishedAnnotationPageForUpdate(ctx context.Context, arg GetPublishedAnnotationPageForUpdateParams) (PublishedAnnotationPage, error)
+	GetSelectionRuleByIDManual(ctx context.Context, id uint64) (ContextSelectionRule, error)
+	GetSelectionRuleForWorkspaceManual(ctx context.Context, arg GetSelectionRuleForWorkspaceManualParams) (ContextSelectionRule, error)
+	GetStorageQuotaUsage(ctx context.Context, workspaceID uint64) (StorageQuotaUsage, error)
+	GetSystemContextByNameManual(ctx context.Context, name string) (Context, error)
+	GetTranscriptionJobAttemptManual(ctx context.Context, arg GetTranscriptionJobAttemptManualParams) (TranscriptionJobAttempt, error)
 	GetTranscriptionJobManual(ctx context.Context, id uint64) (TranscriptionJob, error)
+	GetUploadBatchManual(ctx context.Context, arg GetUploadBatchManualParams) (UploadBatch, error)
 	GetUserByEmailManual(ctx context.Context, email sql.NullString) (GetUserByEmailManualRow, error)
 	GetUserByGoogleSubjectManual(ctx context.Context, googleSubject sql.NullString) (GetUserByGoogleSubjectManualRow, error)
 	GetUserManual(ctx context.Context, id uint64) (GetUserManualRow, error)
 	GetWorkspaceAccessManual(ctx context.Context, arg GetWorkspaceAccessManualParams) (GetWorkspaceAccessManualRow, error)
 	GetWorkspaceIDForItemImageManual(ctx context.Context, itemImageID uint64) (uint64, error)
+	GetWorkspaceManual(ctx context.Context, id uint64) (Workspace, error)
+	GetWorkspaceMemberManual(ctx context.Context, arg GetWorkspaceMemberManualParams) (GetWorkspaceMemberManualRow, error)
 	HasDefaultContextManual(ctx context.Context) (bool, error)
 	InsertEventOutboxManual(ctx context.Context, arg InsertEventOutboxManualParams) error
 	InsertExternalRequestManual(ctx context.Context, arg InsertExternalRequestManualParams) (sql.Result, error)
+	InsertOCRRunManual(ctx context.Context, arg InsertOCRRunManualParams) (sql.Result, error)
+	InsertProviderCallAudit(ctx context.Context, arg InsertProviderCallAuditParams) (sql.Result, error)
+	InsertPublishedAnnotationPage(ctx context.Context, arg InsertPublishedAnnotationPageParams) error
+	InsertStorageQuotaReservation(ctx context.Context, arg InsertStorageQuotaReservationParams) error
+	InsertTranscriptionJobAttemptManual(ctx context.Context, arg InsertTranscriptionJobAttemptManualParams) (sql.Result, error)
+	InsertUploadBatchFileManual(ctx context.Context, arg InsertUploadBatchFileManualParams) (int64, error)
+	InsertUploadBatchManual(ctx context.Context, arg InsertUploadBatchManualParams) error
 	InsertWebhookDeliveryIfMissingManual(ctx context.Context, arg InsertWebhookDeliveryIfMissingManualParams) error
 	ListAPIKeysByWorkspaceManual(ctx context.Context, workspaceID uint64) ([]ApiKey, error)
-	ListContextsForWorkspaceManual(ctx context.Context, arg ListContextsForWorkspaceManualParams) ([]Context, error)
-	ListContextsManual(ctx context.Context, systemOnly interface{}) ([]Context, error)
+	ListContextsPageForWorkspaceManual(ctx context.Context, arg ListContextsPageForWorkspaceManualParams) ([]Context, error)
 	ListEventOutboxAfterIDForWorkspaceManual(ctx context.Context, arg ListEventOutboxAfterIDForWorkspaceManualParams) ([]EventOutbox, error)
 	ListEventOutboxAfterIDManual(ctx context.Context, arg ListEventOutboxAfterIDManualParams) ([]EventOutbox, error)
+	ListExpiredProviderAuditWorkspaces(ctx context.Context, arg ListExpiredProviderAuditWorkspacesParams) ([]uint64, error)
+	ListIncompleteUploadBatchImagesForCleanupManual(ctx context.Context, arg ListIncompleteUploadBatchImagesForCleanupManualParams) ([]ListIncompleteUploadBatchImagesForCleanupManualRow, error)
+	ListItemAnnotationManifestReferencesManual(ctx context.Context, arg ListItemAnnotationManifestReferencesManualParams) ([]ListItemAnnotationManifestReferencesManualRow, error)
+	ListItemAnnotationPagesManual(ctx context.Context, arg ListItemAnnotationPagesManualParams) ([]AnnotationPage, error)
+	ListItemAnnotationRevisionsManual(ctx context.Context, arg ListItemAnnotationRevisionsManualParams) ([]ListItemAnnotationRevisionsManualRow, error)
 	ListItemImagesByWorkspaceManual(ctx context.Context, workspaceID uint64) ([]ListItemImagesByWorkspaceManualRow, error)
-	ListItemImagesManual(ctx context.Context, itemID string) ([]ListItemImagesManualRow, error)
-	ListItemsManual(ctx context.Context, workspaceID uint64) ([]Item, error)
+	ListItemImagesForCleanup(ctx context.Context, arg ListItemImagesForCleanupParams) ([]ListItemImagesForCleanupRow, error)
+	ListItemImagesManual(ctx context.Context, itemID string) ([]ItemImage, error)
+	ListItemPreviewsForItemsPageManual(ctx context.Context, arg ListItemPreviewsForItemsPageManualParams) ([]ListItemPreviewsForItemsPageManualRow, error)
+	ListItemSummariesPageManual(ctx context.Context, arg ListItemSummariesPageManualParams) ([]ListItemSummariesPageManualRow, error)
+	ListProviderCallAuditsByItem(ctx context.Context, arg ListProviderCallAuditsByItemParams) ([]ListProviderCallAuditsByItemRow, error)
+	ListProviderSecretCleanupCandidatesManual(ctx context.Context, arg ListProviderSecretCleanupCandidatesManualParams) ([]ProviderSecret, error)
 	ListProviderSecretsVisibleToUserManual(ctx context.Context, arg ListProviderSecretsVisibleToUserManualParams) ([]ProviderSecret, error)
-	ListSelectionRulesForWorkspaceManual(ctx context.Context, arg ListSelectionRulesForWorkspaceManualParams) ([]ContextSelectionRule, error)
-	ListSelectionRulesManual(ctx context.Context, arg ListSelectionRulesManualParams) ([]ContextSelectionRule, error)
-	ListSessionsManual(ctx context.Context) ([]Session, error)
-	ListTranscriptionJobsByItemImageManual(ctx context.Context, itemImageID uint64) ([]TranscriptionJob, error)
-	ListTranscriptionJobsByWorkspaceManual(ctx context.Context, workspaceID uint64) ([]TranscriptionJob, error)
+	ListPublishedItemAnnotationManifestReferences(ctx context.Context, itemID string) ([]ListPublishedItemAnnotationManifestReferencesRow, error)
+	ListSelectionRulesForResolutionManual(ctx context.Context, limit int32) ([]ContextSelectionRule, error)
+	ListSelectionRulesForWorkspaceResolutionManual(ctx context.Context, arg ListSelectionRulesForWorkspaceResolutionManualParams) ([]ContextSelectionRule, error)
+	ListSelectionRulesPageForWorkspaceManual(ctx context.Context, arg ListSelectionRulesPageForWorkspaceManualParams) ([]ContextSelectionRule, error)
+	ListTranscriptionJobAttemptsManual(ctx context.Context, jobID uint64) ([]TranscriptionJobAttempt, error)
+	ListTranscriptionJobsByItemImagePageManual(ctx context.Context, arg ListTranscriptionJobsByItemImagePageManualParams) ([]ListTranscriptionJobsByItemImagePageManualRow, error)
+	ListTranscriptionJobsByWorkspacePageManual(ctx context.Context, arg ListTranscriptionJobsByWorkspacePageManualParams) ([]ListTranscriptionJobsByWorkspacePageManualRow, error)
+	ListUploadBatchFilesManual(ctx context.Context, arg ListUploadBatchFilesManualParams) ([]UploadBatchFile, error)
 	ListWorkspaceAccessByUserManual(ctx context.Context, userID uint64) ([]ListWorkspaceAccessByUserManualRow, error)
+	ListWorkspaceMembersManual(ctx context.Context, workspaceID uint64) ([]ListWorkspaceMembersManualRow, error)
+	LockActiveTranscriptionJobForUpdateManual(ctx context.Context, itemImageID sql.NullInt64) (TranscriptionJob, error)
+	LockActiveTranscriptionJobLeaseManual(ctx context.Context, arg LockActiveTranscriptionJobLeaseManualParams) (uint64, error)
+	// Rebuild is rare maintenance. This ordered locking read also locks the
+	// positive-key supremum gap, so a concurrently created workspace cannot add a
+	// quota row between the tenant snapshot and the final global lock.
+	LockAllTenantStorageQuotaUsage(ctx context.Context) ([]StorageQuotaUsage, error)
+	LockAnnotationPageForPublication(ctx context.Context, arg LockAnnotationPageForPublicationParams) (AnnotationPage, error)
+	LockCanonicalRevisionForTranscriptionJobManual(ctx context.Context, itemImageID uint64) (uint64, error)
+	LockContextByIDForUseManual(ctx context.Context, contextID uint64) (Context, error)
+	LockContextForDeleteManual(ctx context.Context, id uint64) (LockContextForDeleteManualRow, error)
+	LockContextForUseManual(ctx context.Context, arg LockContextForUseManualParams) (Context, error)
+	LockContextForWorkspaceDeleteManual(ctx context.Context, arg LockContextForWorkspaceDeleteManualParams) (uint64, error)
+	LockEventOutboxRetentionBatchManual(ctx context.Context, cutoff time.Time) ([]string, error)
+	LockExpiredProviderAuditBatch(ctx context.Context, arg LockExpiredProviderAuditBatchParams) ([]LockExpiredProviderAuditBatchRow, error)
+	LockExpiredStorageQuotaReservations(ctx context.Context, arg LockExpiredStorageQuotaReservationsParams) ([]WorkspaceStorageReservation, error)
+	LockItemForCleanup(ctx context.Context, arg LockItemForCleanupParams) (string, error)
+	LockItemForUseManual(ctx context.Context, arg LockItemForUseManualParams) (string, error)
+	LockItemImageDimensionsForWorkspaceManual(ctx context.Context, arg LockItemImageDimensionsForWorkspaceManualParams) (LockItemImageDimensionsForWorkspaceManualRow, error)
+	LockItemImageForCleanup(ctx context.Context, arg LockItemImageForCleanupParams) (LockItemImageForCleanupRow, error)
+	LockItemImageForUseManual(ctx context.Context, arg LockItemImageForUseManualParams) (string, error)
+	LockItemImageIDsByURL(ctx context.Context, imageUrl string) ([]uint64, error)
+	LockLiveStorageQuotaReservation(ctx context.Context, arg LockLiveStorageQuotaReservationParams) (WorkspaceStorageReservation, error)
+	LockOldestTerminalTranscriptionJobsForWorkspaceManual(ctx context.Context, arg LockOldestTerminalTranscriptionJobsForWorkspaceManualParams) ([]uint64, error)
+	LockResourceCleanupByKindKey(ctx context.Context, arg LockResourceCleanupByKindKeyParams) (ResourceCleanupOutbox, error)
+	LockStorageQuotaReservation(ctx context.Context, arg LockStorageQuotaReservationParams) (WorkspaceStorageReservation, error)
+	// Expiry only makes a reservation eligible for cleanup. Admission continues
+	// to count it until this locking read owns the row and the sweeper removes it.
+	// Active aggregate transactions hold the reservation lock and are skipped.
+	LockStorageQuotaSweepWorkspace(ctx context.Context, expiresAt time.Time) (uint64, error)
+	LockStorageQuotaUsage(ctx context.Context, workspaceID uint64) (StorageQuotaUsage, error)
+	LockTranscriptionJobForExternalRequestUseManual(ctx context.Context, arg LockTranscriptionJobForExternalRequestUseManualParams) (uint64, error)
+	LockTranscriptionJobForUpdateManual(ctx context.Context, id uint64) (TranscriptionJob, error)
+	// Every code path that admits a pending transcription job takes this lock
+	// before counting active jobs. The workspace row is the per-tenant admission
+	// mutex; terminal job transitions do not need to update a separate counter.
+	LockTranscriptionJobWorkspaceByItemImageManual(ctx context.Context, itemImageID uint64) (uint64, error)
+	LockUploadBatchCompletionImageManual(ctx context.Context, arg LockUploadBatchCompletionImageManualParams) (uint64, error)
+	LockUploadBatchCompletionJobManual(ctx context.Context, arg LockUploadBatchCompletionJobManualParams) (uint64, error)
+	LockUploadBatchFileImageForCleanupManual(ctx context.Context, arg LockUploadBatchFileImageForCleanupManualParams) (LockUploadBatchFileImageForCleanupManualRow, error)
+	LockUploadBatchFileManual(ctx context.Context, arg LockUploadBatchFileManualParams) (UploadBatchFile, error)
+	LockUploadBatchManual(ctx context.Context, arg LockUploadBatchManualParams) (UploadBatch, error)
+	LockUserByEmailForIdentityManual(ctx context.Context, email sql.NullString) (LockUserByEmailForIdentityManualRow, error)
+	LockUserByGoogleSubjectForIdentityManual(ctx context.Context, googleSubject sql.NullString) (LockUserByGoogleSubjectForIdentityManualRow, error)
+	LockUserForIdentityAdmissionManual(ctx context.Context, userID uint64) (uint64, error)
+	LockWorkspaceForSelectionRuleAdmissionManual(ctx context.Context, workspaceID uint64) (uint64, error)
+	LockWorkspaceForUseManual(ctx context.Context, id uint64) (uint64, error)
+	LockWorkspaceManual(ctx context.Context, id uint64) (Workspace, error)
+	LockWorkspaceMemberRoleManual(ctx context.Context, arg LockWorkspaceMemberRoleManualParams) (WorkspaceMembersRole, error)
+	MarkActiveProviderSecretCleanupManual(ctx context.Context, arg MarkActiveProviderSecretCleanupManualParams) (sql.Result, error)
+	MarkAnnotationMirrorProcessing(ctx context.Context, arg MarkAnnotationMirrorProcessingParams) (sql.Result, error)
+	MarkPendingProviderSecretCleanupManual(ctx context.Context, arg MarkPendingProviderSecretCleanupManualParams) (sql.Result, error)
+	MarkResourceCleanupProcessing(ctx context.Context, arg MarkResourceCleanupProcessingParams) (sql.Result, error)
 	MarkTranscriptionJobLeasedManual(ctx context.Context, arg MarkTranscriptionJobLeasedManualParams) (sql.Result, error)
-	MarkTranscriptionJobRunningManual(ctx context.Context, id uint64) error
 	MarkWebhookDeliveryDeliveredManual(ctx context.Context, arg MarkWebhookDeliveryDeliveredManualParams) (sql.Result, error)
 	MarkWebhookDeliveryFailedManual(ctx context.Context, arg MarkWebhookDeliveryFailedManualParams) (sql.Result, error)
 	MarkWebhookDeliveryProcessingManual(ctx context.Context, arg MarkWebhookDeliveryProcessingManualParams) (sql.Result, error)
+	PermanentlyFailTranscriptionJobManual(ctx context.Context, arg PermanentlyFailTranscriptionJobManualParams) (sql.Result, error)
+	PublishedImageURLExists(ctx context.Context, imageUrl string) (bool, error)
+	RebuildStorageQuotaUsageRows(ctx context.Context) ([]RebuildStorageQuotaUsageRowsRow, error)
 	ReclaimExternalRequestManual(ctx context.Context, arg ReclaimExternalRequestManualParams) error
+	ReleaseIdentityConvergenceLockManual(ctx context.Context, lockName string) (bool, error)
+	RenewUploadBatchFileManual(ctx context.Context, arg RenewUploadBatchFileManualParams) (int64, error)
+	ReplaceStorageQuotaUsage(ctx context.Context, arg ReplaceStorageQuotaUsageParams) error
+	ResizeStagedUploadCleanup(ctx context.Context, arg ResizeStagedUploadCleanupParams) (sql.Result, error)
+	RetryAnnotationMirror(ctx context.Context, arg RetryAnnotationMirrorParams) (sql.Result, error)
 	RetryOrFailTranscriptionJobManual(ctx context.Context, arg RetryOrFailTranscriptionJobManualParams) (sql.Result, error)
-	SaveOCREditsManual(ctx context.Context, arg SaveOCREditsManualParams) (sql.Result, error)
-	SearchAnnotationsByCanvasManual(ctx context.Context, arg SearchAnnotationsByCanvasManualParams) ([]Annotation, error)
+	RetryResourceCleanup(ctx context.Context, arg RetryResourceCleanupParams) (sql.Result, error)
+	SaveCanonicalOCRCorrectionMetricManual(ctx context.Context, arg SaveCanonicalOCRCorrectionMetricManualParams) (sql.Result, error)
+	SearchAnnotationIndexManual(ctx context.Context, arg SearchAnnotationIndexManualParams) ([]Annotation, error)
+	SelectAnnotationMirrorForUpdate(ctx context.Context) (AnnotationMirrorOutbox, error)
 	SelectExternalRequestForUpdateManual(ctx context.Context, arg SelectExternalRequestForUpdateManualParams) (SelectExternalRequestForUpdateManualRow, error)
+	SelectResourceCleanupForUpdate(ctx context.Context) (ResourceCleanupOutbox, error)
+	SetCurrentOCRRunManual(ctx context.Context, arg SetCurrentOCRRunManualParams) error
+	SetItemImageCanvasURIIfMissingManual(ctx context.Context, arg SetItemImageCanvasURIIfMissingManualParams) (int64, error)
 	SetTranscriptionJobTotalSegmentsManual(ctx context.Context, arg SetTranscriptionJobTotalSegmentsManualParams) (sql.Result, error)
-	TouchAPIKeyManual(ctx context.Context, id uint64) error
-	TouchAuthSessionManual(ctx context.Context, tokenHash string) error
-	UpdateAnnotationManual(ctx context.Context, arg UpdateAnnotationManualParams) (sql.Result, error)
-	UpdateContextManual(ctx context.Context, arg UpdateContextManualParams) error
+	SubtractStorageQuotaReserved(ctx context.Context, arg SubtractStorageQuotaReservedParams) (sql.Result, error)
+	SubtractStorageQuotaUsed(ctx context.Context, arg SubtractStorageQuotaUsedParams) (sql.Result, error)
+	SupersedeTranscriptionJobByIDManual(ctx context.Context, id uint64) (sql.Result, error)
+	UpdateAnnotationPageCASManual(ctx context.Context, arg UpdateAnnotationPageCASManualParams) (sql.Result, error)
+	UpdateContextManual(ctx context.Context, arg UpdateContextManualParams) (sql.Result, error)
 	UpdateItemImageCanvasURIManual(ctx context.Context, arg UpdateItemImageCanvasURIManualParams) error
 	UpdateItemMetadataManual(ctx context.Context, arg UpdateItemMetadataManualParams) error
+	UpdatePublishedAnnotationPage(ctx context.Context, arg UpdatePublishedAnnotationPageParams) (int64, error)
+	UpdateStorageQuotaReservation(ctx context.Context, arg UpdateStorageQuotaReservationParams) (sql.Result, error)
 	UpdateTranscriptionJobProgressManual(ctx context.Context, arg UpdateTranscriptionJobProgressManualParams) (sql.Result, error)
 	UpdateUserAuthProfileManual(ctx context.Context, arg UpdateUserAuthProfileManualParams) error
-	UpsertAnnotationManual(ctx context.Context, arg UpsertAnnotationManualParams) error
-	UpsertOCRRunManual(ctx context.Context, arg UpsertOCRRunManualParams) error
+	UpdateWorkspaceMemberRoleManual(ctx context.Context, arg UpdateWorkspaceMemberRoleManualParams) (sql.Result, error)
+	UpdateWorkspaceNameManual(ctx context.Context, arg UpdateWorkspaceNameManualParams) (sql.Result, error)
+	UpsertAnnotationMirrorOutbox(ctx context.Context, arg UpsertAnnotationMirrorOutboxParams) error
+	UpsertAnnotationMirrorTombstones(ctx context.Context, arg UpsertAnnotationMirrorTombstonesParams) error
+	UpsertResourceCleanup(ctx context.Context, arg UpsertResourceCleanupParams) error
+	UserCanReadImageURLManual(ctx context.Context, arg UserCanReadImageURLManualParams) (bool, error)
 	WorkspaceCanReadContextManual(ctx context.Context, arg WorkspaceCanReadContextManualParams) (bool, error)
 	WorkspaceCanWriteContextManual(ctx context.Context, arg WorkspaceCanWriteContextManualParams) (bool, error)
+	WorkspaceOwnsImageURLManual(ctx context.Context, arg WorkspaceOwnsImageURLManualParams) (bool, error)
 	WorkspaceOwnsItemImageManual(ctx context.Context, arg WorkspaceOwnsItemImageManualParams) (bool, error)
 	WorkspaceOwnsItemManual(ctx context.Context, arg WorkspaceOwnsItemManualParams) (bool, error)
+	WorkspaceOwnsSelectionRuleManual(ctx context.Context, arg WorkspaceOwnsSelectionRuleManualParams) (bool, error)
 	WorkspaceOwnsTranscriptionJobManual(ctx context.Context, arg WorkspaceOwnsTranscriptionJobManualParams) (bool, error)
 }
 

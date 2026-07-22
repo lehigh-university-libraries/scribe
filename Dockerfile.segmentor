@@ -1,13 +1,21 @@
 # syntax=docker/dockerfile:1.25@sha256:0adf442eae370b6087e08edc7c50b552d80ddf261576f4ebd6421006b2461f12
-FROM golang:1.26-bookworm@sha256:5a94593d87a066df5abb02969be911524963f53908292aa5a1a6096fc019012a AS builder
+FROM golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651 AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libleptonica-dev \
-    libtesseract-dev \
-    pkg-config \
+# Debian mirrors are mutable even when the base image is digest-pinned. Use a
+# dated archive and exact direct-package versions so rebuilding this commit
+# resolves the same native toolchain.
+RUN sed -ri \
+      's!URIs: http://deb.debian.org/debian$!URIs: http://snapshot.debian.org/archive/debian/20260720T000000Z!; s!URIs: http://deb.debian.org/debian-security$!URIs: http://snapshot.debian.org/archive/debian-security/20260720T000000Z!' \
+      /etc/apt/sources.list.d/debian.sources \
+    && printf '%s\n' 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99snapshot \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    build-essential=12.9 \
+    libleptonica-dev=1.82.0-3+b3 \
+    libtesseract-dev=5.3.0-2 \
+    pkg-config=1.8.1-1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
@@ -16,13 +24,15 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -tags localocr -o /out/scribe-segmentor ./cmd/segmentor
 
-FROM python:3.13-slim-bookworm@sha256:fcbd8dfc2605ba7c2eca646846c5e892b2931e41f6227985154a596f26ab8ed7
+FROM python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64
 
-ARG KRAKEN_PIP_SPEC=kraken==7.0
+ARG KRAKEN_PIP_SPEC=kraken==7.0.2
 ARG KRAKEN_RECOGNITION_MODEL_DOI=10.5281/zenodo.10592716
 ARG KRAKEN_RECOGNITION_MODEL_FILE=catmus-print-fondue-large.mlmodel
-ARG KRAKEN_SEGMENTATION_MODEL_DOI=
-ARG KRAKEN_SEGMENTATION_MODEL_FILE=
+ARG KRAKEN_RECOGNITION_MODEL_SHA256=1ed39e732b26ccdd0f14b9abd3edc66c4b04a02e3d827d7f9e96a7fe7b585b64
+ARG KRAKEN_SEGMENTATION_MODEL_DOI=10.5281/zenodo.14602569
+ARG KRAKEN_SEGMENTATION_MODEL_FILE=blla.mlmodel
+ARG KRAKEN_SEGMENTATION_MODEL_SHA256=77a638a83c9e535620827a09e410ed36391e9e8e8126d5796a0f15b978186056
 
 ENV KRAKEN_MODEL_DIR=/models/kraken \
     KRAKEN_TRANSCRIPTION_MODEL=${KRAKEN_RECOGNITION_MODEL_FILE} \
@@ -30,16 +40,34 @@ ENV KRAKEN_MODEL_DIR=/models/kraken \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    imagemagick \
-    libgomp1 \
-    libleptonica-dev \
-    libtesseract-dev \
-    tesseract-ocr \
+COPY config/segmentor-requirements.lock /tmp/segmentor-requirements.lock
+
+RUN sed -ri \
+      's!URIs: http://deb.debian.org/debian$!URIs: http://snapshot.debian.org/archive/debian/20260720T000000Z!; s!URIs: http://deb.debian.org/debian-security$!URIs: http://snapshot.debian.org/archive/debian-security/20260720T000000Z!' \
+      /etc/apt/sources.list.d/debian.sources \
+    && printf '%s\n' 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99snapshot \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    ca-certificates=20230311+deb12u1 \
+    imagemagick=8:6.9.11.60+dfsg-1.6+deb12u12 \
+    libgomp1=12.2.0-14+deb12u1 \
+    libleptonica-dev=1.82.0-3+b3 \
+    libtesseract-dev=5.3.0-2 \
+    tesseract-ocr=5.3.0-2 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir "${KRAKEN_PIP_SPEC}"
+COPY config/imagemagick-policy.xml /etc/ImageMagick-6/policy.xml
+
+# These Cloud Run services are CPU-only. The pip-compile output locks every
+# Python transitive and accepted artifact hash, including the +cpu PyTorch
+# wheels. A model/version change must regenerate the reviewed lock rather than
+# letting a release build re-resolve mutable PyPI metadata.
+RUN grep -Fqx "${KRAKEN_PIP_SPEC} \\" /tmp/segmentor-requirements.lock \
+    && pip install --disable-pip-version-check --no-cache-dir \
+      --require-hashes \
+      --only-binary=:all: \
+      --requirement /tmp/segmentor-requirements.lock \
+    && rm -f /tmp/segmentor-requirements.lock
 
 COPY scripts/install-kraken-models.sh /usr/local/bin/install-kraken-models
 RUN chmod +x /usr/local/bin/install-kraken-models && install-kraken-models

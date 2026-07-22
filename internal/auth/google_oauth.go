@@ -3,10 +3,19 @@ package auth
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/lehigh-university-libraries/scribe/internal/servicehttp"
 	"github.com/markbates/goth/providers/google"
+)
+
+const (
+	googleOAuthHTTPTimeout = 30 * time.Second
+	googleOAuthMaxResponse = int64(2 << 20)
 )
 
 type GoogleProfile struct {
@@ -29,7 +38,7 @@ func NewGoogleOAuthManager(clientID, clientSecret string) (*GoogleOAuthManager, 
 	return &GoogleOAuthManager{
 		clientID:     strings.TrimSpace(clientID),
 		clientSecret: strings.TrimSpace(clientSecret),
-		state:        NewOAuthStateManager(),
+		state:        NewOAuthStateManager(clientSecret),
 	}, nil
 }
 
@@ -38,30 +47,63 @@ func (m *GoogleOAuthManager) provider(callbackURL string) (*google.Provider, err
 	if callbackURL == "" {
 		return nil, fmt.Errorf("google oauth requires callback url")
 	}
-	return google.New(m.clientID, m.clientSecret, callbackURL, "email", "profile"), nil
+	provider := google.New(m.clientID, m.clientSecret, callbackURL, "email", "profile")
+	client := servicehttp.NewClient(googleOAuthHTTPTimeout)
+	baseTransport := client.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	client.Transport = boundedOAuthTransport{base: baseTransport, maxResponseBytes: googleOAuthMaxResponse}
+	provider.HTTPClient = client
+	return provider, nil
 }
 
-func (m *GoogleOAuthManager) BeginAuth(callbackURL, redirectPath string) (string, error) {
+type boundedOAuthTransport struct {
+	base             http.RoundTripper
+	maxResponseBytes int64
+}
+
+func (transport boundedOAuthTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := transport.base.RoundTrip(request)
+	if err != nil {
+		return nil, err
+	}
+	if response.ContentLength > transport.maxResponseBytes {
+		_ = response.Body.Close()
+		return nil, fmt.Errorf("google oauth response exceeds %d bytes", transport.maxResponseBytes)
+	}
+	response.Body = struct {
+		io.Reader
+		io.Closer
+	}{Reader: io.LimitReader(response.Body, transport.maxResponseBytes+1), Closer: response.Body}
+	return response, nil
+}
+
+func (m *GoogleOAuthManager) BeginAuth(callbackURL, redirectPath string) (string, OAuthState, error) {
 	stateValue, err := m.state.New(redirectPath)
 	if err != nil {
-		return "", err
+		return "", OAuthState{}, err
 	}
 	provider, err := m.provider(callbackURL)
 	if err != nil {
-		return "", err
+		return "", OAuthState{}, err
 	}
 	session, err := provider.BeginAuth(stateValue.State)
 	if err != nil {
-		return "", fmt.Errorf("begin google auth: %w", err)
+		return "", OAuthState{}, fmt.Errorf("begin google auth: %w", err)
 	}
 	authURL, err := session.GetAuthURL()
 	if err != nil {
-		return "", fmt.Errorf("get google auth url: %w", err)
+		return "", OAuthState{}, fmt.Errorf("get google auth url: %w", err)
 	}
-	return authURL, nil
+	return authURL, stateValue, nil
 }
 
 func (m *GoogleOAuthManager) CompleteAuth(ctx context.Context, callbackURL, code, state string) (GoogleProfile, OAuthState, error) {
+	// Goth's Google session API does not accept a caller context. The provider
+	// therefore uses the bounded HTTP client above so a disconnected callback
+	// cannot leave an unbounded token or profile request behind.
+	_ = ctx
 	stateValue, err := m.state.Consume(state)
 	if err != nil {
 		return GoogleProfile{}, OAuthState{}, err

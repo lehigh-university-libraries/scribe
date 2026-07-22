@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<alto xmlns="http://www.loc.gov/standards/alto/ns-v4#">
+<alto xmlns="http://www.loc.gov/standards/alto/ns-v4#" SCHEMAVERSION="4.4">
 <Layout>
-<Page WIDTH="210" HEIGHT="90">
+<Page ID="P1" PHYSICAL_IMG_NR="1" WIDTH="210" HEIGHT="90">
 <PrintSpace HPOS="0" VPOS="0" WIDTH="210" HEIGHT="90">
 <TextBlock ID="TB1">
 <TextLine ID="TL1" HPOS="10" VPOS="20" WIDTH="200" HEIGHT="30"><String ID="S1_1" CONTENT="Hello" HPOS="10" VPOS="20" WIDTH="100" HEIGHT="30"/><String ID="S1_2" CONTENT="world" HPOS="110" VPOS="20" WIDTH="100" HEIGHT="30"/></TextLine>

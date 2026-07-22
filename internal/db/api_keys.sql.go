@@ -11,6 +11,17 @@ import (
 	"encoding/json"
 )
 
+const countAPIKeysByWorkspaceManual = `-- name: CountAPIKeysByWorkspaceManual :one
+SELECT COUNT(*) FROM api_keys WHERE workspace_id = ?
+`
+
+func (q *Queries) CountAPIKeysByWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAPIKeysByWorkspaceManual, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAPIKeyManual = `-- name: CreateAPIKeyManual :execresult
 INSERT INTO api_keys (
   workspace_id,
@@ -92,7 +103,6 @@ SELECT
   key_hash,
   role,
   scopes,
-  last_used_at,
   expires_at,
   created_at,
   updated_at
@@ -113,7 +123,6 @@ func (q *Queries) GetAPIKeyByHashManual(ctx context.Context, keyHash string) (Ap
 		&i.KeyHash,
 		&i.Role,
 		&i.Scopes,
-		&i.LastUsedAt,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -131,7 +140,6 @@ SELECT
   key_hash,
   role,
   scopes,
-  last_used_at,
   expires_at,
   created_at,
   updated_at
@@ -152,7 +160,6 @@ func (q *Queries) GetAPIKeyManual(ctx context.Context, id uint64) (ApiKey, error
 		&i.KeyHash,
 		&i.Role,
 		&i.Scopes,
-		&i.LastUsedAt,
 		&i.ExpiresAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -170,13 +177,13 @@ SELECT
   key_hash,
   role,
   scopes,
-  last_used_at,
   expires_at,
   created_at,
   updated_at
 FROM api_keys
 WHERE workspace_id = ?
 ORDER BY created_at DESC
+LIMIT 100
 `
 
 func (q *Queries) ListAPIKeysByWorkspaceManual(ctx context.Context, workspaceID uint64) ([]ApiKey, error) {
@@ -197,7 +204,6 @@ func (q *Queries) ListAPIKeysByWorkspaceManual(ctx context.Context, workspaceID 
 			&i.KeyHash,
 			&i.Role,
 			&i.Scopes,
-			&i.LastUsedAt,
 			&i.ExpiresAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -213,15 +219,4 @@ func (q *Queries) ListAPIKeysByWorkspaceManual(ctx context.Context, workspaceID 
 		return nil, err
 	}
 	return items, nil
-}
-
-const touchAPIKeyManual = `-- name: TouchAPIKeyManual :exec
-UPDATE api_keys
-SET last_used_at = NOW()
-WHERE id = ?
-`
-
-func (q *Queries) TouchAPIKeyManual(ctx context.Context, id uint64) error {
-	_, err := q.db.ExecContext(ctx, touchAPIKeyManual, id)
-	return err
 }

@@ -1,10 +1,12 @@
-export type AnnotationAdapterConstructor<TClient> = new (
-  endpointURL: string,
-  iiifPresentationVersion: 3,
-  canvasID: string,
-  user: string,
-  client: TClient,
-) => unknown;
+import type {
+  ScribeAdapterRuntime,
+  ScribeAnnotationAdapterConstructor,
+  ScribeAnnotationClient,
+} from "mirador-scribe";
+
+export type CanvasAdapterRuntime = Required<
+  Pick<ScribeAdapterRuntime, "contextId" | "itemImageId" | "windowId">
+> & Pick<ScribeAdapterRuntime, "resolveContextId">;
 
 export const hiddenPanels = {
   info: false,
@@ -15,17 +17,22 @@ export const hiddenPanels = {
   layers: false,
 };
 
-export function commonViewerOptions<TClient>(
+export function commonViewerOptions(
   annotationBase: string,
-  Adapter: AnnotationAdapterConstructor<TClient>,
-  client: TClient,
+  Adapter: ScribeAnnotationAdapterConstructor,
+  client: ScribeAnnotationClient,
+  runtimeForCanvas: (canvasID: string) => CanvasAdapterRuntime,
   osdConfig: { crossOriginPolicy: string; ajaxWithCredentials: boolean },
 ) {
   return {
     id: "mirador-viewer",
     osdConfig,
     annotation: {
-      adapter: (canvasID: string) => new Adapter(annotationBase, 3, canvasID, "Scribe User", client),
+      adapter: (canvasID: string) =>
+        new Adapter(annotationBase, 3, canvasID, "Scribe User", {
+          client,
+          ...runtimeForCanvas(canvasID),
+        }),
       readonly: false,
     },
     annotations: { htmlSanitizationRuleSet: "liberal" },

@@ -12,36 +12,56 @@ import (
 	"time"
 )
 
+const countItemImagesByURLManual = `-- name: CountItemImagesByURLManual :one
+SELECT COUNT(*)
+FROM item_images
+WHERE image_url = ?
+`
+
+func (q *Queries) CountItemImagesByURLManual(ctx context.Context, imageUrl string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countItemImagesByURLManual, imageUrl)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createItemImageManual = `-- name: CreateItemImageManual :execresult
 INSERT INTO item_images (
+  workspace_id,
   item_id,
   sequence,
   image_url,
+  storage_bytes,
   canvas_uri,
+  width,
+  height,
   label,
   hocr_url
-) VALUES (
+) SELECT
+  i.workspace_id,
+  ?,
+  ?,
+  ?,
   ?,
   ?,
   ?,
   ?,
   ?,
   ?
-)
-ON DUPLICATE KEY UPDATE
-  image_url = VALUES(image_url),
-  canvas_uri = VALUES(canvas_uri),
-  label = VALUES(label),
-  hocr_url = VALUES(hocr_url)
+FROM items i
+WHERE i.id = ?
 `
 
 type CreateItemImageManualParams struct {
-	ItemID    string         `json:"item_id"`
-	Sequence  uint32         `json:"sequence"`
-	ImageUrl  string         `json:"image_url"`
-	CanvasUri sql.NullString `json:"canvas_uri"`
-	Label     sql.NullString `json:"label"`
-	HocrUrl   sql.NullString `json:"hocr_url"`
+	ItemID       string         `json:"item_id"`
+	Sequence     uint32         `json:"sequence"`
+	ImageUrl     string         `json:"image_url"`
+	StorageBytes uint64         `json:"storage_bytes"`
+	CanvasUri    sql.NullString `json:"canvas_uri"`
+	Width        sql.NullInt32  `json:"width"`
+	Height       sql.NullInt32  `json:"height"`
+	Label        sql.NullString `json:"label"`
+	HocrUrl      sql.NullString `json:"hocr_url"`
 }
 
 func (q *Queries) CreateItemImageManual(ctx context.Context, arg CreateItemImageManualParams) (sql.Result, error) {
@@ -49,9 +69,13 @@ func (q *Queries) CreateItemImageManual(ctx context.Context, arg CreateItemImage
 		arg.ItemID,
 		arg.Sequence,
 		arg.ImageUrl,
+		arg.StorageBytes,
 		arg.CanvasUri,
+		arg.Width,
+		arg.Height,
 		arg.Label,
 		arg.HocrUrl,
+		arg.ItemID,
 	)
 }
 
@@ -63,8 +87,10 @@ INSERT INTO items (
   name,
   source_type,
   source_url,
+  source_manifest,
   metadata
 ) VALUES (
+  ?,
   ?,
   ?,
   ?,
@@ -76,13 +102,14 @@ INSERT INTO items (
 `
 
 type CreateItemManualParams struct {
-	ID          string          `json:"id"`
-	UserID      uint64          `json:"user_id"`
-	WorkspaceID uint64          `json:"workspace_id"`
-	Name        string          `json:"name"`
-	SourceType  ItemsSourceType `json:"source_type"`
-	SourceUrl   sql.NullString  `json:"source_url"`
-	Metadata    json.RawMessage `json:"metadata"`
+	ID             string          `json:"id"`
+	UserID         uint64          `json:"user_id"`
+	WorkspaceID    uint64          `json:"workspace_id"`
+	Name           string          `json:"name"`
+	SourceType     ItemsSourceType `json:"source_type"`
+	SourceUrl      sql.NullString  `json:"source_url"`
+	SourceManifest sql.NullString  `json:"source_manifest"`
+	Metadata       json.RawMessage `json:"metadata"`
 }
 
 func (q *Queries) CreateItemManual(ctx context.Context, arg CreateItemManualParams) error {
@@ -93,73 +120,23 @@ func (q *Queries) CreateItemManual(ctx context.Context, arg CreateItemManualPara
 		arg.Name,
 		arg.SourceType,
 		arg.SourceUrl,
+		arg.SourceManifest,
 		arg.Metadata,
 	)
 	return err
 }
 
-const deleteItemManual = `-- name: DeleteItemManual :exec
-DELETE FROM items
-WHERE id = ?
-`
-
-func (q *Queries) DeleteItemManual(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteItemManual, id)
-	return err
-}
-
-const getItemImageByCanvasURIManual = `-- name: GetItemImageByCanvasURIManual :one
-SELECT
-  id,
-  item_id,
-  sequence,
-  image_url,
-  canvas_uri,
-  label,
-  hocr_url,
-  created_at,
-  updated_at
-FROM item_images
-WHERE canvas_uri = ?
-LIMIT 1
-`
-
-type GetItemImageByCanvasURIManualRow struct {
-	ID        uint64         `json:"id"`
-	ItemID    string         `json:"item_id"`
-	Sequence  uint32         `json:"sequence"`
-	ImageUrl  string         `json:"image_url"`
-	CanvasUri sql.NullString `json:"canvas_uri"`
-	Label     sql.NullString `json:"label"`
-	HocrUrl   sql.NullString `json:"hocr_url"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-}
-
-func (q *Queries) GetItemImageByCanvasURIManual(ctx context.Context, canvasUri sql.NullString) (GetItemImageByCanvasURIManualRow, error) {
-	row := q.db.QueryRowContext(ctx, getItemImageByCanvasURIManual, canvasUri)
-	var i GetItemImageByCanvasURIManualRow
-	err := row.Scan(
-		&i.ID,
-		&i.ItemID,
-		&i.Sequence,
-		&i.ImageUrl,
-		&i.CanvasUri,
-		&i.Label,
-		&i.HocrUrl,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getItemImageManual = `-- name: GetItemImageManual :one
 SELECT
   id,
+  workspace_id,
   item_id,
   sequence,
   image_url,
+  storage_bytes,
   canvas_uri,
+  width,
+  height,
   label,
   hocr_url,
   created_at,
@@ -168,27 +145,19 @@ FROM item_images
 WHERE id = ?
 `
 
-type GetItemImageManualRow struct {
-	ID        uint64         `json:"id"`
-	ItemID    string         `json:"item_id"`
-	Sequence  uint32         `json:"sequence"`
-	ImageUrl  string         `json:"image_url"`
-	CanvasUri sql.NullString `json:"canvas_uri"`
-	Label     sql.NullString `json:"label"`
-	HocrUrl   sql.NullString `json:"hocr_url"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-}
-
-func (q *Queries) GetItemImageManual(ctx context.Context, id uint64) (GetItemImageManualRow, error) {
+func (q *Queries) GetItemImageManual(ctx context.Context, id uint64) (ItemImage, error) {
 	row := q.db.QueryRowContext(ctx, getItemImageManual, id)
-	var i GetItemImageManualRow
+	var i ItemImage
 	err := row.Scan(
 		&i.ID,
+		&i.WorkspaceID,
 		&i.ItemID,
 		&i.Sequence,
 		&i.ImageUrl,
+		&i.StorageBytes,
 		&i.CanvasUri,
+		&i.Width,
+		&i.Height,
 		&i.Label,
 		&i.HocrUrl,
 		&i.CreatedAt,
@@ -205,6 +174,7 @@ SELECT
   name,
   source_type,
   source_url,
+  source_manifest,
   COALESCE(metadata, JSON_OBJECT()) AS metadata,
   created_at,
   updated_at
@@ -222,6 +192,7 @@ func (q *Queries) GetItemManual(ctx context.Context, id string) (Item, error) {
 		&i.Name,
 		&i.SourceType,
 		&i.SourceUrl,
+		&i.SourceManifest,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -232,10 +203,14 @@ func (q *Queries) GetItemManual(ctx context.Context, id string) (Item, error) {
 const listItemImagesManual = `-- name: ListItemImagesManual :many
 SELECT
   id,
+  workspace_id,
   item_id,
   sequence,
   image_url,
+  storage_bytes,
   canvas_uri,
+  width,
+  height,
   label,
   hocr_url,
   created_at,
@@ -245,33 +220,25 @@ WHERE item_id = ?
 ORDER BY sequence ASC
 `
 
-type ListItemImagesManualRow struct {
-	ID        uint64         `json:"id"`
-	ItemID    string         `json:"item_id"`
-	Sequence  uint32         `json:"sequence"`
-	ImageUrl  string         `json:"image_url"`
-	CanvasUri sql.NullString `json:"canvas_uri"`
-	Label     sql.NullString `json:"label"`
-	HocrUrl   sql.NullString `json:"hocr_url"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-}
-
-func (q *Queries) ListItemImagesManual(ctx context.Context, itemID string) ([]ListItemImagesManualRow, error) {
+func (q *Queries) ListItemImagesManual(ctx context.Context, itemID string) ([]ItemImage, error) {
 	rows, err := q.db.QueryContext(ctx, listItemImagesManual, itemID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListItemImagesManualRow{}
+	items := []ItemImage{}
 	for rows.Next() {
-		var i ListItemImagesManualRow
+		var i ItemImage
 		if err := rows.Scan(
 			&i.ID,
+			&i.WorkspaceID,
 			&i.ItemID,
 			&i.Sequence,
 			&i.ImageUrl,
+			&i.StorageBytes,
 			&i.CanvasUri,
+			&i.Width,
+			&i.Height,
 			&i.Label,
 			&i.HocrUrl,
 			&i.CreatedAt,
@@ -290,39 +257,203 @@ func (q *Queries) ListItemImagesManual(ctx context.Context, itemID string) ([]Li
 	return items, nil
 }
 
-const listItemsManual = `-- name: ListItemsManual :many
+const listItemPreviewsForItemsPageManual = `-- name: ListItemPreviewsForItemsPageManual :many
 SELECT
-  id,
-  user_id,
-  workspace_id,
-  name,
-  source_type,
-  source_url,
-  COALESCE(metadata, JSON_OBJECT()) AS metadata,
-  created_at,
-  updated_at
-FROM items
-WHERE workspace_id = ?
-ORDER BY created_at DESC
+  ranked.id,
+  ranked.workspace_id,
+  ranked.item_id,
+  ranked.sequence,
+  ranked.image_url,
+  ranked.storage_bytes,
+  ranked.canvas_uri,
+  ranked.width,
+  ranked.height,
+  ranked.label,
+  ranked.hocr_url,
+  ranked.created_at,
+  ranked.updated_at,
+  ranked.image_count
+FROM (
+  SELECT
+    ii.id,
+    ii.workspace_id,
+    ii.item_id,
+    ii.sequence,
+    ii.image_url,
+    ii.storage_bytes,
+    ii.canvas_uri,
+    ii.width,
+    ii.height,
+    ii.label,
+    ii.hocr_url,
+    ii.created_at,
+    ii.updated_at,
+    CAST(COUNT(*) OVER (PARTITION BY ii.item_id) AS UNSIGNED) AS image_count,
+    ROW_NUMBER() OVER (PARTITION BY ii.item_id ORDER BY ii.sequence ASC, ii.id ASC) AS image_rank
+  FROM item_images ii
+  JOIN (
+    SELECT i.id
+    FROM items i
+    WHERE i.workspace_id = ?
+      AND (
+        i.name LIKE ? ESCAPE '!'
+        OR i.id LIKE ? ESCAPE '!'
+        OR CAST(i.source_type AS CHAR) LIKE CAST(? AS CHAR) ESCAPE '!'
+      )
+      AND (
+        ? IS NULL
+        OR i.created_at < ?
+        OR (
+          i.created_at = ?
+          AND i.id < ?
+        )
+      )
+    ORDER BY i.created_at DESC, i.id DESC
+    LIMIT ?
+  ) page ON page.id = ii.item_id
+) ranked
+WHERE ranked.image_rank = 1
+ORDER BY ranked.item_id ASC
 `
 
-func (q *Queries) ListItemsManual(ctx context.Context, workspaceID uint64) ([]Item, error) {
-	rows, err := q.db.QueryContext(ctx, listItemsManual, workspaceID)
+type ListItemPreviewsForItemsPageManualParams struct {
+	WorkspaceID     uint64       `json:"workspace_id"`
+	FilterPattern   string       `json:"filter_pattern"`
+	CursorCreatedAt sql.NullTime `json:"cursor_created_at"`
+	CursorID        string       `json:"cursor_id"`
+	Limit           int32        `json:"limit"`
+}
+
+type ListItemPreviewsForItemsPageManualRow struct {
+	ID           uint64         `json:"id"`
+	WorkspaceID  uint64         `json:"workspace_id"`
+	ItemID       string         `json:"item_id"`
+	Sequence     uint32         `json:"sequence"`
+	ImageUrl     string         `json:"image_url"`
+	StorageBytes uint64         `json:"storage_bytes"`
+	CanvasUri    sql.NullString `json:"canvas_uri"`
+	Width        sql.NullInt32  `json:"width"`
+	Height       sql.NullInt32  `json:"height"`
+	Label        sql.NullString `json:"label"`
+	HocrUrl      sql.NullString `json:"hocr_url"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	ImageCount   int64          `json:"image_count"`
+}
+
+func (q *Queries) ListItemPreviewsForItemsPageManual(ctx context.Context, arg ListItemPreviewsForItemsPageManualParams) ([]ListItemPreviewsForItemsPageManualRow, error) {
+	rows, err := q.db.QueryContext(ctx, listItemPreviewsForItemsPageManual,
+		arg.WorkspaceID,
+		arg.FilterPattern,
+		arg.FilterPattern,
+		arg.FilterPattern,
+		arg.CursorCreatedAt,
+		arg.CursorCreatedAt,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Item{}
+	items := []ListItemPreviewsForItemsPageManualRow{}
 	for rows.Next() {
-		var i Item
+		var i ListItemPreviewsForItemsPageManualRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.UserID,
 			&i.WorkspaceID,
+			&i.ItemID,
+			&i.Sequence,
+			&i.ImageUrl,
+			&i.StorageBytes,
+			&i.CanvasUri,
+			&i.Width,
+			&i.Height,
+			&i.Label,
+			&i.HocrUrl,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.ImageCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listItemSummariesPageManual = `-- name: ListItemSummariesPageManual :many
+SELECT
+  id,
+  name,
+  source_type,
+  created_at,
+  updated_at
+FROM items
+WHERE workspace_id = ?
+  AND (
+    name LIKE ? ESCAPE '!'
+    OR id LIKE ? ESCAPE '!'
+    OR CAST(source_type AS CHAR) LIKE CAST(? AS CHAR) ESCAPE '!'
+  )
+  AND (
+    ? IS NULL
+    OR created_at < ?
+    OR (
+      created_at = ?
+      AND id < ?
+    )
+  )
+ORDER BY created_at DESC, id DESC
+LIMIT ?
+`
+
+type ListItemSummariesPageManualParams struct {
+	WorkspaceID     uint64       `json:"workspace_id"`
+	FilterPattern   string       `json:"filter_pattern"`
+	CursorCreatedAt sql.NullTime `json:"cursor_created_at"`
+	CursorID        string       `json:"cursor_id"`
+	Limit           int32        `json:"limit"`
+}
+
+type ListItemSummariesPageManualRow struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	SourceType ItemsSourceType `json:"source_type"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+}
+
+func (q *Queries) ListItemSummariesPageManual(ctx context.Context, arg ListItemSummariesPageManualParams) ([]ListItemSummariesPageManualRow, error) {
+	rows, err := q.db.QueryContext(ctx, listItemSummariesPageManual,
+		arg.WorkspaceID,
+		arg.FilterPattern,
+		arg.FilterPattern,
+		arg.FilterPattern,
+		arg.CursorCreatedAt,
+		arg.CursorCreatedAt,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemSummariesPageManualRow{}
+	for rows.Next() {
+		var i ListItemSummariesPageManualRow
+		if err := rows.Scan(
+			&i.ID,
 			&i.Name,
 			&i.SourceType,
-			&i.SourceUrl,
-			&i.Metadata,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -337,6 +468,57 @@ func (q *Queries) ListItemsManual(ctx context.Context, workspaceID uint64) ([]It
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockItemImageIDsByURL = `-- name: LockItemImageIDsByURL :many
+SELECT id
+FROM item_images
+WHERE image_url = ?
+ORDER BY id
+FOR UPDATE
+`
+
+func (q *Queries) LockItemImageIDsByURL(ctx context.Context, imageUrl string) ([]uint64, error) {
+	rows, err := q.db.QueryContext(ctx, lockItemImageIDsByURL, imageUrl)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uint64{}
+	for rows.Next() {
+		var id uint64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setItemImageCanvasURIIfMissingManual = `-- name: SetItemImageCanvasURIIfMissingManual :execrows
+UPDATE item_images
+SET canvas_uri = ?
+WHERE id = ?
+  AND (canvas_uri IS NULL OR canvas_uri = '')
+`
+
+type SetItemImageCanvasURIIfMissingManualParams struct {
+	CanvasUri sql.NullString `json:"canvas_uri"`
+	ID        uint64         `json:"id"`
+}
+
+func (q *Queries) SetItemImageCanvasURIIfMissingManual(ctx context.Context, arg SetItemImageCanvasURIIfMissingManualParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setItemImageCanvasURIIfMissingManual, arg.CanvasUri, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateItemImageCanvasURIManual = `-- name: UpdateItemImageCanvasURIManual :exec

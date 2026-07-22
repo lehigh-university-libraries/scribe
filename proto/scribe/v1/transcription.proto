@@ -10,33 +10,87 @@ option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/
 // TranscriptionJobStatus represents the lifecycle state of a batch transcription job.
 enum TranscriptionJobStatus {
   TRANSCRIPTION_JOB_STATUS_UNSPECIFIED = 0;
-  TRANSCRIPTION_JOB_STATUS_PENDING     = 1;
-  TRANSCRIPTION_JOB_STATUS_RUNNING     = 2;
-  TRANSCRIPTION_JOB_STATUS_COMPLETED   = 3;
-  TRANSCRIPTION_JOB_STATUS_FAILED      = 4;
+  TRANSCRIPTION_JOB_STATUS_PENDING = 1;
+  TRANSCRIPTION_JOB_STATUS_RUNNING = 2;
+  TRANSCRIPTION_JOB_STATUS_COMPLETED = 3;
+  TRANSCRIPTION_JOB_STATUS_FAILED = 4;
+  TRANSCRIPTION_JOB_STATUS_CANCELED = 5;
+  TRANSCRIPTION_JOB_STATUS_SUPERSEDED = 6;
+}
+
+// TranscriptionJobAttemptOutcome is the terminal reason for one immutable
+// worker claim. RUNNING is the only non-terminal value.
+enum TranscriptionJobAttemptOutcome {
+  TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_UNSPECIFIED = 0;
+  TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RUNNING = 1;
+  TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_COMPLETED = 2;
+  TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RETRYABLE_FAILED = 3;
+  TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_FAILED = 4;
+  TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_CANCELED = 5;
+  TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_SUPERSEDED = 6;
+  TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_LEASE_EXPIRED = 7;
+}
+
+// TranscriptionJobAttempt is the auditable history of one worker claim. Lease
+// tokens are intentionally not exposed through the application API.
+message TranscriptionJobAttempt {
+  uint64 job_id = 1;
+  uint32 attempt_number = 2;
+  uint64 input_revision = 3;
+  string context_snapshot_json = 4;
+  string lease_owner = 5;
+  TranscriptionJobAttemptOutcome outcome = 6;
+  string safe_error_message = 7;
+  uint64 result_revision = 8;
+  string started_at = 9;
+  string finished_at = 10;
 }
 
 // TranscriptionJob represents a batch transcription job for a single item image.
 // One job covers all line-level annotations on the canvas; progress is tracked
 // segment by segment so the editor overlay can visualise the work in real time.
 message TranscriptionJob {
-  uint64                  id                      = 1;
-  uint64                  item_image_id            = 2;
-  uint64                  context_id               = 3;
-  TranscriptionJobStatus  status                  = 4;
-  int32                   total_segments           = 5;
-  int32                   completed_segments       = 6;
-  int32                   failed_segments          = 7;
+  uint64 id = 1;
+  uint64 item_image_id = 2;
+  uint64 context_id = 3;
+  TranscriptionJobStatus status = 4;
+  int32 total_segments = 5;
+  int32 completed_segments = 6;
+  int32 failed_segments = 7;
   // annotation_id of the segment currently being processed.
-  string                  current_annotation_id    = 8;
+  string current_annotation_id = 8;
   // Full annotation JSON of the segment currently being processed, so the
   // editor overlay can highlight it without a separate lookup.
-  string                  current_annotation_json  = 9;
+  string current_annotation_json = 9;
   // annotation JSON of the most recently completed segment (with enriched text).
-  string                  last_result_annotation_json = 10;
-  string                  error_message            = 11;
-  string                  created_at               = 12;
-  string                  updated_at               = 13;
+  string last_result_annotation_json = 10;
+  string error_message = 11;
+  string created_at = 12;
+  string updated_at = 13;
+  uint64 input_revision = 14;
+  int32 attempt_count = 15;
+  int32 max_attempts = 16;
+  repeated TranscriptionJobAttempt attempts = 17;
+}
+
+// TranscriptionJobSummary is the bounded list projection. Per-segment
+// annotation payloads and attempt history are available from GetTranscriptionJob
+// and the stream, but are deliberately excluded from list responses.
+message TranscriptionJobSummary {
+  uint64 id = 1;
+  uint64 item_image_id = 2;
+  uint64 context_id = 3;
+  TranscriptionJobStatus status = 4;
+  int32 total_segments = 5;
+  int32 completed_segments = 6;
+  int32 failed_segments = 7;
+  string current_annotation_id = 8;
+  string error_message = 9;
+  string created_at = 10;
+  string updated_at = 11;
+  uint64 input_revision = 12;
+  int32 attempt_count = 13;
+  int32 max_attempts = 14;
 }
 
 // CreateTranscriptionJobRequest kicks off a batch transcription job for a
@@ -48,7 +102,7 @@ message CreateTranscriptionJobRequest {
     (buf.validate.field).uint64.gt = 0
   ];
   // Optional explicit context; resolved automatically if omitted.
-  uint64 context_id    = 2;
+  uint64 context_id = 2;
 }
 
 message CreateTranscriptionJobResponse {
@@ -67,12 +121,17 @@ message GetTranscriptionJobResponse {
 }
 
 message ListTranscriptionJobsRequest {
-  // Filter by item_image_id; returns all jobs if zero.
+  // Filter by item_image_id; returns workspace jobs if zero.
   uint64 item_image_id = 1;
+  // Number of job summaries to return. Defaults to 50 and is capped at 100.
+  uint32 page_size = 2 [(buf.validate.field).uint32.lte = 100];
+  // Opaque workspace- and filter-bound cursor returned by the previous page.
+  string page_token = 3 [(buf.validate.field).string.max_len = 512];
 }
 
 message ListTranscriptionJobsResponse {
-  repeated TranscriptionJob jobs = 1;
+  repeated TranscriptionJobSummary jobs = 1;
+  string next_page_token = 2;
 }
 
 // StreamTranscriptionJobRequest opens a server-sent-events stream for a job.
@@ -89,6 +148,17 @@ message StreamTranscriptionJobResponse {
   TranscriptionJob job = 1;
 }
 
+message CancelTranscriptionJobRequest {
+  uint64 job_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+}
+
+message CancelTranscriptionJobResponse {
+  TranscriptionJob job = 1;
+}
+
 service TranscriptionService {
   // CreateTranscriptionJob enqueues a new batch transcription job for an image.
   rpc CreateTranscriptionJob(CreateTranscriptionJobRequest) returns (CreateTranscriptionJobResponse) {
@@ -96,6 +166,16 @@ service TranscriptionService {
       resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_WRITE
       resource_id_field: "item_image_id"
+    };
+  }
+
+  // CancelTranscriptionJob fences any active worker and is idempotent for a
+  // job that is already canceled.
+  rpc CancelTranscriptionJob(CancelTranscriptionJobRequest) returns (CancelTranscriptionJobResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_TRANSCRIPTION_JOB
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "job_id"
     };
   }
 

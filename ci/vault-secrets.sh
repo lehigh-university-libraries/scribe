@@ -101,6 +101,8 @@ vault_request() {
   local status
   local curl_args=(
     -sS
+    --connect-timeout 5
+    --max-time 30
     -o "$tmp_file"
     -w '%{http_code}'
     -X "$method"
@@ -142,7 +144,7 @@ vault_read_data_object() {
       return 0
       ;;
     *)
-      echo "$VAULT_LAST_RESPONSE" >&2
+      echo "Vault response body withheld because it may contain sensitive secret material." >&2
       echo "Vault read failed for ${path} (HTTP ${VAULT_LAST_STATUS})" >&2
       return 1
       ;;
@@ -159,7 +161,7 @@ vault_write_object() {
   case "$VAULT_LAST_STATUS" in
     200|204) ;;
     *)
-      echo "$VAULT_LAST_RESPONSE" >&2
+      echo "Vault response body withheld because it may contain sensitive secret material." >&2
       echo "Vault write failed for ${path} (HTTP ${VAULT_LAST_STATUS})" >&2
       return 1
       ;;
@@ -177,7 +179,7 @@ vault_list_keys() {
       return 0
       ;;
     *)
-      echo "$VAULT_LAST_RESPONSE" >&2
+      echo "Vault response body withheld because it may contain sensitive secret material." >&2
       echo "Vault list failed for ${prefix} (HTTP ${VAULT_LAST_STATUS})" >&2
       return 1
       ;;
@@ -353,7 +355,7 @@ resolve_vault_client_token() {
       "${VAULT_ADDR%/}/v1/auth/google-jwt/login"
   )"
   if [ "$status_code" -lt 200 ] || [ "$status_code" -ge 300 ]; then
-    cat "$response_file" >&2
+    echo "Vault response body withheld because it may contain sensitive authentication material." >&2
     rm -f "$response_file"
     echo "Vault admin login failed for role ${jwt_role} using gcloud account ${gcloud_account} (HTTP ${status_code})." >&2
     exit 1
@@ -382,9 +384,6 @@ run_update() {
   update_required_secret \
     "${DEFAULT_PREFIX}/database/app" \
     "password" "Application database password" "secret"
-  update_required_secret \
-    "${DEFAULT_PREFIX}/database/root" \
-    "root_password" "MariaDB root password" "secret"
 }
 
 run_list() {

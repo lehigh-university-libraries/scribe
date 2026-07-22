@@ -1,3 +1,14 @@
+x-scribe-runtime-hardening: &scribe-runtime-hardening
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+# The init-only Vault helper runs from the same reviewed repository image as
+# the API. Terraform replaces this value with one digest for both services.
+x-scribe-api-image: &scribe-api-image ${SCRIBE_API_IMAGE:-ghcr.io/lehigh-university-libraries/scribe:main}
+
 services:
   mariadb:
     image: mariadb:12.3@sha256:b1c7bf836e64ed9406a8984af29509f40089d55cea14b32f12c4726a1f17104b
@@ -11,11 +22,15 @@ services:
     secrets:
       - mariadb_password
       - mariadb_root_password
+    group_add:
+      - ${SCRIBE_SECRETS_GID:-10001}
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
+    stop_grace_period: 30s
 
   traefik:
     image: traefik:v3.7.5@sha256:e4d98158c01ad752fc1071d4e9573788747230d902cdde00a772516e692d07c9
@@ -25,27 +40,46 @@ services:
       - --api.dashboard=false
       - --ping=true
       - --entryPoints.http.address=:80
-      - --entryPoints.http.forwardedHeaders.insecure=true
+      - --entryPoints.http.forwardedHeaders.insecure=false
+      - --entryPoints.http.forwardedHeaders.trustedIPs=${TRAEFIK_FORWARDED_TRUSTED_IPS:-127.0.0.1/32}
+      # PPB and the frontend normalize X-Forwarded-For to one validated client.
+      # Do not append the frontend's VPC address or Go will rate-limit every
+      # browser behind the sidecar as one client.
+      - --entryPoints.http.forwardedHeaders.notAppendXForwardedFor=true
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
     ports:
       - "80:80"
     volumes:
       - ./conf/traefik/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      default:
+        ipv4_address: ${SCRIBE_TRAEFIK_IP:-172.30.0.2}
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
       triplet:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 20s
 
   api:
-    image: ${SCRIBE_API_IMAGE:-ghcr.io/lehigh-university-libraries/scribe:main}
+    <<: *scribe-runtime-hardening
+    image: *scribe-api-image
     build: .
     expose:
       - "8080"
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      SCRIBE_DEPLOYED_API_IMAGE: *scribe-api-image
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
+      API_INTERNAL_BASE: ${API_INTERNAL_BASE:-http://api:8080}
+      AUTH_PREVIEW_ANONYMOUS: ${AUTH_PREVIEW_ANONYMOUS:-false}
       VAULT_ADDRESS: ${VAULT_ADDRESS:-}
       VAULT_WORKSPACE: ${VAULT_WORKSPACE:-dev}
       VAULT_SECRET_PREFIX: ${VAULT_SECRET_PREFIX:-scribe/dev}
@@ -56,51 +90,72 @@ services:
       SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:-}
       SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:-}
       SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:-}
-      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
-      IMAGE_SERVICE_AUDIENCE: ${IMAGE_SERVICE_AUDIENCE:-}
       IIIF_BASE: ${IIIF_BASE:-/iiif/3}
       IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://triplet:8080/iiif/3}
-      TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE-http://localhost:8081/presentation/v3}
+      IIIF_SOURCE_BASE: ${IIIF_SOURCE_BASE:-http://api:8080/static/uploads}
+      TRIPLET_SOURCE_READ_TOKEN_FILE: /run/secrets/triplet_source_read_token
+      TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE-http://localhost/presentation/v3}
       TRIPLET_PRESENTATION_INTERNAL_BASE: ${TRIPLET_PRESENTATION_INTERNAL_BASE-http://triplet:8080/presentation/v3}
-      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN-scribe-local-presentation-token}
+      TRIPLET_PRESENTATION_WRITE_TOKEN_FILE: /run/secrets/triplet_presentation_write_token
+      SCRIBE_PAGE_TOKEN_SIGNING_KEY_FILE: /run/secrets/page_token_signing_key
       TRANSCRIPTION_QUEUE_BACKEND: ${TRANSCRIPTION_QUEUE_BACKEND:-database}
+      TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE: ${TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE:-1000}
+      STORAGE_MAX_BYTES_PER_WORKSPACE: ${STORAGE_MAX_BYTES_PER_WORKSPACE:-5368709120}
+      STORAGE_MAX_BYTES_TOTAL: ${STORAGE_MAX_BYTES_TOTAL:-32212254720}
+      STORAGE_MAX_ITEMS_PER_WORKSPACE: ${STORAGE_MAX_ITEMS_PER_WORKSPACE:-5000}
+      STORAGE_MAX_ITEMS_TOTAL: ${STORAGE_MAX_ITEMS_TOTAL:-50000}
+      STORAGE_MAX_IMAGES_PER_WORKSPACE: ${STORAGE_MAX_IMAGES_PER_WORKSPACE:-10000}
+      STORAGE_MAX_IMAGES_TOTAL: ${STORAGE_MAX_IMAGES_TOTAL:-100000}
+      STORAGE_RESERVATION_TTL: ${STORAGE_RESERVATION_TTL:-6h}
+      STORAGE_NORMALIZATION_CACHE_MAX_BYTES: ${STORAGE_NORMALIZATION_CACHE_MAX_BYTES:-2147483648}
+      STORAGE_NORMALIZATION_CACHE_MAX_AGE: ${STORAGE_NORMALIZATION_CACHE_MAX_AGE:-168h}
+      IIIF_MAX_MANIFEST_CANVASES: ${IIIF_MAX_MANIFEST_CANVASES:-500}
+      IIIF_MAX_MANIFEST_IMPORT_BYTES: ${IIIF_MAX_MANIFEST_IMPORT_BYTES:-67108864}
       PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-}
       PUBSUB_TRANSCRIPTION_TOPIC_ID: ${PUBSUB_TRANSCRIPTION_TOPIC_ID:-scribe-transcription-jobs}
       PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID: ${PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID:-scribe-transcription-workers}
       SCRIBE_UPLOADS_BUCKET: ${SCRIBE_UPLOADS_BUCKET:-}
       SCRIBE_UPLOADS_PREFIX: ${SCRIBE_UPLOADS_PREFIX:-uploads}
       KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
+      SERVER_TRUSTED_PROXY_CIDRS: ${SERVER_TRUSTED_PROXY_CIDRS:-172.30.0.2/32}
     volumes:
       - ./config.yaml:/etc/scribe/config.yaml:ro
       - uploads-data:/app/uploads
       - cache-data:/app/cache
     secrets:
       - GOOGLE_APPLICATION_CREDENTIALS
+      - triplet_source_read_token
+      - triplet_presentation_write_token
+      - page_token_signing_key
+    group_add:
+      - ${SCRIBE_SECRETS_GID:-10001}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
     depends_on:
       mariadb:
         condition: service_healthy
       triplet:
-        condition: service_started
-
-  image-service:
-    image: ${SCRIBE_IMAGE_SERVICE_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-image-service:main@sha256:095b5c1a12c9dbe3162c3b8de01973cc613d391436d86e150c08fc15b5a55cbb}
-    environment:
-      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
-      IMAGE_SERVICE_UPLOADS_DIR: /app/uploads
-      SCRIBE_UPLOADS_BUCKET: ${SCRIBE_UPLOADS_BUCKET:-}
-      SCRIBE_UPLOADS_PREFIX: ${SCRIBE_UPLOADS_PREFIX:-uploads}
-    volumes:
-      - uploads-data:/app/uploads
-    secrets:
-      - GOOGLE_APPLICATION_CREDENTIALS
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 30s
 
   worker:
-    image: ${SCRIBE_API_IMAGE:-ghcr.io/lehigh-university-libraries/scribe:main}
+    <<: *scribe-runtime-hardening
+    image: *scribe-api-image
     build: .
     command: ["/app/scribe-worker"]
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      SCRIBE_DEPLOYED_API_IMAGE: *scribe-api-image
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
+      API_INTERNAL_BASE: ${API_INTERNAL_BASE:-http://api:8080}
+      AUTH_PREVIEW_ANONYMOUS: ${AUTH_PREVIEW_ANONYMOUS:-false}
       VAULT_ADDRESS: ${VAULT_ADDRESS:-}
       VAULT_WORKSPACE: ${VAULT_WORKSPACE:-dev}
       VAULT_SECRET_PREFIX: ${VAULT_SECRET_PREFIX:-scribe/dev}
@@ -111,47 +166,102 @@ services:
       SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:-}
       SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:-}
       SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:-}
-      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
-      IMAGE_SERVICE_AUDIENCE: ${IMAGE_SERVICE_AUDIENCE:-}
       IIIF_BASE: ${IIIF_BASE:-/iiif/3}
       IIIF_INTERNAL_BASE: ${IIIF_INTERNAL_BASE:-http://triplet:8080/iiif/3}
-      TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE-http://localhost:8081/presentation/v3}
+      IIIF_SOURCE_BASE: ${IIIF_SOURCE_BASE:-http://api:8080/static/uploads}
+      TRIPLET_SOURCE_READ_TOKEN_FILE: /run/secrets/triplet_source_read_token
+      TRIPLET_PRESENTATION_BASE: ${TRIPLET_PRESENTATION_BASE-http://localhost/presentation/v3}
       TRIPLET_PRESENTATION_INTERNAL_BASE: ${TRIPLET_PRESENTATION_INTERNAL_BASE-http://triplet:8080/presentation/v3}
-      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN-scribe-local-presentation-token}
+      TRIPLET_PRESENTATION_WRITE_TOKEN_FILE: /run/secrets/triplet_presentation_write_token
+      SCRIBE_PAGE_TOKEN_SIGNING_KEY_FILE: /run/secrets/page_token_signing_key
       TRANSCRIPTION_QUEUE_BACKEND: ${TRANSCRIPTION_QUEUE_BACKEND:-database}
+      TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE: ${TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE:-1000}
+      STORAGE_MAX_BYTES_PER_WORKSPACE: ${STORAGE_MAX_BYTES_PER_WORKSPACE:-5368709120}
+      STORAGE_MAX_BYTES_TOTAL: ${STORAGE_MAX_BYTES_TOTAL:-32212254720}
+      STORAGE_MAX_ITEMS_PER_WORKSPACE: ${STORAGE_MAX_ITEMS_PER_WORKSPACE:-5000}
+      STORAGE_MAX_ITEMS_TOTAL: ${STORAGE_MAX_ITEMS_TOTAL:-50000}
+      STORAGE_MAX_IMAGES_PER_WORKSPACE: ${STORAGE_MAX_IMAGES_PER_WORKSPACE:-10000}
+      STORAGE_MAX_IMAGES_TOTAL: ${STORAGE_MAX_IMAGES_TOTAL:-100000}
+      STORAGE_RESERVATION_TTL: ${STORAGE_RESERVATION_TTL:-6h}
+      STORAGE_NORMALIZATION_CACHE_MAX_BYTES: ${STORAGE_NORMALIZATION_CACHE_MAX_BYTES:-2147483648}
+      STORAGE_NORMALIZATION_CACHE_MAX_AGE: ${STORAGE_NORMALIZATION_CACHE_MAX_AGE:-168h}
+      IIIF_MAX_MANIFEST_CANVASES: ${IIIF_MAX_MANIFEST_CANVASES:-500}
+      IIIF_MAX_MANIFEST_IMPORT_BYTES: ${IIIF_MAX_MANIFEST_IMPORT_BYTES:-67108864}
       PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-}
       PUBSUB_TRANSCRIPTION_TOPIC_ID: ${PUBSUB_TRANSCRIPTION_TOPIC_ID:-scribe-transcription-jobs}
       PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID: ${PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID:-scribe-transcription-workers}
       SCRIBE_UPLOADS_BUCKET: ${SCRIBE_UPLOADS_BUCKET:-}
       SCRIBE_UPLOADS_PREFIX: ${SCRIBE_UPLOADS_PREFIX:-uploads}
       KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:-}
+      SERVER_TRUSTED_PROXY_CIDRS: ${SERVER_TRUSTED_PROXY_CIDRS:-172.30.0.2/32}
     volumes:
       - ./config.yaml:/etc/scribe/config.yaml:ro
       - uploads-data:/app/uploads
       - cache-data:/app/cache
     secrets:
       - GOOGLE_APPLICATION_CREDENTIALS
+      - triplet_source_read_token
+      - triplet_presentation_write_token
+      - page_token_signing_key
+    group_add:
+      - ${SCRIBE_SECRETS_GID:-10001}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
     depends_on:
       mariadb:
         condition: service_healthy
       api:
-        condition: service_started
+        condition: service_healthy
       triplet:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8081/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 30s
 
   triplet:
-    image: ghcr.io/libops/triplet:v1.1.2@sha256:da42e55c265af7c02d4351e8ea97aa249c6b354b837a03f8c7c372241b1126df
+    <<: *scribe-runtime-hardening
+    image: ghcr.io/libops/triplet:v1.2.0@sha256:6f7ce5374a4517456ae0b8ba410f0abd2e6a717675e8f4e3e18ddf6ab2227ace
     environment:
-      TRIPLET_PUBLIC_BASE_URL: ${TRIPLET_PUBLIC_BASE_URL:-http://localhost:8081}
-      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
+      TRIPLET_PUBLIC_BASE_URL: ${TRIPLET_PUBLIC_BASE_URL:-${PUBLIC_BASE_URL:-http://localhost}}
+      TRIPLET_PRESENTATION_WRITE_TOKEN_FILE: /run/secrets/triplet_presentation_write_token
     volumes:
       - ./triplet.config.yaml:/etc/triplet/config.yaml:ro
+      - ./scripts/triplet-entrypoint.sh:/usr/local/bin/scribe-triplet-entrypoint:ro
       - uploads-data:/var/lib/triplet/images
       - triplet-presentation-data:/var/lib/triplet/presentation
       - triplet-cache-data:/var/lib/triplet/cache
+    secrets:
+      - triplet_presentation_write_token
+    group_add:
+      - ${SCRIBE_SECRETS_GID:-10001}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
+    entrypoint: ["/bin/sh", "/usr/local/bin/scribe-triplet-entrypoint"]
+    command: ["-config", "/etc/triplet/config.yaml"]
+    healthcheck:
+      test: ["CMD", "triplet-healthcheck", "-url", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    stop_grace_period: 20s
 
   vault-init:
-    image: alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+    image: *scribe-api-image
+    read_only: true
+    user: "0:0"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
     profiles: ["init"]
     environment:
       VAULT_ADDRESS: ${VAULT_ADDRESS:-}
@@ -159,16 +269,18 @@ services:
       VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
       VAULT_SECRET_PREFIX: ${VAULT_SECRET_PREFIX:-scribe/dev}
       VAULT_DATABASE_APP_PATH: ${VAULT_DATABASE_APP_PATH:-scribe/dev/database/app}
-      VAULT_DATABASE_ROOT_PATH: ${VAULT_DATABASE_ROOT_PATH:-scribe/dev/database/root}
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/GOOGLE_APPLICATION_CREDENTIALS
       OUT_DIR: /out
       HOST_UID: ${HOST_UID:-}
       HOST_GID: ${HOST_GID:-}
     secrets:
       - GOOGLE_APPLICATION_CREDENTIALS
+    group_add:
+      - ${SCRIBE_SECRETS_GID:-10001}
     volumes:
       - ./secrets:/out
-      - ./scripts/vault-init.sh:/usr/local/bin/vault-init.sh:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
     entrypoint:
       - /bin/sh
       - /usr/local/bin/vault-init.sh
@@ -176,10 +288,21 @@ services:
 
 volumes:
   mariadb-data:
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-mariadb-data"
   uploads-data:
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-uploads-data"
   cache-data:
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-cache-data"
   triplet-presentation-data:
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-triplet-presentation-data"
   triplet-cache-data:
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-triplet-cache-data"
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SCRIBE_COMPOSE_SUBNET:-172.30.0.0/24}
 
 secrets:
   GOOGLE_APPLICATION_CREDENTIALS:
@@ -188,3 +311,9 @@ secrets:
     file: ./secrets/mariadb_password
   mariadb_root_password:
     file: ./secrets/mariadb_root_password
+  triplet_presentation_write_token:
+    file: ./secrets/triplet_presentation_write_token
+  triplet_source_read_token:
+    file: ./secrets/triplet_source_read_token
+  page_token_signing_key:
+    file: ./secrets/page_token_signing_key

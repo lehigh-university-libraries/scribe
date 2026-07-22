@@ -74,7 +74,7 @@ func (h *Converter) convertHOCRLineToXML(line models.HOCRLine) string {
 	bbox := fmt.Sprintf("bbox %d %d %d %d", line.BBox.X1, line.BBox.Y1, line.BBox.X2, line.BBox.Y2)
 
 	var lineBuilder strings.Builder
-	fmt.Fprintf(&lineBuilder, "<span class='ocr_line' id='%s' title='%s'>", line.ID, bbox)
+	fmt.Fprintf(&lineBuilder, "<span class='ocr_line' id='%s' title='%s'>", html.EscapeString(line.ID), bbox)
 
 	for _, word := range line.Words {
 		wordXML := h.convertHOCRWordToXML(word)
@@ -91,7 +91,7 @@ func (h *Converter) convertHOCRWordToXML(word models.HOCRWord) string {
 	title := bbox + confidence
 
 	return fmt.Sprintf("<span class='ocrx_word' id='%s' title='%s'>%s</span> ",
-		word.ID, title, html.EscapeString(word.Text))
+		html.EscapeString(word.ID), title, html.EscapeString(word.Text))
 }
 
 func (h *Converter) ConvertToHOCR(ocrResponse models.OCRResponse) (string, error) {

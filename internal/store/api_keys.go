@@ -23,18 +23,22 @@ type APIKey struct {
 	KeyPrefix       string    `json:"key_prefix"`
 	Role            string    `json:"role"`
 	Scopes          []string  `json:"scopes,omitempty"`
-	LastUsedAt      time.Time `json:"last_used_at,omitempty"`
 	ExpiresAt       time.Time `json:"expires_at,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type APIKeyStore struct {
-	q *db.Queries
+	pool *sql.DB
+	q    *db.Queries
 }
 
+const MaxAPIKeysPerWorkspace = 100
+
+var ErrAPIKeyLimit = fmt.Errorf("workspace API key limit reached")
+
 func NewAPIKeyStore(pool *sql.DB) *APIKeyStore {
-	return &APIKeyStore{q: db.New(pool)}
+	return &APIKeyStore{pool: pool, q: db.New(pool)}
 }
 
 func (s *APIKeyStore) Create(ctx context.Context, workspaceID, createdByUserID uint64, name, role string, scopes []string, expiresAt *time.Time) (APIKey, string, error) {
@@ -51,7 +55,26 @@ func (s *APIKeyStore) Create(ctx context.Context, workspaceID, createdByUserID u
 		return APIKey{}, "", err
 	}
 	keyPrefix := apiKeyPrefix(rawToken)
-	id, err := s.q.CreateAPIKey(ctx, db.CreateAPIKeyParams{
+	tx, err := s.pool.BeginTx(ctx, nil)
+	if err != nil {
+		return APIKey{}, "", fmt.Errorf("create api key: begin admission transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	queries := s.q.WithTx(tx)
+	if _, err := queries.LockWorkspaceManual(ctx, workspaceID); err != nil {
+		return APIKey{}, "", fmt.Errorf("create api key: lock workspace: %w", err)
+	}
+	if _, err := queries.LockWorkspaceMemberRole(ctx, workspaceID, createdByUserID); err != nil {
+		return APIKey{}, "", fmt.Errorf("create api key: lock creator membership: %w", err)
+	}
+	count, err := queries.CountAPIKeysByWorkspaceManual(ctx, workspaceID)
+	if err != nil {
+		return APIKey{}, "", fmt.Errorf("create api key: count workspace keys: %w", err)
+	}
+	if count >= MaxAPIKeysPerWorkspace {
+		return APIKey{}, "", ErrAPIKeyLimit
+	}
+	id, err := queries.CreateAPIKey(ctx, db.CreateAPIKeyParams{
 		WorkspaceID:     workspaceID,
 		CreatedByUserID: createdByUserID,
 		Name:            name,
@@ -64,10 +87,14 @@ func (s *APIKeyStore) Create(ctx context.Context, workspaceID, createdByUserID u
 	if err != nil {
 		return APIKey{}, "", fmt.Errorf("create api key: %w", err)
 	}
-	apiKey, err := s.Get(ctx, id)
+	row, err := queries.GetAPIKey(ctx, id)
 	if err != nil {
 		return APIKey{}, "", err
 	}
+	if err := tx.Commit(); err != nil {
+		return APIKey{}, "", fmt.Errorf("create api key: commit admission: %w", err)
+	}
+	apiKey := rowToAPIKey(row)
 	return apiKey, rawToken, nil
 }
 
@@ -88,7 +115,6 @@ func (s *APIKeyStore) GetByToken(ctx context.Context, rawToken string) (APIKey, 
 	if !apiKey.ExpiresAt.IsZero() && time.Now().UTC().After(apiKey.ExpiresAt) {
 		return APIKey{}, sql.ErrNoRows
 	}
-	_ = s.q.TouchAPIKey(ctx, apiKey.ID)
 	return apiKey, nil
 }
 
@@ -121,9 +147,6 @@ func rowToAPIKey(row db.APIKey) APIKey {
 	}
 	if row.Scopes.Valid && strings.TrimSpace(row.Scopes.String) != "" {
 		_ = json.Unmarshal([]byte(row.Scopes.String), &apiKey.Scopes)
-	}
-	if row.LastUsedAt.Valid {
-		apiKey.LastUsedAt = row.LastUsedAt.Time
 	}
 	if row.ExpiresAt.Valid {
 		apiKey.ExpiresAt = row.ExpiresAt.Time

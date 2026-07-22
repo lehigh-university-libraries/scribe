@@ -1,0 +1,73 @@
+[project]
+site_name = "Scribe Documentation"
+site_description = "Architecture, development, API, and operations documentation for Scribe."
+site_author = "Lehigh University Libraries"
+docs_dir = "docs"
+site_dir = "site"
+dev_addr = "localhost:8000"
+nav = [
+  {"Home" = "index.md"},
+  {"Getting started" = [
+    "getting-started/index.md",
+    "getting-started/local-development.md",
+    "getting-started/first-change.md"
+  ]},
+  {"Concepts" = [
+    "concepts/contexts.md",
+    "concepts/canonical-iiif.md",
+    "concepts/processing-pipeline.md",
+    "concepts/permissions.md"
+  ]},
+  {"Architecture" = [
+    "architecture/index.md",
+    "architecture/data-flow.md",
+    "architecture/decisions.md",
+    "architecture/threat-model.md"
+  ]},
+  {"Development" = [
+    "development/index.md",
+    "development/adding-provider.md",
+    "development/adding-segmentor.md",
+    "development/adding-rpc.md",
+    "development/mirador-plugin.md",
+    "development/web-frontend.md",
+    "development/testing.md",
+    "development/database-migrations.md",
+    "development/code-generation.md"
+  ]},
+  {"API" = [
+    "api/index.md",
+    "api/contexts.md",
+    "api/items.md",
+    "api/ingest.md",
+    "api/iiif.md",
+    "api/exports.md",
+    "api/events.md"
+  ]},
+  {"Operations" = [
+    "operations/index.md",
+    "operations/configuration.md",
+    "operations/deployment.md",
+    "operations/observability.md",
+    "operations/backup-restore.md",
+    "operations/job-recovery.md"
+  ]},
+  {"Reference" = [
+    "reference/toolchain.md",
+    "reference/quality-gates.md"
+  ]}
+]
+
+[project.theme]
+features = [
+  "navigation.sections",
+  "navigation.indexes",
+  "navigation.top",
+  "content.code.copy"
+]
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+
+[project.extra]
+repository = "https://github.com/lehigh-university-libraries/scribe"

@@ -3,8 +3,9 @@ import { listTranscriptionJobs } from "../api/transcription";
 import { workspaceAwarePath } from "../lib/workspace";
 import { html, uint64ToString, type TrustedHTML } from "../lib/util";
 import type { APIKeyRecord, GetAuthMeResponse, ProviderSecretRecord } from "../api/auth";
+import { AnnotationExportFormat } from "../proto/scribe/v1/annotation_pb";
 import type { Context } from "../proto/scribe/v1/context_pb";
-import type { Item } from "../proto/scribe/v1/item_pb";
+import type { ItemSummary } from "../proto/scribe/v1/item_pb";
 import type { Workspace, WorkspaceAccess } from "../proto/scribe/v1/workspace_pb";
 
 export const buttons = "inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50";
@@ -59,34 +60,44 @@ export function avatar(auth: GetAuthMeResponse | null): string {
   return source.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("").slice(0, 2) || "SC";
 }
 
-export function editorHrefForItem(item: Item): string {
-  if (item.images.length === 0) return "";
-  const params = new URLSearchParams({ itemImageId: uint64ToString(item.images[0].id) });
-  if (item.images.length > 1 || item.sourceType === "manifest") params.set("itemId", item.id);
+export function editorHrefForItem(item: ItemSummary): string {
+  if (!item.previewImage) return "";
+  const params = new URLSearchParams({ itemImageId: uint64ToString(item.previewImage.id) });
+  if (item.imageCount > 1n || item.sourceType === "manifest") params.set("itemId", item.id);
   return workspaceAwarePath(`/editor?${params.toString()}`);
 }
 
-export function exportHref(itemId: string, format: string): string {
-  return workspaceAwarePath(`/v1/items/${encodeURIComponent(itemId)}/export?format=${encodeURIComponent(format)}`);
+export const itemExportFormats = [
+  { format: AnnotationExportFormat.HOCR, label: "hOCR" },
+  { format: AnnotationExportFormat.PAGE_XML, label: "PAGE XML" },
+  { format: AnnotationExportFormat.ALTO_XML, label: "ALTO XML" },
+  { format: AnnotationExportFormat.PLAIN_TEXT, label: "Text" },
+] as const;
+
+export interface ItemExportActionState {
+  busyFormat?: AnnotationExportFormat;
+  error?: string;
 }
 
 export function contextOptions(contexts: Context[]): TrustedHTML[] {
   return contexts.filter((ctx) => ctx.id !== 0n).map((ctx) => html`<option value="${ctx.id.toString()}"${ctx.isDefault ? " selected" : ""}>${ctx.name || `Context ${ctx.id}`}</option>`);
 }
 
-export function renderItemActions(item: Item): TrustedHTML {
+export function renderItemActions(item: ItemSummary, exportState?: ItemExportActionState): TrustedHTML {
   const openHref = editorHrefForItem(item);
+  const exportBusy = exportState?.busyFormat !== undefined;
   return html`
     <div class="mt-4 flex flex-wrap items-center gap-2">
       ${openHref ? html`<a href="${openHref}" class="${primary}">Open editor</a>` : html`<span class="rounded-md border px-3 py-2 text-xs text-muted-foreground">No images</span>`}
       <button data-item-logs="${item.id}" class="${buttons}" type="button">Logs</button>
       <button data-item-delete="${item.id}" class="${buttons} text-destructive" type="button">Delete</button>
-      ${openHref ? (["hocr", "pagexml", "alto", "txt"] as const).map((format) => html`<a href="${exportHref(item.id, format)}" class="${buttons}" download>${format}</a>`) : ""}
+      ${openHref ? itemExportFormats.map(({ format, label }) => html`<button data-item-export="${item.id}" data-item-export-format="${format}" class="${buttons}" type="button"${exportBusy ? " disabled" : ""}${exportState?.busyFormat === format ? ' aria-busy="true"' : ""}>${exportState?.busyFormat === format ? "Preparing…" : label}</button>`) : ""}
+      ${exportState?.error ? html`<p class="basis-full text-xs text-destructive" role="alert">${exportState.error}</p>` : ""}
     </div>
   `;
 }
 
-export function renderItemCard(item: Item): TrustedHTML {
+export function renderItemCard(item: ItemSummary, exportState?: ItemExportActionState): TrustedHTML {
   return html`
     <article class="${card}">
       <div class="flex items-start justify-between gap-4">
@@ -96,8 +107,8 @@ export function renderItemCard(item: Item): TrustedHTML {
         </div>
         <span class="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">${item.sourceType}</span>
       </div>
-      <p class="mt-3 text-xs text-muted-foreground">${item.images.length} page${item.images.length === 1 ? "" : "s"} · ${formatDateTime(item.createdAt)}</p>
-      ${renderItemActions(item)}
+      <p class="mt-3 text-xs text-muted-foreground">${item.imageCount.toString()} page${item.imageCount === 1n ? "" : "s"} · ${formatDateTime(item.createdAt)}</p>
+      ${renderItemActions(item, exportState)}
     </article>
   `;
 }
@@ -123,18 +134,50 @@ export function renderAPIKeys(keys: APIKeyRecord[]): TrustedHTML {
 }
 
 export async function waitForAutomaticTranscriptionStart(itemImageId: string): Promise<void> {
-  const jobs = await listTranscriptionJobs(BigInt(itemImageId));
-  if (jobs[0]) return;
   await new Promise<void>((resolve) => {
     let sub: { close: () => void } | null = null;
-    const timeout = window.setTimeout(() => {
-      sub?.close();
-      resolve();
-    }, 120000);
-    sub = subscribeToEvents({ itemImageId, types: ["dev.scribe.transcription.task.started", "dev.scribe.transcription.completed", "dev.scribe.transcription.failed"] }, () => {
+    let settled = false;
+    let reconciliation = Promise.resolve();
+    const finish = () => {
+      if (settled) return;
+      settled = true;
       window.clearTimeout(timeout);
       sub?.close();
       resolve();
-    });
+    };
+    const reconcile = () => {
+      // Queue every ready-edge reconciliation. If the stream becomes ready
+      // while the initial snapshot is still in flight, the second lookup must
+      // run afterward or a just-created job can remain invisible until timeout.
+      reconciliation = reconciliation
+        .then(async () => {
+          if (settled) return;
+          const jobs = await listTranscriptionJobs(BigInt(itemImageId));
+          if (jobs[0]) finish();
+        })
+        .catch(() => undefined);
+    };
+    const timeout = window.setTimeout(() => {
+      finish();
+    }, 120000);
+    // Subscribe before reading the durable snapshot. The stream's ready event
+    // establishes its high-water mark; reconciling at both edges closes the
+    // snapshot/subscription race without treating transient event data as state.
+    sub = subscribeToEvents({
+      itemImageId,
+      onReady: reconcile,
+      types: [
+        "dev.scribe.transcription.task.started",
+        "dev.scribe.transcription.completed",
+        "dev.scribe.transcription.failed",
+      ],
+    }, finish);
+    if (settled) {
+      // A test transport or an already-buffered in-process transport may
+      // deliver synchronously before subscribeToEvents returns its handle.
+      sub.close();
+      return;
+    }
+    reconcile();
   });
 }

@@ -1,0 +1,7 @@
+# Direct Python runtime requirements for Dockerfile.segmentor. The generated
+# hash-locked file is authoritative during image builds.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+kraken==7.0.2
+torch==2.10.0+cpu
+torchvision==0.25.0+cpu

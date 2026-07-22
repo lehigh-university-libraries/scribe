@@ -5,13 +5,16 @@ package worddetection
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 )
+
+const maxKrakenSegmentationBytes = int64(16 << 20)
 
 // KrakenProvider runs kraken segmentation.
 // modelID is the kraken model identifier, e.g. "blla.mlmodel" or a full path.
@@ -30,7 +33,7 @@ func NewKraken(modelID string) *KrakenProvider {
 
 // Name returns the provider name including the model.
 func (p *KrakenProvider) Name() string {
-	return "kraken:" + p.modelID
+	return "kraken"
 }
 
 // DetectWords runs kraken segmentation and returns line bounding boxes as WordBox entries.
@@ -38,12 +41,12 @@ func (p *KrakenProvider) Name() string {
 func (p *KrakenProvider) DetectWords(ctx context.Context, imagePath string) ([]WordBox, error) {
 	output, err := os.CreateTemp("", "kraken-seg-*.json")
 	if err != nil {
-		return nil, fmt.Errorf("create kraken output: %w", err)
+		return nil, errors.New("kraken segmentation unavailable")
 	}
 	outputPath := output.Name()
 	if err := output.Close(); err != nil {
 		_ = os.Remove(outputPath)
-		return nil, fmt.Errorf("close kraken output: %w", err)
+		return nil, errors.New("kraken segmentation unavailable")
 	}
 	defer os.Remove(outputPath)
 
@@ -58,13 +61,23 @@ func (p *KrakenProvider) DetectWords(ctx context.Context, imagePath string) ([]W
 		"-i", p.modelID,
 	}
 	cmd := exec.CommandContext(ctx, "kraken", args...) // #nosec G204 -- kraken is invoked directly without a shell; arguments are file/model paths.
-	out, err := cmd.CombinedOutput()
+	// Kraken diagnostics can contain OCR content, model paths, or provider
+	// details. They are neither buffered nor reflected across this boundary.
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	err = cmd.Run()
 	if err != nil {
-		return nil, fmt.Errorf("kraken segment failed (model=%s): %w\noutput: %s",
-			p.modelID, err, strings.TrimSpace(string(out)))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("kraken segmentation canceled: %w", ctxErr)
+		}
+		return nil, errors.New("kraken segmentation failed")
 	}
 
-	return parseKrakenJSON(outputPath)
+	boxes, err := parseKrakenJSON(outputPath)
+	if err != nil {
+		return nil, errors.New("kraken segmentation output invalid")
+	}
+	return boxes, nil
 }
 
 // krakenSegOutput is the structure of kraken's JSON segmentation output.
@@ -80,7 +93,7 @@ type krakenSegOutput struct {
 }
 
 func parseKrakenJSON(path string) ([]WordBox, error) {
-	data, err := safefile.ReadFile(path)
+	data, err := safefile.ReadFileLimit(path, maxKrakenSegmentationBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read kraken output: %w", err)
 	}

@@ -11,28 +11,61 @@ on:
         required: true
         type: string
       image_tag:
-        description: Tag applied to every built OCR image.
+        description: Immutable source commit SHA applied to every built OCR image.
         required: true
         type: string
+      environment_name:
+        description: Protected GitHub environment that owns the GCP credentials.
+        required: true
+        type: string
+      build_images:
+        description: Build the matrix before resolving digests. Previews reuse reviewed main images.
+        required: false
+        default: true
+        type: boolean
     outputs:
       images_json:
         description: JSON map of service_key -> fully qualified image@sha256 reference.
         value: ${{ jobs.aggregate.outputs.images_json }}
 
+permissions:
+  contents: read
+
 jobs:
   matrix:
     runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment_name }}
+    permissions:
+      contents: read
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
     steps:
+      - name: Validate immutable source ref
+        env:
+          CHECKOUT_REF: ${{ inputs.checkout_ref }}
+          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          WORKSPACE_SLUG: ${{ inputs.workspace_slug }}
+        run: |
+          [[ "$CHECKOUT_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "checkout_ref must be an immutable commit SHA" >&2; exit 1; }
+          [ "$IMAGE_TAG" = "$CHECKOUT_REF" ] || { echo "image_tag must equal checkout_ref so OCR provenance is commit-addressed" >&2; exit 1; }
+          if [ "$ENVIRONMENT_NAME" = "production" ] && [ "$WORKSPACE_SLUG" = "prod" ]; then
+            exit 0
+          fi
+          if [ "$ENVIRONMENT_NAME" = "preview" ] && [[ "$WORKSPACE_SLUG" =~ ^pr-[0-9]+$ ]]; then
+            exit 0
+          fi
+          echo "environment_name and workspace_slug do not form an allowed deployment tuple" >&2
+          exit 1
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Install yq
         env:
-          YQ_VERSION: v4.44.3
-          YQ_SHA256: a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
+          YQ_VERSION: v4.53.3
+          YQ_SHA256: fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
         run: |
           yq_url="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
           curl -fsSL "$yq_url" -o "$RUNNER_TEMP/yq"
@@ -51,13 +84,19 @@ jobs:
             exit 1
           fi
           matrix="$(./ci/ocr-matrix.sh)"
-          echo "matrix<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$matrix" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "matrix<<EOF"
+            echo "$matrix"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.key }}
+    if: inputs.build_images
     needs: [matrix]
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment_name }}
+    timeout-minutes: 30
     permissions:
       id-token: write
       contents: read
@@ -65,19 +104,75 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
-    uses: lehigh-university-libraries/gha/.github/workflows/build-push-ghcr.yaml@e26d86abfbe300be4d93570b666651c11471995b # main
-    secrets: inherit
-    with:
-      image: ${{ matrix.ghcr_image }}
-      context: ${{ matrix.context }}
-      runners: '["ubuntu-24.04"]'
-      gar_image: ${{ matrix.gar_image }}
-      file: ${{ matrix.file }}
-      build_args: ${{ matrix.build_args }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: 576.0.0
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.OCR_GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.OCR_GSA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+
+      - name: Verify OCR publisher WIF trust boundary
+        env:
+          WIF_EXPECTED_ENVIRONMENT: ${{ inputs.environment_name }}
+          WIF_IDENTITY_CLASS: ocr
+          WIF_PROVIDER: ${{ secrets.OCR_GCLOUD_OIDC_POOL }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.OCR_GSA }}
+        run: ./ci/verify-gcp-wif.sh
+
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Log in to GAR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: us-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build and publish reviewed OCR image
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: |
+            ghcr.io/lehigh-university-libraries/${{ matrix.ghcr_image }}:${{ inputs.image_tag }}
+            ${{ matrix.image }}
+          build-args: ${{ matrix.build_args }}
+          provenance: true
+          sbom: true
+
+      - name: Scan exact OCR runtime image
+        env:
+          RUNTIME_IMAGE: ${{ matrix.gar_image }}@${{ steps.build.outputs.digest }}
+        run: ./ci/image-vulnerability-scan.sh "$RUNTIME_IMAGE"
 
   aggregate:
-    needs: [build]
+    if: always() && needs.matrix.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    needs: [matrix, build]
     runs-on: ubuntu-24.04
+    environment: ${{ inputs.environment_name }}
     permissions:
       id-token: write
       contents: read
@@ -87,11 +182,12 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Install yq
         env:
-          YQ_VERSION: v4.44.3
-          YQ_SHA256: a2c097180dd884a8d50c956ee16a9cec070f30a7947cf4ebf87d5f36213e9ed7
+          YQ_VERSION: v4.53.3
+          YQ_SHA256: fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
         run: |
           yq_url="https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
           curl -fsSL "$yq_url" -o "$RUNNER_TEMP/yq"
@@ -101,16 +197,24 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
-          version: latest
+          version: 576.0.0
 
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
+          workload_identity_provider: ${{ secrets.OCR_GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.OCR_GSA }}
           token_format: access_token
           access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+
+      - name: Verify OCR publisher WIF trust boundary
+        env:
+          WIF_EXPECTED_ENVIRONMENT: ${{ inputs.environment_name }}
+          WIF_IDENTITY_CLASS: ocr
+          WIF_PROVIDER: ${{ secrets.OCR_GCLOUD_OIDC_POOL }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.OCR_GSA }}
+        run: ./ci/verify-gcp-wif.sh
 
       - name: Configure gcloud
         run: |
@@ -123,6 +227,7 @@ jobs:
           GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
           WORKSPACE_SLUG: ${{ inputs.workspace_slug }}
           IMAGE_TAG: ${{ inputs.image_tag }}
+          INCLUDE_OLLAMA: ${{ inputs.workspace_slug == 'prod' && 'true' || 'false' }}
         run: |
           images_json="$(./ci/generate-ocr-images-map.sh)"
           if [ -z "$images_json" ] || [ "$images_json" = "null" ]; then

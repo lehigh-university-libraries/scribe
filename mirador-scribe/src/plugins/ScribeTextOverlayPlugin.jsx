@@ -2,16 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import PropTypes from 'prop-types';
 import OpenSeadragon from 'openseadragon';
+import { clientPointToImage, normalizeImageBBox } from '../editor/geometry';
 import {
   annotationBBox,
+  annotationIntersectsImageRect,
   annotationText,
   annotationsShareLine,
   annotationPageForCanvas,
+  canvasIdForWindow,
   findEditorRowByAnnotationId,
-  findAnnotationPageByAnnotationId,
-  findCanvasIdByAnnotationId,
-  firstAnnotationCanvasId,
-  firstAnnotationPage,
   groupAnnotationsForEditor,
   isLineAnnotation,
   isWordAnnotation,
@@ -28,6 +27,7 @@ if (typeof document !== 'undefined' && !document.getElementById('scribe-transcri
     '@keyframes scribeSegmentPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(139,92,246,.35)}50%{opacity:.75;box-shadow:0 0 0 5px rgba(139,92,246,0)}}',
     '@keyframes scribeResultDissolve{0%{opacity:0;transform:scaleY(.92)}12%{opacity:1;transform:scaleY(1)}72%{opacity:1}100%{opacity:0}}',
     '@keyframes scribeSpinner{to{transform:rotate(360deg)}}',
+    '@media (prefers-reduced-motion: reduce){.scribe-text-overlay *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}',
   ].join('');
   document.head.appendChild(kfStyle);
 }
@@ -40,11 +40,38 @@ const ACTION_BAR_HEIGHT_PX = 104;
 const INLINE_EDITOR_HANDLE_PX = 5;
 const INLINE_EDITOR_CONTENT_INSET_PX = 10;
 
+/** @typedef {import('../types/scribe').ImageBBox} Rect */
+/** @typedef {import('../types/scribe').IIIFAnnotation} IIIFAnnotation */
+/** @typedef {import('../types/scribe').IIIFAnnotationPage} IIIFAnnotationPage */
+/** @typedef {import('../types/scribe').MiradorState} MiradorState */
+/** @typedef {import('../types/scribe').ScribeFocusResizeHandleEventDetail} FocusResizeHandleEventDetail */
+/** @typedef {{ annotationPage?: IIIFAnnotationPage, canvasId?: string, selectedAnnotationId?: string, focusedWordAnnotationId?: string, isBusy?: boolean, overlayMode?: 'none' | 'read' | 'edit' | 'outline', windowId?: string }} OverlayEditorState */
+/** @typedef {{ currentTop: number, lineTop: number, pointerY: number, startY: number }} EditorDragState */
+/** @typedef {{ annotationId: string, currentClientX: number, currentClientY: number, handle: string, originalBBox: Rect, startClientX: number, startClientY: number }} BBoxDragState */
+/** @typedef {{ annotation: IIIFAnnotation, done: number, total: number }} TranscriptionSegment */
+/** @typedef {{ annotation: IIIFAnnotation, done: number, total: number, text: string | null }} TranscriptionResult */
+/** @typedef {{ annotation?: IIIFAnnotation | null, canvasId?: string, done?: number, total?: number, windowId?: string }} TranscriptionEventDetail */
+/** @typedef {{ id: string, isWord: boolean, rect: Rect, text: string }} OverlayLabel */
+/** @typedef {{ annotationId: string | null, fallbackIndex?: number, rect: Rect, text: string }} WordEditor */
+/** @typedef {Object} ScribeTextOverlayProps
+ * @property {IIIFAnnotationPage | null} annotationPage
+ * @property {string} canvasId
+ * @property {string} selectedAnnotationId
+ * @property {OpenSeadragon.Viewer | null | undefined} viewer
+ * @property {string} windowId
+ */
+/** @typedef {{ windowId: string }} WindowOwnProps */
+
+/** @param {OpenSeadragon.Viewer | null | undefined} viewer @param {IIIFAnnotation} annotation @returns {Rect | null} */
 function annotationRect(viewer, annotation) {
   if (!viewer?.viewport || !viewer?.world?.getItemCount?.()) return null;
   const tiledImage = viewer.world.getItemAt(0);
   if (!tiledImage?.imageToViewportCoordinates) return null;
-  const { x, y, w, h } = annotationBBox(annotation);
+  const contentSize = tiledImage.getContentSize?.();
+  const { x, y, w, h } = annotationBBox(annotation, contentSize ? {
+    height: contentSize.y,
+    width: contentSize.x,
+  } : null);
   if (w <= 0 || h <= 0) return null;
 
   const topLeftViewport = tiledImage.imageToViewportCoordinates(x, y);
@@ -66,6 +93,7 @@ function annotationRect(viewer, annotation) {
   };
 }
 
+/** @param {Rect | null} lineRect @param {number} count @returns {Rect[]} */
 function fallbackWordRects(lineRect, count) {
   if (!lineRect || count <= 0) return [];
   const totalGap = INLINE_WORD_GAP_PX * Math.max(0, count - 1);
@@ -78,42 +106,63 @@ function fallbackWordRects(lineRect, count) {
   }));
 }
 
-function dispatchOverlaySelection(label, windowId) {
+/** @param {OpenSeadragon.Viewer | null | undefined} viewer @returns {Rect | null} */
+function visibleImageBounds(viewer) {
+  if (!viewer?.viewport || !viewer?.world?.getItemCount?.()) return null;
+  const tiledImage = viewer.world.getItemAt(0);
+  const viewportBounds = viewer.viewport.getBounds?.(true);
+  const imageBounds = tiledImage?.viewportToImageRectangle?.(viewportBounds);
+  if (!imageBounds) return null;
+  const paddingX = imageBounds.width * 0.1;
+  const paddingY = imageBounds.height * 0.1;
+  return {
+    h: imageBounds.height + paddingY * 2,
+    w: imageBounds.width + paddingX * 2,
+    x: imageBounds.x - paddingX,
+    y: imageBounds.y - paddingY,
+  };
+}
+
+/** @param {OverlayLabel} label @param {string} windowId @param {string} canvasId */
+function dispatchOverlaySelection(label, windowId, canvasId) {
   document.dispatchEvent(new CustomEvent('scribe:select-annotation', {
     detail: {
       annotationId: label.id,
+      canvasId,
       focusAnnotationId: label.isWord ? label.id : '',
       windowId,
     },
   }));
 }
 
+/** @param {ScribeTextOverlayProps} props */
 function ScribeTextOverlayPlugin({
   annotationPage,
+  canvasId,
   selectedAnnotationId,
   viewer,
   windowId,
 }) {
   const [version, setVersion] = useState(0);
-  const [editorState, setEditorState] = useState(null);
+  const [editorState, setEditorState] = useState(/** @type {OverlayEditorState | null} */ (null));
   const [editorDock, setEditorDock] = useState('below');
-  const [dragState, setDragState] = useState(null);
-  const [bboxDragState, setBboxDragState] = useState(null);
+  const [dragState, setDragState] = useState(/** @type {EditorDragState | null} */ (null));
+  const [bboxDragState, setBboxDragState] = useState(/** @type {BBoxDragState | null} */ (null));
   const [pendingFocusWordId, setPendingFocusWordId] = useState('');
-  const [transcriptionSegment, setTranscriptionSegment] = useState(null);
-  const [transcriptionResult, setTranscriptionResult] = useState(null);
-  const inputRefs = useRef(new Map());
-  const dragIntentRef = useRef(null);
-  const transcriptionResultTimerRef = useRef(null);
+  const [pendingResizeFocus, setPendingResizeFocus] = useState(
+    /** @type {FocusResizeHandleEventDetail | null} */ (null),
+  );
+  const [transcriptionSegment, setTranscriptionSegment] = useState(/** @type {TranscriptionSegment | null} */ (null));
+  const [transcriptionResult, setTranscriptionResult] = useState(/** @type {TranscriptionResult | null} */ (null));
+  const inputRefs = useRef(/** @type {Map<string, HTMLInputElement>} */ (new Map()));
+  const resizeHandleRefs = useRef(/** @type {Map<string, HTMLButtonElement>} */ (new Map()));
+  const dragIntentRef = useRef(/** @type {{ timeoutId: number } | null} */ (null));
+  const transcriptionResultTimerRef = useRef(/** @type {number | null} */ (null));
+  const viewportAnimationFrameRef = useRef(/** @type {number | null} */ (null));
 
+  /** @param {number} clientX @param {number} clientY */
   function screenToImagePoint(clientX, clientY) {
-    if (!viewer?.viewport || !viewer?.world?.getItemCount?.()) return null;
-    const tiledImage = viewer.world.getItemAt(0);
-    if (!tiledImage?.windowToImageCoordinates) return null;
-    const rect = viewer.element.getBoundingClientRect();
-    return tiledImage.windowToImageCoordinates(
-      new OpenSeadragon.Point(clientX - rect.left, clientY - rect.top),
-    );
+    return clientPointToImage(viewer, clientX, clientY);
   }
 
   function clearDragIntent() {
@@ -122,6 +171,7 @@ function ScribeTextOverlayPlugin({
     dragIntentRef.current = null;
   }
 
+  /** @param {import('react').PointerEvent<HTMLElement>} event @param {{ top: number, lineRect: Rect }} inlineEditor */
   function scheduleEditorDrag(event, inlineEditor) {
     const targetTag = event.target instanceof HTMLElement ? event.target.tagName : '';
     if (targetTag === 'INPUT' || targetTag === 'TEXTAREA') return;
@@ -143,11 +193,21 @@ function ScribeTextOverlayPlugin({
 
   useEffect(() => {
     if (!viewer) return undefined;
-    const update = () => setVersion((value) => value + 1);
+    const update = () => {
+      if (viewportAnimationFrameRef.current !== null) return;
+      viewportAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        viewportAnimationFrameRef.current = null;
+        setVersion((value) => value + 1);
+      });
+    };
     viewer.addHandler('update-viewport', update);
     viewer.addHandler('animation-finish', update);
     viewer.addHandler('tile-loaded', update);
     return () => {
+      if (viewportAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(viewportAnimationFrameRef.current);
+        viewportAnimationFrameRef.current = null;
+      }
       viewer.removeHandler('update-viewport', update);
       viewer.removeHandler('animation-finish', update);
       viewer.removeHandler('tile-loaded', update);
@@ -155,32 +215,55 @@ function ScribeTextOverlayPlugin({
   }, [viewer]);
 
   useEffect(() => {
+    setEditorState(null);
+    setPendingResizeFocus(null);
+    setTranscriptionSegment(null);
+    setTranscriptionResult(null);
+  }, [canvasId]);
+
+  useEffect(() => {
+    /** @param {Event} event */
     const handleEditorState = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
-      setEditorState(event.detail);
+      const detail = /** @type {CustomEvent<OverlayEditorState>} */ (event).detail;
+      if (detail?.windowId !== windowId) return;
+      if (detail.canvasId !== canvasId) return;
+      setEditorState(detail);
     };
     document.addEventListener('scribe:editor-state', handleEditorState);
     return () => document.removeEventListener('scribe:editor-state', handleEditorState);
-  }, [windowId]);
+  }, [canvasId, windowId]);
 
   useEffect(() => {
+    /** @param {Event} event */
+    const handleResizeFocus = (event) => {
+      const detail = /** @type {CustomEvent<FocusResizeHandleEventDetail>} */ (event).detail;
+      if (detail?.windowId !== windowId || detail.canvasId !== canvasId) return;
+      setPendingResizeFocus(detail);
+    };
+    document.addEventListener('scribe:focus-resize-handle', handleResizeFocus);
+    return () => document.removeEventListener('scribe:focus-resize-handle', handleResizeFocus);
+  }, [canvasId, windowId]);
+
+  useEffect(() => {
+    /** @param {Event} event */
     const handle = (event) => {
-      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
-      const { annotation, done, total } = event.detail;
+      const detail = /** @type {CustomEvent<TranscriptionEventDetail>} */ (event).detail;
+      if (detail?.windowId !== windowId || detail.canvasId !== canvasId) return;
+      const { annotation, done = 0, total = 0 } = detail;
       setTranscriptionSegment(annotation ? { annotation, done, total } : null);
     };
     document.addEventListener('scribe:transcription-segment', handle);
     return () => document.removeEventListener('scribe:transcription-segment', handle);
-  }, [windowId]);
+  }, [canvasId, windowId]);
 
   useEffect(() => {
+    /** @param {Event} event */
     const handle = (event) => {
-      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
-      const { annotation, done, total } = event.detail;
+      const detail = /** @type {CustomEvent<TranscriptionEventDetail>} */ (event).detail;
+      if (detail?.windowId !== windowId || detail.canvasId !== canvasId) return;
+      const { annotation, done = 0, total = 0 } = detail;
       if (!annotation) return;
-      const text = annotation?.body?.value
-        ?? (Array.isArray(annotation?.body) ? annotation.body[0]?.value : null)
-        ?? null;
+      const text = annotationText(annotation) || null;
       setTranscriptionResult({ annotation, text, done, total });
       if (transcriptionResultTimerRef.current) {
         window.clearTimeout(transcriptionResultTimerRef.current);
@@ -198,10 +281,11 @@ function ScribeTextOverlayPlugin({
       }
       document.removeEventListener('scribe:transcription-result', handle);
     };
-  }, [windowId]);
+  }, [canvasId, windowId]);
 
   useEffect(() => {
     if (!dragState) return undefined;
+    /** @param {PointerEvent} event */
     const handleMove = (event) => {
       setDragState((current) => (current ? { ...current, pointerY: event.clientY } : current));
     };
@@ -220,11 +304,13 @@ function ScribeTextOverlayPlugin({
 
   useEffect(() => {
     if (!bboxDragState) return undefined;
+    /** @param {PointerEvent} event */
     const handleMove = (event) => {
       setBboxDragState((current) => current
         ? { ...current, currentClientX: event.clientX, currentClientY: event.clientY }
         : current);
     };
+    /** @param {PointerEvent} event */
     const handleUp = (event) => {
       const { handle, startClientX, startClientY, originalBBox, annotationId } = bboxDragState;
       const startPt = screenToImagePoint(startClientX, startClientY);
@@ -241,7 +327,8 @@ function ScribeTextOverlayPlugin({
       document.dispatchEvent(new CustomEvent('scribe:resize-annotation', {
         detail: {
           annotationId,
-          bbox: { x: Math.round(x), y: Math.round(y), w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) },
+          bbox: normalizeImageBBox({ x, y, w, h }),
+          canvasId,
           windowId,
         },
       }));
@@ -252,7 +339,7 @@ function ScribeTextOverlayPlugin({
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
     };
-  }, [bboxDragState, windowId]);
+  }, [bboxDragState, canvasId, windowId]);
 
   useEffect(() => {
     const clear = () => clearDragIntent();
@@ -268,6 +355,7 @@ function ScribeTextOverlayPlugin({
   const activeSelectedAnnotationId = editorState?.selectedAnnotationId || selectedAnnotationId;
   const activeFocusedWordAnnotationId = editorState?.focusedWordAnnotationId || '';
   const overlayMode = editorState?.overlayMode || 'none';
+  const editorIsBusy = Boolean(editorState?.isBusy);
   const inlineEditorVisible = overlayMode === 'edit';
   const textOverlayVisible = overlayMode === 'read';
   const outlineVisible = overlayMode === 'outline';
@@ -297,9 +385,15 @@ function ScribeTextOverlayPlugin({
     return annotationRect(viewer, transcriptionResult.annotation);
   }, [transcriptionResult, viewer, version]);
 
-  const labels = useMemo(() => {
+  const labels = /** @type {OverlayLabel[]} */ (useMemo(() => {
     if (!textOverlayVisible) return [];
-    return groupAnnotationsForEditor(activePage)
+    const visibleBounds = visibleImageBounds(viewer);
+    const visiblePage = {
+      ...activePage,
+      items: (Array.isArray(activePage?.items) ? activePage.items : [])
+        .filter((annotation) => annotationIntersectsImageRect(annotation, visibleBounds)),
+    };
+    return groupAnnotationsForEditor(visiblePage)
       .flatMap((row) => (row.granularity === 'word' ? row.fields : [row.lead || row.fields[0]]))
       .map((annotation) => ({
         id: annotation?.id,
@@ -307,8 +401,8 @@ function ScribeTextOverlayPlugin({
         rect: annotationRect(viewer, annotation),
         text: annotationText(annotation),
       }))
-      .filter((item) => item.text && item.rect && item.rect.w > 4 && item.rect.h > 4);
-  }, [activePage, textOverlayVisible, viewer, version]);
+      .filter((item) => item.id && item.text && item.rect && item.rect.w > 4 && item.rect.h > 4);
+  }, [activePage, textOverlayVisible, viewer, version]));
   const selectedDecoration = useMemo(() => {
     const items = Array.isArray(activePage?.items) ? activePage.items : [];
     const selected = items.find((annotation) => annotation?.id === activeSelectedAnnotationId) || null;
@@ -323,7 +417,7 @@ function ScribeTextOverlayPlugin({
     return {
       lineAnnotation,
       lineRect: lineAnnotation ? annotationRect(viewer, lineAnnotation) : null,
-      wordRect: isWordAnnotation(wordAnnotation) ? annotationRect(viewer, wordAnnotation) : null,
+      wordRect: wordAnnotation && isWordAnnotation(wordAnnotation) ? annotationRect(viewer, wordAnnotation) : null,
     };
   }, [activeFocusedWordAnnotationId, activePage, activeSelectedAnnotationId, viewer, version]);
   const inlineEditor = useMemo(() => {
@@ -334,7 +428,7 @@ function ScribeTextOverlayPlugin({
 
     const lineAnnotation = lineAnnotationForSelection(activePage, selected) || selected;
     const lineRect = annotationRect(viewer, lineAnnotation);
-    const row = findEditorRowByAnnotationId(activePage, activeSelectedAnnotationId) || findEditorRowByAnnotationId(activePage, lineAnnotation.id);
+    const row = findEditorRowByAnnotationId(activePage, activeSelectedAnnotationId) || findEditorRowByAnnotationId(activePage, lineAnnotation.id || '');
     if (!lineRect || !row || !viewer?.canvas) return null;
 
     const canvasRect = viewer.canvas.getBoundingClientRect();
@@ -359,6 +453,7 @@ function ScribeTextOverlayPlugin({
       : rowText(row).split(/\s+/).filter(Boolean).map((token, index) => ({
         annotationId: null,
         fallbackIndex: index,
+        rect: null,
         text: token,
       }));
 
@@ -366,6 +461,7 @@ function ScribeTextOverlayPlugin({
     const wordEditors = (tokens.length > 0 ? tokens : [{
       annotationId: null,
       fallbackIndex: 0,
+      rect: null,
       text: rowText(row),
     }]).map((token, index) => ({
       ...token,
@@ -391,13 +487,23 @@ function ScribeTextOverlayPlugin({
   }, [activePage, activeSelectedAnnotationId, dragState, editorDock, inlineEditorVisible, viewer, version]);
 
   useEffect(() => {
+    if (editorIsBusy) {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLInputElement
+        && Array.from(inputRefs.current.values()).includes(focused)) focused.blur();
+      return;
+    }
     if (overlayMode !== 'edit' || !inlineEditor) return;
-    // Don't steal focus if the user has already clicked into one of our inputs
+    // Don't steal focus from an editor control after a later state update. In
+    // particular, keyboard line creation focuses a resize handle before every
+    // related editor-state update has finished rendering.
     if (!pendingFocusWordId) {
       const focused = document.activeElement;
       const isOurInput = focused instanceof HTMLInputElement
         && Array.from(inputRefs.current.values()).includes(focused);
-      if (isOurInput) return;
+      const isOurResizeHandle = focused instanceof HTMLButtonElement
+        && Array.from(resizeHandleRefs.current.values()).includes(focused);
+      if (isOurInput || isOurResizeHandle) return;
     }
     const targetId = pendingFocusWordId || activeFocusedWordAnnotationId || inlineEditor.wordEditors.find((word) => word.annotationId)?.annotationId || activeSelectedAnnotationId;
     const target = inputRefs.current.get(targetId);
@@ -408,7 +514,16 @@ function ScribeTextOverlayPlugin({
     if (pendingFocusWordId && pendingFocusWordId === targetId) {
       setPendingFocusWordId('');
     }
-  }, [activeFocusedWordAnnotationId, activeSelectedAnnotationId, inlineEditor, overlayMode, pendingFocusWordId]);
+  }, [activeFocusedWordAnnotationId, activeSelectedAnnotationId, editorIsBusy, inlineEditor, overlayMode, pendingFocusWordId]);
+
+  useEffect(() => {
+    if (!pendingResizeFocus || editorIsBusy || !inlineEditorVisible) return;
+    if (selectedDecoration.lineAnnotation?.id !== pendingResizeFocus.annotationId) return;
+    const target = resizeHandleRefs.current.get(pendingResizeFocus.handle);
+    if (!(target instanceof HTMLButtonElement)) return;
+    target.focus();
+    setPendingResizeFocus(null);
+  }, [editorIsBusy, inlineEditorVisible, pendingResizeFocus, selectedDecoration.lineAnnotation]);
 
   const focusBounds = useMemo(() => {
     if (!inlineEditorVisible || !selectedDecoration.lineRect) return null;
@@ -425,15 +540,18 @@ function ScribeTextOverlayPlugin({
   if (!viewer) return null;
   if (overlayMode === 'none' && !transcriptionRect && !transcriptionResultRect) return null;
 
-  const outlineRects = outlineVisible
+  const currentVisibleImageBounds = visibleImageBounds(viewer);
+  const outlineRects = /** @type {Array<{ id: string, rect: Rect }>} */ (outlineVisible
     ? (Array.isArray(activePage?.items) ? activePage.items : [])
         .filter(isLineAnnotation)
+        .filter((annotation) => annotationIntersectsImageRect(annotation, currentVisibleImageBounds))
         .map((annotation) => ({ id: annotation.id, rect: annotationRect(viewer, annotation) }))
-        .filter(({ rect }) => rect && rect.w > 4 && rect.h > 4)
-    : [];
+        .filter(({ id, rect }) => id && rect && rect.w > 4 && rect.h > 4)
+    : []);
 
   return ReactDOM.createPortal(
     <div
+      className="scribe-text-overlay"
       style={{
         height: '100%',
         left: 0,
@@ -504,7 +622,7 @@ function ScribeTextOverlayPlugin({
           h: Math.max(8, lr.h + (dragHandle?.startsWith('s') ? dragDy : dragHandle?.startsWith('n') ? -dragDy : 0)),
         } : { x: lr.x, y: lr.y, w: lr.w, h: lr.h };
 
-        const HANDLE_SIZE = 8;
+        const HANDLE_SIZE = 32;
         const corners = [
           { handle: 'nw', cx: previewRect.x, cy: previewRect.y, cursor: 'nw-resize' },
           { handle: 'ne', cx: previewRect.x + previewRect.w, cy: previewRect.y, cursor: 'ne-resize' },
@@ -527,17 +645,26 @@ function ScribeTextOverlayPlugin({
               }}
             />
             {corners.map(({ handle, cx, cy, cursor }) => (
-              <div
+              <button
+                aria-label={`Resize annotation from the ${handle} corner`}
+                aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight"
                 key={handle}
+                type="button"
+                disabled={editorIsBusy}
+                ref={(node) => {
+                  if (node) resizeHandleRefs.current.set(handle, node);
+                  else resizeHandleRefs.current.delete(handle);
+                }}
                 style={{
-                  background: 'rgba(255,255,255,0.95)',
-                  border: '2px solid rgba(217,119,6,0.9)',
-                  borderRadius: 2,
+                  background: 'radial-gradient(circle, rgba(255,255,255,0.98) 0 3px, rgba(217,119,6,0.95) 4px 5px, transparent 6px)',
+                  border: 0,
+                  borderRadius: '50%',
                   boxSizing: 'border-box',
                   cursor,
                   height: HANDLE_SIZE,
                   left: cx - HANDLE_SIZE / 2,
                   pointerEvents: 'auto',
+                  padding: 0,
                   position: 'absolute',
                   top: cy - HANDLE_SIZE / 2,
                   width: HANDLE_SIZE,
@@ -546,8 +673,9 @@ function ScribeTextOverlayPlugin({
                 onPointerDown={(event) => {
                   event.stopPropagation();
                   event.preventDefault();
+                  if (editorIsBusy) return;
                   const ann = selectedDecoration.lineAnnotation;
-                  if (!ann) return;
+                  if (!ann?.id) return;
                   setBboxDragState({
                     annotationId: ann.id,
                     currentClientX: event.clientX,
@@ -558,25 +686,61 @@ function ScribeTextOverlayPlugin({
                     startClientY: event.clientY,
                   });
                 }}
+                onKeyDown={(event) => {
+                  if (editorIsBusy) return;
+                  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const ann = selectedDecoration.lineAnnotation;
+                  if (!ann) return;
+                  const step = event.shiftKey ? 10 : 1;
+                  const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
+                  const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
+                  let { x, y, w, h } = annotationBBox(ann);
+                  if (handle.endsWith('w')) { x += dx; w -= dx; }
+                  if (handle.endsWith('e')) w += dx;
+                  if (handle.startsWith('n')) { y += dy; h -= dy; }
+                  if (handle.startsWith('s')) h += dy;
+                  document.dispatchEvent(new CustomEvent('scribe:resize-annotation', {
+                    detail: {
+                      annotationId: ann.id,
+                      bbox: normalizeImageBBox({ x, y, w, h }),
+                      canvasId,
+                      windowId,
+                    },
+                  }));
+                }}
               />
             ))}
           </>
         );
       })() : null}
       {labels.map((label) => (
-        <div
+        <button
+          aria-label={`Edit ${label.isWord ? 'word' : 'line'}: ${label.text || 'empty text'}`}
           key={label.id}
+          type="button"
+          disabled={editorIsBusy}
           onMouseDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            if (editorIsBusy) return;
             if (label.isWord) setPendingFocusWordId(label.id);
-            dispatchOverlaySelection(label, windowId);
+            dispatchOverlaySelection(label, windowId, canvasId);
           }}
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
+            if (editorIsBusy) return;
             if (label.isWord) setPendingFocusWordId(label.id);
-            dispatchOverlaySelection(label, windowId);
+            dispatchOverlaySelection(label, windowId, canvasId);
+          }}
+          onKeyDown={(event) => {
+            if (editorIsBusy) return;
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            if (label.isWord) setPendingFocusWordId(label.id);
+            dispatchOverlaySelection(label, windowId, canvasId);
           }}
           style={{
             background: label.id === activeFocusedWordAnnotationId || label.id === activeSelectedAnnotationId ? 'rgba(251, 191, 36, 0.88)' : 'rgba(15, 23, 42, 0.78)',
@@ -596,6 +760,7 @@ function ScribeTextOverlayPlugin({
             maxWidth: label.rect.w,
             overflow: 'hidden',
             pointerEvents: 'auto',
+            padding: 0,
             position: 'absolute',
             textOverflow: 'ellipsis',
             top: label.rect.y,
@@ -605,7 +770,7 @@ function ScribeTextOverlayPlugin({
           }}
         >
           {label.text}
-        </div>
+        </button>
       ))}
       {inlineEditor ? (
         <div
@@ -686,7 +851,9 @@ function ScribeTextOverlayPlugin({
             if (!rect) return null;
             return (
               <input
+                aria-label={`Edit word ${word.text || 'with empty text'}`}
                 key={word.annotationId}
+                disabled={editorIsBusy}
                 ref={(node) => {
                   if (!word.annotationId) return;
                   if (node) inputRefs.current.set(word.annotationId, node);
@@ -716,29 +883,29 @@ function ScribeTextOverlayPlugin({
                 onFocus={() => {
                   if (!word.annotationId) return;
                   setPendingFocusWordId('');
-                  document.dispatchEvent(new CustomEvent('scribe:inline-change-word', {
-                    detail: {
-                      annotationId: word.annotationId,
-                      text: word.text,
-                      windowId,
-                    },
+                  document.dispatchEvent(new CustomEvent('scribe:select-annotation', {
+                    detail: { annotationId: word.annotationId, canvasId, windowId },
                   }));
                 }}
                 onChange={(event) => {
+                  if (editorIsBusy) return;
                   document.dispatchEvent(new CustomEvent('scribe:inline-change-word', {
                     detail: {
                       annotationId: word.annotationId,
+                      canvasId,
                       text: event.target.value,
                       windowId,
                     },
                   }));
                 }}
                 onKeyDown={(event) => {
+                  if (editorIsBusy) return;
                   if (event.key === 'Tab') {
                     event.preventDefault();
                     document.dispatchEvent(new CustomEvent('scribe:inline-step-selection', {
                       detail: {
                         direction: event.shiftKey ? -1 : 1,
+                        canvasId,
                         windowId,
                       },
                     }));
@@ -747,7 +914,7 @@ function ScribeTextOverlayPlugin({
                   if (event.key === 'Enter' && !(event.metaKey || event.ctrlKey)) {
                     event.preventDefault();
                     document.dispatchEvent(new CustomEvent('scribe:inline-save', {
-                      detail: { windowId },
+                      detail: { canvasId, windowId },
                     }));
                   }
                 }}
@@ -784,7 +951,14 @@ function ScribeTextOverlayPlugin({
             >
               {inlineEditor.wordEditors.map((word, index) => (
                 <input
+                  aria-label={`Edit line token ${index + 1}`}
                   key={`fallback-${index}`}
+                  disabled={editorIsBusy}
+                  ref={(node) => {
+                    if (index !== 0 || !activeSelectedAnnotationId) return;
+                    if (node) inputRefs.current.set(activeSelectedAnnotationId, node);
+                    else inputRefs.current.delete(activeSelectedAnnotationId);
+                  }}
                   value={word.text}
                   onMouseDown={(event) => {
                     event.stopPropagation();
@@ -807,6 +981,7 @@ function ScribeTextOverlayPlugin({
                     event.nativeEvent.stopPropagation();
                   }}
                   onChange={(event) => {
+                    if (editorIsBusy) return;
                     const inputs = Array.from(event.currentTarget.parentElement?.querySelectorAll('input') || []);
                     const nextText = inputs.map((input, inputIndex) => (
                       inputIndex === index ? event.target.value : input.value
@@ -814,17 +989,20 @@ function ScribeTextOverlayPlugin({
                     document.dispatchEvent(new CustomEvent('scribe:inline-change-text', {
                       detail: {
                         selectionStart: event.target.selectionStart,
+                        canvasId,
                         text: nextText,
                         windowId,
                       },
                     }));
                   }}
                   onKeyDown={(event) => {
+                    if (editorIsBusy) return;
                     if (event.key === 'Tab') {
                       event.preventDefault();
                       document.dispatchEvent(new CustomEvent('scribe:inline-step-selection', {
                         detail: {
                           direction: event.shiftKey ? -1 : 1,
+                          canvasId,
                           windowId,
                         },
                       }));
@@ -833,7 +1011,7 @@ function ScribeTextOverlayPlugin({
                     if (event.key === 'Enter' && !(event.metaKey || event.ctrlKey)) {
                       event.preventDefault();
                       document.dispatchEvent(new CustomEvent('scribe:inline-save', {
-                        detail: { windowId },
+                        detail: { canvasId, windowId },
                       }));
                     }
                   }}
@@ -985,18 +1163,23 @@ ScribeTextOverlayPlugin.propTypes = {
   annotationPage: PropTypes.shape({
     items: PropTypes.array,
   }),
+  canvasId: PropTypes.string.isRequired,
   selectedAnnotationId: PropTypes.string,
   viewer: PropTypes.object,
   windowId: PropTypes.string.isRequired,
 };
 
+/** @param {MiradorState} state @param {WindowOwnProps} ownProps */
 const mapStateToProps = (state, { windowId }) => {
   const selectedAnnotationId = selectedAnnotationIdForWindow(state, windowId);
-  const pageForSelection = findAnnotationPageByAnnotationId(state, selectedAnnotationId);
-  const canvasId = findCanvasIdByAnnotationId(state, selectedAnnotationId) || firstAnnotationCanvasId(state);
+  // The Mirador window is authoritative. A selection from the previous
+  // Canvas may remain in Redux briefly during a page turn and must never route
+  // the overlay back to that stale page.
+  const canvasId = canvasIdForWindow(state, windowId);
 
   return {
-    annotationPage: pageForSelection || annotationPageForCanvas(state, canvasId) || firstAnnotationPage(state),
+    annotationPage: annotationPageForCanvas(state, canvasId),
+    canvasId,
     selectedAnnotationId,
   };
 };

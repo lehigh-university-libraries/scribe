@@ -1,16 +1,22 @@
 package server
 
 import (
+	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strconv"
+	"io"
 	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
+
+var errInvalidContextMetadata = errors.New("invalid context metadata")
+
+const maxContextMetadataJSONBytes = 64 << 10
 
 func (h *Handler) currentUserID(ctx context.Context) uint64 {
 	if h.auth == nil {
@@ -42,75 +48,97 @@ func (h *Handler) resolveContextForRequest(ctx context.Context, contextID uint64
 	if contextID > 0 {
 		return h.contextForRead(ctx, contextID)
 	}
-	var metadata map[string]any
-	if raw := strings.TrimSpace(metadataJSON); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
-			return store.Context{}, fmt.Errorf("invalid metadata json: %w", err)
-		}
+	metadata, err := decodeContextMetadataJSON(metadataJSON)
+	if err != nil {
+		return store.Context{}, err
 	}
 	returnContext, _, err := h.contexts.ResolveForWorkspace(ctx, h.currentWorkspaceID(ctx), metadata)
 	return returnContext, err
 }
 
-func (h *Handler) authorizeCanvasRead(ctx context.Context, canvasURI string) error {
-	canvasURI = strings.TrimSpace(canvasURI)
-	if canvasURI == "" {
-		return fmt.Errorf("canvas uri is required")
+func decodeContextMetadataJSON(raw string) (map[string]any, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
 	}
-	if matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI); len(matches) >= 2 {
-		itemImageID, err := strconv.ParseUint(strings.TrimSpace(matches[1]), 10, 64)
-		if err != nil {
-			return sql.ErrNoRows
-		}
-		_, err = h.itemImageForRequest(ctx, itemImageID)
-		return err
+	if len(raw) > maxContextMetadataJSONBytes {
+		return nil, fmt.Errorf("%w: metadata_json exceeds %d bytes", errInvalidContextMetadata, maxContextMetadataJSONBytes)
 	}
-	_, err := h.items.GetImageByCanvasURIForWorkspace(ctx, canvasURI, h.currentWorkspaceID(ctx))
-	if err == nil {
-		return nil
+	decoder := json.NewDecoder(bytes.NewBufferString(raw))
+	decoder.UseNumber()
+	var metadata map[string]any
+	if err := decoder.Decode(&metadata); err != nil || metadata == nil {
+		return nil, fmt.Errorf("%w: metadata_json must be a JSON object", errInvalidContextMetadata)
 	}
-	if err != sql.ErrNoRows {
-		return err
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("%w: metadata_json contains trailing data", errInvalidContextMetadata)
 	}
-	for _, manifestURL := range manifestURLCandidatesFromCanvasURI(canvasURI) {
-		if ingestErr := h.autoIngestManifest(ctx, manifestURL); ingestErr != nil {
-			continue
-		}
-		if _, retryErr := h.items.GetImageByCanvasURIForWorkspace(ctx, canvasURI, h.currentWorkspaceID(ctx)); retryErr == nil {
-			return nil
-		}
-	}
-	return sql.ErrNoRows
+	return metadata, nil
 }
 
-func (h *Handler) authorizeAnnotationJSON(ctx context.Context, raw string) error {
+func (h *Handler) authorizeAnnotationJSON(ctx context.Context, itemImageID uint64, raw string) error {
 	var annotation map[string]any
-	if err := json.Unmarshal([]byte(raw), &annotation); err != nil {
+	if err := iiif.DecodeJSON([]byte(raw), &annotation); err != nil {
+		return fmt.Errorf("invalid annotation json: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(annStringValue(annotation, "type")), "Annotation") {
+		return fmt.Errorf("resource is not an Annotation")
+	}
+	if !strings.EqualFold(strings.TrimSpace(annStringValue(annotation, "textGranularity")), "line") {
+		return fmt.Errorf("resource is not a line annotation")
+	}
+	canonical, err := h.annotations.LoadPage(ctx, h.currentWorkspaceID(ctx), itemImageID)
+	if err != nil {
 		return err
 	}
-	return h.authorizeCanvasRead(ctx, extractCanvasURI(annotation))
+	canvasURI := extractCanvasURI(annotation)
+	identity, err := iiif.PageIdentityFromAnnotationID(strings.TrimSpace(annStringValue(annotation, "id")), canvasURI)
+	if err != nil || identity.ItemImageID != itemImageID {
+		return fmt.Errorf("annotation id is not a child of the requested item image")
+	}
+	pageID, err := iiif.CanonicalPageID(identity.PublicBaseURL, identity.ItemImageID)
+	if err != nil || pageID != canonical.PageID {
+		return fmt.Errorf("annotation id is not a canonical child of the requested page")
+	}
+	if canvasURI != canonical.CanvasURI {
+		return fmt.Errorf("annotation targets a different canvas")
+	}
+	return nil
 }
 
-func (h *Handler) ocrRunForRequest(ctx context.Context, sessionID string, itemImageID uint64) (store.OCRRun, error) {
-	var (
-		run store.OCRRun
-		err error
-	)
-	switch {
-	case itemImageID > 0:
-		if _, err = h.itemImageForRequest(ctx, itemImageID); err != nil {
-			return store.OCRRun{}, err
-		}
-		run, err = h.ocrRuns.GetByItemImageID(ctx, itemImageID)
-	case strings.TrimSpace(sessionID) != "":
-		run, err = h.ocrRuns.Get(ctx, sessionID)
-		if err == nil && run.ItemImageID != nil {
-			if _, authErr := h.itemImageForRequest(ctx, *run.ItemImageID); authErr != nil {
-				return store.OCRRun{}, authErr
-			}
-		}
-	default:
-		return store.OCRRun{}, sql.ErrNoRows
+// authorizeAnnotationPageJSON verifies the identity and every target on a
+// client-supplied canonical page against the tenant-scoped page repository.
+// The client may submit a local draft, so authorization deliberately does not
+// require byte equality with the persisted payload.
+func (h *Handler) authorizeAnnotationPageJSON(ctx context.Context, itemImageID uint64, raw string) error {
+	var page map[string]any
+	if err := iiif.DecodeJSON([]byte(raw), &page); err != nil {
+		return fmt.Errorf("invalid annotation page json: %w", err)
 	}
-	return run, err
+	if !strings.EqualFold(strings.TrimSpace(annStringValue(page, "type")), "AnnotationPage") {
+		return fmt.Errorf("resource is not an AnnotationPage")
+	}
+	pageID := strings.TrimSpace(annStringValue(page, "id"))
+	payloadItemImageID, err := itemImageIDFromAnnotationPageID(pageID)
+	if err != nil || payloadItemImageID != itemImageID {
+		return fmt.Errorf("annotation page does not belong to the requested item image")
+	}
+	if _, err := h.itemImageForRequest(ctx, itemImageID); err != nil {
+		return err
+	}
+	canonical, err := h.annotations.LoadPage(ctx, h.currentWorkspaceID(ctx), itemImageID)
+	if err != nil {
+		return err
+	}
+	if pageID != canonical.PageID {
+		return fmt.Errorf("annotation page id is not canonical")
+	}
+	identity, err := iiif.PageIdentityFromPageID(canonical.PageID, canonical.CanvasURI)
+	if err != nil {
+		return err
+	}
+	return iiif.ValidateCanonicalAnnotationPage([]byte(raw), identity)
+}
+
+func itemImageIDFromAnnotationPageID(raw string) (uint64, error) {
+	return iiif.ItemImageIDFromAnnotationPageID(raw)
 }

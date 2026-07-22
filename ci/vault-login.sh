@@ -29,7 +29,7 @@ while true; do
   : > "$response_file"
   : > "$status_code_file"
 
-  if curl -sS -o "$response_file" -w '%{http_code}' \
+  if curl -sS --connect-timeout 5 --max-time 30 -o "$response_file" -w '%{http_code}' \
     -X POST \
     -H "Content-Type: application/json" \
     -H "X-Admin-Token: ${VAULT_ADMIN_TOKEN}" \
@@ -60,7 +60,7 @@ while true; do
     fi
     echo "Common causes: secrets.GSA is missing from vault_ci_service_account_emails, the owning workspace Vault bootstrap has not been re-applied since that change, or the Vault URL/audience no longer matches the configured role." >&2
     if [ -s "$response_file" ]; then
-      cat "$response_file" >&2
+      echo "Vault response body withheld because it may contain sensitive authentication material." >&2
       if jq -e --arg role "$VAULT_ROLE" '.errors[]? | contains("role \"" + $role + "\" could not be found")' "$response_file" >/dev/null 2>&1; then
         echo "Vault is reachable, but the JWT auth role ${VAULT_ROLE} does not exist yet." >&2
         echo "Apply the owning Vault workspace with a tfvars entry that includes the GitHub Actions service account from secrets.GSA under vault_ci_service_account_emails." >&2
@@ -87,7 +87,7 @@ done
 
 vault_token="$(jq -r '.auth.client_token // empty' "$response_file")"
 if [ -z "$vault_token" ]; then
-  cat "$response_file" >&2
+  echo "Vault response body withheld because it may contain sensitive authentication material." >&2
   echo "Vault login response did not include auth.client_token for role ${VAULT_ROLE}" >&2
   exit 1
 fi

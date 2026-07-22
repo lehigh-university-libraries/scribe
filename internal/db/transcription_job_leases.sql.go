@@ -14,9 +14,14 @@ import (
 const claimLeasedTranscriptionJobByIDManual = `-- name: ClaimLeasedTranscriptionJobByIDManual :one
 SELECT
   id,
+  workspace_id,
   item_image_id,
   context_id,
+  context_scope_id,
+  context_snapshot,
+  input_revision,
   status,
+  active_item_image_id,
   total_segments,
   completed_segments,
   failed_segments,
@@ -37,11 +42,11 @@ WHERE id = ?
     (
       status = 'pending'
       AND (retry_after IS NULL OR retry_after <= NOW())
+      AND attempt_count < max_attempts
     ) OR (
       status = 'running'
       AND lease_until IS NOT NULL
       AND lease_until < NOW()
-      AND attempt_count < max_attempts
     )
   )
 LIMIT 1
@@ -53,9 +58,14 @@ func (q *Queries) ClaimLeasedTranscriptionJobByIDManual(ctx context.Context, id 
 	var i TranscriptionJob
 	err := row.Scan(
 		&i.ID,
+		&i.WorkspaceID,
 		&i.ItemImageID,
 		&i.ContextID,
+		&i.ContextScopeID,
+		&i.ContextSnapshot,
+		&i.InputRevision,
 		&i.Status,
+		&i.ActiveItemImageID,
 		&i.TotalSegments,
 		&i.CompletedSegments,
 		&i.FailedSegments,
@@ -77,9 +87,14 @@ func (q *Queries) ClaimLeasedTranscriptionJobByIDManual(ctx context.Context, id 
 const claimNextLeasedTranscriptionJobManual = `-- name: ClaimNextLeasedTranscriptionJobManual :one
 SELECT
   id,
+  workspace_id,
   item_image_id,
   context_id,
+  context_scope_id,
+  context_snapshot,
+  input_revision,
   status,
+  active_item_image_id,
   total_segments,
   completed_segments,
   failed_segments,
@@ -98,11 +113,11 @@ FROM transcription_jobs
 WHERE (
     status = 'pending'
     AND (retry_after IS NULL OR retry_after <= NOW())
+    AND attempt_count < max_attempts
   ) OR (
     status = 'running'
     AND lease_until IS NOT NULL
     AND lease_until < NOW()
-    AND attempt_count < max_attempts
   )
 ORDER BY created_at ASC
 LIMIT 1
@@ -114,9 +129,14 @@ func (q *Queries) ClaimNextLeasedTranscriptionJobManual(ctx context.Context) (Tr
 	var i TranscriptionJob
 	err := row.Scan(
 		&i.ID,
+		&i.WorkspaceID,
 		&i.ItemImageID,
 		&i.ContextID,
+		&i.ContextScopeID,
+		&i.ContextSnapshot,
+		&i.InputRevision,
 		&i.Status,
+		&i.ActiveItemImageID,
 		&i.TotalSegments,
 		&i.CompletedSegments,
 		&i.FailedSegments,
@@ -138,9 +158,14 @@ func (q *Queries) ClaimNextLeasedTranscriptionJobManual(ctx context.Context) (Tr
 const claimNextLeasedTranscriptionJobOlderThanManual = `-- name: ClaimNextLeasedTranscriptionJobOlderThanManual :one
 SELECT
   id,
+  workspace_id,
   item_image_id,
   context_id,
+  context_scope_id,
+  context_snapshot,
+  input_revision,
   status,
+  active_item_image_id,
   total_segments,
   completed_segments,
   failed_segments,
@@ -161,11 +186,11 @@ WHERE created_at < ?
     (
       status = 'pending'
       AND (retry_after IS NULL OR retry_after <= NOW())
+      AND attempt_count < max_attempts
     ) OR (
       status = 'running'
       AND lease_until IS NOT NULL
       AND lease_until < NOW()
-      AND attempt_count < max_attempts
     )
   )
 ORDER BY created_at ASC
@@ -178,9 +203,14 @@ func (q *Queries) ClaimNextLeasedTranscriptionJobOlderThanManual(ctx context.Con
 	var i TranscriptionJob
 	err := row.Scan(
 		&i.ID,
+		&i.WorkspaceID,
 		&i.ItemImageID,
 		&i.ContextID,
+		&i.ContextScopeID,
+		&i.ContextSnapshot,
+		&i.InputRevision,
 		&i.Status,
+		&i.ActiveItemImageID,
 		&i.TotalSegments,
 		&i.CompletedSegments,
 		&i.FailedSegments,
@@ -205,21 +235,33 @@ SET
   status = 'completed',
   current_annotation_id = NULL,
   current_annotation_json = NULL,
+  last_result_annotation_json = NULL,
   lease_until = NULL,
   locked_by = NULL,
   updated_at = NOW()
 WHERE id = ?
-  AND locked_by = ?
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND COALESCE(locked_by, '') = ?
   AND status = 'running'
+  AND lease_until IS NOT NULL
+  AND lease_until > NOW()
 `
 
 type CompleteTranscriptionJobLeasedManualParams struct {
-	ID       uint64         `json:"id"`
-	LockedBy sql.NullString `json:"locked_by"`
+	ID            uint64         `json:"id"`
+	AttemptNumber int32          `json:"attempt_number"`
+	InputRevision uint64         `json:"input_revision"`
+	LeaseToken    sql.NullString `json:"lease_token"`
 }
 
 func (q *Queries) CompleteTranscriptionJobLeasedManual(ctx context.Context, arg CompleteTranscriptionJobLeasedManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, completeTranscriptionJobLeasedManual, arg.ID, arg.LockedBy)
+	return q.db.ExecContext(ctx, completeTranscriptionJobLeasedManual,
+		arg.ID,
+		arg.AttemptNumber,
+		arg.InputRevision,
+		arg.LeaseToken,
+	)
 }
 
 const deferTranscriptionJobLeaseManual = `-- name: DeferTranscriptionJobLeaseManual :execresult
@@ -230,19 +272,26 @@ SET
   error_message = ?,
   current_annotation_id = NULL,
   current_annotation_json = NULL,
+  last_result_annotation_json = NULL,
   lease_until = NULL,
   locked_by = NULL,
   updated_at = NOW()
 WHERE id = ?
-  AND locked_by = ?
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND COALESCE(locked_by, '') = ?
   AND status = 'running'
+  AND lease_until IS NOT NULL
+  AND lease_until > NOW()
 `
 
 type DeferTranscriptionJobLeaseManualParams struct {
-	RetryAfter   sql.NullTime   `json:"retry_after"`
-	ErrorMessage sql.NullString `json:"error_message"`
-	ID           uint64         `json:"id"`
-	LockedBy     sql.NullString `json:"locked_by"`
+	RetryAfter    sql.NullTime   `json:"retry_after"`
+	ErrorMessage  sql.NullString `json:"error_message"`
+	ID            uint64         `json:"id"`
+	AttemptNumber int32          `json:"attempt_number"`
+	InputRevision uint64         `json:"input_revision"`
+	LeaseToken    sql.NullString `json:"lease_token"`
 }
 
 func (q *Queries) DeferTranscriptionJobLeaseManual(ctx context.Context, arg DeferTranscriptionJobLeaseManualParams) (sql.Result, error) {
@@ -250,7 +299,9 @@ func (q *Queries) DeferTranscriptionJobLeaseManual(ctx context.Context, arg Defe
 		arg.RetryAfter,
 		arg.ErrorMessage,
 		arg.ID,
-		arg.LockedBy,
+		arg.AttemptNumber,
+		arg.InputRevision,
+		arg.LeaseToken,
 	)
 }
 
@@ -260,18 +311,99 @@ SET
   lease_until = ?,
   updated_at = NOW()
 WHERE id = ?
-  AND locked_by = ?
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND COALESCE(locked_by, '') = ?
   AND status = 'running'
+  AND lease_until IS NOT NULL
+  AND lease_until > NOW()
 `
 
 type ExtendTranscriptionJobLeaseManualParams struct {
-	LeaseUntil sql.NullTime   `json:"lease_until"`
-	ID         uint64         `json:"id"`
-	LockedBy   sql.NullString `json:"locked_by"`
+	LeaseUntil    sql.NullTime   `json:"lease_until"`
+	ID            uint64         `json:"id"`
+	AttemptNumber int32          `json:"attempt_number"`
+	InputRevision uint64         `json:"input_revision"`
+	LeaseToken    sql.NullString `json:"lease_token"`
 }
 
 func (q *Queries) ExtendTranscriptionJobLeaseManual(ctx context.Context, arg ExtendTranscriptionJobLeaseManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, extendTranscriptionJobLeaseManual, arg.LeaseUntil, arg.ID, arg.LockedBy)
+	return q.db.ExecContext(ctx, extendTranscriptionJobLeaseManual,
+		arg.LeaseUntil,
+		arg.ID,
+		arg.AttemptNumber,
+		arg.InputRevision,
+		arg.LeaseToken,
+	)
+}
+
+const failExpiredTranscriptionJobManual = `-- name: FailExpiredTranscriptionJobManual :execresult
+UPDATE transcription_jobs
+SET status = 'failed',
+    retry_after = NULL,
+    error_message = 'worker lease expired after maximum attempts',
+    current_annotation_id = NULL,
+    current_annotation_json = NULL,
+    last_result_annotation_json = NULL,
+    lease_until = NULL,
+    locked_by = NULL,
+    updated_at = NOW()
+WHERE id = ?
+  AND status = 'running'
+  AND lease_until IS NOT NULL
+  AND lease_until < NOW()
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND COALESCE(locked_by, '') = ?
+  AND attempt_count >= max_attempts
+`
+
+type FailExpiredTranscriptionJobManualParams struct {
+	ID            uint64         `json:"id"`
+	AttemptNumber int32          `json:"attempt_number"`
+	InputRevision uint64         `json:"input_revision"`
+	LeaseToken    sql.NullString `json:"lease_token"`
+}
+
+func (q *Queries) FailExpiredTranscriptionJobManual(ctx context.Context, arg FailExpiredTranscriptionJobManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, failExpiredTranscriptionJobManual,
+		arg.ID,
+		arg.AttemptNumber,
+		arg.InputRevision,
+		arg.LeaseToken,
+	)
+}
+
+const lockActiveTranscriptionJobLeaseManual = `-- name: LockActiveTranscriptionJobLeaseManual :one
+SELECT id
+FROM transcription_jobs
+WHERE id = ?
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND COALESCE(locked_by, '') = ?
+  AND status = 'running'
+  AND lease_until IS NOT NULL
+  AND lease_until > NOW()
+FOR UPDATE
+`
+
+type LockActiveTranscriptionJobLeaseManualParams struct {
+	ID            uint64         `json:"id"`
+	AttemptNumber int32          `json:"attempt_number"`
+	InputRevision uint64         `json:"input_revision"`
+	LeaseToken    sql.NullString `json:"lease_token"`
+}
+
+func (q *Queries) LockActiveTranscriptionJobLeaseManual(ctx context.Context, arg LockActiveTranscriptionJobLeaseManualParams) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, lockActiveTranscriptionJobLeaseManual,
+		arg.ID,
+		arg.AttemptNumber,
+		arg.InputRevision,
+		arg.LeaseToken,
+	)
+	var id uint64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const markTranscriptionJobLeasedManual = `-- name: MarkTranscriptionJobLeasedManual :execresult
@@ -279,14 +411,26 @@ UPDATE transcription_jobs
 SET
   status = 'running',
   attempt_count = attempt_count + 1,
+  total_segments = 0,
+  completed_segments = 0,
+  failed_segments = 0,
+  current_annotation_id = NULL,
+  current_annotation_json = NULL,
+  last_result_annotation_json = NULL,
   lease_until = ?,
   locked_by = ?,
+  retry_after = NULL,
+  error_message = NULL,
   updated_at = NOW()
 WHERE id = ?
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND (locked_by <=> ?)
   AND (
     (
       status = 'pending'
       AND (retry_after IS NULL OR retry_after <= NOW())
+      AND attempt_count < max_attempts
     ) OR (
       status = 'running'
       AND lease_until IS NOT NULL
@@ -297,13 +441,23 @@ WHERE id = ?
 `
 
 type MarkTranscriptionJobLeasedManualParams struct {
-	LeaseUntil sql.NullTime   `json:"lease_until"`
-	LockedBy   sql.NullString `json:"locked_by"`
-	ID         uint64         `json:"id"`
+	LeaseUntil           sql.NullTime   `json:"lease_until"`
+	LeaseToken           sql.NullString `json:"lease_token"`
+	ID                   uint64         `json:"id"`
+	PreviousAttemptCount int32          `json:"previous_attempt_count"`
+	InputRevision        uint64         `json:"input_revision"`
+	PreviousLeaseToken   sql.NullString `json:"previous_lease_token"`
 }
 
 func (q *Queries) MarkTranscriptionJobLeasedManual(ctx context.Context, arg MarkTranscriptionJobLeasedManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, markTranscriptionJobLeasedManual, arg.LeaseUntil, arg.LockedBy, arg.ID)
+	return q.db.ExecContext(ctx, markTranscriptionJobLeasedManual,
+		arg.LeaseUntil,
+		arg.LeaseToken,
+		arg.ID,
+		arg.PreviousAttemptCount,
+		arg.InputRevision,
+		arg.PreviousLeaseToken,
+	)
 }
 
 const retryOrFailTranscriptionJobManual = `-- name: RetryOrFailTranscriptionJobManual :execresult
@@ -318,16 +472,28 @@ SET
   locked_by = NULL,
   updated_at = NOW()
 WHERE id = ?
-  AND locked_by = ?
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND COALESCE(locked_by, '') = ?
   AND status = 'running'
+  AND lease_until IS NOT NULL
+  AND lease_until > NOW()
 `
 
 type RetryOrFailTranscriptionJobManualParams struct {
-	ErrorMessage sql.NullString `json:"error_message"`
-	ID           uint64         `json:"id"`
-	LockedBy     sql.NullString `json:"locked_by"`
+	ErrorMessage  sql.NullString `json:"error_message"`
+	ID            uint64         `json:"id"`
+	AttemptNumber int32          `json:"attempt_number"`
+	InputRevision uint64         `json:"input_revision"`
+	LeaseToken    sql.NullString `json:"lease_token"`
 }
 
 func (q *Queries) RetryOrFailTranscriptionJobManual(ctx context.Context, arg RetryOrFailTranscriptionJobManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, retryOrFailTranscriptionJobManual, arg.ErrorMessage, arg.ID, arg.LockedBy)
+	return q.db.ExecContext(ctx, retryOrFailTranscriptionJobManual,
+		arg.ErrorMessage,
+		arg.ID,
+		arg.AttemptNumber,
+		arg.InputRevision,
+		arg.LeaseToken,
+	)
 }

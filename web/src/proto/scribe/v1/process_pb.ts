@@ -2,8 +2,8 @@
 // @generated from file scribe/v1/process.proto (package scribe.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
 import { file_scribe_v1_options_v1_auth } from "./options/v1/auth_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -12,11 +12,11 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file scribe/v1/process.proto.
  */
 export const file_scribe_v1_process: GenFile = /*@__PURE__*/
-  fileDesc("ChdzY3JpYmUvdjEvcHJvY2Vzcy5wcm90bxIJc2NyaWJlLnYxIqUBChZQcm9jZXNzSW1hZ2VVUkxSZXF1ZXN0EiMKCWltYWdlX3VybBgBIAEoCUIQukgNyAEBcggyBi4qXFMuKhIuCg1vdXRwdXRfZm9ybWF0GAIgASgOMhcuc2NyaWJlLnYxLk91dHB1dEZvcm1hdBISCgpjb250ZXh0X2lkGAMgASgEEiIKCG1ldGFkYXRhGAQgASgJQhC6SA1yCzIJXiR8LipcUy4qIqMBChlQcm9jZXNzSW1hZ2VVcGxvYWRSZXF1ZXN0Eh4KCmltYWdlX2RhdGEYASABKAxCCrpIB8gBAXoCEAESIgoIZmlsZW5hbWUYAiABKAlCELpIDXILMgleJHwuKlxTLioSLgoNb3V0cHV0X2Zvcm1hdBgDIAEoDjIXLnNjcmliZS52MS5PdXRwdXRGb3JtYXQSEgoKY29udGV4dF9pZBgEIAEoBCLBAQoSUHJvY2Vzc0hPQ1JSZXF1ZXN0Eh4KBGhvY3IYASABKAlCELpIDcgBAXIIMgYuKlxTLioSIwoJaW1hZ2VfdXJsGAIgASgJQhC6SA1yCzIJXiR8LipcUy4qEi4KDW91dHB1dF9mb3JtYXQYAyABKA4yFy5zY3JpYmUudjEuT3V0cHV0Rm9ybWF0EhIKCmltYWdlX2RhdGEYBCABKAwSIgoIZmlsZW5hbWUYBSABKAlCELpIDXILMgleJHwuKlxTLioiigEKF1Byb2Nlc3NJbWFnZVVSTFJlc3BvbnNlEg8KB2l0ZW1faWQYASABKAkSFQoNaXRlbV9pbWFnZV9pZBgCIAEoBBIRCglpbWFnZV91cmwYAyABKAkSDAoEaG9jchgEIAEoCRISCgpwbGFpbl90ZXh0GAUgASgJEhIKCnNlc3Npb25faWQYBiABKAkijQEKGlByb2Nlc3NJbWFnZVVwbG9hZFJlc3BvbnNlEg8KB2l0ZW1faWQYASABKAkSFQoNaXRlbV9pbWFnZV9pZBgCIAEoBBIRCglpbWFnZV91cmwYAyABKAkSDAoEaG9jchgEIAEoCRISCgpwbGFpbl90ZXh0GAUgASgJEhIKCnNlc3Npb25faWQYBiABKAkihgEKE1Byb2Nlc3NIT0NSUmVzcG9uc2USDwoHaXRlbV9pZBgBIAEoCRIVCg1pdGVtX2ltYWdlX2lkGAIgASgEEhEKCWltYWdlX3VybBgDIAEoCRIMCgRob2NyGAQgASgJEhIKCnBsYWluX3RleHQYBSABKAkSEgoKc2Vzc2lvbl9pZBgGIAEoCSJ7ChBHZXRPQ1JSdW5SZXF1ZXN0EhUKDWl0ZW1faW1hZ2VfaWQYAiABKAQ6ULpITRpLChZnZXRfb2NyX3J1bi5pZGVudGlmaWVyEhlpdGVtX2ltYWdlX2lkIGlzIHJlcXVpcmVkGhZ0aGlzLml0ZW1faW1hZ2VfaWQgPiAwIvABChFHZXRPQ1JSdW5SZXNwb25zZRISCgpzZXNzaW9uX2lkGAEgASgJEhUKDWl0ZW1faW1hZ2VfaWQYAiABKAQSEQoJaW1hZ2VfdXJsGAMgASgJEg0KBW1vZGVsGAQgASgJEhUKDW9yaWdpbmFsX2hvY3IYBSABKAkSFQoNb3JpZ2luYWxfdGV4dBgGIAEoCRIWCg5jb3JyZWN0ZWRfaG9jchgHIAEoCRIWCg5jb3JyZWN0ZWRfdGV4dBgIIAEoCRISCgplZGl0X2NvdW50GAkgASgFEhwKFGxldmVuc2h0ZWluX2Rpc3RhbmNlGAogASgFIr8BChNTYXZlT0NSRWRpdHNSZXF1ZXN0EhUKDWl0ZW1faW1hZ2VfaWQYAiABKAQSKAoOY29ycmVjdGVkX2hvY3IYAyABKAlCELpIDcgBAXIIMgYuKlxTLioSEgoKZWRpdF9jb3VudBgEIAEoBTpTukhQGk4KGXNhdmVfb2NyX2VkaXRzLmlkZW50aWZpZXISGWl0ZW1faW1hZ2VfaWQgaXMgcmVxdWlyZWQaFnRoaXMuaXRlbV9pbWFnZV9pZCA+IDAirgEKFFNhdmVPQ1JFZGl0c1Jlc3BvbnNlEhIKCnNlc3Npb25faWQYASABKAkSFQoNaXRlbV9pbWFnZV9pZBgCIAEoBBISCgplZGl0X2NvdW50GAMgASgFEhwKFGxldmVuc2h0ZWluX2Rpc3RhbmNlGAQgASgFEhwKFGNvcnJlY3RlZF9wbGFpbl90ZXh0GAUgASgJEhsKE29yaWdpbmFsX3BsYWluX3RleHQYBiABKAkiUgoZUmVwcm9jZXNzSXRlbUltYWdlUmVxdWVzdBIhCg1pdGVtX2ltYWdlX2lkGAEgASgEQgq6SAfIAQEyAiAAEhIKCmNvbnRleHRfaWQYAiABKAQisQEKGlJlcHJvY2Vzc0l0ZW1JbWFnZVJlc3BvbnNlEhIKCnNlc3Npb25faWQYASABKAkSFQoNaXRlbV9pbWFnZV9pZBgCIAEoBBISCgpjb250ZXh0X2lkGAMgASgEEhEKCWltYWdlX3VybBgEIAEoCRIMCgRob2NyGAUgASgJEhIKCnBsYWluX3RleHQYBiABKAkSEAoIcHJvdmlkZXIYByABKAkSDQoFbW9kZWwYCCABKAkqeQoMT3V0cHV0Rm9ybWF0Eh0KGU9VVFBVVF9GT1JNQVRfVU5TUEVDSUZJRUQQABIWChJPVVRQVVRfRk9STUFUX0hPQ1IQARIWChJPVVRQVVRfRk9STUFUX1RFWFQQAhIaChZPVVRQVVRfRk9STUFUX1BBR0VfWE1MEAMyiAUKFkltYWdlUHJvY2Vzc2luZ1NlcnZpY2USYgoPUHJvY2Vzc0ltYWdlVVJMEiEuc2NyaWJlLnYxLlByb2Nlc3NJbWFnZVVSTFJlcXVlc3QaIi5zY3JpYmUudjEuUHJvY2Vzc0ltYWdlVVJMUmVzcG9uc2UiCJK1GAQQAhgCEmsKElByb2Nlc3NJbWFnZVVwbG9hZBIkLnNjcmliZS52MS5Qcm9jZXNzSW1hZ2VVcGxvYWRSZXF1ZXN0GiUuc2NyaWJlLnYxLlByb2Nlc3NJbWFnZVVwbG9hZFJlc3BvbnNlIgiStRgEEAIYAhJWCgtQcm9jZXNzSE9DUhIdLnNjcmliZS52MS5Qcm9jZXNzSE9DUlJlcXVlc3QaHi5zY3JpYmUudjEuUHJvY2Vzc0hPQ1JSZXNwb25zZSIIkrUYBBACGAISXwoJR2V0T0NSUnVuEhsuc2NyaWJlLnYxLkdldE9DUlJ1blJlcXVlc3QaHC5zY3JpYmUudjEuR2V0T0NSUnVuUmVzcG9uc2UiF5K1GBMQBBgBIg1pdGVtX2ltYWdlX2lkEmgKDFNhdmVPQ1JFZGl0cxIeLnNjcmliZS52MS5TYXZlT0NSRWRpdHNSZXF1ZXN0Gh8uc2NyaWJlLnYxLlNhdmVPQ1JFZGl0c1Jlc3BvbnNlIheStRgTEAQYAiINaXRlbV9pbWFnZV9pZBJ6ChJSZXByb2Nlc3NJdGVtSW1hZ2USJC5zY3JpYmUudjEuUmVwcm9jZXNzSXRlbUltYWdlUmVxdWVzdBolLnNjcmliZS52MS5SZXByb2Nlc3NJdGVtSW1hZ2VSZXNwb25zZSIXkrUYExAEGAIiDWl0ZW1faW1hZ2VfaWRCqgEKDWNvbS5zY3JpYmUudjFCDFByb2Nlc3NQcm90b1ABWkZnaXRodWIuY29tL2xlaGlnaC11bml2ZXJzaXR5LWxpYnJhcmllcy9zY3JpYmUvcHJvdG8vc2NyaWJlL3YxO3NjcmliZXYxogIDU1hYqgIJU2NyaWJlLlYxygIJU2NyaWJlXFYx4gIVU2NyaWJlXFYxXEdQQk1ldGFkYXRh6gIKU2NyaWJlOjpWMWIGcHJvdG8z", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
+  fileDesc("ChdzY3JpYmUvdjEvcHJvY2Vzcy5wcm90bxIJc2NyaWJlLnYxIrkBChZQcm9jZXNzSW1hZ2VVUkxSZXF1ZXN0EiYKCWltYWdlX3VybBgBIAEoCUITukgQyAEBcgsYgBAyBi4qXFMuKhISCgpjb250ZXh0X2lkGAMgASgEEiYKCG1ldGFkYXRhGAQgASgJQhS6SBFyDyiAgEAyCV4kfC4qXFMuKhImCg9pZGVtcG90ZW5jeV9rZXkYBSABKAlCDbpICsgBAXIFEAEYgAJKBAgCEANSDW91dHB1dF9mb3JtYXQigAMKElByb2Nlc3NIT0NSUmVxdWVzdBIjCgRob2NyGAEgASgJQhW6SBLIAQFyDSiAgIAFMgYuKlxTLioSJgoJaW1hZ2VfdXJsGAIgASgJQhO6SBByDhiAEDIJXiR8LipcUy4qEh4KCmltYWdlX2RhdGEYBCABKAxCCrpIB3oFGICAgDISJQoIZmlsZW5hbWUYBSABKAlCE7pIEHIOGP8BMgleJHwuKlxTLioSJgoPaWRlbXBvdGVuY3lfa2V5GAYgASgJQg26SArIAQFyBRABGIACOpgBukiUARqRAQoZcHJvY2Vzc19ob2NyLmltYWdlX3NvdXJjZRIyZXhhY3RseSBvbmUgb2YgaW1hZ2VfdXJsIG9yIGltYWdlX2RhdGEgaXMgcmVxdWlyZWQaQHRoaXMuaW1hZ2VfdXJsLm1hdGNoZXMoJy4qXFxTLionKSAhPSAoc2l6ZSh0aGlzLmltYWdlX2RhdGEpID4gMClKBAgDEARSDW91dHB1dF9mb3JtYXQiigEKF1Byb2Nlc3NJbWFnZVVSTFJlc3BvbnNlEg8KB2l0ZW1faWQYASABKAkSFQoNaXRlbV9pbWFnZV9pZBgCIAEoBBIRCglpbWFnZV91cmwYAyABKAkSDAoEaG9jchgEIAEoCRISCgpwbGFpbl90ZXh0GAUgASgJEhIKCnNlc3Npb25faWQYBiABKAkihgEKE1Byb2Nlc3NIT0NSUmVzcG9uc2USDwoHaXRlbV9pZBgBIAEoCRIVCg1pdGVtX2ltYWdlX2lkGAIgASgEEhEKCWltYWdlX3VybBgDIAEoCRIMCgRob2NyGAQgASgJEhIKCnBsYWluX3RleHQYBSABKAkSEgoKc2Vzc2lvbl9pZBgGIAEoCSJ7ChBHZXRPQ1JSdW5SZXF1ZXN0EhUKDWl0ZW1faW1hZ2VfaWQYAiABKAQ6ULpITRpLChZnZXRfb2NyX3J1bi5pZGVudGlmaWVyEhlpdGVtX2ltYWdlX2lkIGlzIHJlcXVpcmVkGhZ0aGlzLml0ZW1faW1hZ2VfaWQgPiAwIpoCChFHZXRPQ1JSdW5SZXNwb25zZRISCgpzZXNzaW9uX2lkGAEgASgJEhUKDWl0ZW1faW1hZ2VfaWQYAiABKAQSEQoJaW1hZ2VfdXJsGAMgASgJEg0KBW1vZGVsGAQgASgJEhUKDW9yaWdpbmFsX2hvY3IYBSABKAkSFQoNb3JpZ2luYWxfdGV4dBgGIAEoCRIcChRsZXZlbnNodGVpbl9kaXN0YW5jZRgKIAEoBRISCgpjb250ZXh0X2lkGAsgASgEEhoKEmNhbm9uaWNhbF9yZXZpc2lvbhgMIAEoBEoECAcQCEoECAgQCUoECAkQClIOY29ycmVjdGVkX2hvY3JSDmNvcnJlY3RlZF90ZXh0UgplZGl0X2NvdW50InkKGVJlcHJvY2Vzc0l0ZW1JbWFnZVJlcXVlc3QSIQoNaXRlbV9pbWFnZV9pZBgBIAEoBEIKukgHyAEBMgIgABISCgpjb250ZXh0X2lkGAIgASgEEiUKEWV4cGVjdGVkX3JldmlzaW9uGAMgASgEQgq6SAfIAQEyAiAAIusBChpSZXByb2Nlc3NJdGVtSW1hZ2VSZXNwb25zZRISCgpzZXNzaW9uX2lkGAEgASgJEhUKDWl0ZW1faW1hZ2VfaWQYAiABKAQSEgoKY29udGV4dF9pZBgDIAEoBBIRCglpbWFnZV91cmwYBCABKAkSDAoEaG9jchgFIAEoCRISCgpwbGFpbl90ZXh0GAYgASgJEhAKCHByb3ZpZGVyGAcgASgJEg0KBW1vZGVsGAggASgJEhwKFHRyYW5zY3JpcHRpb25fam9iX2lkGAkgASgEEhoKEmNhbm9uaWNhbF9yZXZpc2lvbhgKIAEoBDKxAwoWSW1hZ2VQcm9jZXNzaW5nU2VydmljZRJiCg9Qcm9jZXNzSW1hZ2VVUkwSIS5zY3JpYmUudjEuUHJvY2Vzc0ltYWdlVVJMUmVxdWVzdBoiLnNjcmliZS52MS5Qcm9jZXNzSW1hZ2VVUkxSZXNwb25zZSIIkrUYBBACGAISVgoLUHJvY2Vzc0hPQ1ISHS5zY3JpYmUudjEuUHJvY2Vzc0hPQ1JSZXF1ZXN0Gh4uc2NyaWJlLnYxLlByb2Nlc3NIT0NSUmVzcG9uc2UiCJK1GAQQAhgCEl8KCUdldE9DUlJ1bhIbLnNjcmliZS52MS5HZXRPQ1JSdW5SZXF1ZXN0Ghwuc2NyaWJlLnYxLkdldE9DUlJ1blJlc3BvbnNlIheStRgTEAQYASINaXRlbV9pbWFnZV9pZBJ6ChJSZXByb2Nlc3NJdGVtSW1hZ2USJC5zY3JpYmUudjEuUmVwcm9jZXNzSXRlbUltYWdlUmVxdWVzdBolLnNjcmliZS52MS5SZXByb2Nlc3NJdGVtSW1hZ2VSZXNwb25zZSIXkrUYExAEGAIiDWl0ZW1faW1hZ2VfaWRCqgEKDWNvbS5zY3JpYmUudjFCDFByb2Nlc3NQcm90b1ABWkZnaXRodWIuY29tL2xlaGlnaC11bml2ZXJzaXR5LWxpYnJhcmllcy9zY3JpYmUvcHJvdG8vc2NyaWJlL3YxO3NjcmliZXYxogIDU1hYqgIJU2NyaWJlLlYxygIJU2NyaWJlXFYx4gIVU2NyaWJlXFYxXEdQQk1ldGFkYXRh6gIKU2NyaWJlOjpWMWIGcHJvdG8z", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
 
 /**
- * ProcessImageURLRequest is kept for direct URL → hOCR flows that don't
- * need to create a full item first (e.g. Islandora integration).
+ * ProcessImageURLRequest imports and schedules one image fetched from an
+ * external URL. Retries must reuse idempotency_key.
  *
  * @generated from message scribe.v1.ProcessImageURLRequest
  */
@@ -25,11 +25,6 @@ export type ProcessImageURLRequest = Message<"scribe.v1.ProcessImageURLRequest">
    * @generated from field: string image_url = 1;
    */
   imageUrl: string;
-
-  /**
-   * @generated from field: scribe.v1.OutputFormat output_format = 2;
-   */
-  outputFormat: OutputFormat;
 
   /**
    * If set, uses this context; otherwise selection engine runs against metadata.
@@ -44,6 +39,11 @@ export type ProcessImageURLRequest = Message<"scribe.v1.ProcessImageURLRequest">
    * @generated from field: string metadata = 4;
    */
   metadata: string;
+
+  /**
+   * @generated from field: string idempotency_key = 5;
+   */
+  idempotencyKey: string;
 };
 
 /**
@@ -52,38 +52,6 @@ export type ProcessImageURLRequest = Message<"scribe.v1.ProcessImageURLRequest">
  */
 export const ProcessImageURLRequestSchema: GenMessage<ProcessImageURLRequest> = /*@__PURE__*/
   messageDesc(file_scribe_v1_process, 0);
-
-/**
- * @generated from message scribe.v1.ProcessImageUploadRequest
- */
-export type ProcessImageUploadRequest = Message<"scribe.v1.ProcessImageUploadRequest"> & {
-  /**
-   * @generated from field: bytes image_data = 1;
-   */
-  imageData: Uint8Array;
-
-  /**
-   * @generated from field: string filename = 2;
-   */
-  filename: string;
-
-  /**
-   * @generated from field: scribe.v1.OutputFormat output_format = 3;
-   */
-  outputFormat: OutputFormat;
-
-  /**
-   * @generated from field: uint64 context_id = 4;
-   */
-  contextId: bigint;
-};
-
-/**
- * Describes the message scribe.v1.ProcessImageUploadRequest.
- * Use `create(ProcessImageUploadRequestSchema)` to create a new message.
- */
-export const ProcessImageUploadRequestSchema: GenMessage<ProcessImageUploadRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 1);
 
 /**
  * @generated from message scribe.v1.ProcessHOCRRequest
@@ -100,11 +68,6 @@ export type ProcessHOCRRequest = Message<"scribe.v1.ProcessHOCRRequest"> & {
   imageUrl: string;
 
   /**
-   * @generated from field: scribe.v1.OutputFormat output_format = 3;
-   */
-  outputFormat: OutputFormat;
-
-  /**
    * @generated from field: bytes image_data = 4;
    */
   imageData: Uint8Array;
@@ -113,6 +76,11 @@ export type ProcessHOCRRequest = Message<"scribe.v1.ProcessHOCRRequest"> & {
    * @generated from field: string filename = 5;
    */
   filename: string;
+
+  /**
+   * @generated from field: string idempotency_key = 6;
+   */
+  idempotencyKey: string;
 };
 
 /**
@@ -120,7 +88,7 @@ export type ProcessHOCRRequest = Message<"scribe.v1.ProcessHOCRRequest"> & {
  * Use `create(ProcessHOCRRequestSchema)` to create a new message.
  */
 export const ProcessHOCRRequestSchema: GenMessage<ProcessHOCRRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 2);
+  messageDesc(file_scribe_v1_process, 1);
 
 /**
  * ProcessImageURLResponse returns item/image IDs along with run-scoped OCR data.
@@ -166,51 +134,7 @@ export type ProcessImageURLResponse = Message<"scribe.v1.ProcessImageURLResponse
  * Use `create(ProcessImageURLResponseSchema)` to create a new message.
  */
 export const ProcessImageURLResponseSchema: GenMessage<ProcessImageURLResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 3);
-
-/**
- * @generated from message scribe.v1.ProcessImageUploadResponse
- */
-export type ProcessImageUploadResponse = Message<"scribe.v1.ProcessImageUploadResponse"> & {
-  /**
-   * @generated from field: string item_id = 1;
-   */
-  itemId: string;
-
-  /**
-   * @generated from field: uint64 item_image_id = 2;
-   */
-  itemImageId: bigint;
-
-  /**
-   * @generated from field: string image_url = 3;
-   */
-  imageUrl: string;
-
-  /**
-   * @generated from field: string hocr = 4;
-   */
-  hocr: string;
-
-  /**
-   * @generated from field: string plain_text = 5;
-   */
-  plainText: string;
-
-  /**
-   * Session-scoped identifier for OCR run lookups and async processing.
-   *
-   * @generated from field: string session_id = 6;
-   */
-  sessionId: string;
-};
-
-/**
- * Describes the message scribe.v1.ProcessImageUploadResponse.
- * Use `create(ProcessImageUploadResponseSchema)` to create a new message.
- */
-export const ProcessImageUploadResponseSchema: GenMessage<ProcessImageUploadResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 4);
+  messageDesc(file_scribe_v1_process, 2);
 
 /**
  * @generated from message scribe.v1.ProcessHOCRResponse
@@ -254,7 +178,7 @@ export type ProcessHOCRResponse = Message<"scribe.v1.ProcessHOCRResponse"> & {
  * Use `create(ProcessHOCRResponseSchema)` to create a new message.
  */
 export const ProcessHOCRResponseSchema: GenMessage<ProcessHOCRResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 5);
+  messageDesc(file_scribe_v1_process, 3);
 
 /**
  * @generated from message scribe.v1.GetOCRRunRequest
@@ -271,7 +195,7 @@ export type GetOCRRunRequest = Message<"scribe.v1.GetOCRRunRequest"> & {
  * Use `create(GetOCRRunRequestSchema)` to create a new message.
  */
 export const GetOCRRunRequestSchema: GenMessage<GetOCRRunRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 6);
+  messageDesc(file_scribe_v1_process, 4);
 
 /**
  * @generated from message scribe.v1.GetOCRRunResponse
@@ -308,24 +232,22 @@ export type GetOCRRunResponse = Message<"scribe.v1.GetOCRRunResponse"> & {
   originalText: string;
 
   /**
-   * @generated from field: string corrected_hocr = 7;
-   */
-  correctedHocr: string;
-
-  /**
-   * @generated from field: string corrected_text = 8;
-   */
-  correctedText: string;
-
-  /**
-   * @generated from field: int32 edit_count = 9;
-   */
-  editCount: number;
-
-  /**
    * @generated from field: int32 levenshtein_distance = 10;
    */
   levenshteinDistance: number;
+
+  /**
+   * @generated from field: uint64 context_id = 11;
+   */
+  contextId: bigint;
+
+  /**
+   * Revision of the canonical AnnotationPage used for this metric. Zero means
+   * the baseline OCR has not yet been corrected through the page API.
+   *
+   * @generated from field: uint64 canonical_revision = 12;
+   */
+  canonicalRevision: bigint;
 };
 
 /**
@@ -333,76 +255,7 @@ export type GetOCRRunResponse = Message<"scribe.v1.GetOCRRunResponse"> & {
  * Use `create(GetOCRRunResponseSchema)` to create a new message.
  */
 export const GetOCRRunResponseSchema: GenMessage<GetOCRRunResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 7);
-
-/**
- * @generated from message scribe.v1.SaveOCREditsRequest
- */
-export type SaveOCREditsRequest = Message<"scribe.v1.SaveOCREditsRequest"> & {
-  /**
-   * @generated from field: uint64 item_image_id = 2;
-   */
-  itemImageId: bigint;
-
-  /**
-   * @generated from field: string corrected_hocr = 3;
-   */
-  correctedHocr: string;
-
-  /**
-   * @generated from field: int32 edit_count = 4;
-   */
-  editCount: number;
-};
-
-/**
- * Describes the message scribe.v1.SaveOCREditsRequest.
- * Use `create(SaveOCREditsRequestSchema)` to create a new message.
- */
-export const SaveOCREditsRequestSchema: GenMessage<SaveOCREditsRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 8);
-
-/**
- * @generated from message scribe.v1.SaveOCREditsResponse
- */
-export type SaveOCREditsResponse = Message<"scribe.v1.SaveOCREditsResponse"> & {
-  /**
-   * @generated from field: string session_id = 1;
-   */
-  sessionId: string;
-
-  /**
-   * @generated from field: uint64 item_image_id = 2;
-   */
-  itemImageId: bigint;
-
-  /**
-   * @generated from field: int32 edit_count = 3;
-   */
-  editCount: number;
-
-  /**
-   * @generated from field: int32 levenshtein_distance = 4;
-   */
-  levenshteinDistance: number;
-
-  /**
-   * @generated from field: string corrected_plain_text = 5;
-   */
-  correctedPlainText: string;
-
-  /**
-   * @generated from field: string original_plain_text = 6;
-   */
-  originalPlainText: string;
-};
-
-/**
- * Describes the message scribe.v1.SaveOCREditsResponse.
- * Use `create(SaveOCREditsResponseSchema)` to create a new message.
- */
-export const SaveOCREditsResponseSchema: GenMessage<SaveOCREditsResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 9);
+  messageDesc(file_scribe_v1_process, 5);
 
 /**
  * @generated from message scribe.v1.ReprocessItemImageRequest
@@ -414,9 +267,21 @@ export type ReprocessItemImageRequest = Message<"scribe.v1.ReprocessItemImageReq
   itemImageId: bigint;
 
   /**
+   * Explicit processing context, or zero to resolve the workspace/default
+   * context before reserving provider work.
+   *
    * @generated from field: uint64 context_id = 2;
    */
   contextId: bigint;
+
+  /**
+   * Exact canonical AnnotationPage revision the caller reviewed. This is both
+   * the optimistic-concurrency fence and the stable operation identity used to
+   * deduplicate retries before invoking an expensive segmentation provider.
+   *
+   * @generated from field: uint64 expected_revision = 3;
+   */
+  expectedRevision: bigint;
 };
 
 /**
@@ -424,7 +289,7 @@ export type ReprocessItemImageRequest = Message<"scribe.v1.ReprocessItemImageReq
  * Use `create(ReprocessItemImageRequestSchema)` to create a new message.
  */
 export const ReprocessItemImageRequestSchema: GenMessage<ReprocessItemImageRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 10);
+  messageDesc(file_scribe_v1_process, 6);
 
 /**
  * @generated from message scribe.v1.ReprocessItemImageResponse
@@ -469,6 +334,20 @@ export type ReprocessItemImageResponse = Message<"scribe.v1.ReprocessItemImageRe
    * @generated from field: string model = 8;
    */
   model: string;
+
+  /**
+   * Durable successor job created in the same transaction as the new baseline.
+   *
+   * @generated from field: uint64 transcription_job_id = 9;
+   */
+  transcriptionJobId: bigint;
+
+  /**
+   * Canonical AnnotationPage revision committed by this operation.
+   *
+   * @generated from field: uint64 canonical_revision = 10;
+   */
+  canonicalRevision: bigint;
 };
 
 /**
@@ -476,38 +355,7 @@ export type ReprocessItemImageResponse = Message<"scribe.v1.ReprocessItemImageRe
  * Use `create(ReprocessItemImageResponseSchema)` to create a new message.
  */
 export const ReprocessItemImageResponseSchema: GenMessage<ReprocessItemImageResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_process, 11);
-
-/**
- * @generated from enum scribe.v1.OutputFormat
- */
-export enum OutputFormat {
-  /**
-   * @generated from enum value: OUTPUT_FORMAT_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * @generated from enum value: OUTPUT_FORMAT_HOCR = 1;
-   */
-  HOCR = 1,
-
-  /**
-   * @generated from enum value: OUTPUT_FORMAT_TEXT = 2;
-   */
-  TEXT = 2,
-
-  /**
-   * @generated from enum value: OUTPUT_FORMAT_PAGE_XML = 3;
-   */
-  PAGE_XML = 3,
-}
-
-/**
- * Describes the enum scribe.v1.OutputFormat.
- */
-export const OutputFormatSchema: GenEnum<OutputFormat> = /*@__PURE__*/
-  enumDesc(file_scribe_v1_process, 0);
+  messageDesc(file_scribe_v1_process, 7);
 
 /**
  * @generated from service scribe.v1.ImageProcessingService
@@ -520,14 +368,6 @@ export const ImageProcessingService: GenService<{
     methodKind: "unary";
     input: typeof ProcessImageURLRequestSchema;
     output: typeof ProcessImageURLResponseSchema;
-  },
-  /**
-   * @generated from rpc scribe.v1.ImageProcessingService.ProcessImageUpload
-   */
-  processImageUpload: {
-    methodKind: "unary";
-    input: typeof ProcessImageUploadRequestSchema;
-    output: typeof ProcessImageUploadResponseSchema;
   },
   /**
    * @generated from rpc scribe.v1.ImageProcessingService.ProcessHOCR
@@ -544,14 +384,6 @@ export const ImageProcessingService: GenService<{
     methodKind: "unary";
     input: typeof GetOCRRunRequestSchema;
     output: typeof GetOCRRunResponseSchema;
-  },
-  /**
-   * @generated from rpc scribe.v1.ImageProcessingService.SaveOCREdits
-   */
-  saveOCREdits: {
-    methodKind: "unary";
-    input: typeof SaveOCREditsRequestSchema;
-    output: typeof SaveOCREditsResponseSchema;
   },
   /**
    * @generated from rpc scribe.v1.ImageProcessingService.ReprocessItemImage

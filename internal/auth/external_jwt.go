@@ -9,25 +9,39 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 const (
-	externalJWTClockSkew = 30 * time.Second
-	maxJWKSResponseBytes = 1 << 20
+	externalJWTClockSkew  = 30 * time.Second
+	maxJWKSResponseBytes  = 1 << 20
+	maxJWKSKeys           = 64
+	maxJWKKeyIDBytes      = 128
+	minJWKRSAKeyBits      = 2048
+	maxJWKRSAKeyBits      = 8192
+	maxJWKExponentBytes   = 4
+	maxJWKSNegativeMisses = 256
+	jwksCacheTTL          = 10 * time.Minute
+	jwksRefreshCooldown   = time.Minute
+	jwksNegativeCacheTTL  = time.Minute
 )
 
 type cachedJWKS struct {
-	keys      map[string]*rsa.PublicKey
-	expiresAt time.Time
+	keys         map[string]*rsa.PublicKey
+	misses       map[string]time.Time
+	expiresAt    time.Time
+	refreshAfter time.Time
 }
 
 type jwtHeader struct {
@@ -43,7 +57,6 @@ type externalJWTClaims struct {
 	Exp   int64           `json:"exp"`
 	Iat   int64           `json:"iat"`
 	Nbf   int64           `json:"nbf"`
-	WebID json.RawMessage `json:"webid"`
 	Roles []string        `json:"roles"`
 }
 
@@ -84,20 +97,55 @@ func (m *Manager) externalJWTPrincipal(ctx context.Context, rawToken string) (Pr
 	if err != nil {
 		return Principal{}, err
 	}
-	userID := parseJWTUserID(claims.WebID)
-	if userID == 0 {
-		return Principal{}, fmt.Errorf("missing numeric webid claim")
+	user, access, err := m.resolveExternalServiceIdentity(ctx, issuerCfg.ServiceUserID, issuerCfg.WorkspaceID)
+	if err != nil {
+		return Principal{}, fmt.Errorf("external jwt service principal is not authorized")
 	}
 	return Principal{
-		UserID:             userID,
-		Name:               firstNonEmpty(claims.Sub, fmt.Sprintf("%s#%d", claims.Iss, userID)),
+		UserID:             user.ID,
+		Email:              user.Email,
+		Name:               user.Name,
+		PictureURL:         user.PictureURL,
 		Authenticated:      true,
 		AuthType:           "external_jwt",
-		WorkspaceID:        issuerCfg.WorkspaceID,
-		WorkspaceRole:      role,
-		DefaultWorkspaceID: issuerCfg.WorkspaceID,
+		WorkspaceID:        access.Workspace.ID,
+		WorkspaceName:      access.Workspace.Name,
+		WorkspaceRole:      leastPrivilegedWorkspaceRole(role, access.Role),
+		DefaultWorkspaceID: access.Workspace.ID,
 		Scopes:             scopes,
 	}, nil
+}
+
+// resolveExternalServiceIdentity binds an issuer to one explicitly configured
+// internal service account and proves current membership on every token. Raw
+// external subject/WebID values are never interpreted as Scribe foreign keys.
+func (m *Manager) resolveExternalServiceIdentity(ctx context.Context, userID, workspaceID uint64) (store.User, store.WorkspaceAccess, error) {
+	if userID == 0 || workspaceID == 0 {
+		return store.User{}, store.WorkspaceAccess{}, fmt.Errorf("service user and workspace are required")
+	}
+	var (
+		user   store.User
+		access store.WorkspaceAccess
+		err    error
+	)
+	if m.externalIdentityResolver != nil {
+		user, access, err = m.externalIdentityResolver(ctx, userID, workspaceID)
+	} else {
+		if m.identities == nil {
+			return store.User{}, store.WorkspaceAccess{}, fmt.Errorf("identity store is unavailable")
+		}
+		user, err = m.identities.GetUser(ctx, userID)
+		if err == nil {
+			access, err = m.identities.GetWorkspaceAccess(ctx, userID, workspaceID)
+		}
+	}
+	if err != nil {
+		return store.User{}, store.WorkspaceAccess{}, err
+	}
+	if user.ID != userID || access.Workspace.ID != workspaceID || normalizeExternalRole(access.Role) == "" {
+		return store.User{}, store.WorkspaceAccess{}, fmt.Errorf("service principal identity mismatch")
+	}
+	return user, access, nil
 }
 
 func (m *Manager) externalIssuerConfig(issuer string) (config.ExternalJWTIssuerConfig, bool) {
@@ -146,6 +194,9 @@ func validateExternalClaims(claims externalJWTClaims, cfg config.ExternalJWTIssu
 	now := time.Now().UTC()
 	if strings.TrimSpace(claims.Iss) == "" {
 		return fmt.Errorf("missing issuer")
+	}
+	if strings.TrimSpace(claims.Sub) == "" {
+		return fmt.Errorf("missing subject")
 	}
 	if claims.Exp == 0 || now.After(time.Unix(claims.Exp, 0).Add(externalJWTClockSkew)) {
 		return fmt.Errorf("jwt expired")
@@ -236,37 +287,122 @@ func claimHasAudience(raw json.RawMessage, want string) bool {
 
 func (m *Manager) jwksKey(ctx context.Context, cfg config.ExternalJWTIssuerConfig, kid string) (*rsa.PublicKey, error) {
 	jwksURL := strings.TrimSpace(cfg.JWKSURL)
-	if _, err := url.ParseRequestURI(jwksURL); err != nil {
+	if err := validateExternalJWTTransportURL(jwksURL); err != nil {
 		return nil, fmt.Errorf("invalid jwks url: %w", err)
 	}
 	kid = strings.TrimSpace(kid)
-	if kid == "" {
+	if kid == "" || len(kid) > maxJWKKeyIDBytes || strings.IndexFunc(kid, unicode.IsControl) >= 0 {
 		return nil, fmt.Errorf("jwt header kid is required")
 	}
+	now := time.Now().UTC()
 	m.jwksMu.Lock()
 	cached, ok := m.jwksCache[jwksURL]
-	if ok && time.Now().UTC().Before(cached.expiresAt) {
-		key := cached.keys[kid]
-		m.jwksMu.Unlock()
-		if key != nil {
+	if ok {
+		pruneJWKSNegativeMisses(cached.misses, now)
+		m.jwksCache[jwksURL] = cached
+	}
+	if ok && now.Before(cached.expiresAt) {
+		if key := cached.keys[kid]; key != nil {
+			m.jwksMu.Unlock()
 			return key, nil
 		}
-		return nil, fmt.Errorf("jwt signing key not found")
+	}
+	if ok {
+		if until := cached.misses[kid]; now.Before(until) {
+			m.jwksMu.Unlock()
+			return nil, fmt.Errorf("jwt signing key not found")
+		}
+		if now.Before(cached.refreshAfter) {
+			recordJWKSNegativeMiss(&cached, kid, now)
+			m.jwksCache[jwksURL] = cached
+			m.jwksMu.Unlock()
+			return nil, fmt.Errorf("jwt signing key not found")
+		}
 	}
 	m.jwksMu.Unlock()
 
-	keys, err := fetchJWKS(ctx, jwksURL)
+	// Coalesce every refresh for one issuer URL. Keying this by kid permits an
+	// attacker to fan out requests with distinct unknown key IDs and turn each
+	// authentication attempt into a separate outbound JWKS fetch.
+	_, err, _ := m.jwksRefresh.Do(jwksURL, func() (any, error) {
+		refreshNow := time.Now().UTC()
+		m.jwksMu.Lock()
+		current, currentOK := m.jwksCache[jwksURL]
+		if currentOK && refreshNow.Before(current.refreshAfter) {
+			m.jwksMu.Unlock()
+			return struct{}{}, nil
+		}
+		m.jwksMu.Unlock()
+
+		keys, fetchErr := fetchJWKS(ctx, jwksURL)
+		if fetchErr != nil {
+			m.jwksMu.Lock()
+			current = m.jwksCache[jwksURL]
+			if current.misses == nil {
+				current.misses = make(map[string]time.Time)
+			}
+			pruneJWKSNegativeMisses(current.misses, refreshNow)
+			current.refreshAfter = time.Now().UTC().Add(jwksRefreshCooldown)
+			m.jwksCache[jwksURL] = current
+			m.jwksMu.Unlock()
+			return nil, fetchErr
+		}
+		completedAt := time.Now().UTC()
+		m.jwksMu.Lock()
+		current = m.jwksCache[jwksURL]
+		if current.misses == nil {
+			current.misses = make(map[string]time.Time)
+		}
+		pruneJWKSNegativeMisses(current.misses, completedAt)
+		for knownKid := range keys {
+			delete(current.misses, knownKid)
+		}
+		current.keys = keys
+		current.expiresAt = completedAt.Add(jwksCacheTTL)
+		current.refreshAfter = completedAt.Add(jwksRefreshCooldown)
+		m.jwksCache[jwksURL] = current
+		m.jwksMu.Unlock()
+		return struct{}{}, nil
+	})
 	if err != nil {
 		return nil, err
 	}
+
+	lookupNow := time.Now().UTC()
 	m.jwksMu.Lock()
-	m.jwksCache[jwksURL] = cachedJWKS{keys: keys, expiresAt: time.Now().UTC().Add(10 * time.Minute)}
-	key := keys[kid]
-	m.jwksMu.Unlock()
-	if key == nil {
-		return nil, fmt.Errorf("jwt signing key not found")
+	cached = m.jwksCache[jwksURL]
+	if lookupNow.Before(cached.expiresAt) {
+		if key := cached.keys[kid]; key != nil {
+			m.jwksMu.Unlock()
+			return key, nil
+		}
 	}
-	return key, nil
+	recordJWKSNegativeMiss(&cached, kid, lookupNow)
+	m.jwksCache[jwksURL] = cached
+	m.jwksMu.Unlock()
+	return nil, fmt.Errorf("jwt signing key not found")
+}
+
+func pruneJWKSNegativeMisses(misses map[string]time.Time, now time.Time) {
+	for kid, until := range misses {
+		if !now.Before(until) {
+			delete(misses, kid)
+		}
+	}
+}
+
+func recordJWKSNegativeMiss(cached *cachedJWKS, kid string, now time.Time) {
+	if cached == nil {
+		return
+	}
+	if cached.misses == nil {
+		cached.misses = make(map[string]time.Time)
+	}
+	pruneJWKSNegativeMisses(cached.misses, now)
+	if _, exists := cached.misses[kid]; !exists && len(cached.misses) >= maxJWKSNegativeMisses {
+		return
+	}
+	cached.misses[kid] = now.Add(jwksNegativeCacheTTL)
 }
 
 func fetchJWKS(ctx context.Context, jwksURL string) (map[string]*rsa.PublicKey, error) {
@@ -281,6 +417,12 @@ func fetchJWKS(ctx context.Context, jwksURL string) (map[string]*rsa.PublicKey, 
 		return nil, fmt.Errorf("fetch jwks: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.Request == nil || resp.Request.URL == nil {
+		return nil, fmt.Errorf("fetch jwks: missing final URL")
+	}
+	if err := validateExternalJWTTransportURL(resp.Request.URL.String()); err != nil {
+		return nil, fmt.Errorf("fetch jwks: insecure redirect target")
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("fetch jwks: status %d", resp.StatusCode)
 	}
@@ -292,15 +434,21 @@ func fetchJWKS(ctx context.Context, jwksURL string) (map[string]*rsa.PublicKey, 
 	if err := json.Unmarshal(body, &decoded); err != nil {
 		return nil, fmt.Errorf("decode jwks: %w", err)
 	}
+	if len(decoded.Keys) == 0 || len(decoded.Keys) > maxJWKSKeys {
+		return nil, fmt.Errorf("jwks key count must be between 1 and %d", maxJWKSKeys)
+	}
 	keys := make(map[string]*rsa.PublicKey, len(decoded.Keys))
-	for i, jwk := range decoded.Keys {
+	for _, jwk := range decoded.Keys {
+		kid := strings.TrimSpace(jwk.Kid)
+		if kid == "" || kid != jwk.Kid || len(kid) > maxJWKKeyIDBytes || strings.IndexFunc(kid, unicode.IsControl) >= 0 {
+			return nil, fmt.Errorf("jwks contains an invalid key id")
+		}
+		if _, duplicate := keys[kid]; duplicate {
+			return nil, fmt.Errorf("jwks contains duplicate key id")
+		}
 		key, err := jwkRSAPublicKey(jwk)
 		if err != nil {
-			continue
-		}
-		kid := strings.TrimSpace(jwk.Kid)
-		if kid == "" {
-			kid = fmt.Sprintf("key-%d", i)
+			return nil, fmt.Errorf("jwks key %q is invalid: %w", kid, err)
 		}
 		keys[kid] = key
 	}
@@ -310,17 +458,40 @@ func fetchJWKS(ctx context.Context, jwksURL string) (map[string]*rsa.PublicKey, 
 	return keys, nil
 }
 
+func validateExternalJWTTransportURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" || parsed.Opaque != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("absolute URL without credentials, query, or fragment is required")
+	}
+	if strings.EqualFold(parsed.Scheme, "https") {
+		return nil
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if !strings.EqualFold(parsed.Scheme, "http") || (host != "localhost" && !isLoopbackIP(host)) {
+		return fmt.Errorf("https is required except for a loopback development endpoint")
+	}
+	return nil
+}
+
+func isLoopbackIP(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func jwkRSAPublicKey(jwk jwkKey) (*rsa.PublicKey, error) {
-	if strings.TrimSpace(jwk.Kty) != "" && !strings.EqualFold(jwk.Kty, "RSA") {
+	if !strings.EqualFold(strings.TrimSpace(jwk.Kty), "RSA") {
 		return nil, fmt.Errorf("jwk kty is not rsa")
 	}
 	if strings.TrimSpace(jwk.Use) != "" && !strings.EqualFold(jwk.Use, "sig") {
 		return nil, fmt.Errorf("jwk use is not sig")
 	}
-	if strings.TrimSpace(jwk.Alg) != "" && !strings.EqualFold(jwk.Alg, "RS256") {
+	if !strings.EqualFold(strings.TrimSpace(jwk.Alg), "RS256") {
 		return nil, fmt.Errorf("jwk alg is not rs256")
 	}
 	if len(jwk.X5C) > 0 {
+		if len(jwk.X5C) != 1 {
+			return nil, fmt.Errorf("x5c must contain exactly one certificate")
+		}
 		certBytes, err := base64.StdEncoding.DecodeString(jwk.X5C[0])
 		if err != nil {
 			return nil, err
@@ -333,6 +504,9 @@ func jwkRSAPublicKey(jwk jwkKey) (*rsa.PublicKey, error) {
 		if !ok {
 			return nil, fmt.Errorf("x5c key is not rsa")
 		}
+		if err := validateJWKRSAKey(key); err != nil {
+			return nil, err
+		}
 		return key, nil
 	}
 	nBytes, err := base64.RawURLEncoding.DecodeString(jwk.N)
@@ -343,14 +517,35 @@ func jwkRSAPublicKey(jwk jwkKey) (*rsa.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	e := 0
-	for _, b := range eBytes {
-		e = e<<8 + int(b)
+	if len(eBytes) == 0 || len(eBytes) > maxJWKExponentBytes {
+		return nil, fmt.Errorf("invalid rsa exponent size")
 	}
-	if e == 0 {
+	e := uint64(0)
+	for _, b := range eBytes {
+		e = e<<8 + uint64(b)
+	}
+	if e < 3 || e > math.MaxInt32 || e%2 == 0 {
 		return nil, fmt.Errorf("invalid rsa exponent")
 	}
-	return &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: e}, nil
+	key := &rsa.PublicKey{N: new(big.Int).SetBytes(nBytes), E: int(e)}
+	if err := validateJWKRSAKey(key); err != nil {
+		return nil, err
+	}
+	return key, nil
+}
+
+func validateJWKRSAKey(key *rsa.PublicKey) error {
+	if key == nil || key.N == nil || key.N.Sign() <= 0 {
+		return fmt.Errorf("invalid rsa modulus")
+	}
+	bits := key.N.BitLen()
+	if bits < minJWKRSAKeyBits || bits > maxJWKRSAKeyBits {
+		return fmt.Errorf("rsa modulus must be between %d and %d bits", minJWKRSAKeyBits, maxJWKRSAKeyBits)
+	}
+	if key.E < 3 || key.E > math.MaxInt32 || key.E%2 == 0 {
+		return fmt.Errorf("invalid rsa exponent")
+	}
+	return nil
 }
 
 func verifyJWTSignature(header jwtHeader, key *rsa.PublicKey, signingInput string, signature []byte) error {
@@ -362,29 +557,4 @@ func verifyJWTSignature(header jwtHeader, key *rsa.PublicKey, signingInput strin
 		return fmt.Errorf("verify jwt signature: %w", err)
 	}
 	return nil
-}
-
-func parseJWTUserID(raw json.RawMessage) uint64 {
-	if len(raw) == 0 {
-		return 0
-	}
-	var asNumber uint64
-	if err := json.Unmarshal(raw, &asNumber); err == nil {
-		return asNumber
-	}
-	var asString string
-	if err := json.Unmarshal(raw, &asString); err == nil {
-		parsed, _ := strconv.ParseUint(strings.TrimSpace(asString), 10, 64)
-		return parsed
-	}
-	return 0
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }
