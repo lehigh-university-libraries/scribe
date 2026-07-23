@@ -1,7 +1,7 @@
 package db
 
-// Compatibility wrappers in this file preserve the older store-facing API while
-// delegating SQL execution to sqlc-generated queries in contexts.sql.
+// Store query adapters in this file are the sole mapping boundary from
+// domain-shaped context values to sqlc-generated queries in contexts.sql.
 
 import (
 	"context"
@@ -15,22 +15,18 @@ type CreateContextParams struct {
 	Description           string
 	IsDefault             bool
 	SegmentationModel     string
-	ImagePreprocessors    string
 	TranscriptionProvider string
 	TranscriptionModel    string
-	TranscriptionBaseURL  string
-	TranscriptionAudience string
 	Temperature           *float64
 	SystemPrompt          string
-	PostProcessingSteps   string
 }
 
 func (q *Queries) CreateContext(ctx context.Context, arg CreateContextParams) (uint64, error) {
-	userID, err := compatNullUint64(arg.UserID)
+	userID, err := nullUint64(arg.UserID)
 	if err != nil {
 		return 0, err
 	}
-	workspaceID, err := compatNullUint64(arg.WorkspaceID)
+	workspaceID, err := nullUint64(arg.WorkspaceID)
 	if err != nil {
 		return 0, err
 	}
@@ -38,27 +34,23 @@ func (q *Queries) CreateContext(ctx context.Context, arg CreateContextParams) (u
 		UserID:                userID,
 		WorkspaceID:           workspaceID,
 		Name:                  arg.Name,
-		Description:           compatNullableString(arg.Description),
+		Description:           nullableString(arg.Description),
 		IsDefault:             arg.IsDefault,
 		SegmentationModel:     arg.SegmentationModel,
-		ImagePreprocessors:    compatRawJSON(arg.ImagePreprocessors),
 		TranscriptionProvider: arg.TranscriptionProvider,
 		TranscriptionModel:    arg.TranscriptionModel,
-		TranscriptionBaseUrl:  compatNullableString(arg.TranscriptionBaseURL),
-		TranscriptionAudience: compatNullableString(arg.TranscriptionAudience),
 		Temperature: func() sql.NullFloat64 {
 			if arg.Temperature == nil {
 				return sql.NullFloat64{}
 			}
 			return sql.NullFloat64{Float64: *arg.Temperature, Valid: true}
 		}(),
-		SystemPrompt:        compatNullableString(arg.SystemPrompt),
-		PostProcessingSteps: compatRawJSON(arg.PostProcessingSteps),
+		SystemPrompt: nullableString(arg.SystemPrompt),
 	})
 	if err != nil {
 		return 0, err
 	}
-	return compatLastInsertID(res)
+	return lastInsertID(res)
 }
 
 func (q *Queries) GetContext(ctx context.Context, id uint64) (Context, error) {
@@ -66,25 +58,7 @@ func (q *Queries) GetContext(ctx context.Context, id uint64) (Context, error) {
 	if err != nil {
 		return Context{}, err
 	}
-	return Context{
-		ID:                    row.ID,
-		UserID:                row.UserID,
-		WorkspaceID:           row.WorkspaceID,
-		Name:                  row.Name,
-		Description:           row.Description,
-		IsDefault:             row.IsDefault,
-		SegmentationModel:     row.SegmentationModel,
-		ImagePreprocessors:    row.ImagePreprocessors,
-		TranscriptionProvider: row.TranscriptionProvider,
-		TranscriptionModel:    row.TranscriptionModel,
-		TranscriptionBaseUrl:  row.TranscriptionBaseUrl,
-		TranscriptionAudience: row.TranscriptionAudience,
-		Temperature:           row.Temperature,
-		SystemPrompt:          row.SystemPrompt,
-		PostProcessingSteps:   row.PostProcessingSteps,
-		CreatedAt:             row.CreatedAt,
-		UpdatedAt:             row.UpdatedAt,
-	}, nil
+	return row, nil
 }
 
 func (q *Queries) GetDefaultContext(ctx context.Context) (Context, error) {
@@ -92,29 +66,39 @@ func (q *Queries) GetDefaultContext(ctx context.Context) (Context, error) {
 	if err != nil {
 		return Context{}, err
 	}
-	return Context{
-		ID:                    row.ID,
-		UserID:                row.UserID,
-		WorkspaceID:           row.WorkspaceID,
-		Name:                  row.Name,
-		Description:           row.Description,
-		IsDefault:             row.IsDefault,
-		SegmentationModel:     row.SegmentationModel,
-		ImagePreprocessors:    row.ImagePreprocessors,
-		TranscriptionProvider: row.TranscriptionProvider,
-		TranscriptionModel:    row.TranscriptionModel,
-		TranscriptionBaseUrl:  row.TranscriptionBaseUrl,
-		TranscriptionAudience: row.TranscriptionAudience,
-		Temperature:           row.Temperature,
-		SystemPrompt:          row.SystemPrompt,
-		PostProcessingSteps:   row.PostProcessingSteps,
-		CreatedAt:             row.CreatedAt,
-		UpdatedAt:             row.UpdatedAt,
-	}, nil
+	return row, nil
 }
 
-func (q *Queries) ListContexts(ctx context.Context, systemOnly bool) ([]Context, error) {
-	return q.ListContextsManual(ctx, systemOnly)
+func (q *Queries) GetSystemContextByName(ctx context.Context, name string) (Context, error) {
+	return q.GetSystemContextByNameManual(ctx, name)
+}
+
+type ListContextsPageParams struct {
+	WorkspaceID     uint64
+	SystemOnly      bool
+	CursorID        uint64
+	CursorIsDefault bool
+	CursorIsSystem  bool
+	Limit           int32
+}
+
+func (q *Queries) ListContextsPageForWorkspace(ctx context.Context, arg ListContextsPageParams) ([]Context, error) {
+	workspaceID, err := uint64ToInt64(arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	cursorIsSystem := int64(0)
+	if arg.CursorIsSystem {
+		cursorIsSystem = 1
+	}
+	return q.ListContextsPageForWorkspaceManual(ctx, ListContextsPageForWorkspaceManualParams{
+		SystemOnly:      arg.SystemOnly,
+		WorkspaceID:     sql.NullInt64{Int64: workspaceID, Valid: true},
+		CursorID:        arg.CursorID,
+		CursorIsDefault: arg.CursorIsDefault,
+		CursorIsSystem:  sql.NullInt64{Int64: cursorIsSystem, Valid: true},
+		Limit:           arg.Limit,
+	})
 }
 
 type UpdateContextParams struct {
@@ -123,45 +107,38 @@ type UpdateContextParams struct {
 	Description           string
 	IsDefault             bool
 	SegmentationModel     string
-	ImagePreprocessors    string
 	TranscriptionProvider string
 	TranscriptionModel    string
-	TranscriptionBaseURL  string
-	TranscriptionAudience string
 	Temperature           *float64
 	SystemPrompt          string
-	PostProcessingSteps   string
 }
 
-func (q *Queries) UpdateContext(ctx context.Context, arg UpdateContextParams) error {
+func (q *Queries) UpdateContext(ctx context.Context, arg UpdateContextParams) (sql.Result, error) {
 	return q.UpdateContextManual(ctx, UpdateContextManualParams{
 		ID:                    arg.ID,
 		Name:                  arg.Name,
-		Description:           compatNullableString(arg.Description),
+		Description:           nullableString(arg.Description),
 		IsDefault:             arg.IsDefault,
 		SegmentationModel:     arg.SegmentationModel,
-		ImagePreprocessors:    compatRawJSON(arg.ImagePreprocessors),
 		TranscriptionProvider: arg.TranscriptionProvider,
 		TranscriptionModel:    arg.TranscriptionModel,
-		TranscriptionBaseUrl:  compatNullableString(arg.TranscriptionBaseURL),
-		TranscriptionAudience: compatNullableString(arg.TranscriptionAudience),
 		Temperature: func() sql.NullFloat64 {
 			if arg.Temperature == nil {
 				return sql.NullFloat64{}
 			}
 			return sql.NullFloat64{Float64: *arg.Temperature, Valid: true}
 		}(),
-		SystemPrompt:        compatNullableString(arg.SystemPrompt),
-		PostProcessingSteps: compatRawJSON(arg.PostProcessingSteps),
+		SystemPrompt: nullableString(arg.SystemPrompt),
 	})
 }
 
 func (q *Queries) DeleteContext(ctx context.Context, id uint64) error {
-	return q.DeleteContextManual(ctx, id)
+	res, err := q.DeleteContextManual(ctx, id)
+	return requireAffectedRow(res, err)
 }
 
 func (q *Queries) DeleteContextForWorkspace(ctx context.Context, id, workspaceID uint64) error {
-	workspaceIDParam, err := compatUint64ToInt64(workspaceID)
+	workspaceIDParam, err := uint64ToInt64(workspaceID)
 	if err != nil {
 		return err
 	}
@@ -186,29 +163,68 @@ func (q *Queries) CreateSelectionRule(ctx context.Context, arg CreateSelectionRu
 	res, err := q.CreateSelectionRuleManual(ctx, CreateSelectionRuleManualParams{
 		ContextID:  arg.ContextID,
 		Priority:   arg.Priority,
-		Conditions: compatRawJSON(arg.Conditions),
+		Conditions: rawJSON(arg.Conditions),
 	})
 	if err != nil {
 		return 0, err
 	}
-	return compatLastInsertID(res)
+	return lastInsertID(res)
 }
 
-func (q *Queries) ListSelectionRules(ctx context.Context, contextID uint64) ([]ContextSelectionRule, error) {
-	return q.ListSelectionRulesManual(ctx, ListSelectionRulesManualParams{
-		ContextID: contextID,
+func (q *Queries) GetSelectionRuleByID(ctx context.Context, id uint64) (ContextSelectionRule, error) {
+	return q.GetSelectionRuleByIDManual(ctx, id)
+}
+
+func (q *Queries) GetSelectionRuleForWorkspace(ctx context.Context, workspaceID, id uint64) (ContextSelectionRule, error) {
+	workspaceIDParam, err := uint64ToInt64(workspaceID)
+	if err != nil {
+		return ContextSelectionRule{}, err
+	}
+	return q.GetSelectionRuleForWorkspaceManual(ctx, GetSelectionRuleForWorkspaceManualParams{
+		ID:          id,
+		WorkspaceID: sql.NullInt64{Int64: workspaceIDParam, Valid: true},
 	})
 }
 
-func (q *Queries) ListSelectionRulesForWorkspace(ctx context.Context, workspaceID, contextID uint64) ([]ContextSelectionRule, error) {
-	workspaceIDParam, err := compatUint64ToInt64(workspaceID)
+type ListSelectionRulesPageParams struct {
+	WorkspaceID    uint64
+	ContextID      uint64
+	CursorID       uint64
+	CursorPriority int32
+	Limit          int32
+}
+
+func (q *Queries) ListSelectionRulesPageForWorkspace(ctx context.Context, arg ListSelectionRulesPageParams) ([]ContextSelectionRule, error) {
+	workspaceIDParam, err := uint64ToInt64(arg.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
-	return q.ListSelectionRulesForWorkspaceManual(ctx, ListSelectionRulesForWorkspaceManualParams{
-		WorkspaceID: sql.NullInt64{Int64: workspaceIDParam, Valid: true},
-		ContextID:   contextID,
+	return q.ListSelectionRulesPageForWorkspaceManual(ctx, ListSelectionRulesPageForWorkspaceManualParams{
+		WorkspaceID:    sql.NullInt64{Int64: workspaceIDParam, Valid: true},
+		ContextID:      arg.ContextID,
+		CursorID:       arg.CursorID,
+		CursorPriority: arg.CursorPriority,
+		Limit:          arg.Limit,
 	})
+}
+
+func (q *Queries) ListSelectionRulesForWorkspaceResolution(ctx context.Context, workspaceID uint64, limit int32) ([]ContextSelectionRule, error) {
+	workspaceIDParam, err := uint64ToInt64(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	return q.ListSelectionRulesForWorkspaceResolutionManual(ctx, ListSelectionRulesForWorkspaceResolutionManualParams{
+		WorkspaceID: sql.NullInt64{Int64: workspaceIDParam, Valid: true},
+		Limit:       limit,
+	})
+}
+
+func (q *Queries) CountSelectionRulesForWorkspace(ctx context.Context, workspaceID uint64) (int64, error) {
+	workspaceIDParam, err := uint64ToInt64(workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return q.CountSelectionRulesForWorkspaceManual(ctx, sql.NullInt64{Int64: workspaceIDParam, Valid: true})
 }
 
 func (q *Queries) DeleteSelectionRule(ctx context.Context, id uint64) error {
@@ -216,7 +232,7 @@ func (q *Queries) DeleteSelectionRule(ctx context.Context, id uint64) error {
 }
 
 func (q *Queries) DeleteSelectionRuleForWorkspace(ctx context.Context, workspaceID, id uint64) error {
-	workspaceIDParam, err := compatUint64ToInt64(workspaceID)
+	workspaceIDParam, err := uint64ToInt64(workspaceID)
 	if err != nil {
 		return err
 	}

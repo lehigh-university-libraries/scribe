@@ -5,13 +5,16 @@ package worddetection
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 )
+
+const maxKrakenSegmentationBytes = int64(16 << 20)
 
 // KrakenProvider runs kraken segmentation.
 // modelID is the kraken model identifier, e.g. "blla.mlmodel" or a full path.
@@ -30,7 +33,7 @@ func NewKraken(modelID string) *KrakenProvider {
 
 // Name returns the provider name including the model.
 func (p *KrakenProvider) Name() string {
-	return "kraken:" + p.modelID
+	return "kraken"
 }
 
 // DetectWords runs kraken segmentation and returns line bounding boxes as WordBox entries.
@@ -38,12 +41,12 @@ func (p *KrakenProvider) Name() string {
 func (p *KrakenProvider) DetectWords(ctx context.Context, imagePath string) ([]WordBox, error) {
 	output, err := os.CreateTemp("", "kraken-seg-*.json")
 	if err != nil {
-		return nil, fmt.Errorf("create kraken output: %w", err)
+		return nil, errors.New("kraken segmentation unavailable")
 	}
 	outputPath := output.Name()
 	if err := output.Close(); err != nil {
 		_ = os.Remove(outputPath)
-		return nil, fmt.Errorf("close kraken output: %w", err)
+		return nil, errors.New("kraken segmentation unavailable")
 	}
 	defer os.Remove(outputPath)
 
@@ -58,13 +61,23 @@ func (p *KrakenProvider) DetectWords(ctx context.Context, imagePath string) ([]W
 		"-i", p.modelID,
 	}
 	cmd := exec.CommandContext(ctx, "kraken", args...) // #nosec G204 -- kraken is invoked directly without a shell; arguments are file/model paths.
-	out, err := cmd.CombinedOutput()
+	// Kraken diagnostics can contain OCR content, model paths, or provider
+	// details. They are neither buffered nor reflected across this boundary.
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	err = cmd.Run()
 	if err != nil {
-		return nil, fmt.Errorf("kraken segment failed (model=%s): %w\noutput: %s",
-			p.modelID, err, strings.TrimSpace(string(out)))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("kraken segmentation canceled: %w", ctxErr)
+		}
+		return nil, errors.New("kraken segmentation failed")
 	}
 
-	return parseKrakenJSON(outputPath)
+	boxes, err := parseKrakenJSON(outputPath)
+	if err != nil {
+		return nil, errors.New("kraken segmentation output invalid")
+	}
+	return boxes, nil
 }
 
 // krakenSegOutput is the structure of kraken's JSON segmentation output.
@@ -72,15 +85,14 @@ type krakenSegOutput struct {
 	Lines []struct {
 		Baseline [][]int `json:"baseline"`
 		Boundary [][]int `json:"boundary"`
-		Tags     struct {
-			Type []string `json:"type"`
-		} `json:"tags"`
+		// Kraken's tag payload is extensible and is not part of Scribe's
+		// geometry contract. Leave it unmodeled so additions cannot break
+		// otherwise valid native segmentation output.
 	} `json:"lines"`
-	ImageSize []int `json:"image_size"` // [width, height]
 }
 
 func parseKrakenJSON(path string) ([]WordBox, error) {
-	data, err := safefile.ReadFile(path)
+	data, err := safefile.ReadFileLimit(path, maxKrakenSegmentationBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read kraken output: %w", err)
 	}
@@ -107,27 +119,9 @@ func parseKrakenJSON(path string) ([]WordBox, error) {
 }
 
 func boundingBoxFromBaseline(points [][]int) (WordBox, bool) {
-	if len(points) == 0 {
+	minX, minY, maxX, maxY, ok := pointExtents(points)
+	if !ok {
 		return WordBox{}, false
-	}
-	minX, minY := points[0][0], points[0][1]
-	maxX, maxY := minX, minY
-	for _, pt := range points {
-		if len(pt) < 2 {
-			continue
-		}
-		if pt[0] < minX {
-			minX = pt[0]
-		}
-		if pt[1] < minY {
-			minY = pt[1]
-		}
-		if pt[0] > maxX {
-			maxX = pt[0]
-		}
-		if pt[1] > maxY {
-			maxY = pt[1]
-		}
 	}
 	w := maxX - minX
 	if w <= 0 {
@@ -141,13 +135,27 @@ func boundingBoxFromBaseline(points [][]int) (WordBox, bool) {
 }
 
 func boundingBoxFromPolygon(points [][]int) (WordBox, bool) {
-	if len(points) == 0 {
+	minX, minY, maxX, maxY, ok := pointExtents(points)
+	if !ok {
 		return WordBox{}, false
 	}
-	minX, minY := points[0][0], points[0][1]
-	maxX, maxY := minX, minY
+	w := maxX - minX
+	h := maxY - minY
+	if w <= 0 || h <= 0 {
+		return WordBox{}, false
+	}
+	return WordBox{X: minX, Y: minY, Width: w, Height: h}, true
+}
+
+func pointExtents(points [][]int) (minX, minY, maxX, maxY int, ok bool) {
 	for _, pt := range points {
 		if len(pt) < 2 {
+			continue
+		}
+		if !ok {
+			minX, minY = pt[0], pt[1]
+			maxX, maxY = minX, minY
+			ok = true
 			continue
 		}
 		if pt[0] < minX {
@@ -163,10 +171,5 @@ func boundingBoxFromPolygon(points [][]int) (WordBox, bool) {
 			maxY = pt[1]
 		}
 	}
-	w := maxX - minX
-	h := maxY - minY
-	if w <= 0 || h <= 0 {
-		return WordBox{}, false
-	}
-	return WordBox{X: minX, Y: minY, Width: w, Height: h}, true
+	return minX, minY, maxX, maxY, ok
 }

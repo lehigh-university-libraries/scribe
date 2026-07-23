@@ -1,29 +1,41 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   receiveAnnotation as receiveAnnotationAction,
-  removeCompanionWindow as removeCompanionWindowAction,
   selectAnnotation as selectAnnotationAction,
 } from 'mirador';
 import ScribeActionPanel from '../components/ScribeActionPanel';
+import { activeCanvasEventDetail, dispatchActiveCanvasEvent, resolveActiveCanvasState } from './activeCanvas';
+import {
+  annotationLocallyChanged,
+  sessionIsDirty,
+} from '../editor/session';
+import { requestPublishResult } from './publishResult';
+import {
+  createEditorSessionCache,
+  dirtyEditorSessions,
+  editorSessionCacheIsDirty,
+  editorSessionCacheReducer,
+  editorSessionForCanvas,
+} from '../editor/sessionCache';
+import { saveCachedEditorSessions } from '../editor/sessionPersistence';
+import { applyAdapterMutationToPage } from '../editor/adapterMutation';
+import { editorKeyboardCommand } from '../editor/keyboard';
 import {
   annotationBBox,
   annotationCanvasId,
   annotationIntersectsImageRect,
-  annotationPageForCanvas,
-  canvasIdForWindow,
   createDraftLineAnnotation,
+  createDraftWordAnnotation,
+  editorRowTransformCapabilities,
+  editorSelectedAnnotation,
   findEditorRowByAnnotationId,
-  findAnnotationPageByAnnotationId,
-  findCanvasIdByAnnotationId,
-  firstAnnotationCanvasId,
-  firstAnnotationPage,
   groupAnnotationsForEditor,
+  isLineAnnotation,
   isWordAnnotation,
   joinLineCandidates,
   lineAnnotationForSelection,
-  removeAnnotationsFromPage,
-  replaceAnnotationInPage,
+  selectionAfterPageTransform,
   sortedAnnotations,
   selectedAnnotationIdForWindow,
   synchronizeLineTextFromWords,
@@ -35,17 +47,67 @@ import {
   wordAnnotationIdForCaret,
 } from '../utils/iiif';
 
-function ScribeCompanionWindow({
+/**
+ * @typedef {import('../types/scribe').EditorSessionAction} EditorSessionAction
+ * @typedef {import('../types/scribe').EditorSessionCache} EditorSessionCache
+ * @typedef {import('../types/scribe').IIIFAnnotation} IIIFAnnotation
+ * @typedef {import('../types/scribe').IIIFAnnotationPage} IIIFAnnotationPage
+ * @typedef {import('../types/scribe').ImageBBox} ImageBBox
+ * @typedef {import('../types/scribe').MiradorState} MiradorState
+ * @typedef {import('../types/scribe').ScribeAdapterFactory} ScribeAdapterFactory
+ * @typedef {import('../types/scribe').ScribeAdapterLike} ScribeAdapterLike
+ * @typedef {'none' | 'edit' | 'read' | 'outline'} OverlayMode
+ * @typedef {Object} EditorBridgeEventDetail
+ * @property {boolean} [active]
+ * @property {IIIFAnnotation} [annotation]
+ * @property {string} [annotationId]
+ * @property {ImageBBox} [bbox]
+ * @property {ImageBBox} [bounds]
+ * @property {string} [canvasId]
+ * @property {number} [direction]
+ * @property {string} [focusAnnotationId]
+ * @property {'nw' | 'ne' | 'sw' | 'se'} [focusResizeHandle]
+ * @property {string | number | bigint} [itemImageId]
+ * @property {string} [message]
+ * @property {'create' | 'update' | 'delete'} [operation]
+ * @property {boolean} [persisted]
+ * @property {string} [requestId]
+ * @property {(result: import('../types/scribe').DraftMutationResponse) => void} [respond]
+ * @property {number | null} [selectionStart]
+ * @property {string} [text]
+ * @property {string} [windowId]
+ * @typedef {Object} ScribeCompanionWindowProps
+ * @property {ScribeAdapterFactory | null | undefined} adapterFactory
+ * @property {string} canvasId
+ * @property {string} id
+ * @property {boolean} isFocusedWindow
+ * @property {(canvasId: string, pageId: string, page: IIIFAnnotationPage) => unknown} receiveAnnotation
+ * @property {(windowId: string, annotationId: string) => unknown} selectAnnotation
+ * @property {string} selectedAnnotationId
+ * @property {IIIFAnnotationPage | null} serverPage
+ * @property {string} windowId
+ * @typedef {{ windowId: string }} WindowOwnProps
+ * @typedef {(action: Record<string, unknown>) => unknown} MiradorDispatch
+ */
+
+/** @param {Event} event @returns {EditorBridgeEventDetail} */
+function editorBridgeEventDetail(event) {
+  return /** @type {CustomEvent<EditorBridgeEventDetail>} */ (event).detail || {};
+}
+
+/** @param {ScribeCompanionWindowProps} props */
+export function ScribeCompanionWindow({
   adapterFactory,
   canvasId,
   id,
+  isFocusedWindow,
   receiveAnnotation,
-  removeCompanionWindow,
   selectAnnotation,
   selectedAnnotationId,
   serverPage,
   windowId,
 }) {
+  /** @param {OverlayMode} current @returns {OverlayMode} */
   function cycleOverlayMode(current) {
     if (current === 'none') return 'edit';
     if (current === 'edit') return 'read';
@@ -53,20 +115,102 @@ function ScribeCompanionWindow({
     return 'none'; // 'outline' → 'none'
   }
 
-  const [isBusy, setIsBusy] = useState(false);
+  const [operationBusy, setOperationBusyState] = useState(false);
+  const operationBusyRef = useRef(false);
+  /** @param {boolean} value */
+  function setOperationBusy(value) {
+    operationBusyRef.current = value;
+    setOperationBusyState(value);
+  }
   const [statusMessage, setStatusMessage] = useState('');
-  const [localPage, setLocalPage] = useState(serverPage);
-  const [undoStack, setUndoStack] = useState([]);
-  const [redoStack, setRedoStack] = useState([]);
-  const [viewportBounds, setViewportBounds] = useState(null);
+  const [sessionCache, setSessionCache] = useState(() => (
+    createEditorSessionCache(canvasId, serverPage || null)
+  ));
+  const sessionCacheRef = useRef(sessionCache);
+  sessionCacheRef.current = sessionCache;
+  const dispatchSessionForCanvas = useCallback((/** @type {string} */ targetCanvasId, /** @type {EditorSessionAction} */ action) => {
+    const nextCache = editorSessionCacheReducer(sessionCacheRef.current, {
+      ...action,
+      canvasId: targetCanvasId,
+    });
+    sessionCacheRef.current = nextCache;
+    setSessionCache(nextCache);
+    return nextCache;
+  }, []);
+  const session = useMemo(
+    () => editorSessionForCanvas(sessionCache, canvasId),
+    [canvasId, sessionCache],
+  );
+  const isBusy = operationBusy || session.status === 'loading' || session.status === 'saving';
+  const revisionConflict = session.status === 'conflict';
+  /** @param {EditorSessionAction} action @param {string} [targetCanvasId] @returns {EditorSessionCache} */
+  const dispatchSession = (action, targetCanvasId = canvasId) => (
+    dispatchSessionForCanvas(targetCanvasId, action)
+  );
+  const localPage = session.draftPage;
+  const [viewportBounds, setViewportBounds] = useState(/** @type {{ x: number, y: number, w: number, h: number } | null} */ (null));
   const [transcribeDialogOpen, setTranscribeDialogOpen] = useState(false);
-  const [transcribeSelection, setTranscribeSelection] = useState([]);
+  const [transcribeSelection, setTranscribeSelection] = useState(/** @type {string[]} */ ([]));
   const [drawMode, setDrawMode] = useState(false);
-  const [overlayMode, setOverlayMode] = useState('none');
+  const [overlayMode, setOverlayMode] = useState(/** @type {OverlayMode} */ ('none'));
   const [focusedWordAnnotationId, setFocusedWordAnnotationId] = useState('');
+  const preferredSelectionRef = useRef('');
   const didInitialSnapRef = useRef(false);
+  const loadedCanvasRef = useRef('');
+  const saveInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+  const publishAbortRef = useRef(/** @type {AbortController | null} */ (null));
+  const activeCanvasEventRef = useRef('');
+  const activeCanvasRef = useRef(canvasId);
+  activeCanvasRef.current = canvasId;
   const inlineEditorVisible = overlayMode === 'edit';
   const textOverlayVisible = overlayMode === 'read';
+
+  // Mirador's annotation slice is a rendered projection only. Keep it aligned
+  // with the reducer draft so undo, structural transforms, and unsaved geometry
+  // edits never leave Mirador overlays showing an older server page.
+  useEffect(() => {
+    if (!canvasId || !localPage?.id) return;
+    receiveAnnotation(canvasId, localPage.id, localPage);
+  }, [canvasId, localPage, receiveAnnotation]);
+
+  /** @param {string} [targetCanvasId] @returns {boolean} */
+  function editingIsBlocked(targetCanvasId = canvasId) {
+    const targetSession = editorSessionForCanvas(sessionCacheRef.current, targetCanvasId);
+    return operationBusyRef.current
+      || saveInFlightRef.current
+      || targetSession.status === 'loading'
+      || targetSession.status === 'saving';
+  }
+
+  /** @param {string} targetCanvasId @returns {ScribeAdapterLike} */
+  function requireAdapter(targetCanvasId) {
+    const adapter = adapterFactory?.(targetCanvasId);
+    if (!adapter) throw new Error(`Canvas ${targetCanvasId} has no annotation adapter.`);
+    return adapter;
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      publishAbortRef.current?.abort();
+      publishAbortRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isFocusedWindow || !canvasId) {
+      activeCanvasEventRef.current = '';
+      return;
+    }
+    const detail = activeCanvasEventDetail(adapterFactory, canvasId, windowId);
+    if (!detail) return;
+    const eventKey = `${detail.windowId}\u0000${detail.canvasId}\u0000${detail.itemImageId}`;
+    if (activeCanvasEventRef.current === eventKey) return;
+    activeCanvasEventRef.current = eventKey;
+    dispatchActiveCanvasEvent(detail);
+  }, [adapterFactory, canvasId, isFocusedWindow, windowId]);
 
   function toggleDrawMode() {
     setDrawMode((current) => {
@@ -78,40 +222,49 @@ function ScribeCompanionWindow({
     });
   }
 
+  function createCenteredLine() {
+    if (!canvasId || editingIsBlocked(canvasId)) return;
+    setDrawMode(false);
+    document.dispatchEvent(new CustomEvent('scribe:create-line-at-viewport-center', {
+      detail: { canvasId, windowId },
+    }));
+  }
+
   function cycleOverlayModeFromToolbar() {
     setDrawMode(false);
     setOverlayMode(cycleOverlayMode);
   }
 
   useEffect(() => {
-    setLocalPage(serverPage);
-    setUndoStack([]);
-    setRedoStack([]);
-    setStatusMessage('');
-    setFocusedWordAnnotationId('');
-    didInitialSnapRef.current = false;
-  }, [serverPage]);
-
-  useEffect(() => {
     let cancelled = false;
 
     async function bootstrapPage() {
       if (!adapterFactory || !canvasId) return;
-      const hasServerItems = Array.isArray(serverPage?.items) && serverPage.items.length > 0;
-      const hasLocalItems = Array.isArray(localPage?.items) && localPage.items.length > 0;
-      if (hasServerItems || hasLocalItems) return;
+      if (loadedCanvasRef.current === canvasId) return;
+      loadedCanvasRef.current = canvasId;
+      dispatchSessionForCanvas(canvasId, { type: 'load-start' });
 
       try {
-        const adapter = adapterFactory(canvasId);
-        const page = await adapter.all();
+        const targetCanvasId = canvasId;
+        const adapter = requireAdapter(targetCanvasId);
+        const snapshot = await adapter.loadSnapshot();
         if (cancelled) return;
-        if (Array.isArray(page?.items) && page.items.length > 0) {
-          setLocalPage(page);
-          receiveAnnotation(canvasId, page.id, page);
-        }
+        dispatchSessionForCanvas(targetCanvasId, {
+          page: snapshot.page,
+          revision: snapshot.revision,
+          type: 'loaded',
+        });
+        if (!snapshot.page.id) throw new Error('The annotation service returned a page without an ID.');
+        receiveAnnotation(targetCanvasId, snapshot.page.id, snapshot.page);
+        setStatusMessage('');
+        setFocusedWordAnnotationId('');
+        didInitialSnapRef.current = false;
       } catch (error) {
+        loadedCanvasRef.current = '';
         if (!cancelled) {
-          setStatusMessage(error instanceof Error ? error.message : 'Failed to load annotations.');
+          const message = error instanceof Error ? error.message : 'Failed to load annotations.';
+          dispatchSessionForCanvas(canvasId, { error: message, type: 'load-error' });
+          setStatusMessage(message);
         }
       }
     }
@@ -120,7 +273,7 @@ function ScribeCompanionWindow({
     return () => {
       cancelled = true;
     };
-  }, [adapterFactory, canvasId, localPage, receiveAnnotation, serverPage]);
+  }, [adapterFactory, canvasId, dispatchSessionForCanvas, receiveAnnotation]);
 
   const annotations = useMemo(() => sortedAnnotations(localPage), [localPage]);
   const visibleAnnotations = useMemo(() => {
@@ -129,23 +282,42 @@ function ScribeCompanionWindow({
   }, [annotations, viewportBounds]);
   const visibleRows = useMemo(() => groupAnnotationsForEditor({ items: visibleAnnotations }), [visibleAnnotations]);
   const selectedAnnotation = useMemo(
-    () => visibleAnnotations.find((annotation) => annotation?.id === (selectedAnnotationId || visibleAnnotations[0]?.id)) || visibleAnnotations[0] || null,
-    [visibleAnnotations, selectedAnnotationId],
+    () => editorSelectedAnnotation(
+      annotations,
+      visibleAnnotations,
+      selectedAnnotationId,
+      preferredSelectionRef.current,
+    ),
+    [annotations, visibleAnnotations, selectedAnnotationId],
   );
   const effectiveSelectedAnnotationId = selectedAnnotation?.id || '';
   const selectedRow = useMemo(
     () => findEditorRowByAnnotationId(localPage || serverPage, effectiveSelectedAnnotationId)
-      || findEditorRowByAnnotationId(localPage || serverPage, selectedAnnotation?.id),
+      || findEditorRowByAnnotationId(localPage || serverPage, selectedAnnotation?.id || ''),
     [effectiveSelectedAnnotationId, localPage, selectedAnnotation?.id, serverPage],
   );
   const selectedGranularity = selectedRow?.granularity || (selectedAnnotation ? (isWordAnnotation(selectedAnnotation) ? 'word' : 'line') : null);
-  const saveDisabled = JSON.stringify(serverPage?.items || []) === JSON.stringify(localPage?.items || []);
+  const selectedLineAnnotation = useMemo(() => {
+    const rowLead = selectedRow?.lead;
+    return (isLineAnnotation(rowLead) ? rowLead : null)
+      || lineAnnotationForSelection(localPage, selectedAnnotation);
+  }, [localPage, selectedAnnotation, selectedRow]);
+  const { canSplitLine, canSplitToWords } = useMemo(
+    () => editorRowTransformCapabilities(selectedRow),
+    [selectedRow],
+  );
+  const saveDisabled = !sessionIsDirty(session);
+  const dirtyCanvasIds = useMemo(
+    () => dirtyEditorSessions(sessionCache).map(({ canvasId: dirtyCanvasId }) => dirtyCanvasId),
+    [sessionCache],
+  );
+  const hasDirtySessions = editorSessionCacheIsDirty(sessionCache);
   const wordJoinCandidates = useMemo(() => (
     selectedRow?.granularity === 'word' ? [...(selectedRow.fields || [])] : []
   ), [selectedRow]);
   const lineJoinCandidates = useMemo(
-    () => joinLineCandidates(selectedAnnotation, visibleAnnotations),
-    [selectedAnnotation, visibleAnnotations],
+    () => joinLineCandidates(selectedLineAnnotation, visibleAnnotations),
+    [selectedLineAnnotation, visibleAnnotations],
   );
   const canJoinWords = wordJoinCandidates.length > 1;
   const canJoinLines = lineJoinCandidates.length > 1;
@@ -153,17 +325,29 @@ function ScribeCompanionWindow({
   useEffect(() => {
     document.dispatchEvent(new CustomEvent('scribe:dirty-state', {
       detail: {
-        dirty: !saveDisabled,
+        activeCanvasId: canvasId || '',
+        dirty: hasDirtySessions,
+        dirtyCanvasIds,
         windowId,
       },
     }));
-  }, [saveDisabled, windowId]);
+  }, [canvasId, dirtyCanvasIds, hasDirtySessions, windowId]);
 
   useEffect(() => {
-    if (!selectedAnnotationId && visibleAnnotations[0]?.id) {
-      selectAnnotation(windowId, visibleAnnotations[0].id);
+    const selectionIsOnActivePage = annotations.some((annotation) => (
+      annotation?.id === selectedAnnotationId
+    ));
+    if (selectionIsOnActivePage) {
+      preferredSelectionRef.current = selectedAnnotationId;
+      return;
     }
-  }, [selectedAnnotationId, selectAnnotation, visibleAnnotations, windowId]);
+    const preferred = annotations.find((annotation) => annotation?.id === preferredSelectionRef.current)?.id
+      || annotations[0]?.id;
+    if (preferred) {
+      preferredSelectionRef.current = preferred;
+      selectAnnotation(windowId, preferred);
+    }
+  }, [annotations, selectedAnnotationId, selectAnnotation, windowId]);
 
   useEffect(() => {
     if (!localPage || !effectiveSelectedAnnotationId) {
@@ -192,32 +376,38 @@ function ScribeCompanionWindow({
   }, [selectedAnnotation?.id, visibleAnnotations]);
 
   useEffect(() => {
+    /** @param {Event} event */
     const handleViewport = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
-      setViewportBounds(event.detail.bounds || null);
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      setViewportBounds(detail.bounds || null);
     };
     document.addEventListener('scribe:viewport-change', handleViewport);
     return () => document.removeEventListener('scribe:viewport-change', handleViewport);
-  }, [windowId]);
+  }, [canvasId, windowId]);
 
   useEffect(() => {
+    /** @param {KeyboardEvent} event */
     const handleKeyDown = (event) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target;
-      const isEditableTarget = target instanceof HTMLElement
-        && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-
-      if (event.key === 'Escape') {
-        event.preventDefault();
+      if (event.defaultPrevented || !isFocusedWindow) return;
+      const command = editorKeyboardCommand(event);
+      if (!command) return;
+      event.preventDefault();
+      if (command === 'save') {
+        void handleSave();
+      } else if (command === 'undo') {
+        handleUndo();
+      } else if (command === 'redo') {
+        handleRedo();
+      } else if (command === 'delete') {
+        const targetId = focusedWordAnnotationId || selectedAnnotation?.id;
+        if (targetId) {
+          handleDelete(targetId);
+        }
+      } else if (command === 'dismiss-overlay') {
         setDrawMode(false);
         setOverlayMode('none');
-        return;
-      }
-
-      if (isEditableTarget) return;
-
-      if (event.key.toLowerCase() === 'e') {
-        event.preventDefault();
+      } else if (command === 'edit-overlay') {
         setDrawMode(false);
         setOverlayMode('edit');
       }
@@ -225,16 +415,17 @@ function ScribeCompanionWindow({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [adapterFactory, canvasId, focusedWordAnnotationId, isFocusedWindow, localPage, selectedAnnotation]);
 
   useEffect(() => {
     document.dispatchEvent(new CustomEvent('scribe:set-draw-mode', {
       detail: {
         active: drawMode,
+        canvasId,
         windowId,
       },
     }));
-  }, [drawMode, windowId]);
+  }, [canvasId, drawMode, windowId]);
 
   useEffect(() => {
     document.dispatchEvent(new CustomEvent('scribe:editor-state', {
@@ -242,15 +433,18 @@ function ScribeCompanionWindow({
         annotationPage: localPage || serverPage || null,
         canJoinLines,
         canJoinWords,
+        canvasId,
         drawMode,
         focusedWordAnnotationId,
         inlineEditorVisible,
         isBusy,
         overlayMode,
+        pendingRemoteIds: session.pendingRemoteIds,
         saveDisabled,
         selectedAnnotationId: effectiveSelectedAnnotationId,
         selectedGranularity,
         statusMessage,
+        sessionStatus: session.status,
         textOverlayVisible,
         windowId,
       },
@@ -258,6 +452,7 @@ function ScribeCompanionWindow({
   }, [
     canJoinLines,
     canJoinWords,
+    canvasId,
     drawMode,
     effectiveSelectedAnnotationId,
     focusedWordAnnotationId,
@@ -265,6 +460,8 @@ function ScribeCompanionWindow({
     isBusy,
     localPage,
     overlayMode,
+    session.pendingRemoteIds,
+    session.status,
     saveDisabled,
     selectedAnnotation,
     selectedGranularity,
@@ -280,10 +477,11 @@ function ScribeCompanionWindow({
     document.dispatchEvent(new CustomEvent('scribe:focus-annotation', {
       detail: {
         bbox: annotationBBox(focusTarget),
+        canvasId,
         windowId,
       },
     }));
-  }, [localPage, selectedAnnotation, windowId]);
+  }, [canvasId, localPage, selectedAnnotation, windowId]);
 
   useEffect(() => {
     if (didInitialSnapRef.current) return;
@@ -292,182 +490,395 @@ function ScribeCompanionWindow({
     document.dispatchEvent(new CustomEvent('scribe:snap-to-bbox', {
       detail: {
         bbox: annotationBBox(anchor),
+        canvasId,
         windowId,
       },
     }));
     didInitialSnapRef.current = true;
-  }, [annotations, windowId]);
+  }, [annotations, canvasId, windowId]);
 
   useEffect(() => {
-    const handleCreateAnnotation = async (event) => {
-      if (event?.detail?.windowId !== windowId) return;
-      if (!adapterFactory || !canvasId || !event.detail?.bbox) return;
+    /** @param {Event} event */
+    const handleCreateAnnotation = (event) => {
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      if (!canvasId || !detail.bbox || !localPage || editingIsBlocked(canvasId)) return;
 
-      setIsBusy(true);
-      setStatusMessage('Creating line...');
-      try {
-        const adapter = adapterFactory(canvasId);
-        const created = await adapter.createOne(createDraftLineAnnotation(canvasId, event.detail.bbox));
-        const nextPage = upsertAnnotationInPage(localPage || serverPage || { type: 'AnnotationPage', items: [] }, created);
-        pushHistory(nextPage);
-        setDrawMode(false);
-        if (created?.id) selectAnnotation(windowId, created.id);
-        setStatusMessage('Line created.');
-      } catch (error) {
-        setStatusMessage(error instanceof Error ? error.message : 'Create line failed.');
-      } finally {
-        setIsBusy(false);
+      const created = createDraftLineAnnotation(canvasId, detail.bbox, localPage.id || '');
+      const nextPage = upsertAnnotationInPage(localPage, created);
+      pushHistory(nextPage);
+      setDrawMode(false);
+      if (detail.focusResizeHandle) setOverlayMode('edit');
+      if (created?.id) {
+        selectAnnotation(windowId, created.id);
+        if (detail.focusResizeHandle) {
+          document.dispatchEvent(new CustomEvent('scribe:focus-resize-handle', {
+            detail: {
+              annotationId: created.id,
+              canvasId,
+              handle: detail.focusResizeHandle,
+              windowId,
+            },
+          }));
+        }
       }
+      setStatusMessage(detail.focusResizeHandle
+        ? 'Draft line created. Its southeast resize handle is focused; use Arrow keys to resize, or Shift+Arrow for larger steps.'
+        : 'Draft line created. Save to persist it.');
     };
 
     document.addEventListener('scribe:create-annotation', handleCreateAnnotation);
     return () => document.removeEventListener('scribe:create-annotation', handleCreateAnnotation);
-  }, [adapterFactory, canvasId, localPage, selectAnnotation, serverPage, windowId]);
+  }, [canvasId, localPage, selectAnnotation, windowId]);
 
-  function pushHistory(nextPage) {
+  useEffect(() => {
+    /** @param {Event} event */
+    const handleAdapterMutation = (event) => {
+      const detail = editorBridgeEventDetail(event);
+      if (!detail
+        || detail.windowId !== windowId
+        || detail.canvasId !== canvasId
+        || !isFocusedWindow
+        || typeof detail.respond !== 'function') return;
+      const targetSession = editorSessionForCanvas(sessionCacheRef.current, canvasId);
+      const expectedItemImageId = String(adapterFactory?.(canvasId)?.itemImageId || '');
+      if (String(detail.itemImageId || '') !== expectedItemImageId) return;
+      if (editingIsBlocked(canvasId)) {
+        detail.respond({ error: new Error('Annotation editing is unavailable while another editor operation is in progress.') });
+        return;
+      }
+      if (!detail.operation) {
+        detail.respond({ error: new Error('Annotation mutation requires an operation.') });
+        return;
+      }
+      try {
+        const result = applyAdapterMutationToPage(targetSession.draftPage, {
+          annotation: detail.annotation,
+          annotationId: detail.annotationId,
+          operation: detail.operation,
+        });
+        const nextCache = dispatchSessionForCanvas(canvasId, { page: result.page, type: 'edit' });
+        const nextSession = editorSessionForCanvas(nextCache, canvasId);
+        if (!result.page.id) throw new Error('The draft AnnotationPage has no ID.');
+        receiveAnnotation(canvasId, result.page.id, result.page);
+        const selectedId = detail.operation === 'delete'
+          ? selectionAfterPageTransform(targetSession.draftPage, result.page, detail.annotationId ? [detail.annotationId] : [])
+          : result.annotation?.id;
+        if (selectedId) {
+          preferredSelectionRef.current = selectedId;
+          selectAnnotation(windowId, selectedId);
+        }
+        detail.respond({
+          annotation: result.annotation,
+          page: nextSession.draftPage || undefined,
+          revision: nextSession.revision,
+        });
+        setStatusMessage('Draft updated. Save to persist it.');
+      } catch (error) {
+        detail.respond({ error: error instanceof Error ? error : new Error('Annotation mutation failed.') });
+      }
+    };
+
+    document.addEventListener('scribe:annotation-mutation', handleAdapterMutation);
+    return () => document.removeEventListener('scribe:annotation-mutation', handleAdapterMutation);
+  }, [adapterFactory, canvasId, isFocusedWindow, receiveAnnotation, selectAnnotation, windowId]);
+
+  /** @param {IIIFAnnotationPage | null | undefined} nextPage @param {string} [targetCanvasId] */
+  function pushHistory(nextPage, targetCanvasId = canvasId) {
     if (!nextPage) return;
-    if (localPage) {
-      setUndoStack((current) => [...current, structuredClone(localPage)]);
-    }
-    setRedoStack([]);
-    setLocalPage(nextPage);
+    dispatchSession({ page: nextPage, type: 'edit' }, targetCanvasId);
   }
 
+  /**
+   * @param {string} targetCanvasId
+   * @param {IIIFAnnotationPage} submittedPage
+   * @param {IIIFAnnotationPage} transformedPage
+   * @param {string[]} selectedIds
+   * @param {{ atomic?: boolean }} [options]
+   */
+  function applyTransformResult(
+    targetCanvasId,
+    submittedPage,
+    transformedPage,
+    selectedIds,
+    { atomic = false } = {},
+  ) {
+    const priorPending = new Set(
+      editorSessionForCanvas(sessionCacheRef.current, targetCanvasId).pendingRemoteIds,
+    );
+    const nextCache = dispatchSessionForCanvas(targetCanvasId, {
+      affectedIds: selectedIds,
+      atomic,
+      page: transformedPage,
+      submittedPage,
+      type: 'transform-result',
+    });
+    const nextSession = editorSessionForCanvas(nextCache, targetCanvasId);
+    const overlap = (nextSession.status === 'conflict' && nextSession.conflictKind === 'transform')
+      || nextSession.pendingRemoteIds.some((annotationId) => !priorPending.has(annotationId));
+    if (activeCanvasRef.current === targetCanvasId) {
+      const nextSelection = selectionAfterPageTransform(
+        submittedPage,
+        nextSession.draftPage,
+        selectedIds,
+      );
+      if (nextSelection) {
+        preferredSelectionRef.current = nextSelection;
+        selectAnnotation(windowId, nextSelection);
+      }
+    }
+    return { nextSession, overlap };
+  }
+
+  /** @param {IIIFAnnotationPage | null | undefined} page @param {string} fallbackCanvasId */
   async function syncPage(page, fallbackCanvasId) {
     const targetCanvasId = fallbackCanvasId || canvasId || annotationCanvasId(selectedAnnotation);
-    if (!targetCanvasId || !page) return;
+    if (!targetCanvasId || !page?.id) return;
     receiveAnnotation(targetCanvasId, page.id, page);
   }
 
+  /** @param {string} text @param {number | null | undefined} selectionStart */
   function handleInlineTextChange(text, selectionStart) {
-    setLocalPage((currentPage) => {
-      if (!currentPage) return currentPage;
-      const targetRow = findEditorRowByAnnotationId(currentPage, effectiveSelectedAnnotationId)
-        || findEditorRowByAnnotationId(currentPage, selectedAnnotation?.id);
-      if (!targetRow) return currentPage;
+    if (!localPage || editingIsBlocked()) return;
+    const targetRow = findEditorRowByAnnotationId(localPage, effectiveSelectedAnnotationId)
+      || findEditorRowByAnnotationId(localPage, selectedAnnotation?.id || '');
+    if (!targetRow) return;
 
-      if (targetRow.granularity === 'word') {
-        const activeWordId = wordAnnotationIdForCaret(targetRow, text, selectionStart);
-        setFocusedWordAnnotationId(activeWordId || targetRow.fields[0]?.id || '');
-        const lineId = rowSelectionId(targetRow);
-        if (lineId) selectAnnotation(windowId, lineId);
-        return updateRowText(currentPage, targetRow, text);
-      }
-
+    if (targetRow.granularity === 'word') {
+      const activeWordId = wordAnnotationIdForCaret(targetRow, text, selectionStart);
+      setFocusedWordAnnotationId(activeWordId || targetRow.fields[0]?.id || '');
+      const lineId = rowSelectionId(targetRow);
+      if (lineId) selectAnnotation(windowId, lineId);
+      pushHistory(updateRowText(localPage, targetRow, text));
+    } else {
       setFocusedWordAnnotationId('');
       const targetId = rowSelectionId(targetRow);
-      const targetAnnotation = (currentPage.items || []).find((annotation) => annotation?.id === targetId);
-      if (!targetAnnotation) return currentPage;
-      return upsertAnnotationInPage(currentPage, updateAnnotationText(targetAnnotation, text));
-    });
+      const targetAnnotation = (localPage.items || []).find((annotation) => annotation?.id === targetId);
+      if (!targetAnnotation) return;
+      pushHistory(upsertAnnotationInPage(localPage, updateAnnotationText(targetAnnotation, text)));
+    }
     setStatusMessage('');
   }
 
+  /** @param {string} annotationId @param {string} text */
   function handleInlineWordChange(annotationId, text) {
-    const currentAnnotation = (localPage?.items || []).find((annotation) => annotation?.id === annotationId);
-    const lineSelection = currentAnnotation ? (lineAnnotationForSelection(localPage, currentAnnotation) || currentAnnotation) : null;
-    setLocalPage((currentPage) => {
-      if (!currentPage) return currentPage;
-      const wordAnnotation = (currentPage.items || []).find((annotation) => annotation?.id === annotationId);
-      if (!wordAnnotation) return currentPage;
-      const nextPage = upsertAnnotationInPage(currentPage, updateAnnotationText(wordAnnotation, text));
-      const syncedPage = synchronizeLineTextFromWords(
-        nextPage,
-        nextPage.items.find((annotation) => annotation?.id === annotationId),
-      );
-      return syncedPage;
-    });
+    if (!localPage || editingIsBlocked()) return;
+    const wordAnnotation = (localPage.items || []).find((annotation) => annotation?.id === annotationId);
+    if (!wordAnnotation) return;
+    const nextPage = upsertAnnotationInPage(localPage, updateAnnotationText(wordAnnotation, text));
+    const changedWord = nextPage.items.find((annotation) => annotation?.id === annotationId);
+    if (!changedWord) return;
+    const syncedPage = synchronizeLineTextFromWords(nextPage, changedWord);
+    pushHistory(syncedPage);
     setFocusedWordAnnotationId(annotationId);
-    if (lineSelection?.id) selectAnnotation(windowId, lineSelection.id);
+    selectAnnotation(windowId, annotationId);
     setStatusMessage('');
+  }
+
+  function blockedSaveResult(message = 'A save is already in progress.') {
+    setStatusMessage(message);
+    return {
+      error: new Error(message),
+      failedCanvasId: '',
+      ok: false,
+      remainingCanvasIds: dirtyEditorSessions(sessionCacheRef.current)
+        .map(({ canvasId: dirtyCanvasId }) => dirtyCanvasId),
+      snapshots: new Map(),
+    };
+  }
+
+  /**
+   * @param {{ requireAllClean?: boolean, successMessage?: string, targetCanvasIds?: string[] }} [options]
+   */
+  async function persistCachedSessions({
+    requireAllClean = false,
+    successMessage = 'Saved page.',
+    targetCanvasIds,
+  } = {}) {
+    if (!adapterFactory) {
+      return blockedSaveResult('The annotation adapter is unavailable.');
+    }
+    if (saveInFlightRef.current) {
+      return blockedSaveResult();
+    }
+    if (operationBusyRef.current) {
+      return blockedSaveResult('Finish the current editor operation before saving.');
+    }
+
+    saveInFlightRef.current = true;
+    const requestedCanvasIds = targetCanvasIds?.length
+      ? [...targetCanvasIds]
+      : dirtyEditorSessions(sessionCacheRef.current).map(({ canvasId: dirtyCanvasId }) => dirtyCanvasId);
+    const savingCanvasIds = requestedCanvasIds.filter((targetCanvasId) => (
+      sessionIsDirty(editorSessionForCanvas(sessionCacheRef.current, targetCanvasId))
+    ));
+    if (savingCanvasIds.length > 0) setOperationBusy(true);
+    setStatusMessage(savingCanvasIds.length > 0
+      ? (requireAllClean ? 'Saving all page changes...' : 'Saving page changes...')
+      : successMessage);
+    try {
+      const result = await saveCachedEditorSessions({
+        acceptSaved: (targetCanvasId, action) => {
+          dispatchSessionForCanvas(targetCanvasId, action);
+        },
+        adapterFactory,
+        beginSave: (targetCanvasId) => {
+          dispatchSessionForCanvas(targetCanvasId, { type: 'save-start' });
+        },
+        canvasIds: targetCanvasIds,
+        getCache: () => sessionCacheRef.current,
+        requireAllClean,
+        syncPage,
+      });
+
+      const resultError = /** @type {(Error & { code?: unknown, cause?: { code?: unknown } }) | null | undefined} */ (result.error);
+      const code = String(resultError?.code || resultError?.cause?.code || '').toLowerCase();
+      const conflict = resultError?.name === 'RevisionConflict' || code === 'aborted' || code === '10';
+      if (result.ok) {
+        setStatusMessage(successMessage);
+      } else if (conflict) {
+        const message = 'This page changed on the server. Reload to rebase your draft, then save again.';
+        if (result.failedCanvasId) {
+          dispatchSessionForCanvas(result.failedCanvasId, { error: message, type: 'save-conflict' });
+        }
+        setStatusMessage(message);
+      } else if (result.error) {
+        const message = result.error.message || 'Save failed.';
+        if (result.failedCanvasId) {
+          dispatchSessionForCanvas(result.failedCanvasId, { error: message, type: 'save-error' });
+        }
+        setStatusMessage(message);
+      } else {
+        setStatusMessage('Save incomplete: newer edits remain unsaved. Save again before continuing.');
+      }
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Save failed.';
+      savingCanvasIds.forEach((targetCanvasId) => {
+        dispatchSessionForCanvas(targetCanvasId, { error: message, type: 'save-error' });
+      });
+      setStatusMessage(message);
+      return blockedSaveResult(message);
+    } finally {
+      saveInFlightRef.current = false;
+      setOperationBusy(false);
+    }
   }
 
   async function performSave() {
-    if (!localPage) return;
-    setIsBusy(true);
-    setStatusMessage('Saving page changes...');
-    try {
-      const adapter = adapterFactory(canvasId || annotationCanvasId(selectedAnnotation));
-      const baselineById = new Map((serverPage?.items || []).map((annotation) => [annotation.id, annotation]));
-      const localById = new Map((localPage?.items || []).map((annotation) => [annotation.id, annotation]));
+    const targetCanvasId = canvasId || annotationCanvasId(selectedAnnotation);
+    const targetSession = editorSessionForCanvas(sessionCacheRef.current, targetCanvasId);
+    if (!targetCanvasId || !targetSession.draftPage) return false;
 
-      for (const [annotationId] of baselineById) {
-        if (!localById.has(annotationId)) await adapter.deleteOne(annotationId);
-      }
+    const result = await persistCachedSessions({ targetCanvasIds: [targetCanvasId] });
+    if (!result.ok) return false;
+    return result.snapshots.get(targetCanvasId) || {
+      page: targetSession.draftPage,
+      revision: targetSession.revision,
+    };
+  }
 
-      for (const [annotationId, annotation] of localById) {
-        const baseline = baselineById.get(annotationId);
-        if (!baseline) {
-          await adapter.createOne(annotation);
-        } else if (JSON.stringify(baseline) !== JSON.stringify(annotation)) {
-          await adapter.updateOne(annotation);
-        }
-      }
-
-      const page = await adapter.all();
-      await syncPage(page, canvasId || annotationCanvasId(selectedAnnotation));
-      setLocalPage(page);
-      setStatusMessage('Saved page.');
-      return true;
-    } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Save failed.');
-      return false;
-    } finally {
-      setIsBusy(false);
-    }
+  async function performSaveAllDirty() {
+    return persistCachedSessions({
+      requireAllClean: true,
+      successMessage: 'All page changes saved.',
+    });
   }
 
   async function handleSave() {
     await performSave();
   }
 
-  async function handlePublish() {
-    if (!localPage) return;
-    setIsBusy(true);
-    setStatusMessage('Saving before publish...');
+  async function reloadAnnotations(adapter = adapterFactory?.(canvasId), targetCanvasId = canvasId) {
+    if (!adapter || !targetCanvasId || editingIsBlocked(targetCanvasId)) return;
+    dispatchSessionForCanvas(targetCanvasId, { type: 'load-start' });
+    setOperationBusy(true);
+    setStatusMessage('Reloading server updates...');
     try {
-      const saved = await performSave();
-      if (!saved) {
-        setStatusMessage('Publish blocked: save failed.');
-        return;
-      }
-      const itemImageId = window.location.search ? new URLSearchParams(window.location.search).get('itemImageId') : '';
-      if (!itemImageId) {
-        setStatusMessage('Publish unavailable: missing item image.');
-        return;
-      }
-      setStatusMessage('Publishing edits...');
-      const ok = await new Promise((resolve) => {
-        const requestId = `publish-${Date.now()}`;
-        const handleResult = (event) => {
-          const detail = event?.detail;
-          if (!detail || detail.requestId !== requestId) return;
-          document.removeEventListener('scribe:publish-result', handleResult);
-          resolve(Boolean(detail.ok));
-        };
-        document.addEventListener('scribe:publish-result', handleResult);
-        document.dispatchEvent(new CustomEvent('scribe:request-publish', {
-          detail: {
-            itemImageId,
-            requestId,
-            windowId,
-          },
-        }));
+      const snapshot = await adapter.loadSnapshot();
+      const nextCache = dispatchSessionForCanvas(targetCanvasId, {
+        page: snapshot.page,
+        revision: snapshot.revision,
+        type: 'loaded',
       });
-      setStatusMessage(ok ? 'Edits published.' : 'Publish failed.');
+      const nextSession = editorSessionForCanvas(nextCache, targetCanvasId);
+      await syncPage(nextSession.draftPage || snapshot.page, targetCanvasId);
+      setStatusMessage(sessionIsDirty(nextSession)
+        ? 'Server updates loaded; your unsaved edits were preserved.'
+        : 'Server updates loaded.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Reload failed.';
+      dispatchSessionForCanvas(targetCanvasId, { error: message, type: 'load-error' });
+      setStatusMessage(message);
     } finally {
-      setIsBusy(false);
+      setOperationBusy(false);
+    }
+  }
+
+  async function handlePublish() {
+    if (!localPage) return false;
+    setStatusMessage('Saving before publish...');
+    const targetCanvasId = canvasId || annotationCanvasId(selectedAnnotation);
+    const publishIdentity = activeCanvasEventDetail(adapterFactory, targetCanvasId, windowId);
+    const saved = await performSave();
+    if (!mountedRef.current) return false;
+    if (!saved) {
+      setStatusMessage('Publish blocked: save failed.');
+      return false;
+    }
+    if (!String(saved.revision || '').trim()) {
+      setStatusMessage('Publish unavailable until the focused page revision has loaded.');
+      return false;
+    }
+    const itemImageId = publishIdentity?.itemImageId || '';
+    if (!itemImageId) {
+      setStatusMessage('Publish unavailable: the focused Canvas has no item image.');
+      return false;
+    }
+
+    publishAbortRef.current?.abort();
+    const publishController = new AbortController();
+    publishAbortRef.current = publishController;
+    setOperationBusy(true);
+    try {
+      setStatusMessage('Publishing edits...');
+      const result = await requestPublishResult({
+        detail: {
+          expectedRevision: saved.revision,
+          canvasId: targetCanvasId,
+          itemImageId,
+          requestId: `publish-${Date.now()}`,
+          windowId,
+        },
+        signal: publishController.signal,
+      });
+      if (publishController.signal.aborted || !mountedRef.current) return false;
+      if (result.outcome === 'timeout') {
+        setStatusMessage('Publish timed out because no result was received. Try again.');
+      } else {
+        setStatusMessage(result.ok ? 'Edits published.' : 'Publish failed.');
+      }
+      return result.ok;
+    } finally {
+      if (publishAbortRef.current === publishController) {
+        publishAbortRef.current = null;
+        if (mountedRef.current) setOperationBusy(false);
+      }
     }
   }
 
   useEffect(() => {
+    /** @param {Event} event */
     const handleSaveRequest = async (event) => {
-      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
-      const requestId = event.detail.requestId;
-      const ok = await performSave();
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      const requestId = detail.requestId || '';
+      const result = await performSaveAllDirty();
       document.dispatchEvent(new CustomEvent('scribe:save-result', {
         detail: {
-          ok,
+          dirtyCanvasIds: result.remainingCanvasIds,
+          canvasId,
+          ok: result.ok,
           requestId,
           windowId,
         },
@@ -476,147 +887,143 @@ function ScribeCompanionWindow({
 
     document.addEventListener('scribe:request-save', handleSaveRequest);
     return () => document.removeEventListener('scribe:request-save', handleSaveRequest);
-  }, [windowId, adapterFactory, canvasId, localPage, serverPage, selectedAnnotation]);
+  }, [windowId, adapterFactory, canvasId, isFocusedWindow, receiveAnnotation]);
 
   useEffect(() => {
+    /** @param {Event} event */
     const handleTranscribeAll = (event) => {
-      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
       void handleTranscribe({ all: true });
     };
     document.addEventListener('scribe:request-transcribe-all', handleTranscribeAll);
     return () => document.removeEventListener('scribe:request-transcribe-all', handleTranscribeAll);
-  }, [windowId, adapterFactory, canvasId, localPage, selectedAnnotation, transcribeSelection]);
+  }, [windowId, adapterFactory, canvasId, isFocusedWindow, localPage, selectedAnnotation, transcribeSelection]);
 
   useEffect(() => {
+    /** @param {Event} event */
     const handleBatchState = (event) => {
-      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
-      const { active, message } = event.detail || {};
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      if (detail.itemImageId && String(detail.itemImageId) !== String(adapterFactory?.(canvasId)?.itemImageId || '')) return;
+      const { message } = detail;
       if (typeof message === 'string') {
         setStatusMessage(message);
       }
     };
 
-    const handleBatchResult = (event) => {
-      if (event?.detail?.windowId && event.detail.windowId !== windowId) return;
-      const annotation = event?.detail?.annotation;
-      if (!annotation) return;
-      setLocalPage((current) => {
-        const basePage = current || serverPage || { type: 'AnnotationPage', items: [] };
-        const nextPage = upsertAnnotationInPage(basePage, annotation);
-        const targetCanvasId = canvasId || findCanvasIdByAnnotationId(nextPage, annotation.id) || firstAnnotationCanvasId(nextPage);
-        if (targetCanvasId) {
-          receiveAnnotation(targetCanvasId, nextPage.id, nextPage);
+    /** @param {Event} event */
+    const handleBatchResult = async (event) => {
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      if (detail.persisted === false) return;
+      const annotation = detail.annotation;
+      if (!annotation?.id) return;
+      const adapter = adapterFactory?.(canvasId);
+      if (detail.itemImageId && String(detail.itemImageId) !== String(adapter?.itemImageId || '')) return;
+      const resultCanvasId = annotationCanvasId(annotation);
+      if (resultCanvasId && canvasId && resultCanvasId !== canvasId) return;
+      const localWins = annotationLocallyChanged(session, annotation.id);
+      try {
+        const snapshot = await adapter?.loadSnapshot();
+        if (snapshot?.page) {
+          const nextCache = dispatchSession({
+            page: snapshot.page,
+            revision: snapshot.revision,
+            type: 'rebase',
+          });
+          const nextPage = editorSessionForCanvas(nextCache, canvasId).draftPage;
+          await syncPage(nextPage || snapshot.page, canvasId);
+        } else {
+          const nextCache = dispatchSession({ annotation, type: 'remote-annotation' });
+          await syncPage(editorSessionForCanvas(nextCache, canvasId).draftPage, canvasId);
         }
-        return nextPage;
-      });
+      } catch {
+        const nextCache = dispatchSession({ annotation, type: 'remote-annotation' });
+        await syncPage(editorSessionForCanvas(nextCache, canvasId).draftPage, canvasId);
+      }
+      if (localWins) {
+        setStatusMessage('Automatic text arrived for a line you edited; your draft was preserved.');
+      }
+    };
+
+    /** @param {Event} event */
+    const handleReload = async (event) => {
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      const adapter = adapterFactory?.(canvasId);
+      if (!adapter) return;
+      if (detail.itemImageId && String(detail.itemImageId) !== String(adapter.itemImageId || '')) return;
+      await reloadAnnotations(adapter);
     };
 
     document.addEventListener('scribe:transcription-job-state', handleBatchState);
     document.addEventListener('scribe:transcription-result', handleBatchResult);
+    document.addEventListener('scribe:reload-annotations', handleReload);
     return () => {
       document.removeEventListener('scribe:transcription-job-state', handleBatchState);
       document.removeEventListener('scribe:transcription-result', handleBatchResult);
+      document.removeEventListener('scribe:reload-annotations', handleReload);
     };
-  }, [canvasId, receiveAnnotation, serverPage, windowId]);
+  }, [adapterFactory, canvasId, session, windowId]);
 
   useEffect(() => {
+    /** @param {Event} event */
     const handleInlineChange = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
-      handleInlineTextChange(event.detail.text || '', event.detail.selectionStart);
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      handleInlineTextChange(detail.text || '', detail.selectionStart);
     };
+    /** @param {Event} event */
     const handleInlineStep = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      if (editingIsBlocked()) return;
       if (visibleRows.length === 0) return;
       const currentRowId = lineAnnotationForSelection(localPage, selectedAnnotation)?.id || effectiveSelectedAnnotationId;
       const currentIndex = visibleRows.findIndex((row) => (
         row.lead?.id === currentRowId
           || row.fields.some((annotation) => annotation.id === currentRowId)
       ));
-      const direction = event.detail.direction === -1 ? -1 : 1;
+      const direction = detail.direction === -1 ? -1 : 1;
       const nextIndex = ((currentIndex >= 0 ? currentIndex : 0) + direction + visibleRows.length) % visibleRows.length;
       const nextRow = visibleRows[nextIndex];
       const nextSelection = rowSelectionId(nextRow);
       setFocusedWordAnnotationId(nextRow?.granularity === 'word' ? (nextRow.fields[0]?.id || '') : '');
       if (nextSelection) selectAnnotation(windowId, nextSelection);
     };
-    const handleInlineToggle = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
-      setDrawMode(false);
-      setOverlayMode((current) => (current === 'edit' ? 'none' : 'edit'));
-    };
+    /** @param {Event} event */
     const handleInlineSave = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
       void handleSave();
     };
+    /** @param {Event} event */
     const handleOverlaySelect = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
-      if (!event.detail.annotationId) return;
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      if (editingIsBlocked()) return;
+      if (!detail.annotationId) return;
       const sourcePage = localPage || serverPage;
-      const clickedAnnotation = (sourcePage?.items || []).find((annotation) => annotation?.id === event.detail.annotationId) || null;
-      const lineSelection = clickedAnnotation ? (lineAnnotationForSelection(sourcePage, clickedAnnotation) || clickedAnnotation) : null;
+      const clickedAnnotation = (sourcePage?.items || []).find((annotation) => annotation?.id === detail.annotationId) || null;
       setDrawMode(false);
       setOverlayMode('edit');
-      setFocusedWordAnnotationId(event.detail.focusAnnotationId || (isWordAnnotation(clickedAnnotation) ? clickedAnnotation.id : ''));
-      selectAnnotation(windowId, lineSelection?.id || event.detail.annotationId);
+      setFocusedWordAnnotationId(detail.focusAnnotationId || (clickedAnnotation && isWordAnnotation(clickedAnnotation) ? clickedAnnotation.id || '' : ''));
+      selectAnnotation(windowId, detail.focusAnnotationId || detail.annotationId);
     };
+    /** @param {Event} event */
     const handleInlineWord = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
-      if (!event.detail.annotationId) return;
-      handleInlineWordChange(event.detail.annotationId, event.detail.text || '');
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      if (!detail.annotationId) return;
+      handleInlineWordChange(detail.annotationId, detail.text || '');
     };
-    const handleAction = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
-      switch (event.detail.action) {
-        case 'toggle-inline-editor':
-          setDrawMode(false);
-          setOverlayMode((current) => (current === 'edit' ? 'none' : 'edit'));
-          break;
-        case 'toggle-text-overlay':
-          setDrawMode(false);
-          setOverlayMode((current) => (current === 'read' ? 'none' : 'read'));
-          break;
-        case 'cycle-overlay-mode':
-          setDrawMode(false);
-          setOverlayMode(cycleOverlayMode);
-          break;
-        case 'toggle-draw':
-          toggleDrawMode();
-          break;
-        case 'split-words':
-          void handleExplode();
-          break;
-        case 'join-words':
-          void handleJoinWords();
-          break;
-        case 'split-line':
-          void handleSplit();
-          break;
-        case 'join-lines':
-          void handleJoinLines();
-          break;
-        case 'transcribe':
-          setTranscribeDialogOpen(true);
-          break;
-        case 'undo':
-          handleUndo();
-          break;
-        case 'redo':
-          handleRedo();
-          break;
-        case 'delete':
-          if (selectedAnnotation?.id) handleDelete(selectedAnnotation.id);
-          break;
-        case 'save':
-          void handleSave();
-          break;
-        default:
-          break;
-      }
-    };
-
+    /** @param {Event} event */
     const handleResizeAnnotation = (event) => {
-      if (event?.detail?.windowId !== windowId) return;
-      const { annotationId, bbox } = event.detail;
+      const detail = editorBridgeEventDetail(event);
+      if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
+      if (editingIsBlocked()) return;
+      const { annotationId, bbox } = detail;
       if (!annotationId || !bbox || !localPage) return;
       const annotation = (localPage.items || []).find((ann) => ann?.id === annotationId);
       if (!annotation) return;
@@ -628,209 +1035,287 @@ function ScribeCompanionWindow({
     document.addEventListener('scribe:inline-change-word', handleInlineWord);
     document.addEventListener('scribe:select-annotation', handleOverlaySelect);
     document.addEventListener('scribe:inline-step-selection', handleInlineStep);
-    document.addEventListener('scribe:inline-toggle-editor', handleInlineToggle);
     document.addEventListener('scribe:inline-save', handleInlineSave);
-    document.addEventListener('scribe:editor-action', handleAction);
     document.addEventListener('scribe:resize-annotation', handleResizeAnnotation);
     return () => {
       document.removeEventListener('scribe:inline-change-text', handleInlineChange);
       document.removeEventListener('scribe:inline-change-word', handleInlineWord);
       document.removeEventListener('scribe:select-annotation', handleOverlaySelect);
       document.removeEventListener('scribe:inline-step-selection', handleInlineStep);
-      document.removeEventListener('scribe:inline-toggle-editor', handleInlineToggle);
       document.removeEventListener('scribe:inline-save', handleInlineSave);
-      document.removeEventListener('scribe:editor-action', handleAction);
       document.removeEventListener('scribe:resize-annotation', handleResizeAnnotation);
     };
-  }, [effectiveSelectedAnnotationId, visibleRows, windowId, selectedAnnotation, localPage]);
+  }, [canvasId, effectiveSelectedAnnotationId, visibleRows, windowId, selectedAnnotation, localPage]);
 
+  /** @param {string} annotationId */
   function handleDelete(annotationId) {
-    if (!localPage) return;
-    const nextPage = removeAnnotationsFromPage(localPage, [annotationId]);
+    if (!localPage || editingIsBlocked()) return;
+    const result = applyAdapterMutationToPage(localPage, { annotationId, operation: 'delete' });
+    const nextPage = result.page;
     pushHistory(nextPage);
-    const nextSelection = sortedAnnotations(nextPage)[0]?.id;
-    if (nextSelection) selectAnnotation(windowId, nextSelection);
-    else removeCompanionWindow();
+    const nextSelection = selectionAfterPageTransform(localPage, nextPage, [annotationId]);
+    setFocusedWordAnnotationId('');
+    if (nextSelection) {
+      preferredSelectionRef.current = nextSelection;
+      selectAnnotation(windowId, nextSelection);
+    }
+    else setStatusMessage('The page is empty. Draw a line to continue editing.');
+  }
+
+  function handleAddWord() {
+    if (!localPage || !selectedAnnotation || !canvasId || editingIsBlocked()) return;
+    const bbox = annotationBBox(selectedAnnotation);
+    const wordWidth = isWordAnnotation(selectedAnnotation)
+      ? Math.max(1, bbox.w)
+      : Math.max(1, Math.round(bbox.w / 6));
+    const wordBBox = {
+      h: Math.max(1, bbox.h),
+      w: wordWidth,
+      x: isWordAnnotation(selectedAnnotation) ? bbox.x + bbox.w : bbox.x,
+      y: bbox.y,
+    };
+    const word = createDraftWordAnnotation(canvasId, wordBBox, localPage.id || '');
+    pushHistory(upsertAnnotationInPage(localPage, word));
+    if (word.id) {
+      setFocusedWordAnnotationId(word.id);
+      selectAnnotation(windowId, word.id);
+    }
+    setDrawMode(false);
+    setOverlayMode('edit');
+    setStatusMessage('Draft word created. Save to persist it.');
   }
 
   async function handleSplit() {
-    if (!adapterFactory || !localPage || !selectedAnnotation) return;
-    setIsBusy(true);
+    if (!adapterFactory || !localPage || !selectedLineAnnotation?.id || !canSplitLine || editingIsBlocked()) return;
+    const targetCanvasId = canvasId || annotationCanvasId(selectedLineAnnotation);
+    if (!targetCanvasId) return;
+    setOperationBusy(true);
     setStatusMessage('Splitting line...');
     try {
-      const adapter = adapterFactory(canvasId || annotationCanvasId(selectedAnnotation));
-      const replacements = await adapter.splitLineIntoTwoLines(selectedAnnotation);
-      const nextPage = replaceAnnotationInPage(localPage, selectedAnnotation.id, replacements);
-      pushHistory(nextPage);
-      if (replacements[0]?.id) selectAnnotation(windowId, replacements[0].id);
-      setStatusMessage('Line split.');
+      const submittedPage = localPage;
+      const selectedIds = [selectedLineAnnotation.id];
+      const adapter = requireAdapter(targetCanvasId);
+      const nextPage = await adapter.splitLineIntoTwoLines(submittedPage, selectedLineAnnotation.id);
+      const { overlap } = applyTransformResult(
+        targetCanvasId,
+        submittedPage,
+        nextPage,
+        selectedIds,
+        { atomic: true },
+      );
+      if (activeCanvasRef.current !== targetCanvasId) return;
+      setStatusMessage(overlap
+        ? 'Line split, but a newer overlapping edit was preserved. Review the pending conflict.'
+        : 'Line split.');
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Split failed.');
+      if (activeCanvasRef.current === targetCanvasId) {
+        setStatusMessage(error instanceof Error ? error.message : 'Split failed.');
+      }
     } finally {
-      setIsBusy(false);
+      setOperationBusy(false);
     }
   }
 
   async function handleExplode() {
-    if (!adapterFactory || !localPage || !selectedAnnotation) return;
-    setIsBusy(true);
+    if (!adapterFactory || !localPage || !selectedLineAnnotation?.id || !canSplitToWords || editingIsBlocked()) return;
+    const targetCanvasId = canvasId || annotationCanvasId(selectedLineAnnotation);
+    if (!targetCanvasId) return;
+    setOperationBusy(true);
     setStatusMessage('Exploding line into words...');
     try {
-      const adapter = adapterFactory(canvasId || annotationCanvasId(selectedAnnotation));
-      const splitPage = await adapter.splitLineIntoWords(selectedAnnotation);
-      const nextPage = replaceAnnotationInPage(localPage, selectedAnnotation.id, splitPage.items || []);
-      pushHistory(nextPage);
-      const nextSelection = sortedAnnotations(nextPage)[0]?.id;
-      if (nextSelection) selectAnnotation(windowId, nextSelection);
-      setStatusMessage('Words created.');
+      const submittedPage = localPage;
+      const selectedIds = [selectedLineAnnotation.id];
+      const adapter = requireAdapter(targetCanvasId);
+      const nextPage = await adapter.splitLineIntoWords(submittedPage, selectedLineAnnotation.id);
+      const { overlap } = applyTransformResult(
+        targetCanvasId,
+        submittedPage,
+        nextPage,
+        selectedIds,
+        { atomic: true },
+      );
+      if (activeCanvasRef.current !== targetCanvasId) return;
+      setStatusMessage(overlap
+        ? 'Words created, but a newer overlapping edit was preserved. Review the pending conflict.'
+        : 'Words created.');
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Explode failed.');
+      if (activeCanvasRef.current === targetCanvasId) {
+        setStatusMessage(error instanceof Error ? error.message : 'Explode failed.');
+      }
     } finally {
-      setIsBusy(false);
+      setOperationBusy(false);
     }
   }
 
   async function handleJoinWords() {
-    if (!adapterFactory || !localPage || !selectedAnnotation || wordJoinCandidates.length < 2) return;
-    setIsBusy(true);
+    if (!adapterFactory || !localPage || !selectedAnnotation || wordJoinCandidates.length < 2 || editingIsBlocked()) return;
+    const targetCanvasId = canvasId || annotationCanvasId(wordJoinCandidates[0]);
+    if (!targetCanvasId) return;
+    setOperationBusy(true);
     setStatusMessage('Joining words...');
     try {
-      const adapter = adapterFactory(canvasId || annotationCanvasId(wordJoinCandidates[0]));
-      const merged = await adapter.joinWordsIntoLine(wordJoinCandidates);
-      const nextPage = upsertAnnotationInPage(
-        removeAnnotationsFromPage(localPage, wordJoinCandidates.map((annotation) => annotation.id)),
-        merged,
+      const submittedPage = localPage;
+      const selectedIds = wordJoinCandidates.flatMap((annotation) => (annotation.id ? [annotation.id] : []));
+      const adapter = requireAdapter(targetCanvasId);
+      const nextPage = await adapter.joinWordsIntoLine(
+        submittedPage,
+        selectedIds,
       );
-      pushHistory(nextPage);
-      if (merged?.id) selectAnnotation(windowId, merged.id);
-      setStatusMessage('Words joined.');
+      const { overlap } = applyTransformResult(
+        targetCanvasId,
+        submittedPage,
+        nextPage,
+        selectedIds,
+        { atomic: true },
+      );
+      if (activeCanvasRef.current !== targetCanvasId) return;
+      setStatusMessage(overlap
+        ? 'Words joined, but a newer overlapping edit was preserved. Review the pending conflict.'
+        : 'Words joined.');
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Join words failed.');
+      if (activeCanvasRef.current === targetCanvasId) {
+        setStatusMessage(error instanceof Error ? error.message : 'Join words failed.');
+      }
     } finally {
-      setIsBusy(false);
+      setOperationBusy(false);
     }
   }
 
   async function handleJoinLines() {
-    if (!adapterFactory || !localPage || !selectedAnnotation || lineJoinCandidates.length < 2) return;
-    setIsBusy(true);
+    if (!adapterFactory || !localPage || !selectedAnnotation || lineJoinCandidates.length < 2 || editingIsBlocked()) return;
+    const targetCanvasId = canvasId || annotationCanvasId(lineJoinCandidates[0]);
+    if (!targetCanvasId) return;
+    setOperationBusy(true);
     setStatusMessage('Joining lines...');
     try {
-      const adapter = adapterFactory(canvasId || annotationCanvasId(lineJoinCandidates[0]));
-      const merged = await adapter.joinLinesIntoLine(lineJoinCandidates);
-      const nextPage = upsertAnnotationInPage(
-        removeAnnotationsFromPage(localPage, lineJoinCandidates.map((annotation) => annotation.id)),
-        merged,
+      const submittedPage = localPage;
+      const selectedIds = lineJoinCandidates.flatMap((annotation) => (annotation.id ? [annotation.id] : []));
+      const adapter = requireAdapter(targetCanvasId);
+      const nextPage = await adapter.joinLinesIntoLine(
+        submittedPage,
+        selectedIds,
       );
-      pushHistory(nextPage);
-      if (merged?.id) selectAnnotation(windowId, merged.id);
-      setStatusMessage('Lines joined.');
+      const { overlap } = applyTransformResult(
+        targetCanvasId,
+        submittedPage,
+        nextPage,
+        selectedIds,
+        { atomic: true },
+      );
+      if (activeCanvasRef.current !== targetCanvasId) return;
+      setStatusMessage(overlap
+        ? 'Lines joined, but a newer overlapping edit was preserved. Review the pending conflict.'
+        : 'Lines joined.');
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'Join lines failed.');
+      if (activeCanvasRef.current === targetCanvasId) {
+        setStatusMessage(error instanceof Error ? error.message : 'Join lines failed.');
+      }
     } finally {
-      setIsBusy(false);
+      setOperationBusy(false);
     }
   }
 
   function handleUndo() {
-    if (undoStack.length === 0 || !localPage) return;
-    const previous = undoStack[undoStack.length - 1];
-    setRedoStack((current) => [...current, structuredClone(localPage)]);
-    setUndoStack((current) => current.slice(0, -1));
-    setLocalPage(previous);
+    if (editingIsBlocked()) return;
+    dispatchSession({ type: 'undo' });
   }
 
   function handleRedo() {
-    if (redoStack.length === 0 || !localPage) return;
-    const next = redoStack[redoStack.length - 1];
-    setUndoStack((current) => [...current, structuredClone(localPage)]);
-    setRedoStack((current) => current.slice(0, -1));
-    setLocalPage(next);
+    if (editingIsBlocked()) return;
+    dispatchSession({ type: 'redo' });
   }
 
-  function clearTranscriptionOverlay() {
+  function clearTranscriptionOverlay(targetCanvasId = canvasId) {
     document.dispatchEvent(new CustomEvent('scribe:transcription-segment', {
-      detail: { annotation: null, done: 0, total: 0, windowId },
+      detail: { annotation: null, canvasId: targetCanvasId, done: 0, total: 0, windowId },
     }));
   }
 
-  // ConnectRPC code strings that map to HTTP 4xx — skip and continue.
-  const CLIENT_ERROR_CODES = new Set([
-    'invalid_argument', 'not_found', 'already_exists', 'permission_denied',
-    'resource_exhausted', 'failed_precondition', 'aborted', 'out_of_range',
-    'unauthenticated', 'unimplemented',
-  ]);
-  // ConnectRPC code strings that map to HTTP 5xx — slow down, then continue.
-  const SERVER_ERROR_CODES = new Set([
-    'unknown', 'internal', 'unavailable', 'data_loss', 'deadline_exceeded',
-  ]);
-
+  /** @param {{ all?: boolean, annotationIds?: string[] }} [options] */
   async function handleTranscribe({ all = false, annotationIds = [] } = {}) {
-    if (!adapterFactory || !localPage) return;
-    setIsBusy(true);
-    // Clear overlays so the magic wand animation is unobstructed.
-    // Respect edit mode if the user already has the inline editor open.
-    if (overlayMode !== 'edit') setOverlayMode('none');
+    if (!adapterFactory || !localPage || editingIsBlocked()) return;
+    const targetCanvasId = canvasId;
+    if (!targetCanvasId) return;
+    setOperationBusy(true);
+    try {
+      // Clear overlays so the magic wand animation is unobstructed.
+      // Respect edit mode if the user already has the inline editor open.
+      if (overlayMode !== 'edit') setOverlayMode('none');
 
-    const targetAnnotations = all
-      ? (localPage.items || [])
-      : (annotationIds.length > 0 ? annotationIds : transcribeSelection)
-          .map((id) => (localPage.items || []).find((a) => a?.id === id))
-          .filter(Boolean);
+      const submittedPage = localPage;
+      const targetAnnotations = /** @type {IIIFAnnotation[]} */ ((all
+        ? (submittedPage.items || [])
+        : (annotationIds.length > 0 ? annotationIds : transcribeSelection)
+            .map((id) => (submittedPage.items || []).find((a) => a?.id === id))
+            .filter(Boolean))
+        .filter((annotation) => !isWordAnnotation(annotation)));
 
-    const total = targetAnnotations.length;
-    setStatusMessage(`Transcribing… 0 / ${total}`);
+      const total = targetAnnotations.length;
+      setStatusMessage(`Transcribing… 0 / ${total}`);
 
-    let nextPage = localPage;
-    const adapter = adapterFactory(canvasId || annotationCanvasId(selectedAnnotation));
+      let nextPage = submittedPage;
+      const failures = [];
+      const adapter = requireAdapter(targetCanvasId || annotationCanvasId(selectedAnnotation));
 
-    for (let i = 0; i < targetAnnotations.length; i++) {
-      const annotation = targetAnnotations[i];
-      const done = i + 1;
-      setStatusMessage(`Transcribing… ${done} / ${total}`);
-      document.dispatchEvent(new CustomEvent('scribe:transcription-segment', {
-        detail: { annotation, done, total, windowId },
-      }));
-
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const transcribed = await adapter.transcribeAnnotation(annotation);
-        if (transcribed) {
-          nextPage = upsertAnnotationInPage(nextPage, transcribed);
-        }
-        document.dispatchEvent(new CustomEvent('scribe:transcription-result', {
-          detail: { annotation: transcribed || annotation, done, total, windowId },
+      for (let i = 0; i < targetAnnotations.length; i++) {
+        const annotation = targetAnnotations[i];
+        const done = i + 1;
+        setStatusMessage(`Transcribing… ${done} / ${total}`);
+        document.dispatchEvent(new CustomEvent('scribe:transcription-segment', {
+          detail: { annotation, canvasId: targetCanvasId, done, total, windowId },
         }));
-        // Pause so the dissolve animation is visible before moving to the next segment.
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((resolve) => { setTimeout(resolve, 1200); });
-      } catch (error) {
-        const code = error?.code;
-        if (CLIENT_ERROR_CODES.has(code)) {
-          // 4xx: not legible / bad request — skip silently and continue.
-        } else if (SERVER_ERROR_CODES.has(code)) {
-          // 5xx: back off before continuing so we don't hammer a struggling server.
+
+        try {
           // eslint-disable-next-line no-await-in-loop
-          await new Promise((resolve) => { setTimeout(resolve, 3000); });
-        } else {
-          // Unknown error shape — treat as server error: back off and continue.
-          // eslint-disable-next-line no-await-in-loop
-          await new Promise((resolve) => { setTimeout(resolve, 3000); });
+          const transcribed = await adapter.transcribeAnnotation(annotation);
+          if (!mountedRef.current || activeCanvasRef.current !== targetCanvasId) return;
+          if (transcribed) {
+            nextPage = upsertAnnotationInPage(nextPage, transcribed);
+          }
+          document.dispatchEvent(new CustomEvent('scribe:transcription-result', {
+            detail: {
+              annotation: transcribed || annotation,
+              canvasId: targetCanvasId,
+              done,
+              persisted: false,
+              total,
+              windowId,
+            },
+          }));
+        } catch (error) {
+          failures.push({
+            id: annotation?.id || `segment ${done}`,
+            message: error instanceof Error ? error.message : 'Retranscription failed',
+          });
         }
+
+        if (!mountedRef.current || activeCanvasRef.current !== targetCanvasId) {
+          return;
+        }
+
       }
 
-      document.dispatchEvent(new CustomEvent('scribe:transcription-progress', {
-        detail: { done, total },
-      }));
+      if (activeCanvasRef.current !== targetCanvasId) return;
+      const selectedIds = targetAnnotations.flatMap((annotation) => (annotation.id ? [annotation.id] : []));
+      const { overlap } = applyTransformResult(targetCanvasId, submittedPage, nextPage, selectedIds);
+      setTranscribeDialogOpen(false);
+      if (overlap) {
+        setStatusMessage('Retranscription finished, but newer overlapping edits were preserved. Review the pending conflict.');
+      } else if (failures.length > 0) {
+        const first = failures[0];
+        setStatusMessage(`Retranscribed ${total - failures.length}/${total}. ${first.id}: ${first.message}`);
+      } else {
+        setStatusMessage(all ? 'Document transcribed.' : 'Selected text transcribed.');
+      }
+    } catch (error) {
+      if (mountedRef.current && activeCanvasRef.current === targetCanvasId) {
+        setStatusMessage(error instanceof Error ? error.message : 'Retranscription failed.');
+      }
+    } finally {
+      clearTranscriptionOverlay(targetCanvasId);
+      operationBusyRef.current = false;
+      if (mountedRef.current) setOperationBusyState(false);
     }
-
-    clearTranscriptionOverlay();
-    pushHistory(nextPage);
-    const focusId = targetAnnotations[0]?.id || nextPage?.items?.[0]?.id;
-    if (focusId) selectAnnotation(windowId, focusId);
-    setTranscribeDialogOpen(false);
-    setStatusMessage(all ? 'Document transcribed.' : 'Selected text transcribed.');
-    setIsBusy(false);
   }
 
   return (
@@ -838,11 +1323,15 @@ function ScribeCompanionWindow({
       annotations={visibleAnnotations}
       canJoinLines={canJoinLines}
       canJoinWords={canJoinWords}
+      canSplitLine={canSplitLine}
+      canSplitToWords={canSplitToWords}
       drawMode={drawMode}
       id={id}
       isBusy={isBusy}
       overlayMode={overlayMode}
       onDelete={handleDelete}
+      onAddWord={handleAddWord}
+      onCreateCenteredLine={createCenteredLine}
       onCreateLine={toggleDrawMode}
       onCycleOverlayMode={cycleOverlayModeFromToolbar}
       onExplode={handleExplode}
@@ -850,6 +1339,7 @@ function ScribeCompanionWindow({
       onJoinWords={handleJoinWords}
       onRedo={handleRedo}
       onPublish={handlePublish}
+      onReload={() => reloadAnnotations()}
       onSave={handleSave}
       onSplit={handleSplit}
       onTranscribe={handleTranscribe}
@@ -857,7 +1347,9 @@ function ScribeCompanionWindow({
       onTranscribeDialogOpen={() => setTranscribeDialogOpen(true)}
       onTranscribeSelectionChange={setTranscribeSelection}
       onUndo={handleUndo}
+      pendingRemoteIds={session.pendingRemoteIds}
       saveDisabled={saveDisabled}
+      revisionConflict={revisionConflict}
       selectedAnnotation={selectedAnnotation}
       selectedGranularity={selectedGranularity}
       statusMessage={statusMessage}
@@ -872,8 +1364,8 @@ ScribeCompanionWindow.propTypes = {
   adapterFactory: PropTypes.func,
   canvasId: PropTypes.string,
   id: PropTypes.string.isRequired,
+  isFocusedWindow: PropTypes.bool.isRequired,
   receiveAnnotation: PropTypes.func.isRequired,
-  removeCompanionWindow: PropTypes.func.isRequired,
   selectAnnotation: PropTypes.func.isRequired,
   selectedAnnotationId: PropTypes.string,
   serverPage: PropTypes.shape({
@@ -883,26 +1375,27 @@ ScribeCompanionWindow.propTypes = {
   windowId: PropTypes.string.isRequired,
 };
 
+/** @param {MiradorState} state @param {WindowOwnProps} ownProps */
 function mapStateToProps(state, { windowId }) {
   const selectedAnnotationId = selectedAnnotationIdForWindow(state, windowId);
-  const pageForSelection = findAnnotationPageByAnnotationId(state, selectedAnnotationId);
-  const resolvedCanvasId = findCanvasIdByAnnotationId(state, selectedAnnotationId)
-    || canvasIdForWindow(state, windowId)
-    || firstAnnotationCanvasId(state);
+  const activeCanvas = resolveActiveCanvasState(state, windowId, selectedAnnotationId);
 
   return {
     adapterFactory: state?.config?.annotation?.adapter,
-    canvasId: resolvedCanvasId,
+    canvasId: activeCanvas.canvasId,
+    isFocusedWindow: !state?.workspace?.focusedWindowId || state.workspace.focusedWindowId === windowId,
     selectedAnnotationId,
-    serverPage: pageForSelection || annotationPageForCanvas(state, resolvedCanvasId) || firstAnnotationPage(state),
+    serverPage: activeCanvas.serverPage,
   };
 }
 
-const mapDispatchToProps = (dispatch, { id, windowId }) => ({
+/** @param {MiradorDispatch} dispatch */
+const mapDispatchToProps = (dispatch) => ({
+  /** @param {string} targetId @param {string} annotationId @param {IIIFAnnotationPage} annotationJson */
   receiveAnnotation: (targetId, annotationId, annotationJson) => dispatch(
     receiveAnnotationAction(targetId, annotationId, annotationJson),
   ),
-  removeCompanionWindow: () => dispatch(removeCompanionWindowAction(windowId, id)),
+  /** @param {string} targetWindowId @param {string} annotationId */
   selectAnnotation: (targetWindowId, annotationId) => dispatch(selectAnnotationAction(targetWindowId, annotationId)),
 });
 

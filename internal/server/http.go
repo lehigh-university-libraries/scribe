@@ -1,84 +1,95 @@
 package server
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
+	"github.com/lehigh-university-libraries/scribe/internal/providerregistry"
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
 	"github.com/lehigh-university-libraries/scribe/internal/vaultkv"
+	"github.com/lehigh-university-libraries/scribe/internal/worklimit"
 )
 
 type Handler struct {
-	ocrRuns            *store.OCRRunStore
-	items              *store.ItemStore
-	contexts           *store.ContextStore
-	annotations        *store.AnnotationStore
-	providerCallAudits *store.ProviderCallAuditStore
-	providerSecrets    *store.ProviderSecretStore
-	transcriptionJobs  *store.TranscriptionJobStore
-	transcriptionQueue TranscriptionJobQueue
-	auth               *auth.Manager
-	appCtx             context.Context
-	vault              *vaultkv.Client
-	webhookURLs        []string
-	mux                http.Handler
-	webDir             string
-	ocr                *ocrhandlers.Handler
-	// baseURL is derived from the first request; used for IIIF IDs.
-	// The annotation handler needs it to build annotation item URLs.
-	annotationBaseURL string
+	ocrRuns                     *store.OCRRunStore
+	items                       *store.ItemStore
+	contexts                    *store.ContextStore
+	annotations                 *store.AnnotationStore
+	providerCallAudits          *store.ProviderCallAuditStore
+	providerSecrets             providerSecretResolver
+	transcriptionJobs           *store.TranscriptionJobStore
+	transcriptionQueue          TranscriptionJobQueue
+	auth                        *auth.Manager
+	appCtx                      context.Context
+	vault                       providerSecretVault
+	webhookURLs                 []string
+	mux                         http.Handler
+	ocr                         OCRProcessor
+	requestLimiter              *requestLimiter
+	edgeRequestLimiter          *requestLimiter
+	edgeAggregateLimiter        *requestLimiter
+	largeBodyLimiter            *bodyConcurrencyLimiter
+	canonicalReadLimiter        *bodyConcurrencyLimiter
+	readinessLimiter            *bodyConcurrencyLimiter
+	sseLimiter                  *connectionLimiter
+	processingLimiter           *worklimit.HierarchicalLimiter
+	maxManifestCanvases         int
+	maxManifestImportBytes      uint64
+	manifestImportTimeout       time.Duration
+	itemPageTokens              *itemPageTokenCodec
+	itemExportTokens            *itemExportTokenCodec
+	exportLimiter               *bodyConcurrencyLimiter
+	imageRegionFetcher          func(context.Context, string, int, int, int, int) (string, func(), error)
+	deleteUploadBlob            func(context.Context, string) error
+	deleteTripletImageGraphFn   func(context.Context, uint64) error
+	reconcileTripletItemGraphFn func(context.Context, string) error
+	transcriptionWorkerWG       sync.WaitGroup
+	backgroundWorkerWG          sync.WaitGroup
+}
+
+// OCRProcessor is the application boundary around segmentation and
+// transcription. Keeping handlers behind this narrow interface makes provider
+// behavior replaceable and lets API tests exercise transaction semantics
+// without invoking heavyweight model runtimes.
+type OCRProcessor interface {
+	SetProviderCallAuditLogger(hocr.ProviderCallAuditLogger)
+	ProcessImageURLWithContext(context.Context, string, hocr.ProcessingContext) (*ocrhandlers.ProcessResult, error)
+	ProcessImageURLTransientWithContext(context.Context, string, hocr.ProcessingContext) (*ocrhandlers.ProcessResult, error)
+	ProcessImageUploadWithContext(context.Context, string, []byte, hocr.ProcessingContext) (*ocrhandlers.ProcessResult, error)
+	StoreUploadedImage(context.Context, string, []byte) (string, error)
+	TranscribeImageFileWithContext(context.Context, string, string, string) (string, error)
+}
+
+type uploadStagingOCRProcessor interface {
+	SetUploadStager(func(context.Context, string, uint64) error)
 }
 
 type TranscriptionJobQueue interface {
 	PublishTranscriptionJob(context.Context, uint64) error
 	ReceiveTranscriptionJobs(context.Context, func(context.Context, uint64) error, func(context.Context, string, error, []byte)) error
-}
-
-var (
-	trustedProxyNets = mustParseCIDRs(
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"100.64.0.0/10",
-		"169.254.0.0/16",
-		"fc00::/7",
-	)
-)
-
-func mustParseCIDRs(cidrs ...string) []*net.IPNet {
-	nets := make([]*net.IPNet, 0, len(cidrs))
-	for _, cidr := range cidrs {
-		_, network, err := net.ParseCIDR(cidr)
-		if err != nil {
-			panic(fmt.Sprintf("invalid trusted proxy CIDR %q: %v", cidr, err))
-		}
-		nets = append(nets, network)
-	}
-	return nets
 }
 
 type responseWriter struct {
@@ -106,9 +117,15 @@ func (w *responseWriter) Flush() {
 	flusher.Flush()
 }
 
+// Unwrap lets http.ResponseController reach the network writer for per-export
+// deadlines while AccessLogger still records the final status.
+func (w *responseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func AccessLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" || r.URL.Path == "/healthz" {
+		if r.URL.Path == "/health" || r.URL.Path == "/healthz" || r.URL.Path == "/livez" || r.URL.Path == "/readyz" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -142,90 +159,139 @@ func NewHandler(
 	vaultClient *vaultkv.Client,
 	auditStores ...*store.ProviderCallAuditStore,
 ) *Handler {
-	webDir := detectWebDir()
-	if webDir == "" {
-		slog.Info("web assets directory not found; running in API-only mode")
-	} else {
-		slog.Info("serving web assets", "dir", webDir)
-	}
-
 	var providerCallAudits *store.ProviderCallAuditStore
 	if len(auditStores) > 0 {
 		providerCallAudits = auditStores[0]
 	}
 
+	maxManifestCanvases := config.Get().Config.IIIF.MaxManifestCanvases
+	if maxManifestCanvases == 0 {
+		maxManifestCanvases = config.DefaultMaxManifestCanvases
+	}
+	maxManifestImportBytes := config.Get().Config.IIIF.MaxManifestImportBytes
+	if maxManifestImportBytes == 0 {
+		maxManifestImportBytes = config.DefaultMaxManifestImportBytes
+	}
+	var itemPageTokens *itemPageTokenCodec
+	var itemExportTokens *itemExportTokenCodec
+	if signingKey := config.Get().Config.Pagination.SigningKey; signingKey != "" {
+		codec, codecErr := newItemPageTokenCodec(signingKey)
+		if codecErr != nil {
+			slog.Error("item pagination is disabled because its signing key is invalid", "error_type", safeLogErrorType(codecErr))
+		} else {
+			itemPageTokens = codec
+		}
+		exportCodec, exportCodecErr := newItemExportTokenCodec(signingKey)
+		if exportCodecErr != nil {
+			slog.Error("item exports are disabled because their signing key is invalid", "error_type", safeLogErrorType(exportCodecErr))
+		} else {
+			itemExportTokens = exportCodec
+		}
+	}
 	handler := &Handler{
-		ocrRuns:            ocrRuns,
-		items:              items,
-		contexts:           contexts,
-		annotations:        annotations,
-		providerCallAudits: providerCallAudits,
-		providerSecrets:    providerSecrets,
-		transcriptionJobs:  transcriptionJobs,
-		auth:               authManager,
-		appCtx:             context.Background(),
-		vault:              vaultClient,
-		webhookURLs:        append([]string(nil), config.Get().Config.Webhooks.URLs...),
-		webDir:             webDir,
-		ocr:                ocrhandlers.New(),
+		ocrRuns:                ocrRuns,
+		items:                  items,
+		contexts:               contexts,
+		annotations:            annotations,
+		providerCallAudits:     providerCallAudits,
+		providerSecrets:        providerSecrets,
+		transcriptionJobs:      transcriptionJobs,
+		auth:                   authManager,
+		appCtx:                 context.Background(),
+		vault:                  vaultClient,
+		webhookURLs:            append([]string(nil), config.Get().Config.Webhooks.URLs...),
+		ocr:                    ocrhandlers.New(),
+		requestLimiter:         newRequestLimiter(),
+		edgeRequestLimiter:     newEdgeRequestLimiter(),
+		edgeAggregateLimiter:   newEdgeAggregateLimiter(),
+		largeBodyLimiter:       newBodyConcurrencyLimiter(maxConcurrentLargeBodies, maxConcurrentLargeBodiesPerClient),
+		canonicalReadLimiter:   newBodyConcurrencyLimiter(maxConcurrentCanonicalReads, maxConcurrentCanonicalReadsPerKey),
+		readinessLimiter:       newBodyConcurrencyLimiter(2, 1),
+		sseLimiter:             newConnectionLimiter(),
+		processingLimiter:      newProcessingLimiter(config.Get().Config.Processing),
+		maxManifestCanvases:    maxManifestCanvases,
+		maxManifestImportBytes: maxManifestImportBytes,
+		manifestImportTimeout:  defaultManifestImportTimeout,
+		itemPageTokens:         itemPageTokens,
+		itemExportTokens:       itemExportTokens,
+		exportLimiter:          newBodyConcurrencyLimiter(maxConcurrentExports, maxConcurrentExportsPerWorkspace),
+	}
+	if annotations != nil {
+		if err := annotations.SetStorageQuotaLimits(configuredStorageQuotaLimits()); err != nil {
+			slog.Error("annotation storage quota policy is invalid", "error_type", safeLogErrorType(err))
+		}
+	}
+	if ocrRuns != nil {
+		if err := ocrRuns.SetStorageQuotaLimits(configuredStorageQuotaLimits()); err != nil {
+			slog.Error("OCR provenance storage quota policy is invalid", "error_type", safeLogErrorType(err))
+		}
+	}
+	if stagedOCR, ok := handler.ocr.(uploadStagingOCRProcessor); ok && items != nil {
+		stagedOCR.SetUploadStager(handler.stageImmutableUpload)
 	}
 	if providerCallAudits != nil {
-		auditCfg := config.Get().Config.Audit
-		handler.ocr.SetProviderCallAuditLogger(func(ctx context.Context, record hocr.ProviderCallAuditRecord) {
-			if !auditCfg.ProviderCallBodies {
-				record.Prompt = ""
-				record.RequestJSON = ""
-				record.ResponseJSON = ""
-			}
-			if err := providerCallAudits.Create(ctx, store.ProviderCallAudit{
-				SessionID:    record.SessionID,
-				ItemImageID:  record.ItemImageID,
-				ContextID:    record.ContextID,
-				Provider:     record.Provider,
-				Model:        record.Model,
-				Operation:    record.Operation,
-				Prompt:       record.Prompt,
-				RequestJSON:  record.RequestJSON,
-				ResponseJSON: record.ResponseJSON,
-				ErrorMessage: record.ErrorMessage,
-				HTTPStatus:   record.HTTPStatus,
-			}); err != nil {
-				slog.Warn("failed to persist provider call audit", "error", err, "provider", record.Provider, "model", record.Model, "operation", record.Operation)
-			}
-		})
+		if err := providerCallAudits.SetStorageQuotaLimits(configuredStorageQuotaLimits()); err != nil {
+			slog.Error("provider call audit storage quota policy is invalid", "error_type", safeLogErrorType(err))
+		}
+		handler.ocr.SetProviderCallAuditLogger(providerCallAuditLogger(providerCallAudits))
 	}
 	mux := http.NewServeMux()
 	registerConnectServices(mux, handler, authManager, connectHandlerOptions(authManager)...)
 
-	// Health
-	mux.HandleFunc("GET /healthz", handler.handleHealth)
+	// Liveness only checks the process. Readiness verifies required persistence.
+	mux.HandleFunc("GET /livez", handler.handleLiveness)
+	mux.HandleFunc("GET /readyz", handler.handleReadiness)
+	mux.HandleFunc("GET /healthz", handler.handleReadiness)
 
-	// IIIF presentation endpoints used by the editor.
-	mux.HandleFunc("GET /v1/items/{item_id}/manifest", handler.handleGetItemIIIFManifest)
-	mux.HandleFunc("GET /v1/items/{item_id}/export", handler.handleExportItem)
-	mux.HandleFunc("GET /v1/items/{item_id}/provider-call-audits", handler.handleListItemProviderCallAudits)
-	mux.HandleFunc("GET /v1/item-images/{item_image_id}/manifest", handler.handleGetIIIFManifest)
-	mux.HandleFunc("GET /v1/item-images/{item_image_id}/annotations", handler.handleGetIIIFAnnotations)
-	mux.HandleFunc("GET /v1/item-images/{item_image_id}/hocr", handler.handleGetHOCR)
-	mux.HandleFunc("GET /v1/item-images/{item_image_id}/export", handler.handleExportAnnotations)
+	mux.HandleFunc("GET /v1/item-images/{item_image_id}/annotations/revisions/{revision}/hocr", handler.handleGetHOCR)
+	mux.HandleFunc("HEAD /v1/item-images/{item_image_id}/annotations/revisions/{revision}/hocr", handler.handleGetHOCR)
+	mux.HandleFunc("GET /v1/item-exports/{token}", handler.handlePreparedItemExport)
+	mux.HandleFunc("HEAD /v1/item-exports/{token}", handler.handlePreparedItemExport)
 	mux.HandleFunc("GET /v1/events", handler.handleEventStream)
-
-	// Context metrics
-	mux.HandleFunc("GET /v1/contexts/{context_id}/metrics", handler.handleGetContextMetrics)
 
 	if authManager != nil {
 		authManager.RegisterRoutes(mux)
 	}
 
-	// Static uploads are workspace-scoped even though they live on local disk.
+	// Triplet dereferences these immutable source bytes to serve Image API
+	// resources. Scribe owns the constrained internal-source credential plus
+	// normal workspace and explicit-publication authorization.
 	mux.HandleFunc("GET /static/uploads/", handler.handleStaticUpload)
-	mux.HandleFunc("/", handler.handleWeb)
-	var finalMux http.Handler = mux
+	mux.HandleFunc("HEAD /static/uploads/", handler.handleStaticUpload)
+	// The dedicated frontend image is the only application-shell server. Keep
+	// the API fail-closed so an accidentally copied web/dist cannot create a
+	// second delivery path with different proxy and browser-security behavior.
+	mux.HandleFunc("/", http.NotFound)
+	// Edge admission runs before credential verification so invalid API keys or
+	// JWTs cannot bypass rate, size, compression, or large-body concurrency
+	// limits. The inner limiter sees the authenticated principal and enforces
+	// the workspace/user rate bucket before dispatch.
+	finalMux := handler.requestLimitMiddleware(mux)
 	if authManager != nil {
 		finalMux = authManager.Middleware(finalMux)
 	}
+	finalMux = handler.requestAdmissionMiddleware(finalMux)
 	handler.mux = AccessLogger(finalMux)
 	return handler
+}
+
+func providerCallAuditLogger(audits *store.ProviderCallAuditStore) hocr.ProviderCallAuditLogger {
+	return func(ctx context.Context, record hocr.ProviderCallAuditRecord) {
+		if err := audits.Create(ctx, store.ProviderCallAudit{
+			WorkspaceID:  record.WorkspaceID,
+			SessionID:    record.SessionID,
+			ItemImageID:  record.ItemImageID,
+			ContextID:    record.ContextID,
+			Provider:     record.Provider,
+			Model:        record.Model,
+			Operation:    record.Operation,
+			ErrorMessage: record.ErrorMessage,
+			HTTPStatus:   record.HTTPStatus,
+			DurationMS:   record.DurationMS,
+		}); err != nil {
+			slog.Warn("failed to persist provider call audit", "error_type", safeLogErrorType(err), "provider", record.Provider, "model", record.Model, "operation", record.Operation)
+		}
+	}
 }
 
 func (h *Handler) SetAppContext(ctx context.Context) {
@@ -250,6 +316,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func applyCORS(w http.ResponseWriter, r *http.Request) bool {
+	if isPublicUploadReadRequest(r) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept,If-None-Match,If-Modified-Since,Range")
+		w.Header().Set("Access-Control-Expose-Headers", "ETag,Last-Modified,Content-Length,Content-Range,Accept-Ranges")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return false
+		}
+		return true
+	}
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
 		if r.Method == http.MethodOptions {
@@ -261,22 +338,31 @@ func applyCORS(w http.ResponseWriter, r *http.Request) bool {
 
 	addVaryHeader(w.Header(), "Origin")
 	if !corsOriginAllowed(r, origin) {
-		if r.Method == http.MethodOptions {
-			writeError(w, http.StatusForbidden, "origin is not allowed")
-			return false
-		}
-		return true
+		writeError(w, http.StatusForbidden, "origin is not allowed")
+		return false
 	}
 
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Accept,Authorization,Connect-Protocol-Version,X-Provider,X-Scribe-Workspace-ID,X-Scribe-API-Key")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,HEAD,POST,PUT,DELETE,OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Accept,Authorization,Connect-Protocol-Version,X-Scribe-Workspace-ID,X-Scribe-API-Key")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return false
 	}
 	return true
+}
+
+func isPublicUploadReadRequest(r *http.Request) bool {
+	if r == nil || r.URL == nil {
+		return false
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+	default:
+		return false
+	}
+	return auth.IsPublicUploadSourceRequest(r.URL.Path, http.MethodGet)
 }
 
 func addVaryHeader(header http.Header, value string) {
@@ -337,13 +423,13 @@ func requestCORSOrigin(r *http.Request) string {
 	host := strings.TrimSpace(r.Host)
 	if isTrustedProxy(r.RemoteAddr) {
 		forwarded := forwardedParams(r.Header.Get("Forwarded"))
-		if forwardedProto := firstForwardedValue(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
+		if forwardedProto := lastForwardedValue(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
 			scheme = forwardedProto
 		}
 		if forwarded["proto"] != "" {
 			scheme = forwarded["proto"]
 		}
-		if forwardedHost := firstForwardedValue(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
+		if forwardedHost := lastForwardedValue(r.Header.Get("X-Forwarded-Host")); forwardedHost != "" {
 			host = forwardedHost
 		} else if forwarded["host"] != "" {
 			host = forwarded["host"]
@@ -373,29 +459,55 @@ func (h *Handler) SetTranscriptionJobQueue(q TranscriptionJobQueue) {
 	h.transcriptionQueue = q
 }
 
-func (h *Handler) handleHealth(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) handleLiveness(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (h *Handler) handleStaticUpload(w http.ResponseWriter, r *http.Request) {
-	name, err := uploadNameFromRequestPath(r.URL.Path)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+func (h *Handler) handleReadiness(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if h.items == nil || h.items.Ping(ctx) != nil {
+		writeJSON(w, http.StatusServiceUnavailable, readinessResponse("not_ready"))
 		return
 	}
-	if h.items == nil {
+	writeJSON(w, http.StatusOK, readinessResponse("ready"))
+}
+
+func readinessResponse(status string) map[string]string {
+	response := map[string]string{"status": status}
+	if image := strings.TrimSpace(os.Getenv("SCRIBE_DEPLOYED_API_IMAGE")); image != "" {
+		response["api_image"] = image
+	}
+	return response
+}
+
+func (h *Handler) handleStaticUpload(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	setPrivateUploadSourceHeaders(w)
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	name, err := uploadNameFromRequestPath(r.URL.Path)
+	if err != nil || r.URL.RawQuery != "" || !uploadref.IsImmutableName(name) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	imageURL := staticUploadsPrefix + name
-	allowed, err := h.items.WorkspaceOwnsImageURL(r.Context(), h.currentWorkspaceID(r.Context()), imageURL)
+	ownerAccess, publishedAccess, err := h.authorizeUploadSource(r.Context(), imageURL)
 	if err != nil {
+		slog.Error("authorize upload source", "error_type", safeLogErrorType(err))
 		writeError(w, http.StatusInternalServerError, "failed to authorize upload")
 		return
 	}
-	if !allowed {
+	if !ownerAccess && !publishedAccess {
 		writeError(w, http.StatusNotFound, "not found")
 		return
+	}
+	if publishedAccess && !ownerAccess {
+		setPublicUploadSourceHeaders(w)
 	}
 	if uploadblob.Enabled() {
 		data, attrs, err := uploadblob.Read(r.Context(), name)
@@ -403,9 +515,12 @@ func (h *Handler) handleStaticUpload(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}
-		if attrs.ContentType != "" {
-			w.Header().Set("Content-Type", attrs.ContentType)
+		contentType, ok := storedUploadMediaType(data)
+		if !ok {
+			writeError(w, http.StatusUnsupportedMediaType, "stored upload is not a supported image")
+			return
 		}
+		w.Header().Set("Content-Type", contentType)
 		http.ServeContent(w, r, name, attrs.Updated, bytes.NewReader(data))
 		return
 	}
@@ -420,7 +535,75 @@ func (h *Handler) handleStaticUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	prefix := make([]byte, 512)
+	n, readErr := f.Read(prefix)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		writeError(w, http.StatusInternalServerError, "failed to read upload")
+		return
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read upload")
+		return
+	}
+	contentType, ok := storedUploadMediaType(prefix[:n])
+	if !ok {
+		writeError(w, http.StatusUnsupportedMediaType, "stored upload is not a supported image")
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
 	http.ServeContent(w, r, name, info.ModTime(), f)
+}
+
+func (h *Handler) authorizeUploadSource(ctx context.Context, imageURL string) (ownerAccess, publishedAccess bool, err error) {
+	principal, hasPrincipal := auth.PrincipalFromContext(ctx)
+	if hasPrincipal && principal.CanReadRawSource() {
+		return true, false, nil
+	}
+	if hasPrincipal && principal.HasPermission("annotations:read") && h.items != nil {
+		if strings.EqualFold(strings.TrimSpace(principal.AuthType), "session") && principal.UserID > 0 {
+			ownerAccess, err = h.items.UserCanReadImageURL(ctx, principal.UserID, imageURL)
+		} else if principal.WorkspaceID > 0 {
+			// API keys, external JWTs, and any future delegated credential stay
+			// within the workspace selected when the principal was created.
+			ownerAccess, err = h.items.WorkspaceOwnsImageURL(ctx, principal.WorkspaceID, imageURL)
+		}
+		if err != nil || ownerAccess {
+			return ownerAccess, false, err
+		}
+	}
+	if h.annotations == nil {
+		return false, false, nil
+	}
+	publishedAccess, err = h.annotations.ImageURLIsPublished(ctx, imageURL)
+	return false, publishedAccess, err
+}
+
+func setPrivateUploadSourceHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Del("Access-Control-Allow-Origin")
+	w.Header().Del("Access-Control-Allow-Credentials")
+	w.Header().Del("Access-Control-Allow-Methods")
+	w.Header().Del("Access-Control-Allow-Headers")
+	w.Header().Del("Access-Control-Expose-Headers")
+	for _, name := range []string{"Authorization", "Cookie", "X-Scribe-API-Key", "X-Scribe-Workspace-ID"} {
+		addVaryHeader(w.Header(), name)
+	}
+}
+
+func setPublicUploadSourceHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
+	w.Header().Set("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept,If-None-Match,If-Modified-Since,Range")
+	w.Header().Set("Access-Control-Expose-Headers", "ETag,Last-Modified,Content-Length,Content-Range,Accept-Ranges")
+	w.Header().Del("Access-Control-Allow-Credentials")
+}
+
+func storedUploadMediaType(data []byte) (string, bool) {
+	mediaType, err := ocrhandlers.UploadedImageMediaType(data)
+	return mediaType, err == nil
 }
 
 func uploadNameFromRequestPath(requestPath string) (string, error) {
@@ -436,166 +619,71 @@ func uploadNameFromRequestPath(requestPath string) (string, error) {
 }
 
 func (h *Handler) handleGetHOCR(w http.ResponseWriter, r *http.Request) {
-	run, _, _, _, err := h.resolveRunAndIIIFPaths(r)
+	itemImageID, err := itemImageIDFromRequest(r)
 	if err != nil {
-		if isNotFoundError(err) || strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	hocrXML := strings.TrimSpace(run.OriginalHOCR)
-	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
-		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-	}
-	if hocrXML == "" {
-		writeError(w, http.StatusNotFound, "hocr not found")
+	revision, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("revision")), 10, 64)
+	if err != nil || revision == 0 {
+		writeError(w, http.StatusBadRequest, "revision must be a positive integer")
 		return
 	}
+	ctx, finish := exportRequestContext(w, r)
+	defer finish()
+	release, allowed := h.exportLimiter.TryAcquire(fmt.Sprintf("workspace:%d", h.currentWorkspaceID(ctx)))
+	if !allowed {
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusTooManyRequests, "export concurrency limit exceeded")
+		return
+	}
+	defer release()
+	page, err := h.loadCanonicalExportPage(ctx, itemImageID, revision)
+	if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			return
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "canonical hocr generation timed out")
+		case errors.Is(err, errItemExportRevisionConflict):
+			writeError(w, http.StatusConflict, "canonical annotations changed; reload the manifest")
+		case errors.Is(err, store.ErrAnnotationPageNotFound):
+			writeError(w, http.StatusNotFound, "item image not found")
+		default:
+			slog.Error("load revisioned hocr source", "item_image_id", itemImageID, "error_type", safeLogErrorType(err))
+			writeError(w, http.StatusInternalServerError, "failed to load canonical annotations")
+		}
+		return
+	}
+	hocrXML, _, _, err := renderCanonicalExportPage(page, "hocr")
+	if err != nil {
+		if errors.Is(err, errItemExportOutputLimit) {
+			writeError(w, http.StatusRequestEntityTooLarge, "canonical hocr exceeds the output-byte limit")
+		} else {
+			writeError(w, http.StatusUnprocessableEntity, "canonical hocr could not be generated")
+		}
+		return
+	}
+	if err := ctx.Err(); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			writeError(w, http.StatusGatewayTimeout, "canonical hocr generation timed out")
+		}
+		return
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="item-%d.hocr"`, itemImageID))
 	w.Header().Set("Content-Type", "text/vnd.hocr+html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(len(hocrXML)))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(hocrXML))
-}
-
-func (h *Handler) handleListItemProviderCallAudits(w http.ResponseWriter, r *http.Request) {
-	itemID := strings.TrimSpace(r.PathValue("item_id"))
-	if itemID == "" {
-		writeError(w, http.StatusBadRequest, "item_id is required")
+	if r.Method == http.MethodHead {
 		return
 	}
-	if _, err := h.itemForRequest(r.Context(), itemID); err != nil {
-		writeError(w, http.StatusNotFound, "item not found")
-		return
+	// #nosec G705 -- ConvertHOCRLinesToXML escapes canonical annotation text and IDs;
+	// attachment disposition plus nosniff prevents the HTML-compatible format from rendering inline.
+	if _, err := copyExportContent(ctx, w, strings.NewReader(hocrXML)); err != nil {
+		slog.Warn("stream revisioned hocr failed", "item_image_id", itemImageID, "revision", revision, "error_type", fmt.Sprintf("%T", err))
 	}
-	if h.providerCallAudits == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"itemId": itemID, "audits": []any{}})
-		return
-	}
-
-	limit := 100
-	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
-		if v, err := strconv.Atoi(raw); err == nil && v > 0 && v <= 500 {
-			limit = v
-		}
-	}
-	audits, err := h.providerCallAudits.ListByItem(r.Context(), itemID, limit)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load provider call audits")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"itemId": itemID,
-		"audits": audits,
-	})
-}
-
-func (h *Handler) handleGetItemIIIFManifest(w http.ResponseWriter, r *http.Request) {
-	itemID := strings.TrimSpace(r.PathValue("item_id"))
-	if itemID == "" {
-		writeError(w, http.StatusBadRequest, "item_id is required")
-		return
-	}
-	item, err := h.itemForRequest(r.Context(), itemID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "item not found")
-		return
-	}
-	if len(item.Images) == 0 {
-		writeError(w, http.StatusNotFound, "item has no images")
-		return
-	}
-
-	apiBase := requestOrigin(r)
-	manifestID := fmt.Sprintf("%s/v1/items/%s/manifest", apiBase, url.PathEscape(item.ID))
-	iiifBase := resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/3")
-	canvases := make([]any, 0, len(item.Images))
-
-	for _, image := range item.Images {
-		canvasID := strings.TrimSpace(image.CanvasURI)
-		if canvasID == "" {
-			canvasID = fmt.Sprintf("%s/v1/item-images/%d/manifest/canvas/page-1", apiBase, image.ID)
-			if err := h.items.UpdateImageCanvasURI(r.Context(), image.ID, canvasID); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to persist canvas uri")
-				return
-			}
-		}
-
-		pageW, pageH := 1, 1
-		seeAlso := make([]any, 0, 1)
-		if run, err := h.fetchOrCacheHOCRRun(r.Context(), image.ID); err == nil {
-			hocrXML := strings.TrimSpace(run.OriginalHOCR)
-			if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
-				hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-			}
-			pageW, pageH = extractPageDimensions(hocrXML)
-			if pageW <= 0 {
-				pageW = 1
-			}
-			if pageH <= 0 {
-				pageH = 1
-			}
-			seeAlso = append(seeAlso, map[string]any{
-				"id":      fmt.Sprintf("%s/v1/item-images/%d/hocr", apiBase, image.ID),
-				"type":    "Text",
-				"format":  "text/vnd.hocr+html",
-				"profile": "http://kba.cloud/hocr-spec",
-				"label":   map[string]any{"none": []string{"hOCR embedded text"}},
-			})
-		}
-
-		canvasLabel := strings.TrimSpace(image.Label)
-		if canvasLabel == "" {
-			canvasLabel = image.ImageURL
-			if iiifID, err := iiifIdentifierFromImageURL(image.ImageURL); err == nil {
-				canvasLabel = iiifID
-			}
-		}
-
-		paintingPageID := fmt.Sprintf("%s/page/painting", canvasID)
-		paintingAnnID := fmt.Sprintf("%s/annotation/painting", canvasID)
-		canvas := map[string]any{
-			"id":     canvasID,
-			"type":   "Canvas",
-			"label":  map[string]any{"none": []string{canvasLabel}},
-			"height": pageH,
-			"width":  pageW,
-			"items": []any{
-				map[string]any{
-					"id":   paintingPageID,
-					"type": "AnnotationPage",
-					"items": []any{
-						map[string]any{
-							"id":         paintingAnnID,
-							"type":       "Annotation",
-							"motivation": "painting",
-							"target":     canvasID,
-							"body":       buildImageBody(image.ImageURL, iiifBase, pageW, pageH),
-						},
-					},
-				},
-			},
-			"annotations": []any{
-				map[string]any{
-					"id":   fmt.Sprintf("%s/v1/item-images/%d/annotations", apiBase, image.ID),
-					"type": "AnnotationPage",
-				},
-			},
-		}
-		if len(seeAlso) > 0 {
-			canvas["seeAlso"] = seeAlso
-		}
-		canvases = append(canvases, canvas)
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"@context": "http://iiif.io/api/presentation/3/context.json",
-		"id":       manifestID,
-		"type":     "Manifest",
-		"label":    map[string]any{"none": []string{item.Name}},
-		"items":    canvases,
-	})
 }
 
 func sanitizeFilenamePart(value string, fallback string) string {
@@ -625,202 +713,6 @@ func sanitizeFilenamePart(value string, fallback string) string {
 		return fallback
 	}
 	return out
-}
-
-func (h *Handler) handleGetIIIFManifest(w http.ResponseWriter, r *http.Request) {
-	itemImageID, err := itemImageIDFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	run, manifestPath, annotationsPath, hocrPath, err := h.resolveRunAndIIIFPaths(r)
-	if err != nil {
-		if isNotFoundError(err) || strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	hocrXML := strings.TrimSpace(run.OriginalHOCR)
-	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
-		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-	}
-	pageW, pageH := extractPageDimensions(hocrXML)
-	if pageW <= 0 {
-		pageW = 1
-	}
-	if pageH <= 0 {
-		pageH = 1
-	}
-
-	apiBase := requestOrigin(r)
-	manifestID := apiBase + manifestPath
-	canvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
-	paintingPageID := fmt.Sprintf("%s/page/painting", manifestID)
-	paintingAnnID := fmt.Sprintf("%s/annotation/painting-1", manifestID)
-	annotationPageURI := apiBase + annotationsPath
-	seeAlsoID := apiBase + hocrPath
-
-	img, err := h.itemImageForRequest(r.Context(), itemImageID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "item image not found")
-		return
-	}
-	if strings.TrimSpace(img.CanvasURI) == "" {
-		if err := h.items.UpdateImageCanvasURI(r.Context(), itemImageID, canvasID); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to persist canvas uri")
-			return
-		}
-	}
-
-	iiifBase := resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/3")
-	imageBody := buildImageBody(run.ImageURL, iiifBase, pageW, pageH)
-	canvasLabel := run.ImageURL
-	if iiifID, err := iiifIdentifierFromImageURL(run.ImageURL); err == nil {
-		canvasLabel = iiifID
-	}
-
-	manifest := map[string]any{
-		"@context": "http://iiif.io/api/presentation/3/context.json",
-		"id":       manifestID,
-		"type":     "Manifest",
-		"label": map[string]any{
-			"none": []string{iiifManifestLabel(run)},
-		},
-		"items": []any{
-			map[string]any{
-				"id":     canvasID,
-				"type":   "Canvas",
-				"label":  map[string]any{"none": []string{canvasLabel}},
-				"height": pageH,
-				"width":  pageW,
-				"items": []any{
-					map[string]any{
-						"id":   paintingPageID,
-						"type": "AnnotationPage",
-						"items": []any{
-							map[string]any{
-								"id":         paintingAnnID,
-								"type":       "Annotation",
-								"motivation": "painting",
-								"target":     canvasID,
-								"body":       imageBody,
-							},
-						},
-					},
-				},
-				"annotations": []any{
-					map[string]any{
-						"id":   annotationPageURI,
-						"type": "AnnotationPage",
-					},
-				},
-				"seeAlso": []any{
-					map[string]any{
-						"id":      seeAlsoID,
-						"type":    "Text",
-						"format":  "text/vnd.hocr+html",
-						"profile": "http://kba.cloud/hocr-spec",
-						"label":   map[string]any{"none": []string{"hOCR embedded text"}},
-					},
-				},
-			},
-		},
-	}
-	writeJSON(w, http.StatusOK, manifest)
-}
-
-func (h *Handler) handleGetIIIFAnnotations(w http.ResponseWriter, r *http.Request) {
-	itemImageID, err := itemImageIDFromRequest(r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	run, manifestPath, annotationsPath, _, err := h.resolveRunAndIIIFPaths(r)
-	if err != nil {
-		if isNotFoundError(err) || strings.Contains(strings.ToLower(err.Error()), "not found") {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	hocrXML := strings.TrimSpace(run.OriginalHOCR)
-	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
-		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-	}
-	if hocrXML == "" {
-		writeError(w, http.StatusNotFound, "hocr not found")
-		return
-	}
-
-	granularity := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("textGranularity")))
-	if granularity == "" {
-		granularity = "line"
-	}
-	if granularity != "line" && granularity != "word" && granularity != "glyph" {
-		writeError(w, http.StatusBadRequest, "textGranularity must be one of: line, word, glyph")
-		return
-	}
-
-	apiBase := requestOrigin(r)
-	manifestID := apiBase + manifestPath
-	canvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
-	pageID := fmt.Sprintf("%s%s?textGranularity=%s", apiBase, annotationsPath, granularity)
-	annotationScopeID := run.SessionID
-	if run.ItemImageID != nil {
-		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
-	}
-
-	img, err := h.itemImageForRequest(r.Context(), itemImageID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "item image not found")
-		return
-	}
-	if strings.TrimSpace(img.CanvasURI) == "" {
-		if err := h.items.UpdateImageCanvasURI(r.Context(), itemImageID, canvasID); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to persist canvas uri")
-			return
-		}
-	}
-
-	var items []any
-	switch granularity {
-	case "line":
-		lines, err := hocr.ParseHOCRLines(hocrXML)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "unable to parse hocr lines")
-			return
-		}
-		items = buildLineAnnotations(annotationScopeID, canvasID, lines)
-	case "word":
-		words, err := hocr.ParseHOCRWords(hocrXML)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "unable to parse hocr words")
-			return
-		}
-		items = buildWordAnnotations(annotationScopeID, canvasID, words)
-	case "glyph":
-		wordGlyphs, err := hocr.ParseHOCRWordGlyphs(hocrXML)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "unable to parse hocr glyphs")
-			return
-		}
-		items = buildGlyphAnnotations(annotationScopeID, canvasID, wordGlyphs)
-	}
-
-	payload := map[string]any{
-		"@context": annotationPageContexts(),
-		"id":       pageID,
-		"type":     "AnnotationPage",
-		"items":    items,
-	}
-	writeJSON(w, http.StatusOK, payload)
 }
 
 func joinLineWords(line models.HOCRLine) string {
@@ -876,28 +768,6 @@ func buildWordAnnotations(sessionID, canvasID string, words []models.HOCRWord) [
 	return items
 }
 
-func buildGlyphAnnotations(sessionID, canvasID string, wordGlyphs []hocr.WordWithGlyphs) []any {
-	items := make([]any, 0)
-	count := 0
-	for _, ww := range wordGlyphs {
-		for _, glyph := range ww.Glyphs {
-			width := glyph.BBox.X2 - glyph.BBox.X1
-			height := glyph.BBox.Y2 - glyph.BBox.Y1
-			if width <= 0 || height <= 0 {
-				continue
-			}
-			count++
-			glyphID := strings.TrimSpace(glyph.ID)
-			if glyphID == "" {
-				glyphID = fmt.Sprintf("%s-glyph-%d", ww.Word.ID, count)
-			}
-			annID := annotationID(sessionID, "glyph", glyphID)
-			items = append(items, transcriptionAnnotation(annID, "glyph", strings.TrimSpace(glyph.Text), canvasID, glyph.BBox))
-		}
-	}
-	return items
-}
-
 func transcriptionAnnotation(id, granularity, text, canvasID string, box models.BBox) map[string]any {
 	width := box.X2 - box.X1
 	height := box.Y2 - box.Y1
@@ -906,16 +776,14 @@ func transcriptionAnnotation(id, granularity, text, canvasID string, box models.
 		"type":            "Annotation",
 		"textGranularity": granularity,
 		"motivation":      "supplementing",
-	}
-	if strings.TrimSpace(text) != "" {
-		anno["body"] = []any{
+		"body": []any{
 			map[string]any{
 				"type":    "TextualBody",
 				"purpose": "supplementing",
 				"format":  "text/plain",
 				"value":   text,
 			},
-		}
+		},
 	}
 	anno["target"] = map[string]any{
 		"source": map[string]any{
@@ -931,76 +799,6 @@ func transcriptionAnnotation(id, granularity, text, canvasID string, box models.
 	return anno
 }
 
-func iiifManifestLabel(run store.OCRRun) string {
-	if run.ItemImageID != nil {
-		return fmt.Sprintf("item-image-%d", *run.ItemImageID)
-	}
-	return run.SessionID
-}
-
-// fetchOrCacheHOCRRun returns an OCRRun for the given item_image_id. If no run
-// exists yet, it fetches hOCR on-demand from the item_image's hocr_url, caches
-// the result as a new OCR run, and returns it.
-func (h *Handler) fetchOrCacheHOCRRun(ctx context.Context, itemImageID uint64) (store.OCRRun, error) {
-	run, err := h.ocrRuns.GetByItemImageID(ctx, itemImageID)
-	if err == nil {
-		return run, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return store.OCRRun{}, err
-	}
-	// No OCR run yet — try to fetch and cache hOCR from the item_image's hocr_url.
-	img, imgErr := h.items.GetImage(ctx, itemImageID)
-	if imgErr != nil {
-		if errors.Is(imgErr, sql.ErrNoRows) {
-			return store.OCRRun{}, sql.ErrNoRows
-		}
-		return store.OCRRun{}, imgErr
-	}
-	if img.HocrURL == "" {
-		return store.OCRRun{}, sql.ErrNoRows
-	}
-	hocrXML, fetchErr := fetchHOCRContent(ctx, img.HocrURL)
-	if fetchErr != nil || strings.TrimSpace(hocrXML) == "" {
-		slog.Warn("on-demand hOCR fetch failed", "item_image_id", itemImageID, "hocr_url", img.HocrURL, "error", fetchErr)
-		return store.OCRRun{}, sql.ErrNoRows
-	}
-	hocrXML = strings.TrimSpace(hocrXML)
-	sessionID := fmt.Sprintf("hocr-url-%d", itemImageID)
-	plainText := hocrToPlainTextLenient(hocrXML)
-	run = store.OCRRun{
-		SessionID:    sessionID,
-		ItemImageID:  &itemImageID,
-		ImageURL:     img.ImageURL,
-		Provider:     "manifest",
-		Model:        "imported",
-		OriginalHOCR: hocrXML,
-		OriginalText: plainText,
-	}
-	if cacheErr := h.ocrRuns.Create(ctx, run); cacheErr != nil {
-		slog.Warn("failed to cache on-demand hOCR run", "item_image_id", itemImageID, "error", cacheErr)
-	}
-	return run, nil
-}
-
-func (h *Handler) resolveRunAndIIIFPaths(r *http.Request) (store.OCRRun, string, string, string, error) {
-	ctx := r.Context()
-
-	itemImageID, err := itemImageIDFromRequest(r)
-	if err != nil {
-		return store.OCRRun{}, "", "", "", err
-	}
-	if _, err := h.itemImageForRequest(ctx, itemImageID); err != nil {
-		return store.OCRRun{}, "", "", "", fmt.Errorf("item image not found")
-	}
-	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
-	if err != nil {
-		return store.OCRRun{}, "", "", "", err
-	}
-	base := fmt.Sprintf("/v1/item-images/%d", itemImageID)
-	return run, base + "/manifest", base + "/annotations", base + "/hocr", nil
-}
-
 func itemImageIDFromRequest(r *http.Request) (uint64, error) {
 	itemImageIDRaw := strings.TrimSpace(r.PathValue("item_image_id"))
 	if itemImageIDRaw == "" {
@@ -1014,10 +812,7 @@ func itemImageIDFromRequest(r *http.Request) (uint64, error) {
 }
 
 func (h *Handler) internalAnnotationBaseURL() string {
-	base := strings.TrimRight(strings.TrimSpace(h.annotationBaseURL), "/")
-	if base == "" {
-		base = strings.TrimRight(strings.TrimSpace(config.Get().Config.Annotation.APIInternalBase), "/")
-	}
+	base := strings.TrimRight(strings.TrimSpace(config.Get().Config.Annotation.APIInternalBase), "/")
 	if base == "" {
 		base = strings.TrimRight(strings.TrimSpace(config.Get().Config.Annotation.APIBase), "/")
 	}
@@ -1027,34 +822,21 @@ func (h *Handler) internalAnnotationBaseURL() string {
 	return base
 }
 
-func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run store.OCRRun, itemImageID uint64) error {
-	img, err := h.items.GetImage(ctx, itemImageID)
+func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run store.OCRRun, itemImageID uint64, parsed *hocr.Document) error {
+	img, err := h.itemImageForRequest(ctx, itemImageID)
 	if err != nil {
 		return fmt.Errorf("get item image: %w", err)
 	}
 
 	canvasURI := strings.TrimSpace(img.CanvasURI)
 	if canvasURI == "" {
-		canvasURI = fmt.Sprintf("%s/v1/item-images/%d/manifest/canvas/page-1", h.internalAnnotationBaseURL(), itemImageID)
-		if err := h.items.UpdateImageCanvasURI(ctx, itemImageID, canvasURI); err != nil {
-			return fmt.Errorf("persist canvas uri: %w", err)
-		}
+		return fmt.Errorf("item image %d has no Canvas identity", itemImageID)
 	}
 
-	existing, err := h.annotations.SearchByCanvas(ctx, canvasURI)
-	if err != nil {
-		return fmt.Errorf("search annotations: %w", err)
-	}
-	if len(existing) > 0 {
+	if _, err := h.annotations.LoadPage(ctx, h.currentWorkspaceID(ctx), itemImageID); err == nil {
 		return nil
-	}
-
-	hocrXML := strings.TrimSpace(run.OriginalHOCR)
-	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
-		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-	}
-	if hocrXML == "" {
-		return nil
+	} else if !errors.Is(err, store.ErrAnnotationPageNotFound) {
+		return fmt.Errorf("load annotation page: %w", err)
 	}
 
 	annotationScopeID := run.SessionID
@@ -1062,81 +844,154 @@ func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run s
 		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
 	}
 
-	lines, err := hocr.ParseHOCRLines(hocrXML)
-	if err != nil {
-		return fmt.Errorf("parse hocr lines: %w", err)
+	items := make([]any, 0)
+	hocrXML := strings.TrimSpace(run.OriginalHOCR)
+	if hocrXML != "" {
+		document, parseErr := parsedHOCRDocument(hocrXML, parsed)
+		if parseErr != nil {
+			return fmt.Errorf("parse hocr: %w", parseErr)
+		}
+		items = append(items, buildLineAnnotations(annotationScopeID, canvasURI, document.Lines)...)
+		items = append(items, buildWordAnnotations(annotationScopeID, canvasURI, document.Words)...)
 	}
-	items := buildLineAnnotations(annotationScopeID, canvasURI, lines)
-	if _, err := h.persistAnnotationItems(ctx, canvasURI, items); err != nil {
+	created, err := h.createInitialAnnotationPage(ctx, img, items)
+	if err != nil {
 		return fmt.Errorf("persist annotations: %w", err)
 	}
+	if !created {
+		return nil
+	}
+	pageID, _ := h.annotationPageIDForItemImage(itemImageID)
 	h.publishEvent("dev.scribe.annotations.created", subjectForItemImage(itemImageID), map[string]any{
 		"itemImageId":      itemImageID,
 		"canvasUri":        canvasURI,
 		"annotationCount":  len(items),
-		"annotationPageId": annotationPageID(canvasURI),
+		"annotationPageId": pageID,
 	})
 	return nil
 }
 
-func fetchIIIFRegionToTemp(ctx context.Context, iiifID string, x1, y1, x2, y2 int) (string, func(), error) {
-	width := x2 - x1
-	height := y2 - y1
-	if width <= 0 || height <= 0 {
-		return "", func() {}, fmt.Errorf("invalid bbox")
+// createInitialAnnotationPage performs an atomic revision-zero create. A
+// concurrent importer/editor that wins the race owns the canonical page; the
+// initializer must never reload that newer revision and replace its contents.
+func (h *Handler) createInitialAnnotationPage(ctx context.Context, image store.ItemImage, items []any) (bool, error) {
+	canvasURI := strings.TrimSpace(image.CanvasURI)
+	if canvasURI == "" {
+		return false, fmt.Errorf("item image %d has no Canvas identity", image.ID)
 	}
-	base := strings.TrimRight(strings.TrimSpace(config.Get().Config.IIIF.InternalBase), "/")
-	if base == "" {
-		return "", func() {}, fmt.Errorf("iiif.internal_base is not configured")
+	pageID, err := h.annotationPageIDForItemImage(image.ID)
+	if err != nil {
+		return false, err
 	}
-	cropURL := fmt.Sprintf("%s/%s/%d,%d,%d,%d/max/0/default.jpg", base, iiifID, x1, y1, width, height)
-	return fetchImageURLToTemp(ctx, cropURL, "scribe-region-*.jpg")
+	payload, err := iiif.NewAnnotationPage(iiif.PageIdentity{
+		PublicBaseURL: h.publicAnnotationBaseURL(),
+		ItemImageID:   image.ID,
+		CanvasURI:     canvasURI,
+	}, items)
+	if err != nil {
+		return false, err
+	}
+	userID := h.currentUserID(ctx)
+	page := store.AnnotationPage{
+		WorkspaceID: h.currentWorkspaceID(ctx),
+		ItemImageID: image.ID,
+		PageID:      pageID,
+		CanvasURI:   canvasURI,
+		Payload:     string(payload),
+	}
+	if userID > 0 {
+		page.UpdatedByUserID = &userID
+	}
+	if _, err := h.annotations.SavePage(ctx, page, 0); err != nil {
+		if errors.Is(err, store.ErrAnnotationRevisionConflict) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // buildImageBody returns a IIIF Presentation v3 painting body for the given image URL.
 // For local uploads it wraps the image in a IIIF Image Service descriptor.
 // For external URLs it detects and reuses any IIIF image service embedded in the URL;
 // otherwise it returns a plain Image body.
-func buildImageBody(imageURL, iiifBase string, pageW, pageH int) map[string]any {
+func buildImageBody(imageURL, sourceBase, iiifBase string, pageW, pageH int) map[string]any {
 	body := map[string]any{
 		"type":   "Image",
 		"height": pageH,
 		"width":  pageW,
 	}
 
-	// Local upload: use the standalone IIIF image service.
+	// Local upload: expose Triplet's IIIF Image API service.
 	if strings.HasPrefix(imageURL, "/static/uploads/") {
-		iiifID, err := iiifIdentifierFromImageURL(imageURL)
+		iiifID, err := iiifIdentifierFromImageURL(imageURL, sourceBase)
 		if err == nil {
 			serviceID := iiifBase + "/" + iiifID
 			body["id"] = serviceID + "/full/max/0/default.jpg"
 			body["format"] = "image/jpeg"
-			body["service"] = []any{iiifServiceDescriptor(serviceID)}
+			body["service"] = []any{iiifServiceDescriptor(serviceID, true)}
 			return body
 		}
 	}
 
 	// External URL: use as-is and try to attach a IIIF service descriptor.
 	body["id"] = imageURL
-	body["format"] = "image/jpeg"
+	if format := imageContentTypeFromURL(imageURL); format != "" {
+		body["format"] = format
+	}
 	if serviceID := iiifServiceFromImageURL(imageURL); serviceID != "" {
-		body["service"] = []any{iiifServiceDescriptor(serviceID)}
+		body["service"] = []any{iiifServiceDescriptor(serviceID, false)}
 	}
 	return body
 }
 
-func iiifServiceDescriptor(serviceID string) map[string]any {
+func imageContentTypeFromURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(path.Ext(parsed.Path)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".tif", ".tiff":
+		return "image/tiff"
+	case ".jp2", ".j2k", ".jpx":
+		return "image/jp2"
+	default:
+		return ""
+	}
+}
+
+func itemImageDimensions(image store.ItemImage) (int, int) {
+	return maxInt(1, int(image.Width)), maxInt(1, int(image.Height))
+}
+
+func iiifServiceDescriptor(serviceID string, scribeService bool) map[string]any {
 	if strings.Contains(serviceID, "/iiif/3/") {
+		profile := iiif.ImageProfileLevel0V3
+		if scribeService {
+			profile = iiif.ImageProfileLevel2V3
+		}
 		return map[string]any{
 			"id":      serviceID,
-			"type":    "ImageService3",
-			"profile": "level2",
+			"type":    iiif.ImageServiceTypeV3,
+			"profile": string(profile),
 		}
+	}
+	profile := "http://iiif.io/api/image/2/level0.json"
+	if scribeService {
+		profile = "http://iiif.io/api/image/2/level1.json"
 	}
 	return map[string]any{
 		"id":      serviceID,
 		"type":    "ImageService2",
-		"profile": "http://iiif.io/api/image/2/level2.json",
+		"profile": profile,
 	}
 }
 
@@ -1144,224 +999,60 @@ func iiifServiceDescriptor(serviceID string) map[string]any {
 // IIIF image URL by stripping the trailing region/size/rotation/quality segments.
 // Returns "" if the URL does not appear to be a IIIF image URL.
 func iiifServiceFromImageURL(imageURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(imageURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return ""
+	}
+	escapedPath := parsed.EscapedPath()
 	for _, seg := range []string{"/iiif/2/", "/iiif/3/"} {
-		if !strings.Contains(imageURL, seg) {
+		marker := strings.Index(escapedPath, seg)
+		if marker < 0 {
 			continue
 		}
 		// Strip the last 4 path segments (region/size/rotation/quality.format).
-		u := imageURL
+		servicePath := escapedPath
 		for i := 0; i < 4; i++ {
-			idx := strings.LastIndex(u, "/")
-			if idx < 0 {
+			idx := strings.LastIndex(servicePath, "/")
+			if idx < marker+len(seg) {
 				return ""
 			}
-			u = u[:idx]
+			servicePath = servicePath[:idx]
 		}
-		return u
+		if servicePath == escapedPath[:marker+len(seg)] {
+			return ""
+		}
+		decodedPath, err := url.PathUnescape(servicePath)
+		if err != nil {
+			return ""
+		}
+		parsed.Path = decodedPath
+		parsed.RawPath = servicePath
+		return parsed.String()
 	}
 	return ""
 }
 
-func iiifIdentifierFromImageURL(imageURL string) (string, error) {
-	u := strings.TrimSpace(imageURL)
-	if u == "" {
-		return "", fmt.Errorf("session has no image")
+func iiifIdentifierFromImageURL(imageURL, sourceBase string) (string, error) {
+	name, ok := uploadNameFromURL(imageURL)
+	if !ok {
+		return "", fmt.Errorf("image is not an immutable application upload")
 	}
-	const staticPrefix = "/static/uploads/"
-	if strings.HasPrefix(u, staticPrefix) {
-		name := strings.TrimPrefix(u, staticPrefix)
-		if strings.TrimSpace(name) == "" {
-			return "", fmt.Errorf("invalid image path")
-		}
-		return url.PathEscape(name), nil
+	base, err := url.Parse(strings.TrimRight(strings.TrimSpace(sourceBase), "/"))
+	if err != nil || base == nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
+		return "", fmt.Errorf("source base must be an absolute HTTP(S) URL")
 	}
-	return "", fmt.Errorf("manifest requires a local uploaded image")
+	sourceURL := strings.TrimRight(base.String(), "/") + staticUploadsPrefix + url.PathEscape(name)
+	return url.PathEscape(sourceURL), nil
 }
 
 func effectiveModel(provider, requestModel string) string {
-	if strings.TrimSpace(requestModel) != "" {
-		return strings.TrimSpace(requestModel)
-	}
-
-	cfg := config.Get().Config.LLM
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	if provider == "" {
-		provider = strings.ToLower(strings.TrimSpace(cfg.Provider))
-	}
-	if provider == "" {
-		provider = "ollama"
-	}
-	switch provider {
-	case "kraken":
-		if cfg.Kraken.Model != "" {
-			return cfg.Kraken.Model
-		}
-		return "catmus-print-fondue-large.mlmodel"
-	case "openai":
-		if cfg.OpenAI.Model != "" {
-			return cfg.OpenAI.Model
-		}
-		return "gpt-4o"
-	case "gemini":
-		if cfg.Gemini.Model != "" {
-			return cfg.Gemini.Model
-		}
-		return "gemini-2.0-flash"
-	default:
-		if cfg.Ollama.Model != "" {
-			return cfg.Ollama.Model
-		}
-		return "glm-ocr:bf16"
-	}
+	model, _ := providerregistry.New(config.Get().Config).EffectiveModel(provider, requestModel)
+	return model
 }
 
 func effectiveProvider(requestProvider string) string {
-	p := strings.ToLower(strings.TrimSpace(requestProvider))
-	if p != "" {
-		return p
-	}
-	if cfg := strings.ToLower(strings.TrimSpace(config.Get().Config.LLM.Provider)); cfg != "" {
-		return cfg
-	}
-	return "ollama"
-}
-
-type bbox struct {
-	x1 int
-	y1 int
-	x2 int
-	y2 int
-}
-
-type boxEditMetrics struct {
-	ChangedCount int
-	AddedCount   int
-	DeletedCount int
-	ChangeScore  float64
-}
-
-func calculateBoxEditMetrics(originalHOCR, correctedHOCR string) boxEditMetrics {
-	origLines, _ := ocrhandlers.HOCRToLines(originalHOCR)
-	newLines, _ := ocrhandlers.HOCRToLines(correctedHOCR)
-	origPageW, origPageH := extractPageDimensions(originalHOCR)
-	newPageW, newPageH := extractPageDimensions(correctedHOCR)
-	pageW := maxInt(origPageW, newPageW)
-	pageH := maxInt(origPageH, newPageH)
-	if pageW <= 0 {
-		pageW = 1
-	}
-	if pageH <= 0 {
-		pageH = 1
-	}
-
-	origMap := make(map[string]bbox, len(origLines))
-	for _, line := range origLines {
-		origMap[line.ID] = bbox{line.BBox.X1, line.BBox.Y1, line.BBox.X2, line.BBox.Y2}
-	}
-	newMap := make(map[string]bbox, len(newLines))
-	for _, line := range newLines {
-		newMap[line.ID] = bbox{line.BBox.X1, line.BBox.Y1, line.BBox.X2, line.BBox.Y2}
-	}
-
-	ids := make([]string, 0, len(origMap)+len(newMap))
-	seen := map[string]bool{}
-	for id := range origMap {
-		ids = append(ids, id)
-		seen[id] = true
-	}
-	for id := range newMap {
-		if !seen[id] {
-			ids = append(ids, id)
-		}
-	}
-	sort.Strings(ids)
-
-	changed := 0
-	added := 0
-	deleted := 0
-	totalScore := 0.0
-
-	for _, id := range ids {
-		ob, hasOrig := origMap[id]
-		nb, hasNew := newMap[id]
-
-		if hasOrig && !hasNew {
-			deleted++
-			totalScore += 1.0
-			continue
-		}
-		if !hasOrig && hasNew {
-			added++
-			totalScore += 1.0
-			continue
-		}
-
-		score := boxDeltaScore(ob, nb, pageW, pageH)
-		if score > 0 {
-			changed++
-			totalScore += score
-		}
-	}
-
-	denominator := len(origMap)
-	if denominator == 0 {
-		denominator = len(newMap)
-	}
-	if denominator == 0 {
-		denominator = 1
-	}
-
-	return boxEditMetrics{
-		ChangedCount: changed,
-		AddedCount:   added,
-		DeletedCount: deleted,
-		ChangeScore:  totalScore / float64(denominator),
-	}
-}
-
-func boxDeltaScore(a, b bbox, pageW, pageH int) float64 {
-	if a == b {
-		return 0
-	}
-
-	axc := float64(a.x1+a.x2) / 2.0
-	ayc := float64(a.y1+a.y2) / 2.0
-	bxc := float64(b.x1+b.x2) / 2.0
-	byc := float64(b.y1+b.y2) / 2.0
-
-	aw := float64(maxInt(1, a.x2-a.x1))
-	ah := float64(maxInt(1, a.y2-a.y1))
-	bw := float64(maxInt(1, b.x2-b.x1))
-	bh := float64(maxInt(1, b.y2-b.y1))
-
-	dx := absFloat(axc-bxc) / float64(pageW)
-	dy := absFloat(ayc-byc) / float64(pageH)
-	dw := absFloat(aw-bw) / float64(pageW)
-	dh := absFloat(ah-bh) / float64(pageH)
-
-	return (dx + dy + dw + dh) / 4.0
-}
-
-func extractPageDimensions(hocrXML string) (int, int) {
-	// title may contain other tokens before bbox, e.g. title='image "…"; bbox 0 0 3312 2159'
-	re := regexp.MustCompile(`ocr_page[^>]*bbox\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)`)
-	matches := re.FindStringSubmatch(hocrXML)
-	if len(matches) != 5 {
-		return 0, 0
-	}
-	x2, errX := strconv.Atoi(matches[3])
-	y2, errY := strconv.Atoi(matches[4])
-	if errX != nil || errY != nil {
-		return 0, 0
-	}
-	return x2, y2
-}
-
-func absFloat(v float64) float64 {
-	if v < 0 {
-		return -v
-	}
-	return v
+	descriptor, _ := providerregistry.New(config.Get().Config).ResolveProvider(requestProvider)
+	return descriptor.ID
 }
 
 func maxInt(a, b int) int {
@@ -1371,69 +1062,27 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func (h *Handler) handleWeb(w http.ResponseWriter, r *http.Request) {
-	if h.webDir == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	relPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
-	target := filepath.Join(h.webDir, relPath)
-	if info, err := os.Stat(target); err == nil && !info.IsDir() {
-		http.ServeFile(w, r, target)
-		return
-	}
-
-	h.serveIndexHTML(w, r)
-}
-
-func detectWebDir() string {
-	candidates := []string{
-		"/app/web-dist",
-		"web/dist",
-	}
-
-	for _, dir := range candidates {
-		if _, err := os.Stat(filepath.Join(dir, "index.html")); err == nil {
-			return dir
-		}
-	}
-
-	return ""
-}
-
 func isTrustedProxy(remoteAddr string) bool {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		host = remoteAddr
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() {
-		return true
-	}
-	for _, network := range trustedProxyNets {
-		if network.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	return isTrustedProxyFrom(remoteAddr, config.Get().Config.Server.TrustedProxyCIDRs)
 }
 
-func firstForwardedValue(raw string) string {
+func isTrustedProxyFrom(remoteAddr string, cidrs config.CIDRList) bool {
+	return config.AddressInCIDRs(remoteAddr, cidrs)
+}
+
+func lastForwardedValue(raw string) string {
 	if raw == "" {
 		return ""
 	}
-	part := strings.TrimSpace(strings.Split(raw, ",")[0])
+	parts := strings.Split(raw, ",")
+	part := strings.TrimSpace(parts[len(parts)-1])
 	part = strings.Trim(part, "\"")
 	return strings.TrimSpace(part)
 }
 
 func forwardedParams(raw string) map[string]string {
 	params := map[string]string{}
-	entry := firstForwardedValue(raw)
+	entry := lastForwardedValue(raw)
 	if entry == "" {
 		return params
 	}
@@ -1451,104 +1100,6 @@ func forwardedParams(raw string) map[string]string {
 	return params
 }
 
-func normalizeOriginHost(host string) string {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return ""
-	}
-	if parsedHost, parsedPort, err := net.SplitHostPort(host); err == nil {
-		if parsedHost != "" {
-			return parsedHost
-		}
-		if parsedPort != "" {
-			return host
-		}
-	}
-	if strings.Count(host, ":") == 1 {
-		if maybeHost, _, ok := strings.Cut(host, ":"); ok && maybeHost != "" {
-			return maybeHost
-		}
-	}
-	return host
-}
-
-func requestOrigin(r *http.Request) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	if !isTrustedProxy(r.RemoteAddr) {
-		return scheme + "://" + normalizeOriginHost(r.Host)
-	}
-
-	forwarded := forwardedParams(r.Header.Get("Forwarded"))
-	if forwardedProto := firstForwardedValue(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
-		scheme = forwardedProto
-	}
-	if forwarded["proto"] != "" {
-		scheme = forwarded["proto"]
-	}
-
-	host := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
-	if host == "" && forwarded["host"] != "" {
-		host = forwarded["host"]
-	}
-	if host == "" {
-		host = strings.TrimSpace(r.Host)
-	}
-
-	return scheme + "://" + normalizeOriginHost(host)
-}
-
-func resolvePublicBase(raw string, r *http.Request, fallbackPath string) string {
-	base := strings.TrimSpace(raw)
-	if base == "" {
-		base = strings.TrimSpace(fallbackPath)
-	}
-	if base == "" || base == "/" {
-		return requestOrigin(r)
-	}
-	if strings.HasPrefix(base, "http://") || strings.HasPrefix(base, "https://") {
-		return strings.TrimRight(base, "/")
-	}
-	if !strings.HasPrefix(base, "/") {
-		base = "/" + base
-	}
-	if base == "/" {
-		return requestOrigin(r)
-	}
-	return requestOrigin(r) + strings.TrimRight(base, "/")
-}
-
-func (h *Handler) serveIndexHTML(w http.ResponseWriter, r *http.Request) {
-	indexPath := filepath.Join(h.webDir, "index.html")
-	content, err := safefile.ReadFile(indexPath)
-	if err != nil {
-		http.ServeFile(w, r, indexPath)
-		return
-	}
-
-	runtimeConfig, err := json.Marshal(map[string]string{
-		"ANNOTATION_API_BASE": resolvePublicBase(config.Get().Config.Annotation.APIBase, r, "/"),
-		"IIIF_BASE":           resolvePublicBase(config.Get().Config.IIIF.Base, r, "/iiif/3"),
-	})
-	if err != nil {
-		http.ServeFile(w, r, indexPath)
-		return
-	}
-
-	snippet := "<script>window.__SCRIBE_RUNTIME_CONFIG=" + string(runtimeConfig) + ";</script>"
-	html := string(content)
-	if strings.Contains(html, "</head>") {
-		html = strings.Replace(html, "</head>", snippet+"</head>", 1)
-	} else {
-		html = snippet + html
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, html)
-}
-
 func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
@@ -1559,302 +1110,162 @@ func writeError(w http.ResponseWriter, statusCode int, message string) {
 	writeJSON(w, statusCode, map[string]string{"error": message})
 }
 
-func (h *Handler) exportItemImageContent(ctx context.Context, itemImageID uint64, format string, base string) (string, string, string, error) {
-	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
-	if err != nil {
-		return "", "", "", err
-	}
-	img, err := h.items.GetImage(ctx, itemImageID)
-	if err != nil {
-		return "", "", "", fmt.Errorf("item image not found")
-	}
-
-	var annotationPageJSON string
-	annotationSource := "none"
-	canvasURI := strings.TrimSpace(img.CanvasURI)
-
-	if canvasURI != "" {
-		dbPayloads, dbErr := h.annotations.SearchByCanvas(ctx, canvasURI)
-		slog.Info("Export annotations DB lookup",
-			"item_image_id", itemImageID,
-			"canvas_uri", canvasURI,
-			"payload_count", len(dbPayloads),
-			"db_error", dbErr,
-		)
-		if dbErr == nil && len(dbPayloads) > 0 {
-			dbItems := make([]any, 0, len(dbPayloads))
-			for i, p := range dbPayloads {
-				var anno map[string]any
-				if json.Unmarshal([]byte(p), &anno) == nil {
-					dbItems = append(dbItems, anno)
-					if i < 3 {
-						slog.Info("Export annotations DB payload sample",
-							"item_image_id", itemImageID,
-							"index", i,
-							"annotation", annotationDebugSummary(anno),
-						)
-					}
-				}
-			}
-			if len(dbItems) > 0 {
-				page := map[string]any{
-					"@context": annotationPageContexts(),
-					"id":       annotationPageID(canvasURI),
-					"type":     "AnnotationPage",
-					"items":    dbItems,
-				}
-				if b, jsonErr := json.Marshal(page); jsonErr == nil {
-					annotationPageJSON = string(b)
-					annotationSource = "db"
-				}
-			}
-		}
-		if annotationPageJSON == "" {
-			items, bootstrapErr := h.bootstrapAnnotationsForCanvas(ctx, canvasURI, base)
-			slog.Info("Export annotations bootstrap fallback",
-				"item_image_id", itemImageID,
-				"canvas_uri", canvasURI,
-				"item_count", len(items),
-				"bootstrap_error", bootstrapErr,
-			)
-			if bootstrapErr == nil {
-				page := map[string]any{
-					"@context": annotationPageContexts(),
-					"id":       annotationPageID(canvasURI),
-					"type":     "AnnotationPage",
-					"items":    items,
-				}
-				if b, jsonErr := json.Marshal(page); jsonErr == nil {
-					annotationPageJSON = string(b)
-					annotationSource = "bootstrap"
-				}
-			}
+func exportRequestContext(w http.ResponseWriter, r *http.Request) (context.Context, func()) {
+	ctx, cancel := context.WithTimeout(r.Context(), maxPreparedExportDuration)
+	controller := http.NewResponseController(w)
+	deadline, _ := ctx.Deadline()
+	deadlineApplied := controller.SetWriteDeadline(deadline.Add(exportWriteDeadlineGrace)) == nil
+	return ctx, func() {
+		cancel()
+		if deadlineApplied {
+			_ = controller.SetWriteDeadline(time.Time{})
 		}
 	}
+}
 
-	if annotationPageJSON == "" {
-		hocrXML := strings.TrimSpace(run.OriginalHOCR)
-		if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
-			hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-		}
-		if hocrXML == "" {
-			return "", "", "", fmt.Errorf("no annotations available")
-		}
-		annotationScopeID := run.SessionID
-		if run.ItemImageID != nil {
-			annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
-		}
-		manifestBase := fmt.Sprintf("/v1/item-images/%d", itemImageID)
-		manifestID := base + manifestBase + "/manifest"
-		internalCanvasID := fmt.Sprintf("%s/canvas/page-1", manifestID)
-		lines, parseErr := hocr.ParseHOCRLines(hocrXML)
-		if parseErr != nil {
-			return "", "", "", fmt.Errorf("unable to parse hocr lines")
-		}
-		annItems := buildLineAnnotations(annotationScopeID, internalCanvasID, lines)
-		page := map[string]any{
-			"@context": annotationPageContexts(),
-			"id":       annotationPageID(internalCanvasID),
-			"type":     "AnnotationPage",
-			"items":    annItems,
-		}
-		b, _ := json.Marshal(page)
-		annotationPageJSON = string(b)
-		annotationSource = "hocr-fallback"
-	}
-
-	lines, pageW, pageH, err := annotationPageToHOCRLines(annotationPageJSON)
+func renderCanonicalExportPage(page canonicalExportPage, format string) (string, string, string, error) {
+	content, mimeType, extension, err := renderAnnotationExport(page.Page.Payload, int(page.Image.Width), int(page.Image.Height), format)
 	if err != nil {
 		slog.Warn("Export annotations crosswalk failed",
-			"item_image_id", itemImageID,
+			"item_image_id", page.Image.ID,
 			"format", format,
-			"canvas_uri", canvasURI,
-			"source", annotationSource,
-			"error", err,
+			"source", "canonical",
+			"error_type", safeLogErrorType(err),
 		)
-		return "", "", "", fmt.Errorf("no annotations available")
+		return "", "", "", err
 	}
 	slog.Info("Export annotations crosswalk succeeded",
-		"item_image_id", itemImageID,
+		"item_image_id", page.Image.ID,
 		"format", format,
-		"canvas_uri", canvasURI,
-		"source", annotationSource,
-		"line_count", len(lines),
-		"page_w", pageW,
-		"page_h", pageH,
+		"source", "canonical",
+		"revision", page.Page.Revision,
 	)
+	return content, mimeType, extension, nil
+}
 
+// renderAnnotationExport is the single crosswalk boundary used by Connect and
+// browser download adapters. Its only input state is one committed canonical
+// AnnotationPage plus the owning Canvas dimensions.
+func renderAnnotationExport(annotationPageJSON string, canvasWidth, canvasHeight int, format string) (string, string, string, error) {
+	lines, pageW, pageH, err := annotationPageToHOCRLinesWithDimensions(annotationPageJSON, canvasWidth, canvasHeight)
+	if err != nil {
+		return "", "", "", fmt.Errorf("no annotations available: %w", err)
+	}
+
+	var content, mediaType, extension string
 	switch format {
 	case "hocr":
 		converter := hocr.NewConverter()
-		return converter.ConvertHOCRLinesToXML(lines, pageW, pageH), "text/vnd.hocr+html; charset=utf-8", "hocr", nil
+		content, mediaType, extension = converter.ConvertHOCRLinesToXML(lines, pageW, pageH), "text/vnd.hocr+html; charset=utf-8", "hocr"
 	case "pagexml":
-		return linesToPageXML(lines, pageW, pageH), "application/vnd.prima.page+xml; charset=utf-8", "xml", nil
+		content, mediaType, extension = linesToPageXML(lines, pageW, pageH), "application/vnd.prima.page+xml; charset=utf-8", "xml"
 	case "alto":
-		return linesToALTOXML(lines, pageW, pageH), "application/alto+xml; charset=utf-8", "xml", nil
+		content, mediaType, extension = linesToALTOXML(lines, pageW, pageH), "application/alto+xml; charset=utf-8", "xml"
 	case "txt":
-		return linesToPlainText(lines), "text/plain; charset=utf-8", "txt", nil
+		content, mediaType, extension = linesToPlainText(lines), "text/plain; charset=utf-8", "txt"
 	default:
 		return "", "", "", fmt.Errorf("format must be one of: hocr, pagexml, alto, txt")
 	}
+	if len(content) > maxExportedPageBytes {
+		return "", "", "", fmt.Errorf("%w: page maximum is %d bytes", errItemExportOutputLimit, maxExportedPageBytes)
+	}
+	return content, mediaType, extension, nil
 }
 
-// handleExportAnnotations exports OCR annotations for an item image in the
-// requested format (hocr, pagexml, alto, or txt).
-func (h *Handler) handleExportAnnotations(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	idStr := strings.TrimSpace(r.PathValue("item_image_id"))
-	itemImageID, err := strconv.ParseUint(idStr, 10, 64)
+// handlePreparedItemExport dereferences a short-lived immutable export plan
+// created by ItemService.PrepareItemExport. It never chooses revisions or
+// accepts a mutable item/format query from the browser.
+func (h *Handler) handlePreparedItemExport(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.currentWorkspaceID(r.Context())
+	token, err := h.itemExportTokens.decode(strings.TrimSpace(r.PathValue("token")), workspaceID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid item_image_id")
+		writeError(w, http.StatusNotFound, "item export not found")
 		return
 	}
-	if _, err := h.itemImageForRequest(ctx, itemImageID); err != nil {
-		writeError(w, http.StatusNotFound, "item image not found")
+	ctx, finish := exportRequestContext(w, r)
+	defer finish()
+	release, allowed := h.exportLimiter.TryAcquire(fmt.Sprintf("workspace:%d", workspaceID))
+	if !allowed {
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusTooManyRequests, "export concurrency limit exceeded")
 		return
 	}
-	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
-	if format == "" {
-		format = "hocr"
-	}
-	base := resolvePublicBase(config.Get().Config.Annotation.APIBase, r, "/")
-	content, mimeType, ext, err := h.exportItemImageContent(ctx, itemImageID, format, base)
+	defer release()
+	plan, err := h.loadCanonicalItemExportSnapshot(ctx, token.ItemID, token.Format, nil)
 	if err != nil {
-		msg := err.Error()
-		if strings.Contains(strings.ToLower(msg), "not found") || strings.Contains(strings.ToLower(msg), "no annotations") {
-			writeError(w, http.StatusNotFound, msg)
+		switch {
+		case errors.Is(err, context.Canceled):
 			return
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "item export generation timed out")
+		case errors.Is(err, errItemExportRevisionConflict):
+			writeError(w, http.StatusConflict, "canonical annotations changed; prepare the export again")
+		case errors.Is(err, errItemExportSourceLimit):
+			writeError(w, http.StatusRequestEntityTooLarge, "item export exceeds the source-byte limit")
+		case errors.Is(err, errItemExportInvalid), errors.Is(err, store.ErrAnnotationPageNotFound):
+			writeError(w, http.StatusNotFound, "item export not found")
+		default:
+			slog.Error("load prepared item export failed", "item_id", token.ItemID, "format", token.Format, "error_type", fmt.Sprintf("%T", err))
+			writeError(w, http.StatusInternalServerError, "item export could not be loaded")
 		}
-		if strings.Contains(strings.ToLower(msg), "format must") {
-			writeError(w, http.StatusBadRequest, msg)
-			return
-		}
-		writeError(w, http.StatusInternalServerError, msg)
 		return
 	}
-	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"item-%d.%s\"", itemImageID, ext))
+	if plan.Digest != token.Digest {
+		writeError(w, http.StatusConflict, "canonical annotations changed; prepare the export again")
+		return
+	}
+	plan, err = h.loadCanonicalItemExportPages(ctx, plan)
+	if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			return
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "item export generation timed out")
+		case errors.Is(err, errItemExportRevisionConflict):
+			writeError(w, http.StatusConflict, "canonical annotations changed; prepare the export again")
+		default:
+			slog.Error("load prepared item export pages failed", "item_id", token.ItemID, "format", token.Format, "error_type", fmt.Sprintf("%T", err))
+			writeError(w, http.StatusInternalServerError, "item export could not be loaded")
+		}
+		return
+	}
+	staged, cleanup, err := stageCanonicalItemExport(ctx, plan)
+	if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled):
+			return
+		case errors.Is(err, context.DeadlineExceeded):
+			writeError(w, http.StatusGatewayTimeout, "item export generation timed out")
+		case errors.Is(err, errItemExportOutputLimit):
+			writeError(w, http.StatusRequestEntityTooLarge, "item export exceeds the output-byte limit")
+		case errors.Is(err, errItemExportInvalid):
+			writeError(w, http.StatusUnprocessableEntity, "item export could not be generated")
+		case errors.Is(err, errItemExportStaging):
+			slog.Error("stage prepared item export failed", "item_id", plan.Item.ID, "format", plan.Format, "error_type", fmt.Sprintf("%T", err))
+			writeError(w, http.StatusInsufficientStorage, "item export staging is unavailable")
+		default:
+			slog.Error("prepare item export failed", "item_id", plan.Item.ID, "format", plan.Format, "error_type", fmt.Sprintf("%T", err))
+			writeError(w, http.StatusInternalServerError, "item export could not be generated")
+		}
+		return
+	}
+	defer cleanup()
+	w.Header().Set("Content-Type", plan.MediaType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", plan.Filename))
+	w.Header().Set("Content-Length", strconv.FormatInt(staged.Size, 10))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(content))
-}
-
-func (h *Handler) handleExportItem(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	itemID := strings.TrimSpace(r.PathValue("item_id"))
-	if itemID == "" {
-		writeError(w, http.StatusBadRequest, "item_id is required")
+	if r.Method == http.MethodHead {
 		return
 	}
-	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
-	if format == "" {
-		format = "hocr"
-	}
-	switch format {
-	case "hocr", "pagexml", "alto", "txt":
-	default:
-		writeError(w, http.StatusBadRequest, "format must be one of: hocr, pagexml, alto, txt")
-		return
-	}
-	item, err := h.itemForRequest(ctx, itemID)
+	written, err := copyExportContent(ctx, w, staged.File)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "item not found")
-		return
+		slog.Warn("stream prepared item export failed",
+			"item_id", plan.Item.ID,
+			"format", plan.Format,
+			"bytes_written", written,
+			"error_type", fmt.Sprintf("%T", err),
+		)
 	}
-	if len(item.Images) == 0 {
-		writeError(w, http.StatusNotFound, "item has no images")
-		return
-	}
-	base := resolvePublicBase(config.Get().Config.Annotation.APIBase, r, "/")
-	safeName := sanitizeFilenamePart(item.Name, "item-"+item.ID)
-
-	if len(item.Images) == 1 {
-		content, mimeType, ext, err := h.exportItemImageContent(ctx, item.Images[0].ID, format, base)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		w.Header().Set("Content-Type", mimeType)
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.%s\"", safeName, ext))
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(content))
-		return
-	}
-
-	if format == "txt" {
-		pages := make([]string, 0, len(item.Images))
-		for _, img := range item.Images {
-			content, _, _, err := h.exportItemImageContent(ctx, img.ID, format, base)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			pages = append(pages, strings.TrimSpace(content))
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.txt\"", safeName))
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(strings.Join(pages, "\n\n")))
-		return
-	}
-
-	var buf bytes.Buffer
-	archive := zip.NewWriter(&buf)
-	for _, img := range item.Images {
-		content, _, ext, err := h.exportItemImageContent(ctx, img.ID, format, base)
-		if err != nil {
-			_ = archive.Close()
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		entryName := fmt.Sprintf("%s-page-%04d.%s", safeName, img.Sequence, ext)
-		if img.Sequence == 0 {
-			entryName = fmt.Sprintf("%s-image-%d.%s", safeName, img.ID, ext)
-		}
-		f, err := archive.Create(entryName)
-		if err != nil {
-			_ = archive.Close()
-			writeError(w, http.StatusInternalServerError, "failed to create export archive")
-			return
-		}
-		if _, err := f.Write([]byte(content)); err != nil {
-			_ = archive.Close()
-			writeError(w, http.StatusInternalServerError, "failed to write export archive")
-			return
-		}
-	}
-	if err := archive.Close(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to finalize export archive")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s-%s.zip\"", safeName, format))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(buf.Bytes())
-}
-
-// handleGetContextMetrics returns aggregate OCR metrics for a context.
-func (h *Handler) handleGetContextMetrics(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimSpace(r.PathValue("context_id"))
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid context_id")
-		return
-	}
-	ctx := r.Context()
-	// Verify context exists.
-	c, err := h.contextForRead(ctx, id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "context not found")
-		return
-	}
-	metrics, err := h.ocrRuns.GetContextMetrics(ctx, id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"context": c,
-		"metrics": metrics,
-	})
 }

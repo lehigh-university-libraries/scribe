@@ -8,14 +8,236 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"time"
 )
 
-const claimNextPendingTranscriptionJobManual = `-- name: ClaimNextPendingTranscriptionJobManual :one
-SELECT
-  id,
+const cancelTranscriptionJobManual = `-- name: CancelTranscriptionJobManual :execresult
+UPDATE transcription_jobs
+SET
+  status = 'canceled',
+  retry_after = NULL,
+  error_message = 'canceled by user',
+  current_annotation_id = NULL,
+  current_annotation_json = NULL,
+  last_result_annotation_json = NULL,
+  lease_until = NULL,
+  locked_by = NULL,
+  updated_at = NOW()
+WHERE id = ?
+  AND status IN ('pending', 'running')
+`
+
+func (q *Queries) CancelTranscriptionJobManual(ctx context.Context, id uint64) (sql.Result, error) {
+	return q.db.ExecContext(ctx, cancelTranscriptionJobManual, id)
+}
+
+const countActiveTranscriptionJobsByWorkspaceManual = `-- name: CountActiveTranscriptionJobsByWorkspaceManual :one
+SELECT COUNT(*)
+FROM transcription_jobs
+WHERE workspace_id = ?
+  AND status IN ('pending', 'running')
+`
+
+func (q *Queries) CountActiveTranscriptionJobsByWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countActiveTranscriptionJobsByWorkspaceManual, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countTerminalTranscriptionJobsForWorkspaceManual = `-- name: CountTerminalTranscriptionJobsForWorkspaceManual :one
+SELECT COUNT(*)
+FROM transcription_jobs
+WHERE workspace_id = ?
+  AND status IN ('completed', 'failed', 'canceled', 'superseded')
+`
+
+func (q *Queries) CountTerminalTranscriptionJobsForWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTerminalTranscriptionJobsForWorkspaceManual, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createTranscriptionJobManual = `-- name: CreateTranscriptionJobManual :execresult
+INSERT INTO transcription_jobs (
+  workspace_id,
   item_image_id,
   context_id,
+  context_scope_id,
+  context_snapshot,
+  input_revision,
+  status
+) SELECT
+  i.workspace_id,
+  ?,
+  ?,
+  c.scope_id,
+  ?,
+  ap.revision,
+  'pending'
+FROM item_images ii
+JOIN items i ON i.id = ii.item_id
+JOIN annotation_pages ap
+  ON ap.item_image_id = ii.id
+ AND ap.workspace_id = i.workspace_id
+JOIN contexts c
+  ON c.id = ?
+ AND (c.workspace_id IS NULL OR c.workspace_id = i.workspace_id)
+WHERE ii.id = ?
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(transcription_jobs.id)
+`
+
+type CreateTranscriptionJobManualParams struct {
+	ItemImageID     uint64          `json:"item_image_id"`
+	ContextID       sql.NullInt64   `json:"context_id"`
+	ContextSnapshot json.RawMessage `json:"context_snapshot"`
+}
+
+func (q *Queries) CreateTranscriptionJobManual(ctx context.Context, arg CreateTranscriptionJobManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, createTranscriptionJobManual,
+		arg.ItemImageID,
+		arg.ContextID,
+		arg.ContextSnapshot,
+		arg.ContextID,
+		arg.ItemImageID,
+	)
+}
+
+const createUploadBatchTranscriptionJobManual = `-- name: CreateUploadBatchTranscriptionJobManual :execresult
+INSERT INTO transcription_jobs (
+  workspace_id,
+  item_image_id,
+  context_id,
+  context_scope_id,
+  context_snapshot,
+  input_revision,
+  status
+) SELECT
+  ub.workspace_id,
+  ii.id,
+  ub.context_id,
+  ub.context_scope_id,
+  ub.context_snapshot,
+  ap.revision,
+  'pending'
+FROM upload_batches ub
+JOIN upload_batch_files ubf
+  ON ubf.workspace_id = ub.workspace_id
+ AND ubf.batch_id = ub.id
+JOIN items i
+  ON i.id = ub.item_id
+ AND i.workspace_id = ub.workspace_id
+JOIN item_images ii
+  ON ii.item_id = i.id
+ AND ii.workspace_id = i.workspace_id
+ AND ii.sequence = ubf.sequence
+JOIN annotation_pages ap
+  ON ap.item_image_id = ii.id
+ AND ap.workspace_id = ub.workspace_id
+WHERE ub.workspace_id = ?
+  AND ub.id = ?
+  AND ub.status = 'in_progress'
+  AND ubf.sequence = ?
+  AND ubf.status = 'processing'
+  AND ubf.locked_by = ?
+  AND ubf.lease_until > NOW()
+  AND ii.id = ?
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(transcription_jobs.id)
+`
+
+type CreateUploadBatchTranscriptionJobManualParams struct {
+	WorkspaceID uint64         `json:"workspace_id"`
+	BatchID     string         `json:"batch_id"`
+	Sequence    uint32         `json:"sequence"`
+	LockedBy    sql.NullString `json:"locked_by"`
+	ItemImageID uint64         `json:"item_image_id"`
+}
+
+func (q *Queries) CreateUploadBatchTranscriptionJobManual(ctx context.Context, arg CreateUploadBatchTranscriptionJobManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, createUploadBatchTranscriptionJobManual,
+		arg.WorkspaceID,
+		arg.BatchID,
+		arg.Sequence,
+		arg.LockedBy,
+		arg.ItemImageID,
+	)
+}
+
+const deleteRetainedTerminalTranscriptionJobManual = `-- name: DeleteRetainedTerminalTranscriptionJobManual :execresult
+DELETE FROM transcription_jobs
+WHERE id = ?
+  AND workspace_id = ?
+  AND status IN ('completed', 'failed', 'canceled', 'superseded')
+`
+
+type DeleteRetainedTerminalTranscriptionJobManualParams struct {
+	JobID       uint64 `json:"job_id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) DeleteRetainedTerminalTranscriptionJobManual(ctx context.Context, arg DeleteRetainedTerminalTranscriptionJobManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteRetainedTerminalTranscriptionJobManual, arg.JobID, arg.WorkspaceID)
+}
+
+const deleteRetainedTranscriptionJobAttemptsManual = `-- name: DeleteRetainedTranscriptionJobAttemptsManual :exec
+DELETE FROM transcription_job_attempts
+WHERE job_id = ?
+`
+
+func (q *Queries) DeleteRetainedTranscriptionJobAttemptsManual(ctx context.Context, jobID uint64) error {
+	_, err := q.db.ExecContext(ctx, deleteRetainedTranscriptionJobAttemptsManual, jobID)
+	return err
+}
+
+const detachExternalRequestsFromRetainedJobManual = `-- name: DetachExternalRequestsFromRetainedJobManual :exec
+UPDATE external_requests
+SET transcription_job_id = NULL,
+    updated_at = NOW()
+WHERE workspace_id = ?
+  AND transcription_job_id = ?
+`
+
+type DetachExternalRequestsFromRetainedJobManualParams struct {
+	WorkspaceID uint64        `json:"workspace_id"`
+	JobID       sql.NullInt64 `json:"job_id"`
+}
+
+func (q *Queries) DetachExternalRequestsFromRetainedJobManual(ctx context.Context, arg DetachExternalRequestsFromRetainedJobManualParams) error {
+	_, err := q.db.ExecContext(ctx, detachExternalRequestsFromRetainedJobManual, arg.WorkspaceID, arg.JobID)
+	return err
+}
+
+const detachUploadBatchFilesFromRetainedJobManual = `-- name: DetachUploadBatchFilesFromRetainedJobManual :exec
+UPDATE upload_batch_files
+SET transcription_job_id = NULL,
+    updated_at = GREATEST(DATE_ADD(updated_at, INTERVAL 1 SECOND), NOW())
+WHERE workspace_id = ?
+  AND transcription_job_id = ?
+`
+
+type DetachUploadBatchFilesFromRetainedJobManualParams struct {
+	WorkspaceID uint64        `json:"workspace_id"`
+	JobID       sql.NullInt64 `json:"job_id"`
+}
+
+func (q *Queries) DetachUploadBatchFilesFromRetainedJobManual(ctx context.Context, arg DetachUploadBatchFilesFromRetainedJobManualParams) error {
+	_, err := q.db.ExecContext(ctx, detachUploadBatchFilesFromRetainedJobManual, arg.WorkspaceID, arg.JobID)
+	return err
+}
+
+const getActiveTranscriptionJobByItemImageManual = `-- name: GetActiveTranscriptionJobByItemImageManual :one
+SELECT
+  id,
+  workspace_id,
+  item_image_id,
+  context_id,
+  context_scope_id,
+  context_snapshot,
+  input_revision,
   status,
+  active_item_image_id,
   total_segments,
   completed_segments,
   failed_segments,
@@ -31,20 +253,23 @@ SELECT
   created_at,
   updated_at
 FROM transcription_jobs
-WHERE status = 'pending'
-ORDER BY created_at ASC
+WHERE active_item_image_id = ?
 LIMIT 1
-FOR UPDATE
 `
 
-func (q *Queries) ClaimNextPendingTranscriptionJobManual(ctx context.Context) (TranscriptionJob, error) {
-	row := q.db.QueryRowContext(ctx, claimNextPendingTranscriptionJobManual)
+func (q *Queries) GetActiveTranscriptionJobByItemImageManual(ctx context.Context, itemImageID sql.NullInt64) (TranscriptionJob, error) {
+	row := q.db.QueryRowContext(ctx, getActiveTranscriptionJobByItemImageManual, itemImageID)
 	var i TranscriptionJob
 	err := row.Scan(
 		&i.ID,
+		&i.WorkspaceID,
 		&i.ItemImageID,
 		&i.ContextID,
+		&i.ContextScopeID,
+		&i.ContextSnapshot,
+		&i.InputRevision,
 		&i.Status,
+		&i.ActiveItemImageID,
 		&i.TotalSegments,
 		&i.CompletedSegments,
 		&i.FailedSegments,
@@ -63,69 +288,31 @@ func (q *Queries) ClaimNextPendingTranscriptionJobManual(ctx context.Context) (T
 	return i, err
 }
 
-const completeTranscriptionJobManual = `-- name: CompleteTranscriptionJobManual :exec
-UPDATE transcription_jobs
-SET
-  status = 'completed',
-  current_annotation_id = NULL,
-  current_annotation_json = NULL,
-  updated_at = NOW()
-WHERE id = ?
+const getCanonicalRevisionForItemImageManual = `-- name: GetCanonicalRevisionForItemImageManual :one
+SELECT revision
+FROM annotation_pages
+WHERE item_image_id = ?
+LIMIT 1
 `
 
-func (q *Queries) CompleteTranscriptionJobManual(ctx context.Context, id uint64) error {
-	_, err := q.db.ExecContext(ctx, completeTranscriptionJobManual, id)
-	return err
-}
-
-const createTranscriptionJobManual = `-- name: CreateTranscriptionJobManual :execresult
-INSERT INTO transcription_jobs (
-  item_image_id,
-  context_id,
-  status
-) VALUES (
-  ?,
-  ?,
-  'pending'
-)
-`
-
-type CreateTranscriptionJobManualParams struct {
-	ItemImageID uint64        `json:"item_image_id"`
-	ContextID   sql.NullInt64 `json:"context_id"`
-}
-
-func (q *Queries) CreateTranscriptionJobManual(ctx context.Context, arg CreateTranscriptionJobManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, createTranscriptionJobManual, arg.ItemImageID, arg.ContextID)
-}
-
-const failTranscriptionJobManual = `-- name: FailTranscriptionJobManual :exec
-UPDATE transcription_jobs
-SET
-  status = 'failed',
-  error_message = ?,
-  current_annotation_id = NULL,
-  current_annotation_json = NULL,
-  updated_at = NOW()
-WHERE id = ?
-`
-
-type FailTranscriptionJobManualParams struct {
-	ErrorMessage sql.NullString `json:"error_message"`
-	ID           uint64         `json:"id"`
-}
-
-func (q *Queries) FailTranscriptionJobManual(ctx context.Context, arg FailTranscriptionJobManualParams) error {
-	_, err := q.db.ExecContext(ctx, failTranscriptionJobManual, arg.ErrorMessage, arg.ID)
-	return err
+func (q *Queries) GetCanonicalRevisionForItemImageManual(ctx context.Context, itemImageID uint64) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, getCanonicalRevisionForItemImageManual, itemImageID)
+	var revision uint64
+	err := row.Scan(&revision)
+	return revision, err
 }
 
 const getTranscriptionJobManual = `-- name: GetTranscriptionJobManual :one
 SELECT
   id,
+  workspace_id,
   item_image_id,
   context_id,
+  context_scope_id,
+  context_snapshot,
+  input_revision,
   status,
+  active_item_image_id,
   total_segments,
   completed_segments,
   failed_segments,
@@ -150,9 +337,14 @@ func (q *Queries) GetTranscriptionJobManual(ctx context.Context, id uint64) (Tra
 	var i TranscriptionJob
 	err := row.Scan(
 		&i.ID,
+		&i.WorkspaceID,
 		&i.ItemImageID,
 		&i.ContextID,
+		&i.ContextScopeID,
+		&i.ContextSnapshot,
+		&i.InputRevision,
 		&i.Status,
+		&i.ActiveItemImageID,
 		&i.TotalSegments,
 		&i.CompletedSegments,
 		&i.FailedSegments,
@@ -171,12 +363,230 @@ func (q *Queries) GetTranscriptionJobManual(ctx context.Context, id uint64) (Tra
 	return i, err
 }
 
-const listTranscriptionJobsByItemImageManual = `-- name: ListTranscriptionJobsByItemImageManual :many
+const listTranscriptionJobsByItemImagePageManual = `-- name: ListTranscriptionJobsByItemImagePageManual :many
+SELECT
+  tj.id,
+  tj.workspace_id,
+  tj.item_image_id,
+  tj.context_id,
+  tj.context_scope_id,
+  tj.input_revision,
+  tj.status,
+  tj.total_segments,
+  tj.completed_segments,
+  tj.failed_segments,
+  tj.attempt_count,
+  tj.max_attempts,
+  tj.current_annotation_id,
+  tj.error_message,
+  tj.created_at,
+  tj.updated_at
+FROM transcription_jobs tj
+WHERE tj.workspace_id = ?
+  AND tj.item_image_id = ?
+  AND (
+    ? IS NULL
+    OR tj.created_at < ?
+    OR (
+      tj.created_at = ?
+      AND tj.id < ?
+    )
+  )
+ORDER BY tj.created_at DESC, tj.id DESC
+LIMIT ?
+`
+
+type ListTranscriptionJobsByItemImagePageManualParams struct {
+	WorkspaceID     uint64       `json:"workspace_id"`
+	ItemImageID     uint64       `json:"item_image_id"`
+	CursorCreatedAt sql.NullTime `json:"cursor_created_at"`
+	CursorID        uint64       `json:"cursor_id"`
+	Limit           int32        `json:"limit"`
+}
+
+type ListTranscriptionJobsByItemImagePageManualRow struct {
+	ID                  uint64                  `json:"id"`
+	WorkspaceID         uint64                  `json:"workspace_id"`
+	ItemImageID         uint64                  `json:"item_image_id"`
+	ContextID           sql.NullInt64           `json:"context_id"`
+	ContextScopeID      sql.NullInt64           `json:"context_scope_id"`
+	InputRevision       uint64                  `json:"input_revision"`
+	Status              TranscriptionJobsStatus `json:"status"`
+	TotalSegments       int32                   `json:"total_segments"`
+	CompletedSegments   int32                   `json:"completed_segments"`
+	FailedSegments      int32                   `json:"failed_segments"`
+	AttemptCount        int32                   `json:"attempt_count"`
+	MaxAttempts         int32                   `json:"max_attempts"`
+	CurrentAnnotationID sql.NullString          `json:"current_annotation_id"`
+	ErrorMessage        sql.NullString          `json:"error_message"`
+	CreatedAt           time.Time               `json:"created_at"`
+	UpdatedAt           time.Time               `json:"updated_at"`
+}
+
+func (q *Queries) ListTranscriptionJobsByItemImagePageManual(ctx context.Context, arg ListTranscriptionJobsByItemImagePageManualParams) ([]ListTranscriptionJobsByItemImagePageManualRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTranscriptionJobsByItemImagePageManual,
+		arg.WorkspaceID,
+		arg.ItemImageID,
+		arg.CursorCreatedAt,
+		arg.CursorCreatedAt,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTranscriptionJobsByItemImagePageManualRow{}
+	for rows.Next() {
+		var i ListTranscriptionJobsByItemImagePageManualRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ItemImageID,
+			&i.ContextID,
+			&i.ContextScopeID,
+			&i.InputRevision,
+			&i.Status,
+			&i.TotalSegments,
+			&i.CompletedSegments,
+			&i.FailedSegments,
+			&i.AttemptCount,
+			&i.MaxAttempts,
+			&i.CurrentAnnotationID,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTranscriptionJobsByWorkspacePageManual = `-- name: ListTranscriptionJobsByWorkspacePageManual :many
+SELECT
+  tj.id,
+  tj.workspace_id,
+  tj.item_image_id,
+  tj.context_id,
+  tj.context_scope_id,
+  tj.input_revision,
+  tj.status,
+  tj.total_segments,
+  tj.completed_segments,
+  tj.failed_segments,
+  tj.attempt_count,
+  tj.max_attempts,
+  tj.current_annotation_id,
+  tj.error_message,
+  tj.created_at,
+  tj.updated_at
+FROM transcription_jobs tj
+WHERE tj.workspace_id = ?
+  AND (
+    ? IS NULL
+    OR tj.created_at < ?
+    OR (
+      tj.created_at = ?
+      AND tj.id < ?
+    )
+  )
+ORDER BY tj.created_at DESC, tj.id DESC
+LIMIT ?
+`
+
+type ListTranscriptionJobsByWorkspacePageManualParams struct {
+	WorkspaceID     uint64       `json:"workspace_id"`
+	CursorCreatedAt sql.NullTime `json:"cursor_created_at"`
+	CursorID        uint64       `json:"cursor_id"`
+	Limit           int32        `json:"limit"`
+}
+
+type ListTranscriptionJobsByWorkspacePageManualRow struct {
+	ID                  uint64                  `json:"id"`
+	WorkspaceID         uint64                  `json:"workspace_id"`
+	ItemImageID         uint64                  `json:"item_image_id"`
+	ContextID           sql.NullInt64           `json:"context_id"`
+	ContextScopeID      sql.NullInt64           `json:"context_scope_id"`
+	InputRevision       uint64                  `json:"input_revision"`
+	Status              TranscriptionJobsStatus `json:"status"`
+	TotalSegments       int32                   `json:"total_segments"`
+	CompletedSegments   int32                   `json:"completed_segments"`
+	FailedSegments      int32                   `json:"failed_segments"`
+	AttemptCount        int32                   `json:"attempt_count"`
+	MaxAttempts         int32                   `json:"max_attempts"`
+	CurrentAnnotationID sql.NullString          `json:"current_annotation_id"`
+	ErrorMessage        sql.NullString          `json:"error_message"`
+	CreatedAt           time.Time               `json:"created_at"`
+	UpdatedAt           time.Time               `json:"updated_at"`
+}
+
+func (q *Queries) ListTranscriptionJobsByWorkspacePageManual(ctx context.Context, arg ListTranscriptionJobsByWorkspacePageManualParams) ([]ListTranscriptionJobsByWorkspacePageManualRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTranscriptionJobsByWorkspacePageManual,
+		arg.WorkspaceID,
+		arg.CursorCreatedAt,
+		arg.CursorCreatedAt,
+		arg.CursorCreatedAt,
+		arg.CursorID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTranscriptionJobsByWorkspacePageManualRow{}
+	for rows.Next() {
+		var i ListTranscriptionJobsByWorkspacePageManualRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ItemImageID,
+			&i.ContextID,
+			&i.ContextScopeID,
+			&i.InputRevision,
+			&i.Status,
+			&i.TotalSegments,
+			&i.CompletedSegments,
+			&i.FailedSegments,
+			&i.AttemptCount,
+			&i.MaxAttempts,
+			&i.CurrentAnnotationID,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockActiveTranscriptionJobForUpdateManual = `-- name: LockActiveTranscriptionJobForUpdateManual :one
 SELECT
   id,
+  workspace_id,
   item_image_id,
   context_id,
+  context_scope_id,
+  context_snapshot,
+  input_revision,
   status,
+  active_item_image_id,
   total_segments,
   completed_segments,
   failed_segments,
@@ -192,111 +602,89 @@ SELECT
   created_at,
   updated_at
 FROM transcription_jobs
-WHERE item_image_id = ?
-ORDER BY created_at DESC
+WHERE active_item_image_id = ?
+LIMIT 1
+FOR UPDATE
 `
 
-func (q *Queries) ListTranscriptionJobsByItemImageManual(ctx context.Context, itemImageID uint64) ([]TranscriptionJob, error) {
-	rows, err := q.db.QueryContext(ctx, listTranscriptionJobsByItemImageManual, itemImageID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []TranscriptionJob{}
-	for rows.Next() {
-		var i TranscriptionJob
-		if err := rows.Scan(
-			&i.ID,
-			&i.ItemImageID,
-			&i.ContextID,
-			&i.Status,
-			&i.TotalSegments,
-			&i.CompletedSegments,
-			&i.FailedSegments,
-			&i.AttemptCount,
-			&i.MaxAttempts,
-			&i.RetryAfter,
-			&i.LeaseUntil,
-			&i.LockedBy,
-			&i.CurrentAnnotationID,
-			&i.CurrentAnnotationJson,
-			&i.LastResultAnnotationJson,
-			&i.ErrorMessage,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) LockActiveTranscriptionJobForUpdateManual(ctx context.Context, itemImageID sql.NullInt64) (TranscriptionJob, error) {
+	row := q.db.QueryRowContext(ctx, lockActiveTranscriptionJobForUpdateManual, itemImageID)
+	var i TranscriptionJob
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ItemImageID,
+		&i.ContextID,
+		&i.ContextScopeID,
+		&i.ContextSnapshot,
+		&i.InputRevision,
+		&i.Status,
+		&i.ActiveItemImageID,
+		&i.TotalSegments,
+		&i.CompletedSegments,
+		&i.FailedSegments,
+		&i.AttemptCount,
+		&i.MaxAttempts,
+		&i.RetryAfter,
+		&i.LeaseUntil,
+		&i.LockedBy,
+		&i.CurrentAnnotationID,
+		&i.CurrentAnnotationJson,
+		&i.LastResultAnnotationJson,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
-const listTranscriptionJobsByWorkspaceManual = `-- name: ListTranscriptionJobsByWorkspaceManual :many
-SELECT
-  tj.id,
-  tj.item_image_id,
-  tj.context_id,
-  tj.status,
-  tj.total_segments,
-  tj.completed_segments,
-  tj.failed_segments,
-  tj.attempt_count,
-  tj.max_attempts,
-  tj.retry_after,
-  tj.lease_until,
-  tj.locked_by,
-  tj.current_annotation_id,
-  tj.current_annotation_json,
-  tj.last_result_annotation_json,
-  tj.error_message,
-  tj.created_at,
-  tj.updated_at
-FROM transcription_jobs tj
-JOIN item_images ii ON ii.id = tj.item_image_id
+const lockCanonicalRevisionForTranscriptionJobManual = `-- name: LockCanonicalRevisionForTranscriptionJobManual :one
+SELECT revision
+FROM item_images ii
 JOIN items i ON i.id = ii.item_id
-WHERE i.workspace_id = ?
-ORDER BY tj.created_at DESC
+JOIN annotation_pages ap
+  ON ap.item_image_id = ii.id
+ AND ap.workspace_id = i.workspace_id
+WHERE ii.id = ?
+LIMIT 1
+FOR UPDATE
 `
 
-func (q *Queries) ListTranscriptionJobsByWorkspaceManual(ctx context.Context, workspaceID uint64) ([]TranscriptionJob, error) {
-	rows, err := q.db.QueryContext(ctx, listTranscriptionJobsByWorkspaceManual, workspaceID)
+func (q *Queries) LockCanonicalRevisionForTranscriptionJobManual(ctx context.Context, itemImageID uint64) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, lockCanonicalRevisionForTranscriptionJobManual, itemImageID)
+	var revision uint64
+	err := row.Scan(&revision)
+	return revision, err
+}
+
+const lockOldestTerminalTranscriptionJobsForWorkspaceManual = `-- name: LockOldestTerminalTranscriptionJobsForWorkspaceManual :many
+SELECT id
+FROM transcription_jobs
+WHERE workspace_id = ?
+  AND status IN ('completed', 'failed', 'canceled', 'superseded')
+ORDER BY updated_at ASC, id ASC
+LIMIT ?
+FOR UPDATE
+`
+
+type LockOldestTerminalTranscriptionJobsForWorkspaceManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	Limit       int32  `json:"limit"`
+}
+
+func (q *Queries) LockOldestTerminalTranscriptionJobsForWorkspaceManual(ctx context.Context, arg LockOldestTerminalTranscriptionJobsForWorkspaceManualParams) ([]uint64, error) {
+	rows, err := q.db.QueryContext(ctx, lockOldestTerminalTranscriptionJobsForWorkspaceManual, arg.WorkspaceID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TranscriptionJob{}
+	items := []uint64{}
 	for rows.Next() {
-		var i TranscriptionJob
-		if err := rows.Scan(
-			&i.ID,
-			&i.ItemImageID,
-			&i.ContextID,
-			&i.Status,
-			&i.TotalSegments,
-			&i.CompletedSegments,
-			&i.FailedSegments,
-			&i.AttemptCount,
-			&i.MaxAttempts,
-			&i.RetryAfter,
-			&i.LeaseUntil,
-			&i.LockedBy,
-			&i.CurrentAnnotationID,
-			&i.CurrentAnnotationJson,
-			&i.LastResultAnnotationJson,
-			&i.ErrorMessage,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
+		var id uint64
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		items = append(items, i)
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -307,17 +695,145 @@ func (q *Queries) ListTranscriptionJobsByWorkspaceManual(ctx context.Context, wo
 	return items, nil
 }
 
-const markTranscriptionJobRunningManual = `-- name: MarkTranscriptionJobRunningManual :exec
+const lockTranscriptionJobForExternalRequestUseManual = `-- name: LockTranscriptionJobForExternalRequestUseManual :one
+SELECT item_image_id
+FROM transcription_jobs
+WHERE id = ?
+  AND workspace_id = ?
+LOCK IN SHARE MODE
+`
+
+type LockTranscriptionJobForExternalRequestUseManualParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) LockTranscriptionJobForExternalRequestUseManual(ctx context.Context, arg LockTranscriptionJobForExternalRequestUseManualParams) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, lockTranscriptionJobForExternalRequestUseManual, arg.ID, arg.WorkspaceID)
+	var item_image_id uint64
+	err := row.Scan(&item_image_id)
+	return item_image_id, err
+}
+
+const lockTranscriptionJobForUpdateManual = `-- name: LockTranscriptionJobForUpdateManual :one
+SELECT
+  id,
+  workspace_id,
+  item_image_id,
+  context_id,
+  context_scope_id,
+  context_snapshot,
+  input_revision,
+  status,
+  active_item_image_id,
+  total_segments,
+  completed_segments,
+  failed_segments,
+  attempt_count,
+  max_attempts,
+  retry_after,
+  lease_until,
+  locked_by,
+  current_annotation_id,
+  current_annotation_json,
+  last_result_annotation_json,
+  error_message,
+  created_at,
+  updated_at
+FROM transcription_jobs
+WHERE id = ?
+LIMIT 1
+FOR UPDATE
+`
+
+func (q *Queries) LockTranscriptionJobForUpdateManual(ctx context.Context, id uint64) (TranscriptionJob, error) {
+	row := q.db.QueryRowContext(ctx, lockTranscriptionJobForUpdateManual, id)
+	var i TranscriptionJob
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ItemImageID,
+		&i.ContextID,
+		&i.ContextScopeID,
+		&i.ContextSnapshot,
+		&i.InputRevision,
+		&i.Status,
+		&i.ActiveItemImageID,
+		&i.TotalSegments,
+		&i.CompletedSegments,
+		&i.FailedSegments,
+		&i.AttemptCount,
+		&i.MaxAttempts,
+		&i.RetryAfter,
+		&i.LeaseUntil,
+		&i.LockedBy,
+		&i.CurrentAnnotationID,
+		&i.CurrentAnnotationJson,
+		&i.LastResultAnnotationJson,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockTranscriptionJobWorkspaceByItemImageManual = `-- name: LockTranscriptionJobWorkspaceByItemImageManual :one
+SELECT w.id
+FROM item_images ii
+JOIN items i ON i.id = ii.item_id
+JOIN workspaces w ON w.id = i.workspace_id
+WHERE ii.id = ?
+LIMIT 1
+FOR UPDATE
+`
+
+// Every code path that admits a pending transcription job takes this lock
+// before counting active jobs. The workspace row is the per-tenant admission
+// mutex; terminal job transitions do not need to update a separate counter.
+func (q *Queries) LockTranscriptionJobWorkspaceByItemImageManual(ctx context.Context, itemImageID uint64) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, lockTranscriptionJobWorkspaceByItemImageManual, itemImageID)
+	var id uint64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const permanentlyFailTranscriptionJobManual = `-- name: PermanentlyFailTranscriptionJobManual :execresult
 UPDATE transcription_jobs
 SET
-  status = 'running',
+  status = 'failed',
+  retry_after = NULL,
+  error_message = ?,
+  current_annotation_id = NULL,
+  current_annotation_json = NULL,
+  last_result_annotation_json = NULL,
+  lease_until = NULL,
+  locked_by = NULL,
   updated_at = NOW()
 WHERE id = ?
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND COALESCE(locked_by, '') = ?
+  AND status = 'running'
+  AND lease_until IS NOT NULL
+  AND lease_until > NOW()
 `
 
-func (q *Queries) MarkTranscriptionJobRunningManual(ctx context.Context, id uint64) error {
-	_, err := q.db.ExecContext(ctx, markTranscriptionJobRunningManual, id)
-	return err
+type PermanentlyFailTranscriptionJobManualParams struct {
+	ErrorMessage  sql.NullString `json:"error_message"`
+	ID            uint64         `json:"id"`
+	AttemptNumber int32          `json:"attempt_number"`
+	InputRevision uint64         `json:"input_revision"`
+	LeaseToken    sql.NullString `json:"lease_token"`
+}
+
+func (q *Queries) PermanentlyFailTranscriptionJobManual(ctx context.Context, arg PermanentlyFailTranscriptionJobManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, permanentlyFailTranscriptionJobManual,
+		arg.ErrorMessage,
+		arg.ID,
+		arg.AttemptNumber,
+		arg.InputRevision,
+		arg.LeaseToken,
+	)
 }
 
 const setTranscriptionJobTotalSegmentsManual = `-- name: SetTranscriptionJobTotalSegmentsManual :execresult
@@ -326,18 +842,49 @@ SET
   total_segments = ?,
   updated_at = NOW()
 WHERE id = ?
-  AND locked_by = ?
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND COALESCE(locked_by, '') = ?
   AND status = 'running'
+  AND lease_until IS NOT NULL
+  AND lease_until > NOW()
 `
 
 type SetTranscriptionJobTotalSegmentsManualParams struct {
 	TotalSegments int32          `json:"total_segments"`
 	ID            uint64         `json:"id"`
-	LockedBy      sql.NullString `json:"locked_by"`
+	AttemptNumber int32          `json:"attempt_number"`
+	InputRevision uint64         `json:"input_revision"`
+	LeaseToken    sql.NullString `json:"lease_token"`
 }
 
 func (q *Queries) SetTranscriptionJobTotalSegmentsManual(ctx context.Context, arg SetTranscriptionJobTotalSegmentsManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, setTranscriptionJobTotalSegmentsManual, arg.TotalSegments, arg.ID, arg.LockedBy)
+	return q.db.ExecContext(ctx, setTranscriptionJobTotalSegmentsManual,
+		arg.TotalSegments,
+		arg.ID,
+		arg.AttemptNumber,
+		arg.InputRevision,
+		arg.LeaseToken,
+	)
+}
+
+const supersedeTranscriptionJobByIDManual = `-- name: SupersedeTranscriptionJobByIDManual :execresult
+UPDATE transcription_jobs
+SET status = 'superseded',
+    retry_after = NULL,
+    error_message = 'superseded by a newer transcription request',
+    current_annotation_id = NULL,
+    current_annotation_json = NULL,
+    last_result_annotation_json = NULL,
+    lease_until = NULL,
+    locked_by = NULL,
+    updated_at = NOW()
+WHERE id = ?
+  AND status IN ('pending', 'running')
+`
+
+func (q *Queries) SupersedeTranscriptionJobByIDManual(ctx context.Context, id uint64) (sql.Result, error) {
+	return q.db.ExecContext(ctx, supersedeTranscriptionJobByIDManual, id)
 }
 
 const updateTranscriptionJobProgressManual = `-- name: UpdateTranscriptionJobProgressManual :execresult
@@ -350,8 +897,12 @@ SET
   last_result_annotation_json = ?,
   updated_at = NOW()
 WHERE id = ?
-  AND locked_by = ?
+  AND attempt_count = ?
+  AND input_revision = ?
+  AND COALESCE(locked_by, '') = ?
   AND status = 'running'
+  AND lease_until IS NOT NULL
+  AND lease_until > NOW()
 `
 
 type UpdateTranscriptionJobProgressManualParams struct {
@@ -361,7 +912,9 @@ type UpdateTranscriptionJobProgressManualParams struct {
 	CurrentAnnotationJson    sql.NullString `json:"current_annotation_json"`
 	LastResultAnnotationJson sql.NullString `json:"last_result_annotation_json"`
 	ID                       uint64         `json:"id"`
-	LockedBy                 sql.NullString `json:"locked_by"`
+	AttemptNumber            int32          `json:"attempt_number"`
+	InputRevision            uint64         `json:"input_revision"`
+	LeaseToken               sql.NullString `json:"lease_token"`
 }
 
 func (q *Queries) UpdateTranscriptionJobProgressManual(ctx context.Context, arg UpdateTranscriptionJobProgressManualParams) (sql.Result, error) {
@@ -372,18 +925,18 @@ func (q *Queries) UpdateTranscriptionJobProgressManual(ctx context.Context, arg 
 		arg.CurrentAnnotationJson,
 		arg.LastResultAnnotationJson,
 		arg.ID,
-		arg.LockedBy,
+		arg.AttemptNumber,
+		arg.InputRevision,
+		arg.LeaseToken,
 	)
 }
 
 const workspaceOwnsTranscriptionJobManual = `-- name: WorkspaceOwnsTranscriptionJobManual :one
 SELECT EXISTS(
   SELECT 1
-  FROM transcription_jobs tj
-  JOIN item_images ii ON ii.id = tj.item_image_id
-  JOIN items i ON i.id = ii.item_id
-  WHERE tj.id = ?
-    AND i.workspace_id = ?
+  FROM transcription_jobs
+  WHERE id = ?
+    AND workspace_id = ?
 ) AS owns_job
 `
 

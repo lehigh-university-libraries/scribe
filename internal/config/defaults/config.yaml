@@ -1,15 +1,22 @@
 listen_addr: ":8080"
 public_base_url: "${PUBLIC_BASE_URL:-http://localhost:8080}"
 
+server:
+  trusted_proxy_cidrs: "${SERVER_TRUSTED_PROXY_CIDRS:-}"
+
 auth:
   cookie_name: scribe_session
   cookie_domain: ""
   session_ttl: 24h
   google_callback_path: /auth/callback/google
+  preview_anonymous: ${AUTH_PREVIEW_ANONYMOUS:-false}
   allowed_domains: []
   denied_domains: []
   admin_emails: []
   external_jwt_issuers: []
+
+pagination:
+  signing_key: "${SCRIBE_PAGE_TOKEN_SIGNING_KEY:-}"
 
 cors:
   allowed_origins: []
@@ -31,7 +38,7 @@ llm:
     url: "${OLLAMA_URL:-http://localhost:11434}"
     audience: "${OLLAMA_AUDIENCE:-}"
     model: "glm-ocr:bf16"
-    models: ["glm-ocr:bf16", "llava", "bakllava"]
+    models: ["glm-ocr:bf16", "llava", "bakllava", "mistral-small3.2:24b"]
   kraken:
     url: "${KRAKEN_URL:-}"
     audience: "${KRAKEN_AUDIENCE:-}"
@@ -41,12 +48,13 @@ llm:
     model: "gpt-4o"
     models: ["gpt-4o", "gpt-4.1"]
   gemini:
-    model: "gemini-2.0-flash"
-    models: ["gemini-2.0-flash", "gemini-1.5-pro"]
-    url_template: "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s"
+    model: "gemini-3.5-flash"
+    models: ["gemini-3.5-flash", "gemini-2.5-flash"]
 
 transcription:
   job_workers: 3
+  max_active_jobs_per_workspace: ${TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE:-1000}
+  max_segments_per_job: ${TRANSCRIPTION_MAX_SEGMENTS_PER_JOB:-50}
   queue:
     backend: "${TRANSCRIPTION_QUEUE_BACKEND:-database}"
     project_id: "${PUBSUB_PROJECT_ID:-}"
@@ -57,32 +65,46 @@ transcription:
     recovery_poll_interval: 30s
     recovery_min_age: 20s
 
+processing:
+  global_concurrency: 4
+  per_workspace_concurrency: 2
+  per_provider_concurrency: 2
+  max_page_enrichment_lines: ${PROCESSING_MAX_PAGE_ENRICHMENT_LINES:-50}
+  external_request_retention: 720h
+
+storage:
+  max_bytes_per_workspace: ${STORAGE_MAX_BYTES_PER_WORKSPACE:-5368709120}
+  max_bytes_total: ${STORAGE_MAX_BYTES_TOTAL:-32212254720}
+  max_items_per_workspace: ${STORAGE_MAX_ITEMS_PER_WORKSPACE:-5000}
+  max_items_total: ${STORAGE_MAX_ITEMS_TOTAL:-50000}
+  max_images_per_workspace: ${STORAGE_MAX_IMAGES_PER_WORKSPACE:-10000}
+  max_images_total: ${STORAGE_MAX_IMAGES_TOTAL:-100000}
+  reservation_ttl: ${STORAGE_RESERVATION_TTL:-6h}
+  normalization_cache_max_bytes: ${STORAGE_NORMALIZATION_CACHE_MAX_BYTES:-2147483648}
+  normalization_cache_max_age: ${STORAGE_NORMALIZATION_CACHE_MAX_AGE:-168h}
+
 iiif:
   base: "${IIIF_BASE:-/iiif/3}"
   internal_base: "${IIIF_INTERNAL_BASE:-http://triplet:8080/iiif/3}"
+  source_base: "${IIIF_SOURCE_BASE:-http://api:8080/static/uploads}"
+  source_read_token: "${TRIPLET_SOURCE_READ_TOKEN:-}"
+  max_manifest_canvases: ${IIIF_MAX_MANIFEST_CANVASES:-500}
+  max_manifest_import_bytes: ${IIIF_MAX_MANIFEST_IMPORT_BYTES:-67108864}
 
 segmentation_service:
   url: "${SEGMENTATION_SERVICE_URL:-}"
   audience: "${SEGMENTATION_SERVICE_AUDIENCE:-}"
   models: ["kraken"]
 
-image_service:
-  url: "${IMAGE_SERVICE_URL:-}"
-  audience: "${IMAGE_SERVICE_AUDIENCE:-}"
-
 annotation:
   api_base: /
-  api_internal_base: http://localhost:8080
+  api_internal_base: "${API_INTERNAL_BASE:-http://localhost:8080}"
   triplet_presentation_base: "${TRIPLET_PRESENTATION_BASE:-}"
   triplet_presentation_internal_base: "${TRIPLET_PRESENTATION_INTERNAL_BASE:-}"
   triplet_presentation_write_token: "${TRIPLET_PRESENTATION_WRITE_TOKEN:-}"
 
 audit:
-  provider_call_bodies: false
   provider_call_retention: 720h
-
-drupal:
-  hocr_url_template: ""
 
 webhooks:
   urls: []

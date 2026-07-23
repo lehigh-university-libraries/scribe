@@ -23,61 +23,6 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// ImagePreprocessor is a single image pre-processing step.
-type ImagePreprocessor struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// type: resize | contrast | binarize | invert
-	Type string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	// JSON-encoded parameters, e.g. {"px":2000} for resize
-	Params        string `protobuf:"bytes,2,opt,name=params,proto3" json:"params,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ImagePreprocessor) Reset() {
-	*x = ImagePreprocessor{}
-	mi := &file_scribe_v1_context_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ImagePreprocessor) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ImagePreprocessor) ProtoMessage() {}
-
-func (x *ImagePreprocessor) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ImagePreprocessor.ProtoReflect.Descriptor instead.
-func (*ImagePreprocessor) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *ImagePreprocessor) GetType() string {
-	if x != nil {
-		return x.Type
-	}
-	return ""
-}
-
-func (x *ImagePreprocessor) GetParams() string {
-	if x != nil {
-		return x.Params
-	}
-	return ""
-}
-
 // Context bundles all processing parameters for a pipeline run.
 type Context struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -88,25 +33,20 @@ type Context struct {
 	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	IsDefault   bool   `protobuf:"varint,5,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
 	// Segmentation model: "tesseract" | "scribe" | "kraken:<model-id>"
-	SegmentationModel     string               `protobuf:"bytes,6,opt,name=segmentation_model,json=segmentationModel,proto3" json:"segmentation_model,omitempty"`
-	ImagePreprocessors    []*ImagePreprocessor `protobuf:"bytes,7,rep,name=image_preprocessors,json=imagePreprocessors,proto3" json:"image_preprocessors,omitempty"`
-	TranscriptionProvider string               `protobuf:"bytes,8,opt,name=transcription_provider,json=transcriptionProvider,proto3" json:"transcription_provider,omitempty"`
-	TranscriptionModel    string               `protobuf:"bytes,9,opt,name=transcription_model,json=transcriptionModel,proto3" json:"transcription_model,omitempty"`
-	TranscriptionBaseUrl  string               `protobuf:"bytes,15,opt,name=transcription_base_url,json=transcriptionBaseUrl,proto3" json:"transcription_base_url,omitempty"`
-	TranscriptionAudience string               `protobuf:"bytes,16,opt,name=transcription_audience,json=transcriptionAudience,proto3" json:"transcription_audience,omitempty"`
-	// -1 means "use provider default"
-	Temperature         float64  `protobuf:"fixed64,10,opt,name=temperature,proto3" json:"temperature,omitempty"`
-	SystemPrompt        string   `protobuf:"bytes,11,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
-	PostProcessingSteps []string `protobuf:"bytes,12,rep,name=post_processing_steps,json=postProcessingSteps,proto3" json:"post_processing_steps,omitempty"`
-	CreatedAt           string   `protobuf:"bytes,13,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt           string   `protobuf:"bytes,14,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	SegmentationModel     string   `protobuf:"bytes,6,opt,name=segmentation_model,json=segmentationModel,proto3" json:"segmentation_model,omitempty"`
+	TranscriptionProvider string   `protobuf:"bytes,8,opt,name=transcription_provider,json=transcriptionProvider,proto3" json:"transcription_provider,omitempty"`
+	TranscriptionModel    string   `protobuf:"bytes,9,opt,name=transcription_model,json=transcriptionModel,proto3" json:"transcription_model,omitempty"`
+	Temperature           *float64 `protobuf:"fixed64,10,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	SystemPrompt          string   `protobuf:"bytes,11,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
+	CreatedAt             string   `protobuf:"bytes,13,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt             string   `protobuf:"bytes,14,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Context) Reset() {
 	*x = Context{}
-	mi := &file_scribe_v1_context_proto_msgTypes[1]
+	mi := &file_scribe_v1_context_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -118,7 +58,7 @@ func (x *Context) String() string {
 func (*Context) ProtoMessage() {}
 
 func (x *Context) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[1]
+	mi := &file_scribe_v1_context_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -131,7 +71,7 @@ func (x *Context) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Context.ProtoReflect.Descriptor instead.
 func (*Context) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{1}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Context) GetId() uint64 {
@@ -176,13 +116,6 @@ func (x *Context) GetSegmentationModel() string {
 	return ""
 }
 
-func (x *Context) GetImagePreprocessors() []*ImagePreprocessor {
-	if x != nil {
-		return x.ImagePreprocessors
-	}
-	return nil
-}
-
 func (x *Context) GetTranscriptionProvider() string {
 	if x != nil {
 		return x.TranscriptionProvider
@@ -197,23 +130,9 @@ func (x *Context) GetTranscriptionModel() string {
 	return ""
 }
 
-func (x *Context) GetTranscriptionBaseUrl() string {
-	if x != nil {
-		return x.TranscriptionBaseUrl
-	}
-	return ""
-}
-
-func (x *Context) GetTranscriptionAudience() string {
-	if x != nil {
-		return x.TranscriptionAudience
-	}
-	return ""
-}
-
 func (x *Context) GetTemperature() float64 {
-	if x != nil {
-		return x.Temperature
+	if x != nil && x.Temperature != nil {
+		return *x.Temperature
 	}
 	return 0
 }
@@ -223,13 +142,6 @@ func (x *Context) GetSystemPrompt() string {
 		return x.SystemPrompt
 	}
 	return ""
-}
-
-func (x *Context) GetPostProcessingSteps() []string {
-	if x != nil {
-		return x.PostProcessingSteps
-	}
-	return nil
 }
 
 func (x *Context) GetCreatedAt() string {
@@ -246,6 +158,153 @@ func (x *Context) GetUpdatedAt() string {
 	return ""
 }
 
+// ModelDescriptor is a server-approved model that can be selected by a context.
+type ModelDescriptor struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	IsDefault     bool                   `protobuf:"varint,3,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ModelDescriptor) Reset() {
+	*x = ModelDescriptor{}
+	mi := &file_scribe_v1_context_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ModelDescriptor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ModelDescriptor) ProtoMessage() {}
+
+func (x *ModelDescriptor) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_context_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ModelDescriptor.ProtoReflect.Descriptor instead.
+func (*ModelDescriptor) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ModelDescriptor) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ModelDescriptor) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *ModelDescriptor) GetIsDefault() bool {
+	if x != nil {
+		return x.IsDefault
+	}
+	return false
+}
+
+// ProviderDescriptor describes one installed transcription provider. Endpoint
+// and credential details intentionally remain server-owned.
+type ProviderDescriptor struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	Id                   string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Label                string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Models               []*ModelDescriptor     `protobuf:"bytes,3,rep,name=models,proto3" json:"models,omitempty"`
+	RequiresApiKey       bool                   `protobuf:"varint,4,opt,name=requires_api_key,json=requiresApiKey,proto3" json:"requires_api_key,omitempty"`
+	SupportsSystemPrompt bool                   `protobuf:"varint,5,opt,name=supports_system_prompt,json=supportsSystemPrompt,proto3" json:"supports_system_prompt,omitempty"`
+	SupportsTemperature  bool                   `protobuf:"varint,6,opt,name=supports_temperature,json=supportsTemperature,proto3" json:"supports_temperature,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *ProviderDescriptor) Reset() {
+	*x = ProviderDescriptor{}
+	mi := &file_scribe_v1_context_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProviderDescriptor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProviderDescriptor) ProtoMessage() {}
+
+func (x *ProviderDescriptor) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_context_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProviderDescriptor.ProtoReflect.Descriptor instead.
+func (*ProviderDescriptor) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ProviderDescriptor) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ProviderDescriptor) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *ProviderDescriptor) GetModels() []*ModelDescriptor {
+	if x != nil {
+		return x.Models
+	}
+	return nil
+}
+
+func (x *ProviderDescriptor) GetRequiresApiKey() bool {
+	if x != nil {
+		return x.RequiresApiKey
+	}
+	return false
+}
+
+func (x *ProviderDescriptor) GetSupportsSystemPrompt() bool {
+	if x != nil {
+		return x.SupportsSystemPrompt
+	}
+	return false
+}
+
+func (x *ProviderDescriptor) GetSupportsTemperature() bool {
+	if x != nil {
+		return x.SupportsTemperature
+	}
+	return false
+}
+
 // RuleCondition is a single AND-clause predicate.
 type RuleCondition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -259,7 +318,7 @@ type RuleCondition struct {
 
 func (x *RuleCondition) Reset() {
 	*x = RuleCondition{}
-	mi := &file_scribe_v1_context_proto_msgTypes[2]
+	mi := &file_scribe_v1_context_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -271,7 +330,7 @@ func (x *RuleCondition) String() string {
 func (*RuleCondition) ProtoMessage() {}
 
 func (x *RuleCondition) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[2]
+	mi := &file_scribe_v1_context_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -284,7 +343,7 @@ func (x *RuleCondition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuleCondition.ProtoReflect.Descriptor instead.
 func (*RuleCondition) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{2}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RuleCondition) GetField() string {
@@ -323,7 +382,7 @@ type ContextSelectionRule struct {
 
 func (x *ContextSelectionRule) Reset() {
 	*x = ContextSelectionRule{}
-	mi := &file_scribe_v1_context_proto_msgTypes[3]
+	mi := &file_scribe_v1_context_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -335,7 +394,7 @@ func (x *ContextSelectionRule) String() string {
 func (*ContextSelectionRule) ProtoMessage() {}
 
 func (x *ContextSelectionRule) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[3]
+	mi := &file_scribe_v1_context_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -348,7 +407,7 @@ func (x *ContextSelectionRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContextSelectionRule.ProtoReflect.Descriptor instead.
 func (*ContextSelectionRule) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{3}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ContextSelectionRule) GetId() uint64 {
@@ -382,14 +441,18 @@ func (x *ContextSelectionRule) GetConditions() []*RuleCondition {
 type ListContextsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// If true, only return system contexts.
-	SystemOnly    bool `protobuf:"varint,1,opt,name=system_only,json=systemOnly,proto3" json:"system_only,omitempty"`
+	SystemOnly bool `protobuf:"varint,1,opt,name=system_only,json=systemOnly,proto3" json:"system_only,omitempty"`
+	// Number of contexts to return. Zero uses the server default of 50.
+	PageSize uint32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Opaque workspace- and filter-bound continuation token.
+	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListContextsRequest) Reset() {
 	*x = ListContextsRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[4]
+	mi := &file_scribe_v1_context_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -401,7 +464,7 @@ func (x *ListContextsRequest) String() string {
 func (*ListContextsRequest) ProtoMessage() {}
 
 func (x *ListContextsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[4]
+	mi := &file_scribe_v1_context_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -414,7 +477,7 @@ func (x *ListContextsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContextsRequest.ProtoReflect.Descriptor instead.
 func (*ListContextsRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{4}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ListContextsRequest) GetSystemOnly() bool {
@@ -424,16 +487,32 @@ func (x *ListContextsRequest) GetSystemOnly() bool {
 	return false
 }
 
+func (x *ListContextsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListContextsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
 type ListContextsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Contexts      []*Context             `protobuf:"bytes,1,rep,name=contexts,proto3" json:"contexts,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Contexts []*Context             `protobuf:"bytes,1,rep,name=contexts,proto3" json:"contexts,omitempty"`
+	// Empty when the workspace context catalog is exhausted.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListContextsResponse) Reset() {
 	*x = ListContextsResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[5]
+	mi := &file_scribe_v1_context_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -445,7 +524,7 @@ func (x *ListContextsResponse) String() string {
 func (*ListContextsResponse) ProtoMessage() {}
 
 func (x *ListContextsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[5]
+	mi := &file_scribe_v1_context_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -458,7 +537,7 @@ func (x *ListContextsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListContextsResponse.ProtoReflect.Descriptor instead.
 func (*ListContextsResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{5}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ListContextsResponse) GetContexts() []*Context {
@@ -466,6 +545,13 @@ func (x *ListContextsResponse) GetContexts() []*Context {
 		return x.Contexts
 	}
 	return nil
+}
+
+func (x *ListContextsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
 }
 
 type GetContextRequest struct {
@@ -477,7 +563,7 @@ type GetContextRequest struct {
 
 func (x *GetContextRequest) Reset() {
 	*x = GetContextRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[6]
+	mi := &file_scribe_v1_context_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -489,7 +575,7 @@ func (x *GetContextRequest) String() string {
 func (*GetContextRequest) ProtoMessage() {}
 
 func (x *GetContextRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[6]
+	mi := &file_scribe_v1_context_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -502,7 +588,7 @@ func (x *GetContextRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContextRequest.ProtoReflect.Descriptor instead.
 func (*GetContextRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{6}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetContextRequest) GetContextId() uint64 {
@@ -521,7 +607,7 @@ type GetContextResponse struct {
 
 func (x *GetContextResponse) Reset() {
 	*x = GetContextResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[7]
+	mi := &file_scribe_v1_context_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -533,7 +619,7 @@ func (x *GetContextResponse) String() string {
 func (*GetContextResponse) ProtoMessage() {}
 
 func (x *GetContextResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[7]
+	mi := &file_scribe_v1_context_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -546,7 +632,7 @@ func (x *GetContextResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContextResponse.ProtoReflect.Descriptor instead.
 func (*GetContextResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{7}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetContextResponse) GetContext() *Context {
@@ -565,7 +651,7 @@ type CreateContextRequest struct {
 
 func (x *CreateContextRequest) Reset() {
 	*x = CreateContextRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[8]
+	mi := &file_scribe_v1_context_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -577,7 +663,7 @@ func (x *CreateContextRequest) String() string {
 func (*CreateContextRequest) ProtoMessage() {}
 
 func (x *CreateContextRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[8]
+	mi := &file_scribe_v1_context_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -590,7 +676,7 @@ func (x *CreateContextRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateContextRequest.ProtoReflect.Descriptor instead.
 func (*CreateContextRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{8}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *CreateContextRequest) GetContext() *Context {
@@ -609,7 +695,7 @@ type CreateContextResponse struct {
 
 func (x *CreateContextResponse) Reset() {
 	*x = CreateContextResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[9]
+	mi := &file_scribe_v1_context_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -621,7 +707,7 @@ func (x *CreateContextResponse) String() string {
 func (*CreateContextResponse) ProtoMessage() {}
 
 func (x *CreateContextResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[9]
+	mi := &file_scribe_v1_context_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -634,7 +720,7 @@ func (x *CreateContextResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateContextResponse.ProtoReflect.Descriptor instead.
 func (*CreateContextResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{9}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CreateContextResponse) GetContext() *Context {
@@ -653,7 +739,7 @@ type UpdateContextRequest struct {
 
 func (x *UpdateContextRequest) Reset() {
 	*x = UpdateContextRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[10]
+	mi := &file_scribe_v1_context_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -665,7 +751,7 @@ func (x *UpdateContextRequest) String() string {
 func (*UpdateContextRequest) ProtoMessage() {}
 
 func (x *UpdateContextRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[10]
+	mi := &file_scribe_v1_context_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -678,7 +764,7 @@ func (x *UpdateContextRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateContextRequest.ProtoReflect.Descriptor instead.
 func (*UpdateContextRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{10}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UpdateContextRequest) GetContext() *Context {
@@ -697,7 +783,7 @@ type UpdateContextResponse struct {
 
 func (x *UpdateContextResponse) Reset() {
 	*x = UpdateContextResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[11]
+	mi := &file_scribe_v1_context_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -709,7 +795,7 @@ func (x *UpdateContextResponse) String() string {
 func (*UpdateContextResponse) ProtoMessage() {}
 
 func (x *UpdateContextResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[11]
+	mi := &file_scribe_v1_context_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -722,7 +808,7 @@ func (x *UpdateContextResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateContextResponse.ProtoReflect.Descriptor instead.
 func (*UpdateContextResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{11}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UpdateContextResponse) GetContext() *Context {
@@ -741,7 +827,7 @@ type DeleteContextRequest struct {
 
 func (x *DeleteContextRequest) Reset() {
 	*x = DeleteContextRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[12]
+	mi := &file_scribe_v1_context_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -753,7 +839,7 @@ func (x *DeleteContextRequest) String() string {
 func (*DeleteContextRequest) ProtoMessage() {}
 
 func (x *DeleteContextRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[12]
+	mi := &file_scribe_v1_context_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -766,7 +852,7 @@ func (x *DeleteContextRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteContextRequest.ProtoReflect.Descriptor instead.
 func (*DeleteContextRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{12}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DeleteContextRequest) GetContextId() uint64 {
@@ -784,7 +870,7 @@ type DeleteContextResponse struct {
 
 func (x *DeleteContextResponse) Reset() {
 	*x = DeleteContextResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[13]
+	mi := &file_scribe_v1_context_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -796,7 +882,7 @@ func (x *DeleteContextResponse) String() string {
 func (*DeleteContextResponse) ProtoMessage() {}
 
 func (x *DeleteContextResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[13]
+	mi := &file_scribe_v1_context_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -809,20 +895,24 @@ func (x *DeleteContextResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteContextResponse.ProtoReflect.Descriptor instead.
 func (*DeleteContextResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{13}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{14}
 }
 
 type ListSelectionRulesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Filter by context; 0 = all rules
-	ContextId     uint64 `protobuf:"varint,1,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	ContextId uint64 `protobuf:"varint,1,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	// Number of rules to return. Zero uses the server default of 50.
+	PageSize uint32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Opaque workspace- and context-filter-bound continuation token.
+	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListSelectionRulesRequest) Reset() {
 	*x = ListSelectionRulesRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[14]
+	mi := &file_scribe_v1_context_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -834,7 +924,7 @@ func (x *ListSelectionRulesRequest) String() string {
 func (*ListSelectionRulesRequest) ProtoMessage() {}
 
 func (x *ListSelectionRulesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[14]
+	mi := &file_scribe_v1_context_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -847,7 +937,7 @@ func (x *ListSelectionRulesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSelectionRulesRequest.ProtoReflect.Descriptor instead.
 func (*ListSelectionRulesRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{14}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListSelectionRulesRequest) GetContextId() uint64 {
@@ -857,16 +947,32 @@ func (x *ListSelectionRulesRequest) GetContextId() uint64 {
 	return 0
 }
 
+func (x *ListSelectionRulesRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListSelectionRulesRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
 type ListSelectionRulesResponse struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Rules         []*ContextSelectionRule `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
+	state protoimpl.MessageState  `protogen:"open.v1"`
+	Rules []*ContextSelectionRule `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
+	// Empty when the filtered rule catalog is exhausted.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListSelectionRulesResponse) Reset() {
 	*x = ListSelectionRulesResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[15]
+	mi := &file_scribe_v1_context_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -878,7 +984,7 @@ func (x *ListSelectionRulesResponse) String() string {
 func (*ListSelectionRulesResponse) ProtoMessage() {}
 
 func (x *ListSelectionRulesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[15]
+	mi := &file_scribe_v1_context_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -891,7 +997,7 @@ func (x *ListSelectionRulesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSelectionRulesResponse.ProtoReflect.Descriptor instead.
 func (*ListSelectionRulesResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{15}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListSelectionRulesResponse) GetRules() []*ContextSelectionRule {
@@ -899,6 +1005,13 @@ func (x *ListSelectionRulesResponse) GetRules() []*ContextSelectionRule {
 		return x.Rules
 	}
 	return nil
+}
+
+func (x *ListSelectionRulesResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
 }
 
 type CreateSelectionRuleRequest struct {
@@ -910,7 +1023,7 @@ type CreateSelectionRuleRequest struct {
 
 func (x *CreateSelectionRuleRequest) Reset() {
 	*x = CreateSelectionRuleRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[16]
+	mi := &file_scribe_v1_context_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -922,7 +1035,7 @@ func (x *CreateSelectionRuleRequest) String() string {
 func (*CreateSelectionRuleRequest) ProtoMessage() {}
 
 func (x *CreateSelectionRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[16]
+	mi := &file_scribe_v1_context_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -935,7 +1048,7 @@ func (x *CreateSelectionRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSelectionRuleRequest.ProtoReflect.Descriptor instead.
 func (*CreateSelectionRuleRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{16}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CreateSelectionRuleRequest) GetRule() *ContextSelectionRule {
@@ -954,7 +1067,7 @@ type CreateSelectionRuleResponse struct {
 
 func (x *CreateSelectionRuleResponse) Reset() {
 	*x = CreateSelectionRuleResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[17]
+	mi := &file_scribe_v1_context_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -966,7 +1079,7 @@ func (x *CreateSelectionRuleResponse) String() string {
 func (*CreateSelectionRuleResponse) ProtoMessage() {}
 
 func (x *CreateSelectionRuleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[17]
+	mi := &file_scribe_v1_context_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -979,7 +1092,7 @@ func (x *CreateSelectionRuleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSelectionRuleResponse.ProtoReflect.Descriptor instead.
 func (*CreateSelectionRuleResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{17}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CreateSelectionRuleResponse) GetRule() *ContextSelectionRule {
@@ -998,7 +1111,7 @@ type DeleteSelectionRuleRequest struct {
 
 func (x *DeleteSelectionRuleRequest) Reset() {
 	*x = DeleteSelectionRuleRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[18]
+	mi := &file_scribe_v1_context_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1010,7 +1123,7 @@ func (x *DeleteSelectionRuleRequest) String() string {
 func (*DeleteSelectionRuleRequest) ProtoMessage() {}
 
 func (x *DeleteSelectionRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[18]
+	mi := &file_scribe_v1_context_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1023,7 +1136,7 @@ func (x *DeleteSelectionRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSelectionRuleRequest.ProtoReflect.Descriptor instead.
 func (*DeleteSelectionRuleRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{18}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DeleteSelectionRuleRequest) GetRuleId() uint64 {
@@ -1041,7 +1154,7 @@ type DeleteSelectionRuleResponse struct {
 
 func (x *DeleteSelectionRuleResponse) Reset() {
 	*x = DeleteSelectionRuleResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[19]
+	mi := &file_scribe_v1_context_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1053,7 +1166,7 @@ func (x *DeleteSelectionRuleResponse) String() string {
 func (*DeleteSelectionRuleResponse) ProtoMessage() {}
 
 func (x *DeleteSelectionRuleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[19]
+	mi := &file_scribe_v1_context_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1066,21 +1179,23 @@ func (x *DeleteSelectionRuleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteSelectionRuleResponse.ProtoReflect.Descriptor instead.
 func (*DeleteSelectionRuleResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{19}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{20}
 }
 
 // ResolveContextRequest asks the selection engine to pick the right context
 // for a given metadata bag (JSON object as string).
 type ResolveContextRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	MetadataJson  string                 `protobuf:"bytes,1,opt,name=metadata_json,json=metadataJson,proto3" json:"metadata_json,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Flat JSON object with at most 64 scalar fields. Field names are capped at
+	// 255 bytes and string/number representations at 4096 bytes.
+	MetadataJson  string `protobuf:"bytes,1,opt,name=metadata_json,json=metadataJson,proto3" json:"metadata_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResolveContextRequest) Reset() {
 	*x = ResolveContextRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[20]
+	mi := &file_scribe_v1_context_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1092,7 +1207,7 @@ func (x *ResolveContextRequest) String() string {
 func (*ResolveContextRequest) ProtoMessage() {}
 
 func (x *ResolveContextRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[20]
+	mi := &file_scribe_v1_context_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1105,7 +1220,7 @@ func (x *ResolveContextRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveContextRequest.ProtoReflect.Descriptor instead.
 func (*ResolveContextRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{20}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ResolveContextRequest) GetMetadataJson() string {
@@ -1125,7 +1240,7 @@ type ResolveContextResponse struct {
 
 func (x *ResolveContextResponse) Reset() {
 	*x = ResolveContextResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[21]
+	mi := &file_scribe_v1_context_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1137,7 +1252,7 @@ func (x *ResolveContextResponse) String() string {
 func (*ResolveContextResponse) ProtoMessage() {}
 
 func (x *ResolveContextResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[21]
+	mi := &file_scribe_v1_context_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1150,7 +1265,7 @@ func (x *ResolveContextResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveContextResponse.ProtoReflect.Descriptor instead.
 func (*ResolveContextResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{21}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ResolveContextResponse) GetContext() *Context {
@@ -1175,7 +1290,7 @@ type GetModelCatalogRequest struct {
 
 func (x *GetModelCatalogRequest) Reset() {
 	*x = GetModelCatalogRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[22]
+	mi := &file_scribe_v1_context_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1187,7 +1302,7 @@ func (x *GetModelCatalogRequest) String() string {
 func (*GetModelCatalogRequest) ProtoMessage() {}
 
 func (x *GetModelCatalogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[22]
+	mi := &file_scribe_v1_context_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1200,23 +1315,20 @@ func (x *GetModelCatalogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetModelCatalogRequest.ProtoReflect.Descriptor instead.
 func (*GetModelCatalogRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{22}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{23}
 }
 
 type GetModelCatalogResponse struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	OllamaModels       []string               `protobuf:"bytes,1,rep,name=ollama_models,json=ollamaModels,proto3" json:"ollama_models,omitempty"`
-	KrakenModels       []string               `protobuf:"bytes,2,rep,name=kraken_models,json=krakenModels,proto3" json:"kraken_models,omitempty"`
-	SegmentationModels []string               `protobuf:"bytes,3,rep,name=segmentation_models,json=segmentationModels,proto3" json:"segmentation_models,omitempty"`
-	OpenaiModels       []string               `protobuf:"bytes,4,rep,name=openai_models,json=openaiModels,proto3" json:"openai_models,omitempty"`
-	GeminiModels       []string               `protobuf:"bytes,5,rep,name=gemini_models,json=geminiModels,proto3" json:"gemini_models,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	TranscriptionProviders []*ProviderDescriptor  `protobuf:"bytes,1,rep,name=transcription_providers,json=transcriptionProviders,proto3" json:"transcription_providers,omitempty"`
+	SegmentationModels     []*ModelDescriptor     `protobuf:"bytes,2,rep,name=segmentation_models,json=segmentationModels,proto3" json:"segmentation_models,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *GetModelCatalogResponse) Reset() {
 	*x = GetModelCatalogResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[23]
+	mi := &file_scribe_v1_context_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1228,7 +1340,7 @@ func (x *GetModelCatalogResponse) String() string {
 func (*GetModelCatalogResponse) ProtoMessage() {}
 
 func (x *GetModelCatalogResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[23]
+	mi := &file_scribe_v1_context_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1241,40 +1353,177 @@ func (x *GetModelCatalogResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetModelCatalogResponse.ProtoReflect.Descriptor instead.
 func (*GetModelCatalogResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{23}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{24}
 }
 
-func (x *GetModelCatalogResponse) GetOllamaModels() []string {
+func (x *GetModelCatalogResponse) GetTranscriptionProviders() []*ProviderDescriptor {
 	if x != nil {
-		return x.OllamaModels
+		return x.TranscriptionProviders
 	}
 	return nil
 }
 
-func (x *GetModelCatalogResponse) GetKrakenModels() []string {
-	if x != nil {
-		return x.KrakenModels
-	}
-	return nil
-}
-
-func (x *GetModelCatalogResponse) GetSegmentationModels() []string {
+func (x *GetModelCatalogResponse) GetSegmentationModels() []*ModelDescriptor {
 	if x != nil {
 		return x.SegmentationModels
 	}
 	return nil
 }
 
-func (x *GetModelCatalogResponse) GetOpenaiModels() []string {
-	if x != nil {
-		return x.OpenaiModels
-	}
-	return nil
+// ContextMetrics summarizes correction effort against the immutable OCR
+// baseline. Canonical AnnotationPage revisions are the only correction source.
+type ContextMetrics struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	ContextId              uint64                 `protobuf:"varint,1,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	TotalRuns              uint64                 `protobuf:"varint,2,opt,name=total_runs,json=totalRuns,proto3" json:"total_runs,omitempty"`
+	CorrectedRuns          uint64                 `protobuf:"varint,3,opt,name=corrected_runs,json=correctedRuns,proto3" json:"corrected_runs,omitempty"`
+	AvgLevenshteinDistance float64                `protobuf:"fixed64,4,opt,name=avg_levenshtein_distance,json=avgLevenshteinDistance,proto3" json:"avg_levenshtein_distance,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
-func (x *GetModelCatalogResponse) GetGeminiModels() []string {
+func (x *ContextMetrics) Reset() {
+	*x = ContextMetrics{}
+	mi := &file_scribe_v1_context_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContextMetrics) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContextMetrics) ProtoMessage() {}
+
+func (x *ContextMetrics) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_context_proto_msgTypes[25]
 	if x != nil {
-		return x.GeminiModels
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContextMetrics.ProtoReflect.Descriptor instead.
+func (*ContextMetrics) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ContextMetrics) GetContextId() uint64 {
+	if x != nil {
+		return x.ContextId
+	}
+	return 0
+}
+
+func (x *ContextMetrics) GetTotalRuns() uint64 {
+	if x != nil {
+		return x.TotalRuns
+	}
+	return 0
+}
+
+func (x *ContextMetrics) GetCorrectedRuns() uint64 {
+	if x != nil {
+		return x.CorrectedRuns
+	}
+	return 0
+}
+
+func (x *ContextMetrics) GetAvgLevenshteinDistance() float64 {
+	if x != nil {
+		return x.AvgLevenshteinDistance
+	}
+	return 0
+}
+
+type GetContextMetricsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ContextId     uint64                 `protobuf:"varint,1,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetContextMetricsRequest) Reset() {
+	*x = GetContextMetricsRequest{}
+	mi := &file_scribe_v1_context_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContextMetricsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContextMetricsRequest) ProtoMessage() {}
+
+func (x *GetContextMetricsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_context_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContextMetricsRequest.ProtoReflect.Descriptor instead.
+func (*GetContextMetricsRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *GetContextMetricsRequest) GetContextId() uint64 {
+	if x != nil {
+		return x.ContextId
+	}
+	return 0
+}
+
+type GetContextMetricsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Metrics       *ContextMetrics        `protobuf:"bytes,1,opt,name=metrics,proto3" json:"metrics,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetContextMetricsResponse) Reset() {
+	*x = GetContextMetricsResponse{}
+	mi := &file_scribe_v1_context_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetContextMetricsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetContextMetricsResponse) ProtoMessage() {}
+
+func (x *GetContextMetricsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_context_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetContextMetricsResponse.ProtoReflect.Descriptor instead.
+func (*GetContextMetricsResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *GetContextMetricsResponse) GetMetrics() *ContextMetrics {
+	if x != nil {
+		return x.Metrics
 	}
 	return nil
 }
@@ -1283,50 +1532,62 @@ var File_scribe_v1_context_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_context_proto_rawDesc = "" +
 	"\n" +
-	"\x17scribe/v1/context.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"c\n" +
-	"\x11ImagePreprocessor\x12$\n" +
-	"\x04type\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04type\x12(\n" +
-	"\x06params\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x06params\"\xa3\x06\n" +
+	"\x17scribe/v1/context.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xea\x05\n" +
 	"\aContext\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12$\n" +
-	"\x04name\x18\x03 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04name\x122\n" +
-	"\vdescription\x18\x04 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\vdescription\x12\x1d\n" +
+	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12'\n" +
+	"\x04name\x18\x03 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\xff\x012\x06.*\\S.*R\x04name\x125\n" +
+	"\vdescription\x18\x04 \x01(\tB\x13\xbaH\x10r\x0e\x18\x80 2\t^$|.*\\S.*R\vdescription\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x05 \x01(\bR\tisDefault\x12?\n" +
-	"\x12segmentation_model\x18\x06 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x11segmentationModel\x12M\n" +
-	"\x13image_preprocessors\x18\a \x03(\v2\x1c.scribe.v1.ImagePreprocessorR\x12imagePreprocessors\x12G\n" +
-	"\x16transcription_provider\x18\b \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x15transcriptionProvider\x12A\n" +
-	"\x13transcription_model\x18\t \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x12transcriptionModel\x12F\n" +
-	"\x16transcription_base_url\x18\x0f \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x14transcriptionBaseUrl\x12G\n" +
-	"\x16transcription_audience\x18\x10 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\x15transcriptionAudience\x12 \n" +
+	"is_default\x18\x05 \x01(\bR\tisDefault\x12Y\n" +
+	"\x12segmentation_model\x18\x06 \x01(\tB*\xbaH'\xc8\x01\x01r\"\x18\xff\x012\x1d^[a-z0-9][a-z0-9._:-]{0,254}$R\x11segmentationModel\x12Z\n" +
+	"\x16transcription_provider\x18\b \x01(\tB#\xbaH \xc8\x01\x01r\x1b\x18@2\x17^[a-z][a-z0-9_-]{0,63}$R\x15transcriptionProvider\x12D\n" +
+	"\x13transcription_model\x18\t \x01(\tB\x13\xbaH\x10r\x0e\x18\xff\x012\t^$|.*\\S.*R\x12transcriptionModel\x12>\n" +
 	"\vtemperature\x18\n" +
-	" \x01(\x01R\vtemperature\x125\n" +
-	"\rsystem_prompt\x18\v \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\fsystemPrompt\x122\n" +
-	"\x15post_processing_steps\x18\f \x03(\tR\x13postProcessingSteps\x12\x1d\n" +
+	" \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\x00H\x00R\vtemperature\x88\x01\x01\x128\n" +
+	"\rsystem_prompt\x18\v \x01(\tB\x13\xbaH\x10r\x0e\x18\x80@2\t^$|.*\\S.*R\fsystemPrompt\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\r \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x0e \x01(\tR\tupdatedAt\"\x89\x03\n" +
-	"\rRuleCondition\x12&\n" +
-	"\x05field\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x05field\x12,\n" +
-	"\boperator\x18\x02 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\boperator\x12&\n" +
-	"\x05value\x18\x03 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x05value:\xf9\x01\xbaH\xf5\x01\x1a\xf2\x01\n" +
-	"\x17rule_condition.operator\x12Doperator must be one of eq, neq, contains, starts_with, or ends_with\x1a\x90\x01this.operator == 'eq' || this.operator == 'neq' || this.operator == 'contains' || this.operator == 'starts_with' || this.operator == 'ends_with'\"\xb1\x01\n" +
+	"updated_at\x18\x0e \x01(\tR\tupdatedAtB\x0e\n" +
+	"\f_temperatureJ\x04\b\a\x10\bJ\x04\b\f\x10\rJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11R\x13image_preprocessorsR\x15post_processing_stepsR\x16transcription_base_urlR\x16transcription_audience\"V\n" +
+	"\x0fModelDescriptor\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12\x1d\n" +
+	"\n" +
+	"is_default\x18\x03 \x01(\bR\tisDefault\"\x81\x02\n" +
+	"\x12ProviderDescriptor\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x122\n" +
+	"\x06models\x18\x03 \x03(\v2\x1a.scribe.v1.ModelDescriptorR\x06models\x12(\n" +
+	"\x10requires_api_key\x18\x04 \x01(\bR\x0erequiresApiKey\x124\n" +
+	"\x16supports_system_prompt\x18\x05 \x01(\bR\x14supportsSystemPrompt\x121\n" +
+	"\x14supports_temperature\x18\x06 \x01(\bR\x13supportsTemperature\"\x91\x03\n" +
+	"\rRuleCondition\x12)\n" +
+	"\x05field\x18\x01 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v(\xff\x012\x06.*\\S.*R\x05field\x12.\n" +
+	"\boperator\x18\x02 \x01(\tB\x12\xbaH\x0f\xc8\x01\x01r\n" +
+	"\x18\x102\x06.*\\S.*R\boperator\x12)\n" +
+	"\x05value\x18\x03 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v(\x80 2\x06.*\\S.*R\x05value:\xf9\x01\xbaH\xf5\x01\x1a\xf2\x01\n" +
+	"\x17rule_condition.operator\x12Doperator must be one of eq, neq, contains, starts_with, or ends_with\x1a\x90\x01this.operator == 'eq' || this.operator == 'neq' || this.operator == 'contains' || this.operator == 'starts_with' || this.operator == 'ends_with'\"\xb3\x01\n" +
 	"\x14ContextSelectionRule\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12)\n" +
 	"\n" +
 	"context_id\x18\x02 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\tcontextId\x12\x1a\n" +
-	"\bpriority\x18\x03 \x01(\x05R\bpriority\x12B\n" +
+	"\bpriority\x18\x03 \x01(\x05R\bpriority\x12D\n" +
 	"\n" +
-	"conditions\x18\x04 \x03(\v2\x18.scribe.v1.RuleConditionB\b\xbaH\x05\x92\x01\x02\b\x01R\n" +
-	"conditions\"6\n" +
+	"conditions\x18\x04 \x03(\v2\x18.scribe.v1.RuleConditionB\n" +
+	"\xbaH\a\x92\x01\x04\b\x01\x10 R\n" +
+	"conditions\"\x85\x01\n" +
 	"\x13ListContextsRequest\x12\x1f\n" +
 	"\vsystem_only\x18\x01 \x01(\bR\n" +
-	"systemOnly\"F\n" +
+	"systemOnly\x12$\n" +
+	"\tpage_size\x18\x02 \x01(\rB\a\xbaH\x04*\x02\x18dR\bpageSize\x12'\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x04R\tpageToken\"n\n" +
 	"\x14ListContextsResponse\x12.\n" +
-	"\bcontexts\x18\x01 \x03(\v2\x12.scribe.v1.ContextR\bcontexts\">\n" +
+	"\bcontexts\x18\x01 \x03(\v2\x12.scribe.v1.ContextR\bcontexts\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\">\n" +
 	"\x11GetContextRequest\x12)\n" +
 	"\n" +
 	"context_id\x18\x01 \x01(\x04B\n" +
@@ -1346,12 +1607,16 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\n" +
 	"context_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\tcontextId\"\x17\n" +
-	"\x15DeleteContextResponse\":\n" +
+	"\x15DeleteContextResponse\"\x89\x01\n" +
 	"\x19ListSelectionRulesRequest\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x01 \x01(\x04R\tcontextId\"S\n" +
+	"context_id\x18\x01 \x01(\x04R\tcontextId\x12$\n" +
+	"\tpage_size\x18\x02 \x01(\rB\a\xbaH\x04*\x02\x18dR\bpageSize\x12'\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x04R\tpageToken\"{\n" +
 	"\x1aListSelectionRulesResponse\x125\n" +
-	"\x05rules\x18\x01 \x03(\v2\x1f.scribe.v1.ContextSelectionRuleR\x05rules\"Y\n" +
+	"\x05rules\x18\x01 \x03(\v2\x1f.scribe.v1.ContextSelectionRuleR\x05rules\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"Y\n" +
 	"\x1aCreateSelectionRuleRequest\x12;\n" +
 	"\x04rule\x18\x01 \x01(\v2\x1f.scribe.v1.ContextSelectionRuleB\x06\xbaH\x03\xc8\x01\x01R\x04rule\"R\n" +
 	"\x1bCreateSelectionRuleResponse\x123\n" +
@@ -1359,20 +1624,30 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\x1aDeleteSelectionRuleRequest\x12#\n" +
 	"\arule_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\x06ruleId\"\x1d\n" +
-	"\x1bDeleteSelectionRuleResponse\"<\n" +
-	"\x15ResolveContextRequest\x12#\n" +
-	"\rmetadata_json\x18\x01 \x01(\tR\fmetadataJson\"e\n" +
+	"\x1bDeleteSelectionRuleResponse\"G\n" +
+	"\x15ResolveContextRequest\x12.\n" +
+	"\rmetadata_json\x18\x01 \x01(\tB\t\xbaH\x06r\x04(\x80\x80\x04R\fmetadataJson\"e\n" +
 	"\x16ResolveContextResponse\x12,\n" +
 	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\x12\x1d\n" +
 	"\n" +
 	"is_default\x18\x02 \x01(\bR\tisDefault\"\x18\n" +
-	"\x16GetModelCatalogRequest\"\xde\x01\n" +
-	"\x17GetModelCatalogResponse\x12#\n" +
-	"\rollama_models\x18\x01 \x03(\tR\follamaModels\x12#\n" +
-	"\rkraken_models\x18\x02 \x03(\tR\fkrakenModels\x12/\n" +
-	"\x13segmentation_models\x18\x03 \x03(\tR\x12segmentationModels\x12#\n" +
-	"\ropenai_models\x18\x04 \x03(\tR\fopenaiModels\x12#\n" +
-	"\rgemini_models\x18\x05 \x03(\tR\fgeminiModels2\xa1\b\n" +
+	"\x16GetModelCatalogRequest\"\xbe\x01\n" +
+	"\x17GetModelCatalogResponse\x12V\n" +
+	"\x17transcription_providers\x18\x01 \x03(\v2\x1d.scribe.v1.ProviderDescriptorR\x16transcriptionProviders\x12K\n" +
+	"\x13segmentation_models\x18\x02 \x03(\v2\x1a.scribe.v1.ModelDescriptorR\x12segmentationModels\"\xaf\x01\n" +
+	"\x0eContextMetrics\x12\x1d\n" +
+	"\n" +
+	"context_id\x18\x01 \x01(\x04R\tcontextId\x12\x1d\n" +
+	"\n" +
+	"total_runs\x18\x02 \x01(\x04R\ttotalRuns\x12%\n" +
+	"\x0ecorrected_runs\x18\x03 \x01(\x04R\rcorrectedRuns\x128\n" +
+	"\x18avg_levenshtein_distance\x18\x04 \x01(\x01R\x16avgLevenshteinDistance\"E\n" +
+	"\x18GetContextMetricsRequest\x12)\n" +
+	"\n" +
+	"context_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\tcontextId\"P\n" +
+	"\x19GetContextMetricsResponse\x123\n" +
+	"\ametrics\x18\x01 \x01(\v2\x19.scribe.v1.ContextMetricsR\ametrics2\xa0\t\n" +
 	"\x0eContextService\x12Y\n" +
 	"\fListContexts\x12\x1e.scribe.v1.ListContextsRequest\x1a\x1f.scribe.v1.ListContextsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12_\n" +
 	"\n" +
@@ -1384,10 +1659,12 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\rDeleteContext\x12\x1f.scribe.v1.DeleteContextRequest\x1a .scribe.v1.DeleteContextResponse\"\x14\x92\xb5\x18\x10\x10\x05\x18\x02\"\n" +
 	"context_id\x12k\n" +
 	"\x12ListSelectionRules\x12$.scribe.v1.ListSelectionRulesRequest\x1a%.scribe.v1.ListSelectionRulesResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12\x7f\n" +
-	"\x13CreateSelectionRule\x12%.scribe.v1.CreateSelectionRuleRequest\x1a&.scribe.v1.CreateSelectionRuleResponse\"\x19\x92\xb5\x18\x15\x10\x05\x18\x02\"\x0frule.context_id\x12n\n" +
-	"\x13DeleteSelectionRule\x12%.scribe.v1.DeleteSelectionRuleRequest\x1a&.scribe.v1.DeleteSelectionRuleResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12_\n" +
+	"\x13CreateSelectionRule\x12%.scribe.v1.CreateSelectionRuleRequest\x1a&.scribe.v1.CreateSelectionRuleResponse\"\x19\x92\xb5\x18\x15\x10\x05\x18\x02\"\x0frule.context_id\x12w\n" +
+	"\x13DeleteSelectionRule\x12%.scribe.v1.DeleteSelectionRuleRequest\x1a&.scribe.v1.DeleteSelectionRuleResponse\"\x11\x92\xb5\x18\r\x10\t\x18\x02\"\arule_id\x12_\n" +
 	"\x0eResolveContext\x12 .scribe.v1.ResolveContextRequest\x1a!.scribe.v1.ResolveContextResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12b\n" +
-	"\x0fGetModelCatalog\x12!.scribe.v1.GetModelCatalogRequest\x1a\".scribe.v1.GetModelCatalogResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01B\xaa\x01\n" +
+	"\x0fGetModelCatalog\x12!.scribe.v1.GetModelCatalogRequest\x1a\".scribe.v1.GetModelCatalogResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12t\n" +
+	"\x11GetContextMetrics\x12#.scribe.v1.GetContextMetricsRequest\x1a$.scribe.v1.GetContextMetricsResponse\"\x14\x92\xb5\x18\x10\x10\x05\x18\x01\"\n" +
+	"context_idB\xaa\x01\n" +
 	"\rcom.scribe.v1B\fContextProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 
@@ -1403,71 +1680,80 @@ func file_scribe_v1_context_proto_rawDescGZIP() []byte {
 	return file_scribe_v1_context_proto_rawDescData
 }
 
-var file_scribe_v1_context_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_scribe_v1_context_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_scribe_v1_context_proto_goTypes = []any{
-	(*ImagePreprocessor)(nil),           // 0: scribe.v1.ImagePreprocessor
-	(*Context)(nil),                     // 1: scribe.v1.Context
-	(*RuleCondition)(nil),               // 2: scribe.v1.RuleCondition
-	(*ContextSelectionRule)(nil),        // 3: scribe.v1.ContextSelectionRule
-	(*ListContextsRequest)(nil),         // 4: scribe.v1.ListContextsRequest
-	(*ListContextsResponse)(nil),        // 5: scribe.v1.ListContextsResponse
-	(*GetContextRequest)(nil),           // 6: scribe.v1.GetContextRequest
-	(*GetContextResponse)(nil),          // 7: scribe.v1.GetContextResponse
-	(*CreateContextRequest)(nil),        // 8: scribe.v1.CreateContextRequest
-	(*CreateContextResponse)(nil),       // 9: scribe.v1.CreateContextResponse
-	(*UpdateContextRequest)(nil),        // 10: scribe.v1.UpdateContextRequest
-	(*UpdateContextResponse)(nil),       // 11: scribe.v1.UpdateContextResponse
-	(*DeleteContextRequest)(nil),        // 12: scribe.v1.DeleteContextRequest
-	(*DeleteContextResponse)(nil),       // 13: scribe.v1.DeleteContextResponse
-	(*ListSelectionRulesRequest)(nil),   // 14: scribe.v1.ListSelectionRulesRequest
-	(*ListSelectionRulesResponse)(nil),  // 15: scribe.v1.ListSelectionRulesResponse
-	(*CreateSelectionRuleRequest)(nil),  // 16: scribe.v1.CreateSelectionRuleRequest
-	(*CreateSelectionRuleResponse)(nil), // 17: scribe.v1.CreateSelectionRuleResponse
-	(*DeleteSelectionRuleRequest)(nil),  // 18: scribe.v1.DeleteSelectionRuleRequest
-	(*DeleteSelectionRuleResponse)(nil), // 19: scribe.v1.DeleteSelectionRuleResponse
-	(*ResolveContextRequest)(nil),       // 20: scribe.v1.ResolveContextRequest
-	(*ResolveContextResponse)(nil),      // 21: scribe.v1.ResolveContextResponse
-	(*GetModelCatalogRequest)(nil),      // 22: scribe.v1.GetModelCatalogRequest
-	(*GetModelCatalogResponse)(nil),     // 23: scribe.v1.GetModelCatalogResponse
+	(*Context)(nil),                     // 0: scribe.v1.Context
+	(*ModelDescriptor)(nil),             // 1: scribe.v1.ModelDescriptor
+	(*ProviderDescriptor)(nil),          // 2: scribe.v1.ProviderDescriptor
+	(*RuleCondition)(nil),               // 3: scribe.v1.RuleCondition
+	(*ContextSelectionRule)(nil),        // 4: scribe.v1.ContextSelectionRule
+	(*ListContextsRequest)(nil),         // 5: scribe.v1.ListContextsRequest
+	(*ListContextsResponse)(nil),        // 6: scribe.v1.ListContextsResponse
+	(*GetContextRequest)(nil),           // 7: scribe.v1.GetContextRequest
+	(*GetContextResponse)(nil),          // 8: scribe.v1.GetContextResponse
+	(*CreateContextRequest)(nil),        // 9: scribe.v1.CreateContextRequest
+	(*CreateContextResponse)(nil),       // 10: scribe.v1.CreateContextResponse
+	(*UpdateContextRequest)(nil),        // 11: scribe.v1.UpdateContextRequest
+	(*UpdateContextResponse)(nil),       // 12: scribe.v1.UpdateContextResponse
+	(*DeleteContextRequest)(nil),        // 13: scribe.v1.DeleteContextRequest
+	(*DeleteContextResponse)(nil),       // 14: scribe.v1.DeleteContextResponse
+	(*ListSelectionRulesRequest)(nil),   // 15: scribe.v1.ListSelectionRulesRequest
+	(*ListSelectionRulesResponse)(nil),  // 16: scribe.v1.ListSelectionRulesResponse
+	(*CreateSelectionRuleRequest)(nil),  // 17: scribe.v1.CreateSelectionRuleRequest
+	(*CreateSelectionRuleResponse)(nil), // 18: scribe.v1.CreateSelectionRuleResponse
+	(*DeleteSelectionRuleRequest)(nil),  // 19: scribe.v1.DeleteSelectionRuleRequest
+	(*DeleteSelectionRuleResponse)(nil), // 20: scribe.v1.DeleteSelectionRuleResponse
+	(*ResolveContextRequest)(nil),       // 21: scribe.v1.ResolveContextRequest
+	(*ResolveContextResponse)(nil),      // 22: scribe.v1.ResolveContextResponse
+	(*GetModelCatalogRequest)(nil),      // 23: scribe.v1.GetModelCatalogRequest
+	(*GetModelCatalogResponse)(nil),     // 24: scribe.v1.GetModelCatalogResponse
+	(*ContextMetrics)(nil),              // 25: scribe.v1.ContextMetrics
+	(*GetContextMetricsRequest)(nil),    // 26: scribe.v1.GetContextMetricsRequest
+	(*GetContextMetricsResponse)(nil),   // 27: scribe.v1.GetContextMetricsResponse
 }
 var file_scribe_v1_context_proto_depIdxs = []int32{
-	0,  // 0: scribe.v1.Context.image_preprocessors:type_name -> scribe.v1.ImagePreprocessor
-	2,  // 1: scribe.v1.ContextSelectionRule.conditions:type_name -> scribe.v1.RuleCondition
-	1,  // 2: scribe.v1.ListContextsResponse.contexts:type_name -> scribe.v1.Context
-	1,  // 3: scribe.v1.GetContextResponse.context:type_name -> scribe.v1.Context
-	1,  // 4: scribe.v1.CreateContextRequest.context:type_name -> scribe.v1.Context
-	1,  // 5: scribe.v1.CreateContextResponse.context:type_name -> scribe.v1.Context
-	1,  // 6: scribe.v1.UpdateContextRequest.context:type_name -> scribe.v1.Context
-	1,  // 7: scribe.v1.UpdateContextResponse.context:type_name -> scribe.v1.Context
-	3,  // 8: scribe.v1.ListSelectionRulesResponse.rules:type_name -> scribe.v1.ContextSelectionRule
-	3,  // 9: scribe.v1.CreateSelectionRuleRequest.rule:type_name -> scribe.v1.ContextSelectionRule
-	3,  // 10: scribe.v1.CreateSelectionRuleResponse.rule:type_name -> scribe.v1.ContextSelectionRule
-	1,  // 11: scribe.v1.ResolveContextResponse.context:type_name -> scribe.v1.Context
-	4,  // 12: scribe.v1.ContextService.ListContexts:input_type -> scribe.v1.ListContextsRequest
-	6,  // 13: scribe.v1.ContextService.GetContext:input_type -> scribe.v1.GetContextRequest
-	8,  // 14: scribe.v1.ContextService.CreateContext:input_type -> scribe.v1.CreateContextRequest
-	10, // 15: scribe.v1.ContextService.UpdateContext:input_type -> scribe.v1.UpdateContextRequest
-	12, // 16: scribe.v1.ContextService.DeleteContext:input_type -> scribe.v1.DeleteContextRequest
-	14, // 17: scribe.v1.ContextService.ListSelectionRules:input_type -> scribe.v1.ListSelectionRulesRequest
-	16, // 18: scribe.v1.ContextService.CreateSelectionRule:input_type -> scribe.v1.CreateSelectionRuleRequest
-	18, // 19: scribe.v1.ContextService.DeleteSelectionRule:input_type -> scribe.v1.DeleteSelectionRuleRequest
-	20, // 20: scribe.v1.ContextService.ResolveContext:input_type -> scribe.v1.ResolveContextRequest
-	22, // 21: scribe.v1.ContextService.GetModelCatalog:input_type -> scribe.v1.GetModelCatalogRequest
-	5,  // 22: scribe.v1.ContextService.ListContexts:output_type -> scribe.v1.ListContextsResponse
-	7,  // 23: scribe.v1.ContextService.GetContext:output_type -> scribe.v1.GetContextResponse
-	9,  // 24: scribe.v1.ContextService.CreateContext:output_type -> scribe.v1.CreateContextResponse
-	11, // 25: scribe.v1.ContextService.UpdateContext:output_type -> scribe.v1.UpdateContextResponse
-	13, // 26: scribe.v1.ContextService.DeleteContext:output_type -> scribe.v1.DeleteContextResponse
-	15, // 27: scribe.v1.ContextService.ListSelectionRules:output_type -> scribe.v1.ListSelectionRulesResponse
-	17, // 28: scribe.v1.ContextService.CreateSelectionRule:output_type -> scribe.v1.CreateSelectionRuleResponse
-	19, // 29: scribe.v1.ContextService.DeleteSelectionRule:output_type -> scribe.v1.DeleteSelectionRuleResponse
-	21, // 30: scribe.v1.ContextService.ResolveContext:output_type -> scribe.v1.ResolveContextResponse
-	23, // 31: scribe.v1.ContextService.GetModelCatalog:output_type -> scribe.v1.GetModelCatalogResponse
-	22, // [22:32] is the sub-list for method output_type
-	12, // [12:22] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	1,  // 0: scribe.v1.ProviderDescriptor.models:type_name -> scribe.v1.ModelDescriptor
+	3,  // 1: scribe.v1.ContextSelectionRule.conditions:type_name -> scribe.v1.RuleCondition
+	0,  // 2: scribe.v1.ListContextsResponse.contexts:type_name -> scribe.v1.Context
+	0,  // 3: scribe.v1.GetContextResponse.context:type_name -> scribe.v1.Context
+	0,  // 4: scribe.v1.CreateContextRequest.context:type_name -> scribe.v1.Context
+	0,  // 5: scribe.v1.CreateContextResponse.context:type_name -> scribe.v1.Context
+	0,  // 6: scribe.v1.UpdateContextRequest.context:type_name -> scribe.v1.Context
+	0,  // 7: scribe.v1.UpdateContextResponse.context:type_name -> scribe.v1.Context
+	4,  // 8: scribe.v1.ListSelectionRulesResponse.rules:type_name -> scribe.v1.ContextSelectionRule
+	4,  // 9: scribe.v1.CreateSelectionRuleRequest.rule:type_name -> scribe.v1.ContextSelectionRule
+	4,  // 10: scribe.v1.CreateSelectionRuleResponse.rule:type_name -> scribe.v1.ContextSelectionRule
+	0,  // 11: scribe.v1.ResolveContextResponse.context:type_name -> scribe.v1.Context
+	2,  // 12: scribe.v1.GetModelCatalogResponse.transcription_providers:type_name -> scribe.v1.ProviderDescriptor
+	1,  // 13: scribe.v1.GetModelCatalogResponse.segmentation_models:type_name -> scribe.v1.ModelDescriptor
+	25, // 14: scribe.v1.GetContextMetricsResponse.metrics:type_name -> scribe.v1.ContextMetrics
+	5,  // 15: scribe.v1.ContextService.ListContexts:input_type -> scribe.v1.ListContextsRequest
+	7,  // 16: scribe.v1.ContextService.GetContext:input_type -> scribe.v1.GetContextRequest
+	9,  // 17: scribe.v1.ContextService.CreateContext:input_type -> scribe.v1.CreateContextRequest
+	11, // 18: scribe.v1.ContextService.UpdateContext:input_type -> scribe.v1.UpdateContextRequest
+	13, // 19: scribe.v1.ContextService.DeleteContext:input_type -> scribe.v1.DeleteContextRequest
+	15, // 20: scribe.v1.ContextService.ListSelectionRules:input_type -> scribe.v1.ListSelectionRulesRequest
+	17, // 21: scribe.v1.ContextService.CreateSelectionRule:input_type -> scribe.v1.CreateSelectionRuleRequest
+	19, // 22: scribe.v1.ContextService.DeleteSelectionRule:input_type -> scribe.v1.DeleteSelectionRuleRequest
+	21, // 23: scribe.v1.ContextService.ResolveContext:input_type -> scribe.v1.ResolveContextRequest
+	23, // 24: scribe.v1.ContextService.GetModelCatalog:input_type -> scribe.v1.GetModelCatalogRequest
+	26, // 25: scribe.v1.ContextService.GetContextMetrics:input_type -> scribe.v1.GetContextMetricsRequest
+	6,  // 26: scribe.v1.ContextService.ListContexts:output_type -> scribe.v1.ListContextsResponse
+	8,  // 27: scribe.v1.ContextService.GetContext:output_type -> scribe.v1.GetContextResponse
+	10, // 28: scribe.v1.ContextService.CreateContext:output_type -> scribe.v1.CreateContextResponse
+	12, // 29: scribe.v1.ContextService.UpdateContext:output_type -> scribe.v1.UpdateContextResponse
+	14, // 30: scribe.v1.ContextService.DeleteContext:output_type -> scribe.v1.DeleteContextResponse
+	16, // 31: scribe.v1.ContextService.ListSelectionRules:output_type -> scribe.v1.ListSelectionRulesResponse
+	18, // 32: scribe.v1.ContextService.CreateSelectionRule:output_type -> scribe.v1.CreateSelectionRuleResponse
+	20, // 33: scribe.v1.ContextService.DeleteSelectionRule:output_type -> scribe.v1.DeleteSelectionRuleResponse
+	22, // 34: scribe.v1.ContextService.ResolveContext:output_type -> scribe.v1.ResolveContextResponse
+	24, // 35: scribe.v1.ContextService.GetModelCatalog:output_type -> scribe.v1.GetModelCatalogResponse
+	27, // 36: scribe.v1.ContextService.GetContextMetrics:output_type -> scribe.v1.GetContextMetricsResponse
+	26, // [26:37] is the sub-list for method output_type
+	15, // [15:26] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_scribe_v1_context_proto_init() }
@@ -1475,13 +1761,14 @@ func file_scribe_v1_context_proto_init() {
 	if File_scribe_v1_context_proto != nil {
 		return
 	}
+	file_scribe_v1_context_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_context_proto_rawDesc), len(file_scribe_v1_context_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   24,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

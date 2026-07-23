@@ -12,35 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file scribe/v1/context.proto.
  */
 export const file_scribe_v1_context: GenFile = /*@__PURE__*/
-  fileDesc("ChdzY3JpYmUvdjEvY29udGV4dC5wcm90bxIJc2NyaWJlLnYxIlUKEUltYWdlUHJlcHJvY2Vzc29yEh4KBHR5cGUYASABKAlCELpIDcgBAXIIMgYuKlxTLioSIAoGcGFyYW1zGAIgASgJQhC6SA1yCzIJXiR8LipcUy4qIrQECgdDb250ZXh0EgoKAmlkGAEgASgEEg8KB3VzZXJfaWQYAiABKAQSHgoEbmFtZRgDIAEoCUIQukgNyAEBcggyBi4qXFMuKhIlCgtkZXNjcmlwdGlvbhgEIAEoCUIQukgNcgsyCV4kfC4qXFMuKhISCgppc19kZWZhdWx0GAUgASgIEiwKEnNlZ21lbnRhdGlvbl9tb2RlbBgGIAEoCUIQukgNyAEBcggyBi4qXFMuKhI5ChNpbWFnZV9wcmVwcm9jZXNzb3JzGAcgAygLMhwuc2NyaWJlLnYxLkltYWdlUHJlcHJvY2Vzc29yEjAKFnRyYW5zY3JpcHRpb25fcHJvdmlkZXIYCCABKAlCELpIDcgBAXIIMgYuKlxTLioSLQoTdHJhbnNjcmlwdGlvbl9tb2RlbBgJIAEoCUIQukgNcgsyCV4kfC4qXFMuKhIwChZ0cmFuc2NyaXB0aW9uX2Jhc2VfdXJsGA8gASgJQhC6SA1yCzIJXiR8LipcUy4qEjAKFnRyYW5zY3JpcHRpb25fYXVkaWVuY2UYECABKAlCELpIDXILMgleJHwuKlxTLioSEwoLdGVtcGVyYXR1cmUYCiABKAESJwoNc3lzdGVtX3Byb21wdBgLIAEoCUIQukgNcgsyCV4kfC4qXFMuKhIdChVwb3N0X3Byb2Nlc3Npbmdfc3RlcHMYDCADKAkSEgoKY3JlYXRlZF9hdBgNIAEoCRISCgp1cGRhdGVkX2F0GA4gASgJIvECCg1SdWxlQ29uZGl0aW9uEh8KBWZpZWxkGAEgASgJQhC6SA3IAQFyCDIGLipcUy4qEiIKCG9wZXJhdG9yGAIgASgJQhC6SA3IAQFyCDIGLipcUy4qEh8KBXZhbHVlGAMgASgJQhC6SA3IAQFyCDIGLipcUy4qOvkBukj1ARryAQoXcnVsZV9jb25kaXRpb24ub3BlcmF0b3ISRG9wZXJhdG9yIG11c3QgYmUgb25lIG9mIGVxLCBuZXEsIGNvbnRhaW5zLCBzdGFydHNfd2l0aCwgb3IgZW5kc193aXRoGpABdGhpcy5vcGVyYXRvciA9PSAnZXEnIHx8IHRoaXMub3BlcmF0b3IgPT0gJ25lcScgfHwgdGhpcy5vcGVyYXRvciA9PSAnY29udGFpbnMnIHx8IHRoaXMub3BlcmF0b3IgPT0gJ3N0YXJ0c193aXRoJyB8fCB0aGlzLm9wZXJhdG9yID09ICdlbmRzX3dpdGgnIowBChRDb250ZXh0U2VsZWN0aW9uUnVsZRIKCgJpZBgBIAEoBBIeCgpjb250ZXh0X2lkGAIgASgEQgq6SAfIAQEyAiAAEhAKCHByaW9yaXR5GAMgASgFEjYKCmNvbmRpdGlvbnMYBCADKAsyGC5zY3JpYmUudjEuUnVsZUNvbmRpdGlvbkIIukgFkgECCAEiKgoTTGlzdENvbnRleHRzUmVxdWVzdBITCgtzeXN0ZW1fb25seRgBIAEoCCI8ChRMaXN0Q29udGV4dHNSZXNwb25zZRIkCghjb250ZXh0cxgBIAMoCzISLnNjcmliZS52MS5Db250ZXh0IjMKEUdldENvbnRleHRSZXF1ZXN0Eh4KCmNvbnRleHRfaWQYASABKARCCrpIB8gBATICIAAiOQoSR2V0Q29udGV4dFJlc3BvbnNlEiMKB2NvbnRleHQYASABKAsyEi5zY3JpYmUudjEuQ29udGV4dCJDChRDcmVhdGVDb250ZXh0UmVxdWVzdBIrCgdjb250ZXh0GAEgASgLMhIuc2NyaWJlLnYxLkNvbnRleHRCBrpIA8gBASI8ChVDcmVhdGVDb250ZXh0UmVzcG9uc2USIwoHY29udGV4dBgBIAEoCzISLnNjcmliZS52MS5Db250ZXh0Ip8BChRVcGRhdGVDb250ZXh0UmVxdWVzdBIrCgdjb250ZXh0GAEgASgLMhIuc2NyaWJlLnYxLkNvbnRleHRCBrpIA8gBATpaukhXGlUKEXVwZGF0ZV9jb250ZXh0LmlkEhZjb250ZXh0LmlkIGlzIHJlcXVpcmVkGihoYXModGhpcy5jb250ZXh0KSAmJiB0aGlzLmNvbnRleHQuaWQgPiAwIjwKFVVwZGF0ZUNvbnRleHRSZXNwb25zZRIjCgdjb250ZXh0GAEgASgLMhIuc2NyaWJlLnYxLkNvbnRleHQiNgoURGVsZXRlQ29udGV4dFJlcXVlc3QSHgoKY29udGV4dF9pZBgBIAEoBEIKukgHyAEBMgIgACIXChVEZWxldGVDb250ZXh0UmVzcG9uc2UiLwoZTGlzdFNlbGVjdGlvblJ1bGVzUmVxdWVzdBISCgpjb250ZXh0X2lkGAEgASgEIkwKGkxpc3RTZWxlY3Rpb25SdWxlc1Jlc3BvbnNlEi4KBXJ1bGVzGAEgAygLMh8uc2NyaWJlLnYxLkNvbnRleHRTZWxlY3Rpb25SdWxlIlMKGkNyZWF0ZVNlbGVjdGlvblJ1bGVSZXF1ZXN0EjUKBHJ1bGUYASABKAsyHy5zY3JpYmUudjEuQ29udGV4dFNlbGVjdGlvblJ1bGVCBrpIA8gBASJMChtDcmVhdGVTZWxlY3Rpb25SdWxlUmVzcG9uc2USLQoEcnVsZRgBIAEoCzIfLnNjcmliZS52MS5Db250ZXh0U2VsZWN0aW9uUnVsZSI5ChpEZWxldGVTZWxlY3Rpb25SdWxlUmVxdWVzdBIbCgdydWxlX2lkGAEgASgEQgq6SAfIAQEyAiAAIh0KG0RlbGV0ZVNlbGVjdGlvblJ1bGVSZXNwb25zZSIuChVSZXNvbHZlQ29udGV4dFJlcXVlc3QSFQoNbWV0YWRhdGFfanNvbhgBIAEoCSJRChZSZXNvbHZlQ29udGV4dFJlc3BvbnNlEiMKB2NvbnRleHQYASABKAsyEi5zY3JpYmUudjEuQ29udGV4dBISCgppc19kZWZhdWx0GAIgASgIIhgKFkdldE1vZGVsQ2F0YWxvZ1JlcXVlc3QikgEKF0dldE1vZGVsQ2F0YWxvZ1Jlc3BvbnNlEhUKDW9sbGFtYV9tb2RlbHMYASADKAkSFQoNa3Jha2VuX21vZGVscxgCIAMoCRIbChNzZWdtZW50YXRpb25fbW9kZWxzGAMgAygJEhUKDW9wZW5haV9tb2RlbHMYBCADKAkSFQoNZ2VtaW5pX21vZGVscxgFIAMoCTKhCAoOQ29udGV4dFNlcnZpY2USWQoMTGlzdENvbnRleHRzEh4uc2NyaWJlLnYxLkxpc3RDb250ZXh0c1JlcXVlc3QaHy5zY3JpYmUudjEuTGlzdENvbnRleHRzUmVzcG9uc2UiCJK1GAQQAhgBEl8KCkdldENvbnRleHQSHC5zY3JpYmUudjEuR2V0Q29udGV4dFJlcXVlc3QaHS5zY3JpYmUudjEuR2V0Q29udGV4dFJlc3BvbnNlIhSStRgQEAUYASIKY29udGV4dF9pZBJcCg1DcmVhdGVDb250ZXh0Eh8uc2NyaWJlLnYxLkNyZWF0ZUNvbnRleHRSZXF1ZXN0GiAuc2NyaWJlLnYxLkNyZWF0ZUNvbnRleHRSZXNwb25zZSIIkrUYBBACGAISaAoNVXBkYXRlQ29udGV4dBIfLnNjcmliZS52MS5VcGRhdGVDb250ZXh0UmVxdWVzdBogLnNjcmliZS52MS5VcGRhdGVDb250ZXh0UmVzcG9uc2UiFJK1GBAQBRgCIgpjb250ZXh0LmlkEmgKDURlbGV0ZUNvbnRleHQSHy5zY3JpYmUudjEuRGVsZXRlQ29udGV4dFJlcXVlc3QaIC5zY3JpYmUudjEuRGVsZXRlQ29udGV4dFJlc3BvbnNlIhSStRgQEAUYAiIKY29udGV4dF9pZBJrChJMaXN0U2VsZWN0aW9uUnVsZXMSJC5zY3JpYmUudjEuTGlzdFNlbGVjdGlvblJ1bGVzUmVxdWVzdBolLnNjcmliZS52MS5MaXN0U2VsZWN0aW9uUnVsZXNSZXNwb25zZSIIkrUYBBACGAESfwoTQ3JlYXRlU2VsZWN0aW9uUnVsZRIlLnNjcmliZS52MS5DcmVhdGVTZWxlY3Rpb25SdWxlUmVxdWVzdBomLnNjcmliZS52MS5DcmVhdGVTZWxlY3Rpb25SdWxlUmVzcG9uc2UiGZK1GBUQBRgCIg9ydWxlLmNvbnRleHRfaWQSbgoTRGVsZXRlU2VsZWN0aW9uUnVsZRIlLnNjcmliZS52MS5EZWxldGVTZWxlY3Rpb25SdWxlUmVxdWVzdBomLnNjcmliZS52MS5EZWxldGVTZWxlY3Rpb25SdWxlUmVzcG9uc2UiCJK1GAQQAhgCEl8KDlJlc29sdmVDb250ZXh0EiAuc2NyaWJlLnYxLlJlc29sdmVDb250ZXh0UmVxdWVzdBohLnNjcmliZS52MS5SZXNvbHZlQ29udGV4dFJlc3BvbnNlIgiStRgEEAIYARJiCg9HZXRNb2RlbENhdGFsb2cSIS5zY3JpYmUudjEuR2V0TW9kZWxDYXRhbG9nUmVxdWVzdBoiLnNjcmliZS52MS5HZXRNb2RlbENhdGFsb2dSZXNwb25zZSIIkrUYBBACGAFCqgEKDWNvbS5zY3JpYmUudjFCDENvbnRleHRQcm90b1ABWkZnaXRodWIuY29tL2xlaGlnaC11bml2ZXJzaXR5LWxpYnJhcmllcy9zY3JpYmUvcHJvdG8vc2NyaWJlL3YxO3NjcmliZXYxogIDU1hYqgIJU2NyaWJlLlYxygIJU2NyaWJlXFYx4gIVU2NyaWJlXFYxXEdQQk1ldGFkYXRh6gIKU2NyaWJlOjpWMWIGcHJvdG8z", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
-
-/**
- * ImagePreprocessor is a single image pre-processing step.
- *
- * @generated from message scribe.v1.ImagePreprocessor
- */
-export type ImagePreprocessor = Message<"scribe.v1.ImagePreprocessor"> & {
-  /**
-   * type: resize | contrast | binarize | invert
-   *
-   * @generated from field: string type = 1;
-   */
-  type: string;
-
-  /**
-   * JSON-encoded parameters, e.g. {"px":2000} for resize
-   *
-   * @generated from field: string params = 2;
-   */
-  params: string;
-};
-
-/**
- * Describes the message scribe.v1.ImagePreprocessor.
- * Use `create(ImagePreprocessorSchema)` to create a new message.
- */
-export const ImagePreprocessorSchema: GenMessage<ImagePreprocessor> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 0);
+  fileDesc("ChdzY3JpYmUvdjEvY29udGV4dC5wcm90bxIJc2NyaWJlLnYxItEECgdDb250ZXh0EgoKAmlkGAEgASgEEg8KB3VzZXJfaWQYAiABKAQSIQoEbmFtZRgDIAEoCUITukgQyAEBcgsY/wEyBi4qXFMuKhIoCgtkZXNjcmlwdGlvbhgEIAEoCUITukgQcg4YgCAyCV4kfC4qXFMuKhISCgppc19kZWZhdWx0GAUgASgIEkYKEnNlZ21lbnRhdGlvbl9tb2RlbBgGIAEoCUIqukgnyAEBciIY/wEyHV5bYS16MC05XVthLXowLTkuXzotXXswLDI1NH0kEkMKFnRyYW5zY3JpcHRpb25fcHJvdmlkZXIYCCABKAlCI7pIIMgBAXIbGEAyF15bYS16XVthLXowLTlfLV17MCw2M30kEjAKE3RyYW5zY3JpcHRpb25fbW9kZWwYCSABKAlCE7pIEHIOGP8BMgleJHwuKlxTLioSMQoLdGVtcGVyYXR1cmUYCiABKAFCF7pIFBISGQAAAAAAAABAKQAAAAAAAAAASACIAQESKgoNc3lzdGVtX3Byb21wdBgLIAEoCUITukgQcg4YgEAyCV4kfC4qXFMuKhISCgpjcmVhdGVkX2F0GA0gASgJEhIKCnVwZGF0ZWRfYXQYDiABKAlCDgoMX3RlbXBlcmF0dXJlSgQIBxAISgQIDBANSgQIDxAQSgQIEBARUhNpbWFnZV9wcmVwcm9jZXNzb3JzUhVwb3N0X3Byb2Nlc3Npbmdfc3RlcHNSFnRyYW5zY3JpcHRpb25fYmFzZV91cmxSFnRyYW5zY3JpcHRpb25fYXVkaWVuY2UiQAoPTW9kZWxEZXNjcmlwdG9yEgoKAmlkGAEgASgJEg0KBWxhYmVsGAIgASgJEhIKCmlzX2RlZmF1bHQYAyABKAgiswEKElByb3ZpZGVyRGVzY3JpcHRvchIKCgJpZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIqCgZtb2RlbHMYAyADKAsyGi5zY3JpYmUudjEuTW9kZWxEZXNjcmlwdG9yEhgKEHJlcXVpcmVzX2FwaV9rZXkYBCABKAgSHgoWc3VwcG9ydHNfc3lzdGVtX3Byb21wdBgFIAEoCBIcChRzdXBwb3J0c190ZW1wZXJhdHVyZRgGIAEoCCL5AgoNUnVsZUNvbmRpdGlvbhIiCgVmaWVsZBgBIAEoCUITukgQyAEBcgso/wEyBi4qXFMuKhIkCghvcGVyYXRvchgCIAEoCUISukgPyAEBcgoYEDIGLipcUy4qEiIKBXZhbHVlGAMgASgJQhO6SBDIAQFyCyiAIDIGLipcUy4qOvkBukj1ARryAQoXcnVsZV9jb25kaXRpb24ub3BlcmF0b3ISRG9wZXJhdG9yIG11c3QgYmUgb25lIG9mIGVxLCBuZXEsIGNvbnRhaW5zLCBzdGFydHNfd2l0aCwgb3IgZW5kc193aXRoGpABdGhpcy5vcGVyYXRvciA9PSAnZXEnIHx8IHRoaXMub3BlcmF0b3IgPT0gJ25lcScgfHwgdGhpcy5vcGVyYXRvciA9PSAnY29udGFpbnMnIHx8IHRoaXMub3BlcmF0b3IgPT0gJ3N0YXJ0c193aXRoJyB8fCB0aGlzLm9wZXJhdG9yID09ICdlbmRzX3dpdGgnIo4BChRDb250ZXh0U2VsZWN0aW9uUnVsZRIKCgJpZBgBIAEoBBIeCgpjb250ZXh0X2lkGAIgASgEQgq6SAfIAQEyAiAAEhAKCHByaW9yaXR5GAMgASgFEjgKCmNvbmRpdGlvbnMYBCADKAsyGC5zY3JpYmUudjEuUnVsZUNvbmRpdGlvbkIKukgHkgEECAEQICJkChNMaXN0Q29udGV4dHNSZXF1ZXN0EhMKC3N5c3RlbV9vbmx5GAEgASgIEhoKCXBhZ2Vfc2l6ZRgCIAEoDUIHukgEKgIYZBIcCgpwYWdlX3Rva2VuGAMgASgJQgi6SAVyAxiABCJVChRMaXN0Q29udGV4dHNSZXNwb25zZRIkCghjb250ZXh0cxgBIAMoCzISLnNjcmliZS52MS5Db250ZXh0EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSIzChFHZXRDb250ZXh0UmVxdWVzdBIeCgpjb250ZXh0X2lkGAEgASgEQgq6SAfIAQEyAiAAIjkKEkdldENvbnRleHRSZXNwb25zZRIjCgdjb250ZXh0GAEgASgLMhIuc2NyaWJlLnYxLkNvbnRleHQiQwoUQ3JlYXRlQ29udGV4dFJlcXVlc3QSKwoHY29udGV4dBgBIAEoCzISLnNjcmliZS52MS5Db250ZXh0Qga6SAPIAQEiPAoVQ3JlYXRlQ29udGV4dFJlc3BvbnNlEiMKB2NvbnRleHQYASABKAsyEi5zY3JpYmUudjEuQ29udGV4dCKfAQoUVXBkYXRlQ29udGV4dFJlcXVlc3QSKwoHY29udGV4dBgBIAEoCzISLnNjcmliZS52MS5Db250ZXh0Qga6SAPIAQE6WrpIVxpVChF1cGRhdGVfY29udGV4dC5pZBIWY29udGV4dC5pZCBpcyByZXF1aXJlZBooaGFzKHRoaXMuY29udGV4dCkgJiYgdGhpcy5jb250ZXh0LmlkID4gMCI8ChVVcGRhdGVDb250ZXh0UmVzcG9uc2USIwoHY29udGV4dBgBIAEoCzISLnNjcmliZS52MS5Db250ZXh0IjYKFERlbGV0ZUNvbnRleHRSZXF1ZXN0Eh4KCmNvbnRleHRfaWQYASABKARCCrpIB8gBATICIAAiFwoVRGVsZXRlQ29udGV4dFJlc3BvbnNlImkKGUxpc3RTZWxlY3Rpb25SdWxlc1JlcXVlc3QSEgoKY29udGV4dF9pZBgBIAEoBBIaCglwYWdlX3NpemUYAiABKA1CB7pIBCoCGGQSHAoKcGFnZV90b2tlbhgDIAEoCUIIukgFcgMYgAQiZQoaTGlzdFNlbGVjdGlvblJ1bGVzUmVzcG9uc2USLgoFcnVsZXMYASADKAsyHy5zY3JpYmUudjEuQ29udGV4dFNlbGVjdGlvblJ1bGUSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIlMKGkNyZWF0ZVNlbGVjdGlvblJ1bGVSZXF1ZXN0EjUKBHJ1bGUYASABKAsyHy5zY3JpYmUudjEuQ29udGV4dFNlbGVjdGlvblJ1bGVCBrpIA8gBASJMChtDcmVhdGVTZWxlY3Rpb25SdWxlUmVzcG9uc2USLQoEcnVsZRgBIAEoCzIfLnNjcmliZS52MS5Db250ZXh0U2VsZWN0aW9uUnVsZSI5ChpEZWxldGVTZWxlY3Rpb25SdWxlUmVxdWVzdBIbCgdydWxlX2lkGAEgASgEQgq6SAfIAQEyAiAAIh0KG0RlbGV0ZVNlbGVjdGlvblJ1bGVSZXNwb25zZSI5ChVSZXNvbHZlQ29udGV4dFJlcXVlc3QSIAoNbWV0YWRhdGFfanNvbhgBIAEoCUIJukgGcgQogIAEIlEKFlJlc29sdmVDb250ZXh0UmVzcG9uc2USIwoHY29udGV4dBgBIAEoCzISLnNjcmliZS52MS5Db250ZXh0EhIKCmlzX2RlZmF1bHQYAiABKAgiGAoWR2V0TW9kZWxDYXRhbG9nUmVxdWVzdCKSAQoXR2V0TW9kZWxDYXRhbG9nUmVzcG9uc2USPgoXdHJhbnNjcmlwdGlvbl9wcm92aWRlcnMYASADKAsyHS5zY3JpYmUudjEuUHJvdmlkZXJEZXNjcmlwdG9yEjcKE3NlZ21lbnRhdGlvbl9tb2RlbHMYAiADKAsyGi5zY3JpYmUudjEuTW9kZWxEZXNjcmlwdG9yInIKDkNvbnRleHRNZXRyaWNzEhIKCmNvbnRleHRfaWQYASABKAQSEgoKdG90YWxfcnVucxgCIAEoBBIWCg5jb3JyZWN0ZWRfcnVucxgDIAEoBBIgChhhdmdfbGV2ZW5zaHRlaW5fZGlzdGFuY2UYBCABKAEiOgoYR2V0Q29udGV4dE1ldHJpY3NSZXF1ZXN0Eh4KCmNvbnRleHRfaWQYASABKARCCrpIB8gBATICIAAiRwoZR2V0Q29udGV4dE1ldHJpY3NSZXNwb25zZRIqCgdtZXRyaWNzGAEgASgLMhkuc2NyaWJlLnYxLkNvbnRleHRNZXRyaWNzMqAJCg5Db250ZXh0U2VydmljZRJZCgxMaXN0Q29udGV4dHMSHi5zY3JpYmUudjEuTGlzdENvbnRleHRzUmVxdWVzdBofLnNjcmliZS52MS5MaXN0Q29udGV4dHNSZXNwb25zZSIIkrUYBBACGAESXwoKR2V0Q29udGV4dBIcLnNjcmliZS52MS5HZXRDb250ZXh0UmVxdWVzdBodLnNjcmliZS52MS5HZXRDb250ZXh0UmVzcG9uc2UiFJK1GBAQBRgBIgpjb250ZXh0X2lkElwKDUNyZWF0ZUNvbnRleHQSHy5zY3JpYmUudjEuQ3JlYXRlQ29udGV4dFJlcXVlc3QaIC5zY3JpYmUudjEuQ3JlYXRlQ29udGV4dFJlc3BvbnNlIgiStRgEEAIYAhJoCg1VcGRhdGVDb250ZXh0Eh8uc2NyaWJlLnYxLlVwZGF0ZUNvbnRleHRSZXF1ZXN0GiAuc2NyaWJlLnYxLlVwZGF0ZUNvbnRleHRSZXNwb25zZSIUkrUYEBAFGAIiCmNvbnRleHQuaWQSaAoNRGVsZXRlQ29udGV4dBIfLnNjcmliZS52MS5EZWxldGVDb250ZXh0UmVxdWVzdBogLnNjcmliZS52MS5EZWxldGVDb250ZXh0UmVzcG9uc2UiFJK1GBAQBRgCIgpjb250ZXh0X2lkEmsKEkxpc3RTZWxlY3Rpb25SdWxlcxIkLnNjcmliZS52MS5MaXN0U2VsZWN0aW9uUnVsZXNSZXF1ZXN0GiUuc2NyaWJlLnYxLkxpc3RTZWxlY3Rpb25SdWxlc1Jlc3BvbnNlIgiStRgEEAIYARJ/ChNDcmVhdGVTZWxlY3Rpb25SdWxlEiUuc2NyaWJlLnYxLkNyZWF0ZVNlbGVjdGlvblJ1bGVSZXF1ZXN0GiYuc2NyaWJlLnYxLkNyZWF0ZVNlbGVjdGlvblJ1bGVSZXNwb25zZSIZkrUYFRAFGAIiD3J1bGUuY29udGV4dF9pZBJ3ChNEZWxldGVTZWxlY3Rpb25SdWxlEiUuc2NyaWJlLnYxLkRlbGV0ZVNlbGVjdGlvblJ1bGVSZXF1ZXN0GiYuc2NyaWJlLnYxLkRlbGV0ZVNlbGVjdGlvblJ1bGVSZXNwb25zZSIRkrUYDRAJGAIiB3J1bGVfaWQSXwoOUmVzb2x2ZUNvbnRleHQSIC5zY3JpYmUudjEuUmVzb2x2ZUNvbnRleHRSZXF1ZXN0GiEuc2NyaWJlLnYxLlJlc29sdmVDb250ZXh0UmVzcG9uc2UiCJK1GAQQAhgBEmIKD0dldE1vZGVsQ2F0YWxvZxIhLnNjcmliZS52MS5HZXRNb2RlbENhdGFsb2dSZXF1ZXN0GiIuc2NyaWJlLnYxLkdldE1vZGVsQ2F0YWxvZ1Jlc3BvbnNlIgiStRgEEAIYARJ0ChFHZXRDb250ZXh0TWV0cmljcxIjLnNjcmliZS52MS5HZXRDb250ZXh0TWV0cmljc1JlcXVlc3QaJC5zY3JpYmUudjEuR2V0Q29udGV4dE1ldHJpY3NSZXNwb25zZSIUkrUYEBAFGAEiCmNvbnRleHRfaWRCqgEKDWNvbS5zY3JpYmUudjFCDENvbnRleHRQcm90b1ABWkZnaXRodWIuY29tL2xlaGlnaC11bml2ZXJzaXR5LWxpYnJhcmllcy9zY3JpYmUvcHJvdG8vc2NyaWJlL3YxO3NjcmliZXYxogIDU1hYqgIJU2NyaWJlLlYxygIJU2NyaWJlXFYx4gIVU2NyaWJlXFYxXEdQQk1ldGFkYXRh6gIKU2NyaWJlOjpWMWIGcHJvdG8z", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
 
 /**
  * Context bundles all processing parameters for a pipeline run.
@@ -83,11 +55,6 @@ export type Context = Message<"scribe.v1.Context"> & {
   segmentationModel: string;
 
   /**
-   * @generated from field: repeated scribe.v1.ImagePreprocessor image_preprocessors = 7;
-   */
-  imagePreprocessors: ImagePreprocessor[];
-
-  /**
    * @generated from field: string transcription_provider = 8;
    */
   transcriptionProvider: string;
@@ -98,31 +65,14 @@ export type Context = Message<"scribe.v1.Context"> & {
   transcriptionModel: string;
 
   /**
-   * @generated from field: string transcription_base_url = 15;
+   * @generated from field: optional double temperature = 10;
    */
-  transcriptionBaseUrl: string;
-
-  /**
-   * @generated from field: string transcription_audience = 16;
-   */
-  transcriptionAudience: string;
-
-  /**
-   * -1 means "use provider default"
-   *
-   * @generated from field: double temperature = 10;
-   */
-  temperature: number;
+  temperature?: number;
 
   /**
    * @generated from field: string system_prompt = 11;
    */
   systemPrompt: string;
-
-  /**
-   * @generated from field: repeated string post_processing_steps = 12;
-   */
-  postProcessingSteps: string[];
 
   /**
    * @generated from field: string created_at = 13;
@@ -140,7 +90,81 @@ export type Context = Message<"scribe.v1.Context"> & {
  * Use `create(ContextSchema)` to create a new message.
  */
 export const ContextSchema: GenMessage<Context> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_context, 0);
+
+/**
+ * ModelDescriptor is a server-approved model that can be selected by a context.
+ *
+ * @generated from message scribe.v1.ModelDescriptor
+ */
+export type ModelDescriptor = Message<"scribe.v1.ModelDescriptor"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string label = 2;
+   */
+  label: string;
+
+  /**
+   * @generated from field: bool is_default = 3;
+   */
+  isDefault: boolean;
+};
+
+/**
+ * Describes the message scribe.v1.ModelDescriptor.
+ * Use `create(ModelDescriptorSchema)` to create a new message.
+ */
+export const ModelDescriptorSchema: GenMessage<ModelDescriptor> = /*@__PURE__*/
   messageDesc(file_scribe_v1_context, 1);
+
+/**
+ * ProviderDescriptor describes one installed transcription provider. Endpoint
+ * and credential details intentionally remain server-owned.
+ *
+ * @generated from message scribe.v1.ProviderDescriptor
+ */
+export type ProviderDescriptor = Message<"scribe.v1.ProviderDescriptor"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string label = 2;
+   */
+  label: string;
+
+  /**
+   * @generated from field: repeated scribe.v1.ModelDescriptor models = 3;
+   */
+  models: ModelDescriptor[];
+
+  /**
+   * @generated from field: bool requires_api_key = 4;
+   */
+  requiresApiKey: boolean;
+
+  /**
+   * @generated from field: bool supports_system_prompt = 5;
+   */
+  supportsSystemPrompt: boolean;
+
+  /**
+   * @generated from field: bool supports_temperature = 6;
+   */
+  supportsTemperature: boolean;
+};
+
+/**
+ * Describes the message scribe.v1.ProviderDescriptor.
+ * Use `create(ProviderDescriptorSchema)` to create a new message.
+ */
+export const ProviderDescriptorSchema: GenMessage<ProviderDescriptor> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_context, 2);
 
 /**
  * RuleCondition is a single AND-clause predicate.
@@ -171,7 +195,7 @@ export type RuleCondition = Message<"scribe.v1.RuleCondition"> & {
  * Use `create(RuleConditionSchema)` to create a new message.
  */
 export const RuleConditionSchema: GenMessage<RuleCondition> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 2);
+  messageDesc(file_scribe_v1_context, 3);
 
 /**
  * ContextSelectionRule maps a set of AND conditions to a context.
@@ -207,7 +231,7 @@ export type ContextSelectionRule = Message<"scribe.v1.ContextSelectionRule"> & {
  * Use `create(ContextSelectionRuleSchema)` to create a new message.
  */
 export const ContextSelectionRuleSchema: GenMessage<ContextSelectionRule> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 3);
+  messageDesc(file_scribe_v1_context, 4);
 
 /**
  * @generated from message scribe.v1.ListContextsRequest
@@ -219,6 +243,20 @@ export type ListContextsRequest = Message<"scribe.v1.ListContextsRequest"> & {
    * @generated from field: bool system_only = 1;
    */
   systemOnly: boolean;
+
+  /**
+   * Number of contexts to return. Zero uses the server default of 50.
+   *
+   * @generated from field: uint32 page_size = 2;
+   */
+  pageSize: number;
+
+  /**
+   * Opaque workspace- and filter-bound continuation token.
+   *
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
 };
 
 /**
@@ -226,7 +264,7 @@ export type ListContextsRequest = Message<"scribe.v1.ListContextsRequest"> & {
  * Use `create(ListContextsRequestSchema)` to create a new message.
  */
 export const ListContextsRequestSchema: GenMessage<ListContextsRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 4);
+  messageDesc(file_scribe_v1_context, 5);
 
 /**
  * @generated from message scribe.v1.ListContextsResponse
@@ -236,6 +274,13 @@ export type ListContextsResponse = Message<"scribe.v1.ListContextsResponse"> & {
    * @generated from field: repeated scribe.v1.Context contexts = 1;
    */
   contexts: Context[];
+
+  /**
+   * Empty when the workspace context catalog is exhausted.
+   *
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
 };
 
 /**
@@ -243,7 +288,7 @@ export type ListContextsResponse = Message<"scribe.v1.ListContextsResponse"> & {
  * Use `create(ListContextsResponseSchema)` to create a new message.
  */
 export const ListContextsResponseSchema: GenMessage<ListContextsResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 5);
+  messageDesc(file_scribe_v1_context, 6);
 
 /**
  * @generated from message scribe.v1.GetContextRequest
@@ -260,7 +305,7 @@ export type GetContextRequest = Message<"scribe.v1.GetContextRequest"> & {
  * Use `create(GetContextRequestSchema)` to create a new message.
  */
 export const GetContextRequestSchema: GenMessage<GetContextRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 6);
+  messageDesc(file_scribe_v1_context, 7);
 
 /**
  * @generated from message scribe.v1.GetContextResponse
@@ -277,7 +322,7 @@ export type GetContextResponse = Message<"scribe.v1.GetContextResponse"> & {
  * Use `create(GetContextResponseSchema)` to create a new message.
  */
 export const GetContextResponseSchema: GenMessage<GetContextResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 7);
+  messageDesc(file_scribe_v1_context, 8);
 
 /**
  * @generated from message scribe.v1.CreateContextRequest
@@ -294,7 +339,7 @@ export type CreateContextRequest = Message<"scribe.v1.CreateContextRequest"> & {
  * Use `create(CreateContextRequestSchema)` to create a new message.
  */
 export const CreateContextRequestSchema: GenMessage<CreateContextRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 8);
+  messageDesc(file_scribe_v1_context, 9);
 
 /**
  * @generated from message scribe.v1.CreateContextResponse
@@ -311,7 +356,7 @@ export type CreateContextResponse = Message<"scribe.v1.CreateContextResponse"> &
  * Use `create(CreateContextResponseSchema)` to create a new message.
  */
 export const CreateContextResponseSchema: GenMessage<CreateContextResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 9);
+  messageDesc(file_scribe_v1_context, 10);
 
 /**
  * @generated from message scribe.v1.UpdateContextRequest
@@ -328,7 +373,7 @@ export type UpdateContextRequest = Message<"scribe.v1.UpdateContextRequest"> & {
  * Use `create(UpdateContextRequestSchema)` to create a new message.
  */
 export const UpdateContextRequestSchema: GenMessage<UpdateContextRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 10);
+  messageDesc(file_scribe_v1_context, 11);
 
 /**
  * @generated from message scribe.v1.UpdateContextResponse
@@ -345,7 +390,7 @@ export type UpdateContextResponse = Message<"scribe.v1.UpdateContextResponse"> &
  * Use `create(UpdateContextResponseSchema)` to create a new message.
  */
 export const UpdateContextResponseSchema: GenMessage<UpdateContextResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 11);
+  messageDesc(file_scribe_v1_context, 12);
 
 /**
  * @generated from message scribe.v1.DeleteContextRequest
@@ -362,7 +407,7 @@ export type DeleteContextRequest = Message<"scribe.v1.DeleteContextRequest"> & {
  * Use `create(DeleteContextRequestSchema)` to create a new message.
  */
 export const DeleteContextRequestSchema: GenMessage<DeleteContextRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 12);
+  messageDesc(file_scribe_v1_context, 13);
 
 /**
  * @generated from message scribe.v1.DeleteContextResponse
@@ -375,7 +420,7 @@ export type DeleteContextResponse = Message<"scribe.v1.DeleteContextResponse"> &
  * Use `create(DeleteContextResponseSchema)` to create a new message.
  */
 export const DeleteContextResponseSchema: GenMessage<DeleteContextResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 13);
+  messageDesc(file_scribe_v1_context, 14);
 
 /**
  * @generated from message scribe.v1.ListSelectionRulesRequest
@@ -387,6 +432,20 @@ export type ListSelectionRulesRequest = Message<"scribe.v1.ListSelectionRulesReq
    * @generated from field: uint64 context_id = 1;
    */
   contextId: bigint;
+
+  /**
+   * Number of rules to return. Zero uses the server default of 50.
+   *
+   * @generated from field: uint32 page_size = 2;
+   */
+  pageSize: number;
+
+  /**
+   * Opaque workspace- and context-filter-bound continuation token.
+   *
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
 };
 
 /**
@@ -394,7 +453,7 @@ export type ListSelectionRulesRequest = Message<"scribe.v1.ListSelectionRulesReq
  * Use `create(ListSelectionRulesRequestSchema)` to create a new message.
  */
 export const ListSelectionRulesRequestSchema: GenMessage<ListSelectionRulesRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 14);
+  messageDesc(file_scribe_v1_context, 15);
 
 /**
  * @generated from message scribe.v1.ListSelectionRulesResponse
@@ -404,6 +463,13 @@ export type ListSelectionRulesResponse = Message<"scribe.v1.ListSelectionRulesRe
    * @generated from field: repeated scribe.v1.ContextSelectionRule rules = 1;
    */
   rules: ContextSelectionRule[];
+
+  /**
+   * Empty when the filtered rule catalog is exhausted.
+   *
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
 };
 
 /**
@@ -411,7 +477,7 @@ export type ListSelectionRulesResponse = Message<"scribe.v1.ListSelectionRulesRe
  * Use `create(ListSelectionRulesResponseSchema)` to create a new message.
  */
 export const ListSelectionRulesResponseSchema: GenMessage<ListSelectionRulesResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 15);
+  messageDesc(file_scribe_v1_context, 16);
 
 /**
  * @generated from message scribe.v1.CreateSelectionRuleRequest
@@ -428,7 +494,7 @@ export type CreateSelectionRuleRequest = Message<"scribe.v1.CreateSelectionRuleR
  * Use `create(CreateSelectionRuleRequestSchema)` to create a new message.
  */
 export const CreateSelectionRuleRequestSchema: GenMessage<CreateSelectionRuleRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 16);
+  messageDesc(file_scribe_v1_context, 17);
 
 /**
  * @generated from message scribe.v1.CreateSelectionRuleResponse
@@ -445,7 +511,7 @@ export type CreateSelectionRuleResponse = Message<"scribe.v1.CreateSelectionRule
  * Use `create(CreateSelectionRuleResponseSchema)` to create a new message.
  */
 export const CreateSelectionRuleResponseSchema: GenMessage<CreateSelectionRuleResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 17);
+  messageDesc(file_scribe_v1_context, 18);
 
 /**
  * @generated from message scribe.v1.DeleteSelectionRuleRequest
@@ -462,7 +528,7 @@ export type DeleteSelectionRuleRequest = Message<"scribe.v1.DeleteSelectionRuleR
  * Use `create(DeleteSelectionRuleRequestSchema)` to create a new message.
  */
 export const DeleteSelectionRuleRequestSchema: GenMessage<DeleteSelectionRuleRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 18);
+  messageDesc(file_scribe_v1_context, 19);
 
 /**
  * @generated from message scribe.v1.DeleteSelectionRuleResponse
@@ -475,7 +541,7 @@ export type DeleteSelectionRuleResponse = Message<"scribe.v1.DeleteSelectionRule
  * Use `create(DeleteSelectionRuleResponseSchema)` to create a new message.
  */
 export const DeleteSelectionRuleResponseSchema: GenMessage<DeleteSelectionRuleResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 19);
+  messageDesc(file_scribe_v1_context, 20);
 
 /**
  * ResolveContextRequest asks the selection engine to pick the right context
@@ -485,6 +551,9 @@ export const DeleteSelectionRuleResponseSchema: GenMessage<DeleteSelectionRuleRe
  */
 export type ResolveContextRequest = Message<"scribe.v1.ResolveContextRequest"> & {
   /**
+   * Flat JSON object with at most 64 scalar fields. Field names are capped at
+   * 255 bytes and string/number representations at 4096 bytes.
+   *
    * @generated from field: string metadata_json = 1;
    */
   metadataJson: string;
@@ -495,7 +564,7 @@ export type ResolveContextRequest = Message<"scribe.v1.ResolveContextRequest"> &
  * Use `create(ResolveContextRequestSchema)` to create a new message.
  */
 export const ResolveContextRequestSchema: GenMessage<ResolveContextRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 20);
+  messageDesc(file_scribe_v1_context, 21);
 
 /**
  * @generated from message scribe.v1.ResolveContextResponse
@@ -517,7 +586,7 @@ export type ResolveContextResponse = Message<"scribe.v1.ResolveContextResponse">
  * Use `create(ResolveContextResponseSchema)` to create a new message.
  */
 export const ResolveContextResponseSchema: GenMessage<ResolveContextResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 21);
+  messageDesc(file_scribe_v1_context, 22);
 
 /**
  * @generated from message scribe.v1.GetModelCatalogRequest
@@ -530,36 +599,21 @@ export type GetModelCatalogRequest = Message<"scribe.v1.GetModelCatalogRequest">
  * Use `create(GetModelCatalogRequestSchema)` to create a new message.
  */
 export const GetModelCatalogRequestSchema: GenMessage<GetModelCatalogRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 22);
+  messageDesc(file_scribe_v1_context, 23);
 
 /**
  * @generated from message scribe.v1.GetModelCatalogResponse
  */
 export type GetModelCatalogResponse = Message<"scribe.v1.GetModelCatalogResponse"> & {
   /**
-   * @generated from field: repeated string ollama_models = 1;
+   * @generated from field: repeated scribe.v1.ProviderDescriptor transcription_providers = 1;
    */
-  ollamaModels: string[];
+  transcriptionProviders: ProviderDescriptor[];
 
   /**
-   * @generated from field: repeated string kraken_models = 2;
+   * @generated from field: repeated scribe.v1.ModelDescriptor segmentation_models = 2;
    */
-  krakenModels: string[];
-
-  /**
-   * @generated from field: repeated string segmentation_models = 3;
-   */
-  segmentationModels: string[];
-
-  /**
-   * @generated from field: repeated string openai_models = 4;
-   */
-  openaiModels: string[];
-
-  /**
-   * @generated from field: repeated string gemini_models = 5;
-   */
-  geminiModels: string[];
+  segmentationModels: ModelDescriptor[];
 };
 
 /**
@@ -567,7 +621,76 @@ export type GetModelCatalogResponse = Message<"scribe.v1.GetModelCatalogResponse
  * Use `create(GetModelCatalogResponseSchema)` to create a new message.
  */
 export const GetModelCatalogResponseSchema: GenMessage<GetModelCatalogResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_context, 23);
+  messageDesc(file_scribe_v1_context, 24);
+
+/**
+ * ContextMetrics summarizes correction effort against the immutable OCR
+ * baseline. Canonical AnnotationPage revisions are the only correction source.
+ *
+ * @generated from message scribe.v1.ContextMetrics
+ */
+export type ContextMetrics = Message<"scribe.v1.ContextMetrics"> & {
+  /**
+   * @generated from field: uint64 context_id = 1;
+   */
+  contextId: bigint;
+
+  /**
+   * @generated from field: uint64 total_runs = 2;
+   */
+  totalRuns: bigint;
+
+  /**
+   * @generated from field: uint64 corrected_runs = 3;
+   */
+  correctedRuns: bigint;
+
+  /**
+   * @generated from field: double avg_levenshtein_distance = 4;
+   */
+  avgLevenshteinDistance: number;
+};
+
+/**
+ * Describes the message scribe.v1.ContextMetrics.
+ * Use `create(ContextMetricsSchema)` to create a new message.
+ */
+export const ContextMetricsSchema: GenMessage<ContextMetrics> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_context, 25);
+
+/**
+ * @generated from message scribe.v1.GetContextMetricsRequest
+ */
+export type GetContextMetricsRequest = Message<"scribe.v1.GetContextMetricsRequest"> & {
+  /**
+   * @generated from field: uint64 context_id = 1;
+   */
+  contextId: bigint;
+};
+
+/**
+ * Describes the message scribe.v1.GetContextMetricsRequest.
+ * Use `create(GetContextMetricsRequestSchema)` to create a new message.
+ */
+export const GetContextMetricsRequestSchema: GenMessage<GetContextMetricsRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_context, 26);
+
+/**
+ * @generated from message scribe.v1.GetContextMetricsResponse
+ */
+export type GetContextMetricsResponse = Message<"scribe.v1.GetContextMetricsResponse"> & {
+  /**
+   * @generated from field: scribe.v1.ContextMetrics metrics = 1;
+   */
+  metrics?: ContextMetrics;
+};
+
+/**
+ * Describes the message scribe.v1.GetContextMetricsResponse.
+ * Use `create(GetContextMetricsResponseSchema)` to create a new message.
+ */
+export const GetContextMetricsResponseSchema: GenMessage<GetContextMetricsResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_context, 27);
 
 /**
  * @generated from service scribe.v1.ContextService
@@ -652,6 +775,14 @@ export const ContextService: GenService<{
     methodKind: "unary";
     input: typeof GetModelCatalogRequestSchema;
     output: typeof GetModelCatalogResponseSchema;
+  },
+  /**
+   * @generated from rpc scribe.v1.ContextService.GetContextMetrics
+   */
+  getContextMetrics: {
+    methodKind: "unary";
+    input: typeof GetContextMetricsRequestSchema;
+    output: typeof GetContextMetricsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_scribe_v1_context, 0);

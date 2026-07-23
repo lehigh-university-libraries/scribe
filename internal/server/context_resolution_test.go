@@ -59,10 +59,11 @@ func TestContextResolution_DefaultWhenNoRules(t *testing.T) {
 	_ = resolved
 }
 
-func TestContextStore_PreservesTranscriptionEndpointOverrides(t *testing.T) {
+func TestContextStore_PreservesSupportedProviderOptions(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	s := store.NewContextStore(db)
+	temperature := 0.25
 
 	created, err := s.Create(ctx, store.Context{
 		Name:                  uniqueName("test-context-endpoint"),
@@ -70,8 +71,8 @@ func TestContextStore_PreservesTranscriptionEndpointOverrides(t *testing.T) {
 		SegmentationModel:     "scribe",
 		TranscriptionProvider: "ollama",
 		TranscriptionModel:    "glm-ocr:bf16",
-		TranscriptionBaseURL:  "https://glm-ocr.run.app",
-		TranscriptionAudience: "https://glm-ocr-audience",
+		Temperature:           &temperature,
+		SystemPrompt:          "Preserve original spelling.",
 	})
 	if err != nil {
 		t.Fatalf("Create context: %v", err)
@@ -84,11 +85,11 @@ func TestContextStore_PreservesTranscriptionEndpointOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get context: %v", err)
 	}
-	if got.TranscriptionBaseURL != created.TranscriptionBaseURL {
-		t.Fatalf("got.TranscriptionBaseURL = %q, want %q", got.TranscriptionBaseURL, created.TranscriptionBaseURL)
+	if got.Temperature == nil || *got.Temperature != temperature {
+		t.Fatalf("got.Temperature = %v, want %v", got.Temperature, temperature)
 	}
-	if got.TranscriptionAudience != created.TranscriptionAudience {
-		t.Fatalf("got.TranscriptionAudience = %q, want %q", got.TranscriptionAudience, created.TranscriptionAudience)
+	if got.SystemPrompt != created.SystemPrompt {
+		t.Fatalf("got.SystemPrompt = %q, want %q", got.SystemPrompt, created.SystemPrompt)
 	}
 }
 
@@ -306,7 +307,7 @@ func TestContextResolution_PriorityOrder(t *testing.T) {
 	}
 }
 
-func TestContextResolution_ResolveForWorkspaceIgnoresOtherWorkspacesRules(t *testing.T) {
+func TestContextResolution_ResolversIgnoreForeignWorkspaceRules(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 	s := store.NewContextStore(db)
@@ -369,5 +370,83 @@ func TestContextResolution_ResolveForWorkspaceIgnoresOtherWorkspacesRules(t *tes
 	}
 	if resolved.ID == otherCtx.ID {
 		t.Fatalf("resolved.ID = %d; ResolveForWorkspace should ignore another workspace's rules", resolved.ID)
+	}
+
+	resolved, isDefault, err = s.Resolve(ctx, nil)
+	if err != nil {
+		t.Fatalf("Resolve system context: %v", err)
+	}
+	if !isDefault || !resolved.IsDefault || resolved.ID != defaultCtx.ID {
+		t.Fatalf("resolved system default = %d/%v/%v, want %d/true/true", resolved.ID, isDefault, resolved.IsDefault, defaultCtx.ID)
+	}
+}
+
+func TestContextResolution_WorkspaceDefaultIsUniqueAndPreferred(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	s := store.NewContextStore(db)
+
+	systemDefault, err := s.Create(ctx, store.Context{
+		Name:                  uniqueName("workspace-default-system"),
+		IsDefault:             true,
+		SegmentationModel:     "tesseract",
+		TranscriptionProvider: "tesseract",
+		TranscriptionModel:    "tesseract",
+	})
+	if err != nil {
+		t.Fatalf("Create system default: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Delete(context.Background(), systemDefault.ID) })
+
+	userID := createTestUser(t, db, uniqueName("workspace-default-user"))
+	workspaceID := createTestWorkspace(t, db, userID, uniqueName("workspace-default-workspace"))
+	createWorkspaceContext := func(name string) store.Context {
+		value, err := s.Create(ctx, store.Context{
+			UserID:                &userID,
+			WorkspaceID:           &workspaceID,
+			Name:                  uniqueName(name),
+			IsDefault:             true,
+			SegmentationModel:     "tesseract",
+			TranscriptionProvider: "tesseract",
+			TranscriptionModel:    "tesseract",
+		})
+		if err != nil {
+			t.Fatalf("Create workspace context: %v", err)
+		}
+		t.Cleanup(func() { _ = s.Delete(context.Background(), value.ID) })
+		return value
+	}
+
+	first := createWorkspaceContext("workspace-default-first")
+	second := createWorkspaceContext("workspace-default-second")
+	reloadedFirst, err := s.Get(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("Get first context: %v", err)
+	}
+	if reloadedFirst.IsDefault {
+		t.Fatal("first workspace context remained default after second was selected")
+	}
+	resolved, isDefault, err := s.ResolveForWorkspace(ctx, workspaceID, nil)
+	if err != nil {
+		t.Fatalf("ResolveForWorkspace: %v", err)
+	}
+	if !isDefault || resolved.ID != second.ID {
+		t.Fatalf("resolved workspace default = %d/%v, want %d/true", resolved.ID, isDefault, second.ID)
+	}
+
+	reloadedFirst.IsDefault = true
+	if _, err := s.UpdateForWorkspace(ctx, reloadedFirst, workspaceID, userID); err != nil {
+		t.Fatalf("promote first workspace context: %v", err)
+	}
+	reloadedSecond, err := s.Get(ctx, second.ID)
+	if err != nil {
+		t.Fatalf("Get second context: %v", err)
+	}
+	if reloadedSecond.IsDefault {
+		t.Fatal("second workspace context remained default after first was promoted")
+	}
+	resolved, _, err = s.ResolveForWorkspace(ctx, workspaceID, nil)
+	if err != nil || resolved.ID != first.ID {
+		t.Fatalf("resolved promoted default = %d, %v; want %d", resolved.ID, err, first.ID)
 	}
 }

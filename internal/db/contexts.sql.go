@@ -11,6 +11,86 @@ import (
 	"encoding/json"
 )
 
+const clearDefaultContextsForScopeManual = `-- name: ClearDefaultContextsForScopeManual :exec
+UPDATE contexts
+SET is_default = FALSE
+WHERE is_default = TRUE
+  AND workspace_id <=> ?
+  AND id <> ?
+`
+
+type ClearDefaultContextsForScopeManualParams struct {
+	WorkspaceID sql.NullInt64 `json:"workspace_id"`
+	ExceptID    uint64        `json:"except_id"`
+}
+
+func (q *Queries) ClearDefaultContextsForScopeManual(ctx context.Context, arg ClearDefaultContextsForScopeManualParams) error {
+	_, err := q.db.ExecContext(ctx, clearDefaultContextsForScopeManual, arg.WorkspaceID, arg.ExceptID)
+	return err
+}
+
+const clearOCRRunContextLinksManual = `-- name: ClearOCRRunContextLinksManual :exec
+UPDATE ocr_runs
+SET context_id = NULL,
+    context_scope_id = NULL
+WHERE context_id = ?
+`
+
+func (q *Queries) ClearOCRRunContextLinksManual(ctx context.Context, contextID sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, clearOCRRunContextLinksManual, contextID)
+	return err
+}
+
+const clearProviderAuditContextLinksManual = `-- name: ClearProviderAuditContextLinksManual :exec
+UPDATE provider_call_audits
+SET context_id = NULL,
+    context_scope_id = NULL
+WHERE context_id = ?
+`
+
+func (q *Queries) ClearProviderAuditContextLinksManual(ctx context.Context, contextID sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, clearProviderAuditContextLinksManual, contextID)
+	return err
+}
+
+const clearTranscriptionJobContextLinksManual = `-- name: ClearTranscriptionJobContextLinksManual :exec
+UPDATE transcription_jobs
+SET context_id = NULL,
+    context_scope_id = NULL
+WHERE context_id = ?
+`
+
+func (q *Queries) ClearTranscriptionJobContextLinksManual(ctx context.Context, contextID sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, clearTranscriptionJobContextLinksManual, contextID)
+	return err
+}
+
+const clearUploadBatchContextLinksManual = `-- name: ClearUploadBatchContextLinksManual :exec
+UPDATE upload_batches
+SET context_id = NULL,
+    context_scope_id = NULL
+WHERE context_id = ?
+`
+
+func (q *Queries) ClearUploadBatchContextLinksManual(ctx context.Context, contextID sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, clearUploadBatchContextLinksManual, contextID)
+	return err
+}
+
+const countSelectionRulesForWorkspaceManual = `-- name: CountSelectionRulesForWorkspaceManual :one
+SELECT COUNT(*)
+FROM context_selection_rules r
+JOIN contexts c ON c.id = r.context_id
+WHERE c.workspace_id IS NULL OR c.workspace_id = ?
+`
+
+func (q *Queries) CountSelectionRulesForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSelectionRulesForWorkspaceManual, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createContextManual = `-- name: CreateContextManual :execresult
 INSERT INTO contexts (
   user_id,
@@ -19,19 +99,11 @@ INSERT INTO contexts (
   description,
   is_default,
   segmentation_model,
-  image_preprocessors,
   transcription_provider,
   transcription_model,
-  transcription_base_url,
-  transcription_audience,
   temperature,
-  system_prompt,
-  post_processing_steps
+  system_prompt
 ) VALUES (
-  ?,
-  ?,
-  ?,
-  ?,
   ?,
   ?,
   ?,
@@ -52,14 +124,10 @@ type CreateContextManualParams struct {
 	Description           sql.NullString  `json:"description"`
 	IsDefault             bool            `json:"is_default"`
 	SegmentationModel     string          `json:"segmentation_model"`
-	ImagePreprocessors    json.RawMessage `json:"image_preprocessors"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
-	TranscriptionBaseUrl  sql.NullString  `json:"transcription_base_url"`
-	TranscriptionAudience sql.NullString  `json:"transcription_audience"`
 	Temperature           sql.NullFloat64 `json:"temperature"`
 	SystemPrompt          sql.NullString  `json:"system_prompt"`
-	PostProcessingSteps   json.RawMessage `json:"post_processing_steps"`
 }
 
 func (q *Queries) CreateContextManual(ctx context.Context, arg CreateContextManualParams) (sql.Result, error) {
@@ -70,14 +138,10 @@ func (q *Queries) CreateContextManual(ctx context.Context, arg CreateContextManu
 		arg.Description,
 		arg.IsDefault,
 		arg.SegmentationModel,
-		arg.ImagePreprocessors,
 		arg.TranscriptionProvider,
 		arg.TranscriptionModel,
-		arg.TranscriptionBaseUrl,
-		arg.TranscriptionAudience,
 		arg.Temperature,
 		arg.SystemPrompt,
-		arg.PostProcessingSteps,
 	)
 }
 
@@ -118,14 +182,13 @@ func (q *Queries) DeleteContextForWorkspaceManual(ctx context.Context, arg Delet
 	return q.db.ExecContext(ctx, deleteContextForWorkspaceManual, arg.ID, arg.WorkspaceID)
 }
 
-const deleteContextManual = `-- name: DeleteContextManual :exec
+const deleteContextManual = `-- name: DeleteContextManual :execresult
 DELETE FROM contexts
 WHERE id = ?
 `
 
-func (q *Queries) DeleteContextManual(ctx context.Context, id uint64) error {
-	_, err := q.db.ExecContext(ctx, deleteContextManual, id)
-	return err
+func (q *Queries) DeleteContextManual(ctx context.Context, id uint64) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteContextManual, id)
 }
 
 const deleteSelectionRuleForWorkspaceManual = `-- name: DeleteSelectionRuleForWorkspaceManual :execresult
@@ -155,6 +218,16 @@ func (q *Queries) DeleteSelectionRuleManual(ctx context.Context, id uint64) erro
 	return err
 }
 
+const deleteSelectionRulesForContextManual = `-- name: DeleteSelectionRulesForContextManual :exec
+DELETE FROM context_selection_rules
+WHERE context_id = ?
+`
+
+func (q *Queries) DeleteSelectionRulesForContextManual(ctx context.Context, contextID uint64) error {
+	_, err := q.db.ExecContext(ctx, deleteSelectionRulesForContextManual, contextID)
+	return err
+}
+
 const getContextManual = `-- name: GetContextManual :one
 SELECT
   id,
@@ -164,14 +237,12 @@ SELECT
   description,
   is_default,
   segmentation_model,
-  COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
   transcription_provider,
   transcription_model,
-  transcription_base_url,
-  transcription_audience,
   temperature,
   system_prompt,
-  COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
+  scope_id,
+  default_scope_id,
   created_at,
   updated_at
 FROM contexts
@@ -189,14 +260,59 @@ func (q *Queries) GetContextManual(ctx context.Context, id uint64) (Context, err
 		&i.Description,
 		&i.IsDefault,
 		&i.SegmentationModel,
-		&i.ImagePreprocessors,
 		&i.TranscriptionProvider,
 		&i.TranscriptionModel,
-		&i.TranscriptionBaseUrl,
-		&i.TranscriptionAudience,
 		&i.Temperature,
 		&i.SystemPrompt,
-		&i.PostProcessingSteps,
+		&i.ScopeID,
+		&i.DefaultScopeID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getDefaultContextForWorkspaceManual = `-- name: GetDefaultContextForWorkspaceManual :one
+SELECT
+  id,
+  user_id,
+  workspace_id,
+  name,
+  description,
+  is_default,
+  segmentation_model,
+  transcription_provider,
+  transcription_model,
+  temperature,
+  system_prompt,
+  scope_id,
+  default_scope_id,
+  created_at,
+  updated_at
+FROM contexts
+WHERE is_default = TRUE
+  AND (workspace_id = ? OR workspace_id IS NULL)
+ORDER BY workspace_id IS NULL ASC
+LIMIT 1
+`
+
+func (q *Queries) GetDefaultContextForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (Context, error) {
+	row := q.db.QueryRowContext(ctx, getDefaultContextForWorkspaceManual, workspaceID)
+	var i Context
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
+		&i.IsDefault,
+		&i.SegmentationModel,
+		&i.TranscriptionProvider,
+		&i.TranscriptionModel,
+		&i.Temperature,
+		&i.SystemPrompt,
+		&i.ScopeID,
+		&i.DefaultScopeID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -212,19 +328,17 @@ SELECT
   description,
   is_default,
   segmentation_model,
-  COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
   transcription_provider,
   transcription_model,
-  transcription_base_url,
-  transcription_audience,
   temperature,
   system_prompt,
-  COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
+  scope_id,
+  default_scope_id,
   created_at,
   updated_at
 FROM contexts
 WHERE is_default = TRUE
-  AND user_id IS NULL
+  AND workspace_id IS NULL
 LIMIT 1
 `
 
@@ -239,14 +353,110 @@ func (q *Queries) GetDefaultContextManual(ctx context.Context) (Context, error) 
 		&i.Description,
 		&i.IsDefault,
 		&i.SegmentationModel,
-		&i.ImagePreprocessors,
 		&i.TranscriptionProvider,
 		&i.TranscriptionModel,
-		&i.TranscriptionBaseUrl,
-		&i.TranscriptionAudience,
 		&i.Temperature,
 		&i.SystemPrompt,
-		&i.PostProcessingSteps,
+		&i.ScopeID,
+		&i.DefaultScopeID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getSelectionRuleByIDManual = `-- name: GetSelectionRuleByIDManual :one
+SELECT
+  id,
+  context_id,
+  priority,
+  conditions,
+  created_at
+FROM context_selection_rules
+WHERE id = ?
+LIMIT 1
+`
+
+func (q *Queries) GetSelectionRuleByIDManual(ctx context.Context, id uint64) (ContextSelectionRule, error) {
+	row := q.db.QueryRowContext(ctx, getSelectionRuleByIDManual, id)
+	var i ContextSelectionRule
+	err := row.Scan(
+		&i.ID,
+		&i.ContextID,
+		&i.Priority,
+		&i.Conditions,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSelectionRuleForWorkspaceManual = `-- name: GetSelectionRuleForWorkspaceManual :one
+SELECT r.id, r.context_id, r.priority, r.conditions, r.created_at
+FROM context_selection_rules r
+JOIN contexts c ON c.id = r.context_id
+WHERE r.id = ?
+  AND c.workspace_id = ?
+LIMIT 1
+`
+
+type GetSelectionRuleForWorkspaceManualParams struct {
+	ID          uint64        `json:"id"`
+	WorkspaceID sql.NullInt64 `json:"workspace_id"`
+}
+
+func (q *Queries) GetSelectionRuleForWorkspaceManual(ctx context.Context, arg GetSelectionRuleForWorkspaceManualParams) (ContextSelectionRule, error) {
+	row := q.db.QueryRowContext(ctx, getSelectionRuleForWorkspaceManual, arg.ID, arg.WorkspaceID)
+	var i ContextSelectionRule
+	err := row.Scan(
+		&i.ID,
+		&i.ContextID,
+		&i.Priority,
+		&i.Conditions,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSystemContextByNameManual = `-- name: GetSystemContextByNameManual :one
+SELECT
+  id,
+  user_id,
+  workspace_id,
+  name,
+  description,
+  is_default,
+  segmentation_model,
+  transcription_provider,
+  transcription_model,
+  temperature,
+  system_prompt,
+  scope_id,
+  default_scope_id,
+  created_at,
+  updated_at
+FROM contexts
+WHERE workspace_id IS NULL
+  AND name = ?
+LIMIT 1
+`
+
+func (q *Queries) GetSystemContextByNameManual(ctx context.Context, name string) (Context, error) {
+	row := q.db.QueryRowContext(ctx, getSystemContextByNameManual, name)
+	var i Context
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
+		&i.IsDefault,
+		&i.SegmentationModel,
+		&i.TranscriptionProvider,
+		&i.TranscriptionModel,
+		&i.Temperature,
+		&i.SystemPrompt,
+		&i.ScopeID,
+		&i.DefaultScopeID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -257,7 +467,7 @@ const hasDefaultContextManual = `-- name: HasDefaultContextManual :one
 SELECT COUNT(*) > 0
 FROM contexts
 WHERE is_default = TRUE
-  AND user_id IS NULL
+  AND workspace_id IS NULL
 `
 
 func (q *Queries) HasDefaultContextManual(ctx context.Context) (bool, error) {
@@ -267,7 +477,7 @@ func (q *Queries) HasDefaultContextManual(ctx context.Context) (bool, error) {
 	return column_1, err
 }
 
-const listContextsForWorkspaceManual = `-- name: ListContextsForWorkspaceManual :many
+const listContextsPageForWorkspaceManual = `-- name: ListContextsPageForWorkspaceManual :many
 SELECT
   id,
   user_id,
@@ -276,54 +486,162 @@ SELECT
   description,
   is_default,
   segmentation_model,
-  COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
   transcription_provider,
   transcription_model,
-  transcription_base_url,
-  transcription_audience,
   temperature,
   system_prompt,
-  COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
+  scope_id,
+  default_scope_id,
   created_at,
   updated_at
 FROM contexts
-WHERE workspace_id IS NULL
-   OR (? = FALSE AND workspace_id = ?)
-ORDER BY is_default DESC, name ASC
+WHERE (
+    workspace_id IS NULL
+    OR (? = FALSE AND workspace_id = ?)
+  )
+  AND (
+    ? = 0
+    OR is_default < ?
+    OR (
+      is_default = ?
+      AND (workspace_id IS NULL) < ?
+    )
+    OR (
+      is_default = ?
+      AND (workspace_id IS NULL) = ?
+      AND id > ?
+    )
+  )
+ORDER BY is_default DESC, (workspace_id IS NULL) DESC, id ASC
+LIMIT ?
 `
 
-type ListContextsForWorkspaceManualParams struct {
-	SystemOnly  interface{}   `json:"system_only"`
+type ListContextsPageForWorkspaceManualParams struct {
+	SystemOnly      interface{}   `json:"system_only"`
+	WorkspaceID     sql.NullInt64 `json:"workspace_id"`
+	CursorID        uint64        `json:"cursor_id"`
+	CursorIsDefault bool          `json:"cursor_is_default"`
+	CursorIsSystem  sql.NullInt64 `json:"cursor_is_system"`
+	Limit           int32         `json:"limit"`
+}
+
+func (q *Queries) ListContextsPageForWorkspaceManual(ctx context.Context, arg ListContextsPageForWorkspaceManualParams) ([]Context, error) {
+	rows, err := q.db.QueryContext(ctx, listContextsPageForWorkspaceManual,
+		arg.SystemOnly,
+		arg.WorkspaceID,
+		arg.CursorID,
+		arg.CursorIsDefault,
+		arg.CursorIsDefault,
+		arg.CursorIsSystem,
+		arg.CursorIsDefault,
+		arg.CursorIsSystem,
+		arg.CursorID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Context{}
+	for rows.Next() {
+		var i Context
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Description,
+			&i.IsDefault,
+			&i.SegmentationModel,
+			&i.TranscriptionProvider,
+			&i.TranscriptionModel,
+			&i.Temperature,
+			&i.SystemPrompt,
+			&i.ScopeID,
+			&i.DefaultScopeID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSelectionRulesForResolutionManual = `-- name: ListSelectionRulesForResolutionManual :many
+SELECT r.id, r.context_id, r.priority, r.conditions, r.created_at
+FROM context_selection_rules r
+JOIN contexts c ON c.id = r.context_id
+WHERE c.workspace_id IS NULL
+ORDER BY r.priority DESC, r.id ASC
+LIMIT ?
+`
+
+func (q *Queries) ListSelectionRulesForResolutionManual(ctx context.Context, limit int32) ([]ContextSelectionRule, error) {
+	rows, err := q.db.QueryContext(ctx, listSelectionRulesForResolutionManual, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ContextSelectionRule{}
+	for rows.Next() {
+		var i ContextSelectionRule
+		if err := rows.Scan(
+			&i.ID,
+			&i.ContextID,
+			&i.Priority,
+			&i.Conditions,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSelectionRulesForWorkspaceResolutionManual = `-- name: ListSelectionRulesForWorkspaceResolutionManual :many
+SELECT r.id, r.context_id, r.priority, r.conditions, r.created_at
+FROM context_selection_rules r
+JOIN contexts c ON c.id = r.context_id
+WHERE c.workspace_id IS NULL OR c.workspace_id = ?
+ORDER BY r.priority DESC, r.id ASC
+LIMIT ?
+`
+
+type ListSelectionRulesForWorkspaceResolutionManualParams struct {
 	WorkspaceID sql.NullInt64 `json:"workspace_id"`
+	Limit       int32         `json:"limit"`
 }
 
-func (q *Queries) ListContextsForWorkspaceManual(ctx context.Context, arg ListContextsForWorkspaceManualParams) ([]Context, error) {
-	rows, err := q.db.QueryContext(ctx, listContextsForWorkspaceManual, arg.SystemOnly, arg.WorkspaceID)
+func (q *Queries) ListSelectionRulesForWorkspaceResolutionManual(ctx context.Context, arg ListSelectionRulesForWorkspaceResolutionManualParams) ([]ContextSelectionRule, error) {
+	rows, err := q.db.QueryContext(ctx, listSelectionRulesForWorkspaceResolutionManual, arg.WorkspaceID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Context{}
+	items := []ContextSelectionRule{}
 	for rows.Next() {
-		var i Context
+		var i ContextSelectionRule
 		if err := rows.Scan(
 			&i.ID,
-			&i.UserID,
-			&i.WorkspaceID,
-			&i.Name,
-			&i.Description,
-			&i.IsDefault,
-			&i.SegmentationModel,
-			&i.ImagePreprocessors,
-			&i.TranscriptionProvider,
-			&i.TranscriptionModel,
-			&i.TranscriptionBaseUrl,
-			&i.TranscriptionAudience,
-			&i.Temperature,
-			&i.SystemPrompt,
-			&i.PostProcessingSteps,
+			&i.ContextID,
+			&i.Priority,
+			&i.Conditions,
 			&i.CreatedAt,
-			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -338,87 +656,40 @@ func (q *Queries) ListContextsForWorkspaceManual(ctx context.Context, arg ListCo
 	return items, nil
 }
 
-const listContextsManual = `-- name: ListContextsManual :many
-SELECT
-  id,
-  user_id,
-  workspace_id,
-  name,
-  description,
-  is_default,
-  segmentation_model,
-  COALESCE(image_preprocessors, JSON_ARRAY()) AS image_preprocessors,
-  transcription_provider,
-  transcription_model,
-  transcription_base_url,
-  transcription_audience,
-  temperature,
-  system_prompt,
-  COALESCE(post_processing_steps, JSON_ARRAY()) AS post_processing_steps,
-  created_at,
-  updated_at
-FROM contexts
-WHERE ? = FALSE OR user_id IS NULL
-ORDER BY is_default DESC, name ASC
-`
-
-func (q *Queries) ListContextsManual(ctx context.Context, systemOnly interface{}) ([]Context, error) {
-	rows, err := q.db.QueryContext(ctx, listContextsManual, systemOnly)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Context{}
-	for rows.Next() {
-		var i Context
-		if err := rows.Scan(
-			&i.ID,
-			&i.UserID,
-			&i.WorkspaceID,
-			&i.Name,
-			&i.Description,
-			&i.IsDefault,
-			&i.SegmentationModel,
-			&i.ImagePreprocessors,
-			&i.TranscriptionProvider,
-			&i.TranscriptionModel,
-			&i.TranscriptionBaseUrl,
-			&i.TranscriptionAudience,
-			&i.Temperature,
-			&i.SystemPrompt,
-			&i.PostProcessingSteps,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSelectionRulesForWorkspaceManual = `-- name: ListSelectionRulesForWorkspaceManual :many
+const listSelectionRulesPageForWorkspaceManual = `-- name: ListSelectionRulesPageForWorkspaceManual :many
 SELECT r.id, r.context_id, r.priority, r.conditions, r.created_at
 FROM context_selection_rules r
 JOIN contexts c ON c.id = r.context_id
 WHERE (c.workspace_id IS NULL OR c.workspace_id = ?)
   AND (? = 0 OR r.context_id = ?)
+  AND (
+    ? = 0
+    OR r.priority < ?
+    OR (r.priority = ? AND r.id > ?)
+  )
 ORDER BY r.priority DESC, r.id ASC
+LIMIT ?
 `
 
-type ListSelectionRulesForWorkspaceManualParams struct {
-	WorkspaceID sql.NullInt64 `json:"workspace_id"`
-	ContextID   uint64        `json:"context_id"`
+type ListSelectionRulesPageForWorkspaceManualParams struct {
+	WorkspaceID    sql.NullInt64 `json:"workspace_id"`
+	ContextID      uint64        `json:"context_id"`
+	CursorID       uint64        `json:"cursor_id"`
+	CursorPriority int32         `json:"cursor_priority"`
+	Limit          int32         `json:"limit"`
 }
 
-func (q *Queries) ListSelectionRulesForWorkspaceManual(ctx context.Context, arg ListSelectionRulesForWorkspaceManualParams) ([]ContextSelectionRule, error) {
-	rows, err := q.db.QueryContext(ctx, listSelectionRulesForWorkspaceManual, arg.WorkspaceID, arg.ContextID, arg.ContextID)
+func (q *Queries) ListSelectionRulesPageForWorkspaceManual(ctx context.Context, arg ListSelectionRulesPageForWorkspaceManualParams) ([]ContextSelectionRule, error) {
+	rows, err := q.db.QueryContext(ctx, listSelectionRulesPageForWorkspaceManual,
+		arg.WorkspaceID,
+		arg.ContextID,
+		arg.ContextID,
+		arg.CursorID,
+		arg.CursorPriority,
+		arg.CursorPriority,
+		arg.CursorID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -446,67 +717,168 @@ func (q *Queries) ListSelectionRulesForWorkspaceManual(ctx context.Context, arg 
 	return items, nil
 }
 
-const listSelectionRulesManual = `-- name: ListSelectionRulesManual :many
+const lockContextByIDForUseManual = `-- name: LockContextByIDForUseManual :one
 SELECT
   id,
-  context_id,
-  priority,
-  conditions,
-  created_at
-FROM context_selection_rules
-WHERE ? = 0
-   OR context_id = ?
-ORDER BY priority DESC, id ASC
+  user_id,
+  workspace_id,
+  name,
+  description,
+  is_default,
+  segmentation_model,
+  transcription_provider,
+  transcription_model,
+  temperature,
+  system_prompt,
+  scope_id,
+  default_scope_id,
+  created_at,
+  updated_at
+FROM contexts
+WHERE id = ?
+LIMIT 1
+LOCK IN SHARE MODE
 `
 
-type ListSelectionRulesManualParams struct {
-	ContextID uint64 `json:"context_id"`
+func (q *Queries) LockContextByIDForUseManual(ctx context.Context, contextID uint64) (Context, error) {
+	row := q.db.QueryRowContext(ctx, lockContextByIDForUseManual, contextID)
+	var i Context
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
+		&i.IsDefault,
+		&i.SegmentationModel,
+		&i.TranscriptionProvider,
+		&i.TranscriptionModel,
+		&i.Temperature,
+		&i.SystemPrompt,
+		&i.ScopeID,
+		&i.DefaultScopeID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
-func (q *Queries) ListSelectionRulesManual(ctx context.Context, arg ListSelectionRulesManualParams) ([]ContextSelectionRule, error) {
-	rows, err := q.db.QueryContext(ctx, listSelectionRulesManual, arg.ContextID, arg.ContextID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ContextSelectionRule{}
-	for rows.Next() {
-		var i ContextSelectionRule
-		if err := rows.Scan(
-			&i.ID,
-			&i.ContextID,
-			&i.Priority,
-			&i.Conditions,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+const lockContextForDeleteManual = `-- name: LockContextForDeleteManual :one
+SELECT id, workspace_id
+FROM contexts
+WHERE id = ?
+FOR UPDATE
+`
+
+type LockContextForDeleteManualRow struct {
+	ID          uint64        `json:"id"`
+	WorkspaceID sql.NullInt64 `json:"workspace_id"`
 }
 
-const updateContextManual = `-- name: UpdateContextManual :exec
+func (q *Queries) LockContextForDeleteManual(ctx context.Context, id uint64) (LockContextForDeleteManualRow, error) {
+	row := q.db.QueryRowContext(ctx, lockContextForDeleteManual, id)
+	var i LockContextForDeleteManualRow
+	err := row.Scan(&i.ID, &i.WorkspaceID)
+	return i, err
+}
+
+const lockContextForUseManual = `-- name: LockContextForUseManual :one
+SELECT
+  id,
+  user_id,
+  workspace_id,
+  name,
+  description,
+  is_default,
+  segmentation_model,
+  transcription_provider,
+  transcription_model,
+  temperature,
+  system_prompt,
+  scope_id,
+  default_scope_id,
+  created_at,
+  updated_at
+FROM contexts
+WHERE id = ?
+  AND scope_id IN (0, ?)
+LIMIT 1
+LOCK IN SHARE MODE
+`
+
+type LockContextForUseManualParams struct {
+	ContextID   uint64        `json:"context_id"`
+	WorkspaceID sql.NullInt64 `json:"workspace_id"`
+}
+
+func (q *Queries) LockContextForUseManual(ctx context.Context, arg LockContextForUseManualParams) (Context, error) {
+	row := q.db.QueryRowContext(ctx, lockContextForUseManual, arg.ContextID, arg.WorkspaceID)
+	var i Context
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
+		&i.IsDefault,
+		&i.SegmentationModel,
+		&i.TranscriptionProvider,
+		&i.TranscriptionModel,
+		&i.Temperature,
+		&i.SystemPrompt,
+		&i.ScopeID,
+		&i.DefaultScopeID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockContextForWorkspaceDeleteManual = `-- name: LockContextForWorkspaceDeleteManual :one
+SELECT id
+FROM contexts
+WHERE id = ?
+  AND workspace_id = ?
+FOR UPDATE
+`
+
+type LockContextForWorkspaceDeleteManualParams struct {
+	ID          uint64        `json:"id"`
+	WorkspaceID sql.NullInt64 `json:"workspace_id"`
+}
+
+func (q *Queries) LockContextForWorkspaceDeleteManual(ctx context.Context, arg LockContextForWorkspaceDeleteManualParams) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, lockContextForWorkspaceDeleteManual, arg.ID, arg.WorkspaceID)
+	var id uint64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockWorkspaceForSelectionRuleAdmissionManual = `-- name: LockWorkspaceForSelectionRuleAdmissionManual :one
+SELECT id
+FROM workspaces
+WHERE id = ?
+FOR UPDATE
+`
+
+func (q *Queries) LockWorkspaceForSelectionRuleAdmissionManual(ctx context.Context, workspaceID uint64) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, lockWorkspaceForSelectionRuleAdmissionManual, workspaceID)
+	var id uint64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const updateContextManual = `-- name: UpdateContextManual :execresult
 UPDATE contexts
 SET
   name = ?,
   description = ?,
   is_default = ?,
   segmentation_model = ?,
-  image_preprocessors = ?,
   transcription_provider = ?,
   transcription_model = ?,
-  transcription_base_url = ?,
-  transcription_audience = ?,
   temperature = ?,
-  system_prompt = ?,
-  post_processing_steps = ?
+  system_prompt = ?
 WHERE id = ?
 `
 
@@ -515,34 +887,25 @@ type UpdateContextManualParams struct {
 	Description           sql.NullString  `json:"description"`
 	IsDefault             bool            `json:"is_default"`
 	SegmentationModel     string          `json:"segmentation_model"`
-	ImagePreprocessors    json.RawMessage `json:"image_preprocessors"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
-	TranscriptionBaseUrl  sql.NullString  `json:"transcription_base_url"`
-	TranscriptionAudience sql.NullString  `json:"transcription_audience"`
 	Temperature           sql.NullFloat64 `json:"temperature"`
 	SystemPrompt          sql.NullString  `json:"system_prompt"`
-	PostProcessingSteps   json.RawMessage `json:"post_processing_steps"`
 	ID                    uint64          `json:"id"`
 }
 
-func (q *Queries) UpdateContextManual(ctx context.Context, arg UpdateContextManualParams) error {
-	_, err := q.db.ExecContext(ctx, updateContextManual,
+func (q *Queries) UpdateContextManual(ctx context.Context, arg UpdateContextManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, updateContextManual,
 		arg.Name,
 		arg.Description,
 		arg.IsDefault,
 		arg.SegmentationModel,
-		arg.ImagePreprocessors,
 		arg.TranscriptionProvider,
 		arg.TranscriptionModel,
-		arg.TranscriptionBaseUrl,
-		arg.TranscriptionAudience,
 		arg.Temperature,
 		arg.SystemPrompt,
-		arg.PostProcessingSteps,
 		arg.ID,
 	)
-	return err
 }
 
 const workspaceCanReadContextManual = `-- name: WorkspaceCanReadContextManual :one
@@ -585,4 +948,26 @@ func (q *Queries) WorkspaceCanWriteContextManual(ctx context.Context, arg Worksp
 	var can_write bool
 	err := row.Scan(&can_write)
 	return can_write, err
+}
+
+const workspaceOwnsSelectionRuleManual = `-- name: WorkspaceOwnsSelectionRuleManual :one
+SELECT EXISTS(
+  SELECT 1
+  FROM context_selection_rules r
+  JOIN contexts c ON c.id = r.context_id
+  WHERE r.id = ?
+    AND c.workspace_id = ?
+) AS owns_rule
+`
+
+type WorkspaceOwnsSelectionRuleManualParams struct {
+	RuleID      uint64        `json:"rule_id"`
+	WorkspaceID sql.NullInt64 `json:"workspace_id"`
+}
+
+func (q *Queries) WorkspaceOwnsSelectionRuleManual(ctx context.Context, arg WorkspaceOwnsSelectionRuleManualParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, workspaceOwnsSelectionRuleManual, arg.RuleID, arg.WorkspaceID)
+	var owns_rule bool
+	err := row.Scan(&owns_rule)
+	return owns_rule, err
 }

@@ -158,6 +158,35 @@ func TestReadRetriesRetryableVaultErrors(t *testing.T) {
 	}
 }
 
+func TestVaultRequestsDoNotFollowRedirectsOrForwardSecrets(t *testing.T) {
+	var redirected atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected.Store(true)
+		if got := r.Header.Get("X-Vault-Token"); got != "" {
+			t.Errorf("redirect target received X-Vault-Token %q", got)
+		}
+		if got := r.Header.Get("X-Admin-Token"); got != "" {
+			t.Errorf("redirect target received X-Admin-Token %q", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer target.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/capture", http.StatusTemporaryRedirect)
+	}))
+	defer source.Close()
+
+	client := New(source.URL, "vault-secret", "secret", "scribe-app")
+	_, err := client.Read(context.Background(), "scribe/database/app")
+	if err == nil {
+		t.Fatal("Read followed a redirect; want an error")
+	}
+	if redirected.Load() {
+		t.Fatal("redirect target was contacted")
+	}
+}
+
 func mustMarshalPKCS8(t *testing.T, privateKey *rsa.PrivateKey) []byte {
 	t.Helper()
 	raw, err := x509.MarshalPKCS8PrivateKey(privateKey)

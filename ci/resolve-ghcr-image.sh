@@ -16,23 +16,19 @@ if [ -z "$image_ref" ]; then
   exit 1
 fi
 
-case "$image_ref" in
-  *@sha256:*)
-    printf '%s\n' "$image_ref"
-    exit 0
-    ;;
-  ghcr.io/*:*)
-    ;;
-  *)
-    echo "expected a ghcr.io image reference with a tag or digest, got: $image_ref" >&2
-    exit 1
-    ;;
-esac
+if [[ "$image_ref" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+  printf '%s\n' "$image_ref"
+  exit 0
+fi
+if [[ ! "$image_ref" =~ ^ghcr\.io/[a-z0-9._/-]+:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+  echo "expected a ghcr.io image reference with a tag or digest, got: $image_ref" >&2
+  exit 1
+fi
 
 digest="$(docker buildx imagetools inspect "$image_ref" --format '{{json .Manifest}}' \
   | jq -r '.digest')"
 
-if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
   echo "failed to resolve digest for ghcr image: $image_ref" >&2
   exit 1
 fi

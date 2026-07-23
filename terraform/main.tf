@@ -22,26 +22,35 @@ data "google_project" "current" {
 }
 
 locals {
-  project_number                      = tostring(data.google_project.current.number)
-  repo_root                           = abspath("${path.module}/..")
-  disk_type                           = "hyperdisk-balanced"
-  terraform_state_bucket              = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
-  shared_artifact_registry_location   = "us"
-  shared_artifact_registry_repository = "internal"
-  is_prod_workspace                   = terraform.workspace == "prod"
-  shared_vault_workspace              = local.is_prod_workspace ? "prod" : "dev"
-  shared_ollama_workspace             = "prod"
-  vault_is_owner_workspace            = terraform.workspace == "prod" || terraform.workspace == "dev"
-  workspace_slug                      = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
-  vault_app_role_name                 = "scribe-app-${local.workspace_slug}"
-  pubsub_service_agent                = "service-${local.project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
-  uploads_bucket_name                 = trimsuffix(substr(replace(lower("${var.project_id}-${var.name}-${local.workspace_slug}-uploads"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
+  project_number           = tostring(data.google_project.current.number)
+  repo_root                = abspath("${path.module}/..")
+  disk_type                = "hyperdisk-balanced"
+  terraform_state_bucket   = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
+  is_prod_workspace        = terraform.workspace == "prod"
+  is_preview_workspace     = startswith(terraform.workspace, "pr-")
+  foundation_state_prefix  = "scribe-foundation"
+  shared_vault_workspace   = local.is_prod_workspace ? "prod" : "dev"
+  shared_ollama_workspace  = "prod"
+  vault_is_owner_workspace = terraform.workspace == "prod" || terraform.workspace == "dev"
+  workspace_slug           = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
+  preview_app_gsa_email    = format("%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
+  vault_app_role_name      = local.is_preview_workspace ? "scribe-preview-app" : "scribe-app-${local.workspace_slug}"
+  vault_secret_prefix      = local.is_preview_workspace ? "scribe/previews/${local.preview_app_gsa_email}" : "scribe/${local.workspace_slug}"
+  pubsub_service_agent     = "service-${local.project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+  uploads_bucket_name      = trimsuffix(substr(replace(lower("${var.project_id}-${var.name}-${local.workspace_slug}-uploads"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
 }
 
-data "google_artifact_registry_repository" "internal" {
-  project       = var.project_id
-  location      = local.shared_artifact_registry_location
-  repository_id = local.shared_artifact_registry_repository
+check "immutable_reviewed_deployment_inputs" {
+  assert {
+    condition = !local.is_prod_workspace && !startswith(terraform.workspace, "pr-") || (
+      can(regex("^[0-9a-f]{40}$", var.docker_compose_branch)) &&
+      can(regex("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$", var.api_image)) &&
+      can(regex("^[^[:space:]@]+@sha256:[0-9a-f]{64}$", var.frontend_gar_image)) &&
+      length(var.ocr_service_images) > 0 &&
+      alltrue([for image in values(var.ocr_service_images) : can(regex("^[^[:space:]@]+@sha256:[0-9a-f]{64}$", image))])
+    )
+    error_message = "Production and preview deployments require an immutable compose commit plus digest-pinned backend, frontend, and OCR images."
+  }
 }
 
 data "terraform_remote_state" "shared_vault" {
@@ -52,6 +61,14 @@ data "terraform_remote_state" "shared_vault" {
     prefix = "scribe"
   }
   workspace = local.shared_vault_workspace
+}
+
+data "terraform_remote_state" "shared_foundation" {
+  backend = "gcs"
+  config = {
+    bucket = local.terraform_state_bucket
+    prefix = local.foundation_state_prefix
+  }
 }
 
 data "terraform_remote_state" "shared_ollama" {
@@ -65,9 +82,19 @@ data "terraform_remote_state" "shared_ollama" {
 }
 
 locals {
-  vault_url            = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
-  public_base_url      = trimspace(var.app_domain) != "" ? format("https://%s", trimspace(var.app_domain)) : ""
-  default_ollama_model = "glm-ocr:bf16"
+  vault_url = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
+  vault_gsa = local.vault_is_owner_workspace ? module.vault[0].gsa : try(data.terraform_remote_state.shared_vault[0].outputs.vault_gsa, "")
+  # Project APIs, the shared registry, and custom roles have a standalone state
+  # owner applied before image builds or any application workspace.
+  shared_artifact_registry_location   = try(data.terraform_remote_state.shared_foundation.outputs.artifact_registry_location, "")
+  shared_artifact_registry_repository = try(data.terraform_remote_state.shared_foundation.outputs.artifact_registry_repository, "")
+  vault_gcp_auth_key_verifier_role    = try(data.terraform_remote_state.shared_foundation.outputs.vault_gcp_auth_key_verifier_role, "")
+  # Cloud Run assigns this deterministic URL before the service exists. Direct
+  # run.app ingress is the sole supported edge topology, keeping PPB's trusted
+  # forwarding depth and canonical resource identity unambiguous.
+  cloud_run_public_base_url = format("https://%s-%s.%s.run.app", var.name, local.project_number, var.region)
+  public_base_url           = local.cloud_run_public_base_url
+  default_ollama_model      = local.ollama_default_model
   default_ollama_url = !contains(local.ollama_models, local.default_ollama_model) ? "" : (
     local.shared_ollama_services_enabled ? module.ollama_services[local.default_ollama_model].primary_url :
     try(data.terraform_remote_state.shared_ollama[0].outputs.ollama_services[local.default_ollama_model].primary_url, "")
@@ -93,13 +120,11 @@ locals {
   }
   segmentor_url                      = try(module.kraken["segmentor"].urls[var.region], try(module.kraken["segmentor"].urls[local.ocr_service_regions[0]], ""))
   segmentor_audience                 = local.segmentor_url
-  image_service_url                  = try(module.kraken["image-service"].primary_url, "")
-  image_service_audience             = local.image_service_url
-  iiif_base                          = "/iiif/3"
-  iiif_internal_base                 = trimspace(local.image_service_url) != "" ? "${local.image_service_url}/iiif/3" : ""
-  triplet_presentation_base          = ""
-  triplet_presentation_internal_base = ""
-  triplet_presentation_write_token   = ""
+  iiif_base                          = "${local.public_base_url}/iiif/3"
+  iiif_internal_base                 = "http://triplet:8080/iiif/3"
+  iiif_source_base                   = "http://api:8080/static/uploads"
+  triplet_presentation_base          = "${local.public_base_url}/presentation/v3"
+  triplet_presentation_internal_base = "http://triplet:8080/presentation/v3"
   kraken_segmentation_services = {
     for name, service in module.kraken :
     service.route_key => {
@@ -134,10 +159,101 @@ locals {
   }
   default_kraken_url      = try(local.kraken_transcription_services[local.kraken_default_transcription_key].primary_url, "")
   default_kraken_audience = try(local.kraken_transcription_services[local.kraken_default_transcription_key].audience, "")
-  docker_compose_services = ["mariadb", "api", "worker", "traefik"]
+  docker_compose_services = ["mariadb", "triplet", "api", "worker", "traefik"]
+  compose_traefik_ip      = cidrhost(var.compose_network_cidr, 2)
+  # Allocate ordinary containers only from the upper half. Traefik's fixed
+  # host-2 address remains in the parent subnet but outside Docker's dynamic
+  # pool, so parallel Compose startup cannot assign it to another service.
+  compose_dynamic_ip_range = cidrsubnet(var.compose_network_cidr, 1, 1)
+  compose_gateway_ip       = cidrhost(var.compose_network_cidr, 1)
+  compose_project_name     = "${var.name}-${local.workspace_slug}"
 
   docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
   compose_env_vars = [
+    {
+      name  = "AUTH_PREVIEW_ANONYMOUS"
+      value = tostring(local.is_preview_workspace)
+    },
+    {
+      name  = "SCRIBE_DATA_GENERATION"
+      value = var.data_generation
+    },
+    {
+      name  = "SCRIBE_COMPOSE_SUBNET"
+      value = var.compose_network_cidr
+    },
+    {
+      name  = "SCRIBE_COMPOSE_IP_RANGE"
+      value = local.compose_dynamic_ip_range
+    },
+    {
+      name  = "SCRIBE_COMPOSE_GATEWAY"
+      value = local.compose_gateway_ip
+    },
+    {
+      name  = "SCRIBE_TRAEFIK_IP"
+      value = local.compose_traefik_ip
+    },
+    {
+      name  = "SERVER_TRUSTED_PROXY_CIDRS"
+      value = "${local.compose_traefik_ip}/32"
+    },
+    {
+      name  = "TRAEFIK_FORWARDED_TRUSTED_IPS"
+      value = var.network_ip_cidr_range
+    },
+    {
+      name  = "TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE"
+      value = tostring(var.transcription_max_active_jobs_per_workspace)
+    },
+    {
+      name  = "STORAGE_MAX_BYTES_PER_WORKSPACE"
+      value = tostring(var.storage_max_bytes_per_workspace)
+    },
+    {
+      name  = "STORAGE_MAX_BYTES_TOTAL"
+      value = tostring(var.storage_max_bytes_total)
+    },
+    {
+      name  = "STORAGE_MAX_ITEMS_PER_WORKSPACE"
+      value = tostring(var.storage_max_items_per_workspace)
+    },
+    {
+      name  = "STORAGE_MAX_ITEMS_TOTAL"
+      value = tostring(var.storage_max_items_total)
+    },
+    {
+      name  = "STORAGE_MAX_IMAGES_PER_WORKSPACE"
+      value = tostring(var.storage_max_images_per_workspace)
+    },
+    {
+      name  = "STORAGE_MAX_IMAGES_TOTAL"
+      value = tostring(var.storage_max_images_total)
+    },
+    {
+      name  = "STORAGE_RESERVATION_TTL"
+      value = var.storage_reservation_ttl
+    },
+    {
+      name  = "STORAGE_NORMALIZATION_CACHE_MAX_BYTES"
+      value = tostring(var.storage_normalization_cache_max_bytes)
+    },
+    {
+      name  = "STORAGE_NORMALIZATION_CACHE_MAX_AGE"
+      value = var.storage_normalization_cache_max_age
+    },
+    {
+      name  = "IIIF_MAX_MANIFEST_CANVASES"
+      value = tostring(var.iiif_max_manifest_canvases)
+    },
+    {
+      name  = "IIIF_MAX_MANIFEST_IMPORT_BYTES"
+      value = tostring(var.iiif_max_manifest_import_bytes)
+    },
+    {
+      name  = "IIIF_SOURCE_BASE"
+      value = local.iiif_source_base
+    },
     {
       name  = "TRANSCRIPTION_QUEUE_BACKEND"
       value = "pubsub"
@@ -160,7 +276,7 @@ locals {
     },
     {
       name  = "SCRIBE_UPLOADS_PREFIX"
-      value = "uploads"
+      value = "uploads/${var.data_generation}"
     },
     {
       name  = "OLLAMA_AUDIENCE"
@@ -195,14 +311,6 @@ locals {
       value = jsonencode(sort(keys(local.kraken_segmentation_models)))
     },
     {
-      name  = "IMAGE_SERVICE_URL"
-      value = local.image_service_url
-    },
-    {
-      name  = "IMAGE_SERVICE_AUDIENCE"
-      value = local.image_service_audience
-    },
-    {
       name  = "IIIF_BASE"
       value = local.iiif_base
     },
@@ -217,14 +325,6 @@ locals {
     {
       name  = "TRIPLET_PRESENTATION_INTERNAL_BASE"
       value = local.triplet_presentation_internal_base
-    },
-    {
-      name  = "TRIPLET_PRESENTATION_WRITE_TOKEN"
-      value = local.triplet_presentation_write_token
-    },
-    {
-      name  = "SCRIBE_FRONTEND_IIIF_ORIGIN"
-      value = local.image_service_url
     },
     {
       name  = "KRAKEN_URL"
@@ -251,6 +351,10 @@ locals {
       value = local.public_base_url
     },
     {
+      name  = "TRIPLET_PUBLIC_BASE_URL"
+      value = local.public_base_url
+    },
+    {
       name  = "SCRIBE_API_IMAGE"
       value = var.api_image
     },
@@ -264,7 +368,11 @@ locals {
     },
     {
       name  = "VAULT_SECRET_PREFIX"
-      value = "scribe/${local.workspace_slug}"
+      value = local.vault_secret_prefix
+    },
+    {
+      name  = "VAULT_DATABASE_APP_PATH"
+      value = "${local.vault_secret_prefix}/database/app"
     },
     {
       name  = "VAULT_GCP_AUTH_ROLE"
@@ -274,45 +382,54 @@ locals {
   compose_env_update_commands = [
     for env in local.compose_env_vars :
     format(
-      "python3 scripts/update-env.py .env %s --base64 '%s'",
+      "bash scripts/update-env.sh .env %s --base64 '%s'",
       env.name,
       base64encode(env.value),
     )
   ]
-  docker_compose_init = concat(local.compose_env_update_commands, [
-    "bash /home/cloud-compose/rotate-keys-app.sh",
-    "bash generate-secrets.sh",
-  ])
-  docker_compose_up = concat(local.compose_env_update_commands, [
-    "git pull",
-    "docker compose pull api worker",
-    format("docker compose up --no-build %s", join(" ", local.docker_compose_services)),
-  ])
+  docker_compose_init = concat(
+    local.compose_env_update_commands,
+    [
+      "SCRIBE_EXPECTED_DOCKER_ROOT=/mnt/disks/data/docker bash /home/cloud-compose/scribe-compose-runtime-preflight.sh \"$PWD\" \"$PWD/docker-compose.yaml\" /home/cloud-compose/scribe-runtime.compose.yaml",
+    ]
+  )
+  docker_compose_up = concat(
+    local.compose_env_update_commands,
+    [
+      "SCRIBE_EXPECTED_DOCKER_ROOT=/mnt/disks/data/docker bash /home/cloud-compose/scribe-compose-runtime-preflight.sh \"$PWD\" \"$PWD/docker-compose.yaml\" /home/cloud-compose/scribe-runtime.compose.yaml",
+      format("source /home/cloud-compose/profile.sh && retry_until_success docker compose -f docker-compose.yaml -f /home/cloud-compose/scribe-runtime.compose.yaml pull %s", join(" ", local.docker_compose_services)),
+      "SCRIBE_REPAIR_LOCAL_TOKENS=true bash generate-secrets.sh",
+      "SCRIBE_EXPECTED_DOCKER_ROOT=/mnt/disks/data/docker bash /home/cloud-compose/scribe-compose-runtime-preflight.sh --converge \"$PWD\" \"$PWD/docker-compose.yaml\" /home/cloud-compose/scribe-runtime.compose.yaml",
+      format("docker compose -f docker-compose.yaml -f /home/cloud-compose/scribe-runtime.compose.yaml up --no-build --wait --wait-timeout 180 %s", join(" ", local.docker_compose_services)),
+      "curl --noproxy '*' --fail --silent --show-error --connect-timeout 2 --max-time 10 --output /dev/null http://127.0.0.1/readyz",
+    ]
+  )
   docker_compose_down = concat(local.compose_env_update_commands, [
-    "docker compose down",
+    "docker compose -f docker-compose.yaml -f /home/cloud-compose/scribe-runtime.compose.yaml down",
   ])
   cloud_compose_power_start_role = try(
-    module.cloud_compose_foundation[0].cloud_compose_start_role_name,
-    data.terraform_remote_state.shared_vault[0].outputs.cloud_compose_power_start_role,
+    data.terraform_remote_state.shared_foundation.outputs.cloud_compose_power_start_role,
     "",
   )
-  cloud_compose_power_suspend_role = try(
-    module.cloud_compose_foundation[0].cloud_compose_suspend_role_name,
-    data.terraform_remote_state.shared_vault[0].outputs.cloud_compose_power_suspend_role,
+  cloud_compose_power_suspend_role = local.is_prod_workspace ? try(
+    data.terraform_remote_state.shared_foundation.outputs.cloud_compose_production_observe_role,
+    "",
+    ) : try(
+    data.terraform_remote_state.shared_foundation.outputs.cloud_compose_power_suspend_role,
     "",
   )
 }
 
 resource "google_pubsub_topic" "transcription_jobs" {
-  name = "${var.name}-${local.workspace_slug}-transcription-jobs"
+  name = "${var.name}-${local.workspace_slug}-${var.data_generation}-transcription-jobs"
 }
 
 resource "google_pubsub_topic" "transcription_jobs_dead_letter" {
-  name = "${var.name}-${local.workspace_slug}-transcription-jobs-dlq"
+  name = "${var.name}-${local.workspace_slug}-${var.data_generation}-transcription-jobs-dlq"
 }
 
 resource "google_pubsub_subscription" "transcription_workers" {
-  name  = "${var.name}-${local.workspace_slug}-transcription-workers"
+  name  = "${var.name}-${local.workspace_slug}-${var.data_generation}-transcription-workers"
   topic = google_pubsub_topic.transcription_jobs.id
 
   ack_deadline_seconds       = 60
@@ -330,7 +447,7 @@ resource "google_pubsub_subscription" "transcription_workers" {
 }
 
 resource "google_pubsub_subscription" "transcription_dead_letter_monitor" {
-  name  = "${var.name}-${local.workspace_slug}-transcription-jobs-dlq-monitor"
+  name  = "${var.name}-${local.workspace_slug}-${var.data_generation}-transcription-jobs-dlq-monitor"
   topic = google_pubsub_topic.transcription_jobs_dead_letter.id
 
   ack_deadline_seconds       = 60
@@ -342,6 +459,8 @@ resource "google_pubsub_subscription" "transcription_dead_letter_monitor" {
 }
 
 resource "google_monitoring_alert_policy" "transcription_dead_letter_depth" {
+  count = local.is_prod_workspace ? 1 : 0
+
   display_name          = "${var.name} ${local.workspace_slug} transcription DLQ has messages"
   combiner              = "OR"
   notification_channels = var.monitoring_notification_channels
@@ -397,6 +516,17 @@ resource "google_storage_bucket" "uploads" {
   location                    = upper(var.region)
   uniform_bucket_level_access = true
   public_access_prevention    = "enforced"
+  # Preview/dev workspaces must remain destroyable after ingest smoke tests.
+  # Production objects require explicit lifecycle handling and are protected.
+  force_destroy = !local.is_prod_workspace
+
+  versioning {
+    enabled = true
+  }
+
+  soft_delete_policy {
+    retention_duration_seconds = var.uploads_soft_delete_retention_days * 86400
+  }
 
   lifecycle_rule {
     condition {
@@ -406,6 +536,22 @@ resource "google_storage_bucket" "uploads" {
       type = "AbortIncompleteMultipartUpload"
     }
   }
+
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = var.uploads_noncurrent_version_retention_days
+    }
+    action {
+      type = "Delete"
+    }
+  }
+}
+
+check "uploads_bucket_destroy_policy" {
+  assert {
+    condition     = google_storage_bucket.uploads.force_destroy == !local.is_prod_workspace
+    error_message = "The uploads bucket must be force-destroyable outside prod and protected in prod."
+  }
 }
 
 resource "google_storage_bucket_iam_member" "uploads_app_object_admin" {
@@ -414,16 +560,25 @@ resource "google_storage_bucket_iam_member" "uploads_app_object_admin" {
   member = "serviceAccount:${module.scribe.appGsa.email}"
 }
 
-resource "google_storage_bucket_iam_member" "uploads_image_service_reader" {
-  bucket = google_storage_bucket.uploads.name
-  role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${google_service_account.kraken.email}"
-}
-
 check "shared_vault_ready" {
   assert {
-    condition     = local.vault_is_owner_workspace || trimspace(local.vault_url) != ""
-    error_message = "Shared Vault workspace '${local.shared_vault_workspace}' must be applied first and expose the root output 'vault_url'. Apply the dev workspace before running preview environments."
+    condition = local.vault_is_owner_workspace || (
+      trimspace(local.vault_url) != "" && trimspace(local.vault_gsa) != ""
+    )
+    error_message = "Shared Vault workspace '${local.shared_vault_workspace}' must be applied first and expose the root outputs 'vault_url' and 'vault_gsa'. Apply the dev workspace before running preview environments."
+  }
+}
+
+check "shared_foundation_ready" {
+  assert {
+    condition = (
+      trimspace(local.cloud_compose_power_start_role) != "" &&
+      trimspace(local.cloud_compose_power_suspend_role) != "" &&
+      trimspace(local.vault_gcp_auth_key_verifier_role) != "" &&
+      trimspace(local.shared_artifact_registry_location) != "" &&
+      trimspace(local.shared_artifact_registry_repository) != ""
+    )
+    error_message = "The standalone project foundation state '${local.foundation_state_prefix}' must be applied first and expose the registry, power-management, and Vault verifier outputs."
   }
 }
 
@@ -441,24 +596,6 @@ check "vault_ci_service_account_emails_configured" {
   }
 }
 
-check "shared_internal_repository_ready" {
-  assert {
-    condition     = trimspace(data.google_artifact_registry_repository.internal.id) != ""
-    error_message = "Artifact Registry repository '${local.shared_artifact_registry_repository}' in location '${local.shared_artifact_registry_location}' must already exist in project '${var.project_id}'."
-  }
-}
-
-module "cloud_compose_foundation" {
-  count  = local.vault_is_owner_workspace ? 1 : 0
-  source = "git::https://github.com/libops/cloud-compose//modules/gcp-foundation?ref=1.3.0"
-  providers = {
-    google      = google
-    google-beta = google-beta
-  }
-
-  service_project_id = var.project_id
-}
-
 provider "vault" {
   address          = local.vault_url
   skip_child_token = true
@@ -470,7 +607,7 @@ provider "vault" {
 }
 
 module "scribe" {
-  source = "git::https://github.com/libops/cloud-compose?ref=1.3.0"
+  source = "https://github.com/libops/cloud-compose/archive/7c43f84a7650d56785503deae659fe954d1b6e53.tar.gz//cloud-compose-7c43f84a7650d56785503deae659fe954d1b6e53?archive=tar.gz"
   providers = {
     google = google
   }
@@ -484,7 +621,7 @@ module "scribe" {
     zone           = var.zone
 
     identity = {
-      # cloud-compose 1.3.0 mints and rotates the scribe app SA key into
+      # cloud-compose 1.7.1 mints and rotates the scribe app SA key into
       # secrets/GOOGLE_APPLICATION_CREDENTIALS. The app requires that file to
       # sign its Vault GCP-IAM login JWT (metadata signJwt is blocked on the VM),
       # so managed credentials must stay enabled.
@@ -492,16 +629,20 @@ module "scribe" {
     }
 
     instance = {
+      # Cloud Compose's GCP runtime is COS. Host lifecycle scripts are tested
+      # against the jq and shell feature set shipped by that image.
       machine_type = var.machine_type
-      os           = "cos-125-19216-395-4"
+      production   = local.is_prod_workspace
     }
 
     disks = {
       type                   = local.disk_type
+      data_size_gb           = local.cloud_compose_data_disk_size_gb
       docker_volumes_size_gb = var.disk_size_gb
     }
 
     network = {
+      ip_cidr_range            = var.network_ip_cidr_range
       power_button_allowed_ips = var.allowed_ips
       power_button_ip_depth    = 0
       ssh_ipv4                 = var.allowed_ssh_ipv4
@@ -510,6 +651,17 @@ module "scribe" {
 
     snapshots = {
       enabled = var.run_snapshots
+    }
+
+    cloud_init = {
+      # The dedicated backup disk and its mount existed only in production.
+      # Preserve that scope now that production dumps share the data disk:
+      # cloud-compose enables its generic timer during bootstrap, then this
+      # post-init command disables it everywhere except the protected prod
+      # workspace.
+      runcmd = local.is_prod_workspace ? [] : [
+        "systemctl disable --now cloud-compose-mariadb-backup.timer cloud-compose-mariadb-backup.service",
+      ]
     }
 
     artifact_registry = {
@@ -531,13 +683,26 @@ module "scribe" {
   runtime = {
     rootfs = "${path.module}/rootfs"
     users  = var.users
+    extra_env = local.is_prod_workspace ? {
+      SCRIBE_MARIADB_BACKUP_MIN_FREE_BYTES = tostring(var.disk_size_gb * 1073741824)
+    } : {}
 
     compose = {
-      repo   = local.docker_compose_repo
-      branch = var.docker_compose_branch
-      init   = local.docker_compose_init
-      up     = local.docker_compose_up
-      down   = local.docker_compose_down
+      primary = "primary"
+      projects = {
+        primary = {
+          docker_compose_repo   = local.docker_compose_repo
+          docker_compose_branch = var.docker_compose_branch
+          # This path is stable for the current persistence generation because
+          # it owns ignored local secrets, including MariaDB's root bootstrap
+          # password. Changing it requires an explicit credential migration.
+          project_dir          = "/mnt/disks/data/scribe/${local.workspace_slug}"
+          compose_project_name = local.compose_project_name
+          docker_compose_init  = local.docker_compose_init
+          docker_compose_up    = local.docker_compose_up
+          docker_compose_down  = local.docker_compose_down
+        }
+      }
     }
   }
 }

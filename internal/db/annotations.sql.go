@@ -8,46 +8,167 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
-const deleteAnnotationManual = `-- name: DeleteAnnotationManual :exec
-DELETE FROM annotations
-WHERE id = ?
+const annotationPageResourceExistsManual = `-- name: AnnotationPageResourceExistsManual :one
+SELECT EXISTS(
+  SELECT 1
+  FROM item_images ii
+  JOIN items i ON i.id = ii.item_id
+  WHERE ii.id = ?
+    AND i.workspace_id = ?
+) AS resource_exists
 `
 
-func (q *Queries) DeleteAnnotationManual(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteAnnotationManual, id)
-	return err
+type AnnotationPageResourceExistsManualParams struct {
+	ItemImageID uint64 `json:"item_image_id"`
+	WorkspaceID uint64 `json:"workspace_id"`
 }
 
-const deleteAnnotationsByCanvasManual = `-- name: DeleteAnnotationsByCanvasManual :exec
-DELETE FROM annotations
-WHERE canvas_uri = ?
-`
-
-func (q *Queries) DeleteAnnotationsByCanvasManual(ctx context.Context, canvasUri string) error {
-	_, err := q.db.ExecContext(ctx, deleteAnnotationsByCanvasManual, canvasUri)
-	return err
+func (q *Queries) AnnotationPageResourceExistsManual(ctx context.Context, arg AnnotationPageResourceExistsManualParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, annotationPageResourceExistsManual, arg.ItemImageID, arg.WorkspaceID)
+	var resource_exists bool
+	err := row.Scan(&resource_exists)
+	return resource_exists, err
 }
 
-const getAnnotationManual = `-- name: GetAnnotationManual :one
-SELECT
+const createAnnotationIndexEntryManual = `-- name: CreateAnnotationIndexEntryManual :exec
+INSERT INTO annotations (
+  workspace_id,
+  item_image_id,
   id,
   canvas_uri,
+  text_granularity,
+  position,
+  payload
+) VALUES (
+  ?,
+  ?,
+  ?,
+  ?,
+  ?,
+  ?,
+  ?
+)
+`
+
+type CreateAnnotationIndexEntryManualParams struct {
+	WorkspaceID     uint64         `json:"workspace_id"`
+	ItemImageID     uint64         `json:"item_image_id"`
+	ID              string         `json:"id"`
+	CanvasUri       string         `json:"canvas_uri"`
+	TextGranularity sql.NullString `json:"text_granularity"`
+	Position        uint32         `json:"position"`
+	Payload         string         `json:"payload"`
+}
+
+func (q *Queries) CreateAnnotationIndexEntryManual(ctx context.Context, arg CreateAnnotationIndexEntryManualParams) error {
+	_, err := q.db.ExecContext(ctx, createAnnotationIndexEntryManual,
+		arg.WorkspaceID,
+		arg.ItemImageID,
+		arg.ID,
+		arg.CanvasUri,
+		arg.TextGranularity,
+		arg.Position,
+		arg.Payload,
+	)
+	return err
+}
+
+const createAnnotationPageManual = `-- name: CreateAnnotationPageManual :execresult
+INSERT INTO annotation_pages (
+  workspace_id,
+  item_image_id,
+  page_id,
+  canvas_uri,
+  payload,
+  revision,
+  updated_by_user_id
+) SELECT
+  ?,
+  ?,
+  ?,
+  ?,
+  ?,
+  1,
+  ?
+FROM item_images ii
+JOIN items i ON i.id = ii.item_id
+WHERE ii.id = ?
+  AND i.workspace_id = ?
+`
+
+type CreateAnnotationPageManualParams struct {
+	WorkspaceID     uint64        `json:"workspace_id"`
+	ItemImageID     uint64        `json:"item_image_id"`
+	PageID          string        `json:"page_id"`
+	CanvasUri       string        `json:"canvas_uri"`
+	Payload         string        `json:"payload"`
+	UpdatedByUserID sql.NullInt64 `json:"updated_by_user_id"`
+}
+
+func (q *Queries) CreateAnnotationPageManual(ctx context.Context, arg CreateAnnotationPageManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, createAnnotationPageManual,
+		arg.WorkspaceID,
+		arg.ItemImageID,
+		arg.PageID,
+		arg.CanvasUri,
+		arg.Payload,
+		arg.UpdatedByUserID,
+		arg.ItemImageID,
+		arg.WorkspaceID,
+	)
+}
+
+const deleteAnnotationIndexForPageManual = `-- name: DeleteAnnotationIndexForPageManual :exec
+DELETE FROM annotations
+WHERE workspace_id = ?
+  AND item_image_id = ?
+`
+
+type DeleteAnnotationIndexForPageManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	ItemImageID uint64 `json:"item_image_id"`
+}
+
+func (q *Queries) DeleteAnnotationIndexForPageManual(ctx context.Context, arg DeleteAnnotationIndexForPageManualParams) error {
+	_, err := q.db.ExecContext(ctx, deleteAnnotationIndexForPageManual, arg.WorkspaceID, arg.ItemImageID)
+	return err
+}
+
+const getAnnotationIndexEntryManual = `-- name: GetAnnotationIndexEntryManual :one
+SELECT
+  workspace_id,
+  item_image_id,
+  id,
+  canvas_uri,
+  text_granularity,
+  position,
   payload,
   created_at,
   updated_at
 FROM annotations
-WHERE id = ?
+WHERE workspace_id = ?
+  AND id = ?
 LIMIT 1
 `
 
-func (q *Queries) GetAnnotationManual(ctx context.Context, id string) (Annotation, error) {
-	row := q.db.QueryRowContext(ctx, getAnnotationManual, id)
+type GetAnnotationIndexEntryManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	ID          string `json:"id"`
+}
+
+func (q *Queries) GetAnnotationIndexEntryManual(ctx context.Context, arg GetAnnotationIndexEntryManualParams) (Annotation, error) {
+	row := q.db.QueryRowContext(ctx, getAnnotationIndexEntryManual, arg.WorkspaceID, arg.ID)
 	var i Annotation
 	err := row.Scan(
+		&i.WorkspaceID,
+		&i.ItemImageID,
 		&i.ID,
 		&i.CanvasUri,
+		&i.TextGranularity,
+		&i.Position,
 		&i.Payload,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -55,25 +176,279 @@ func (q *Queries) GetAnnotationManual(ctx context.Context, id string) (Annotatio
 	return i, err
 }
 
-const searchAnnotationsByCanvasManual = `-- name: SearchAnnotationsByCanvasManual :many
+const getAnnotationPageManual = `-- name: GetAnnotationPageManual :one
 SELECT
+  workspace_id,
+  item_image_id,
+  page_id,
+  canvas_uri,
+  payload,
+  revision,
+  updated_by_user_id,
+  created_at,
+  updated_at
+FROM annotation_pages
+WHERE annotation_pages.workspace_id = ?
+  AND annotation_pages.item_image_id = ?
+  AND EXISTS (
+    SELECT 1
+    FROM item_images ii
+    JOIN items i ON i.id = ii.item_id
+    WHERE ii.id = annotation_pages.item_image_id
+      AND i.workspace_id = annotation_pages.workspace_id
+  )
+LIMIT 1
+`
+
+type GetAnnotationPageManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	ItemImageID uint64 `json:"item_image_id"`
+}
+
+func (q *Queries) GetAnnotationPageManual(ctx context.Context, arg GetAnnotationPageManualParams) (AnnotationPage, error) {
+	row := q.db.QueryRowContext(ctx, getAnnotationPageManual, arg.WorkspaceID, arg.ItemImageID)
+	var i AnnotationPage
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.ItemImageID,
+		&i.PageID,
+		&i.CanvasUri,
+		&i.Payload,
+		&i.Revision,
+		&i.UpdatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listItemAnnotationManifestReferencesManual = `-- name: ListItemAnnotationManifestReferencesManual :many
+SELECT
+  ap.workspace_id,
+  ap.item_image_id,
+  ap.page_id,
+  ap.canvas_uri,
+  ap.revision,
+  ap.updated_at
+FROM items i
+JOIN item_images ii
+  ON ii.item_id = i.id
+JOIN annotation_pages ap
+  ON ap.workspace_id = i.workspace_id
+ AND ap.item_image_id = ii.id
+WHERE i.workspace_id = ?
+  AND i.id = ?
+ORDER BY ii.sequence ASC, ii.id ASC
+`
+
+type ListItemAnnotationManifestReferencesManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	ItemID      string `json:"item_id"`
+}
+
+type ListItemAnnotationManifestReferencesManualRow struct {
+	WorkspaceID uint64    `json:"workspace_id"`
+	ItemImageID uint64    `json:"item_image_id"`
+	PageID      string    `json:"page_id"`
+	CanvasUri   string    `json:"canvas_uri"`
+	Revision    uint64    `json:"revision"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func (q *Queries) ListItemAnnotationManifestReferencesManual(ctx context.Context, arg ListItemAnnotationManifestReferencesManualParams) ([]ListItemAnnotationManifestReferencesManualRow, error) {
+	rows, err := q.db.QueryContext(ctx, listItemAnnotationManifestReferencesManual, arg.WorkspaceID, arg.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemAnnotationManifestReferencesManualRow{}
+	for rows.Next() {
+		var i ListItemAnnotationManifestReferencesManualRow
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.ItemImageID,
+			&i.PageID,
+			&i.CanvasUri,
+			&i.Revision,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listItemAnnotationPagesManual = `-- name: ListItemAnnotationPagesManual :many
+SELECT
+  ap.workspace_id,
+  ap.item_image_id,
+  ap.page_id,
+  ap.canvas_uri,
+  ap.payload,
+  ap.revision,
+  ap.updated_by_user_id,
+  ap.created_at,
+  ap.updated_at
+FROM items i
+JOIN item_images ii
+  ON ii.item_id = i.id
+JOIN annotation_pages ap
+  ON ap.workspace_id = i.workspace_id
+ AND ap.item_image_id = ii.id
+WHERE i.workspace_id = ?
+  AND i.id = ?
+  AND (
+    SELECT COALESCE(SUM(OCTET_LENGTH(ap_budget.payload)), 0)
+    FROM item_images ii_budget
+    JOIN annotation_pages ap_budget
+      ON ap_budget.item_image_id = ii_budget.id
+     AND ap_budget.workspace_id = i.workspace_id
+    WHERE ii_budget.item_id = i.id
+  ) <= ?
+ORDER BY ii.sequence ASC, ii.id ASC
+`
+
+type ListItemAnnotationPagesManualParams struct {
+	WorkspaceID    uint64 `json:"workspace_id"`
+	ItemID         string `json:"item_id"`
+	MaxSourceBytes string `json:"max_source_bytes"`
+}
+
+func (q *Queries) ListItemAnnotationPagesManual(ctx context.Context, arg ListItemAnnotationPagesManualParams) ([]AnnotationPage, error) {
+	rows, err := q.db.QueryContext(ctx, listItemAnnotationPagesManual, arg.WorkspaceID, arg.ItemID, arg.MaxSourceBytes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AnnotationPage{}
+	for rows.Next() {
+		var i AnnotationPage
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.ItemImageID,
+			&i.PageID,
+			&i.CanvasUri,
+			&i.Payload,
+			&i.Revision,
+			&i.UpdatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listItemAnnotationRevisionsManual = `-- name: ListItemAnnotationRevisionsManual :many
+SELECT
+  ap.item_image_id,
+  ap.revision,
+  OCTET_LENGTH(ap.payload) AS payload_bytes
+FROM items i
+JOIN item_images ii
+  ON ii.item_id = i.id
+JOIN annotation_pages ap
+  ON ap.workspace_id = i.workspace_id
+ AND ap.item_image_id = ii.id
+WHERE i.workspace_id = ?
+  AND i.id = ?
+ORDER BY ii.sequence ASC, ii.id ASC
+`
+
+type ListItemAnnotationRevisionsManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	ItemID      string `json:"item_id"`
+}
+
+type ListItemAnnotationRevisionsManualRow struct {
+	ItemImageID  uint64 `json:"item_image_id"`
+	Revision     uint64 `json:"revision"`
+	PayloadBytes int32  `json:"payload_bytes"`
+}
+
+func (q *Queries) ListItemAnnotationRevisionsManual(ctx context.Context, arg ListItemAnnotationRevisionsManualParams) ([]ListItemAnnotationRevisionsManualRow, error) {
+	rows, err := q.db.QueryContext(ctx, listItemAnnotationRevisionsManual, arg.WorkspaceID, arg.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemAnnotationRevisionsManualRow{}
+	for rows.Next() {
+		var i ListItemAnnotationRevisionsManualRow
+		if err := rows.Scan(&i.ItemImageID, &i.Revision, &i.PayloadBytes); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const saveCanonicalOCRCorrectionMetricManual = `-- name: SaveCanonicalOCRCorrectionMetricManual :execresult
+UPDATE ocr_runs run
+JOIN current_ocr_runs current_run
+  ON current_run.session_id = run.session_id
+ AND current_run.item_image_id = run.item_image_id
+SET
+  run.canonical_revision = ?,
+  run.levenshtein_distance = ?
+WHERE current_run.item_image_id = ?
+`
+
+type SaveCanonicalOCRCorrectionMetricManualParams struct {
+	CanonicalRevision   sql.NullInt64 `json:"canonical_revision"`
+	LevenshteinDistance int32         `json:"levenshtein_distance"`
+	ItemImageID         uint64        `json:"item_image_id"`
+}
+
+func (q *Queries) SaveCanonicalOCRCorrectionMetricManual(ctx context.Context, arg SaveCanonicalOCRCorrectionMetricManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, saveCanonicalOCRCorrectionMetricManual, arg.CanonicalRevision, arg.LevenshteinDistance, arg.ItemImageID)
+}
+
+const searchAnnotationIndexManual = `-- name: SearchAnnotationIndexManual :many
+SELECT
+  workspace_id,
+  item_image_id,
   id,
   canvas_uri,
+  text_granularity,
+  position,
   payload,
   created_at,
   updated_at
 FROM annotations
-WHERE canvas_uri IN (?, ?)
-ORDER BY updated_at ASC
+WHERE workspace_id = ?
+  AND item_image_id = ?
+ORDER BY position ASC
 `
 
-type SearchAnnotationsByCanvasManualParams struct {
-	CanvasUri           string `json:"canvas_uri"`
-	NormalizedCanvasUri string `json:"normalized_canvas_uri"`
+type SearchAnnotationIndexManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	ItemImageID uint64 `json:"item_image_id"`
 }
 
-func (q *Queries) SearchAnnotationsByCanvasManual(ctx context.Context, arg SearchAnnotationsByCanvasManualParams) ([]Annotation, error) {
-	rows, err := q.db.QueryContext(ctx, searchAnnotationsByCanvasManual, arg.CanvasUri, arg.NormalizedCanvasUri)
+func (q *Queries) SearchAnnotationIndexManual(ctx context.Context, arg SearchAnnotationIndexManualParams) ([]Annotation, error) {
+	rows, err := q.db.QueryContext(ctx, searchAnnotationIndexManual, arg.WorkspaceID, arg.ItemImageID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,8 +457,12 @@ func (q *Queries) SearchAnnotationsByCanvasManual(ctx context.Context, arg Searc
 	for rows.Next() {
 		var i Annotation
 		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.ItemImageID,
 			&i.ID,
 			&i.CanvasUri,
+			&i.TextGranularity,
+			&i.Position,
 			&i.Payload,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -101,39 +480,44 @@ func (q *Queries) SearchAnnotationsByCanvasManual(ctx context.Context, arg Searc
 	return items, nil
 }
 
-const updateAnnotationManual = `-- name: UpdateAnnotationManual :execresult
-UPDATE annotations
+const updateAnnotationPageCASManual = `-- name: UpdateAnnotationPageCASManual :execresult
+UPDATE annotation_pages
 SET
+  page_id = ?,
   canvas_uri = ?,
-  payload = ?
-WHERE id = ?
+  payload = ?,
+  revision = revision + 1,
+  updated_by_user_id = ?
+WHERE annotation_pages.workspace_id = ?
+  AND annotation_pages.item_image_id = ?
+  AND annotation_pages.revision = ?
+  AND EXISTS (
+    SELECT 1
+    FROM item_images ii
+    JOIN items i ON i.id = ii.item_id
+    WHERE ii.id = annotation_pages.item_image_id
+      AND i.workspace_id = annotation_pages.workspace_id
+  )
 `
 
-type UpdateAnnotationManualParams struct {
-	CanvasUri string `json:"canvas_uri"`
-	Payload   string `json:"payload"`
-	ID        string `json:"id"`
+type UpdateAnnotationPageCASManualParams struct {
+	PageID           string        `json:"page_id"`
+	CanvasUri        string        `json:"canvas_uri"`
+	Payload          string        `json:"payload"`
+	UpdatedByUserID  sql.NullInt64 `json:"updated_by_user_id"`
+	WorkspaceID      uint64        `json:"workspace_id"`
+	ItemImageID      uint64        `json:"item_image_id"`
+	ExpectedRevision uint64        `json:"expected_revision"`
 }
 
-func (q *Queries) UpdateAnnotationManual(ctx context.Context, arg UpdateAnnotationManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, updateAnnotationManual, arg.CanvasUri, arg.Payload, arg.ID)
-}
-
-const upsertAnnotationManual = `-- name: UpsertAnnotationManual :exec
-INSERT INTO annotations (id, canvas_uri, payload)
-VALUES (?, ?, ?)
-ON DUPLICATE KEY UPDATE
-  canvas_uri = VALUES(canvas_uri),
-  payload = VALUES(payload)
-`
-
-type UpsertAnnotationManualParams struct {
-	ID        string `json:"id"`
-	CanvasUri string `json:"canvas_uri"`
-	Payload   string `json:"payload"`
-}
-
-func (q *Queries) UpsertAnnotationManual(ctx context.Context, arg UpsertAnnotationManualParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAnnotationManual, arg.ID, arg.CanvasUri, arg.Payload)
-	return err
+func (q *Queries) UpdateAnnotationPageCASManual(ctx context.Context, arg UpdateAnnotationPageCASManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, updateAnnotationPageCASManual,
+		arg.PageID,
+		arg.CanvasUri,
+		arg.Payload,
+		arg.UpdatedByUserID,
+		arg.WorkspaceID,
+		arg.ItemImageID,
+		arg.ExpectedRevision,
+	)
 }

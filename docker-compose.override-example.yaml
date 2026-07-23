@@ -1,35 +1,42 @@
 services:
+  # The local frontend is the browser-facing edge and proxies API/IIIF paths.
+  # The base file keeps Traefik's port for VM deployments, so reset it here to
+  # avoid two services claiming host port 80.
+  traefik:
+    ports: !reset []
+
   api:
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
       SEGMENTATION_SERVICE_URL: http://segmentor:8080
       SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
-      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
       IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
+      IIIF_SOURCE_BASE: http://api:8080/static/uploads
       TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
-      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
       KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     depends_on:
       segmentor:
-        condition: service_started
+        condition: service_healthy
       triplet:
-        condition: service_started
+        condition: service_healthy
 
   worker:
     environment:
       SEGMENTATION_SERVICE_URL: http://segmentor:8080
       SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
-      IMAGE_SERVICE_URL: ${IMAGE_SERVICE_URL:-}
       IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
+      IIIF_SOURCE_BASE: http://api:8080/static/uploads
       TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
-      TRIPLET_PRESENTATION_WRITE_TOKEN: ${TRIPLET_PRESENTATION_WRITE_TOKEN:-scribe-local-presentation-token}
       KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
       VAULT_TOKEN: ${VAULT_TOKEN:-}
     depends_on:
       segmentor:
-        condition: service_started
+        condition: service_healthy
       triplet:
-        condition: service_started
+        condition: service_healthy
 
   frontend:
     image: ${SCRIBE_FRONTEND_IMAGE:-scribe-frontend:local}
@@ -40,15 +47,50 @@ services:
       - "80:8888"
     environment:
       SCRIBE_FRONTEND_BACKEND_ORIGIN: http://api:8080
-      SCRIBE_FRONTEND_IIIF_ORIGIN: http://triplet:8080
+      SCRIBE_FRONTEND_PRESENTATION_ORIGIN: http://triplet:8080
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
+      triplet:
+        condition: service_healthy
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8888/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 20s
 
   segmentor:
     build:
       context: .
       dockerfile: Dockerfile.segmentor
+    environment:
+      SEGMENTOR_MAX_CONCURRENCY: ${SEGMENTOR_MAX_CONCURRENCY:-1}
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
+      - /home/appuser/.cache:rw,noexec,nosuid,nodev,size=256m,mode=700
+    healthcheck:
+      test: ["CMD", "/app/scribe-segmentor", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 60s
+    restart: unless-stopped
+    stop_grace_period: 30s
 
   triplet:
-    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:main@sha256:3cba2874f8e06352d69028f00207bd85a02cdb80715c954422946765bf557a2b}
+    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:v1.2.0@sha256:6f7ce5374a4517456ae0b8ba410f0abd2e6a717675e8f4e3e18ddf6ab2227ace}

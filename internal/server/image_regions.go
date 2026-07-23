@@ -10,11 +10,12 @@ import (
 
 	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
 	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadlimits"
 )
 
 const (
 	staticUploadsPrefix = "/static/uploads/"
-	maxRemoteImageBytes = 100 << 20
+	maxRemoteImageBytes = uploadlimits.MaxImageBytes
 )
 
 func fetchImageRegionToTemp(ctx context.Context, imageURL string, x1, y1, x2, y2 int) (string, func(), error) {
@@ -30,11 +31,15 @@ func fetchImageRegionToTemp(ctx context.Context, imageURL string, x1, y1, x2, y2
 		return fetchIIIFServiceRegionToTemp(ctx, serviceID, x1, y1, x2, y2)
 	}
 
-	if iiifID, err := iiifIdentifierFromImageURL(imageURL); err == nil {
-		return fetchIIIFRegionToTemp(ctx, iiifID, x1, y1, x2, y2)
+	// Presentation manifests may reference a direct public image without an
+	// Image API service. Fetch it through the SSRF-safe client, then use the
+	// bounded Triplet client for the same crop path as uploaded files.
+	sourcePath, cleanupSource, err := fetchImageURLToTemp(ctx, imageURL, "scribe-region-source-*")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("fetch direct image source: %w", err)
 	}
-
-	return "", func() {}, fmt.Errorf("image url %q does not map to a supported crop source", imageURL)
+	defer cleanupSource()
+	return fetchLocalImageRegionToTemp(ctx, sourcePath, x1, y1, x2, y2)
 }
 
 func localUploadPathFromImageURL(imageURL string) (string, bool) {
@@ -48,7 +53,7 @@ func localUploadPathFromImageURL(imageURL string) (string, bool) {
 func fetchLocalImageRegionToTemp(ctx context.Context, imagePath string, x1, y1, x2, y2 int) (string, func(), error) {
 	client := imageservice.New()
 	if !client.Enabled() {
-		return "", func() {}, fmt.Errorf("image service is not configured for local upload crops")
+		return "", func() {}, fmt.Errorf("triplet image client is not configured for local upload crops")
 	}
 	data, err := client.Crop(ctx, imagePath, imageservice.Box{
 		X:      x1,

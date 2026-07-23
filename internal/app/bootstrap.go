@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -11,8 +12,10 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/database"
 	"github.com/lehigh-university-libraries/scribe/internal/jobqueue"
+	"github.com/lehigh-university-libraries/scribe/internal/safelog"
 	"github.com/lehigh-university-libraries/scribe/internal/server"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
 	"github.com/lehigh-university-libraries/scribe/internal/vaultkv"
 )
 
@@ -52,6 +55,9 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
+	if err := preflightServiceIdentity(ctx, cfg); err != nil {
+		return nil, fmt.Errorf("preflight service identity: %w", err)
+	}
 	secrets, err := loadSecretsWithRetry(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("load secrets: %w", err)
@@ -70,6 +76,11 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 			return nil, fmt.Errorf("run migrations: %w", err)
 		}
 	}
+	jobAdmission, err := store.NewTranscriptionJobAdmissionPolicy(cfg.Transcription.MaxActiveJobsPerWorkspace)
+	if err != nil {
+		_ = dbPool.Close()
+		return nil, fmt.Errorf("configure transcription job admission: %w", err)
+	}
 
 	deps := &Dependencies{
 		AppContext:             ctx,
@@ -79,8 +90,8 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 		OCRRunStore:            store.NewOCRRunStore(dbPool),
 		ItemStore:              store.NewItemStore(dbPool),
 		ContextStore:           store.NewContextStore(dbPool),
-		AnnotationStore:        store.NewAnnotationStore(dbPool),
-		TranscriptionJobStore:  store.NewTranscriptionJobStore(dbPool),
+		AnnotationStore:        store.NewAnnotationStoreWithTranscriptionAdmission(dbPool, jobAdmission),
+		TranscriptionJobStore:  store.NewTranscriptionJobStoreWithAdmission(dbPool, jobAdmission),
 		ProviderCallAuditStore: store.NewProviderCallAuditStore(dbPool),
 		IdentityStore:          store.NewIdentityStore(dbPool),
 		APIKeyStore:            store.NewAPIKeyStore(dbPool),
@@ -125,7 +136,7 @@ func loadSecretsWithRetry(ctx context.Context, cfg config.Config) (config.Secret
 		if !vaultkv.IsRetryable(err) || attempt == 5 {
 			break
 		}
-		slog.Warn("vault secrets load failed; retrying", "attempt", attempt, "err", err)
+		slog.Warn("vault secrets load failed; retrying", "attempt", attempt, "error_type", safelog.ErrorType(err), "category", safelog.ErrorCategory(err))
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -145,13 +156,21 @@ func (d *Dependencies) Close() error {
 	if d == nil {
 		return nil
 	}
+	var closeErrors []error
 	if d.TranscriptionQueue != nil {
-		_ = d.TranscriptionQueue.Close()
+		if err := d.TranscriptionQueue.Close(); err != nil {
+			closeErrors = append(closeErrors, fmt.Errorf("close transcription queue: %w", err))
+		}
 	}
-	if d.DBPool == nil {
-		return nil
+	if err := uploadblob.Close(); err != nil {
+		closeErrors = append(closeErrors, fmt.Errorf("close upload storage: %w", err))
 	}
-	return d.DBPool.Close()
+	if d.DBPool != nil {
+		if err := d.DBPool.Close(); err != nil {
+			closeErrors = append(closeErrors, fmt.Errorf("close database: %w", err))
+		}
+	}
+	return errors.Join(closeErrors...)
 }
 
 func (d *Dependencies) NewHandler() *server.Handler {

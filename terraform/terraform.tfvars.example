@@ -21,11 +21,47 @@ users = {
 
 # Vault administrators for the shared dev/prod Vault servers.
 vault_admin_emails = [
-  "jjc223@lehigh.edu",
+  "operator@lehigh.edu",
 ]
 
 # GitHub Actions deploy service accounts that must keep Vault CI login roles.
 # This must include the current value of GitHub secret GSA.
 vault_ci_service_account_emails = [
-  "github@lehigh-lyrasis-catalyst.iam.gserviceaccount.com",
+  "github@example-project.iam.gserviceaccount.com",
 ]
+
+# Production requires at least one full notification-channel resource name.
+monitoring_notification_channels = [
+  "projects/your-gcp-project-id/notificationChannels/1234567890",
+]
+
+# Production and preview compose refs and runtime images must be immutable.
+# Prefer the make/GitHub wrappers, which resolve image tags and pass these
+# values for you. The reviewed frontend GHCR source digest is promoted outside
+# Terraform; only the deployed GAR digest is an infrastructure input.
+docker_compose_branch = "0123456789abcdef0123456789abcdef01234567"
+data_generation       = "canonical-v1"
+api_image              = "ghcr.io/lehigh-university-libraries/scribe@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+frontend_gar_image     = "us-docker.pkg.dev/your-gcp-project-id/internal/scribe-frontend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+# Proxy trust boundaries. Cloud Run sources are limited to the exact GCP
+# subnet; application forwarding trust is the derived Traefik container /32.
+# Use a canonical /24 through /28: Terraform reserves .1 for the bridge
+# gateway, .2 for Traefik, and the upper half for dynamic containers.
+network_ip_cidr_range = "10.42.0.0/24"
+compose_network_cidr  = "172.30.0.0/24"
+
+# Runtime admission limits are Terraform inputs so the same values reach API
+# and worker containers. Defaults are shown here for deliberate review.
+transcription_max_active_jobs_per_workspace = 1000
+storage_max_bytes_per_workspace             = 5368709120
+storage_max_bytes_total                     = 32212254720
+storage_max_items_per_workspace             = 5000
+storage_max_items_total                     = 50000
+storage_max_images_per_workspace            = 10000
+storage_max_images_total                    = 100000
+storage_reservation_ttl                      = "6h"
+storage_normalization_cache_max_bytes        = 2147483648
+storage_normalization_cache_max_age          = "168h"
+iiif_max_manifest_canvases                   = 500
+iiif_max_manifest_import_bytes               = 67108864

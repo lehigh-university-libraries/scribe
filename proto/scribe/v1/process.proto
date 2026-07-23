@@ -7,77 +7,86 @@ import "scribe/v1/options/v1/auth.proto";
 
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
-enum OutputFormat {
-  OUTPUT_FORMAT_UNSPECIFIED = 0;
-  OUTPUT_FORMAT_HOCR        = 1;
-  OUTPUT_FORMAT_TEXT        = 2;
-  OUTPUT_FORMAT_PAGE_XML    = 3;
-}
-
-// ProcessImageURLRequest is kept for direct URL → hOCR flows that don't
-// need to create a full item first (e.g. Islandora integration).
+// ProcessImageURLRequest imports and schedules one image fetched from an
+// external URL. Retries must reuse idempotency_key.
 message ProcessImageURLRequest {
-  string       image_url     = 1 [
+  string image_url = 1 [
     (buf.validate.field).required = true,
-    (buf.validate.field).string.pattern = ".*\\S.*"
+    (buf.validate.field).string = {
+      pattern: ".*\\S.*"
+      max_len: 2048
+    }
   ];
-  OutputFormat output_format = 2;
+  reserved 2;
+  reserved "output_format";
   // If set, uses this context; otherwise selection engine runs against metadata.
-  uint64       context_id    = 3;
+  uint64 context_id = 3;
   // Optional metadata JSON passed to the selection engine.
-  string       metadata      = 4 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-}
-
-message ProcessImageUploadRequest {
-  bytes        image_data    = 1 [
+  string metadata = 4 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_bytes: 1048576
+  }];
+  string idempotency_key = 5 [
     (buf.validate.field).required = true,
-    (buf.validate.field).bytes.min_len = 1
+    (buf.validate.field).string = {
+      min_len: 1
+      max_len: 256
+    }
   ];
-  string       filename      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-  OutputFormat output_format = 3;
-  uint64       context_id    = 4;
 }
 
 message ProcessHOCRRequest {
-  string       hocr          = 1 [
+  option (buf.validate.message).cel = {
+    id: "process_hocr.image_source"
+    message: "exactly one of image_url or image_data is required"
+    expression: "this.image_url.matches('.*\\\\S.*') != (size(this.image_data) > 0)"
+  };
+  string hocr = 1 [
     (buf.validate.field).required = true,
-    (buf.validate.field).string.pattern = ".*\\S.*"
+    (buf.validate.field).string = {
+      pattern: ".*\\S.*"
+      max_bytes: 10485760
+    }
   ];
-  string       image_url     = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-  OutputFormat output_format = 3;
-  bytes        image_data    = 4;
-  string       filename      = 5 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+  string image_url = 2 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_len: 2048
+  }];
+  reserved 3;
+  reserved "output_format";
+  bytes image_data = 4 [(buf.validate.field).bytes.max_len = 104857600];
+  string filename = 5 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_len: 255
+  }];
+  string idempotency_key = 6 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      min_len: 1
+      max_len: 256
+    }
+  ];
 }
 
 // ProcessImageURLResponse returns item/image IDs along with run-scoped OCR data.
 message ProcessImageURLResponse {
-  string item_id       = 1;
+  string item_id = 1;
   uint64 item_image_id = 2;
-  string image_url     = 3;
-  string hocr          = 4;
-  string plain_text    = 5;
+  string image_url = 3;
+  string hocr = 4;
+  string plain_text = 5;
   // Session-scoped identifier for OCR run lookups and async processing.
-  string session_id    = 6;
-}
-
-message ProcessImageUploadResponse {
-  string item_id       = 1;
-  uint64 item_image_id = 2;
-  string image_url     = 3;
-  string hocr          = 4;
-  string plain_text    = 5;
-  // Session-scoped identifier for OCR run lookups and async processing.
-  string session_id    = 6;
+  string session_id = 6;
 }
 
 message ProcessHOCRResponse {
-  string item_id       = 1;
+  string item_id = 1;
   uint64 item_image_id = 2;
-  string image_url     = 3;
-  string hocr          = 4;
-  string plain_text    = 5;
+  string image_url = 3;
+  string hocr = 4;
+  string plain_text = 5;
   // Session-scoped identifier for OCR run lookups and async processing.
-  string session_id    = 6;
+  string session_id = 6;
 }
 
 message GetOCRRunRequest {
@@ -90,39 +99,19 @@ message GetOCRRunRequest {
 }
 
 message GetOCRRunResponse {
-  string session_id            = 1;
-  uint64 item_image_id         = 2;
-  string image_url             = 3;
-  string model                 = 4;
-  string original_hocr         = 5;
-  string original_text         = 6;
-  string corrected_hocr        = 7;
-  string corrected_text        = 8;
-  int32  edit_count            = 9;
-  int32  levenshtein_distance  = 10;
-}
-
-message SaveOCREditsRequest {
-  option (buf.validate.message).cel = {
-    id: "save_ocr_edits.identifier"
-    message: "item_image_id is required"
-    expression: "this.item_image_id > 0"
-  };
+  string session_id = 1;
   uint64 item_image_id = 2;
-  string corrected_hocr = 3 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).string.pattern = ".*\\S.*"
-  ];
-  int32  edit_count    = 4;
-}
-
-message SaveOCREditsResponse {
-  string session_id            = 1;
-  uint64 item_image_id         = 2;
-  int32  edit_count            = 3;
-  int32  levenshtein_distance  = 4;
-  string corrected_plain_text  = 5;
-  string original_plain_text   = 6;
+  string image_url = 3;
+  string model = 4;
+  string original_hocr = 5;
+  string original_text = 6;
+  reserved 7, 8, 9;
+  reserved "corrected_hocr", "corrected_text", "edit_count";
+  int32 levenshtein_distance = 10;
+  uint64 context_id = 11;
+  // Revision of the canonical AnnotationPage used for this metric. Zero means
+  // the baseline OCR has not yet been corrected through the page API.
+  uint64 canonical_revision = 12;
 }
 
 message ReprocessItemImageRequest {
@@ -130,28 +119,35 @@ message ReprocessItemImageRequest {
     (buf.validate.field).required = true,
     (buf.validate.field).uint64.gt = 0
   ];
-  uint64 context_id    = 2;
+  // Explicit processing context, or zero to resolve the workspace/default
+  // context before reserving provider work.
+  uint64 context_id = 2;
+  // Exact canonical AnnotationPage revision the caller reviewed. This is both
+  // the optimistic-concurrency fence and the stable operation identity used to
+  // deduplicate retries before invoking an expensive segmentation provider.
+  uint64 expected_revision = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
 }
 
 message ReprocessItemImageResponse {
-  string session_id    = 1;
+  string session_id = 1;
   uint64 item_image_id = 2;
-  uint64 context_id    = 3;
-  string image_url     = 4;
-  string hocr          = 5;
-  string plain_text    = 6;
-  string provider      = 7;
-  string model         = 8;
+  uint64 context_id = 3;
+  string image_url = 4;
+  string hocr = 5;
+  string plain_text = 6;
+  string provider = 7;
+  string model = 8;
+  // Durable successor job created in the same transaction as the new baseline.
+  uint64 transcription_job_id = 9;
+  // Canonical AnnotationPage revision committed by this operation.
+  uint64 canonical_revision = 10;
 }
 
 service ImageProcessingService {
   rpc ProcessImageURL(ProcessImageURLRequest) returns (ProcessImageURLResponse) {
-    option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
-      level: ACCESS_LEVEL_WRITE
-    };
-  }
-  rpc ProcessImageUpload(ProcessImageUploadRequest) returns (ProcessImageUploadResponse) {
     option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_WRITE
@@ -167,13 +163,6 @@ service ImageProcessingService {
     option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_READ
-      resource_id_field: "item_image_id"
-    };
-  }
-  rpc SaveOCREdits(SaveOCREditsRequest) returns (SaveOCREditsResponse) {
-    option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_ITEM_IMAGE
-      level: ACCESS_LEVEL_WRITE
       resource_id_field: "item_image_id"
     };
   }

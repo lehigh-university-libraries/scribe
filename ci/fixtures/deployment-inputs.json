@@ -1,0 +1,49 @@
+{
+  "api_image": "ghcr.io/lehigh-university-libraries/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "configuration": {
+    "allowed_ips": [
+      "192.0.2.0/24",
+      "2001:db8::/32"
+    ],
+    "allowed_ssh_ipv4": [
+      "198.51.100.1/32"
+    ],
+    "allowed_ssh_ipv6": [
+      "2001:db8:1::/64"
+    ],
+    "backup_restore_service_account_email": "scribe-backup@scribe-test1.iam.gserviceaccount.com",
+    "compose_network_cidr": "172.30.0.0/24",
+    "iiif_max_manifest_canvases": 500,
+    "iiif_max_manifest_import_bytes": 67108864,
+    "monitoring_notification_channels": [
+      "projects/scribe-test1/notificationChannels/release-alerts"
+    ],
+    "network_ip_cidr_range": "10.42.0.0/24",
+    "project_id": "scribe-test1",
+    "region": "us-east5",
+    "storage_max_bytes_per_workspace": 5368709120,
+    "storage_max_bytes_total": 32212254720,
+    "storage_max_images_per_workspace": 10000,
+    "storage_max_images_total": 100000,
+    "storage_max_items_per_workspace": 5000,
+    "storage_max_items_total": 50000,
+    "storage_normalization_cache_max_age": "168h",
+    "storage_normalization_cache_max_bytes": 2147483648,
+    "storage_reservation_ttl": "6h",
+    "transcription_max_active_jobs_per_workspace": 1000,
+    "vault_admin_emails": [
+      "scribe-admin@lehigh.edu"
+    ],
+    "vault_ci_service_account_emails": [
+      "scribe-ci@scribe-test1.iam.gserviceaccount.com"
+    ],
+    "zone": "us-east5-b"
+  },
+  "data_generation": "canonical-v1",
+  "docker_compose_sha": "0123456789abcdef0123456789abcdef01234567",
+  "frontend_gar_image": "us-docker.pkg.dev/scribe-test1/internal/scribe-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "ocr_service_images": {
+    "kraken-ocr/cremma": "us-docker.pkg.dev/scribe-test1/internal/kraken-cremma@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "segmentor": "us-docker.pkg.dev/scribe-test1/internal/segmentor@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  }
+}

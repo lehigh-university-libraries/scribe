@@ -3,41 +3,67 @@ syntax = "proto3";
 package scribe.v1;
 
 import "buf/validate/validate.proto";
+import "scribe/v1/annotation.proto";
 import "scribe/v1/options/v1/auth.proto";
 
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
 // ItemImage represents a single image (canvas) within an item.
 message ItemImage {
-  uint64 id         = 1;
-  string item_id    = 2;
-  uint32 sequence   = 3;
-  string image_url  = 4;
+  uint64 id = 1;
+  string item_id = 2;
+  uint32 sequence = 3;
+  string image_url = 4;
   string canvas_uri = 5;
-  string label      = 6;
+  string label = 6;
+  uint32 width = 7;
+  uint32 height = 8;
 }
 
 // Item is the primary container for one or more images to be processed.
 message Item {
-  string             id          = 1;
-  uint64             user_id     = 2;
-  string             name        = 3;
-  // url | upload | manifest
-  string             source_type = 4;
-  string             source_url  = 5;
+  string id = 1;
+  uint64 user_id = 2;
+  string name = 3;
+  // url | upload | manifest | hocr
+  string source_type = 4;
+  string source_url = 5;
   // Arbitrary metadata bag (JSON object serialised as string)
-  string             metadata    = 6;
-  repeated ItemImage images      = 7;
-  string             created_at  = 8;
-  string             updated_at  = 9;
+  string metadata = 6;
+  repeated ItemImage images = 7;
+  string created_at = 8;
+  string updated_at = 9;
+}
+
+// ItemSummary is the bounded library representation of an item. The complete
+// image list is available from GetItem; list responses include only the first
+// image needed to open the editor and the total image count.
+message ItemSummary {
+  string id = 1;
+  string name = 2;
+  string source_type = 3;
+  uint64 image_count = 4;
+  ItemImage preview_image = 5;
+  string created_at = 6;
+  string updated_at = 7;
 }
 
 // --- requests / responses ---
 
-message ListItemsRequest {}
+message ListItemsRequest {
+  // Number of items to return. Zero uses the server default of 50.
+  uint32 page_size = 1 [(buf.validate.field).uint32.lte = 100];
+  // Opaque continuation token returned by the previous response.
+  string page_token = 2 [(buf.validate.field).string.max_len = 512];
+  // Case-insensitive literal substring match over item name, ID, and source type.
+  // Continuation tokens are bound to the normalized query.
+  string query = 3 [(buf.validate.field).string.max_len = 200];
+}
 
 message ListItemsResponse {
-  repeated Item items = 1;
+  repeated ItemSummary items = 1;
+  // Empty when there are no more items in this workspace.
+  string next_page_token = 2;
 }
 
 message GetItemRequest {
@@ -49,48 +75,231 @@ message GetItemRequest {
 
 message GetItemResponse {
   Item item = 1;
+  // Existing committed canonical AnnotationPage revisions, in item image
+  // order. A missing entry means that image has not committed a page yet.
+  // This bounded server-side vector avoids one browser RPC per page.
+  repeated ItemImageRevision annotation_revisions = 2;
 }
 
-// CreateItemRequest covers URL ingest, manifest ingest, and upload containers.
-message CreateItemRequest {
-  option (buf.validate.message).cel = {
-    id: "create_item.source_type"
-    message: "source_type must be empty, url, manifest, or upload"
-    expression: "this.source_type == '' || this.source_type == 'url' || this.source_type == 'manifest' || this.source_type == 'upload'"
-  };
-  string name        = 1;
-  // source_type: "url" | "manifest" | "upload"
-  string source_type = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-  string source_url  = 3 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-  // Optional context to use for processing; if empty, selection engine runs.
-  uint64 context_id  = 4;
-  // Optional metadata JSON to seed the item (for integrations like Islandora).
-  string metadata    = 5 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+// GetEditorManifestRequest asks for the private Presentation 3 Manifest used
+// to initialize an editor session. The JSON travels through the authenticated
+// Connect contract; Scribe does not expose a second draft Presentation HTTP
+// server beside Triplet.
+message GetEditorManifestRequest {
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
 }
 
-message CreateItemResponse {
+message GetEditorManifestResponse {
   Item item = 1;
+  string manifest_json = 2;
+  string selected_canvas_id = 3;
 }
 
-// UploadItemImageRequest adds a single uploaded image to an existing item.
-// Returns the item after all images are added.
-message UploadItemImageRequest {
-  string item_id    = 1 [
+// ItemImageRevision identifies the exact committed page snapshot included in
+// an item export. The complete vector is required so a background save cannot
+// silently change a multi-page download after the user requests it.
+message ItemImageRevision {
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  uint64 revision = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+}
+
+message PrepareItemExportRequest {
+  option (buf.validate.message).cel = {
+    id: "prepare_item_export.required"
+    message: "item_id, format, and at least one expected revision are required"
+    expression: "this.item_id.matches('.*\\\\S.*') && this.format != 0 && this.expected_revisions.size() > 0"
+  };
+  string item_id = 1 [
     (buf.validate.field).required = true,
     (buf.validate.field).string.pattern = ".*\\S.*"
   ];
-  bytes  image_data = 3 [
+  AnnotationExportFormat format = 2 [
     (buf.validate.field).required = true,
-    (buf.validate.field).bytes.min_len = 1
+    (buf.validate.field).enum = {
+      defined_only: true
+      not_in: 0
+    }
   ];
-  string filename   = 4 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-  uint32 sequence   = 5;
-  uint64 context_id = 6;
+  repeated ItemImageRevision expected_revisions = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).repeated = {
+      min_items: 1
+      max_items: 1000
+    }
+  ];
+}
+
+message PrepareItemExportResponse {
+  string download_url = 1;
+  string filename = 2;
+  string media_type = 3;
+  repeated ItemImageRevision revisions = 4;
+  string expires_at = 5;
+}
+
+// ImportManifestRequest is the one explicit IIIF Presentation ingest contract.
+// Upload batches, URL processing, and hOCR import have separate operations and
+// cannot create partially initialized Item containers through this RPC.
+message ImportManifestRequest {
+  string manifest_url = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: ".*\\S.*"
+      max_len: 2048
+    }
+  ];
+  // Optional display name. The manifest label is used when this is empty.
+  string name = 2 [(buf.validate.field).string.max_len = 255];
+  // Optional processing context for Canvases without imported OCR.
+  uint64 context_id = 3;
+  // Optional metadata JSON to seed the item (for integrations like Islandora).
+  string metadata = 4 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_bytes: 1048576
+  }];
+  // Stable client-generated key used to resume an interrupted import.
+  string idempotency_key = 5 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      min_len: 1
+      max_len: 256
+    }
+  ];
+}
+
+message ImportManifestResponse {
+  Item item = 1;
+}
+
+enum UploadBatchStatus {
+  UPLOAD_BATCH_STATUS_UNSPECIFIED = 0;
+  UPLOAD_BATCH_STATUS_IN_PROGRESS = 1;
+  UPLOAD_BATCH_STATUS_COMPLETED = 2;
+  UPLOAD_BATCH_STATUS_CANCELED = 3;
+}
+
+enum UploadBatchFileStatus {
+  UPLOAD_BATCH_FILE_STATUS_UNSPECIFIED = 0;
+  UPLOAD_BATCH_FILE_STATUS_PENDING = 1;
+  UPLOAD_BATCH_FILE_STATUS_PROCESSING = 2;
+  UPLOAD_BATCH_FILE_STATUS_COMPLETED = 3;
+  UPLOAD_BATCH_FILE_STATUS_FAILED = 4;
+  UPLOAD_BATCH_FILE_STATUS_CANCELED = 5;
+}
+
+// UploadBatchFileInput fixes the ordered file set before processing starts.
+// The server verifies content_sha256 when each file is uploaded.
+message UploadBatchFileInput {
+  string filename = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      min_len: 1
+      max_len: 255
+    }
+  ];
+  uint64 size = 2 [(buf.validate.field).uint64.gt = 0];
+  string content_sha256 = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = "^[0-9a-f]{64}$"
+  ];
+}
+
+message UploadBatchFile {
+  uint32 sequence = 1;
+  string filename = 2;
+  uint64 size = 3;
+  string content_sha256 = 4;
+  UploadBatchFileStatus status = 5;
+  uint32 attempt_count = 6;
+  uint32 max_attempts = 7;
+  uint64 item_image_id = 8;
+  uint64 transcription_job_id = 9;
+  string error_message = 10;
+}
+
+message UploadBatch {
+  string id = 1;
+  string item_id = 2;
+  uint64 context_id = 3;
+  UploadBatchStatus status = 4;
+  repeated UploadBatchFile files = 5;
+  uint32 completed_files = 6;
+  uint32 failed_files = 7;
+  string created_at = 8;
+  string updated_at = 9;
+}
+
+message StartUploadBatchRequest {
+  string batch_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = "^[A-Za-z0-9_-]{1,64}$"
+  ];
+  string name = 2 [(buf.validate.field).string.max_len = 255];
+  uint64 context_id = 3;
+  repeated UploadBatchFileInput files = 4 [(buf.validate.field).repeated = {
+    min_items: 1
+    max_items: 1000
+  }];
+}
+
+message StartUploadBatchResponse {
+  Item item = 1;
+  UploadBatch batch = 2;
+}
+
+message GetUploadBatchRequest {
+  string batch_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = "^[A-Za-z0-9_-]{1,64}$"
+  ];
+}
+
+message GetUploadBatchResponse {
+  Item item = 1;
+  UploadBatch batch = 2;
+}
+
+message CancelUploadBatchRequest {
+  string batch_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = "^[A-Za-z0-9_-]{1,64}$"
+  ];
+}
+
+message CancelUploadBatchResponse {
+  UploadBatch batch = 1;
+}
+
+// UploadItemImageRequest processes one file declared by StartUploadBatch.
+message UploadItemImageRequest {
+  string batch_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = "^[A-Za-z0-9_-]{1,64}$"
+  ];
+  uint32 sequence = 2 [(buf.validate.field).uint32.gt = 0];
+  bytes image_data = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).bytes = {
+      min_len: 1
+      max_len: 104857600
+    }
+  ];
 }
 
 message UploadItemImageResponse {
-  Item      item  = 1;
+  Item item = 1;
   ItemImage image = 2;
+  uint64 transcription_job_id = 3;
+  UploadBatch batch = 4;
 }
 
 message DeleteItemRequest {
@@ -101,6 +310,36 @@ message DeleteItemRequest {
 }
 
 message DeleteItemResponse {}
+
+message ProviderCallAudit {
+  uint64 id = 1;
+  string item_id = 2;
+  optional uint64 item_image_id = 3;
+  uint32 item_image_sequence = 4;
+  string item_image_label = 5;
+  string session_id = 6;
+  optional uint64 context_id = 7;
+  string provider = 8;
+  string model = 9;
+  string operation = 10;
+  reserved 11, 12, 13;
+  string error_message = 14;
+  optional int32 http_status = 15;
+  int64 duration_ms = 16;
+  string created_at = 17;
+}
+
+message ListItemProviderCallAuditsRequest {
+  string item_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  uint32 limit = 2 [(buf.validate.field).uint32.lte = 500];
+}
+
+message ListItemProviderCallAuditsResponse {
+  repeated ProviderCallAudit audits = 1;
+}
 
 service ItemService {
   rpc ListItems(ListItemsRequest) returns (ListItemsResponse) {
@@ -116,23 +355,64 @@ service ItemService {
       resource_id_field: "item_id"
     };
   }
-  rpc CreateItem(CreateItemRequest) returns (CreateItemResponse) {
+  rpc GetEditorManifest(GetEditorManifestRequest) returns (GetEditorManifestResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "item_image_id"
+    };
+  }
+  rpc PrepareItemExport(PrepareItemExportRequest) returns (PrepareItemExportResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_ITEM
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "item_id"
+    };
+  }
+  rpc ImportManifest(ImportManifestRequest) returns (ImportManifestResponse) {
     option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_WRITE
     };
   }
+  rpc StartUploadBatch(StartUploadBatchRequest) returns (StartUploadBatchResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_USER
+      level: ACCESS_LEVEL_WRITE
+    };
+  }
+  rpc GetUploadBatch(GetUploadBatchRequest) returns (GetUploadBatchResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_UPLOAD_BATCH
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "batch_id"
+    };
+  }
   rpc UploadItemImage(UploadItemImageRequest) returns (UploadItemImageResponse) {
     option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_ITEM
+      resource: RESOURCE_TYPE_UPLOAD_BATCH
       level: ACCESS_LEVEL_WRITE
-      resource_id_field: "item_id"
+      resource_id_field: "batch_id"
+    };
+  }
+  rpc CancelUploadBatch(CancelUploadBatchRequest) returns (CancelUploadBatchResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_UPLOAD_BATCH
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "batch_id"
     };
   }
   rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse) {
     option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_ITEM
       level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_id"
+    };
+  }
+  rpc ListItemProviderCallAudits(ListItemProviderCallAuditsRequest) returns (ListItemProviderCallAuditsResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_ITEM
+      level: ACCESS_LEVEL_READ
       resource_id_field: "item_id"
     };
   }

@@ -23,6 +23,116 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type UploadBatchStatus int32
+
+const (
+	UploadBatchStatus_UPLOAD_BATCH_STATUS_UNSPECIFIED UploadBatchStatus = 0
+	UploadBatchStatus_UPLOAD_BATCH_STATUS_IN_PROGRESS UploadBatchStatus = 1
+	UploadBatchStatus_UPLOAD_BATCH_STATUS_COMPLETED   UploadBatchStatus = 2
+	UploadBatchStatus_UPLOAD_BATCH_STATUS_CANCELED    UploadBatchStatus = 3
+)
+
+// Enum value maps for UploadBatchStatus.
+var (
+	UploadBatchStatus_name = map[int32]string{
+		0: "UPLOAD_BATCH_STATUS_UNSPECIFIED",
+		1: "UPLOAD_BATCH_STATUS_IN_PROGRESS",
+		2: "UPLOAD_BATCH_STATUS_COMPLETED",
+		3: "UPLOAD_BATCH_STATUS_CANCELED",
+	}
+	UploadBatchStatus_value = map[string]int32{
+		"UPLOAD_BATCH_STATUS_UNSPECIFIED": 0,
+		"UPLOAD_BATCH_STATUS_IN_PROGRESS": 1,
+		"UPLOAD_BATCH_STATUS_COMPLETED":   2,
+		"UPLOAD_BATCH_STATUS_CANCELED":    3,
+	}
+)
+
+func (x UploadBatchStatus) Enum() *UploadBatchStatus {
+	p := new(UploadBatchStatus)
+	*p = x
+	return p
+}
+
+func (x UploadBatchStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UploadBatchStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_scribe_v1_item_proto_enumTypes[0].Descriptor()
+}
+
+func (UploadBatchStatus) Type() protoreflect.EnumType {
+	return &file_scribe_v1_item_proto_enumTypes[0]
+}
+
+func (x UploadBatchStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use UploadBatchStatus.Descriptor instead.
+func (UploadBatchStatus) EnumDescriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{0}
+}
+
+type UploadBatchFileStatus int32
+
+const (
+	UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_UNSPECIFIED UploadBatchFileStatus = 0
+	UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_PENDING     UploadBatchFileStatus = 1
+	UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_PROCESSING  UploadBatchFileStatus = 2
+	UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_COMPLETED   UploadBatchFileStatus = 3
+	UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_FAILED      UploadBatchFileStatus = 4
+	UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_CANCELED    UploadBatchFileStatus = 5
+)
+
+// Enum value maps for UploadBatchFileStatus.
+var (
+	UploadBatchFileStatus_name = map[int32]string{
+		0: "UPLOAD_BATCH_FILE_STATUS_UNSPECIFIED",
+		1: "UPLOAD_BATCH_FILE_STATUS_PENDING",
+		2: "UPLOAD_BATCH_FILE_STATUS_PROCESSING",
+		3: "UPLOAD_BATCH_FILE_STATUS_COMPLETED",
+		4: "UPLOAD_BATCH_FILE_STATUS_FAILED",
+		5: "UPLOAD_BATCH_FILE_STATUS_CANCELED",
+	}
+	UploadBatchFileStatus_value = map[string]int32{
+		"UPLOAD_BATCH_FILE_STATUS_UNSPECIFIED": 0,
+		"UPLOAD_BATCH_FILE_STATUS_PENDING":     1,
+		"UPLOAD_BATCH_FILE_STATUS_PROCESSING":  2,
+		"UPLOAD_BATCH_FILE_STATUS_COMPLETED":   3,
+		"UPLOAD_BATCH_FILE_STATUS_FAILED":      4,
+		"UPLOAD_BATCH_FILE_STATUS_CANCELED":    5,
+	}
+)
+
+func (x UploadBatchFileStatus) Enum() *UploadBatchFileStatus {
+	p := new(UploadBatchFileStatus)
+	*p = x
+	return p
+}
+
+func (x UploadBatchFileStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UploadBatchFileStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_scribe_v1_item_proto_enumTypes[1].Descriptor()
+}
+
+func (UploadBatchFileStatus) Type() protoreflect.EnumType {
+	return &file_scribe_v1_item_proto_enumTypes[1]
+}
+
+func (x UploadBatchFileStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use UploadBatchFileStatus.Descriptor instead.
+func (UploadBatchFileStatus) EnumDescriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{1}
+}
+
 // ItemImage represents a single image (canvas) within an item.
 type ItemImage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -32,6 +142,8 @@ type ItemImage struct {
 	ImageUrl      string                 `protobuf:"bytes,4,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
 	CanvasUri     string                 `protobuf:"bytes,5,opt,name=canvas_uri,json=canvasUri,proto3" json:"canvas_uri,omitempty"`
 	Label         string                 `protobuf:"bytes,6,opt,name=label,proto3" json:"label,omitempty"`
+	Width         uint32                 `protobuf:"varint,7,opt,name=width,proto3" json:"width,omitempty"`
+	Height        uint32                 `protobuf:"varint,8,opt,name=height,proto3" json:"height,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -108,13 +220,27 @@ func (x *ItemImage) GetLabel() string {
 	return ""
 }
 
+func (x *ItemImage) GetWidth() uint32 {
+	if x != nil {
+		return x.Width
+	}
+	return 0
+}
+
+func (x *ItemImage) GetHeight() uint32 {
+	if x != nil {
+		return x.Height
+	}
+	return 0
+}
+
 // Item is the primary container for one or more images to be processed.
 type Item struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Id     string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	UserId uint64                 `protobuf:"varint,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Name   string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	// url | upload | manifest
+	// url | upload | manifest | hocr
 	SourceType string `protobuf:"bytes,4,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
 	SourceUrl  string `protobuf:"bytes,5,opt,name=source_url,json=sourceUrl,proto3" json:"source_url,omitempty"`
 	// Arbitrary metadata bag (JSON object serialised as string)
@@ -219,15 +345,117 @@ func (x *Item) GetUpdatedAt() string {
 	return ""
 }
 
-type ListItemsRequest struct {
+// ItemSummary is the bounded library representation of an item. The complete
+// image list is available from GetItem; list responses include only the first
+// image needed to open the editor and the total image count.
+type ItemSummary struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	SourceType    string                 `protobuf:"bytes,3,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
+	ImageCount    uint64                 `protobuf:"varint,4,opt,name=image_count,json=imageCount,proto3" json:"image_count,omitempty"`
+	PreviewImage  *ItemImage             `protobuf:"bytes,5,opt,name=preview_image,json=previewImage,proto3" json:"preview_image,omitempty"`
+	CreatedAt     string                 `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     string                 `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ItemSummary) Reset() {
+	*x = ItemSummary{}
+	mi := &file_scribe_v1_item_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ItemSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ItemSummary) ProtoMessage() {}
+
+func (x *ItemSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ItemSummary.ProtoReflect.Descriptor instead.
+func (*ItemSummary) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ItemSummary) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ItemSummary) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ItemSummary) GetSourceType() string {
+	if x != nil {
+		return x.SourceType
+	}
+	return ""
+}
+
+func (x *ItemSummary) GetImageCount() uint64 {
+	if x != nil {
+		return x.ImageCount
+	}
+	return 0
+}
+
+func (x *ItemSummary) GetPreviewImage() *ItemImage {
+	if x != nil {
+		return x.PreviewImage
+	}
+	return nil
+}
+
+func (x *ItemSummary) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *ItemSummary) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+type ListItemsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Number of items to return. Zero uses the server default of 50.
+	PageSize uint32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Opaque continuation token returned by the previous response.
+	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// Case-insensitive literal substring match over item name, ID, and source type.
+	// Continuation tokens are bound to the normalized query.
+	Query         string `protobuf:"bytes,3,opt,name=query,proto3" json:"query,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListItemsRequest) Reset() {
 	*x = ListItemsRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[2]
+	mi := &file_scribe_v1_item_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -239,7 +467,7 @@ func (x *ListItemsRequest) String() string {
 func (*ListItemsRequest) ProtoMessage() {}
 
 func (x *ListItemsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[2]
+	mi := &file_scribe_v1_item_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -252,19 +480,42 @@ func (x *ListItemsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListItemsRequest.ProtoReflect.Descriptor instead.
 func (*ListItemsRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{2}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListItemsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListItemsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *ListItemsRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
 }
 
 type ListItemsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Items         []*Item                `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Items []*ItemSummary         `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	// Empty when there are no more items in this workspace.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListItemsResponse) Reset() {
 	*x = ListItemsResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[3]
+	mi := &file_scribe_v1_item_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -276,7 +527,7 @@ func (x *ListItemsResponse) String() string {
 func (*ListItemsResponse) ProtoMessage() {}
 
 func (x *ListItemsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[3]
+	mi := &file_scribe_v1_item_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -289,14 +540,21 @@ func (x *ListItemsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListItemsResponse.ProtoReflect.Descriptor instead.
 func (*ListItemsResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{3}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *ListItemsResponse) GetItems() []*Item {
+func (x *ListItemsResponse) GetItems() []*ItemSummary {
 	if x != nil {
 		return x.Items
 	}
 	return nil
+}
+
+func (x *ListItemsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
 }
 
 type GetItemRequest struct {
@@ -308,7 +566,7 @@ type GetItemRequest struct {
 
 func (x *GetItemRequest) Reset() {
 	*x = GetItemRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[4]
+	mi := &file_scribe_v1_item_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -320,7 +578,7 @@ func (x *GetItemRequest) String() string {
 func (*GetItemRequest) ProtoMessage() {}
 
 func (x *GetItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[4]
+	mi := &file_scribe_v1_item_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -333,7 +591,7 @@ func (x *GetItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetItemRequest.ProtoReflect.Descriptor instead.
 func (*GetItemRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{4}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetItemRequest) GetItemId() string {
@@ -344,15 +602,19 @@ func (x *GetItemRequest) GetItemId() string {
 }
 
 type GetItemResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Item          *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Item  *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
+	// Existing committed canonical AnnotationPage revisions, in item image
+	// order. A missing entry means that image has not committed a page yet.
+	// This bounded server-side vector avoids one browser RPC per page.
+	AnnotationRevisions []*ItemImageRevision `protobuf:"bytes,2,rep,name=annotation_revisions,json=annotationRevisions,proto3" json:"annotation_revisions,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *GetItemResponse) Reset() {
 	*x = GetItemResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[5]
+	mi := &file_scribe_v1_item_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -364,7 +626,7 @@ func (x *GetItemResponse) String() string {
 func (*GetItemResponse) ProtoMessage() {}
 
 func (x *GetItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[5]
+	mi := &file_scribe_v1_item_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -377,7 +639,7 @@ func (x *GetItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetItemResponse.ProtoReflect.Descriptor instead.
 func (*GetItemResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{5}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetItemResponse) GetItem() *Item {
@@ -387,36 +649,39 @@ func (x *GetItemResponse) GetItem() *Item {
 	return nil
 }
 
-// CreateItemRequest covers URL ingest, manifest ingest, and upload containers.
-type CreateItemRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// source_type: "url" | "manifest" | "upload"
-	SourceType string `protobuf:"bytes,2,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
-	SourceUrl  string `protobuf:"bytes,3,opt,name=source_url,json=sourceUrl,proto3" json:"source_url,omitempty"`
-	// Optional context to use for processing; if empty, selection engine runs.
-	ContextId uint64 `protobuf:"varint,4,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
-	// Optional metadata JSON to seed the item (for integrations like Islandora).
-	Metadata      string `protobuf:"bytes,5,opt,name=metadata,proto3" json:"metadata,omitempty"`
+func (x *GetItemResponse) GetAnnotationRevisions() []*ItemImageRevision {
+	if x != nil {
+		return x.AnnotationRevisions
+	}
+	return nil
+}
+
+// GetEditorManifestRequest asks for the private Presentation 3 Manifest used
+// to initialize an editor session. The JSON travels through the authenticated
+// Connect contract; Scribe does not expose a second draft Presentation HTTP
+// server beside Triplet.
+type GetEditorManifestRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemImageId   uint64                 `protobuf:"varint,1,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateItemRequest) Reset() {
-	*x = CreateItemRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[6]
+func (x *GetEditorManifestRequest) Reset() {
+	*x = GetEditorManifestRequest{}
+	mi := &file_scribe_v1_item_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateItemRequest) String() string {
+func (x *GetEditorManifestRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateItemRequest) ProtoMessage() {}
+func (*GetEditorManifestRequest) ProtoMessage() {}
 
-func (x *CreateItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[6]
+func (x *GetEditorManifestRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -427,68 +692,42 @@ func (x *CreateItemRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateItemRequest.ProtoReflect.Descriptor instead.
-func (*CreateItemRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{6}
+// Deprecated: Use GetEditorManifestRequest.ProtoReflect.Descriptor instead.
+func (*GetEditorManifestRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *CreateItemRequest) GetName() string {
+func (x *GetEditorManifestRequest) GetItemImageId() uint64 {
 	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *CreateItemRequest) GetSourceType() string {
-	if x != nil {
-		return x.SourceType
-	}
-	return ""
-}
-
-func (x *CreateItemRequest) GetSourceUrl() string {
-	if x != nil {
-		return x.SourceUrl
-	}
-	return ""
-}
-
-func (x *CreateItemRequest) GetContextId() uint64 {
-	if x != nil {
-		return x.ContextId
+		return x.ItemImageId
 	}
 	return 0
 }
 
-func (x *CreateItemRequest) GetMetadata() string {
-	if x != nil {
-		return x.Metadata
-	}
-	return ""
+type GetEditorManifestResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Item             *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
+	ManifestJson     string                 `protobuf:"bytes,2,opt,name=manifest_json,json=manifestJson,proto3" json:"manifest_json,omitempty"`
+	SelectedCanvasId string                 `protobuf:"bytes,3,opt,name=selected_canvas_id,json=selectedCanvasId,proto3" json:"selected_canvas_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
-type CreateItemResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Item          *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *CreateItemResponse) Reset() {
-	*x = CreateItemResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[7]
+func (x *GetEditorManifestResponse) Reset() {
+	*x = GetEditorManifestResponse{}
+	mi := &file_scribe_v1_item_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateItemResponse) String() string {
+func (x *GetEditorManifestResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateItemResponse) ProtoMessage() {}
+func (*GetEditorManifestResponse) ProtoMessage() {}
 
-func (x *CreateItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[7]
+func (x *GetEditorManifestResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -499,34 +738,953 @@ func (x *CreateItemResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateItemResponse.ProtoReflect.Descriptor instead.
-func (*CreateItemResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{7}
+// Deprecated: Use GetEditorManifestResponse.ProtoReflect.Descriptor instead.
+func (*GetEditorManifestResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *CreateItemResponse) GetItem() *Item {
+func (x *GetEditorManifestResponse) GetItem() *Item {
 	if x != nil {
 		return x.Item
 	}
 	return nil
 }
 
-// UploadItemImageRequest adds a single uploaded image to an existing item.
-// Returns the item after all images are added.
+func (x *GetEditorManifestResponse) GetManifestJson() string {
+	if x != nil {
+		return x.ManifestJson
+	}
+	return ""
+}
+
+func (x *GetEditorManifestResponse) GetSelectedCanvasId() string {
+	if x != nil {
+		return x.SelectedCanvasId
+	}
+	return ""
+}
+
+// ItemImageRevision identifies the exact committed page snapshot included in
+// an item export. The complete vector is required so a background save cannot
+// silently change a multi-page download after the user requests it.
+type ItemImageRevision struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemImageId   uint64                 `protobuf:"varint,1,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	Revision      uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ItemImageRevision) Reset() {
+	*x = ItemImageRevision{}
+	mi := &file_scribe_v1_item_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ItemImageRevision) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ItemImageRevision) ProtoMessage() {}
+
+func (x *ItemImageRevision) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ItemImageRevision.ProtoReflect.Descriptor instead.
+func (*ItemImageRevision) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ItemImageRevision) GetItemImageId() uint64 {
+	if x != nil {
+		return x.ItemImageId
+	}
+	return 0
+}
+
+func (x *ItemImageRevision) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+type PrepareItemExportRequest struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ItemId            string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	Format            AnnotationExportFormat `protobuf:"varint,2,opt,name=format,proto3,enum=scribe.v1.AnnotationExportFormat" json:"format,omitempty"`
+	ExpectedRevisions []*ItemImageRevision   `protobuf:"bytes,3,rep,name=expected_revisions,json=expectedRevisions,proto3" json:"expected_revisions,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PrepareItemExportRequest) Reset() {
+	*x = PrepareItemExportRequest{}
+	mi := &file_scribe_v1_item_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrepareItemExportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrepareItemExportRequest) ProtoMessage() {}
+
+func (x *PrepareItemExportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PrepareItemExportRequest.ProtoReflect.Descriptor instead.
+func (*PrepareItemExportRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *PrepareItemExportRequest) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *PrepareItemExportRequest) GetFormat() AnnotationExportFormat {
+	if x != nil {
+		return x.Format
+	}
+	return AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_UNSPECIFIED
+}
+
+func (x *PrepareItemExportRequest) GetExpectedRevisions() []*ItemImageRevision {
+	if x != nil {
+		return x.ExpectedRevisions
+	}
+	return nil
+}
+
+type PrepareItemExportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	DownloadUrl   string                 `protobuf:"bytes,1,opt,name=download_url,json=downloadUrl,proto3" json:"download_url,omitempty"`
+	Filename      string                 `protobuf:"bytes,2,opt,name=filename,proto3" json:"filename,omitempty"`
+	MediaType     string                 `protobuf:"bytes,3,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
+	Revisions     []*ItemImageRevision   `protobuf:"bytes,4,rep,name=revisions,proto3" json:"revisions,omitempty"`
+	ExpiresAt     string                 `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PrepareItemExportResponse) Reset() {
+	*x = PrepareItemExportResponse{}
+	mi := &file_scribe_v1_item_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrepareItemExportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrepareItemExportResponse) ProtoMessage() {}
+
+func (x *PrepareItemExportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PrepareItemExportResponse.ProtoReflect.Descriptor instead.
+func (*PrepareItemExportResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *PrepareItemExportResponse) GetDownloadUrl() string {
+	if x != nil {
+		return x.DownloadUrl
+	}
+	return ""
+}
+
+func (x *PrepareItemExportResponse) GetFilename() string {
+	if x != nil {
+		return x.Filename
+	}
+	return ""
+}
+
+func (x *PrepareItemExportResponse) GetMediaType() string {
+	if x != nil {
+		return x.MediaType
+	}
+	return ""
+}
+
+func (x *PrepareItemExportResponse) GetRevisions() []*ItemImageRevision {
+	if x != nil {
+		return x.Revisions
+	}
+	return nil
+}
+
+func (x *PrepareItemExportResponse) GetExpiresAt() string {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return ""
+}
+
+// ImportManifestRequest is the one explicit IIIF Presentation ingest contract.
+// Upload batches, URL processing, and hOCR import have separate operations and
+// cannot create partially initialized Item containers through this RPC.
+type ImportManifestRequest struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ManifestUrl string                 `protobuf:"bytes,1,opt,name=manifest_url,json=manifestUrl,proto3" json:"manifest_url,omitempty"`
+	// Optional display name. The manifest label is used when this is empty.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Optional processing context for Canvases without imported OCR.
+	ContextId uint64 `protobuf:"varint,3,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	// Optional metadata JSON to seed the item (for integrations like Islandora).
+	Metadata string `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	// Stable client-generated key used to resume an interrupted import.
+	IdempotencyKey string `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ImportManifestRequest) Reset() {
+	*x = ImportManifestRequest{}
+	mi := &file_scribe_v1_item_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImportManifestRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImportManifestRequest) ProtoMessage() {}
+
+func (x *ImportManifestRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImportManifestRequest.ProtoReflect.Descriptor instead.
+func (*ImportManifestRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ImportManifestRequest) GetManifestUrl() string {
+	if x != nil {
+		return x.ManifestUrl
+	}
+	return ""
+}
+
+func (x *ImportManifestRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ImportManifestRequest) GetContextId() uint64 {
+	if x != nil {
+		return x.ContextId
+	}
+	return 0
+}
+
+func (x *ImportManifestRequest) GetMetadata() string {
+	if x != nil {
+		return x.Metadata
+	}
+	return ""
+}
+
+func (x *ImportManifestRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+type ImportManifestResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Item          *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImportManifestResponse) Reset() {
+	*x = ImportManifestResponse{}
+	mi := &file_scribe_v1_item_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImportManifestResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImportManifestResponse) ProtoMessage() {}
+
+func (x *ImportManifestResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImportManifestResponse.ProtoReflect.Descriptor instead.
+func (*ImportManifestResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ImportManifestResponse) GetItem() *Item {
+	if x != nil {
+		return x.Item
+	}
+	return nil
+}
+
+// UploadBatchFileInput fixes the ordered file set before processing starts.
+// The server verifies content_sha256 when each file is uploaded.
+type UploadBatchFileInput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Filename      string                 `protobuf:"bytes,1,opt,name=filename,proto3" json:"filename,omitempty"`
+	Size          uint64                 `protobuf:"varint,2,opt,name=size,proto3" json:"size,omitempty"`
+	ContentSha256 string                 `protobuf:"bytes,3,opt,name=content_sha256,json=contentSha256,proto3" json:"content_sha256,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UploadBatchFileInput) Reset() {
+	*x = UploadBatchFileInput{}
+	mi := &file_scribe_v1_item_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadBatchFileInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadBatchFileInput) ProtoMessage() {}
+
+func (x *UploadBatchFileInput) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadBatchFileInput.ProtoReflect.Descriptor instead.
+func (*UploadBatchFileInput) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *UploadBatchFileInput) GetFilename() string {
+	if x != nil {
+		return x.Filename
+	}
+	return ""
+}
+
+func (x *UploadBatchFileInput) GetSize() uint64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *UploadBatchFileInput) GetContentSha256() string {
+	if x != nil {
+		return x.ContentSha256
+	}
+	return ""
+}
+
+type UploadBatchFile struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Sequence           uint32                 `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	Filename           string                 `protobuf:"bytes,2,opt,name=filename,proto3" json:"filename,omitempty"`
+	Size               uint64                 `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	ContentSha256      string                 `protobuf:"bytes,4,opt,name=content_sha256,json=contentSha256,proto3" json:"content_sha256,omitempty"`
+	Status             UploadBatchFileStatus  `protobuf:"varint,5,opt,name=status,proto3,enum=scribe.v1.UploadBatchFileStatus" json:"status,omitempty"`
+	AttemptCount       uint32                 `protobuf:"varint,6,opt,name=attempt_count,json=attemptCount,proto3" json:"attempt_count,omitempty"`
+	MaxAttempts        uint32                 `protobuf:"varint,7,opt,name=max_attempts,json=maxAttempts,proto3" json:"max_attempts,omitempty"`
+	ItemImageId        uint64                 `protobuf:"varint,8,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	TranscriptionJobId uint64                 `protobuf:"varint,9,opt,name=transcription_job_id,json=transcriptionJobId,proto3" json:"transcription_job_id,omitempty"`
+	ErrorMessage       string                 `protobuf:"bytes,10,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *UploadBatchFile) Reset() {
+	*x = UploadBatchFile{}
+	mi := &file_scribe_v1_item_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadBatchFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadBatchFile) ProtoMessage() {}
+
+func (x *UploadBatchFile) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadBatchFile.ProtoReflect.Descriptor instead.
+func (*UploadBatchFile) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *UploadBatchFile) GetSequence() uint32 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *UploadBatchFile) GetFilename() string {
+	if x != nil {
+		return x.Filename
+	}
+	return ""
+}
+
+func (x *UploadBatchFile) GetSize() uint64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *UploadBatchFile) GetContentSha256() string {
+	if x != nil {
+		return x.ContentSha256
+	}
+	return ""
+}
+
+func (x *UploadBatchFile) GetStatus() UploadBatchFileStatus {
+	if x != nil {
+		return x.Status
+	}
+	return UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_UNSPECIFIED
+}
+
+func (x *UploadBatchFile) GetAttemptCount() uint32 {
+	if x != nil {
+		return x.AttemptCount
+	}
+	return 0
+}
+
+func (x *UploadBatchFile) GetMaxAttempts() uint32 {
+	if x != nil {
+		return x.MaxAttempts
+	}
+	return 0
+}
+
+func (x *UploadBatchFile) GetItemImageId() uint64 {
+	if x != nil {
+		return x.ItemImageId
+	}
+	return 0
+}
+
+func (x *UploadBatchFile) GetTranscriptionJobId() uint64 {
+	if x != nil {
+		return x.TranscriptionJobId
+	}
+	return 0
+}
+
+func (x *UploadBatchFile) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+type UploadBatch struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ItemId         string                 `protobuf:"bytes,2,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	ContextId      uint64                 `protobuf:"varint,3,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	Status         UploadBatchStatus      `protobuf:"varint,4,opt,name=status,proto3,enum=scribe.v1.UploadBatchStatus" json:"status,omitempty"`
+	Files          []*UploadBatchFile     `protobuf:"bytes,5,rep,name=files,proto3" json:"files,omitempty"`
+	CompletedFiles uint32                 `protobuf:"varint,6,opt,name=completed_files,json=completedFiles,proto3" json:"completed_files,omitempty"`
+	FailedFiles    uint32                 `protobuf:"varint,7,opt,name=failed_files,json=failedFiles,proto3" json:"failed_files,omitempty"`
+	CreatedAt      string                 `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt      string                 `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *UploadBatch) Reset() {
+	*x = UploadBatch{}
+	mi := &file_scribe_v1_item_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UploadBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UploadBatch) ProtoMessage() {}
+
+func (x *UploadBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UploadBatch.ProtoReflect.Descriptor instead.
+func (*UploadBatch) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *UploadBatch) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UploadBatch) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *UploadBatch) GetContextId() uint64 {
+	if x != nil {
+		return x.ContextId
+	}
+	return 0
+}
+
+func (x *UploadBatch) GetStatus() UploadBatchStatus {
+	if x != nil {
+		return x.Status
+	}
+	return UploadBatchStatus_UPLOAD_BATCH_STATUS_UNSPECIFIED
+}
+
+func (x *UploadBatch) GetFiles() []*UploadBatchFile {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
+func (x *UploadBatch) GetCompletedFiles() uint32 {
+	if x != nil {
+		return x.CompletedFiles
+	}
+	return 0
+}
+
+func (x *UploadBatch) GetFailedFiles() uint32 {
+	if x != nil {
+		return x.FailedFiles
+	}
+	return 0
+}
+
+func (x *UploadBatch) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *UploadBatch) GetUpdatedAt() string {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return ""
+}
+
+type StartUploadBatchRequest struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	BatchId       string                  `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
+	Name          string                  `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	ContextId     uint64                  `protobuf:"varint,3,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	Files         []*UploadBatchFileInput `protobuf:"bytes,4,rep,name=files,proto3" json:"files,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartUploadBatchRequest) Reset() {
+	*x = StartUploadBatchRequest{}
+	mi := &file_scribe_v1_item_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartUploadBatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartUploadBatchRequest) ProtoMessage() {}
+
+func (x *StartUploadBatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartUploadBatchRequest.ProtoReflect.Descriptor instead.
+func (*StartUploadBatchRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *StartUploadBatchRequest) GetBatchId() string {
+	if x != nil {
+		return x.BatchId
+	}
+	return ""
+}
+
+func (x *StartUploadBatchRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *StartUploadBatchRequest) GetContextId() uint64 {
+	if x != nil {
+		return x.ContextId
+	}
+	return 0
+}
+
+func (x *StartUploadBatchRequest) GetFiles() []*UploadBatchFileInput {
+	if x != nil {
+		return x.Files
+	}
+	return nil
+}
+
+type StartUploadBatchResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Item          *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
+	Batch         *UploadBatch           `protobuf:"bytes,2,opt,name=batch,proto3" json:"batch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartUploadBatchResponse) Reset() {
+	*x = StartUploadBatchResponse{}
+	mi := &file_scribe_v1_item_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartUploadBatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartUploadBatchResponse) ProtoMessage() {}
+
+func (x *StartUploadBatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartUploadBatchResponse.ProtoReflect.Descriptor instead.
+func (*StartUploadBatchResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *StartUploadBatchResponse) GetItem() *Item {
+	if x != nil {
+		return x.Item
+	}
+	return nil
+}
+
+func (x *StartUploadBatchResponse) GetBatch() *UploadBatch {
+	if x != nil {
+		return x.Batch
+	}
+	return nil
+}
+
+type GetUploadBatchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BatchId       string                 `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUploadBatchRequest) Reset() {
+	*x = GetUploadBatchRequest{}
+	mi := &file_scribe_v1_item_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUploadBatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUploadBatchRequest) ProtoMessage() {}
+
+func (x *GetUploadBatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUploadBatchRequest.ProtoReflect.Descriptor instead.
+func (*GetUploadBatchRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *GetUploadBatchRequest) GetBatchId() string {
+	if x != nil {
+		return x.BatchId
+	}
+	return ""
+}
+
+type GetUploadBatchResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Item          *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
+	Batch         *UploadBatch           `protobuf:"bytes,2,opt,name=batch,proto3" json:"batch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUploadBatchResponse) Reset() {
+	*x = GetUploadBatchResponse{}
+	mi := &file_scribe_v1_item_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUploadBatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUploadBatchResponse) ProtoMessage() {}
+
+func (x *GetUploadBatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUploadBatchResponse.ProtoReflect.Descriptor instead.
+func (*GetUploadBatchResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *GetUploadBatchResponse) GetItem() *Item {
+	if x != nil {
+		return x.Item
+	}
+	return nil
+}
+
+func (x *GetUploadBatchResponse) GetBatch() *UploadBatch {
+	if x != nil {
+		return x.Batch
+	}
+	return nil
+}
+
+type CancelUploadBatchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BatchId       string                 `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelUploadBatchRequest) Reset() {
+	*x = CancelUploadBatchRequest{}
+	mi := &file_scribe_v1_item_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelUploadBatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelUploadBatchRequest) ProtoMessage() {}
+
+func (x *CancelUploadBatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelUploadBatchRequest.ProtoReflect.Descriptor instead.
+func (*CancelUploadBatchRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *CancelUploadBatchRequest) GetBatchId() string {
+	if x != nil {
+		return x.BatchId
+	}
+	return ""
+}
+
+type CancelUploadBatchResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Batch         *UploadBatch           `protobuf:"bytes,1,opt,name=batch,proto3" json:"batch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelUploadBatchResponse) Reset() {
+	*x = CancelUploadBatchResponse{}
+	mi := &file_scribe_v1_item_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelUploadBatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelUploadBatchResponse) ProtoMessage() {}
+
+func (x *CancelUploadBatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelUploadBatchResponse.ProtoReflect.Descriptor instead.
+func (*CancelUploadBatchResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *CancelUploadBatchResponse) GetBatch() *UploadBatch {
+	if x != nil {
+		return x.Batch
+	}
+	return nil
+}
+
+// UploadItemImageRequest processes one file declared by StartUploadBatch.
 type UploadItemImageRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ItemId        string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	BatchId       string                 `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
+	Sequence      uint32                 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
 	ImageData     []byte                 `protobuf:"bytes,3,opt,name=image_data,json=imageData,proto3" json:"image_data,omitempty"`
-	Filename      string                 `protobuf:"bytes,4,opt,name=filename,proto3" json:"filename,omitempty"`
-	Sequence      uint32                 `protobuf:"varint,5,opt,name=sequence,proto3" json:"sequence,omitempty"`
-	ContextId     uint64                 `protobuf:"varint,6,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UploadItemImageRequest) Reset() {
 	*x = UploadItemImageRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[8]
+	mi := &file_scribe_v1_item_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -538,7 +1696,7 @@ func (x *UploadItemImageRequest) String() string {
 func (*UploadItemImageRequest) ProtoMessage() {}
 
 func (x *UploadItemImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[8]
+	mi := &file_scribe_v1_item_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -551,26 +1709,12 @@ func (x *UploadItemImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadItemImageRequest.ProtoReflect.Descriptor instead.
 func (*UploadItemImageRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{8}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{23}
 }
 
-func (x *UploadItemImageRequest) GetItemId() string {
+func (x *UploadItemImageRequest) GetBatchId() string {
 	if x != nil {
-		return x.ItemId
-	}
-	return ""
-}
-
-func (x *UploadItemImageRequest) GetImageData() []byte {
-	if x != nil {
-		return x.ImageData
-	}
-	return nil
-}
-
-func (x *UploadItemImageRequest) GetFilename() string {
-	if x != nil {
-		return x.Filename
+		return x.BatchId
 	}
 	return ""
 }
@@ -582,24 +1726,26 @@ func (x *UploadItemImageRequest) GetSequence() uint32 {
 	return 0
 }
 
-func (x *UploadItemImageRequest) GetContextId() uint64 {
+func (x *UploadItemImageRequest) GetImageData() []byte {
 	if x != nil {
-		return x.ContextId
+		return x.ImageData
 	}
-	return 0
+	return nil
 }
 
 type UploadItemImageResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Item          *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
-	Image         *ItemImage             `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Item               *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
+	Image              *ItemImage             `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
+	TranscriptionJobId uint64                 `protobuf:"varint,3,opt,name=transcription_job_id,json=transcriptionJobId,proto3" json:"transcription_job_id,omitempty"`
+	Batch              *UploadBatch           `protobuf:"bytes,4,opt,name=batch,proto3" json:"batch,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UploadItemImageResponse) Reset() {
 	*x = UploadItemImageResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[9]
+	mi := &file_scribe_v1_item_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -611,7 +1757,7 @@ func (x *UploadItemImageResponse) String() string {
 func (*UploadItemImageResponse) ProtoMessage() {}
 
 func (x *UploadItemImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[9]
+	mi := &file_scribe_v1_item_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -624,7 +1770,7 @@ func (x *UploadItemImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadItemImageResponse.ProtoReflect.Descriptor instead.
 func (*UploadItemImageResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{9}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UploadItemImageResponse) GetItem() *Item {
@@ -641,6 +1787,20 @@ func (x *UploadItemImageResponse) GetImage() *ItemImage {
 	return nil
 }
 
+func (x *UploadItemImageResponse) GetTranscriptionJobId() uint64 {
+	if x != nil {
+		return x.TranscriptionJobId
+	}
+	return 0
+}
+
+func (x *UploadItemImageResponse) GetBatch() *UploadBatch {
+	if x != nil {
+		return x.Batch
+	}
+	return nil
+}
+
 type DeleteItemRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ItemId        string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
@@ -650,7 +1810,7 @@ type DeleteItemRequest struct {
 
 func (x *DeleteItemRequest) Reset() {
 	*x = DeleteItemRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[10]
+	mi := &file_scribe_v1_item_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -662,7 +1822,7 @@ func (x *DeleteItemRequest) String() string {
 func (*DeleteItemRequest) ProtoMessage() {}
 
 func (x *DeleteItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[10]
+	mi := &file_scribe_v1_item_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -675,7 +1835,7 @@ func (x *DeleteItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteItemRequest.ProtoReflect.Descriptor instead.
 func (*DeleteItemRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{10}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *DeleteItemRequest) GetItemId() string {
@@ -693,7 +1853,7 @@ type DeleteItemResponse struct {
 
 func (x *DeleteItemResponse) Reset() {
 	*x = DeleteItemResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[11]
+	mi := &file_scribe_v1_item_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -705,7 +1865,7 @@ func (x *DeleteItemResponse) String() string {
 func (*DeleteItemResponse) ProtoMessage() {}
 
 func (x *DeleteItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[11]
+	mi := &file_scribe_v1_item_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -718,14 +1878,258 @@ func (x *DeleteItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteItemResponse.ProtoReflect.Descriptor instead.
 func (*DeleteItemResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{11}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{26}
+}
+
+type ProviderCallAudit struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Id                uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	ItemId            string                 `protobuf:"bytes,2,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	ItemImageId       *uint64                `protobuf:"varint,3,opt,name=item_image_id,json=itemImageId,proto3,oneof" json:"item_image_id,omitempty"`
+	ItemImageSequence uint32                 `protobuf:"varint,4,opt,name=item_image_sequence,json=itemImageSequence,proto3" json:"item_image_sequence,omitempty"`
+	ItemImageLabel    string                 `protobuf:"bytes,5,opt,name=item_image_label,json=itemImageLabel,proto3" json:"item_image_label,omitempty"`
+	SessionId         string                 `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ContextId         *uint64                `protobuf:"varint,7,opt,name=context_id,json=contextId,proto3,oneof" json:"context_id,omitempty"`
+	Provider          string                 `protobuf:"bytes,8,opt,name=provider,proto3" json:"provider,omitempty"`
+	Model             string                 `protobuf:"bytes,9,opt,name=model,proto3" json:"model,omitempty"`
+	Operation         string                 `protobuf:"bytes,10,opt,name=operation,proto3" json:"operation,omitempty"`
+	ErrorMessage      string                 `protobuf:"bytes,14,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	HttpStatus        *int32                 `protobuf:"varint,15,opt,name=http_status,json=httpStatus,proto3,oneof" json:"http_status,omitempty"`
+	DurationMs        int64                  `protobuf:"varint,16,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	CreatedAt         string                 `protobuf:"bytes,17,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ProviderCallAudit) Reset() {
+	*x = ProviderCallAudit{}
+	mi := &file_scribe_v1_item_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProviderCallAudit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProviderCallAudit) ProtoMessage() {}
+
+func (x *ProviderCallAudit) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProviderCallAudit.ProtoReflect.Descriptor instead.
+func (*ProviderCallAudit) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ProviderCallAudit) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *ProviderCallAudit) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *ProviderCallAudit) GetItemImageId() uint64 {
+	if x != nil && x.ItemImageId != nil {
+		return *x.ItemImageId
+	}
+	return 0
+}
+
+func (x *ProviderCallAudit) GetItemImageSequence() uint32 {
+	if x != nil {
+		return x.ItemImageSequence
+	}
+	return 0
+}
+
+func (x *ProviderCallAudit) GetItemImageLabel() string {
+	if x != nil {
+		return x.ItemImageLabel
+	}
+	return ""
+}
+
+func (x *ProviderCallAudit) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ProviderCallAudit) GetContextId() uint64 {
+	if x != nil && x.ContextId != nil {
+		return *x.ContextId
+	}
+	return 0
+}
+
+func (x *ProviderCallAudit) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *ProviderCallAudit) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *ProviderCallAudit) GetOperation() string {
+	if x != nil {
+		return x.Operation
+	}
+	return ""
+}
+
+func (x *ProviderCallAudit) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ProviderCallAudit) GetHttpStatus() int32 {
+	if x != nil && x.HttpStatus != nil {
+		return *x.HttpStatus
+	}
+	return 0
+}
+
+func (x *ProviderCallAudit) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
+func (x *ProviderCallAudit) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+type ListItemProviderCallAuditsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ItemId        string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	Limit         uint32                 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListItemProviderCallAuditsRequest) Reset() {
+	*x = ListItemProviderCallAuditsRequest{}
+	mi := &file_scribe_v1_item_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListItemProviderCallAuditsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListItemProviderCallAuditsRequest) ProtoMessage() {}
+
+func (x *ListItemProviderCallAuditsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListItemProviderCallAuditsRequest.ProtoReflect.Descriptor instead.
+func (*ListItemProviderCallAuditsRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ListItemProviderCallAuditsRequest) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *ListItemProviderCallAuditsRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ListItemProviderCallAuditsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Audits        []*ProviderCallAudit   `protobuf:"bytes,1,rep,name=audits,proto3" json:"audits,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListItemProviderCallAuditsResponse) Reset() {
+	*x = ListItemProviderCallAuditsResponse{}
+	mi := &file_scribe_v1_item_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListItemProviderCallAuditsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListItemProviderCallAuditsResponse) ProtoMessage() {}
+
+func (x *ListItemProviderCallAuditsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListItemProviderCallAuditsResponse.ProtoReflect.Descriptor instead.
+func (*ListItemProviderCallAuditsResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ListItemProviderCallAuditsResponse) GetAudits() []*ProviderCallAudit {
+	if x != nil {
+		return x.Audits
+	}
+	return nil
 }
 
 var File_scribe_v1_item_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_item_proto_rawDesc = "" +
 	"\n" +
-	"\x14scribe/v1/item.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xa2\x01\n" +
+	"\x14scribe/v1/item.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1ascribe/v1/annotation.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xd0\x01\n" +
 	"\tItemImage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12\x1a\n" +
@@ -733,7 +2137,9 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\timage_url\x18\x04 \x01(\tR\bimageUrl\x12\x1d\n" +
 	"\n" +
 	"canvas_uri\x18\x05 \x01(\tR\tcanvasUri\x12\x14\n" +
-	"\x05label\x18\x06 \x01(\tR\x05label\"\x8b\x02\n" +
+	"\x05label\x18\x06 \x01(\tR\x05label\x12\x14\n" +
+	"\x05width\x18\a \x01(\rR\x05width\x12\x16\n" +
+	"\x06height\x18\b \x01(\rR\x06height\"\x8b\x02\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x12\n" +
@@ -747,49 +2153,183 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\tR\tupdatedAt\"\x12\n" +
-	"\x10ListItemsRequest\":\n" +
-	"\x11ListItemsResponse\x12%\n" +
-	"\x05items\x18\x01 \x03(\v2\x0f.scribe.v1.ItemR\x05items\";\n" +
+	"updated_at\x18\t \x01(\tR\tupdatedAt\"\xec\x01\n" +
+	"\vItemSummary\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
+	"\vsource_type\x18\x03 \x01(\tR\n" +
+	"sourceType\x12\x1f\n" +
+	"\vimage_count\x18\x04 \x01(\x04R\n" +
+	"imageCount\x129\n" +
+	"\rpreview_image\x18\x05 \x01(\v2\x14.scribe.v1.ItemImageR\fpreviewImage\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\a \x01(\tR\tupdatedAt\"\x81\x01\n" +
+	"\x10ListItemsRequest\x12$\n" +
+	"\tpage_size\x18\x01 \x01(\rB\a\xbaH\x04*\x02\x18dR\bpageSize\x12'\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tB\b\xbaH\x05r\x03\x18\x80\x04R\tpageToken\x12\x1e\n" +
+	"\x05query\x18\x03 \x01(\tB\b\xbaH\x05r\x03\x18\xc8\x01R\x05query\"i\n" +
+	"\x11ListItemsResponse\x12,\n" +
+	"\x05items\x18\x01 \x03(\v2\x16.scribe.v1.ItemSummaryR\x05items\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\";\n" +
 	"\x0eGetItemRequest\x12)\n" +
-	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\"6\n" +
+	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\"\x87\x01\n" +
 	"\x0fGetItemResponse\x12#\n" +
-	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xa7\x03\n" +
-	"\x11CreateItemRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
-	"\vsource_type\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\n" +
-	"sourceType\x12/\n" +
+	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\x12O\n" +
+	"\x14annotation_revisions\x18\x02 \x03(\v2\x1c.scribe.v1.ItemImageRevisionR\x13annotationRevisions\"J\n" +
+	"\x18GetEditorManifestRequest\x12.\n" +
+	"\ritem_image_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vitemImageId\"\x93\x01\n" +
+	"\x19GetEditorManifestResponse\x12#\n" +
+	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\x12#\n" +
+	"\rmanifest_json\x18\x02 \x01(\tR\fmanifestJson\x12,\n" +
+	"\x12selected_canvas_id\x18\x03 \x01(\tR\x10selectedCanvasId\"k\n" +
+	"\x11ItemImageRevision\x12.\n" +
+	"\ritem_image_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vitemImageId\x12&\n" +
+	"\brevision\x18\x02 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\brevision\"\xb1\x03\n" +
+	"\x18PrepareItemExportRequest\x12)\n" +
+	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\x12H\n" +
+	"\x06format\x18\x02 \x01(\x0e2!.scribe.v1.AnnotationExportFormatB\r\xbaH\n" +
+	"\xc8\x01\x01\x82\x01\x04\x10\x01 \x00R\x06format\x12[\n" +
+	"\x12expected_revisions\x18\x03 \x03(\v2\x1c.scribe.v1.ItemImageRevisionB\x0e\xbaH\v\xc8\x01\x01\x92\x01\x05\b\x01\x10\xe8\aR\x11expectedRevisions:\xc2\x01\xbaH\xbe\x01\x1a\xbb\x01\n" +
+	"\x1cprepare_item_export.required\x12@item_id, format, and at least one expected revision are required\x1aYthis.item_id.matches('.*\\\\S.*') && this.format != 0 && this.expected_revisions.size() > 0\"\xd4\x01\n" +
+	"\x19PrepareItemExportResponse\x12!\n" +
+	"\fdownload_url\x18\x01 \x01(\tR\vdownloadUrl\x12\x1a\n" +
+	"\bfilename\x18\x02 \x01(\tR\bfilename\x12\x1d\n" +
 	"\n" +
-	"source_url\x18\x03 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\tsourceUrl\x12\x1d\n" +
+	"media_type\x18\x03 \x01(\tR\tmediaType\x12:\n" +
+	"\trevisions\x18\x04 \x03(\v2\x1c.scribe.v1.ItemImageRevisionR\trevisions\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x04 \x01(\x04R\tcontextId\x12,\n" +
-	"\bmetadata\x18\x05 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bmetadata:\xcc\x01\xbaH\xc8\x01\x1a\xc5\x01\n" +
-	"\x17create_item.source_type\x123source_type must be empty, url, manifest, or upload\x1authis.source_type == '' || this.source_type == 'url' || this.source_type == 'manifest' || this.source_type == 'upload'\"9\n" +
-	"\x12CreateItemResponse\x12#\n" +
-	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\xd7\x01\n" +
-	"\x16UploadItemImageRequest\x12)\n" +
-	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\x12)\n" +
+	"expires_at\x18\x05 \x01(\tR\texpiresAt\"\xf6\x01\n" +
+	"\x15ImportManifestRequest\x126\n" +
+	"\fmanifest_url\x18\x01 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\x80\x102\x06.*\\S.*R\vmanifestUrl\x12\x1c\n" +
+	"\x04name\x18\x02 \x01(\tB\b\xbaH\x05r\x03\x18\xff\x01R\x04name\x12\x1d\n" +
 	"\n" +
-	"image_data\x18\x03 \x01(\fB\n" +
-	"\xbaH\a\xc8\x01\x01z\x02\x10\x01R\timageData\x12,\n" +
-	"\bfilename\x18\x04 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bfilename\x12\x1a\n" +
-	"\bsequence\x18\x05 \x01(\rR\bsequence\x12\x1d\n" +
+	"context_id\x18\x03 \x01(\x04R\tcontextId\x120\n" +
+	"\bmetadata\x18\x04 \x01(\tB\x14\xbaH\x11r\x0f(\x80\x80@2\t^$|.*\\S.*R\bmetadata\x126\n" +
+	"\x0fidempotency_key\x18\x05 \x01(\tB\r\xbaH\n" +
+	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKey\"=\n" +
+	"\x16ImportManifestResponse\x12#\n" +
+	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\x9f\x01\n" +
+	"\x14UploadBatchFileInput\x12)\n" +
+	"\bfilename\x18\x01 \x01(\tB\r\xbaH\n" +
+	"\xc8\x01\x01r\x05\x10\x01\x18\xff\x01R\bfilename\x12\x1b\n" +
+	"\x04size\x18\x02 \x01(\x04B\a\xbaH\x042\x02 \x00R\x04size\x12?\n" +
+	"\x0econtent_sha256\x18\x03 \x01(\tB\x18\xbaH\x15\xc8\x01\x01r\x102\x0e^[0-9a-f]{64}$R\rcontentSha256\"\x81\x03\n" +
+	"\x0fUploadBatchFile\x12\x1a\n" +
+	"\bsequence\x18\x01 \x01(\rR\bsequence\x12\x1a\n" +
+	"\bfilename\x18\x02 \x01(\tR\bfilename\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\x04R\x04size\x12%\n" +
+	"\x0econtent_sha256\x18\x04 \x01(\tR\rcontentSha256\x128\n" +
+	"\x06status\x18\x05 \x01(\x0e2 .scribe.v1.UploadBatchFileStatusR\x06status\x12#\n" +
+	"\rattempt_count\x18\x06 \x01(\rR\fattemptCount\x12!\n" +
+	"\fmax_attempts\x18\a \x01(\rR\vmaxAttempts\x12\"\n" +
+	"\ritem_image_id\x18\b \x01(\x04R\vitemImageId\x120\n" +
+	"\x14transcription_job_id\x18\t \x01(\x04R\x12transcriptionJobId\x12#\n" +
+	"\rerror_message\x18\n" +
+	" \x01(\tR\ferrorMessage\"\xc7\x02\n" +
+	"\vUploadBatch\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x06 \x01(\x04R\tcontextId\"j\n" +
+	"context_id\x18\x03 \x01(\x04R\tcontextId\x124\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x1c.scribe.v1.UploadBatchStatusR\x06status\x120\n" +
+	"\x05files\x18\x05 \x03(\v2\x1a.scribe.v1.UploadBatchFileR\x05files\x12'\n" +
+	"\x0fcompleted_files\x18\x06 \x01(\rR\x0ecompletedFiles\x12!\n" +
+	"\ffailed_files\x18\a \x01(\rR\vfailedFiles\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\b \x01(\tR\tcreatedAt\x12\x1d\n" +
+	"\n" +
+	"updated_at\x18\t \x01(\tR\tupdatedAt\"\xd6\x01\n" +
+	"\x17StartUploadBatchRequest\x12:\n" +
+	"\bbatch_id\x18\x01 \x01(\tB\x1f\xbaH\x1c\xc8\x01\x01r\x172\x15^[A-Za-z0-9_-]{1,64}$R\abatchId\x12\x1c\n" +
+	"\x04name\x18\x02 \x01(\tB\b\xbaH\x05r\x03\x18\xff\x01R\x04name\x12\x1d\n" +
+	"\n" +
+	"context_id\x18\x03 \x01(\x04R\tcontextId\x12B\n" +
+	"\x05files\x18\x04 \x03(\v2\x1f.scribe.v1.UploadBatchFileInputB\v\xbaH\b\x92\x01\x05\b\x01\x10\xe8\aR\x05files\"m\n" +
+	"\x18StartUploadBatchResponse\x12#\n" +
+	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\x12,\n" +
+	"\x05batch\x18\x02 \x01(\v2\x16.scribe.v1.UploadBatchR\x05batch\"S\n" +
+	"\x15GetUploadBatchRequest\x12:\n" +
+	"\bbatch_id\x18\x01 \x01(\tB\x1f\xbaH\x1c\xc8\x01\x01r\x172\x15^[A-Za-z0-9_-]{1,64}$R\abatchId\"k\n" +
+	"\x16GetUploadBatchResponse\x12#\n" +
+	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\x12,\n" +
+	"\x05batch\x18\x02 \x01(\v2\x16.scribe.v1.UploadBatchR\x05batch\"V\n" +
+	"\x18CancelUploadBatchRequest\x12:\n" +
+	"\bbatch_id\x18\x01 \x01(\tB\x1f\xbaH\x1c\xc8\x01\x01r\x172\x15^[A-Za-z0-9_-]{1,64}$R\abatchId\"I\n" +
+	"\x19CancelUploadBatchResponse\x12,\n" +
+	"\x05batch\x18\x01 \x01(\v2\x16.scribe.v1.UploadBatchR\x05batch\"\xa9\x01\n" +
+	"\x16UploadItemImageRequest\x12:\n" +
+	"\bbatch_id\x18\x01 \x01(\tB\x1f\xbaH\x1c\xc8\x01\x01r\x172\x15^[A-Za-z0-9_-]{1,64}$R\abatchId\x12#\n" +
+	"\bsequence\x18\x02 \x01(\rB\a\xbaH\x04*\x02 \x00R\bsequence\x12.\n" +
+	"\n" +
+	"image_data\x18\x03 \x01(\fB\x0f\xbaH\f\xc8\x01\x01z\a\x10\x01\x18\x80\x80\x802R\timageData\"\xca\x01\n" +
 	"\x17UploadItemImageResponse\x12#\n" +
 	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\x12*\n" +
-	"\x05image\x18\x02 \x01(\v2\x14.scribe.v1.ItemImageR\x05image\">\n" +
+	"\x05image\x18\x02 \x01(\v2\x14.scribe.v1.ItemImageR\x05image\x120\n" +
+	"\x14transcription_job_id\x18\x03 \x01(\x04R\x12transcriptionJobId\x12,\n" +
+	"\x05batch\x18\x04 \x01(\v2\x16.scribe.v1.UploadBatchR\x05batch\">\n" +
 	"\x11DeleteItemRequest\x12)\n" +
 	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\"\x14\n" +
-	"\x12DeleteItemResponse2\xd4\x03\n" +
+	"\x12DeleteItemResponse\"\xa0\x04\n" +
+	"\x11ProviderCallAudit\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
+	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12'\n" +
+	"\ritem_image_id\x18\x03 \x01(\x04H\x00R\vitemImageId\x88\x01\x01\x12.\n" +
+	"\x13item_image_sequence\x18\x04 \x01(\rR\x11itemImageSequence\x12(\n" +
+	"\x10item_image_label\x18\x05 \x01(\tR\x0eitemImageLabel\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x06 \x01(\tR\tsessionId\x12\"\n" +
+	"\n" +
+	"context_id\x18\a \x01(\x04H\x01R\tcontextId\x88\x01\x01\x12\x1a\n" +
+	"\bprovider\x18\b \x01(\tR\bprovider\x12\x14\n" +
+	"\x05model\x18\t \x01(\tR\x05model\x12\x1c\n" +
+	"\toperation\x18\n" +
+	" \x01(\tR\toperation\x12#\n" +
+	"\rerror_message\x18\x0e \x01(\tR\ferrorMessage\x12$\n" +
+	"\vhttp_status\x18\x0f \x01(\x05H\x02R\n" +
+	"httpStatus\x88\x01\x01\x12\x1f\n" +
+	"\vduration_ms\x18\x10 \x01(\x03R\n" +
+	"durationMs\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x11 \x01(\tR\tcreatedAtB\x10\n" +
+	"\x0e_item_image_idB\r\n" +
+	"\v_context_idB\x0e\n" +
+	"\f_http_statusJ\x04\b\v\x10\fJ\x04\b\f\x10\rJ\x04\b\r\x10\x0e\"n\n" +
+	"!ListItemProviderCallAuditsRequest\x12)\n" +
+	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\x12\x1e\n" +
+	"\x05limit\x18\x02 \x01(\rB\b\xbaH\x05*\x03\x18\xf4\x03R\x05limit\"Z\n" +
+	"\"ListItemProviderCallAuditsResponse\x124\n" +
+	"\x06audits\x18\x01 \x03(\v2\x1c.scribe.v1.ProviderCallAuditR\x06audits*\xa2\x01\n" +
+	"\x11UploadBatchStatus\x12#\n" +
+	"\x1fUPLOAD_BATCH_STATUS_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fUPLOAD_BATCH_STATUS_IN_PROGRESS\x10\x01\x12!\n" +
+	"\x1dUPLOAD_BATCH_STATUS_COMPLETED\x10\x02\x12 \n" +
+	"\x1cUPLOAD_BATCH_STATUS_CANCELED\x10\x03*\x84\x02\n" +
+	"\x15UploadBatchFileStatus\x12(\n" +
+	"$UPLOAD_BATCH_FILE_STATUS_UNSPECIFIED\x10\x00\x12$\n" +
+	" UPLOAD_BATCH_FILE_STATUS_PENDING\x10\x01\x12'\n" +
+	"#UPLOAD_BATCH_FILE_STATUS_PROCESSING\x10\x02\x12&\n" +
+	"\"UPLOAD_BATCH_FILE_STATUS_COMPLETED\x10\x03\x12#\n" +
+	"\x1fUPLOAD_BATCH_FILE_STATUS_FAILED\x10\x04\x12%\n" +
+	"!UPLOAD_BATCH_FILE_STATUS_CANCELED\x10\x052\xa2\t\n" +
 	"\vItemService\x12P\n" +
 	"\tListItems\x12\x1b.scribe.v1.ListItemsRequest\x1a\x1c.scribe.v1.ListItemsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12S\n" +
-	"\aGetItem\x12\x19.scribe.v1.GetItemRequest\x1a\x1a.scribe.v1.GetItemResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x01\"\aitem_id\x12S\n" +
+	"\aGetItem\x12\x19.scribe.v1.GetItemRequest\x1a\x1a.scribe.v1.GetItemResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x01\"\aitem_id\x12w\n" +
+	"\x11GetEditorManifest\x12#.scribe.v1.GetEditorManifestRequest\x1a$.scribe.v1.GetEditorManifestResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12q\n" +
+	"\x11PrepareItemExport\x12#.scribe.v1.PrepareItemExportRequest\x1a$.scribe.v1.PrepareItemExportResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x01\"\aitem_id\x12_\n" +
+	"\x0eImportManifest\x12 .scribe.v1.ImportManifestRequest\x1a!.scribe.v1.ImportManifestResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12e\n" +
+	"\x10StartUploadBatch\x12\".scribe.v1.StartUploadBatchRequest\x1a#.scribe.v1.StartUploadBatchResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12i\n" +
+	"\x0eGetUploadBatch\x12 .scribe.v1.GetUploadBatchRequest\x1a!.scribe.v1.GetUploadBatchResponse\"\x12\x92\xb5\x18\x0e\x10\b\x18\x01\"\bbatch_id\x12l\n" +
+	"\x0fUploadItemImage\x12!.scribe.v1.UploadItemImageRequest\x1a\".scribe.v1.UploadItemImageResponse\"\x12\x92\xb5\x18\x0e\x10\b\x18\x02\"\bbatch_id\x12r\n" +
+	"\x11CancelUploadBatch\x12#.scribe.v1.CancelUploadBatchRequest\x1a$.scribe.v1.CancelUploadBatchResponse\"\x12\x92\xb5\x18\x0e\x10\b\x18\x02\"\bbatch_id\x12\\\n" +
 	"\n" +
-	"CreateItem\x12\x1c.scribe.v1.CreateItemRequest\x1a\x1d.scribe.v1.CreateItemResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12k\n" +
-	"\x0fUploadItemImage\x12!.scribe.v1.UploadItemImageRequest\x1a\".scribe.v1.UploadItemImageResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x02\"\aitem_id\x12\\\n" +
-	"\n" +
-	"DeleteItem\x12\x1c.scribe.v1.DeleteItemRequest\x1a\x1d.scribe.v1.DeleteItemResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x02\"\aitem_idB\xa7\x01\n" +
+	"DeleteItem\x12\x1c.scribe.v1.DeleteItemRequest\x1a\x1d.scribe.v1.DeleteItemResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x02\"\aitem_id\x12\x8c\x01\n" +
+	"\x1aListItemProviderCallAudits\x12,.scribe.v1.ListItemProviderCallAuditsRequest\x1a-.scribe.v1.ListItemProviderCallAuditsResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x01\"\aitem_idB\xa7\x01\n" +
 	"\rcom.scribe.v1B\tItemProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 
@@ -805,43 +2345,94 @@ func file_scribe_v1_item_proto_rawDescGZIP() []byte {
 	return file_scribe_v1_item_proto_rawDescData
 }
 
-var file_scribe_v1_item_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_scribe_v1_item_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_scribe_v1_item_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_scribe_v1_item_proto_goTypes = []any{
-	(*ItemImage)(nil),               // 0: scribe.v1.ItemImage
-	(*Item)(nil),                    // 1: scribe.v1.Item
-	(*ListItemsRequest)(nil),        // 2: scribe.v1.ListItemsRequest
-	(*ListItemsResponse)(nil),       // 3: scribe.v1.ListItemsResponse
-	(*GetItemRequest)(nil),          // 4: scribe.v1.GetItemRequest
-	(*GetItemResponse)(nil),         // 5: scribe.v1.GetItemResponse
-	(*CreateItemRequest)(nil),       // 6: scribe.v1.CreateItemRequest
-	(*CreateItemResponse)(nil),      // 7: scribe.v1.CreateItemResponse
-	(*UploadItemImageRequest)(nil),  // 8: scribe.v1.UploadItemImageRequest
-	(*UploadItemImageResponse)(nil), // 9: scribe.v1.UploadItemImageResponse
-	(*DeleteItemRequest)(nil),       // 10: scribe.v1.DeleteItemRequest
-	(*DeleteItemResponse)(nil),      // 11: scribe.v1.DeleteItemResponse
+	(UploadBatchStatus)(0),                     // 0: scribe.v1.UploadBatchStatus
+	(UploadBatchFileStatus)(0),                 // 1: scribe.v1.UploadBatchFileStatus
+	(*ItemImage)(nil),                          // 2: scribe.v1.ItemImage
+	(*Item)(nil),                               // 3: scribe.v1.Item
+	(*ItemSummary)(nil),                        // 4: scribe.v1.ItemSummary
+	(*ListItemsRequest)(nil),                   // 5: scribe.v1.ListItemsRequest
+	(*ListItemsResponse)(nil),                  // 6: scribe.v1.ListItemsResponse
+	(*GetItemRequest)(nil),                     // 7: scribe.v1.GetItemRequest
+	(*GetItemResponse)(nil),                    // 8: scribe.v1.GetItemResponse
+	(*GetEditorManifestRequest)(nil),           // 9: scribe.v1.GetEditorManifestRequest
+	(*GetEditorManifestResponse)(nil),          // 10: scribe.v1.GetEditorManifestResponse
+	(*ItemImageRevision)(nil),                  // 11: scribe.v1.ItemImageRevision
+	(*PrepareItemExportRequest)(nil),           // 12: scribe.v1.PrepareItemExportRequest
+	(*PrepareItemExportResponse)(nil),          // 13: scribe.v1.PrepareItemExportResponse
+	(*ImportManifestRequest)(nil),              // 14: scribe.v1.ImportManifestRequest
+	(*ImportManifestResponse)(nil),             // 15: scribe.v1.ImportManifestResponse
+	(*UploadBatchFileInput)(nil),               // 16: scribe.v1.UploadBatchFileInput
+	(*UploadBatchFile)(nil),                    // 17: scribe.v1.UploadBatchFile
+	(*UploadBatch)(nil),                        // 18: scribe.v1.UploadBatch
+	(*StartUploadBatchRequest)(nil),            // 19: scribe.v1.StartUploadBatchRequest
+	(*StartUploadBatchResponse)(nil),           // 20: scribe.v1.StartUploadBatchResponse
+	(*GetUploadBatchRequest)(nil),              // 21: scribe.v1.GetUploadBatchRequest
+	(*GetUploadBatchResponse)(nil),             // 22: scribe.v1.GetUploadBatchResponse
+	(*CancelUploadBatchRequest)(nil),           // 23: scribe.v1.CancelUploadBatchRequest
+	(*CancelUploadBatchResponse)(nil),          // 24: scribe.v1.CancelUploadBatchResponse
+	(*UploadItemImageRequest)(nil),             // 25: scribe.v1.UploadItemImageRequest
+	(*UploadItemImageResponse)(nil),            // 26: scribe.v1.UploadItemImageResponse
+	(*DeleteItemRequest)(nil),                  // 27: scribe.v1.DeleteItemRequest
+	(*DeleteItemResponse)(nil),                 // 28: scribe.v1.DeleteItemResponse
+	(*ProviderCallAudit)(nil),                  // 29: scribe.v1.ProviderCallAudit
+	(*ListItemProviderCallAuditsRequest)(nil),  // 30: scribe.v1.ListItemProviderCallAuditsRequest
+	(*ListItemProviderCallAuditsResponse)(nil), // 31: scribe.v1.ListItemProviderCallAuditsResponse
+	(AnnotationExportFormat)(0),                // 32: scribe.v1.AnnotationExportFormat
 }
 var file_scribe_v1_item_proto_depIdxs = []int32{
-	0,  // 0: scribe.v1.Item.images:type_name -> scribe.v1.ItemImage
-	1,  // 1: scribe.v1.ListItemsResponse.items:type_name -> scribe.v1.Item
-	1,  // 2: scribe.v1.GetItemResponse.item:type_name -> scribe.v1.Item
-	1,  // 3: scribe.v1.CreateItemResponse.item:type_name -> scribe.v1.Item
-	1,  // 4: scribe.v1.UploadItemImageResponse.item:type_name -> scribe.v1.Item
-	0,  // 5: scribe.v1.UploadItemImageResponse.image:type_name -> scribe.v1.ItemImage
-	2,  // 6: scribe.v1.ItemService.ListItems:input_type -> scribe.v1.ListItemsRequest
-	4,  // 7: scribe.v1.ItemService.GetItem:input_type -> scribe.v1.GetItemRequest
-	6,  // 8: scribe.v1.ItemService.CreateItem:input_type -> scribe.v1.CreateItemRequest
-	8,  // 9: scribe.v1.ItemService.UploadItemImage:input_type -> scribe.v1.UploadItemImageRequest
-	10, // 10: scribe.v1.ItemService.DeleteItem:input_type -> scribe.v1.DeleteItemRequest
-	3,  // 11: scribe.v1.ItemService.ListItems:output_type -> scribe.v1.ListItemsResponse
-	5,  // 12: scribe.v1.ItemService.GetItem:output_type -> scribe.v1.GetItemResponse
-	7,  // 13: scribe.v1.ItemService.CreateItem:output_type -> scribe.v1.CreateItemResponse
-	9,  // 14: scribe.v1.ItemService.UploadItemImage:output_type -> scribe.v1.UploadItemImageResponse
-	11, // 15: scribe.v1.ItemService.DeleteItem:output_type -> scribe.v1.DeleteItemResponse
-	11, // [11:16] is the sub-list for method output_type
-	6,  // [6:11] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	2,  // 0: scribe.v1.Item.images:type_name -> scribe.v1.ItemImage
+	2,  // 1: scribe.v1.ItemSummary.preview_image:type_name -> scribe.v1.ItemImage
+	4,  // 2: scribe.v1.ListItemsResponse.items:type_name -> scribe.v1.ItemSummary
+	3,  // 3: scribe.v1.GetItemResponse.item:type_name -> scribe.v1.Item
+	11, // 4: scribe.v1.GetItemResponse.annotation_revisions:type_name -> scribe.v1.ItemImageRevision
+	3,  // 5: scribe.v1.GetEditorManifestResponse.item:type_name -> scribe.v1.Item
+	32, // 6: scribe.v1.PrepareItemExportRequest.format:type_name -> scribe.v1.AnnotationExportFormat
+	11, // 7: scribe.v1.PrepareItemExportRequest.expected_revisions:type_name -> scribe.v1.ItemImageRevision
+	11, // 8: scribe.v1.PrepareItemExportResponse.revisions:type_name -> scribe.v1.ItemImageRevision
+	3,  // 9: scribe.v1.ImportManifestResponse.item:type_name -> scribe.v1.Item
+	1,  // 10: scribe.v1.UploadBatchFile.status:type_name -> scribe.v1.UploadBatchFileStatus
+	0,  // 11: scribe.v1.UploadBatch.status:type_name -> scribe.v1.UploadBatchStatus
+	17, // 12: scribe.v1.UploadBatch.files:type_name -> scribe.v1.UploadBatchFile
+	16, // 13: scribe.v1.StartUploadBatchRequest.files:type_name -> scribe.v1.UploadBatchFileInput
+	3,  // 14: scribe.v1.StartUploadBatchResponse.item:type_name -> scribe.v1.Item
+	18, // 15: scribe.v1.StartUploadBatchResponse.batch:type_name -> scribe.v1.UploadBatch
+	3,  // 16: scribe.v1.GetUploadBatchResponse.item:type_name -> scribe.v1.Item
+	18, // 17: scribe.v1.GetUploadBatchResponse.batch:type_name -> scribe.v1.UploadBatch
+	18, // 18: scribe.v1.CancelUploadBatchResponse.batch:type_name -> scribe.v1.UploadBatch
+	3,  // 19: scribe.v1.UploadItemImageResponse.item:type_name -> scribe.v1.Item
+	2,  // 20: scribe.v1.UploadItemImageResponse.image:type_name -> scribe.v1.ItemImage
+	18, // 21: scribe.v1.UploadItemImageResponse.batch:type_name -> scribe.v1.UploadBatch
+	29, // 22: scribe.v1.ListItemProviderCallAuditsResponse.audits:type_name -> scribe.v1.ProviderCallAudit
+	5,  // 23: scribe.v1.ItemService.ListItems:input_type -> scribe.v1.ListItemsRequest
+	7,  // 24: scribe.v1.ItemService.GetItem:input_type -> scribe.v1.GetItemRequest
+	9,  // 25: scribe.v1.ItemService.GetEditorManifest:input_type -> scribe.v1.GetEditorManifestRequest
+	12, // 26: scribe.v1.ItemService.PrepareItemExport:input_type -> scribe.v1.PrepareItemExportRequest
+	14, // 27: scribe.v1.ItemService.ImportManifest:input_type -> scribe.v1.ImportManifestRequest
+	19, // 28: scribe.v1.ItemService.StartUploadBatch:input_type -> scribe.v1.StartUploadBatchRequest
+	21, // 29: scribe.v1.ItemService.GetUploadBatch:input_type -> scribe.v1.GetUploadBatchRequest
+	25, // 30: scribe.v1.ItemService.UploadItemImage:input_type -> scribe.v1.UploadItemImageRequest
+	23, // 31: scribe.v1.ItemService.CancelUploadBatch:input_type -> scribe.v1.CancelUploadBatchRequest
+	27, // 32: scribe.v1.ItemService.DeleteItem:input_type -> scribe.v1.DeleteItemRequest
+	30, // 33: scribe.v1.ItemService.ListItemProviderCallAudits:input_type -> scribe.v1.ListItemProviderCallAuditsRequest
+	6,  // 34: scribe.v1.ItemService.ListItems:output_type -> scribe.v1.ListItemsResponse
+	8,  // 35: scribe.v1.ItemService.GetItem:output_type -> scribe.v1.GetItemResponse
+	10, // 36: scribe.v1.ItemService.GetEditorManifest:output_type -> scribe.v1.GetEditorManifestResponse
+	13, // 37: scribe.v1.ItemService.PrepareItemExport:output_type -> scribe.v1.PrepareItemExportResponse
+	15, // 38: scribe.v1.ItemService.ImportManifest:output_type -> scribe.v1.ImportManifestResponse
+	20, // 39: scribe.v1.ItemService.StartUploadBatch:output_type -> scribe.v1.StartUploadBatchResponse
+	22, // 40: scribe.v1.ItemService.GetUploadBatch:output_type -> scribe.v1.GetUploadBatchResponse
+	26, // 41: scribe.v1.ItemService.UploadItemImage:output_type -> scribe.v1.UploadItemImageResponse
+	24, // 42: scribe.v1.ItemService.CancelUploadBatch:output_type -> scribe.v1.CancelUploadBatchResponse
+	28, // 43: scribe.v1.ItemService.DeleteItem:output_type -> scribe.v1.DeleteItemResponse
+	31, // 44: scribe.v1.ItemService.ListItemProviderCallAudits:output_type -> scribe.v1.ListItemProviderCallAuditsResponse
+	34, // [34:45] is the sub-list for method output_type
+	23, // [23:34] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_scribe_v1_item_proto_init() }
@@ -849,18 +2440,21 @@ func file_scribe_v1_item_proto_init() {
 	if File_scribe_v1_item_proto != nil {
 		return
 	}
+	file_scribe_v1_annotation_proto_init()
+	file_scribe_v1_item_proto_msgTypes[27].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_item_proto_rawDesc), len(file_scribe_v1_item_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   12,
+			NumEnums:      2,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_scribe_v1_item_proto_goTypes,
 		DependencyIndexes: file_scribe_v1_item_proto_depIdxs,
+		EnumInfos:         file_scribe_v1_item_proto_enumTypes,
 		MessageInfos:      file_scribe_v1_item_proto_msgTypes,
 	}.Build()
 	File_scribe_v1_item_proto = out.File

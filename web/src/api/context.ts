@@ -4,26 +4,41 @@ import {
   type Context,
   type ContextSelectionRule,
   type GetModelCatalogResponse,
+  type ContextMetrics,
+  type ListContextsResponse,
+  type ListSelectionRulesResponse,
 } from "../proto/scribe/v1/context_pb";
-import { scribeFetch, scribePath } from "./http";
 import { getTransport } from "./transport";
 
-export interface ContextMetrics {
-  context_id: number;
-  total_runs: number;
-  corrected_runs: number;
-  avg_levenshtein_distance: number;
-  avg_edit_count: number;
-  avg_box_change_score: number;
-}
+export type { ContextMetrics };
 
 function client() {
   return createClient(ContextService, getTransport());
 }
 
+export type ContextPage = Pick<ListContextsResponse, "contexts" | "nextPageToken">;
+export type SelectionRulePage = Pick<ListSelectionRulesResponse, "rules" | "nextPageToken">;
+
+export async function listContextPage(systemOnly = false, pageToken = "", pageSize = 100): Promise<ContextPage> {
+  validateCatalogPage(pageSize, pageToken);
+  const resp = await client().listContexts({ systemOnly, pageToken, pageSize });
+  return { contexts: resp.contexts, nextPageToken: resp.nextPageToken };
+}
+
+// Preserve the convenient catalog helper while traversing only bounded server
+// pages. Call listContextPage directly for incremental interfaces.
 export async function listContexts(systemOnly = false): Promise<Context[]> {
-  const resp = await client().listContexts({ systemOnly });
-  return resp.contexts;
+  const contexts: Context[] = [];
+  const seen = new Set<string>();
+  let pageToken = "";
+  do {
+    const page = await listContextPage(systemOnly, pageToken);
+    contexts.push(...page.contexts);
+    pageToken = page.nextPageToken;
+    if (pageToken && seen.has(pageToken)) throw new Error("context pagination returned a repeated token");
+    if (pageToken) seen.add(pageToken);
+  } while (pageToken);
+  return contexts;
 }
 
 export async function getContext(contextId: string): Promise<Context> {
@@ -48,9 +63,24 @@ export async function deleteContext(contextId: string): Promise<void> {
   await client().deleteContext({ contextId: BigInt(contextId) });
 }
 
+export async function listSelectionRulePage(contextId = "0", pageToken = "", pageSize = 100): Promise<SelectionRulePage> {
+  validateCatalogPage(pageSize, pageToken);
+  const resp = await client().listSelectionRules({ contextId: BigInt(contextId), pageToken, pageSize });
+  return { rules: resp.rules, nextPageToken: resp.nextPageToken };
+}
+
 export async function listSelectionRules(contextId = "0"): Promise<ContextSelectionRule[]> {
-  const resp = await client().listSelectionRules({ contextId: BigInt(contextId) });
-  return resp.rules;
+  const rules: ContextSelectionRule[] = [];
+  const seen = new Set<string>();
+  let pageToken = "";
+  do {
+    const page = await listSelectionRulePage(contextId, pageToken);
+    rules.push(...page.rules);
+    pageToken = page.nextPageToken;
+    if (pageToken && seen.has(pageToken)) throw new Error("selection rule pagination returned a repeated token");
+    if (pageToken) seen.add(pageToken);
+  } while (pageToken);
+  return rules;
 }
 
 export async function createSelectionRule(rule: ContextSelectionRule): Promise<ContextSelectionRule> {
@@ -74,13 +104,18 @@ export async function getModelCatalog(): Promise<GetModelCatalogResponse> {
 }
 
 export async function getContextMetrics(contextId: string): Promise<ContextMetrics> {
-  const resp = await scribeFetch(scribePath(`/v1/contexts/${encodeURIComponent(contextId)}/metrics`));
-  if (!resp.ok) {
-    throw new Error(`metrics request failed: ${resp.status}`);
-  }
-  const body = await resp.json() as { metrics?: ContextMetrics };
-  if (!body.metrics) {
+  const resp = await client().getContextMetrics({ contextId: BigInt(contextId) });
+  if (!resp.metrics) {
     throw new Error("no metrics in response");
   }
-  return body.metrics;
+  return resp.metrics;
+}
+
+function validateCatalogPage(pageSize: number, pageToken: string): void {
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+    throw new RangeError("pageSize must be an integer between 1 and 100");
+  }
+  if (pageToken.length > 512) {
+    throw new RangeError("pageToken must contain at most 512 characters");
+  }
 }

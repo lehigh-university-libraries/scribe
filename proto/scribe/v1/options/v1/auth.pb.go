@@ -33,19 +33,27 @@ const (
 	ResourceType_RESOURCE_TYPE_CONTEXT           ResourceType = 5
 	ResourceType_RESOURCE_TYPE_TRANSCRIPTION_JOB ResourceType = 6
 	ResourceType_RESOURCE_TYPE_WORKSPACE         ResourceType = 7
+	ResourceType_RESOURCE_TYPE_UPLOAD_BATCH      ResourceType = 8
+	ResourceType_RESOURCE_TYPE_SELECTION_RULE    ResourceType = 9
+	ResourceType_RESOURCE_TYPE_API_KEY           ResourceType = 10
+	ResourceType_RESOURCE_TYPE_PROVIDER_SECRET   ResourceType = 11
 )
 
 // Enum value maps for ResourceType.
 var (
 	ResourceType_name = map[int32]string{
-		0: "RESOURCE_TYPE_UNSPECIFIED",
-		1: "RESOURCE_TYPE_SYSTEM",
-		2: "RESOURCE_TYPE_USER",
-		3: "RESOURCE_TYPE_ITEM",
-		4: "RESOURCE_TYPE_ITEM_IMAGE",
-		5: "RESOURCE_TYPE_CONTEXT",
-		6: "RESOURCE_TYPE_TRANSCRIPTION_JOB",
-		7: "RESOURCE_TYPE_WORKSPACE",
+		0:  "RESOURCE_TYPE_UNSPECIFIED",
+		1:  "RESOURCE_TYPE_SYSTEM",
+		2:  "RESOURCE_TYPE_USER",
+		3:  "RESOURCE_TYPE_ITEM",
+		4:  "RESOURCE_TYPE_ITEM_IMAGE",
+		5:  "RESOURCE_TYPE_CONTEXT",
+		6:  "RESOURCE_TYPE_TRANSCRIPTION_JOB",
+		7:  "RESOURCE_TYPE_WORKSPACE",
+		8:  "RESOURCE_TYPE_UPLOAD_BATCH",
+		9:  "RESOURCE_TYPE_SELECTION_RULE",
+		10: "RESOURCE_TYPE_API_KEY",
+		11: "RESOURCE_TYPE_PROVIDER_SECRET",
 	}
 	ResourceType_value = map[string]int32{
 		"RESOURCE_TYPE_UNSPECIFIED":       0,
@@ -56,6 +64,10 @@ var (
 		"RESOURCE_TYPE_CONTEXT":           5,
 		"RESOURCE_TYPE_TRANSCRIPTION_JOB": 6,
 		"RESOURCE_TYPE_WORKSPACE":         7,
+		"RESOURCE_TYPE_UPLOAD_BATCH":      8,
+		"RESOURCE_TYPE_SELECTION_RULE":    9,
+		"RESOURCE_TYPE_API_KEY":           10,
+		"RESOURCE_TYPE_PROVIDER_SECRET":   11,
 	}
 )
 
@@ -144,8 +156,11 @@ type AuthzRule struct {
 	Resource        ResourceType           `protobuf:"varint,2,opt,name=resource,proto3,enum=scribe.v1.options.v1.ResourceType" json:"resource,omitempty"`
 	Level           AccessLevel            `protobuf:"varint,3,opt,name=level,proto3,enum=scribe.v1.options.v1.AccessLevel" json:"level,omitempty"`
 	ResourceIdField string                 `protobuf:"bytes,4,opt,name=resource_id_field,json=resourceIdField,proto3" json:"resource_id_field,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Restricts browser account/workspace administration to an interactive
+	// session. Delegated API keys and external JWTs cannot authorize the RPC.
+	SessionOnly   bool `protobuf:"varint,5,opt,name=session_only,json=sessionOnly,proto3" json:"session_only,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AuthzRule) Reset() {
@@ -206,6 +221,13 @@ func (x *AuthzRule) GetResourceIdField() string {
 	return ""
 }
 
+func (x *AuthzRule) GetSessionOnly() bool {
+	if x != nil {
+		return x.SessionOnly
+	}
+	return false
+}
+
 var file_scribe_v1_options_v1_auth_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
@@ -227,12 +249,13 @@ var File_scribe_v1_options_v1_auth_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_options_v1_auth_proto_rawDesc = "" +
 	"\n" +
-	"\x1fscribe/v1/options/v1/auth.proto\x12\x14scribe.v1.options.v1\x1a google/protobuf/descriptor.proto\"\xd9\x01\n" +
+	"\x1fscribe/v1/options/v1/auth.proto\x12\x14scribe.v1.options.v1\x1a google/protobuf/descriptor.proto\"\xfc\x01\n" +
 	"\tAuthzRule\x12'\n" +
 	"\x0fallow_anonymous\x18\x01 \x01(\bR\x0eallowAnonymous\x12>\n" +
 	"\bresource\x18\x02 \x01(\x0e2\".scribe.v1.options.v1.ResourceTypeR\bresource\x127\n" +
 	"\x05level\x18\x03 \x01(\x0e2!.scribe.v1.options.v1.AccessLevelR\x05level\x12*\n" +
-	"\x11resource_id_field\x18\x04 \x01(\tR\x0fresourceIdField*\xf2\x01\n" +
+	"\x11resource_id_field\x18\x04 \x01(\tR\x0fresourceIdField\x12!\n" +
+	"\fsession_only\x18\x05 \x01(\bR\vsessionOnly*\xf2\x02\n" +
 	"\fResourceType\x12\x1d\n" +
 	"\x19RESOURCE_TYPE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14RESOURCE_TYPE_SYSTEM\x10\x01\x12\x16\n" +
@@ -241,7 +264,12 @@ const file_scribe_v1_options_v1_auth_proto_rawDesc = "" +
 	"\x18RESOURCE_TYPE_ITEM_IMAGE\x10\x04\x12\x19\n" +
 	"\x15RESOURCE_TYPE_CONTEXT\x10\x05\x12#\n" +
 	"\x1fRESOURCE_TYPE_TRANSCRIPTION_JOB\x10\x06\x12\x1b\n" +
-	"\x17RESOURCE_TYPE_WORKSPACE\x10\a*r\n" +
+	"\x17RESOURCE_TYPE_WORKSPACE\x10\a\x12\x1e\n" +
+	"\x1aRESOURCE_TYPE_UPLOAD_BATCH\x10\b\x12 \n" +
+	"\x1cRESOURCE_TYPE_SELECTION_RULE\x10\t\x12\x19\n" +
+	"\x15RESOURCE_TYPE_API_KEY\x10\n" +
+	"\x12!\n" +
+	"\x1dRESOURCE_TYPE_PROVIDER_SECRET\x10\v*r\n" +
 	"\vAccessLevel\x12\x1c\n" +
 	"\x18ACCESS_LEVEL_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11ACCESS_LEVEL_READ\x10\x01\x12\x16\n" +

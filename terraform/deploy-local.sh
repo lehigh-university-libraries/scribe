@@ -2,13 +2,15 @@
 
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/vault-retry.sh
+source "$repo_root/scripts/vault-retry.sh"
 
 usage() {
   cat <<'EOF'
 Usage:
-  terraform/deploy-local.sh dev <plan|apply|destroy> [--branch BRANCH]
-  terraform/deploy-local.sh prod <plan|apply|destroy>
-  terraform/deploy-local.sh preview <plan|apply|destroy> [--branch BRANCH] --pr-number NUMBER
+  terraform/deploy-local.sh dev <plan|apply|refresh|normalize-moves|destroy> [--branch BRANCH]
+  terraform/deploy-local.sh prod <plan|apply|refresh|normalize-moves|destroy> [--branch GIT_REF]
+  terraform/deploy-local.sh preview <plan|apply|refresh|normalize-moves|destroy> [--branch BRANCH] --pr-number NUMBER
 
 Required environment:
   GCLOUD_PROJECT    GCP project ID
@@ -17,29 +19,31 @@ Optional environment:
   TF_STATE_BUCKET      GCS bucket used for Terraform remote state. Defaults to ${GCLOUD_PROJECT}-terraform
   ALLOWED_IPS         Terraform list(string), e.g. ["203.0.113.10/32"]
   ALLOWED_SSH_IPV4    Terraform list(string), e.g. ["203.0.113.10/32"]
+  ALLOWED_SSH_IPV6    Terraform list(string), e.g. ["2001:db8::/64"]
   SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
-  SCRIBE_FRONTEND_IMAGE  Optional GHCR frontend image reference to inject into Terraform frontend_image for local parity
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar). When unset, local apply resolves the default tag and auto-builds it if missing.
-  SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. When unset (and the action is not destroy), deploy-local.sh calls ci/generate-ocr-images-map.sh to resolve the digests from existing GAR tags.
-  SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to main for prod and the branch slug otherwise.
+  SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. For plan/apply only; refresh and destroy reload the recorded map from Terraform state.
+  SCRIBE_DATA_GENERATION  Reviewed persistence generation. Defaults to canonical-v1; refresh and destroy always reload the recorded value from Terraform state.
+  SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to the immutable --branch commit SHA for production and preview, and the branch slug for development.
   SCRIBE_ZONE            Optional zone override used when locally building the frontend GAR sidecar. Falls back to TF_VAR_zone, terraform/terraform.tfvars, then us-east5-b.
+  SCRIBE_REGION          Optional region override. Falls back to TF_VAR_region, then us-east5.
   VAULT_ADMIN_EMAILS      Optional Terraform list(string) for vault_admin_emails, e.g. ["you@example.edu"].
   VAULT_CI_SERVICE_ACCOUNT_EMAILS  Optional Terraform list(string) for vault_ci_service_account_emails, e.g. ["github@project.iam.gserviceaccount.com"].
   VAULT_TOKEN            Optional one-time Vault token. Normal local runs use Google JWT login instead.
-  VAULT_BOOTSTRAP_MODE   Vault auth bootstrap mode: jwt (default), root-token, or jwt-or-root-token.
+  VAULT_BOOTSTRAP_MODE   Vault auth bootstrap mode: jwt (local default), root-token, or jwt-or-root-token (protected CI default).
   VAULT_ROOT_TOKEN_OBJECT  GCS object holding the base64-wrapped encrypted Vault root token. Defaults to gs://${GCLOUD_PROJECT}-vault-server-dev-key/root-token.enc or gs://${GCLOUD_PROJECT}-vault-server-prod-key/root-token.enc based on the shared Vault workspace.
   VAULT_ROOT_TOKEN_KMS_LOCATION  KMS location used to decrypt the stored Vault root token. Defaults to global.
   VAULT_ROOT_TOKEN_KMS_KEYRING   KMS key ring used to decrypt the stored Vault root token. Defaults to vault-server-dev or vault-server-prod based on the shared Vault workspace.
   VAULT_ROOT_TOKEN_KMS_KEY       KMS key name used to decrypt the stored Vault root token. Defaults to vault.
-
 Notes:
   - Dev mode uses Terraform workspace dev and site name scribe-dev.
   - Preview mode matches GitHub Actions naming only when --pr-number is supplied.
-  - Preview images use ghcr.io/lehigh-university-libraries/scribe:<branch>
-  - Preview frontend images use ghcr.io/lehigh-university-libraries/scribe-frontend:<branch>
-  - Production uses ghcr.io/lehigh-university-libraries/scribe:main
-  - Production frontend uses ghcr.io/lehigh-university-libraries/scribe-frontend:main
+  - Preview and production require --branch to be a full commit SHA.
+  - Their default backend, frontend, and OCR tags use that exact SHA and are resolved to immutable digests before Terraform runs.
+  - Explicit SCRIBE_*_IMAGE values must still resolve to immutable image digests.
   - Local apply auto-builds missing frontend/OCR GAR images needed by the selected workspace.
+  - Refresh replays the selected workspace's exact recorded deployment-input schema and runs a guarded full-graph refresh-only apply.
+  - Normalize-moves updates only reviewed Scribe and cloud-compose state addresses and never refreshes providers or changes infrastructure.
 EOF
 }
 
@@ -99,20 +103,18 @@ resolve_terraform_zone() {
 
 build_frontend_gar_image() {
   local image_ref="$1"
-  local zone backend_origin iiif_origin
+  local zone backend_origin
 
   zone="$(resolve_terraform_zone)"
   backend_origin="http://${TF_VAR_name}.${zone}.c.${GCLOUD_PROJECT}.internal"
-  iiif_origin="${backend_origin}:8081"
 
-  echo "GAR image missing for frontend sidecar; building and pushing ${image_ref} with backend origin ${backend_origin} and IIIF origin ${iiif_origin}..." >&2
+  echo "GAR image missing for frontend sidecar; building and pushing ${image_ref} with backend origin ${backend_origin}..." >&2
   "${repo_root}/ci/build-push-gar-image.sh" \
     --image "$image_ref" \
     --context "$repo_root" \
     --file "${repo_root}/Dockerfile.frontend" \
     --platform "linux/amd64" \
-    --build-arg "SCRIBE_FRONTEND_BACKEND_ORIGIN=${backend_origin}" \
-    --build-arg "SCRIBE_FRONTEND_IIIF_ORIGIN=${iiif_origin}"
+    --build-arg "SCRIBE_FRONTEND_BACKEND_ORIGIN=${backend_origin}"
 }
 
 resolve_frontend_gar_image() {
@@ -139,11 +141,40 @@ resolve_frontend_gar_image() {
 
 select_workspace() {
   local workspace="$1"
+  local action="$2"
 
-  if ! terraform workspace select "$workspace"; then
-    terraform workspace new "$workspace" || terraform workspace select "$workspace"
+  if terraform workspace select "$workspace"; then
+    export TF_WORKSPACE="$workspace"
+    return 0
   fi
+
+  if [ "$action" = "refresh" ] || [ "$action" = "normalize-moves" ] || [ "$action" = "destroy" ]; then
+    echo "Terraform workspace ${workspace} does not exist; refusing to ${action} by creating new state." >&2
+    return 1
+  fi
+
+  terraform workspace new "$workspace" || terraform workspace select "$workspace"
   export TF_WORKSPACE="$workspace"
+}
+
+reject_state_maintenance_cli_args() {
+  local action_label variable_name
+
+  action_label="Refresh"
+  if [ "$action" = "normalize-moves" ]; then
+    action_label="Normalize-moves"
+  fi
+
+  while IFS= read -r variable_name; do
+    case "$variable_name" in
+      TF_CLI_ARGS*)
+        if [ -n "${!variable_name}" ]; then
+          echo "${action_label} refuses non-empty ${variable_name}; remove Terraform CLI argument overrides and retry." >&2
+          return 1
+        fi
+        ;;
+    esac
+  done < <(compgen -e)
 }
 
 shared_vault_workspace() {
@@ -228,6 +259,31 @@ download_vault_root_token() {
   export VAULT_TOKEN
 }
 
+register_vault_token_mask() {
+  if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+    return 0
+  fi
+  if [ -z "${VAULT_TOKEN:-}" ]; then
+    echo "Cannot register an empty Vault token with the GitHub runner." >&2
+    return 1
+  fi
+
+  # capture-command-log.sh gives the wrapped deployment a runner-only file
+  # descriptor. Register there first, then repeat the record on captured
+  # stdout so the helper can redact the same literal from the artifact. The
+  # leading newline makes both records independent of unterminated output from
+  # gcloud, curl, or a provider.
+  case "${SCRIBE_GITHUB_COMMAND_FD:-}" in
+    "") ;;
+    9) printf '\n::add-mask::%s\n' "$VAULT_TOKEN" >&9 ;;
+    *)
+      echo "SCRIBE_GITHUB_COMMAND_FD must be unset or the protected descriptor 9." >&2
+      return 1
+      ;;
+  esac
+  printf '\n::add-mask::%s\n' "$VAULT_TOKEN"
+}
+
 login_vault_jwt_token() {
   local shared_workspace="$1"
   local role_prefix="$2"
@@ -293,10 +349,7 @@ bootstrap_vault_token() {
   local action="$2"
   local shared_workspace="$3"
   local bootstrap_mode
-
-  if [ -n "${VAULT_TOKEN:-}" ]; then
-    return 0
-  fi
+  local first_owner_apply=false
 
   bootstrap_mode="${VAULT_BOOTSTRAP_MODE:-jwt}"
   case "$bootstrap_mode" in
@@ -313,16 +366,29 @@ bootstrap_vault_token() {
       ;;
   esac
 
-  if login_vault_admin_token "$shared_workspace"; then
+  # A clean owner workspace has no Vault endpoint, init object, or JWT auth
+  # role yet. Materialize the service and wait for the init job before making
+  # any Vault login or root-token recovery request. This targeted apply is only
+  # a first-owner bootstrap; routine applies go directly to the full graph.
+  if [ "$target_workspace" = "$shared_workspace" ] && [ "$action" = "apply" ]; then
+    if ! terraform state list 2>/dev/null | grep -q '^module\.vault\[0\]\.'; then
+      first_owner_apply=true
+      echo "Vault owner workspace ${shared_workspace} is empty; applying and initializing the Vault service shell first..."
+      terraform apply -auto-approve -target=module.vault "${terraform_vars[@]}"
+    fi
+  fi
+
+  if [ -n "${VAULT_TOKEN:-}" ]; then
     return 0
   fi
 
-  if [ "$target_workspace" = "$shared_workspace" ] && [ "$action" = "apply" ]; then
-    echo "Vault JWT login for workspace ${shared_workspace} is not ready; applying the Vault service shell first..."
-    terraform apply -auto-approve -target=module.vault "${terraform_vars[@]}"
-    if login_vault_admin_token "$shared_workspace"; then
-      return 0
-    fi
+  if [ "$first_owner_apply" = "true" ] && [ "$bootstrap_mode" = "root-token" ]; then
+    download_vault_root_token "$shared_workspace"
+    return 0
+  fi
+
+  if login_vault_admin_token "$shared_workspace"; then
+    return 0
   fi
 
   if [ "$bootstrap_mode" = "jwt-or-root-token" ]; then
@@ -335,6 +401,72 @@ bootstrap_vault_token() {
   echo "Use an existing google-jwt admin role, export a one-time VAULT_TOKEN, or rerun with VAULT_BOOTSTRAP_MODE=root-token." >&2
   return 1
 }
+
+vault_token_ready_once() {
+  local vault_addr="$1"
+  local access_token="$2"
+
+  # Discard both Vault's response and curl diagnostics. The shared retry helper
+  # emits only a stable operation label and attempt count, so neither token nor
+  # an upstream response body can reach deployment logs.
+  curl -fsS \
+    --connect-timeout 5 \
+    --max-time 10 \
+    -o /dev/null \
+    -H "X-Vault-Token: ${VAULT_TOKEN}" \
+    -H "X-Admin-Token: ${access_token}" \
+    "${vault_addr%/}/v1/auth/token/lookup-self" >/dev/null 2>&1
+}
+
+wait_for_vault_token_readiness() {
+  local shared_workspace="$1"
+  local service_name region vault_addr access_token
+
+  if [ -z "${VAULT_TOKEN:-}" ]; then
+    echo "Vault token readiness requires a non-empty Vault token." >&2
+    return 1
+  fi
+
+  service_name="$(shared_vault_service_name "$shared_workspace")"
+  region="$(resolve_terraform_region)"
+  if ! vault_addr="$(gcloud run services describe "$service_name" \
+    --region "$region" \
+    --format='value(status.url)' 2>/dev/null)"; then
+    echo "Failed to resolve the shared Vault service endpoint." >&2
+    return 1
+  fi
+  vault_addr="$(printf '%s' "$vault_addr" | tr -d '\r\n')"
+  case "$vault_addr" in
+    https://*) ;;
+    *)
+      echo "The shared Vault service did not expose a valid HTTPS endpoint." >&2
+      return 1
+      ;;
+  esac
+
+  if ! access_token="$(gcloud auth print-access-token 2>/dev/null)"; then
+    echo "Failed to mint the Google access token required by the Vault service." >&2
+    return 1
+  fi
+  access_token="$(printf '%s' "$access_token" | tr -d '\r\n')"
+  if [ -z "$access_token" ]; then
+    echo "The Google access token required by the Vault service was empty." >&2
+    return 1
+  fi
+
+  if ! vault_retry "Vault token readiness" \
+    vault_token_ready_once "$vault_addr" "$access_token"; then
+    echo "Vault did not accept the deployment token; response body withheld." >&2
+    return 1
+  fi
+}
+
+# A preview workflow can supply a Vault token before this process starts.
+# Register that inherited value before any external command, including
+# Terraform initialization, has an opportunity to mention its environment.
+if [ -n "${VAULT_TOKEN:-}" ]; then
+  register_vault_token_mask
+fi
 
 require_cmd git
 require_cmd gcloud
@@ -354,37 +486,40 @@ if [ -z "${GCLOUD_PROJECT:-}" ]; then
   echo "GCLOUD_PROJECT is required." >&2
   exit 1
 fi
-
 TF_STATE_BUCKET="${TF_STATE_BUCKET:-${GCLOUD_PROJECT}-terraform}"
 export TF_STATE_BUCKET
 export DOCKER_DEFAULT_PLATFORM="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
 target_set="${TF_TARGET_SET:-}"
 
+if [ "$action" = "refresh" ] || [ "$action" = "normalize-moves" ]; then
+  reject_state_maintenance_cli_args
+fi
+
+if [ "$action" = "refresh" ] && [ -n "$target_set" ]; then
+  echo "Refresh always runs the full Terraform graph; TF_TARGET_SET must be empty." >&2
+  exit 1
+fi
+
+if [ "$action" = "normalize-moves" ] && [ -n "$target_set" ]; then
+  echo "Normalize-moves manages its own exact Terraform state scope; TF_TARGET_SET must be empty." >&2
+  exit 1
+fi
+
 terraform_targets=()
 needs_frontend_gar_image=true
 needs_ocr_images=true
+target_plan_verifier=""
 case "$target_set" in
   "")
     ;;
-  vault)
+  vault-ci-identities)
     needs_frontend_gar_image=false
     needs_ocr_images=false
+    target_plan_verifier="$repo_root/ci/verify-vault-ci-target-plan.sh"
     terraform_targets+=(
-      "-target=module.vault"
-      "-target=google_service_account_iam_member.vault_gcp_auth_app_service_account_viewer"
-      "-target=google_service_account_iam_member.vault_gcp_auth_instance_service_account_viewer"
-      "-target=google_project_iam_custom_role.vault_gcp_auth_key_verifier"
-      "-target=google_service_account_iam_member.vault_gcp_auth_app_service_account_key_verifier"
-      "-target=google_service_account_iam_member.vault_gcp_auth_instance_service_account_key_verifier"
-      "-target=vault_mount.secret"
-      "-target=vault_policy.vault"
-      "-target=vault_audit.stdout"
-      "-target=vault_auth_backend.gcp"
-      "-target=vault_jwt_auth_backend.google_jwt"
+      "-target=module.vault[0].google_storage_bucket_iam_member.bootstrap_key_reader"
+      "-target=module.vault[0].google_kms_crypto_key_iam_member.bootstrap_root_token_decrypter"
       "-target=vault_jwt_auth_backend_role.ci"
-      "-target=vault_jwt_auth_backend_role.admin"
-      "-target=vault_jwt_auth_backend_role.admin_break_glass"
-      "-target=vault_gcp_auth_backend_role.app"
       "-target=vault_gcp_auth_backend_role.ci"
     )
     ;;
@@ -405,7 +540,7 @@ case "$target_set" in
     ;;
 esac
 
-branch="$(git rev-parse --abbrev-ref HEAD)"
+branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || git rev-parse HEAD)"
 pr_number=""
 
 while [ $# -gt 0 ]; do
@@ -442,10 +577,10 @@ case "$environment" in
   prod)
     target_workspace="prod"
     export TF_VAR_name="scribe"
-    export TF_VAR_docker_compose_branch="main"
+    export TF_VAR_docker_compose_branch="$branch"
     export TF_VAR_run_snapshots="true"
-    fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:main"
-    ocr_image_tag_default="main"
+    fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:${branch}"
+    ocr_image_tag_default="$branch"
     ;;
   preview)
     if [ -z "$pr_number" ]; then
@@ -457,7 +592,7 @@ case "$environment" in
     export TF_VAR_docker_compose_branch="$branch"
     export TF_VAR_run_snapshots="false"
     fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:$(sanitize_image_tag "$branch")"
-    ocr_image_tag_default="$(sanitize_image_tag "$branch")"
+    ocr_image_tag_default="$branch"
     ;;
   *)
     echo "Unknown environment: $environment" >&2
@@ -466,16 +601,24 @@ case "$environment" in
     ;;
 esac
 
+if { [ "$environment" = "prod" ] || [ "$environment" = "preview" ]; } \
+  && [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ]; then
+  if [[ ! "$branch" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Production and preview --branch values must be immutable 40-character commit SHAs." >&2
+    exit 1
+  fi
+fi
+
 image_tag="${SCRIBE_API_IMAGE:-$fallback_image_tag}"
-frontend_tag="$(printf '%s' "${image_tag##*:}" | tr '[:upper:]' '[:lower:]')"
-frontend_image_tag="${SCRIBE_FRONTEND_IMAGE:-ghcr.io/lehigh-university-libraries/scribe-frontend:${frontend_tag}}"
+data_generation="${SCRIBE_DATA_GENERATION:-canonical-v1}"
+frontend_tag="$(sanitize_image_tag "$branch")"
 frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:${frontend_tag}}"
 if [ "$needs_frontend_gar_image" != "true" ]; then
   frontend_gar_image_tag=""
 fi
 
 case "$action" in
-  plan|apply|destroy) ;;
+  plan|apply|refresh|normalize-moves|destroy) ;;
   *)
     echo "Unknown action: $action" >&2
     usage
@@ -483,16 +626,108 @@ case "$action" in
     ;;
 esac
 
-if [ "$action" != "destroy" ] && [ "$needs_frontend_gar_image" = "true" ] && [ -n "$frontend_gar_image_tag" ]; then
+if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ]; then
+  require_cmd docker
+fi
+
+if [ "$environment" = "prod" ] && [ "$action" = "destroy" ] && [ "${CONFIRM_PRODUCTION_DESTROY:-}" != "scribe-prod-destroy" ]; then
+  echo "Production destroy requires CONFIRM_PRODUCTION_DESTROY=scribe-prod-destroy after an approved recovery backup." >&2
+  exit 1
+fi
+
+if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ] \
+  && [ "$needs_frontend_gar_image" = "true" ] && [ -n "$frontend_gar_image_tag" ]; then
   frontend_gar_image_tag="$(resolve_frontend_gar_image "$frontend_gar_image_tag" "$action")"
+fi
+
+if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ]; then
+  image_tag="$("${repo_root}/ci/resolve-ghcr-image.sh" "$image_tag")"
+  BACKUP_AUDIT_SCOPE=state "${repo_root}/ci/verify-cloud-backups.sh"
+  export TF_VAR_terraform_state_backup_audited=true
 fi
 
 cd "$(dirname "$0")"
 
+terraform init -lockfile=readonly \
+  -backend-config="bucket=${TF_STATE_BUCKET}" \
+  -backend-config="prefix=scribe"
+
+select_workspace "$target_workspace" "$action"
+
+if [ "$action" = "normalize-moves" ]; then
+  BACKUP_AUDIT_SCOPE=state "$repo_root/ci/verify-cloud-backups.sh"
+  "$repo_root/ci/normalize-terraform-moved-state.sh" "$repo_root/terraform"
+  exit 0
+fi
+
 ocr_images_json="${SCRIBE_OCR_IMAGES_JSON:-}"
-if [ "$needs_ocr_images" != "true" ]; then
+if [ "$action" = "destroy" ] || [ "$action" = "refresh" ]; then
+  if ! stored_deployment_inputs="$(terraform output -json deployment_inputs 2>/dev/null)"; then
+    echo "The selected workspace has no readable deployment_inputs; refusing to ${action} without its prior immutable release inputs." >&2
+    echo "Inspect and recover the remote workspace state before retrying ${action}." >&2
+    exit 1
+  fi
+  deployment_inputs_resolver="$repo_root/ci/resolve-destroy-inputs.sh"
+  if [ "$action" = "refresh" ]; then
+    deployment_inputs_resolver="$repo_root/ci/resolve-refresh-inputs.sh"
+  fi
+  if ! stored_deployment_inputs="$({
+    printf '%s\n' "$stored_deployment_inputs" |
+      GCLOUD_PROJECT="$GCLOUD_PROJECT" "$deployment_inputs_resolver"
+  })"; then
+    echo "Inspect and recover the remote workspace state before retrying ${action}." >&2
+    exit 1
+  fi
+  TF_VAR_docker_compose_branch="$(jq -r '.docker_compose_sha' <<<"$stored_deployment_inputs")"
+  export TF_VAR_docker_compose_branch
+  image_tag="$(jq -r '.api_image' <<<"$stored_deployment_inputs")"
+  frontend_gar_image_tag="$(jq -r '.frontend_gar_image' <<<"$stored_deployment_inputs")"
+  ocr_images_json="$(jq -c '.ocr_service_images' <<<"$stored_deployment_inputs")"
+  data_generation="$(jq -r '.data_generation' <<<"$stored_deployment_inputs")"
+  if [ "$action" = "refresh" ]; then
+    ALLOWED_IPS="$(jq -c '.configuration.allowed_ips' <<<"$stored_deployment_inputs")"
+    ALLOWED_SSH_IPV4="$(jq -c '.configuration.allowed_ssh_ipv4' <<<"$stored_deployment_inputs")"
+    ALLOWED_SSH_IPV6="$(jq -c '.configuration.allowed_ssh_ipv6' <<<"$stored_deployment_inputs")"
+    VAULT_ADMIN_EMAILS="$(jq -c '.configuration.vault_admin_emails' <<<"$stored_deployment_inputs")"
+    VAULT_CI_SERVICE_ACCOUNT_EMAILS="$(jq -c '.configuration.vault_ci_service_account_emails' <<<"$stored_deployment_inputs")"
+    TF_VAR_backup_restore_service_account_email="$(jq -r '.configuration.backup_restore_service_account_email' <<<"$stored_deployment_inputs")"
+    TF_VAR_compose_network_cidr="$(jq -r '.configuration.compose_network_cidr' <<<"$stored_deployment_inputs")"
+    TF_VAR_iiif_max_manifest_canvases="$(jq -r '.configuration.iiif_max_manifest_canvases' <<<"$stored_deployment_inputs")"
+    TF_VAR_iiif_max_manifest_import_bytes="$(jq -r '.configuration.iiif_max_manifest_import_bytes' <<<"$stored_deployment_inputs")"
+    TF_VAR_monitoring_notification_channels="$(jq -c '.configuration.monitoring_notification_channels' <<<"$stored_deployment_inputs")"
+    TF_VAR_network_ip_cidr_range="$(jq -r '.configuration.network_ip_cidr_range' <<<"$stored_deployment_inputs")"
+    TF_VAR_region="$(jq -r '.configuration.region' <<<"$stored_deployment_inputs")"
+    TF_VAR_storage_max_bytes_per_workspace="$(jq -r '.configuration.storage_max_bytes_per_workspace' <<<"$stored_deployment_inputs")"
+    TF_VAR_storage_max_bytes_total="$(jq -r '.configuration.storage_max_bytes_total' <<<"$stored_deployment_inputs")"
+    TF_VAR_storage_max_images_per_workspace="$(jq -r '.configuration.storage_max_images_per_workspace' <<<"$stored_deployment_inputs")"
+    TF_VAR_storage_max_images_total="$(jq -r '.configuration.storage_max_images_total' <<<"$stored_deployment_inputs")"
+    TF_VAR_storage_max_items_per_workspace="$(jq -r '.configuration.storage_max_items_per_workspace' <<<"$stored_deployment_inputs")"
+    TF_VAR_storage_max_items_total="$(jq -r '.configuration.storage_max_items_total' <<<"$stored_deployment_inputs")"
+    TF_VAR_storage_normalization_cache_max_age="$(jq -r '.configuration.storage_normalization_cache_max_age' <<<"$stored_deployment_inputs")"
+    TF_VAR_storage_normalization_cache_max_bytes="$(jq -r '.configuration.storage_normalization_cache_max_bytes' <<<"$stored_deployment_inputs")"
+    TF_VAR_storage_reservation_ttl="$(jq -r '.configuration.storage_reservation_ttl' <<<"$stored_deployment_inputs")"
+    TF_VAR_transcription_max_active_jobs_per_workspace="$(jq -r '.configuration.transcription_max_active_jobs_per_workspace' <<<"$stored_deployment_inputs")"
+    TF_VAR_zone="$(jq -r '.configuration.zone' <<<"$stored_deployment_inputs")"
+    SCRIBE_REGION="$TF_VAR_region"
+    SCRIBE_ZONE="$TF_VAR_zone"
+    export ALLOWED_IPS ALLOWED_SSH_IPV4 ALLOWED_SSH_IPV6 VAULT_ADMIN_EMAILS VAULT_CI_SERVICE_ACCOUNT_EMAILS
+    export SCRIBE_REGION SCRIBE_ZONE
+    export TF_VAR_backup_restore_service_account_email TF_VAR_compose_network_cidr
+    export TF_VAR_iiif_max_manifest_canvases TF_VAR_iiif_max_manifest_import_bytes
+    export TF_VAR_monitoring_notification_channels TF_VAR_network_ip_cidr_range TF_VAR_region
+    export TF_VAR_storage_max_bytes_per_workspace TF_VAR_storage_max_bytes_total
+    export TF_VAR_storage_max_images_per_workspace TF_VAR_storage_max_images_total
+    export TF_VAR_storage_max_items_per_workspace TF_VAR_storage_max_items_total
+    export TF_VAR_storage_normalization_cache_max_age TF_VAR_storage_normalization_cache_max_bytes
+    export TF_VAR_storage_reservation_ttl TF_VAR_transcription_max_active_jobs_per_workspace TF_VAR_zone
+    if [ "$environment" = "prod" ]; then
+      BACKUP_AUDIT_SCOPE=state "$repo_root/ci/verify-cloud-backups.sh"
+      export TF_VAR_terraform_state_backup_audited=true
+    fi
+  fi
+elif [ "$needs_ocr_images" != "true" ]; then
   ocr_images_json='{}'
-elif [ "$action" != "destroy" ] && [ -z "$ocr_images_json" ]; then
+elif [ -z "$ocr_images_json" ]; then
   include_ollama="false"
   if [ "$environment" = "prod" ]; then
     include_ollama="true"
@@ -506,11 +741,16 @@ elif [ "$action" != "destroy" ] && [ -z "$ocr_images_json" ]; then
     IMAGE_TAG="${SCRIBE_OCR_IMAGE_TAG:-$ocr_image_tag_default}" \
     INCLUDE_OLLAMA="$include_ollama" \
     AUTO_BUILD_MISSING="$ocr_auto_build_missing" \
-    "$repo_root/ci/generate-ocr-images-map.sh"
+    make --no-print-directory -C "$repo_root" ocr-images
   )"
 fi
 if [ -z "$ocr_images_json" ]; then
   ocr_images_json='{}'
+fi
+
+if [[ ! "$data_generation" =~ ^[a-z][a-z0-9-]{0,31}$ ]]; then
+  echo "SCRIBE_DATA_GENERATION must start with a lowercase letter and contain at most 32 lowercase letters, digits, or hyphens." >&2
+  exit 1
 fi
 
 terraform_vars=(
@@ -518,11 +758,13 @@ terraform_vars=(
   "-var=terraform_state_bucket=${TF_STATE_BUCKET}"
   "-var=name=${TF_VAR_name}"
   "-var=docker_compose_branch=${TF_VAR_docker_compose_branch}"
+  "-var=data_generation=${data_generation}"
   "-var=run_snapshots=${TF_VAR_run_snapshots}"
   "-var=api_image=${image_tag}"
-  "-var=frontend_image=${frontend_image_tag}"
   "-var=frontend_gar_image=${frontend_gar_image_tag}"
   "-var=ocr_service_images=${ocr_images_json}"
+  "-var=region=$(resolve_terraform_region)"
+  "-var=zone=$(resolve_terraform_zone)"
 )
 
 if [ -n "${ALLOWED_IPS:-}" ]; then
@@ -533,6 +775,10 @@ if [ -n "${ALLOWED_SSH_IPV4:-}" ]; then
   terraform_vars+=("-var=allowed_ssh_ipv4=${ALLOWED_SSH_IPV4}")
 fi
 
+if [ -n "${ALLOWED_SSH_IPV6:-}" ]; then
+  terraform_vars+=("-var=allowed_ssh_ipv6=${ALLOWED_SSH_IPV6}")
+fi
+
 if [ -n "${VAULT_ADMIN_EMAILS:-}" ]; then
   terraform_vars+=("-var=vault_admin_emails=${VAULT_ADMIN_EMAILS}")
 fi
@@ -541,14 +787,12 @@ if [ -n "${VAULT_CI_SERVICE_ACCOUNT_EMAILS:-}" ]; then
   terraform_vars+=("-var=vault_ci_service_account_emails=${VAULT_CI_SERVICE_ACCOUNT_EMAILS}")
 fi
 
-terraform init -upgrade \
-  -backend-config="bucket=${TF_STATE_BUCKET}" \
-  -backend-config="prefix=scribe"
-
-select_workspace "$target_workspace"
-
 shared_vault_workspace_name="$(shared_vault_workspace "$target_workspace")"
 bootstrap_vault_token "$target_workspace" "$action" "$shared_vault_workspace_name"
+register_vault_token_mask
+if [ "$action" = "plan" ] || [ "$action" = "apply" ]; then
+  wait_for_vault_token_readiness "$shared_vault_workspace_name"
+fi
 
 if [ "$action" != "destroy" ]; then
   terraform validate
@@ -563,9 +807,41 @@ case "$action" in
     fi
     ;;
   apply)
-    terraform apply -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"
+    if [ "$environment" = "prod" ] || [ -n "$target_plan_verifier" ]; then
+      apply_plan_path="$(mktemp)"
+      apply_plan_json="$(mktemp)"
+      trap 'rm -f "$apply_plan_path" "$apply_plan_json"' EXIT
+      terraform plan -out="$apply_plan_path" "${terraform_vars[@]}" "${terraform_targets[@]}"
+      terraform show -json "$apply_plan_path" >"$apply_plan_json"
+      if [ "$environment" = "prod" ]; then
+        "$repo_root/ci/verify-production-persistent-disk-plan.sh" <"$apply_plan_json"
+      fi
+      if [ -n "$target_plan_verifier" ]; then
+        "$target_plan_verifier" <"$apply_plan_json"
+      fi
+      terraform apply -auto-approve "$apply_plan_path"
+      rm -f "$apply_plan_path" "$apply_plan_json"
+      trap - EXIT
+    else
+      terraform apply -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"
+    fi
+    ;;
+  refresh)
+    refresh_plan_path="$(mktemp)"
+    trap 'rm -f "$refresh_plan_path"' EXIT
+    terraform plan -refresh-only -out="$refresh_plan_path" "${terraform_vars[@]}"
+    terraform show -json "$refresh_plan_path" | "$repo_root/ci/verify-terraform-refresh-plan.sh"
+    terraform show "$refresh_plan_path"
+    terraform apply -auto-approve "$refresh_plan_path"
+    rm -f "$refresh_plan_path"
+    trap - EXIT
     ;;
   destroy)
     terraform destroy -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"
+    if [ "$environment" = "preview" ]; then
+      unset TF_WORKSPACE
+      terraform workspace select default
+      terraform workspace delete "$target_workspace"
+    fi
     ;;
 esac

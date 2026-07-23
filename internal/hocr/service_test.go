@@ -1,73 +1,86 @@
 package hocr
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
 
-func TestParseSegmentationModel(t *testing.T) {
-	t.Parallel()
+type failingClient struct {
+	err error
+}
 
-	tests := []struct {
-		name      string
-		input     string
-		wantKind  string
-		wantModel string
-	}{
-		{name: "empty defaults to auto", input: "", wantKind: "auto", wantModel: ""},
-		{name: "auto", input: "auto", wantKind: "auto", wantModel: ""},
-		{name: "tesseract", input: "tesseract", wantKind: "tesseract", wantModel: ""},
-		{name: "scribe", input: "scribe", wantKind: "scribe", wantModel: ""},
-		{name: "kraken shorthand", input: "kraken", wantKind: "kraken", wantModel: ""},
-		{name: "kraken explicit model", input: "kraken:blla.mlmodel", wantKind: "kraken", wantModel: "blla.mlmodel"},
-		{name: "kraken preserves model case", input: "KRAKEN:Models/Latin.mlmodel", wantKind: "kraken", wantModel: "Models/Latin.mlmodel"},
-		{name: "unknown falls back to auto", input: "something-else", wantKind: "auto", wantModel: ""},
-	}
+func (p failingClient) Extract(context.Context, providers.Request) (providers.Result, error) {
+	return providers.Result{}, p.err
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+func (failingClient) Name() string { return "failing" }
 
-			gotKind, gotModel := parseSegmentationModel(tt.input)
-			if gotKind != tt.wantKind || gotModel != tt.wantModel {
-				t.Fatalf("parseSegmentationModel(%q) = (%q, %q), want (%q, %q)", tt.input, gotKind, gotModel, tt.wantKind, tt.wantModel)
-			}
-		})
+type successfulClient struct {
+	result providers.Result
+}
+
+func (client successfulClient) Extract(context.Context, providers.Request) (providers.Result, error) {
+	return client.result, nil
+}
+
+func (successfulClient) Name() string { return "successful" }
+
+func TestLikelyWordBoxAcceptsUnicodeAndNumbers(t *testing.T) {
+	service := NewService()
+	for _, text := range []string{"Привет", "漢字", "1234", "é"} {
+		if !service.isLikelyWordBox(worddetection.WordBox{X: 10, Y: 10, Width: 80, Height: 24, Text: text}, 1000, 1000) {
+			t.Errorf("isLikelyWordBox() rejected %q", text)
+		}
 	}
 }
 
-func TestProviderConfigWithContextOverridesOllamaEndpoint(t *testing.T) {
-	config.Init(config.Runtime{
-		Config: config.Config{
-			LLM: config.LLMConfig{
-				Ollama: config.OllamaConfig{
-					URL:      "http://default-ollama:11434",
-					Audience: "https://default.run.app",
-					ModelEndpoints: map[string]config.ModelEndpoint{
-						"glm-ocr:bf16": {
-							URL:      "https://ollama-glm.run.app",
-							Audience: "https://ollama-glm.run.app",
-						},
-					},
-				},
-			},
-		},
-	})
-	t.Cleanup(func() {
-		config.Init(config.Runtime{})
-	})
+func TestRejectedWordDetectionLogDoesNotExposeDocumentText(t *testing.T) {
+	const privateText = "PRIVATE_HANDWRITTEN_TEXT_DO_NOT_LOG"
 
-	svc := NewService()
-	ctx := WithProviderConfigOverrides(context.Background(), "https://glm-ocr.run.app", "")
-	cfg := svc.providerConfigWithContext(ctx, "ollama", "glm-ocr:bf16", "prompt", 0)
+	var captured bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&captured, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 
-	if cfg.BaseURL != "https://glm-ocr.run.app" {
-		t.Fatalf("cfg.BaseURL = %q, want override", cfg.BaseURL)
+	service := NewService()
+	words, err := service.transcribeWords(
+		context.Background(),
+		"unused.jpg",
+		[]worddetection.WordBox{{X: 1, Y: 1, Width: 1, Height: 1, Text: privateText}},
+		1000,
+		1000,
+		nil,
+		"ollama",
+		"tesseract",
+		nil,
+		"glm-ocr:bf16",
+	)
+	if err != nil {
+		t.Fatalf("transcribeWords() error = %v", err)
 	}
-	if cfg.Audience != "https://default.run.app" {
-		t.Fatalf("cfg.Audience = %q, want runtime fallback", cfg.Audience)
+	if len(words) != 0 {
+		t.Fatalf("transcribeWords() returned %d rejected words", len(words))
+	}
+
+	logs := captured.String()
+	if strings.Contains(logs, privateText) {
+		t.Fatalf("rejected detection log exposed document text: %s", logs)
+	}
+	for _, metadata := range []string{`"msg":"Skipping non-word detection"`, `"width":1`, `"height":1`} {
+		if !strings.Contains(logs, metadata) {
+			t.Fatalf("rejected detection log omitted bounded diagnostic metadata %s: %s", metadata, logs)
+		}
 	}
 }
 
@@ -93,7 +106,10 @@ func TestProviderConfigUsesOllamaModelEndpointMap(t *testing.T) {
 	})
 
 	svc := NewService()
-	cfg := svc.providerConfigWithContext(context.Background(), "ollama", "glm-ocr:bf16", "prompt", 0)
+	cfg, err := svc.providerConfig("ollama", "glm-ocr:bf16", "prompt", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if cfg.BaseURL != "https://ollama-glm.run.app" {
 		t.Fatalf("cfg.BaseURL = %q, want model-routed URL", cfg.BaseURL)
@@ -103,62 +119,241 @@ func TestProviderConfigUsesOllamaModelEndpointMap(t *testing.T) {
 	}
 }
 
-func TestProviderConfigWithContextOverridesOnlyAudience(t *testing.T) {
-	config.Init(config.Runtime{
-		Config: config.Config{
-			LLM: config.LLMConfig{
-				Ollama: config.OllamaConfig{
-					URL:      "http://default-ollama:11434",
-					Audience: "https://default.run.app",
-					ModelEndpoints: map[string]config.ModelEndpoint{
-						"glm-ocr:bf16": {
-							URL:      "https://ollama-glm.run.app",
-							Audience: "https://ollama-glm.run.app",
-						},
-					},
-				},
-			},
-		},
-	})
-	t.Cleanup(func() {
-		config.Init(config.Runtime{})
-	})
-
-	svc := NewService()
-	ctx := WithProviderConfigOverrides(context.Background(), "", "https://workspace-override-audience")
-	cfg := svc.providerConfigWithContext(ctx, "ollama", "glm-ocr:bf16", "prompt", 0)
-
-	if cfg.BaseURL != "https://ollama-glm.run.app" {
-		t.Fatalf("cfg.BaseURL = %q, want model-routed URL", cfg.BaseURL)
+func TestTranscriptionOptionsApplyPromptAndTemperature(t *testing.T) {
+	temperature := 0.35
+	ctx := WithTranscriptionOptions(context.Background(), "Preserve abbreviations.", &temperature)
+	if got := promptFromContext(ctx, "Transcribe the line."); got != "Preserve abbreviations.\n\nTask instructions:\nTranscribe the line." {
+		t.Fatalf("promptFromContext() = %q", got)
 	}
-	if cfg.Audience != "https://workspace-override-audience" {
-		t.Fatalf("cfg.Audience = %q, want override audience", cfg.Audience)
+	if got := temperatureFromContext(ctx); got != temperature {
+		t.Fatalf("temperatureFromContext() = %v, want %v", got, temperature)
 	}
 }
 
-func TestProviderConfigWithContextOverridesKrakenEndpoint(t *testing.T) {
-	config.Init(config.Runtime{
-		Config: config.Config{
-			LLM: config.LLMConfig{
-				Kraken: config.KrakenConfig{
-					URL:      "https://default-segmentor.run.app",
-					Audience: "https://default-segmentor.run.app",
-				},
-			},
-		},
-	})
-	t.Cleanup(func() {
-		config.Init(config.Runtime{})
-	})
-
-	svc := NewService()
-	ctx := WithProviderConfigOverrides(context.Background(), "https://workspace-segmentor.run.app", "")
-	cfg := svc.providerConfigWithContext(ctx, "kraken", "catmus-print-fondue-large.mlmodel", "prompt", 0)
-
-	if cfg.BaseURL != "https://workspace-segmentor.run.app" {
-		t.Fatalf("cfg.BaseURL = %q, want override", cfg.BaseURL)
+func TestProviderAuditsAreMetadataOnlyAndErrorsAreBounded(t *testing.T) {
+	recordType := reflect.TypeOf(ProviderCallAuditRecord{})
+	for _, forbidden := range []string{"Prompt", "RequestJSON", "ResponseJSON"} {
+		if _, found := recordType.FieldByName(forbidden); found {
+			t.Fatalf("provider audit record still exposes captured body field %q", forbidden)
+		}
 	}
-	if cfg.Audience != "https://default-segmentor.run.app" {
-		t.Fatalf("cfg.Audience = %q, want runtime fallback", cfg.Audience)
+	oversized := strings.Repeat("x", maxProviderAuditErrorBytes+1)
+	bounded := boundedProviderAuditError(oversized)
+	if len(bounded) > maxProviderAuditErrorBytes || !strings.Contains(bounded, "sha256=") {
+		t.Fatalf("bounded provider audit error = %q (%d bytes)", bounded, len(bounded))
+	}
+}
+
+func TestProviderResponseContentIsRedactedFromErrorsAndAudit(t *testing.T) {
+	const (
+		responseSecret     = "sentinel-private-provider-response"
+		providerCredential = "sentinel-private-provider-credential"
+	)
+	config.Init(config.Runtime{Secrets: config.Secrets{OpenAIAPIKey: providerCredential}})
+	t.Cleanup(func() { config.Init(config.Runtime{}) })
+
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	service := NewService()
+	var audit ProviderCallAuditRecord
+	service.SetProviderCallAuditLogger(func(_ context.Context, record ProviderCallAuditRecord) {
+		audit = record
+	})
+
+	_, err := service.extractTextWithProvider(
+		context.Background(),
+		failingClient{err: fmt.Errorf(
+			"provider response body %q used credential %q: %w",
+			responseSecret,
+			providerCredential,
+			providers.NewError(providers.ErrorUpstream, http.StatusServiceUnavailable, true, nil),
+		)},
+		"openai",
+		providers.Config{Model: "test-model"},
+		providers.Image{Data: []byte("image"), MediaType: "image/png"},
+		"test",
+	)
+	if err == nil {
+		t.Fatal("extractTextWithProvider() error = nil")
+	}
+	if got := err.Error(); got != "provider request failed with HTTP status 503" {
+		t.Fatalf("returned provider error = %q", got)
+	}
+	for _, secret := range []string{responseSecret, providerCredential} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("returned provider error leaked %q: %q", secret, err)
+		}
+		if strings.Contains(audit.ErrorMessage, secret) {
+			t.Fatalf("provider audit error leaked %q: %q", secret, audit.ErrorMessage)
+		}
+		if strings.Contains(logs.String(), secret) {
+			t.Fatalf("provider failure log leaked %q: %s", secret, logs.String())
+		}
+	}
+	if audit.HTTPStatus == nil || *audit.HTTPStatus != http.StatusServiceUnavailable {
+		t.Fatalf("audit HTTP status = %v, want %d", audit.HTTPStatus, http.StatusServiceUnavailable)
+	}
+	if !isRetriableProviderError(err) {
+		t.Fatal("redacted 503 error is not retryable")
+	}
+}
+
+func TestProviderAuditUsesOnlyTheRegisteredRequestedModel(t *testing.T) {
+	const (
+		registeredModel = "registered-model"
+		untrustedModel  = "sentinel-provider-controlled-effective-model"
+	)
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	service := NewService()
+	var audit ProviderCallAuditRecord
+	service.SetProviderCallAuditLogger(func(_ context.Context, record ProviderCallAuditRecord) {
+		audit = record
+	})
+	text, err := service.extractTextWithProvider(
+		context.Background(),
+		successfulClient{result: providers.Result{
+			Text:           "safe transcription",
+			EffectiveModel: untrustedModel,
+		}},
+		"openai",
+		providers.Config{Model: registeredModel},
+		providers.Image{Data: []byte("image"), MediaType: "image/png"},
+		"test",
+	)
+	if err != nil {
+		t.Fatalf("extractTextWithProvider() error = %v", err)
+	}
+	if text != "safe transcription" {
+		t.Fatalf("extractTextWithProvider() text = %q", text)
+	}
+	if audit.Model != registeredModel {
+		t.Fatalf("audit model = %q, want registered model %q", audit.Model, registeredModel)
+	}
+	if strings.Contains(logs.String(), untrustedModel) {
+		t.Fatalf("provider success log exposed untrusted effective model: %s", logs.String())
+	}
+	if !strings.Contains(logs.String(), `"model":"registered-model"`) {
+		t.Fatalf("provider success log omitted registered model: %s", logs.String())
+	}
+}
+
+func TestDirectProviderExecutionAndFailureLogsRedactRemoteDiagnostics(t *testing.T) {
+	const privateDiagnostic = "PRIVATE_PROVIDER_BODY_https://user:token@example.test/tmp/document.png"
+
+	service := NewService()
+	_, err := service.executeProvider(
+		context.Background(),
+		failingClient{err: providers.NewError(providers.ErrorUpstream, http.StatusServiceUnavailable, true, nil)},
+		"openai",
+		providers.Config{Model: "test-model"},
+		"/tmp/private-input.png",
+		providers.Image{Data: []byte(privateDiagnostic), MediaType: "image/png"},
+		"transcribe_line",
+	)
+	if err == nil || strings.Contains(err.Error(), privateDiagnostic) {
+		t.Fatalf("direct provider execution error = %q, want categorical redaction", err)
+	}
+
+	previousLogger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	var logs bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	logHOCRFailure("provider operation failed", err, "line_index", 7)
+	if strings.Contains(logs.String(), privateDiagnostic) || strings.Contains(logs.String(), "user:token") || strings.Contains(logs.String(), "/tmp/") {
+		t.Fatalf("hOCR failure log exposed remote diagnostics: %s", logs.String())
+	}
+	for _, metadata := range []string{
+		`"msg":"provider operation failed"`,
+		`"line_index":7`,
+		`"http_status":503`,
+		`"category":"provider"`,
+		`"error_type":"*hocr.providerRequestError"`,
+	} {
+		if !strings.Contains(logs.String(), metadata) {
+			t.Fatalf("hOCR failure log omitted %s: %s", metadata, logs.String())
+		}
+	}
+}
+
+func TestProviderErrorRedactionPreservesCancellationWithoutUnwrapping(t *testing.T) {
+	redacted := redactProviderError(fmt.Errorf("remote body contained a secret: %w", context.DeadlineExceeded), nil)
+	if !errors.Is(redacted, context.DeadlineExceeded) {
+		t.Fatal("redacted error no longer matches context deadline")
+	}
+	if strings.Contains(redacted.Error(), "remote body") || strings.Contains(redacted.Error(), "secret") {
+		t.Fatalf("redacted error leaked original text: %q", redacted)
+	}
+	if got := redacted.Error(); got != "provider request timed out" {
+		t.Fatalf("redacted deadline error = %q", got)
+	}
+}
+
+func TestSegmentationErrorRedactionDoesNotExposeDetectorDiagnostics(t *testing.T) {
+	const detectorDiagnostic = "PRIVATE_KRAKEN_STDERR_AND_MODEL_PATH"
+
+	redacted := redactSegmentationError(fmt.Errorf("kraken failed: %s", detectorDiagnostic))
+	if redacted == nil {
+		t.Fatal("redactSegmentationError() error = nil")
+	}
+	if got := redacted.Error(); got != "segmentation provider request failed" {
+		t.Fatalf("redactSegmentationError() = %q", got)
+	}
+	if strings.Contains(redacted.Error(), detectorDiagnostic) {
+		t.Fatalf("redacted segmentation error exposed detector diagnostics: %q", redacted)
+	}
+
+	deadline := redactSegmentationError(fmt.Errorf("%s: %w", detectorDiagnostic, context.DeadlineExceeded))
+	if !errors.Is(deadline, context.DeadlineExceeded) {
+		t.Fatal("redacted segmentation error no longer matches context deadline")
+	}
+	if strings.Contains(deadline.Error(), detectorDiagnostic) {
+		t.Fatalf("redacted deadline error exposed detector diagnostics: %q", deadline)
+	}
+}
+
+func TestImageOperationsHonorCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	service := NewService()
+	if _, err := service.extractLineImage(ctx, "unused.png", 0, 0, 10, 10, 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("extractLineImage error = %v, want context.Canceled", err)
+	}
+	if _, err := service.stitchWordImages(ctx, "unused.png", []worddetection.WordBox{{X: 0, Y: 0, Width: 10, Height: 10}}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("stitchWordImages error = %v, want context.Canceled", err)
+	}
+}
+
+func TestProviderCallMetadataIsMerged(t *testing.T) {
+	contextID := uint64(12)
+	itemImageID := uint64(34)
+	ctx := WithProviderCallMetadata(context.Background(), 42, "", nil, &contextID)
+	ctx = WithProviderCallMetadata(ctx, 0, "processing-id", &itemImageID, nil)
+	metadata := providerCallMetadataFromContext(ctx)
+	if metadata.WorkspaceID != 42 || metadata.SessionID != "processing-id" || metadata.ItemImageID == nil || *metadata.ItemImageID != itemImageID || metadata.ContextID == nil || *metadata.ContextID != contextID {
+		t.Fatalf("merged metadata = %#v", metadata)
+	}
+}
+
+func TestTesseractIsAFirstClassTranscriptionProvider(t *testing.T) {
+	provider, name, model, err := NewService().initLLMProvider("tesseract", "")
+	if err != nil {
+		t.Fatalf("initLLMProvider(tesseract) error = %v", err)
+	}
+	if provider != nil {
+		t.Fatalf("tesseract unexpectedly returned an LLM provider: %#v", provider)
+	}
+	if name != "tesseract" {
+		t.Fatalf("provider name = %q, want tesseract", name)
+	}
+	if model != "tesseract" {
+		t.Fatalf("model = %q, want tesseract", model)
 	}
 }

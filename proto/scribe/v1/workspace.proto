@@ -2,38 +2,39 @@ syntax = "proto3";
 
 package scribe.v1;
 
+import "buf/validate/validate.proto";
 import "scribe/v1/options/v1/auth.proto";
 
 option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
 
 message UserProfile {
-  uint64 id          = 1;
-  string name        = 2;
-  string email       = 3;
+  uint64 id = 1;
+  string name = 2;
+  string email = 3;
   string picture_url = 4;
-  bool   is_admin    = 5;
+  bool is_admin = 5;
 }
 
 message Workspace {
-  uint64 id            = 1;
-  string name          = 2;
-  string slug          = 3;
-  bool   is_personal   = 4;
+  uint64 id = 1;
+  string name = 2;
+  string slug = 3;
+  bool is_personal = 4;
   uint64 owner_user_id = 5;
-  string created_at    = 6;
-  string updated_at    = 7;
+  string created_at = 6;
+  string updated_at = 7;
 }
 
 message WorkspaceAccess {
   Workspace workspace = 1;
-  string    role      = 2;
+  string role = 2;
 }
 
 message WorkspaceMember {
-  uint64      workspace_id = 1;
-  UserProfile user         = 2;
-  string      role         = 3;
-  string      created_at   = 4;
+  uint64 workspace_id = 1;
+  UserProfile user = 2;
+  string role = 3;
+  string created_at = 4;
 }
 
 message ListWorkspacesRequest {}
@@ -43,7 +44,13 @@ message ListWorkspacesResponse {
 }
 
 message CreateWorkspaceRequest {
-  string name = 1;
+  string name = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: ".*\\S.*"
+      max_len: 255
+    }
+  ];
 }
 
 message CreateWorkspaceResponse {
@@ -51,8 +58,17 @@ message CreateWorkspaceResponse {
 }
 
 message UpdateWorkspaceRequest {
-  uint64 workspace_id = 1;
-  string name = 2;
+  uint64 workspace_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  string name = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: ".*\\S.*"
+      max_len: 255
+    }
+  ];
 }
 
 message UpdateWorkspaceResponse {
@@ -60,18 +76,36 @@ message UpdateWorkspaceResponse {
 }
 
 message ListWorkspaceMembersRequest {
-  uint64 workspace_id = 1;
+  uint64 workspace_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
 }
 
 message ListWorkspaceMembersResponse {
-  Workspace                workspace = 1;
-  repeated WorkspaceMember members   = 2;
+  Workspace workspace = 1;
+  repeated WorkspaceMember members = 2;
 }
 
 message AddWorkspaceMemberRequest {
-  uint64 workspace_id = 1;
-  string email = 2;
-  string role = 3;
+  uint64 workspace_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  string email = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      email: true
+      max_len: 254
+    }
+  ];
+  string role = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: "^(admin|write|create|read)$"
+      max_len: 6
+    }
+  ];
 }
 
 message AddWorkspaceMemberResponse {
@@ -79,9 +113,21 @@ message AddWorkspaceMemberResponse {
 }
 
 message UpdateWorkspaceMemberRequest {
-  uint64 workspace_id = 1;
-  uint64 user_id      = 2;
-  string role = 3;
+  uint64 workspace_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  uint64 user_id = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  string role = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: "^(admin|write|create|read)$"
+      max_len: 6
+    }
+  ];
 }
 
 message UpdateWorkspaceMemberResponse {
@@ -89,8 +135,14 @@ message UpdateWorkspaceMemberResponse {
 }
 
 message DeleteWorkspaceMemberRequest {
-  uint64 workspace_id = 1;
-  uint64 user_id      = 2;
+  uint64 workspace_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  uint64 user_id = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
 }
 
 message DeleteWorkspaceMemberResponse {}
@@ -100,12 +152,14 @@ service WorkspaceService {
     option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_READ
+      session_only: true
     };
   }
   rpc CreateWorkspace(CreateWorkspaceRequest) returns (CreateWorkspaceResponse) {
     option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER
       level: ACCESS_LEVEL_WRITE
+      session_only: true
     };
   }
   rpc UpdateWorkspace(UpdateWorkspaceRequest) returns (UpdateWorkspaceResponse) {
@@ -113,6 +167,7 @@ service WorkspaceService {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_ADMIN
       resource_id_field: "workspace_id"
+      session_only: true
     };
   }
   rpc ListWorkspaceMembers(ListWorkspaceMembersRequest) returns (ListWorkspaceMembersResponse) {
@@ -120,6 +175,7 @@ service WorkspaceService {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_READ
       resource_id_field: "workspace_id"
+      session_only: true
     };
   }
   rpc AddWorkspaceMember(AddWorkspaceMemberRequest) returns (AddWorkspaceMemberResponse) {
@@ -127,6 +183,7 @@ service WorkspaceService {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_ADMIN
       resource_id_field: "workspace_id"
+      session_only: true
     };
   }
   rpc UpdateWorkspaceMember(UpdateWorkspaceMemberRequest) returns (UpdateWorkspaceMemberResponse) {
@@ -134,6 +191,7 @@ service WorkspaceService {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_ADMIN
       resource_id_field: "workspace_id"
+      session_only: true
     };
   }
   rpc DeleteWorkspaceMember(DeleteWorkspaceMemberRequest) returns (DeleteWorkspaceMemberResponse) {
@@ -141,6 +199,7 @@ service WorkspaceService {
       resource: RESOURCE_TYPE_WORKSPACE
       level: ACCESS_LEVEL_ADMIN
       resource_id_field: "workspace_id"
+      session_only: true
     };
   }
 }

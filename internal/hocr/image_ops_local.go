@@ -5,6 +5,7 @@ package hocr
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 
 	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
@@ -13,7 +14,13 @@ import (
 )
 
 // extractLineImage extracts a line region from the image.
-func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lineIndex int) (string, error) {
+func (s *Service) extractLineImage(ctx context.Context, imagePath string, minX, minY, maxX, maxY, lineIndex int) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	width := maxX - minX
 	height := maxY - minY
 	if width <= 0 || height <= 0 {
@@ -21,18 +28,15 @@ func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lin
 	}
 
 	if client := imageservice.New(); client.Enabled() {
-		data, err := client.Crop(context.Background(), imagePath, imageservice.Box{
+		data, err := client.Crop(ctx, imagePath, imageservice.Box{
 			X:      minX,
 			Y:      minY,
 			Width:  width,
 			Height: height,
 		})
 		if err == nil {
-			outputPath, pathErr := tempImagePath(fmt.Sprintf("line-%d-*.png", lineIndex))
-			if pathErr == nil {
-				if writeErr := os.WriteFile(outputPath, data, 0o600); writeErr == nil {
-					return outputPath, nil
-				}
+			if outputPath, writeErr := persistTemporaryImage(fmt.Sprintf("line-%d-*.png", lineIndex), data, os.WriteFile); writeErr == nil {
+				return outputPath, nil
 			}
 		}
 	}
@@ -47,7 +51,7 @@ func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lin
 	if err != nil {
 		return "", err
 	}
-	cmd, err := imagemagick.ConvertCommand(imagePath,
+	cmd, err := imagemagick.ConvertCommandContext(ctx, imagePath,
 		"-crop", fmt.Sprintf("%dx%d+%d+%d", cropWidth, cropHeight, cropX, cropY),
 		"+repage",
 		outputPath)
@@ -73,8 +77,26 @@ func tempImagePath(pattern string) (string, error) {
 	return f.Name(), nil
 }
 
+func persistTemporaryImage(pattern string, data []byte, writeFile func(string, []byte, fs.FileMode) error) (string, error) {
+	outputPath, err := tempImagePath(pattern)
+	if err != nil {
+		return "", err
+	}
+	if err := writeFile(outputPath, data, 0o600); err != nil {
+		_ = os.Remove(outputPath)
+		return "", err
+	}
+	return outputPath, nil
+}
+
 // stitchWordImages combines multiple word images horizontally into a single image.
-func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordBox) (string, error) {
+func (s *Service) stitchWordImages(ctx context.Context, imagePath string, words []worddetection.WordBox) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if len(words) == 0 {
 		return "", fmt.Errorf("no words to stitch")
 	}
@@ -89,13 +111,10 @@ func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordB
 				Height: word.Height,
 			})
 		}
-		data, err := client.StitchHorizontal(context.Background(), imagePath, boxes, 5)
+		data, err := client.StitchHorizontal(ctx, imagePath, boxes, 5)
 		if err == nil {
-			outputPath, pathErr := tempImagePath("stitched-*.png")
-			if pathErr == nil {
-				if writeErr := os.WriteFile(outputPath, data, 0o600); writeErr == nil {
-					return outputPath, nil
-				}
+			if outputPath, writeErr := persistTemporaryImage("stitched-*.png", data, os.WriteFile); writeErr == nil {
+				return outputPath, nil
 			}
 		}
 	}
@@ -118,7 +137,7 @@ func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordB
 	}
 	args = append(args, "-delete", "0", "+append", outputPath)
 
-	cmd, err := imagemagick.ConvertCommand(args...)
+	cmd, err := imagemagick.ConvertCommandContext(ctx, args...)
 	if err != nil {
 		return "", err
 	}

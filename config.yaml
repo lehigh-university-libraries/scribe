@@ -1,15 +1,22 @@
 listen_addr: ":8080"
 public_base_url: "${PUBLIC_BASE_URL:-http://localhost:8080}"
 
+server:
+  trusted_proxy_cidrs: "${SERVER_TRUSTED_PROXY_CIDRS:-}"
+
 auth:
   cookie_name: scribe_session
   cookie_domain: ""
   session_ttl: 24h
   google_callback_path: /auth/callback/google
+  preview_anonymous: ${AUTH_PREVIEW_ANONYMOUS:-false}
   allowed_domains: []
   denied_domains: []
   admin_emails: []
   external_jwt_issuers: []
+
+pagination:
+  signing_key: "${SCRIBE_PAGE_TOKEN_SIGNING_KEY:-}"
 
 cors:
   allowed_origins: []
@@ -41,12 +48,13 @@ llm:
     model: "gpt-4o"
     models: ["gpt-4o", "gpt-4.1"]
   gemini:
-    model: "gemini-2.0-flash"
-    models: ["gemini-2.0-flash", "gemini-1.5-pro"]
-    url_template: "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s"
+    model: "gemini-3.5-flash"
+    models: ["gemini-3.5-flash", "gemini-2.5-flash"]
 
 transcription:
   job_workers: 3
+  max_active_jobs_per_workspace: ${TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE:-1000}
+  max_segments_per_job: ${TRANSCRIPTION_MAX_SEGMENTS_PER_JOB:-50}
   queue:
     backend: "${TRANSCRIPTION_QUEUE_BACKEND:-database}"
     project_id: "${PUBSUB_PROJECT_ID:-}"
@@ -57,32 +65,46 @@ transcription:
     recovery_poll_interval: 30s
     recovery_min_age: 20s
 
+processing:
+  global_concurrency: 4
+  per_workspace_concurrency: 2
+  per_provider_concurrency: 2
+  max_page_enrichment_lines: ${PROCESSING_MAX_PAGE_ENRICHMENT_LINES:-50}
+  external_request_retention: 720h
+
+storage:
+  max_bytes_per_workspace: ${STORAGE_MAX_BYTES_PER_WORKSPACE:-5368709120}
+  max_bytes_total: ${STORAGE_MAX_BYTES_TOTAL:-32212254720}
+  max_items_per_workspace: ${STORAGE_MAX_ITEMS_PER_WORKSPACE:-5000}
+  max_items_total: ${STORAGE_MAX_ITEMS_TOTAL:-50000}
+  max_images_per_workspace: ${STORAGE_MAX_IMAGES_PER_WORKSPACE:-10000}
+  max_images_total: ${STORAGE_MAX_IMAGES_TOTAL:-100000}
+  reservation_ttl: ${STORAGE_RESERVATION_TTL:-6h}
+  normalization_cache_max_bytes: ${STORAGE_NORMALIZATION_CACHE_MAX_BYTES:-2147483648}
+  normalization_cache_max_age: ${STORAGE_NORMALIZATION_CACHE_MAX_AGE:-168h}
+
 iiif:
   base: "${IIIF_BASE:-/iiif/3}"
   internal_base: "${IIIF_INTERNAL_BASE:-http://triplet:8080/iiif/3}"
+  source_base: "${IIIF_SOURCE_BASE:-http://api:8080/static/uploads}"
+  source_read_token: "${TRIPLET_SOURCE_READ_TOKEN:-}"
+  max_manifest_canvases: ${IIIF_MAX_MANIFEST_CANVASES:-500}
+  max_manifest_import_bytes: ${IIIF_MAX_MANIFEST_IMPORT_BYTES:-67108864}
 
 segmentation_service:
   url: "${SEGMENTATION_SERVICE_URL:-}"
   audience: "${SEGMENTATION_SERVICE_AUDIENCE:-}"
   models: ["kraken"]
 
-image_service:
-  url: "${IMAGE_SERVICE_URL:-}"
-  audience: "${IMAGE_SERVICE_AUDIENCE:-}"
-
 annotation:
   api_base: /
-  api_internal_base: http://localhost:8080
+  api_internal_base: "${API_INTERNAL_BASE:-http://localhost:8080}"
   triplet_presentation_base: "${TRIPLET_PRESENTATION_BASE:-}"
   triplet_presentation_internal_base: "${TRIPLET_PRESENTATION_INTERNAL_BASE:-}"
   triplet_presentation_write_token: "${TRIPLET_PRESENTATION_WRITE_TOKEN:-}"
 
 audit:
-  provider_call_bodies: false
   provider_call_retention: 720h
-
-drupal:
-  hocr_url_template: ""
 
 webhooks:
   urls: []
@@ -98,32 +120,3 @@ vault:
     gemini: ${VAULT_SECRET_PREFIX:-scribe/dev}/gemini
     database: ${VAULT_SECRET_PREFIX:-scribe/dev}/database/app
     provider_secrets: ${VAULT_SECRET_PREFIX:-scribe/dev}/provider-secrets/workspaces
-
-# Deploy-time metadata for OCR Cloud Run services. GitHub Actions and local
-# deploys build/push every model listed here, Terraform deploys the services,
-# and Terraform injects the same model lists into the app for context creation.
-ocr:
-  kraken:
-    pip_spec: "kraken==7.0"
-    default_segmentation_model: kraken
-    default_transcription_model: catmus-print-fondue-large.mlmodel
-    segmentation_models:
-      kraken:
-        file: blla.mlmodel
-        doi: ""
-    transcription_models:
-      catmus-print-fondue-large.mlmodel:
-        file: catmus-print-fondue-large.mlmodel
-        doi: "10.5281/zenodo.10592716"
-  ollama:
-    base_image: "ollama/ollama:0.19.0@sha256:bf240c2847a8bc7b2c630b85dab5d1dedcba257b551d5fc9b290ce544d59272a"
-    cloud_run:
-      regions: ["us-east4"]
-      memory: "16Gi"
-      cpu: "4000m"
-      gpu_count: 1
-      min_instances: 0
-      max_instances: 1
-      skip_neg: true
-    models:
-      - glm-ocr:bf16

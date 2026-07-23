@@ -36,6 +36,9 @@ const (
 	// TranscriptionServiceCreateTranscriptionJobProcedure is the fully-qualified name of the
 	// TranscriptionService's CreateTranscriptionJob RPC.
 	TranscriptionServiceCreateTranscriptionJobProcedure = "/scribe.v1.TranscriptionService/CreateTranscriptionJob"
+	// TranscriptionServiceCancelTranscriptionJobProcedure is the fully-qualified name of the
+	// TranscriptionService's CancelTranscriptionJob RPC.
+	TranscriptionServiceCancelTranscriptionJobProcedure = "/scribe.v1.TranscriptionService/CancelTranscriptionJob"
 	// TranscriptionServiceGetTranscriptionJobProcedure is the fully-qualified name of the
 	// TranscriptionService's GetTranscriptionJob RPC.
 	TranscriptionServiceGetTranscriptionJobProcedure = "/scribe.v1.TranscriptionService/GetTranscriptionJob"
@@ -51,6 +54,9 @@ const (
 type TranscriptionServiceClient interface {
 	// CreateTranscriptionJob enqueues a new batch transcription job for an image.
 	CreateTranscriptionJob(context.Context, *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error)
+	// CancelTranscriptionJob fences any active worker and is idempotent for a
+	// job that is already canceled.
+	CancelTranscriptionJob(context.Context, *connect.Request[v1.CancelTranscriptionJobRequest]) (*connect.Response[v1.CancelTranscriptionJobResponse], error)
 	// GetTranscriptionJob returns the current state of a job (for polling).
 	GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error)
 	// ListTranscriptionJobs lists jobs, optionally filtered by item image.
@@ -77,6 +83,12 @@ func NewTranscriptionServiceClient(httpClient connect.HTTPClient, baseURL string
 			connect.WithSchema(transcriptionServiceMethods.ByName("CreateTranscriptionJob")),
 			connect.WithClientOptions(opts...),
 		),
+		cancelTranscriptionJob: connect.NewClient[v1.CancelTranscriptionJobRequest, v1.CancelTranscriptionJobResponse](
+			httpClient,
+			baseURL+TranscriptionServiceCancelTranscriptionJobProcedure,
+			connect.WithSchema(transcriptionServiceMethods.ByName("CancelTranscriptionJob")),
+			connect.WithClientOptions(opts...),
+		),
 		getTranscriptionJob: connect.NewClient[v1.GetTranscriptionJobRequest, v1.GetTranscriptionJobResponse](
 			httpClient,
 			baseURL+TranscriptionServiceGetTranscriptionJobProcedure,
@@ -101,6 +113,7 @@ func NewTranscriptionServiceClient(httpClient connect.HTTPClient, baseURL string
 // transcriptionServiceClient implements TranscriptionServiceClient.
 type transcriptionServiceClient struct {
 	createTranscriptionJob *connect.Client[v1.CreateTranscriptionJobRequest, v1.CreateTranscriptionJobResponse]
+	cancelTranscriptionJob *connect.Client[v1.CancelTranscriptionJobRequest, v1.CancelTranscriptionJobResponse]
 	getTranscriptionJob    *connect.Client[v1.GetTranscriptionJobRequest, v1.GetTranscriptionJobResponse]
 	listTranscriptionJobs  *connect.Client[v1.ListTranscriptionJobsRequest, v1.ListTranscriptionJobsResponse]
 	streamTranscriptionJob *connect.Client[v1.StreamTranscriptionJobRequest, v1.StreamTranscriptionJobResponse]
@@ -109,6 +122,11 @@ type transcriptionServiceClient struct {
 // CreateTranscriptionJob calls scribe.v1.TranscriptionService.CreateTranscriptionJob.
 func (c *transcriptionServiceClient) CreateTranscriptionJob(ctx context.Context, req *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error) {
 	return c.createTranscriptionJob.CallUnary(ctx, req)
+}
+
+// CancelTranscriptionJob calls scribe.v1.TranscriptionService.CancelTranscriptionJob.
+func (c *transcriptionServiceClient) CancelTranscriptionJob(ctx context.Context, req *connect.Request[v1.CancelTranscriptionJobRequest]) (*connect.Response[v1.CancelTranscriptionJobResponse], error) {
+	return c.cancelTranscriptionJob.CallUnary(ctx, req)
 }
 
 // GetTranscriptionJob calls scribe.v1.TranscriptionService.GetTranscriptionJob.
@@ -130,6 +148,9 @@ func (c *transcriptionServiceClient) StreamTranscriptionJob(ctx context.Context,
 type TranscriptionServiceHandler interface {
 	// CreateTranscriptionJob enqueues a new batch transcription job for an image.
 	CreateTranscriptionJob(context.Context, *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error)
+	// CancelTranscriptionJob fences any active worker and is idempotent for a
+	// job that is already canceled.
+	CancelTranscriptionJob(context.Context, *connect.Request[v1.CancelTranscriptionJobRequest]) (*connect.Response[v1.CancelTranscriptionJobResponse], error)
 	// GetTranscriptionJob returns the current state of a job (for polling).
 	GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error)
 	// ListTranscriptionJobs lists jobs, optionally filtered by item image.
@@ -150,6 +171,12 @@ func NewTranscriptionServiceHandler(svc TranscriptionServiceHandler, opts ...con
 		TranscriptionServiceCreateTranscriptionJobProcedure,
 		svc.CreateTranscriptionJob,
 		connect.WithSchema(transcriptionServiceMethods.ByName("CreateTranscriptionJob")),
+		connect.WithHandlerOptions(opts...),
+	)
+	transcriptionServiceCancelTranscriptionJobHandler := connect.NewUnaryHandler(
+		TranscriptionServiceCancelTranscriptionJobProcedure,
+		svc.CancelTranscriptionJob,
+		connect.WithSchema(transcriptionServiceMethods.ByName("CancelTranscriptionJob")),
 		connect.WithHandlerOptions(opts...),
 	)
 	transcriptionServiceGetTranscriptionJobHandler := connect.NewUnaryHandler(
@@ -174,6 +201,8 @@ func NewTranscriptionServiceHandler(svc TranscriptionServiceHandler, opts ...con
 		switch r.URL.Path {
 		case TranscriptionServiceCreateTranscriptionJobProcedure:
 			transcriptionServiceCreateTranscriptionJobHandler.ServeHTTP(w, r)
+		case TranscriptionServiceCancelTranscriptionJobProcedure:
+			transcriptionServiceCancelTranscriptionJobHandler.ServeHTTP(w, r)
 		case TranscriptionServiceGetTranscriptionJobProcedure:
 			transcriptionServiceGetTranscriptionJobHandler.ServeHTTP(w, r)
 		case TranscriptionServiceListTranscriptionJobsProcedure:
@@ -191,6 +220,10 @@ type UnimplementedTranscriptionServiceHandler struct{}
 
 func (UnimplementedTranscriptionServiceHandler) CreateTranscriptionJob(context.Context, *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.CreateTranscriptionJob is not implemented"))
+}
+
+func (UnimplementedTranscriptionServiceHandler) CancelTranscriptionJob(context.Context, *connect.Request[v1.CancelTranscriptionJobRequest]) (*connect.Response[v1.CancelTranscriptionJobResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.CancelTranscriptionJob is not implemented"))
 }
 
 func (UnimplementedTranscriptionServiceHandler) GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error) {

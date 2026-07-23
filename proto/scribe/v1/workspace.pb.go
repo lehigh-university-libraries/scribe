@@ -7,6 +7,7 @@
 package scribev1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	_ "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -970,7 +971,7 @@ var File_scribe_v1_workspace_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_workspace_proto_rawDesc = "" +
 	"\n" +
-	"\x19scribe/v1/workspace.proto\x12\tscribe.v1\x1a\x1fscribe/v1/options/v1/auth.proto\"\x83\x01\n" +
+	"\x19scribe/v1/workspace.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\x83\x01\n" +
 	"\vUserProfile\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
@@ -1002,45 +1003,55 @@ const file_scribe_v1_workspace_proto_rawDesc = "" +
 	"\x16ListWorkspacesResponse\x12:\n" +
 	"\n" +
 	"workspaces\x18\x01 \x03(\v2\x1a.scribe.v1.WorkspaceAccessR\n" +
-	"workspaces\",\n" +
-	"\x16CreateWorkspaceRequest\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"S\n" +
+	"workspaces\"A\n" +
+	"\x16CreateWorkspaceRequest\x12'\n" +
+	"\x04name\x18\x01 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\xff\x012\x06.*\\S.*R\x04name\"S\n" +
 	"\x17CreateWorkspaceResponse\x128\n" +
-	"\tworkspace\x18\x01 \x01(\v2\x1a.scribe.v1.WorkspaceAccessR\tworkspace\"O\n" +
-	"\x16UpdateWorkspaceRequest\x12!\n" +
-	"\fworkspace_id\x18\x01 \x01(\x04R\vworkspaceId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"M\n" +
+	"\tworkspace\x18\x01 \x01(\v2\x1a.scribe.v1.WorkspaceAccessR\tworkspace\"p\n" +
+	"\x16UpdateWorkspaceRequest\x12-\n" +
+	"\fworkspace_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vworkspaceId\x12'\n" +
+	"\x04name\x18\x02 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\xff\x012\x06.*\\S.*R\x04name\"M\n" +
 	"\x17UpdateWorkspaceResponse\x122\n" +
-	"\tworkspace\x18\x01 \x01(\v2\x14.scribe.v1.WorkspaceR\tworkspace\"@\n" +
-	"\x1bListWorkspaceMembersRequest\x12!\n" +
-	"\fworkspace_id\x18\x01 \x01(\x04R\vworkspaceId\"\x88\x01\n" +
+	"\tworkspace\x18\x01 \x01(\v2\x14.scribe.v1.WorkspaceR\tworkspace\"L\n" +
+	"\x1bListWorkspaceMembersRequest\x12-\n" +
+	"\fworkspace_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vworkspaceId\"\x88\x01\n" +
 	"\x1cListWorkspaceMembersResponse\x122\n" +
 	"\tworkspace\x18\x01 \x01(\v2\x14.scribe.v1.WorkspaceR\tworkspace\x124\n" +
-	"\amembers\x18\x02 \x03(\v2\x1a.scribe.v1.WorkspaceMemberR\amembers\"h\n" +
-	"\x19AddWorkspaceMemberRequest\x12!\n" +
-	"\fworkspace_id\x18\x01 \x01(\x04R\vworkspaceId\x12\x14\n" +
-	"\x05email\x18\x02 \x01(\tR\x05email\x12\x12\n" +
-	"\x04role\x18\x03 \x01(\tR\x04role\"P\n" +
+	"\amembers\x18\x02 \x03(\v2\x1a.scribe.v1.WorkspaceMemberR\amembers\"\xac\x01\n" +
+	"\x19AddWorkspaceMemberRequest\x12-\n" +
+	"\fworkspace_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vworkspaceId\x12#\n" +
+	"\x05email\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xc8\x01\x01r\x05\x18\xfe\x01`\x01R\x05email\x12;\n" +
+	"\x04role\x18\x03 \x01(\tB'\xbaH$\xc8\x01\x01r\x1f\x18\x062\x1b^(admin|write|create|read)$R\x04role\"P\n" +
 	"\x1aAddWorkspaceMemberResponse\x122\n" +
-	"\x06member\x18\x01 \x01(\v2\x1a.scribe.v1.WorkspaceMemberR\x06member\"n\n" +
-	"\x1cUpdateWorkspaceMemberRequest\x12!\n" +
-	"\fworkspace_id\x18\x01 \x01(\x04R\vworkspaceId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x12\n" +
-	"\x04role\x18\x03 \x01(\tR\x04role\"S\n" +
+	"\x06member\x18\x01 \x01(\v2\x1a.scribe.v1.WorkspaceMemberR\x06member\"\xaf\x01\n" +
+	"\x1cUpdateWorkspaceMemberRequest\x12-\n" +
+	"\fworkspace_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vworkspaceId\x12#\n" +
+	"\auser_id\x18\x02 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\x06userId\x12;\n" +
+	"\x04role\x18\x03 \x01(\tB'\xbaH$\xc8\x01\x01r\x1f\x18\x062\x1b^(admin|write|create|read)$R\x04role\"S\n" +
 	"\x1dUpdateWorkspaceMemberResponse\x122\n" +
-	"\x06member\x18\x01 \x01(\v2\x1a.scribe.v1.WorkspaceMemberR\x06member\"Z\n" +
-	"\x1cDeleteWorkspaceMemberRequest\x12!\n" +
-	"\fworkspace_id\x18\x01 \x01(\x04R\vworkspaceId\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\x04R\x06userId\"\x1f\n" +
-	"\x1dDeleteWorkspaceMemberResponse2\xcf\x06\n" +
-	"\x10WorkspaceService\x12_\n" +
-	"\x0eListWorkspaces\x12 .scribe.v1.ListWorkspacesRequest\x1a!.scribe.v1.ListWorkspacesResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12b\n" +
-	"\x0fCreateWorkspace\x12!.scribe.v1.CreateWorkspaceRequest\x1a\".scribe.v1.CreateWorkspaceResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12p\n" +
-	"\x0fUpdateWorkspace\x12!.scribe.v1.UpdateWorkspaceRequest\x1a\".scribe.v1.UpdateWorkspaceResponse\"\x16\x92\xb5\x18\x12\x10\a\x18\x03\"\fworkspace_id\x12\x7f\n" +
-	"\x14ListWorkspaceMembers\x12&.scribe.v1.ListWorkspaceMembersRequest\x1a'.scribe.v1.ListWorkspaceMembersResponse\"\x16\x92\xb5\x18\x12\x10\a\x18\x01\"\fworkspace_id\x12y\n" +
-	"\x12AddWorkspaceMember\x12$.scribe.v1.AddWorkspaceMemberRequest\x1a%.scribe.v1.AddWorkspaceMemberResponse\"\x16\x92\xb5\x18\x12\x10\a\x18\x03\"\fworkspace_id\x12\x82\x01\n" +
-	"\x15UpdateWorkspaceMember\x12'.scribe.v1.UpdateWorkspaceMemberRequest\x1a(.scribe.v1.UpdateWorkspaceMemberResponse\"\x16\x92\xb5\x18\x12\x10\a\x18\x03\"\fworkspace_id\x12\x82\x01\n" +
-	"\x15DeleteWorkspaceMember\x12'.scribe.v1.DeleteWorkspaceMemberRequest\x1a(.scribe.v1.DeleteWorkspaceMemberResponse\"\x16\x92\xb5\x18\x12\x10\a\x18\x03\"\fworkspace_idB\xac\x01\n" +
+	"\x06member\x18\x01 \x01(\v2\x1a.scribe.v1.WorkspaceMemberR\x06member\"r\n" +
+	"\x1cDeleteWorkspaceMemberRequest\x12-\n" +
+	"\fworkspace_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vworkspaceId\x12#\n" +
+	"\auser_id\x18\x02 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\x06userId\"\x1f\n" +
+	"\x1dDeleteWorkspaceMemberResponse2\xde\x06\n" +
+	"\x10WorkspaceService\x12a\n" +
+	"\x0eListWorkspaces\x12 .scribe.v1.ListWorkspacesRequest\x1a!.scribe.v1.ListWorkspacesResponse\"\n" +
+	"\x92\xb5\x18\x06\x10\x02\x18\x01(\x01\x12d\n" +
+	"\x0fCreateWorkspace\x12!.scribe.v1.CreateWorkspaceRequest\x1a\".scribe.v1.CreateWorkspaceResponse\"\n" +
+	"\x92\xb5\x18\x06\x10\x02\x18\x02(\x01\x12r\n" +
+	"\x0fUpdateWorkspace\x12!.scribe.v1.UpdateWorkspaceRequest\x1a\".scribe.v1.UpdateWorkspaceResponse\"\x18\x92\xb5\x18\x14\x10\a\x18\x03\"\fworkspace_id(\x01\x12\x81\x01\n" +
+	"\x14ListWorkspaceMembers\x12&.scribe.v1.ListWorkspaceMembersRequest\x1a'.scribe.v1.ListWorkspaceMembersResponse\"\x18\x92\xb5\x18\x14\x10\a\x18\x01\"\fworkspace_id(\x01\x12{\n" +
+	"\x12AddWorkspaceMember\x12$.scribe.v1.AddWorkspaceMemberRequest\x1a%.scribe.v1.AddWorkspaceMemberResponse\"\x18\x92\xb5\x18\x14\x10\a\x18\x03\"\fworkspace_id(\x01\x12\x84\x01\n" +
+	"\x15UpdateWorkspaceMember\x12'.scribe.v1.UpdateWorkspaceMemberRequest\x1a(.scribe.v1.UpdateWorkspaceMemberResponse\"\x18\x92\xb5\x18\x14\x10\a\x18\x03\"\fworkspace_id(\x01\x12\x84\x01\n" +
+	"\x15DeleteWorkspaceMember\x12'.scribe.v1.DeleteWorkspaceMemberRequest\x1a(.scribe.v1.DeleteWorkspaceMemberResponse\"\x18\x92\xb5\x18\x14\x10\a\x18\x03\"\fworkspace_id(\x01B\xac\x01\n" +
 	"\rcom.scribe.v1B\x0eWorkspaceProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 

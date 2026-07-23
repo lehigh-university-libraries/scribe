@@ -1,0 +1,5054 @@
+openapi: 3.1.0
+info:
+  title: Scribe Connect API
+  version: v1
+  description: Workspace-scoped APIs for handwritten-document ingest, transcription, IIIF annotation editing, and publication.
+paths:
+  /scribe.v1.AnnotationService/EnrichAnnotation:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: Improve transcription for one line or a full canvas.
+      description: Improve transcription for one line or a full canvas.
+      operationId: scribe.v1.AnnotationService.EnrichAnnotation
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.EnrichAnnotationRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.EnrichAnnotationResponse'
+  /scribe.v1.AnnotationService/ExportAnnotationPage:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: Export one exact committed canonical revision to a rebuildable OCR view.
+      description: Export one exact committed canonical revision to a rebuildable OCR view.
+      operationId: scribe.v1.AnnotationService.ExportAnnotationPage
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ExportAnnotationPageRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ExportAnnotationPageResponse'
+  /scribe.v1.AnnotationService/GetAnnotation:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: GetAnnotation
+      operationId: scribe.v1.AnnotationService.GetAnnotation
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetAnnotationRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetAnnotationResponse'
+  /scribe.v1.AnnotationService/GetAnnotationPage:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: GetAnnotationPage
+      operationId: scribe.v1.AnnotationService.GetAnnotationPage
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetAnnotationPageRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetAnnotationPageResponse'
+  /scribe.v1.AnnotationService/JoinLines:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: JoinLines
+      operationId: scribe.v1.AnnotationService.JoinLines
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.JoinLinesRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.JoinLinesResponse'
+  /scribe.v1.AnnotationService/JoinWordsIntoLine:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: JoinWordsIntoLine
+      operationId: scribe.v1.AnnotationService.JoinWordsIntoLine
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.JoinWordsIntoLineRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.JoinWordsIntoLineResponse'
+  /scribe.v1.AnnotationService/PublishItemImageEdits:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: PublishItemImageEdits
+      operationId: scribe.v1.AnnotationService.PublishItemImageEdits
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.PublishItemImageEditsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.PublishItemImageEditsResponse'
+  /scribe.v1.AnnotationService/SaveAnnotationPage:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: SaveAnnotationPage
+      operationId: scribe.v1.AnnotationService.SaveAnnotationPage
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.SaveAnnotationPageRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.SaveAnnotationPageResponse'
+  /scribe.v1.AnnotationService/SearchAnnotations:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: SearchAnnotations
+      operationId: scribe.v1.AnnotationService.SearchAnnotations
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.SearchAnnotationsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.SearchAnnotationsResponse'
+  /scribe.v1.AnnotationService/SplitLineIntoTwoLines:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: SplitLineIntoTwoLines
+      operationId: scribe.v1.AnnotationService.SplitLineIntoTwoLines
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.SplitLineIntoTwoLinesRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.SplitLineIntoTwoLinesResponse'
+  /scribe.v1.AnnotationService/SplitLineIntoWords:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: Structural split/join operations.
+      description: Structural split/join operations.
+      operationId: scribe.v1.AnnotationService.SplitLineIntoWords
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.SplitLineIntoWordsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.SplitLineIntoWordsResponse'
+  /scribe.v1.AuthService/CreateAPIKey:
+    post:
+      tags:
+        - scribe.v1.AuthService
+      summary: CreateAPIKey
+      operationId: scribe.v1.AuthService.CreateAPIKey
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CreateAPIKeyRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CreateAPIKeyResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.AuthService/CreateProviderSecret:
+    post:
+      tags:
+        - scribe.v1.AuthService
+      summary: CreateProviderSecret
+      operationId: scribe.v1.AuthService.CreateProviderSecret
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CreateProviderSecretRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CreateProviderSecretResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.AuthService/DeleteAPIKey:
+    post:
+      tags:
+        - scribe.v1.AuthService
+      summary: DeleteAPIKey
+      operationId: scribe.v1.AuthService.DeleteAPIKey
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.DeleteAPIKeyRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.DeleteAPIKeyResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.AuthService/DeleteProviderSecret:
+    post:
+      tags:
+        - scribe.v1.AuthService
+      summary: DeleteProviderSecret
+      operationId: scribe.v1.AuthService.DeleteProviderSecret
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.DeleteProviderSecretRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.DeleteProviderSecretResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.AuthService/GetAuthMe:
+    post:
+      tags:
+        - scribe.v1.AuthService
+      summary: GetAuthMe
+      operationId: scribe.v1.AuthService.GetAuthMe
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetAuthMeRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetAuthMeResponse'
+      security: []
+  /scribe.v1.AuthService/ListAPIKeys:
+    post:
+      tags:
+        - scribe.v1.AuthService
+      summary: ListAPIKeys
+      operationId: scribe.v1.AuthService.ListAPIKeys
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListAPIKeysRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListAPIKeysResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.AuthService/ListProviderSecrets:
+    post:
+      tags:
+        - scribe.v1.AuthService
+      summary: ListProviderSecrets
+      operationId: scribe.v1.AuthService.ListProviderSecrets
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListProviderSecretsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListProviderSecretsResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.ContextService/CreateContext:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: CreateContext
+      operationId: scribe.v1.ContextService.CreateContext
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CreateContextRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CreateContextResponse'
+  /scribe.v1.ContextService/CreateSelectionRule:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: CreateSelectionRule
+      operationId: scribe.v1.ContextService.CreateSelectionRule
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CreateSelectionRuleRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CreateSelectionRuleResponse'
+  /scribe.v1.ContextService/DeleteContext:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: DeleteContext
+      operationId: scribe.v1.ContextService.DeleteContext
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.DeleteContextRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.DeleteContextResponse'
+  /scribe.v1.ContextService/DeleteSelectionRule:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: DeleteSelectionRule
+      operationId: scribe.v1.ContextService.DeleteSelectionRule
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.DeleteSelectionRuleRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.DeleteSelectionRuleResponse'
+  /scribe.v1.ContextService/GetContext:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: GetContext
+      operationId: scribe.v1.ContextService.GetContext
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetContextRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetContextResponse'
+  /scribe.v1.ContextService/GetContextMetrics:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: GetContextMetrics
+      operationId: scribe.v1.ContextService.GetContextMetrics
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetContextMetricsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetContextMetricsResponse'
+  /scribe.v1.ContextService/GetModelCatalog:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: GetModelCatalog
+      operationId: scribe.v1.ContextService.GetModelCatalog
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetModelCatalogRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetModelCatalogResponse'
+  /scribe.v1.ContextService/ListContexts:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: ListContexts
+      operationId: scribe.v1.ContextService.ListContexts
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListContextsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListContextsResponse'
+  /scribe.v1.ContextService/ListSelectionRules:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: ListSelectionRules
+      operationId: scribe.v1.ContextService.ListSelectionRules
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListSelectionRulesRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListSelectionRulesResponse'
+  /scribe.v1.ContextService/ResolveContext:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: ResolveContext
+      operationId: scribe.v1.ContextService.ResolveContext
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ResolveContextRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ResolveContextResponse'
+  /scribe.v1.ContextService/UpdateContext:
+    post:
+      tags:
+        - scribe.v1.ContextService
+      summary: UpdateContext
+      operationId: scribe.v1.ContextService.UpdateContext
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.UpdateContextRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.UpdateContextResponse'
+  /scribe.v1.ImageProcessingService/GetOCRRun:
+    post:
+      tags:
+        - scribe.v1.ImageProcessingService
+      summary: GetOCRRun
+      operationId: scribe.v1.ImageProcessingService.GetOCRRun
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetOCRRunRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetOCRRunResponse'
+  /scribe.v1.ImageProcessingService/ProcessHOCR:
+    post:
+      tags:
+        - scribe.v1.ImageProcessingService
+      summary: ProcessHOCR
+      operationId: scribe.v1.ImageProcessingService.ProcessHOCR
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ProcessHOCRRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ProcessHOCRResponse'
+  /scribe.v1.ImageProcessingService/ProcessImageURL:
+    post:
+      tags:
+        - scribe.v1.ImageProcessingService
+      summary: ProcessImageURL
+      operationId: scribe.v1.ImageProcessingService.ProcessImageURL
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ProcessImageURLRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ProcessImageURLResponse'
+  /scribe.v1.ImageProcessingService/ReprocessItemImage:
+    post:
+      tags:
+        - scribe.v1.ImageProcessingService
+      summary: ReprocessItemImage
+      operationId: scribe.v1.ImageProcessingService.ReprocessItemImage
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ReprocessItemImageRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ReprocessItemImageResponse'
+  /scribe.v1.ItemService/CancelUploadBatch:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: CancelUploadBatch
+      operationId: scribe.v1.ItemService.CancelUploadBatch
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CancelUploadBatchRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CancelUploadBatchResponse'
+  /scribe.v1.ItemService/DeleteItem:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: DeleteItem
+      operationId: scribe.v1.ItemService.DeleteItem
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.DeleteItemRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.DeleteItemResponse'
+  /scribe.v1.ItemService/GetEditorManifest:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: GetEditorManifest
+      operationId: scribe.v1.ItemService.GetEditorManifest
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetEditorManifestRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetEditorManifestResponse'
+  /scribe.v1.ItemService/GetItem:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: GetItem
+      operationId: scribe.v1.ItemService.GetItem
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetItemRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetItemResponse'
+  /scribe.v1.ItemService/GetUploadBatch:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: GetUploadBatch
+      operationId: scribe.v1.ItemService.GetUploadBatch
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetUploadBatchRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetUploadBatchResponse'
+  /scribe.v1.ItemService/ImportManifest:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: ImportManifest
+      operationId: scribe.v1.ItemService.ImportManifest
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ImportManifestRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ImportManifestResponse'
+  /scribe.v1.ItemService/ListItemProviderCallAudits:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: ListItemProviderCallAudits
+      operationId: scribe.v1.ItemService.ListItemProviderCallAudits
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListItemProviderCallAuditsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListItemProviderCallAuditsResponse'
+  /scribe.v1.ItemService/ListItems:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: ListItems
+      operationId: scribe.v1.ItemService.ListItems
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListItemsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListItemsResponse'
+  /scribe.v1.ItemService/PrepareItemExport:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: PrepareItemExport
+      operationId: scribe.v1.ItemService.PrepareItemExport
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.PrepareItemExportRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.PrepareItemExportResponse'
+  /scribe.v1.ItemService/StartUploadBatch:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: StartUploadBatch
+      operationId: scribe.v1.ItemService.StartUploadBatch
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.StartUploadBatchRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.StartUploadBatchResponse'
+  /scribe.v1.ItemService/UploadItemImage:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: UploadItemImage
+      operationId: scribe.v1.ItemService.UploadItemImage
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.UploadItemImageRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.UploadItemImageResponse'
+  /scribe.v1.TranscriptionService/CancelTranscriptionJob:
+    post:
+      tags:
+        - scribe.v1.TranscriptionService
+      summary: CancelTranscriptionJob fences any active worker and is idempotent for a  job that is already canceled.
+      description: |-
+        CancelTranscriptionJob fences any active worker and is idempotent for a
+         job that is already canceled.
+      operationId: scribe.v1.TranscriptionService.CancelTranscriptionJob
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CancelTranscriptionJobRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CancelTranscriptionJobResponse'
+  /scribe.v1.TranscriptionService/CreateTranscriptionJob:
+    post:
+      tags:
+        - scribe.v1.TranscriptionService
+      summary: CreateTranscriptionJob enqueues a new batch transcription job for an image.
+      description: CreateTranscriptionJob enqueues a new batch transcription job for an image.
+      operationId: scribe.v1.TranscriptionService.CreateTranscriptionJob
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CreateTranscriptionJobRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CreateTranscriptionJobResponse'
+  /scribe.v1.TranscriptionService/GetTranscriptionJob:
+    post:
+      tags:
+        - scribe.v1.TranscriptionService
+      summary: GetTranscriptionJob returns the current state of a job (for polling).
+      description: GetTranscriptionJob returns the current state of a job (for polling).
+      operationId: scribe.v1.TranscriptionService.GetTranscriptionJob
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.GetTranscriptionJobRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.GetTranscriptionJobResponse'
+  /scribe.v1.TranscriptionService/ListTranscriptionJobs:
+    post:
+      tags:
+        - scribe.v1.TranscriptionService
+      summary: ListTranscriptionJobs lists jobs, optionally filtered by item image.
+      description: ListTranscriptionJobs lists jobs, optionally filtered by item image.
+      operationId: scribe.v1.TranscriptionService.ListTranscriptionJobs
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListTranscriptionJobsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListTranscriptionJobsResponse'
+  /scribe.v1.TranscriptionService/StreamTranscriptionJob:
+    post:
+      tags:
+        - scribe.v1.TranscriptionService
+      summary: StreamTranscriptionJob streams job updates in real time until the job  reaches a terminal state (completed or failed).
+      description: |-
+        StreamTranscriptionJob streams job updates in real time until the job
+         reaches a terminal state (completed or failed).
+      operationId: scribe.v1.TranscriptionService.StreamTranscriptionJob
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/connect+json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobRequest'
+          application/connect+proto:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobRequest'
+          application/grpc:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobRequest'
+          application/grpc+proto:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobRequest'
+          application/grpc+json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobRequest'
+          application/grpc-web:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobRequest'
+          application/grpc-web+proto:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobRequest'
+          application/grpc-web+json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/connect+json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+            application/connect+proto:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+            application/grpc:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+            application/grpc+proto:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+            application/grpc+json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+            application/grpc-web:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+            application/grpc-web+proto:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+            application/grpc-web+json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/connect+json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobResponse'
+            application/connect+proto:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobResponse'
+            application/grpc:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobResponse'
+            application/grpc+proto:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobResponse'
+            application/grpc+json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobResponse'
+            application/grpc-web:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobResponse'
+            application/grpc-web+proto:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobResponse'
+            application/grpc-web+json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobResponse'
+  /scribe.v1.WorkspaceService/AddWorkspaceMember:
+    post:
+      tags:
+        - scribe.v1.WorkspaceService
+      summary: AddWorkspaceMember
+      operationId: scribe.v1.WorkspaceService.AddWorkspaceMember
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.AddWorkspaceMemberRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.AddWorkspaceMemberResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.WorkspaceService/CreateWorkspace:
+    post:
+      tags:
+        - scribe.v1.WorkspaceService
+      summary: CreateWorkspace
+      operationId: scribe.v1.WorkspaceService.CreateWorkspace
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CreateWorkspaceRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CreateWorkspaceResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.WorkspaceService/DeleteWorkspaceMember:
+    post:
+      tags:
+        - scribe.v1.WorkspaceService
+      summary: DeleteWorkspaceMember
+      operationId: scribe.v1.WorkspaceService.DeleteWorkspaceMember
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.DeleteWorkspaceMemberRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.DeleteWorkspaceMemberResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.WorkspaceService/ListWorkspaceMembers:
+    post:
+      tags:
+        - scribe.v1.WorkspaceService
+      summary: ListWorkspaceMembers
+      operationId: scribe.v1.WorkspaceService.ListWorkspaceMembers
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListWorkspaceMembersRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListWorkspaceMembersResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.WorkspaceService/ListWorkspaces:
+    post:
+      tags:
+        - scribe.v1.WorkspaceService
+      summary: ListWorkspaces
+      operationId: scribe.v1.WorkspaceService.ListWorkspaces
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListWorkspacesRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListWorkspacesResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.WorkspaceService/UpdateWorkspace:
+    post:
+      tags:
+        - scribe.v1.WorkspaceService
+      summary: UpdateWorkspace
+      operationId: scribe.v1.WorkspaceService.UpdateWorkspace
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.UpdateWorkspaceRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.UpdateWorkspaceResponse'
+      security:
+        - SessionCookie: []
+  /scribe.v1.WorkspaceService/UpdateWorkspaceMember:
+    post:
+      tags:
+        - scribe.v1.WorkspaceService
+      summary: UpdateWorkspaceMember
+      operationId: scribe.v1.WorkspaceService.UpdateWorkspaceMember
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.UpdateWorkspaceMemberRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.UpdateWorkspaceMemberResponse'
+      security:
+        - SessionCookie: []
+components:
+  schemas:
+    connect-protocol-version:
+      type: number
+      title: Connect-Protocol-Version
+      enum:
+        - 1
+      description: Define the version of the Connect protocol
+      const: 1
+    connect-timeout-header:
+      type: number
+      title: Connect-Timeout-Ms
+      description: Define the timeout, in ms
+    connect.error:
+      type: object
+      properties:
+        code:
+          type: string
+          examples:
+            - not_found
+          enum:
+            - canceled
+            - unknown
+            - invalid_argument
+            - deadline_exceeded
+            - not_found
+            - already_exists
+            - permission_denied
+            - resource_exhausted
+            - failed_precondition
+            - aborted
+            - out_of_range
+            - unimplemented
+            - internal
+            - unavailable
+            - data_loss
+            - unauthenticated
+          description: The status code, which should be an enum value of [google.rpc.Code][google.rpc.Code].
+        message:
+          type: string
+          description: A developer-facing error message, which should be in English. Any user-facing error message should be localized and sent in the [google.rpc.Status.details][google.rpc.Status.details] field, or localized by the client.
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/connect.error_details.Any'
+          description: A list of messages that carry the error details. There is no limit on the number of messages.
+      title: Connect Error
+      additionalProperties: true
+      description: 'Error type returned by Connect: https://connectrpc.com/docs/go/errors/#http-representation'
+    connect.error_details.Any:
+      type: object
+      properties:
+        type:
+          type: string
+          description: 'A URL that acts as a globally unique identifier for the type of the serialized message. For example: `type.googleapis.com/google.rpc.ErrorInfo`. This is used to determine the schema of the data in the `value` field and is the discriminator for the `debug` field.'
+        value:
+          type: string
+          format: binary
+          description: The Protobuf message, serialized as bytes and base64-encoded. The specific message type is identified by the `type` field.
+        debug:
+          oneOf:
+            - type: object
+              title: Any
+              additionalProperties: true
+              description: Detailed error information.
+          discriminator:
+            propertyName: type
+          title: Debug
+          description: Deserialized error detail payload. The 'type' field indicates the schema. This field is for easier debugging and should not be relied upon for application logic.
+      additionalProperties: true
+      description: Contains an arbitrary serialized message along with a @type that describes the type of the serialized message, with an additional debug field for ConnectRPC error details.
+    scribe.v1.APIKeyRecord:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        workspaceId:
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        createdByUserId:
+          type:
+            - integer
+            - string
+          title: created_by_user_id
+          format: int64
+        name:
+          type: string
+          title: name
+        keyPrefix:
+          type: string
+          title: key_prefix
+        role:
+          type: string
+          title: role
+        scopes:
+          type: array
+          items:
+            type: string
+          title: scopes
+        expiresAt:
+          type: string
+          title: expires_at
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+      title: APIKeyRecord
+      additionalProperties: false
+    scribe.v1.AddWorkspaceMemberRequest:
+      type: object
+      properties:
+        workspaceId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        email:
+          type: string
+          title: email
+          maxLength: 254
+          format: email
+        role:
+          type: string
+          title: role
+          maxLength: 6
+          pattern: ^(admin|write|create|read)$
+      title: AddWorkspaceMemberRequest
+      required:
+        - workspaceId
+        - email
+        - role
+      additionalProperties: false
+    scribe.v1.AddWorkspaceMemberResponse:
+      type: object
+      properties:
+        member:
+          title: member
+          $ref: '#/components/schemas/scribe.v1.WorkspaceMember'
+      title: AddWorkspaceMemberResponse
+      additionalProperties: false
+    scribe.v1.AnnotationExportFormat:
+      type: string
+      title: AnnotationExportFormat
+      enum:
+        - ANNOTATION_EXPORT_FORMAT_UNSPECIFIED
+        - ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT
+        - ANNOTATION_EXPORT_FORMAT_HOCR
+        - ANNOTATION_EXPORT_FORMAT_PAGE_XML
+        - ANNOTATION_EXPORT_FORMAT_ALTO_XML
+      description: |-
+        AnnotationExportFormat selects a rebuildable view of one committed canonical
+         AnnotationPage. Export operations never accept caller-supplied annotation
+         JSON, so every format is derived from the same tenant-owned revision.
+    scribe.v1.AnnotationGranularity:
+      type: string
+      title: AnnotationGranularity
+      enum:
+        - ANNOTATION_GRANULARITY_UNSPECIFIED
+        - ANNOTATION_GRANULARITY_ALL
+        - ANNOTATION_GRANULARITY_PAGE
+        - ANNOTATION_GRANULARITY_BLOCK
+        - ANNOTATION_GRANULARITY_PARAGRAPH
+        - ANNOTATION_GRANULARITY_LINE
+        - ANNOTATION_GRANULARITY_WORD
+        - ANNOTATION_GRANULARITY_GLYPH
+    scribe.v1.AuthUser:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        email:
+          type: string
+          title: email
+        name:
+          type: string
+          title: name
+        pictureUrl:
+          type: string
+          title: picture_url
+        isAdmin:
+          type: boolean
+          title: is_admin
+        defaultWorkspaceId:
+          type:
+            - integer
+            - string
+          title: default_workspace_id
+          format: int64
+      title: AuthUser
+      additionalProperties: false
+    scribe.v1.AuthWorkspace:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        name:
+          type: string
+          title: name
+        role:
+          type: string
+          title: role
+      title: AuthWorkspace
+      additionalProperties: false
+    scribe.v1.CancelTranscriptionJobRequest:
+      type: object
+      properties:
+        jobId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: job_id
+          format: int64
+      title: CancelTranscriptionJobRequest
+      required:
+        - jobId
+      additionalProperties: false
+    scribe.v1.CancelTranscriptionJobResponse:
+      type: object
+      properties:
+        job:
+          title: job
+          $ref: '#/components/schemas/scribe.v1.TranscriptionJob'
+      title: CancelTranscriptionJobResponse
+      additionalProperties: false
+    scribe.v1.CancelUploadBatchRequest:
+      type: object
+      properties:
+        batchId:
+          type: string
+          title: batch_id
+          pattern: ^[A-Za-z0-9_-]{1,64}$
+      title: CancelUploadBatchRequest
+      required:
+        - batchId
+      additionalProperties: false
+    scribe.v1.CancelUploadBatchResponse:
+      type: object
+      properties:
+        batch:
+          title: batch
+          $ref: '#/components/schemas/scribe.v1.UploadBatch'
+      title: CancelUploadBatchResponse
+      additionalProperties: false
+    scribe.v1.Context:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        userId:
+          type:
+            - integer
+            - string
+          title: user_id
+          format: int64
+          description: Creator user for workspace-owned contexts; 0 means system context.
+        name:
+          type: string
+          title: name
+          maxLength: 255
+          pattern: .*\S.*
+        description:
+          type: string
+          title: description
+          maxLength: 4096
+          pattern: ^$|.*\S.*
+        isDefault:
+          type: boolean
+          title: is_default
+        segmentationModel:
+          type: string
+          title: segmentation_model
+          maxLength: 255
+          pattern: ^[a-z0-9][a-z0-9._:-]{0,254}$
+          description: 'Segmentation model: "tesseract" | "scribe" | "kraken:<model-id>"'
+        transcriptionProvider:
+          type: string
+          title: transcription_provider
+          maxLength: 64
+          pattern: ^[a-z][a-z0-9_-]{0,63}$
+        transcriptionModel:
+          type: string
+          title: transcription_model
+          maxLength: 255
+          pattern: ^$|.*\S.*
+        temperature:
+          type: number
+          title: temperature
+          maximum: 2
+          minimum: 0
+          format: double
+          nullable: true
+        systemPrompt:
+          type: string
+          title: system_prompt
+          maxLength: 8192
+          pattern: ^$|.*\S.*
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+      title: Context
+      required:
+        - name
+        - segmentationModel
+        - transcriptionProvider
+      additionalProperties: false
+      description: Context bundles all processing parameters for a pipeline run.
+    scribe.v1.ContextMetrics:
+      type: object
+      properties:
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+        totalRuns:
+          type:
+            - integer
+            - string
+          title: total_runs
+          format: int64
+        correctedRuns:
+          type:
+            - integer
+            - string
+          title: corrected_runs
+          format: int64
+        avgLevenshteinDistance:
+          type: number
+          title: avg_levenshtein_distance
+          format: double
+      title: ContextMetrics
+      additionalProperties: false
+      description: |-
+        ContextMetrics summarizes correction effort against the immutable OCR
+         baseline. Canonical AnnotationPage revisions are the only correction source.
+    scribe.v1.ContextSelectionRule:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        contextId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+        priority:
+          type: integer
+          title: priority
+          format: int32
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.RuleCondition'
+          title: conditions
+          maxItems: 32
+          minItems: 1
+      title: ContextSelectionRule
+      required:
+        - contextId
+      additionalProperties: false
+      description: |-
+        ContextSelectionRule maps a set of AND conditions to a context.
+         The engine evaluates rules ordered by priority (descending); the first
+         fully-matching rule wins. If no rule matches, the default context is used.
+    scribe.v1.CreateAPIKeyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          title: name
+          maxLength: 255
+          pattern: .*\S.*
+        role:
+          type: string
+          title: role
+          maxLength: 6
+          pattern: ^(admin|write|create|read)$
+        scopes:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+            pattern: ^(\*|[a-z_]+:[a-z_*]+)$
+            maxItems: 32
+            uniqueItems: true
+          title: scopes
+          maxItems: 32
+          uniqueItems: true
+        expiresAt:
+          type: string
+          title: expires_at
+          maxLength: 40
+      title: CreateAPIKeyRequest
+      required:
+        - name
+        - role
+      additionalProperties: false
+    scribe.v1.CreateAPIKeyResponse:
+      type: object
+      properties:
+        apiKey:
+          title: api_key
+          $ref: '#/components/schemas/scribe.v1.APIKeyRecord'
+        key:
+          type: string
+          title: key
+      title: CreateAPIKeyResponse
+      additionalProperties: false
+    scribe.v1.CreateContextRequest:
+      type: object
+      properties:
+        context:
+          title: context
+          $ref: '#/components/schemas/scribe.v1.Context'
+      title: CreateContextRequest
+      required:
+        - context
+      additionalProperties: false
+    scribe.v1.CreateContextResponse:
+      type: object
+      properties:
+        context:
+          title: context
+          $ref: '#/components/schemas/scribe.v1.Context'
+      title: CreateContextResponse
+      additionalProperties: false
+    scribe.v1.CreateProviderSecretRequest:
+      type: object
+      properties:
+        provider:
+          type: string
+          title: provider
+          maxLength: 64
+          pattern: ^[a-z][a-z0-9_-]{0,63}$
+        name:
+          type: string
+          title: name
+          maxLength: 255
+          pattern: .*\S.*
+        apiKey:
+          type: string
+          title: api_key
+          maxLength: 8192
+          minLength: 8
+          pattern: .*\S.*
+        scope:
+          type: string
+          title: scope
+          maxLength: 9
+          pattern: ^(user|workspace)$
+      title: CreateProviderSecretRequest
+      required:
+        - provider
+        - name
+        - apiKey
+        - scope
+      additionalProperties: false
+    scribe.v1.CreateProviderSecretResponse:
+      type: object
+      properties:
+        providerSecret:
+          title: provider_secret
+          $ref: '#/components/schemas/scribe.v1.ProviderSecretRecord'
+      title: CreateProviderSecretResponse
+      additionalProperties: false
+    scribe.v1.CreateSelectionRuleRequest:
+      type: object
+      properties:
+        rule:
+          title: rule
+          $ref: '#/components/schemas/scribe.v1.ContextSelectionRule'
+      title: CreateSelectionRuleRequest
+      required:
+        - rule
+      additionalProperties: false
+    scribe.v1.CreateSelectionRuleResponse:
+      type: object
+      properties:
+        rule:
+          title: rule
+          $ref: '#/components/schemas/scribe.v1.ContextSelectionRule'
+      title: CreateSelectionRuleResponse
+      additionalProperties: false
+    scribe.v1.CreateTranscriptionJobRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+          description: Optional explicit context; resolved automatically if omitted.
+      title: CreateTranscriptionJobRequest
+      required:
+        - itemImageId
+      additionalProperties: false
+      description: |-
+        CreateTranscriptionJobRequest kicks off a batch transcription job for a
+         single item image. The backend will process all line-level annotations on
+         that image's canvas, one at a time, using the resolved or supplied context.
+    scribe.v1.CreateTranscriptionJobResponse:
+      type: object
+      properties:
+        jobId:
+          type:
+            - integer
+            - string
+          title: job_id
+          format: int64
+      title: CreateTranscriptionJobResponse
+      additionalProperties: false
+    scribe.v1.CreateWorkspaceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          title: name
+          maxLength: 255
+          pattern: .*\S.*
+      title: CreateWorkspaceRequest
+      required:
+        - name
+      additionalProperties: false
+    scribe.v1.CreateWorkspaceResponse:
+      type: object
+      properties:
+        workspace:
+          title: workspace
+          $ref: '#/components/schemas/scribe.v1.WorkspaceAccess'
+      title: CreateWorkspaceResponse
+      additionalProperties: false
+    scribe.v1.DeleteAPIKeyRequest:
+      type: object
+      properties:
+        keyId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: key_id
+          format: int64
+      title: DeleteAPIKeyRequest
+      required:
+        - keyId
+      additionalProperties: false
+    scribe.v1.DeleteAPIKeyResponse:
+      type: object
+      title: DeleteAPIKeyResponse
+      additionalProperties: false
+    scribe.v1.DeleteContextRequest:
+      type: object
+      properties:
+        contextId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+      title: DeleteContextRequest
+      required:
+        - contextId
+      additionalProperties: false
+    scribe.v1.DeleteContextResponse:
+      type: object
+      title: DeleteContextResponse
+      additionalProperties: false
+    scribe.v1.DeleteItemRequest:
+      type: object
+      properties:
+        itemId:
+          type: string
+          title: item_id
+          pattern: .*\S.*
+      title: DeleteItemRequest
+      required:
+        - itemId
+      additionalProperties: false
+    scribe.v1.DeleteItemResponse:
+      type: object
+      title: DeleteItemResponse
+      additionalProperties: false
+    scribe.v1.DeleteProviderSecretRequest:
+      type: object
+      properties:
+        secretId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: secret_id
+          format: int64
+      title: DeleteProviderSecretRequest
+      required:
+        - secretId
+      additionalProperties: false
+    scribe.v1.DeleteProviderSecretResponse:
+      type: object
+      title: DeleteProviderSecretResponse
+      additionalProperties: false
+    scribe.v1.DeleteSelectionRuleRequest:
+      type: object
+      properties:
+        ruleId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: rule_id
+          format: int64
+      title: DeleteSelectionRuleRequest
+      required:
+        - ruleId
+      additionalProperties: false
+    scribe.v1.DeleteSelectionRuleResponse:
+      type: object
+      title: DeleteSelectionRuleResponse
+      additionalProperties: false
+    scribe.v1.DeleteWorkspaceMemberRequest:
+      type: object
+      properties:
+        workspaceId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        userId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: user_id
+          format: int64
+      title: DeleteWorkspaceMemberRequest
+      required:
+        - workspaceId
+        - userId
+      additionalProperties: false
+    scribe.v1.DeleteWorkspaceMemberResponse:
+      type: object
+      title: DeleteWorkspaceMemberResponse
+      additionalProperties: false
+    scribe.v1.EnrichAnnotationRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+          description: |-
+            Exact tenant-scoped image whose region will be transcribed. Canvas IDs are
+             targets/provenance and are not authorization or lookup keys.
+        scope:
+          type: string
+          title: scope
+          pattern: .*\S.*
+          description: '"line" = single Annotation JSON; "page" = full AnnotationPage JSON'
+        annotationJson:
+          type: string
+          title: annotation_json
+          pattern: .*\S.*
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+          description: 'Optional: override context used for transcription'
+      title: EnrichAnnotationRequest
+      required:
+        - itemImageId
+      additionalProperties: false
+      description: |
+        EnrichAnnotationRequest sends a IIIF annotation (one line or an entire
+         AnnotationPage) to Scribe's transcription service for improvement.
+         The caller provides the raw JSON and specifies the scope.
+        enrich_annotation.scope // item_image_id and annotation_json are required, and scope must be line or page
+    scribe.v1.EnrichAnnotationResponse:
+      type: object
+      properties:
+        annotationJson:
+          type: string
+          title: annotation_json
+      title: EnrichAnnotationResponse
+      additionalProperties: false
+    scribe.v1.ExportAnnotationPageRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        expectedRevision:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: expected_revision
+          format: int64
+          description: |-
+            The exact committed revision to export. A stale value fails explicitly so
+             callers can never mistake a newer background result for their saved draft.
+        format:
+          not:
+            enum:
+              - 0
+          title: format
+          $ref: '#/components/schemas/scribe.v1.AnnotationExportFormat'
+      title: ExportAnnotationPageRequest
+      required:
+        - itemImageId
+        - expectedRevision
+        - format
+      additionalProperties: false
+      description: |
+        export_annotation_page.required // item_image_id, expected_revision, and format are required
+    scribe.v1.ExportAnnotationPageResponse:
+      type: object
+      properties:
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        revision:
+          type:
+            - integer
+            - string
+          title: revision
+          format: int64
+        mediaType:
+          type: string
+          title: media_type
+        content:
+          type: string
+          title: content
+          format: byte
+        filename:
+          type: string
+          title: filename
+      title: ExportAnnotationPageResponse
+      additionalProperties: false
+    scribe.v1.GetAnnotationPageRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+      title: GetAnnotationPageRequest
+      required:
+        - itemImageId
+      additionalProperties: false
+      description: |-
+        GetAnnotationPageRequest loads the canonical IIIF Presentation 3
+         AnnotationPage for one item image.
+    scribe.v1.GetAnnotationPageResponse:
+      type: object
+      properties:
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        canvasUri:
+          type: string
+          title: canvas_uri
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+        revision:
+          type:
+            - integer
+            - string
+          title: revision
+          format: int64
+        updatedAt:
+          type: string
+          title: updated_at
+      title: GetAnnotationPageResponse
+      additionalProperties: false
+    scribe.v1.GetAnnotationRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        id:
+          type: string
+          title: id
+          pattern: .*\S.*
+          description: Complete canonical Scribe annotation ID from the current page.
+      title: GetAnnotationRequest
+      required:
+        - itemImageId
+        - id
+      additionalProperties: false
+    scribe.v1.GetAnnotationResponse:
+      type: object
+      properties:
+        annotationJson:
+          type: string
+          title: annotation_json
+      title: GetAnnotationResponse
+      additionalProperties: false
+    scribe.v1.GetAuthMeRequest:
+      type: object
+      title: GetAuthMeRequest
+      additionalProperties: false
+    scribe.v1.GetAuthMeResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+          title: authenticated
+        authType:
+          type: string
+          title: auth_type
+        loginUrl:
+          type: string
+          title: login_url
+        logoutUrl:
+          type: string
+          title: logout_url
+        user:
+          title: user
+          $ref: '#/components/schemas/scribe.v1.AuthUser'
+        workspace:
+          title: workspace
+          $ref: '#/components/schemas/scribe.v1.AuthWorkspace'
+      title: GetAuthMeResponse
+      additionalProperties: false
+    scribe.v1.GetContextMetricsRequest:
+      type: object
+      properties:
+        contextId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+      title: GetContextMetricsRequest
+      required:
+        - contextId
+      additionalProperties: false
+    scribe.v1.GetContextMetricsResponse:
+      type: object
+      properties:
+        metrics:
+          title: metrics
+          $ref: '#/components/schemas/scribe.v1.ContextMetrics'
+      title: GetContextMetricsResponse
+      additionalProperties: false
+    scribe.v1.GetContextRequest:
+      type: object
+      properties:
+        contextId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+      title: GetContextRequest
+      required:
+        - contextId
+      additionalProperties: false
+    scribe.v1.GetContextResponse:
+      type: object
+      properties:
+        context:
+          title: context
+          $ref: '#/components/schemas/scribe.v1.Context'
+      title: GetContextResponse
+      additionalProperties: false
+    scribe.v1.GetEditorManifestRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+      title: GetEditorManifestRequest
+      required:
+        - itemImageId
+      additionalProperties: false
+      description: |-
+        GetEditorManifestRequest asks for the private Presentation 3 Manifest used
+         to initialize an editor session. The JSON travels through the authenticated
+         Connect contract; Scribe does not expose a second draft Presentation HTTP
+         server beside Triplet.
+    scribe.v1.GetEditorManifestResponse:
+      type: object
+      properties:
+        item:
+          title: item
+          $ref: '#/components/schemas/scribe.v1.Item'
+        manifestJson:
+          type: string
+          title: manifest_json
+        selectedCanvasId:
+          type: string
+          title: selected_canvas_id
+      title: GetEditorManifestResponse
+      additionalProperties: false
+    scribe.v1.GetItemRequest:
+      type: object
+      properties:
+        itemId:
+          type: string
+          title: item_id
+          pattern: .*\S.*
+      title: GetItemRequest
+      required:
+        - itemId
+      additionalProperties: false
+    scribe.v1.GetItemResponse:
+      type: object
+      properties:
+        item:
+          title: item
+          $ref: '#/components/schemas/scribe.v1.Item'
+        annotationRevisions:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ItemImageRevision'
+          title: annotation_revisions
+          description: |-
+            Existing committed canonical AnnotationPage revisions, in item image
+             order. A missing entry means that image has not committed a page yet.
+             This bounded server-side vector avoids one browser RPC per page.
+      title: GetItemResponse
+      additionalProperties: false
+    scribe.v1.GetModelCatalogRequest:
+      type: object
+      title: GetModelCatalogRequest
+      additionalProperties: false
+    scribe.v1.GetModelCatalogResponse:
+      type: object
+      properties:
+        transcriptionProviders:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ProviderDescriptor'
+          title: transcription_providers
+        segmentationModels:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ModelDescriptor'
+          title: segmentation_models
+      title: GetModelCatalogResponse
+      additionalProperties: false
+    scribe.v1.GetOCRRunRequest:
+      type: object
+      properties:
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+      title: GetOCRRunRequest
+      additionalProperties: false
+      description: |
+        get_ocr_run.identifier // item_image_id is required
+    scribe.v1.GetOCRRunResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          title: session_id
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        imageUrl:
+          type: string
+          title: image_url
+        model:
+          type: string
+          title: model
+        originalHocr:
+          type: string
+          title: original_hocr
+        originalText:
+          type: string
+          title: original_text
+        levenshteinDistance:
+          type: integer
+          title: levenshtein_distance
+          format: int32
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+        canonicalRevision:
+          type:
+            - integer
+            - string
+          title: canonical_revision
+          format: int64
+          description: |-
+            Revision of the canonical AnnotationPage used for this metric. Zero means
+             the baseline OCR has not yet been corrected through the page API.
+      title: GetOCRRunResponse
+      additionalProperties: false
+    scribe.v1.GetTranscriptionJobRequest:
+      type: object
+      properties:
+        jobId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: job_id
+          format: int64
+      title: GetTranscriptionJobRequest
+      required:
+        - jobId
+      additionalProperties: false
+    scribe.v1.GetTranscriptionJobResponse:
+      type: object
+      properties:
+        job:
+          title: job
+          $ref: '#/components/schemas/scribe.v1.TranscriptionJob'
+      title: GetTranscriptionJobResponse
+      additionalProperties: false
+    scribe.v1.GetUploadBatchRequest:
+      type: object
+      properties:
+        batchId:
+          type: string
+          title: batch_id
+          pattern: ^[A-Za-z0-9_-]{1,64}$
+      title: GetUploadBatchRequest
+      required:
+        - batchId
+      additionalProperties: false
+    scribe.v1.GetUploadBatchResponse:
+      type: object
+      properties:
+        item:
+          title: item
+          $ref: '#/components/schemas/scribe.v1.Item'
+        batch:
+          title: batch
+          $ref: '#/components/schemas/scribe.v1.UploadBatch'
+      title: GetUploadBatchResponse
+      additionalProperties: false
+    scribe.v1.ImportManifestRequest:
+      type: object
+      properties:
+        manifestUrl:
+          type: string
+          title: manifest_url
+          maxLength: 2048
+          pattern: .*\S.*
+        name:
+          type: string
+          title: name
+          maxLength: 255
+          description: Optional display name. The manifest label is used when this is empty.
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+          description: Optional processing context for Canvases without imported OCR.
+        metadata:
+          type: string
+          title: metadata
+          pattern: ^$|.*\S.*
+          description: |
+            Optional metadata JSON to seed the item (for integrations like Islandora).
+            string.max_bytes = 1048576
+        idempotencyKey:
+          type: string
+          title: idempotency_key
+          maxLength: 256
+          minLength: 1
+          description: Stable client-generated key used to resume an interrupted import.
+      title: ImportManifestRequest
+      required:
+        - manifestUrl
+        - idempotencyKey
+      additionalProperties: false
+      description: |-
+        ImportManifestRequest is the one explicit IIIF Presentation ingest contract.
+         Upload batches, URL processing, and hOCR import have separate operations and
+         cannot create partially initialized Item containers through this RPC.
+    scribe.v1.ImportManifestResponse:
+      type: object
+      properties:
+        item:
+          title: item
+          $ref: '#/components/schemas/scribe.v1.Item'
+      title: ImportManifestResponse
+      additionalProperties: false
+    scribe.v1.Item:
+      type: object
+      properties:
+        id:
+          type: string
+          title: id
+        userId:
+          type:
+            - integer
+            - string
+          title: user_id
+          format: int64
+        name:
+          type: string
+          title: name
+        sourceType:
+          type: string
+          title: source_type
+          description: url | upload | manifest | hocr
+        sourceUrl:
+          type: string
+          title: source_url
+        metadata:
+          type: string
+          title: metadata
+          description: Arbitrary metadata bag (JSON object serialised as string)
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ItemImage'
+          title: images
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+      title: Item
+      additionalProperties: false
+      description: Item is the primary container for one or more images to be processed.
+    scribe.v1.ItemImage:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        itemId:
+          type: string
+          title: item_id
+        sequence:
+          type: integer
+          title: sequence
+        imageUrl:
+          type: string
+          title: image_url
+        canvasUri:
+          type: string
+          title: canvas_uri
+        label:
+          type: string
+          title: label
+        width:
+          type: integer
+          title: width
+        height:
+          type: integer
+          title: height
+      title: ItemImage
+      additionalProperties: false
+      description: ItemImage represents a single image (canvas) within an item.
+    scribe.v1.ItemImageRevision:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        revision:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: revision
+          format: int64
+      title: ItemImageRevision
+      required:
+        - itemImageId
+        - revision
+      additionalProperties: false
+      description: |-
+        ItemImageRevision identifies the exact committed page snapshot included in
+         an item export. The complete vector is required so a background save cannot
+         silently change a multi-page download after the user requests it.
+    scribe.v1.ItemSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          title: id
+        name:
+          type: string
+          title: name
+        sourceType:
+          type: string
+          title: source_type
+        imageCount:
+          type:
+            - integer
+            - string
+          title: image_count
+          format: int64
+        previewImage:
+          title: preview_image
+          $ref: '#/components/schemas/scribe.v1.ItemImage'
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+      title: ItemSummary
+      additionalProperties: false
+      description: |-
+        ItemSummary is the bounded library representation of an item. The complete
+         image list is available from GetItem; list responses include only the first
+         image needed to open the editor and the total image count.
+    scribe.v1.JoinLinesRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          pattern: .*\S.*
+        selectedAnnotationIds:
+          type: array
+          items:
+            type: string
+            maxItems: 10000
+            minItems: 2
+            uniqueItems: true
+          title: selected_annotation_ids
+          maxItems: 10000
+          minItems: 2
+          uniqueItems: true
+      title: JoinLinesRequest
+      required:
+        - itemImageId
+        - annotationPageJson
+        - selectedAnnotationIds
+      additionalProperties: false
+      description: |
+        Transform two or more selected lines in a complete AnnotationPage into one
+         line (union bbox, concatenated text).
+        join_lines.selection // item_image_id, annotation_page_json, and at least two non-empty selected_annotation_ids are required
+    scribe.v1.JoinLinesResponse:
+      type: object
+      properties:
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          description: Complete transformed AnnotationPage JSON.
+      title: JoinLinesResponse
+      additionalProperties: false
+    scribe.v1.JoinWordsIntoLineRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          pattern: .*\S.*
+        selectedAnnotationIds:
+          type: array
+          items:
+            type: string
+            maxItems: 10000
+            minItems: 2
+            uniqueItems: true
+          title: selected_annotation_ids
+          maxItems: 10000
+          minItems: 2
+          uniqueItems: true
+      title: JoinWordsIntoLineRequest
+      required:
+        - itemImageId
+        - annotationPageJson
+        - selectedAnnotationIds
+      additionalProperties: false
+      description: |
+        Transform two or more selected word annotations in a complete
+         AnnotationPage into one line annotation.
+        join_words_into_line.selection // item_image_id, annotation_page_json, and at least two non-empty selected_annotation_ids are required
+    scribe.v1.JoinWordsIntoLineResponse:
+      type: object
+      properties:
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          description: Complete transformed AnnotationPage JSON.
+      title: JoinWordsIntoLineResponse
+      additionalProperties: false
+    scribe.v1.ListAPIKeysRequest:
+      type: object
+      title: ListAPIKeysRequest
+      additionalProperties: false
+    scribe.v1.ListAPIKeysResponse:
+      type: object
+      properties:
+        apiKeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.APIKeyRecord'
+          title: api_keys
+      title: ListAPIKeysResponse
+      additionalProperties: false
+    scribe.v1.ListContextsRequest:
+      type: object
+      properties:
+        systemOnly:
+          type: boolean
+          title: system_only
+          description: If true, only return system contexts.
+        pageSize:
+          type: integer
+          title: page_size
+          maximum: 100
+          description: Number of contexts to return. Zero uses the server default of 50.
+        pageToken:
+          type: string
+          title: page_token
+          maxLength: 512
+          description: Opaque workspace- and filter-bound continuation token.
+      title: ListContextsRequest
+      additionalProperties: false
+    scribe.v1.ListContextsResponse:
+      type: object
+      properties:
+        contexts:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.Context'
+          title: contexts
+        nextPageToken:
+          type: string
+          title: next_page_token
+          description: Empty when the workspace context catalog is exhausted.
+      title: ListContextsResponse
+      additionalProperties: false
+    scribe.v1.ListItemProviderCallAuditsRequest:
+      type: object
+      properties:
+        itemId:
+          type: string
+          title: item_id
+          pattern: .*\S.*
+        limit:
+          type: integer
+          title: limit
+          maximum: 500
+      title: ListItemProviderCallAuditsRequest
+      required:
+        - itemId
+      additionalProperties: false
+    scribe.v1.ListItemProviderCallAuditsResponse:
+      type: object
+      properties:
+        audits:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ProviderCallAudit'
+          title: audits
+      title: ListItemProviderCallAuditsResponse
+      additionalProperties: false
+    scribe.v1.ListItemsRequest:
+      type: object
+      properties:
+        pageSize:
+          type: integer
+          title: page_size
+          maximum: 100
+          description: Number of items to return. Zero uses the server default of 50.
+        pageToken:
+          type: string
+          title: page_token
+          maxLength: 512
+          description: Opaque continuation token returned by the previous response.
+        query:
+          type: string
+          title: query
+          maxLength: 200
+          description: |-
+            Case-insensitive literal substring match over item name, ID, and source type.
+             Continuation tokens are bound to the normalized query.
+      title: ListItemsRequest
+      additionalProperties: false
+    scribe.v1.ListItemsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ItemSummary'
+          title: items
+        nextPageToken:
+          type: string
+          title: next_page_token
+          description: Empty when there are no more items in this workspace.
+      title: ListItemsResponse
+      additionalProperties: false
+    scribe.v1.ListProviderSecretsRequest:
+      type: object
+      title: ListProviderSecretsRequest
+      additionalProperties: false
+    scribe.v1.ListProviderSecretsResponse:
+      type: object
+      properties:
+        providerSecrets:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ProviderSecretRecord'
+          title: provider_secrets
+      title: ListProviderSecretsResponse
+      additionalProperties: false
+    scribe.v1.ListSelectionRulesRequest:
+      type: object
+      properties:
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+          description: Filter by context; 0 = all rules
+        pageSize:
+          type: integer
+          title: page_size
+          maximum: 100
+          description: Number of rules to return. Zero uses the server default of 50.
+        pageToken:
+          type: string
+          title: page_token
+          maxLength: 512
+          description: Opaque workspace- and context-filter-bound continuation token.
+      title: ListSelectionRulesRequest
+      additionalProperties: false
+    scribe.v1.ListSelectionRulesResponse:
+      type: object
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ContextSelectionRule'
+          title: rules
+        nextPageToken:
+          type: string
+          title: next_page_token
+          description: Empty when the filtered rule catalog is exhausted.
+      title: ListSelectionRulesResponse
+      additionalProperties: false
+    scribe.v1.ListTranscriptionJobsRequest:
+      type: object
+      properties:
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+          description: Filter by item_image_id; returns workspace jobs if zero.
+        pageSize:
+          type: integer
+          title: page_size
+          maximum: 100
+          description: Number of job summaries to return. Defaults to 50 and is capped at 100.
+        pageToken:
+          type: string
+          title: page_token
+          maxLength: 512
+          description: Opaque workspace- and filter-bound cursor returned by the previous page.
+      title: ListTranscriptionJobsRequest
+      additionalProperties: false
+    scribe.v1.ListTranscriptionJobsResponse:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.TranscriptionJobSummary'
+          title: jobs
+        nextPageToken:
+          type: string
+          title: next_page_token
+      title: ListTranscriptionJobsResponse
+      additionalProperties: false
+    scribe.v1.ListWorkspaceMembersRequest:
+      type: object
+      properties:
+        workspaceId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+      title: ListWorkspaceMembersRequest
+      required:
+        - workspaceId
+      additionalProperties: false
+    scribe.v1.ListWorkspaceMembersResponse:
+      type: object
+      properties:
+        workspace:
+          title: workspace
+          $ref: '#/components/schemas/scribe.v1.Workspace'
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.WorkspaceMember'
+          title: members
+      title: ListWorkspaceMembersResponse
+      additionalProperties: false
+    scribe.v1.ListWorkspacesRequest:
+      type: object
+      title: ListWorkspacesRequest
+      additionalProperties: false
+    scribe.v1.ListWorkspacesResponse:
+      type: object
+      properties:
+        workspaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.WorkspaceAccess'
+          title: workspaces
+      title: ListWorkspacesResponse
+      additionalProperties: false
+    scribe.v1.ModelDescriptor:
+      type: object
+      properties:
+        id:
+          type: string
+          title: id
+        label:
+          type: string
+          title: label
+        isDefault:
+          type: boolean
+          title: is_default
+      title: ModelDescriptor
+      additionalProperties: false
+      description: ModelDescriptor is a server-approved model that can be selected by a context.
+    scribe.v1.PrepareItemExportRequest:
+      type: object
+      properties:
+        itemId:
+          type: string
+          title: item_id
+          pattern: .*\S.*
+        format:
+          not:
+            enum:
+              - 0
+          title: format
+          $ref: '#/components/schemas/scribe.v1.AnnotationExportFormat'
+        expectedRevisions:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ItemImageRevision'
+          title: expected_revisions
+          maxItems: 1000
+          minItems: 1
+      title: PrepareItemExportRequest
+      required:
+        - itemId
+        - format
+        - expectedRevisions
+      additionalProperties: false
+      description: |
+        prepare_item_export.required // item_id, format, and at least one expected revision are required
+    scribe.v1.PrepareItemExportResponse:
+      type: object
+      properties:
+        downloadUrl:
+          type: string
+          title: download_url
+        filename:
+          type: string
+          title: filename
+        mediaType:
+          type: string
+          title: media_type
+        revisions:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ItemImageRevision'
+          title: revisions
+        expiresAt:
+          type: string
+          title: expires_at
+      title: PrepareItemExportResponse
+      additionalProperties: false
+    scribe.v1.ProcessHOCRRequest:
+      type: object
+      properties:
+        hocr:
+          type: string
+          title: hocr
+          pattern: .*\S.*
+          description: |
+            string.max_bytes = 10485760
+        imageUrl:
+          type: string
+          title: image_url
+          maxLength: 2048
+          pattern: ^$|.*\S.*
+        imageData:
+          type: string
+          title: image_data
+          maxLength: 104857600
+          format: byte
+          description: |
+            bytes.const = []
+        filename:
+          type: string
+          title: filename
+          maxLength: 255
+          pattern: ^$|.*\S.*
+        idempotencyKey:
+          type: string
+          title: idempotency_key
+          maxLength: 256
+          minLength: 1
+      title: ProcessHOCRRequest
+      required:
+        - hocr
+        - idempotencyKey
+      additionalProperties: false
+      description: |
+        process_hocr.image_source // exactly one of image_url or image_data is required
+    scribe.v1.ProcessHOCRResponse:
+      type: object
+      properties:
+        itemId:
+          type: string
+          title: item_id
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        imageUrl:
+          type: string
+          title: image_url
+        hocr:
+          type: string
+          title: hocr
+        plainText:
+          type: string
+          title: plain_text
+        sessionId:
+          type: string
+          title: session_id
+          description: Session-scoped identifier for OCR run lookups and async processing.
+      title: ProcessHOCRResponse
+      additionalProperties: false
+    scribe.v1.ProcessImageURLRequest:
+      type: object
+      properties:
+        imageUrl:
+          type: string
+          title: image_url
+          maxLength: 2048
+          pattern: .*\S.*
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+          description: If set, uses this context; otherwise selection engine runs against metadata.
+        metadata:
+          type: string
+          title: metadata
+          pattern: ^$|.*\S.*
+          description: |
+            Optional metadata JSON passed to the selection engine.
+            string.max_bytes = 1048576
+        idempotencyKey:
+          type: string
+          title: idempotency_key
+          maxLength: 256
+          minLength: 1
+      title: ProcessImageURLRequest
+      required:
+        - imageUrl
+        - idempotencyKey
+      additionalProperties: false
+      description: |-
+        ProcessImageURLRequest imports and schedules one image fetched from an
+         external URL. Retries must reuse idempotency_key.
+    scribe.v1.ProcessImageURLResponse:
+      type: object
+      properties:
+        itemId:
+          type: string
+          title: item_id
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        imageUrl:
+          type: string
+          title: image_url
+        hocr:
+          type: string
+          title: hocr
+        plainText:
+          type: string
+          title: plain_text
+        sessionId:
+          type: string
+          title: session_id
+          description: Session-scoped identifier for OCR run lookups and async processing.
+      title: ProcessImageURLResponse
+      additionalProperties: false
+      description: ProcessImageURLResponse returns item/image IDs along with run-scoped OCR data.
+    scribe.v1.ProviderCallAudit:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        itemId:
+          type: string
+          title: item_id
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+          nullable: true
+        itemImageSequence:
+          type: integer
+          title: item_image_sequence
+        itemImageLabel:
+          type: string
+          title: item_image_label
+        sessionId:
+          type: string
+          title: session_id
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+          nullable: true
+        provider:
+          type: string
+          title: provider
+        model:
+          type: string
+          title: model
+        operation:
+          type: string
+          title: operation
+        errorMessage:
+          type: string
+          title: error_message
+        httpStatus:
+          type: integer
+          title: http_status
+          format: int32
+          nullable: true
+        durationMs:
+          type:
+            - integer
+            - string
+          title: duration_ms
+          format: int64
+        createdAt:
+          type: string
+          title: created_at
+      title: ProviderCallAudit
+      additionalProperties: false
+    scribe.v1.ProviderDescriptor:
+      type: object
+      properties:
+        id:
+          type: string
+          title: id
+        label:
+          type: string
+          title: label
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.ModelDescriptor'
+          title: models
+        requiresApiKey:
+          type: boolean
+          title: requires_api_key
+        supportsSystemPrompt:
+          type: boolean
+          title: supports_system_prompt
+        supportsTemperature:
+          type: boolean
+          title: supports_temperature
+      title: ProviderDescriptor
+      additionalProperties: false
+      description: |-
+        ProviderDescriptor describes one installed transcription provider. Endpoint
+         and credential details intentionally remain server-owned.
+    scribe.v1.ProviderSecretRecord:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        userId:
+          type:
+            - integer
+            - string
+          title: user_id
+          format: int64
+        workspaceId:
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        provider:
+          type: string
+          title: provider
+        name:
+          type: string
+          title: name
+        keyHint:
+          type: string
+          title: key_hint
+        scope:
+          type: string
+          title: scope
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+      title: ProviderSecretRecord
+      additionalProperties: false
+    scribe.v1.PublishItemImageEditsRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        expectedRevision:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: expected_revision
+          format: int64
+          description: |-
+            The draft revision the caller just saved. Publication fails explicitly if
+             a newer correction was committed before this transaction acquired its lock.
+      title: PublishItemImageEditsRequest
+      required:
+        - itemImageId
+        - expectedRevision
+      additionalProperties: false
+    scribe.v1.PublishItemImageEditsResponse:
+      type: object
+      properties:
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        canvasUri:
+          type: string
+          title: canvas_uri
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+        publishedAt:
+          type: string
+          title: published_at
+        publishedRevision:
+          type:
+            - integer
+            - string
+          title: published_revision
+          format: int64
+        publicUrl:
+          type: string
+          title: public_url
+      title: PublishItemImageEditsResponse
+      additionalProperties: false
+    scribe.v1.ReprocessItemImageRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+          description: |-
+            Explicit processing context, or zero to resolve the workspace/default
+             context before reserving provider work.
+        expectedRevision:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: expected_revision
+          format: int64
+          description: |-
+            Exact canonical AnnotationPage revision the caller reviewed. This is both
+             the optimistic-concurrency fence and the stable operation identity used to
+             deduplicate retries before invoking an expensive segmentation provider.
+      title: ReprocessItemImageRequest
+      required:
+        - itemImageId
+        - expectedRevision
+      additionalProperties: false
+    scribe.v1.ReprocessItemImageResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          title: session_id
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+        imageUrl:
+          type: string
+          title: image_url
+        hocr:
+          type: string
+          title: hocr
+        plainText:
+          type: string
+          title: plain_text
+        provider:
+          type: string
+          title: provider
+        model:
+          type: string
+          title: model
+        transcriptionJobId:
+          type:
+            - integer
+            - string
+          title: transcription_job_id
+          format: int64
+          description: Durable successor job created in the same transaction as the new baseline.
+        canonicalRevision:
+          type:
+            - integer
+            - string
+          title: canonical_revision
+          format: int64
+          description: Canonical AnnotationPage revision committed by this operation.
+      title: ReprocessItemImageResponse
+      additionalProperties: false
+    scribe.v1.ResolveContextRequest:
+      type: object
+      properties:
+        metadataJson:
+          type: string
+          title: metadata_json
+          description: |
+            Flat JSON object with at most 64 scalar fields. Field names are capped at
+             255 bytes and string/number representations at 4096 bytes.
+            string.max_bytes = 65536
+      title: ResolveContextRequest
+      additionalProperties: false
+      description: |-
+        ResolveContextRequest asks the selection engine to pick the right context
+         for a given metadata bag (JSON object as string).
+    scribe.v1.ResolveContextResponse:
+      type: object
+      properties:
+        context:
+          title: context
+          $ref: '#/components/schemas/scribe.v1.Context'
+        isDefault:
+          type: boolean
+          title: is_default
+      title: ResolveContextResponse
+      additionalProperties: false
+    scribe.v1.RuleCondition:
+      type: object
+      properties:
+        field:
+          type: string
+          title: field
+          pattern: .*\S.*
+          description: |
+            string.max_bytes = 255
+        operator:
+          type: string
+          title: operator
+          maxLength: 16
+          pattern: .*\S.*
+          description: eq | neq | contains | starts_with | ends_with
+        value:
+          type: string
+          title: value
+          pattern: .*\S.*
+          description: |
+            string.max_bytes = 4096
+      title: RuleCondition
+      required:
+        - field
+        - operator
+        - value
+      additionalProperties: false
+      description: |
+        RuleCondition is a single AND-clause predicate.
+        rule_condition.operator // operator must be one of eq, neq, contains, starts_with, or ends_with
+    scribe.v1.SaveAnnotationPageRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          pattern: .*\S.*
+        expectedRevision:
+          type:
+            - integer
+            - string
+          title: expected_revision
+          format: int64
+      title: SaveAnnotationPageRequest
+      required:
+        - itemImageId
+        - annotationPageJson
+      additionalProperties: false
+      description: |-
+        SaveAnnotationPageRequest atomically replaces one canonical page. A zero
+         expected_revision creates the page; every subsequent save must provide the
+         exact current revision.
+    scribe.v1.SaveAnnotationPageResponse:
+      type: object
+      properties:
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        canvasUri:
+          type: string
+          title: canvas_uri
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+        revision:
+          type:
+            - integer
+            - string
+          title: revision
+          format: int64
+        updatedAt:
+          type: string
+          title: updated_at
+      title: SaveAnnotationPageResponse
+      additionalProperties: false
+    scribe.v1.SearchAnnotationsRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+          description: item_image_id is the canonical, tenant-scoped resource identifier.
+        canvasUri:
+          type: string
+          title: canvas_uri
+          maxLength: 2048
+          pattern: ^$|.*\S.*
+          description: |-
+            Optional interoperability consistency check. The value is treated as an
+             opaque Canvas ID and must match the item's stored target; it is never a
+             lookup or authorization key.
+        granularity:
+          title: granularity
+          $ref: '#/components/schemas/scribe.v1.AnnotationGranularity'
+      title: SearchAnnotationsRequest
+      required:
+        - itemImageId
+      additionalProperties: false
+    scribe.v1.SearchAnnotationsResponse:
+      type: object
+      properties:
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          description: Full IIIF AnnotationPage JSON, serialised as string for round-trip fidelity.
+        revision:
+          type:
+            - integer
+            - string
+          title: revision
+          format: int64
+      title: SearchAnnotationsResponse
+      additionalProperties: false
+    scribe.v1.SplitLineIntoTwoLinesRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          pattern: .*\S.*
+        selectedAnnotationId:
+          type: string
+          title: selected_annotation_id
+          pattern: .*\S.*
+        splitAtWord:
+          type: integer
+          title: split_at_word
+          minimum: 0
+          format: int32
+          description: 0 means split at midpoint.
+      title: SplitLineIntoTwoLinesRequest
+      required:
+        - itemImageId
+        - annotationPageJson
+        - selectedAnnotationId
+      additionalProperties: false
+      description: |
+        Transform one selected line in a complete AnnotationPage into two lines at
+         a word boundary.
+        split_line_into_two_lines.selection // item_image_id, annotation_page_json, and selected_annotation_id are required
+    scribe.v1.SplitLineIntoTwoLinesResponse:
+      type: object
+      properties:
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          description: Complete transformed AnnotationPage JSON.
+      title: SplitLineIntoTwoLinesResponse
+      additionalProperties: false
+    scribe.v1.SplitLineIntoWordsRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          pattern: .*\S.*
+        selectedAnnotationId:
+          type: string
+          title: selected_annotation_id
+          pattern: .*\S.*
+        words:
+          type: array
+          items:
+            type: string
+            maxItems: 10000
+            description: |
+              string.max_bytes = 16384
+          title: words
+          maxItems: 10000
+      title: SplitLineIntoWordsRequest
+      required:
+        - itemImageId
+        - annotationPageJson
+        - selectedAnnotationId
+      additionalProperties: false
+      description: |
+        Transform one selected line in a complete AnnotationPage into
+         proportionally-spaced word annotations. If words is empty the selected
+         line's text is tokenised on whitespace.
+        split_line_into_words.selection // item_image_id, annotation_page_json, and selected_annotation_id are required
+    scribe.v1.SplitLineIntoWordsResponse:
+      type: object
+      properties:
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          description: Complete transformed AnnotationPage JSON.
+      title: SplitLineIntoWordsResponse
+      additionalProperties: false
+    scribe.v1.StartUploadBatchRequest:
+      type: object
+      properties:
+        batchId:
+          type: string
+          title: batch_id
+          pattern: ^[A-Za-z0-9_-]{1,64}$
+        name:
+          type: string
+          title: name
+          maxLength: 255
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.UploadBatchFileInput'
+          title: files
+          maxItems: 1000
+          minItems: 1
+      title: StartUploadBatchRequest
+      required:
+        - batchId
+      additionalProperties: false
+    scribe.v1.StartUploadBatchResponse:
+      type: object
+      properties:
+        item:
+          title: item
+          $ref: '#/components/schemas/scribe.v1.Item'
+        batch:
+          title: batch
+          $ref: '#/components/schemas/scribe.v1.UploadBatch'
+      title: StartUploadBatchResponse
+      additionalProperties: false
+    scribe.v1.StreamTranscriptionJobRequest:
+      type: object
+      properties:
+        jobId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: job_id
+          format: int64
+      title: StreamTranscriptionJobRequest
+      required:
+        - jobId
+      additionalProperties: false
+      description: |-
+        StreamTranscriptionJobRequest opens a server-sent-events stream for a job.
+         The server sends a TranscriptionJob message after every segment is processed
+         and once more when the job reaches a terminal state.
+    scribe.v1.StreamTranscriptionJobResponse:
+      type: object
+      properties:
+        job:
+          title: job
+          $ref: '#/components/schemas/scribe.v1.TranscriptionJob'
+      title: StreamTranscriptionJobResponse
+      additionalProperties: false
+    scribe.v1.TranscriptionJob:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+        status:
+          title: status
+          $ref: '#/components/schemas/scribe.v1.TranscriptionJobStatus'
+        totalSegments:
+          type: integer
+          title: total_segments
+          format: int32
+        completedSegments:
+          type: integer
+          title: completed_segments
+          format: int32
+        failedSegments:
+          type: integer
+          title: failed_segments
+          format: int32
+        currentAnnotationId:
+          type: string
+          title: current_annotation_id
+          description: annotation_id of the segment currently being processed.
+        currentAnnotationJson:
+          type: string
+          title: current_annotation_json
+          description: |-
+            Full annotation JSON of the segment currently being processed, so the
+             editor overlay can highlight it without a separate lookup.
+        lastResultAnnotationJson:
+          type: string
+          title: last_result_annotation_json
+          description: annotation JSON of the most recently completed segment (with enriched text).
+        errorMessage:
+          type: string
+          title: error_message
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+        inputRevision:
+          type:
+            - integer
+            - string
+          title: input_revision
+          format: int64
+        attemptCount:
+          type: integer
+          title: attempt_count
+          format: int32
+        maxAttempts:
+          type: integer
+          title: max_attempts
+          format: int32
+        attempts:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.TranscriptionJobAttempt'
+          title: attempts
+      title: TranscriptionJob
+      additionalProperties: false
+      description: |-
+        TranscriptionJob represents a batch transcription job for a single item image.
+         One job covers all line-level annotations on the canvas; progress is tracked
+         segment by segment so the editor overlay can visualise the work in real time.
+    scribe.v1.TranscriptionJobAttempt:
+      type: object
+      properties:
+        jobId:
+          type:
+            - integer
+            - string
+          title: job_id
+          format: int64
+        attemptNumber:
+          type: integer
+          title: attempt_number
+        inputRevision:
+          type:
+            - integer
+            - string
+          title: input_revision
+          format: int64
+        contextSnapshotJson:
+          type: string
+          title: context_snapshot_json
+        leaseOwner:
+          type: string
+          title: lease_owner
+        outcome:
+          title: outcome
+          $ref: '#/components/schemas/scribe.v1.TranscriptionJobAttemptOutcome'
+        safeErrorMessage:
+          type: string
+          title: safe_error_message
+        resultRevision:
+          type:
+            - integer
+            - string
+          title: result_revision
+          format: int64
+        startedAt:
+          type: string
+          title: started_at
+        finishedAt:
+          type: string
+          title: finished_at
+      title: TranscriptionJobAttempt
+      additionalProperties: false
+      description: |-
+        TranscriptionJobAttempt is the auditable history of one worker claim. Lease
+         tokens are intentionally not exposed through the application API.
+    scribe.v1.TranscriptionJobAttemptOutcome:
+      type: string
+      title: TranscriptionJobAttemptOutcome
+      enum:
+        - TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_UNSPECIFIED
+        - TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RUNNING
+        - TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_COMPLETED
+        - TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RETRYABLE_FAILED
+        - TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_FAILED
+        - TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_CANCELED
+        - TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_SUPERSEDED
+        - TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_LEASE_EXPIRED
+      description: |-
+        TranscriptionJobAttemptOutcome is the terminal reason for one immutable
+         worker claim. RUNNING is the only non-terminal value.
+    scribe.v1.TranscriptionJobStatus:
+      type: string
+      title: TranscriptionJobStatus
+      enum:
+        - TRANSCRIPTION_JOB_STATUS_UNSPECIFIED
+        - TRANSCRIPTION_JOB_STATUS_PENDING
+        - TRANSCRIPTION_JOB_STATUS_RUNNING
+        - TRANSCRIPTION_JOB_STATUS_COMPLETED
+        - TRANSCRIPTION_JOB_STATUS_FAILED
+        - TRANSCRIPTION_JOB_STATUS_CANCELED
+        - TRANSCRIPTION_JOB_STATUS_SUPERSEDED
+      description: TranscriptionJobStatus represents the lifecycle state of a batch transcription job.
+    scribe.v1.TranscriptionJobSummary:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+        status:
+          title: status
+          $ref: '#/components/schemas/scribe.v1.TranscriptionJobStatus'
+        totalSegments:
+          type: integer
+          title: total_segments
+          format: int32
+        completedSegments:
+          type: integer
+          title: completed_segments
+          format: int32
+        failedSegments:
+          type: integer
+          title: failed_segments
+          format: int32
+        currentAnnotationId:
+          type: string
+          title: current_annotation_id
+        errorMessage:
+          type: string
+          title: error_message
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+        inputRevision:
+          type:
+            - integer
+            - string
+          title: input_revision
+          format: int64
+        attemptCount:
+          type: integer
+          title: attempt_count
+          format: int32
+        maxAttempts:
+          type: integer
+          title: max_attempts
+          format: int32
+      title: TranscriptionJobSummary
+      additionalProperties: false
+      description: |-
+        TranscriptionJobSummary is the bounded list projection. Per-segment
+         annotation payloads and attempt history are available from GetTranscriptionJob
+         and the stream, but are deliberately excluded from list responses.
+    scribe.v1.UpdateContextRequest:
+      type: object
+      properties:
+        context:
+          title: context
+          $ref: '#/components/schemas/scribe.v1.Context'
+      title: UpdateContextRequest
+      required:
+        - context
+      additionalProperties: false
+      description: |
+        update_context.id // context.id is required
+    scribe.v1.UpdateContextResponse:
+      type: object
+      properties:
+        context:
+          title: context
+          $ref: '#/components/schemas/scribe.v1.Context'
+      title: UpdateContextResponse
+      additionalProperties: false
+    scribe.v1.UpdateWorkspaceMemberRequest:
+      type: object
+      properties:
+        workspaceId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        userId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: user_id
+          format: int64
+        role:
+          type: string
+          title: role
+          maxLength: 6
+          pattern: ^(admin|write|create|read)$
+      title: UpdateWorkspaceMemberRequest
+      required:
+        - workspaceId
+        - userId
+        - role
+      additionalProperties: false
+    scribe.v1.UpdateWorkspaceMemberResponse:
+      type: object
+      properties:
+        member:
+          title: member
+          $ref: '#/components/schemas/scribe.v1.WorkspaceMember'
+      title: UpdateWorkspaceMemberResponse
+      additionalProperties: false
+    scribe.v1.UpdateWorkspaceRequest:
+      type: object
+      properties:
+        workspaceId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        name:
+          type: string
+          title: name
+          maxLength: 255
+          pattern: .*\S.*
+      title: UpdateWorkspaceRequest
+      required:
+        - workspaceId
+        - name
+      additionalProperties: false
+    scribe.v1.UpdateWorkspaceResponse:
+      type: object
+      properties:
+        workspace:
+          title: workspace
+          $ref: '#/components/schemas/scribe.v1.Workspace'
+      title: UpdateWorkspaceResponse
+      additionalProperties: false
+    scribe.v1.UploadBatch:
+      type: object
+      properties:
+        id:
+          type: string
+          title: id
+        itemId:
+          type: string
+          title: item_id
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          format: int64
+        status:
+          title: status
+          $ref: '#/components/schemas/scribe.v1.UploadBatchStatus'
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.UploadBatchFile'
+          title: files
+        completedFiles:
+          type: integer
+          title: completed_files
+        failedFiles:
+          type: integer
+          title: failed_files
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+      title: UploadBatch
+      additionalProperties: false
+    scribe.v1.UploadBatchFile:
+      type: object
+      properties:
+        sequence:
+          type: integer
+          title: sequence
+        filename:
+          type: string
+          title: filename
+        size:
+          type:
+            - integer
+            - string
+          title: size
+          format: int64
+        contentSha256:
+          type: string
+          title: content_sha256
+        status:
+          title: status
+          $ref: '#/components/schemas/scribe.v1.UploadBatchFileStatus'
+        attemptCount:
+          type: integer
+          title: attempt_count
+        maxAttempts:
+          type: integer
+          title: max_attempts
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        transcriptionJobId:
+          type:
+            - integer
+            - string
+          title: transcription_job_id
+          format: int64
+        errorMessage:
+          type: string
+          title: error_message
+      title: UploadBatchFile
+      additionalProperties: false
+    scribe.v1.UploadBatchFileInput:
+      type: object
+      properties:
+        filename:
+          type: string
+          title: filename
+          maxLength: 255
+          minLength: 1
+        size:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: size
+          format: int64
+        contentSha256:
+          type: string
+          title: content_sha256
+          pattern: ^[0-9a-f]{64}$
+      title: UploadBatchFileInput
+      required:
+        - filename
+        - contentSha256
+      additionalProperties: false
+      description: |-
+        UploadBatchFileInput fixes the ordered file set before processing starts.
+         The server verifies content_sha256 when each file is uploaded.
+    scribe.v1.UploadBatchFileStatus:
+      type: string
+      title: UploadBatchFileStatus
+      enum:
+        - UPLOAD_BATCH_FILE_STATUS_UNSPECIFIED
+        - UPLOAD_BATCH_FILE_STATUS_PENDING
+        - UPLOAD_BATCH_FILE_STATUS_PROCESSING
+        - UPLOAD_BATCH_FILE_STATUS_COMPLETED
+        - UPLOAD_BATCH_FILE_STATUS_FAILED
+        - UPLOAD_BATCH_FILE_STATUS_CANCELED
+    scribe.v1.UploadBatchStatus:
+      type: string
+      title: UploadBatchStatus
+      enum:
+        - UPLOAD_BATCH_STATUS_UNSPECIFIED
+        - UPLOAD_BATCH_STATUS_IN_PROGRESS
+        - UPLOAD_BATCH_STATUS_COMPLETED
+        - UPLOAD_BATCH_STATUS_CANCELED
+    scribe.v1.UploadItemImageRequest:
+      type: object
+      properties:
+        batchId:
+          type: string
+          title: batch_id
+          pattern: ^[A-Za-z0-9_-]{1,64}$
+        sequence:
+          exclusiveMinimum: 0
+          type: integer
+          title: sequence
+        imageData:
+          type: string
+          title: image_data
+          maxLength: 104857600
+          minLength: 1
+          format: byte
+          description: |
+            bytes.const = []
+      title: UploadItemImageRequest
+      required:
+        - batchId
+        - imageData
+      additionalProperties: false
+      description: UploadItemImageRequest processes one file declared by StartUploadBatch.
+    scribe.v1.UploadItemImageResponse:
+      type: object
+      properties:
+        item:
+          title: item
+          $ref: '#/components/schemas/scribe.v1.Item'
+        image:
+          title: image
+          $ref: '#/components/schemas/scribe.v1.ItemImage'
+        transcriptionJobId:
+          type:
+            - integer
+            - string
+          title: transcription_job_id
+          format: int64
+        batch:
+          title: batch
+          $ref: '#/components/schemas/scribe.v1.UploadBatch'
+      title: UploadItemImageResponse
+      additionalProperties: false
+    scribe.v1.UserProfile:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        name:
+          type: string
+          title: name
+        email:
+          type: string
+          title: email
+        pictureUrl:
+          type: string
+          title: picture_url
+        isAdmin:
+          type: boolean
+          title: is_admin
+      title: UserProfile
+      additionalProperties: false
+    scribe.v1.Workspace:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        name:
+          type: string
+          title: name
+        slug:
+          type: string
+          title: slug
+        isPersonal:
+          type: boolean
+          title: is_personal
+        ownerUserId:
+          type:
+            - integer
+            - string
+          title: owner_user_id
+          format: int64
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+      title: Workspace
+      additionalProperties: false
+    scribe.v1.WorkspaceAccess:
+      type: object
+      properties:
+        workspace:
+          title: workspace
+          $ref: '#/components/schemas/scribe.v1.Workspace'
+        role:
+          type: string
+          title: role
+      title: WorkspaceAccess
+      additionalProperties: false
+    scribe.v1.WorkspaceMember:
+      type: object
+      properties:
+        workspaceId:
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        user:
+          title: user
+          $ref: '#/components/schemas/scribe.v1.UserProfile'
+        role:
+          type: string
+          title: role
+        createdAt:
+          type: string
+          title: created_at
+      title: WorkspaceMember
+      additionalProperties: false
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: scribe_session
+      description: Interactive browser session cookie. The cookie name is deployment-configurable; scribe_session is the default.
+    ScribeAPIKey:
+      type: apiKey
+      in: header
+      name: X-Scribe-API-Key
+      description: Workspace-scoped Scribe API key.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Scribe API key or registered external JWT
+security:
+  - SessionCookie: []
+  - ScribeAPIKey: []
+  - BearerAuth: []
+tags:
+  - name: scribe.v1.AnnotationService
+  - name: scribe.v1.AuthService
+  - name: scribe.v1.ContextService
+  - name: scribe.v1.ItemService
+  - name: scribe.v1.ImageProcessingService
+  - name: scribe.v1.TranscriptionService
+  - name: scribe.v1.WorkspaceService

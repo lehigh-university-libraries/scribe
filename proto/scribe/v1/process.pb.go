@@ -23,70 +23,18 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type OutputFormat int32
-
-const (
-	OutputFormat_OUTPUT_FORMAT_UNSPECIFIED OutputFormat = 0
-	OutputFormat_OUTPUT_FORMAT_HOCR        OutputFormat = 1
-	OutputFormat_OUTPUT_FORMAT_TEXT        OutputFormat = 2
-	OutputFormat_OUTPUT_FORMAT_PAGE_XML    OutputFormat = 3
-)
-
-// Enum value maps for OutputFormat.
-var (
-	OutputFormat_name = map[int32]string{
-		0: "OUTPUT_FORMAT_UNSPECIFIED",
-		1: "OUTPUT_FORMAT_HOCR",
-		2: "OUTPUT_FORMAT_TEXT",
-		3: "OUTPUT_FORMAT_PAGE_XML",
-	}
-	OutputFormat_value = map[string]int32{
-		"OUTPUT_FORMAT_UNSPECIFIED": 0,
-		"OUTPUT_FORMAT_HOCR":        1,
-		"OUTPUT_FORMAT_TEXT":        2,
-		"OUTPUT_FORMAT_PAGE_XML":    3,
-	}
-)
-
-func (x OutputFormat) Enum() *OutputFormat {
-	p := new(OutputFormat)
-	*p = x
-	return p
-}
-
-func (x OutputFormat) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (OutputFormat) Descriptor() protoreflect.EnumDescriptor {
-	return file_scribe_v1_process_proto_enumTypes[0].Descriptor()
-}
-
-func (OutputFormat) Type() protoreflect.EnumType {
-	return &file_scribe_v1_process_proto_enumTypes[0]
-}
-
-func (x OutputFormat) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use OutputFormat.Descriptor instead.
-func (OutputFormat) EnumDescriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{0}
-}
-
-// ProcessImageURLRequest is kept for direct URL → hOCR flows that don't
-// need to create a full item first (e.g. Islandora integration).
+// ProcessImageURLRequest imports and schedules one image fetched from an
+// external URL. Retries must reuse idempotency_key.
 type ProcessImageURLRequest struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	ImageUrl     string                 `protobuf:"bytes,1,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
-	OutputFormat OutputFormat           `protobuf:"varint,2,opt,name=output_format,json=outputFormat,proto3,enum=scribe.v1.OutputFormat" json:"output_format,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	ImageUrl string                 `protobuf:"bytes,1,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
 	// If set, uses this context; otherwise selection engine runs against metadata.
 	ContextId uint64 `protobuf:"varint,3,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
 	// Optional metadata JSON passed to the selection engine.
-	Metadata      string `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Metadata       string `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	IdempotencyKey string `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProcessImageURLRequest) Reset() {
@@ -126,13 +74,6 @@ func (x *ProcessImageURLRequest) GetImageUrl() string {
 	return ""
 }
 
-func (x *ProcessImageURLRequest) GetOutputFormat() OutputFormat {
-	if x != nil {
-		return x.OutputFormat
-	}
-	return OutputFormat_OUTPUT_FORMAT_UNSPECIFIED
-}
-
 func (x *ProcessImageURLRequest) GetContextId() uint64 {
 	if x != nil {
 		return x.ContextId
@@ -147,88 +88,27 @@ func (x *ProcessImageURLRequest) GetMetadata() string {
 	return ""
 }
 
-type ProcessImageUploadRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ImageData     []byte                 `protobuf:"bytes,1,opt,name=image_data,json=imageData,proto3" json:"image_data,omitempty"`
-	Filename      string                 `protobuf:"bytes,2,opt,name=filename,proto3" json:"filename,omitempty"`
-	OutputFormat  OutputFormat           `protobuf:"varint,3,opt,name=output_format,json=outputFormat,proto3,enum=scribe.v1.OutputFormat" json:"output_format,omitempty"`
-	ContextId     uint64                 `protobuf:"varint,4,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ProcessImageUploadRequest) Reset() {
-	*x = ProcessImageUploadRequest{}
-	mi := &file_scribe_v1_process_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ProcessImageUploadRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ProcessImageUploadRequest) ProtoMessage() {}
-
-func (x *ProcessImageUploadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[1]
+func (x *ProcessImageURLRequest) GetIdempotencyKey() string {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ProcessImageUploadRequest.ProtoReflect.Descriptor instead.
-func (*ProcessImageUploadRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *ProcessImageUploadRequest) GetImageData() []byte {
-	if x != nil {
-		return x.ImageData
-	}
-	return nil
-}
-
-func (x *ProcessImageUploadRequest) GetFilename() string {
-	if x != nil {
-		return x.Filename
+		return x.IdempotencyKey
 	}
 	return ""
 }
 
-func (x *ProcessImageUploadRequest) GetOutputFormat() OutputFormat {
-	if x != nil {
-		return x.OutputFormat
-	}
-	return OutputFormat_OUTPUT_FORMAT_UNSPECIFIED
-}
-
-func (x *ProcessImageUploadRequest) GetContextId() uint64 {
-	if x != nil {
-		return x.ContextId
-	}
-	return 0
-}
-
 type ProcessHOCRRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Hocr          string                 `protobuf:"bytes,1,opt,name=hocr,proto3" json:"hocr,omitempty"`
-	ImageUrl      string                 `protobuf:"bytes,2,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
-	OutputFormat  OutputFormat           `protobuf:"varint,3,opt,name=output_format,json=outputFormat,proto3,enum=scribe.v1.OutputFormat" json:"output_format,omitempty"`
-	ImageData     []byte                 `protobuf:"bytes,4,opt,name=image_data,json=imageData,proto3" json:"image_data,omitempty"`
-	Filename      string                 `protobuf:"bytes,5,opt,name=filename,proto3" json:"filename,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Hocr           string                 `protobuf:"bytes,1,opt,name=hocr,proto3" json:"hocr,omitempty"`
+	ImageUrl       string                 `protobuf:"bytes,2,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
+	ImageData      []byte                 `protobuf:"bytes,4,opt,name=image_data,json=imageData,proto3" json:"image_data,omitempty"`
+	Filename       string                 `protobuf:"bytes,5,opt,name=filename,proto3" json:"filename,omitempty"`
+	IdempotencyKey string                 `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProcessHOCRRequest) Reset() {
 	*x = ProcessHOCRRequest{}
-	mi := &file_scribe_v1_process_proto_msgTypes[2]
+	mi := &file_scribe_v1_process_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -240,7 +120,7 @@ func (x *ProcessHOCRRequest) String() string {
 func (*ProcessHOCRRequest) ProtoMessage() {}
 
 func (x *ProcessHOCRRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[2]
+	mi := &file_scribe_v1_process_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -253,7 +133,7 @@ func (x *ProcessHOCRRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessHOCRRequest.ProtoReflect.Descriptor instead.
 func (*ProcessHOCRRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{2}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *ProcessHOCRRequest) GetHocr() string {
@@ -270,13 +150,6 @@ func (x *ProcessHOCRRequest) GetImageUrl() string {
 	return ""
 }
 
-func (x *ProcessHOCRRequest) GetOutputFormat() OutputFormat {
-	if x != nil {
-		return x.OutputFormat
-	}
-	return OutputFormat_OUTPUT_FORMAT_UNSPECIFIED
-}
-
 func (x *ProcessHOCRRequest) GetImageData() []byte {
 	if x != nil {
 		return x.ImageData
@@ -287,6 +160,13 @@ func (x *ProcessHOCRRequest) GetImageData() []byte {
 func (x *ProcessHOCRRequest) GetFilename() string {
 	if x != nil {
 		return x.Filename
+	}
+	return ""
+}
+
+func (x *ProcessHOCRRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
 	}
 	return ""
 }
@@ -307,7 +187,7 @@ type ProcessImageURLResponse struct {
 
 func (x *ProcessImageURLResponse) Reset() {
 	*x = ProcessImageURLResponse{}
-	mi := &file_scribe_v1_process_proto_msgTypes[3]
+	mi := &file_scribe_v1_process_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -319,7 +199,7 @@ func (x *ProcessImageURLResponse) String() string {
 func (*ProcessImageURLResponse) ProtoMessage() {}
 
 func (x *ProcessImageURLResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[3]
+	mi := &file_scribe_v1_process_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -332,7 +212,7 @@ func (x *ProcessImageURLResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessImageURLResponse.ProtoReflect.Descriptor instead.
 func (*ProcessImageURLResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{3}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ProcessImageURLResponse) GetItemId() string {
@@ -377,91 +257,6 @@ func (x *ProcessImageURLResponse) GetSessionId() string {
 	return ""
 }
 
-type ProcessImageUploadResponse struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	ItemId      string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
-	ItemImageId uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
-	ImageUrl    string                 `protobuf:"bytes,3,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
-	Hocr        string                 `protobuf:"bytes,4,opt,name=hocr,proto3" json:"hocr,omitempty"`
-	PlainText   string                 `protobuf:"bytes,5,opt,name=plain_text,json=plainText,proto3" json:"plain_text,omitempty"`
-	// Session-scoped identifier for OCR run lookups and async processing.
-	SessionId     string `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ProcessImageUploadResponse) Reset() {
-	*x = ProcessImageUploadResponse{}
-	mi := &file_scribe_v1_process_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ProcessImageUploadResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ProcessImageUploadResponse) ProtoMessage() {}
-
-func (x *ProcessImageUploadResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ProcessImageUploadResponse.ProtoReflect.Descriptor instead.
-func (*ProcessImageUploadResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *ProcessImageUploadResponse) GetItemId() string {
-	if x != nil {
-		return x.ItemId
-	}
-	return ""
-}
-
-func (x *ProcessImageUploadResponse) GetItemImageId() uint64 {
-	if x != nil {
-		return x.ItemImageId
-	}
-	return 0
-}
-
-func (x *ProcessImageUploadResponse) GetImageUrl() string {
-	if x != nil {
-		return x.ImageUrl
-	}
-	return ""
-}
-
-func (x *ProcessImageUploadResponse) GetHocr() string {
-	if x != nil {
-		return x.Hocr
-	}
-	return ""
-}
-
-func (x *ProcessImageUploadResponse) GetPlainText() string {
-	if x != nil {
-		return x.PlainText
-	}
-	return ""
-}
-
-func (x *ProcessImageUploadResponse) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
 type ProcessHOCRResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ItemId      string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
@@ -477,7 +272,7 @@ type ProcessHOCRResponse struct {
 
 func (x *ProcessHOCRResponse) Reset() {
 	*x = ProcessHOCRResponse{}
-	mi := &file_scribe_v1_process_proto_msgTypes[5]
+	mi := &file_scribe_v1_process_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -489,7 +284,7 @@ func (x *ProcessHOCRResponse) String() string {
 func (*ProcessHOCRResponse) ProtoMessage() {}
 
 func (x *ProcessHOCRResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[5]
+	mi := &file_scribe_v1_process_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -502,7 +297,7 @@ func (x *ProcessHOCRResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessHOCRResponse.ProtoReflect.Descriptor instead.
 func (*ProcessHOCRResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{5}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ProcessHOCRResponse) GetItemId() string {
@@ -556,7 +351,7 @@ type GetOCRRunRequest struct {
 
 func (x *GetOCRRunRequest) Reset() {
 	*x = GetOCRRunRequest{}
-	mi := &file_scribe_v1_process_proto_msgTypes[6]
+	mi := &file_scribe_v1_process_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -568,7 +363,7 @@ func (x *GetOCRRunRequest) String() string {
 func (*GetOCRRunRequest) ProtoMessage() {}
 
 func (x *GetOCRRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[6]
+	mi := &file_scribe_v1_process_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -581,7 +376,7 @@ func (x *GetOCRRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOCRRunRequest.ProtoReflect.Descriptor instead.
 func (*GetOCRRunRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{6}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GetOCRRunRequest) GetItemImageId() uint64 {
@@ -599,17 +394,18 @@ type GetOCRRunResponse struct {
 	Model               string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
 	OriginalHocr        string                 `protobuf:"bytes,5,opt,name=original_hocr,json=originalHocr,proto3" json:"original_hocr,omitempty"`
 	OriginalText        string                 `protobuf:"bytes,6,opt,name=original_text,json=originalText,proto3" json:"original_text,omitempty"`
-	CorrectedHocr       string                 `protobuf:"bytes,7,opt,name=corrected_hocr,json=correctedHocr,proto3" json:"corrected_hocr,omitempty"`
-	CorrectedText       string                 `protobuf:"bytes,8,opt,name=corrected_text,json=correctedText,proto3" json:"corrected_text,omitempty"`
-	EditCount           int32                  `protobuf:"varint,9,opt,name=edit_count,json=editCount,proto3" json:"edit_count,omitempty"`
 	LevenshteinDistance int32                  `protobuf:"varint,10,opt,name=levenshtein_distance,json=levenshteinDistance,proto3" json:"levenshtein_distance,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	ContextId           uint64                 `protobuf:"varint,11,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	// Revision of the canonical AnnotationPage used for this metric. Zero means
+	// the baseline OCR has not yet been corrected through the page API.
+	CanonicalRevision uint64 `protobuf:"varint,12,opt,name=canonical_revision,json=canonicalRevision,proto3" json:"canonical_revision,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GetOCRRunResponse) Reset() {
 	*x = GetOCRRunResponse{}
-	mi := &file_scribe_v1_process_proto_msgTypes[7]
+	mi := &file_scribe_v1_process_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -621,7 +417,7 @@ func (x *GetOCRRunResponse) String() string {
 func (*GetOCRRunResponse) ProtoMessage() {}
 
 func (x *GetOCRRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[7]
+	mi := &file_scribe_v1_process_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -634,7 +430,7 @@ func (x *GetOCRRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetOCRRunResponse.ProtoReflect.Descriptor instead.
 func (*GetOCRRunResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{7}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetOCRRunResponse) GetSessionId() string {
@@ -679,27 +475,6 @@ func (x *GetOCRRunResponse) GetOriginalText() string {
 	return ""
 }
 
-func (x *GetOCRRunResponse) GetCorrectedHocr() string {
-	if x != nil {
-		return x.CorrectedHocr
-	}
-	return ""
-}
-
-func (x *GetOCRRunResponse) GetCorrectedText() string {
-	if x != nil {
-		return x.CorrectedText
-	}
-	return ""
-}
-
-func (x *GetOCRRunResponse) GetEditCount() int32 {
-	if x != nil {
-		return x.EditCount
-	}
-	return 0
-}
-
 func (x *GetOCRRunResponse) GetLevenshteinDistance() int32 {
 	if x != nil {
 		return x.LevenshteinDistance
@@ -707,161 +482,37 @@ func (x *GetOCRRunResponse) GetLevenshteinDistance() int32 {
 	return 0
 }
 
-type SaveOCREditsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ItemImageId   uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
-	CorrectedHocr string                 `protobuf:"bytes,3,opt,name=corrected_hocr,json=correctedHocr,proto3" json:"corrected_hocr,omitempty"`
-	EditCount     int32                  `protobuf:"varint,4,opt,name=edit_count,json=editCount,proto3" json:"edit_count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SaveOCREditsRequest) Reset() {
-	*x = SaveOCREditsRequest{}
-	mi := &file_scribe_v1_process_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SaveOCREditsRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SaveOCREditsRequest) ProtoMessage() {}
-
-func (x *SaveOCREditsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[8]
+func (x *GetOCRRunResponse) GetContextId() uint64 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SaveOCREditsRequest.ProtoReflect.Descriptor instead.
-func (*SaveOCREditsRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *SaveOCREditsRequest) GetItemImageId() uint64 {
-	if x != nil {
-		return x.ItemImageId
+		return x.ContextId
 	}
 	return 0
 }
 
-func (x *SaveOCREditsRequest) GetCorrectedHocr() string {
+func (x *GetOCRRunResponse) GetCanonicalRevision() uint64 {
 	if x != nil {
-		return x.CorrectedHocr
-	}
-	return ""
-}
-
-func (x *SaveOCREditsRequest) GetEditCount() int32 {
-	if x != nil {
-		return x.EditCount
+		return x.CanonicalRevision
 	}
 	return 0
-}
-
-type SaveOCREditsResponse struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	SessionId           string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	ItemImageId         uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
-	EditCount           int32                  `protobuf:"varint,3,opt,name=edit_count,json=editCount,proto3" json:"edit_count,omitempty"`
-	LevenshteinDistance int32                  `protobuf:"varint,4,opt,name=levenshtein_distance,json=levenshteinDistance,proto3" json:"levenshtein_distance,omitempty"`
-	CorrectedPlainText  string                 `protobuf:"bytes,5,opt,name=corrected_plain_text,json=correctedPlainText,proto3" json:"corrected_plain_text,omitempty"`
-	OriginalPlainText   string                 `protobuf:"bytes,6,opt,name=original_plain_text,json=originalPlainText,proto3" json:"original_plain_text,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
-}
-
-func (x *SaveOCREditsResponse) Reset() {
-	*x = SaveOCREditsResponse{}
-	mi := &file_scribe_v1_process_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SaveOCREditsResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SaveOCREditsResponse) ProtoMessage() {}
-
-func (x *SaveOCREditsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SaveOCREditsResponse.ProtoReflect.Descriptor instead.
-func (*SaveOCREditsResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *SaveOCREditsResponse) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
-	}
-	return ""
-}
-
-func (x *SaveOCREditsResponse) GetItemImageId() uint64 {
-	if x != nil {
-		return x.ItemImageId
-	}
-	return 0
-}
-
-func (x *SaveOCREditsResponse) GetEditCount() int32 {
-	if x != nil {
-		return x.EditCount
-	}
-	return 0
-}
-
-func (x *SaveOCREditsResponse) GetLevenshteinDistance() int32 {
-	if x != nil {
-		return x.LevenshteinDistance
-	}
-	return 0
-}
-
-func (x *SaveOCREditsResponse) GetCorrectedPlainText() string {
-	if x != nil {
-		return x.CorrectedPlainText
-	}
-	return ""
-}
-
-func (x *SaveOCREditsResponse) GetOriginalPlainText() string {
-	if x != nil {
-		return x.OriginalPlainText
-	}
-	return ""
 }
 
 type ReprocessItemImageRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ItemImageId   uint64                 `protobuf:"varint,1,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
-	ContextId     uint64                 `protobuf:"varint,2,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ItemImageId uint64                 `protobuf:"varint,1,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	// Explicit processing context, or zero to resolve the workspace/default
+	// context before reserving provider work.
+	ContextId uint64 `protobuf:"varint,2,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	// Exact canonical AnnotationPage revision the caller reviewed. This is both
+	// the optimistic-concurrency fence and the stable operation identity used to
+	// deduplicate retries before invoking an expensive segmentation provider.
+	ExpectedRevision uint64 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ReprocessItemImageRequest) Reset() {
 	*x = ReprocessItemImageRequest{}
-	mi := &file_scribe_v1_process_proto_msgTypes[10]
+	mi := &file_scribe_v1_process_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -873,7 +524,7 @@ func (x *ReprocessItemImageRequest) String() string {
 func (*ReprocessItemImageRequest) ProtoMessage() {}
 
 func (x *ReprocessItemImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[10]
+	mi := &file_scribe_v1_process_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -886,7 +537,7 @@ func (x *ReprocessItemImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReprocessItemImageRequest.ProtoReflect.Descriptor instead.
 func (*ReprocessItemImageRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{10}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ReprocessItemImageRequest) GetItemImageId() uint64 {
@@ -903,23 +554,34 @@ func (x *ReprocessItemImageRequest) GetContextId() uint64 {
 	return 0
 }
 
+func (x *ReprocessItemImageRequest) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
 type ReprocessItemImageResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	ItemImageId   uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
-	ContextId     uint64                 `protobuf:"varint,3,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
-	ImageUrl      string                 `protobuf:"bytes,4,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
-	Hocr          string                 `protobuf:"bytes,5,opt,name=hocr,proto3" json:"hocr,omitempty"`
-	PlainText     string                 `protobuf:"bytes,6,opt,name=plain_text,json=plainText,proto3" json:"plain_text,omitempty"`
-	Provider      string                 `protobuf:"bytes,7,opt,name=provider,proto3" json:"provider,omitempty"`
-	Model         string                 `protobuf:"bytes,8,opt,name=model,proto3" json:"model,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	SessionId   string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ItemImageId uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	ContextId   uint64                 `protobuf:"varint,3,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	ImageUrl    string                 `protobuf:"bytes,4,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
+	Hocr        string                 `protobuf:"bytes,5,opt,name=hocr,proto3" json:"hocr,omitempty"`
+	PlainText   string                 `protobuf:"bytes,6,opt,name=plain_text,json=plainText,proto3" json:"plain_text,omitempty"`
+	Provider    string                 `protobuf:"bytes,7,opt,name=provider,proto3" json:"provider,omitempty"`
+	Model       string                 `protobuf:"bytes,8,opt,name=model,proto3" json:"model,omitempty"`
+	// Durable successor job created in the same transaction as the new baseline.
+	TranscriptionJobId uint64 `protobuf:"varint,9,opt,name=transcription_job_id,json=transcriptionJobId,proto3" json:"transcription_job_id,omitempty"`
+	// Canonical AnnotationPage revision committed by this operation.
+	CanonicalRevision uint64 `protobuf:"varint,10,opt,name=canonical_revision,json=canonicalRevision,proto3" json:"canonical_revision,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ReprocessItemImageResponse) Reset() {
 	*x = ReprocessItemImageResponse{}
-	mi := &file_scribe_v1_process_proto_msgTypes[11]
+	mi := &file_scribe_v1_process_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -931,7 +593,7 @@ func (x *ReprocessItemImageResponse) String() string {
 func (*ReprocessItemImageResponse) ProtoMessage() {}
 
 func (x *ReprocessItemImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_process_proto_msgTypes[11]
+	mi := &file_scribe_v1_process_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -944,7 +606,7 @@ func (x *ReprocessItemImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReprocessItemImageResponse.ProtoReflect.Descriptor instead.
 func (*ReprocessItemImageResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_process_proto_rawDescGZIP(), []int{11}
+	return file_scribe_v1_process_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ReprocessItemImageResponse) GetSessionId() string {
@@ -1003,42 +665,43 @@ func (x *ReprocessItemImageResponse) GetModel() string {
 	return ""
 }
 
+func (x *ReprocessItemImageResponse) GetTranscriptionJobId() uint64 {
+	if x != nil {
+		return x.TranscriptionJobId
+	}
+	return 0
+}
+
+func (x *ReprocessItemImageResponse) GetCanonicalRevision() uint64 {
+	if x != nil {
+		return x.CanonicalRevision
+	}
+	return 0
+}
+
 var File_scribe_v1_process_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
-	"\x17scribe/v1/process.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xd2\x01\n" +
-	"\x16ProcessImageURLRequest\x12-\n" +
-	"\timage_url\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\bimageUrl\x12<\n" +
-	"\routput_format\x18\x02 \x01(\x0e2\x17.scribe.v1.OutputFormatR\foutputFormat\x12\x1d\n" +
+	"\x17scribe/v1/process.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xe8\x01\n" +
+	"\x16ProcessImageURLRequest\x120\n" +
+	"\timage_url\x18\x01 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\x80\x102\x06.*\\S.*R\bimageUrl\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x03 \x01(\x04R\tcontextId\x12,\n" +
-	"\bmetadata\x18\x04 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bmetadata\"\xd1\x01\n" +
-	"\x19ProcessImageUploadRequest\x12)\n" +
+	"context_id\x18\x03 \x01(\x04R\tcontextId\x120\n" +
+	"\bmetadata\x18\x04 \x01(\tB\x14\xbaH\x11r\x0f(\x80\x80@2\t^$|.*\\S.*R\bmetadata\x126\n" +
+	"\x0fidempotency_key\x18\x05 \x01(\tB\r\xbaH\n" +
+	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKeyJ\x04\b\x02\x10\x03R\routput_format\"\xb5\x03\n" +
+	"\x12ProcessHOCRRequest\x12)\n" +
+	"\x04hocr\x18\x01 \x01(\tB\x15\xbaH\x12\xc8\x01\x01r\r(\x80\x80\x80\x052\x06.*\\S.*R\x04hocr\x120\n" +
+	"\timage_url\x18\x02 \x01(\tB\x13\xbaH\x10r\x0e\x18\x80\x102\t^$|.*\\S.*R\bimageUrl\x12)\n" +
 	"\n" +
-	"image_data\x18\x01 \x01(\fB\n" +
-	"\xbaH\a\xc8\x01\x01z\x02\x10\x01R\timageData\x12,\n" +
-	"\bfilename\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bfilename\x12<\n" +
-	"\routput_format\x18\x03 \x01(\x0e2\x17.scribe.v1.OutputFormatR\foutputFormat\x12\x1d\n" +
-	"\n" +
-	"context_id\x18\x04 \x01(\x04R\tcontextId\"\xf4\x01\n" +
-	"\x12ProcessHOCRRequest\x12$\n" +
-	"\x04hocr\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04hocr\x12-\n" +
-	"\timage_url\x18\x02 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bimageUrl\x12<\n" +
-	"\routput_format\x18\x03 \x01(\x0e2\x17.scribe.v1.OutputFormatR\foutputFormat\x12\x1d\n" +
-	"\n" +
-	"image_data\x18\x04 \x01(\fR\timageData\x12,\n" +
-	"\bfilename\x18\x05 \x01(\tB\x10\xbaH\rr\v2\t^$|.*\\S.*R\bfilename\"\xc5\x01\n" +
+	"image_data\x18\x04 \x01(\fB\n" +
+	"\xbaH\az\x05\x18\x80\x80\x802R\timageData\x12/\n" +
+	"\bfilename\x18\x05 \x01(\tB\x13\xbaH\x10r\x0e\x18\xff\x012\t^$|.*\\S.*R\bfilename\x126\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tB\r\xbaH\n" +
+	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKey:\x98\x01\xbaH\x94\x01\x1a\x91\x01\n" +
+	"\x19process_hocr.image_source\x122exactly one of image_url or image_data is required\x1a@this.image_url.matches('.*\\\\S.*') != (size(this.image_data) > 0)J\x04\b\x03\x10\x04R\routput_format\"\xc5\x01\n" +
 	"\x17ProcessImageURLResponse\x12\x17\n" +
-	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\"\n" +
-	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +
-	"\timage_url\x18\x03 \x01(\tR\bimageUrl\x12\x12\n" +
-	"\x04hocr\x18\x04 \x01(\tR\x04hocr\x12\x1d\n" +
-	"\n" +
-	"plain_text\x18\x05 \x01(\tR\tplainText\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x06 \x01(\tR\tsessionId\"\xc8\x01\n" +
-	"\x1aProcessImageUploadResponse\x12\x17\n" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +
 	"\timage_url\x18\x03 \x01(\tR\bimageUrl\x12\x12\n" +
@@ -1058,7 +721,7 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"session_id\x18\x06 \x01(\tR\tsessionId\"\x88\x01\n" +
 	"\x10GetOCRRunRequest\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId:P\xbaHM\x1aK\n" +
-	"\x16get_ocr_run.identifier\x12\x19item_image_id is required\x1a\x16this.item_image_id > 0\"\xf3\x02\n" +
+	"\x16get_ocr_run.identifier\x12\x19item_image_id is required\x1a\x16this.item_image_id > 0\"\x92\x03\n" +
 	"\x11GetOCRRunResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
@@ -1066,33 +729,21 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\timage_url\x18\x03 \x01(\tR\bimageUrl\x12\x14\n" +
 	"\x05model\x18\x04 \x01(\tR\x05model\x12#\n" +
 	"\roriginal_hocr\x18\x05 \x01(\tR\foriginalHocr\x12#\n" +
-	"\roriginal_text\x18\x06 \x01(\tR\foriginalText\x12%\n" +
-	"\x0ecorrected_hocr\x18\a \x01(\tR\rcorrectedHocr\x12%\n" +
-	"\x0ecorrected_text\x18\b \x01(\tR\rcorrectedText\x12\x1d\n" +
-	"\n" +
-	"edit_count\x18\t \x01(\x05R\teditCount\x121\n" +
+	"\roriginal_text\x18\x06 \x01(\tR\foriginalText\x121\n" +
 	"\x14levenshtein_distance\x18\n" +
-	" \x01(\x05R\x13levenshteinDistance\"\xe6\x01\n" +
-	"\x13SaveOCREditsRequest\x12\"\n" +
-	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x127\n" +
-	"\x0ecorrected_hocr\x18\x03 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\rcorrectedHocr\x12\x1d\n" +
+	" \x01(\x05R\x13levenshteinDistance\x12\x1d\n" +
 	"\n" +
-	"edit_count\x18\x04 \x01(\x05R\teditCount:S\xbaHP\x1aN\n" +
-	"\x19save_ocr_edits.identifier\x12\x19item_image_id is required\x1a\x16this.item_image_id > 0\"\x8d\x02\n" +
-	"\x14SaveOCREditsResponse\x12\x1d\n" +
-	"\n" +
-	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
-	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1d\n" +
-	"\n" +
-	"edit_count\x18\x03 \x01(\x05R\teditCount\x121\n" +
-	"\x14levenshtein_distance\x18\x04 \x01(\x05R\x13levenshteinDistance\x120\n" +
-	"\x14corrected_plain_text\x18\x05 \x01(\tR\x12correctedPlainText\x12.\n" +
-	"\x13original_plain_text\x18\x06 \x01(\tR\x11originalPlainText\"j\n" +
+	"context_id\x18\v \x01(\x04R\tcontextId\x12-\n" +
+	"\x12canonical_revision\x18\f \x01(\x04R\x11canonicalRevisionJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"R\x0ecorrected_hocrR\x0ecorrected_textR\n" +
+	"edit_count\"\xa3\x01\n" +
 	"\x19ReprocessItemImageRequest\x12.\n" +
 	"\ritem_image_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\vitemImageId\x12\x1d\n" +
 	"\n" +
-	"context_id\x18\x02 \x01(\x04R\tcontextId\"\x80\x02\n" +
+	"context_id\x18\x02 \x01(\x04R\tcontextId\x127\n" +
+	"\x11expected_revision\x18\x03 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\x10expectedRevision\"\xe1\x02\n" +
 	"\x1aReprocessItemImageResponse\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
@@ -1104,18 +755,14 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
 	"plain_text\x18\x06 \x01(\tR\tplainText\x12\x1a\n" +
 	"\bprovider\x18\a \x01(\tR\bprovider\x12\x14\n" +
-	"\x05model\x18\b \x01(\tR\x05model*y\n" +
-	"\fOutputFormat\x12\x1d\n" +
-	"\x19OUTPUT_FORMAT_UNSPECIFIED\x10\x00\x12\x16\n" +
-	"\x12OUTPUT_FORMAT_HOCR\x10\x01\x12\x16\n" +
-	"\x12OUTPUT_FORMAT_TEXT\x10\x02\x12\x1a\n" +
-	"\x16OUTPUT_FORMAT_PAGE_XML\x10\x032\x88\x05\n" +
+	"\x05model\x18\b \x01(\tR\x05model\x120\n" +
+	"\x14transcription_job_id\x18\t \x01(\x04R\x12transcriptionJobId\x12-\n" +
+	"\x12canonical_revision\x18\n" +
+	" \x01(\x04R\x11canonicalRevision2\xb1\x03\n" +
 	"\x16ImageProcessingService\x12b\n" +
-	"\x0fProcessImageURL\x12!.scribe.v1.ProcessImageURLRequest\x1a\".scribe.v1.ProcessImageURLResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12k\n" +
-	"\x12ProcessImageUpload\x12$.scribe.v1.ProcessImageUploadRequest\x1a%.scribe.v1.ProcessImageUploadResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12V\n" +
+	"\x0fProcessImageURL\x12!.scribe.v1.ProcessImageURLRequest\x1a\".scribe.v1.ProcessImageURLResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12V\n" +
 	"\vProcessHOCR\x12\x1d.scribe.v1.ProcessHOCRRequest\x1a\x1e.scribe.v1.ProcessHOCRResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12_\n" +
-	"\tGetOCRRun\x12\x1b.scribe.v1.GetOCRRunRequest\x1a\x1c.scribe.v1.GetOCRRunResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12h\n" +
-	"\fSaveOCREdits\x12\x1e.scribe.v1.SaveOCREditsRequest\x1a\x1f.scribe.v1.SaveOCREditsResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12z\n" +
+	"\tGetOCRRun\x12\x1b.scribe.v1.GetOCRRunRequest\x1a\x1c.scribe.v1.GetOCRRunResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12z\n" +
 	"\x12ReprocessItemImage\x12$.scribe.v1.ReprocessItemImageRequest\x1a%.scribe.v1.ReprocessItemImageResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_idB\xaa\x01\n" +
 	"\rcom.scribe.v1B\fProcessProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
@@ -1132,44 +779,31 @@ func file_scribe_v1_process_proto_rawDescGZIP() []byte {
 	return file_scribe_v1_process_proto_rawDescData
 }
 
-var file_scribe_v1_process_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_scribe_v1_process_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_scribe_v1_process_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_scribe_v1_process_proto_goTypes = []any{
-	(OutputFormat)(0),                  // 0: scribe.v1.OutputFormat
-	(*ProcessImageURLRequest)(nil),     // 1: scribe.v1.ProcessImageURLRequest
-	(*ProcessImageUploadRequest)(nil),  // 2: scribe.v1.ProcessImageUploadRequest
-	(*ProcessHOCRRequest)(nil),         // 3: scribe.v1.ProcessHOCRRequest
-	(*ProcessImageURLResponse)(nil),    // 4: scribe.v1.ProcessImageURLResponse
-	(*ProcessImageUploadResponse)(nil), // 5: scribe.v1.ProcessImageUploadResponse
-	(*ProcessHOCRResponse)(nil),        // 6: scribe.v1.ProcessHOCRResponse
-	(*GetOCRRunRequest)(nil),           // 7: scribe.v1.GetOCRRunRequest
-	(*GetOCRRunResponse)(nil),          // 8: scribe.v1.GetOCRRunResponse
-	(*SaveOCREditsRequest)(nil),        // 9: scribe.v1.SaveOCREditsRequest
-	(*SaveOCREditsResponse)(nil),       // 10: scribe.v1.SaveOCREditsResponse
-	(*ReprocessItemImageRequest)(nil),  // 11: scribe.v1.ReprocessItemImageRequest
-	(*ReprocessItemImageResponse)(nil), // 12: scribe.v1.ReprocessItemImageResponse
+	(*ProcessImageURLRequest)(nil),     // 0: scribe.v1.ProcessImageURLRequest
+	(*ProcessHOCRRequest)(nil),         // 1: scribe.v1.ProcessHOCRRequest
+	(*ProcessImageURLResponse)(nil),    // 2: scribe.v1.ProcessImageURLResponse
+	(*ProcessHOCRResponse)(nil),        // 3: scribe.v1.ProcessHOCRResponse
+	(*GetOCRRunRequest)(nil),           // 4: scribe.v1.GetOCRRunRequest
+	(*GetOCRRunResponse)(nil),          // 5: scribe.v1.GetOCRRunResponse
+	(*ReprocessItemImageRequest)(nil),  // 6: scribe.v1.ReprocessItemImageRequest
+	(*ReprocessItemImageResponse)(nil), // 7: scribe.v1.ReprocessItemImageResponse
 }
 var file_scribe_v1_process_proto_depIdxs = []int32{
-	0,  // 0: scribe.v1.ProcessImageURLRequest.output_format:type_name -> scribe.v1.OutputFormat
-	0,  // 1: scribe.v1.ProcessImageUploadRequest.output_format:type_name -> scribe.v1.OutputFormat
-	0,  // 2: scribe.v1.ProcessHOCRRequest.output_format:type_name -> scribe.v1.OutputFormat
-	1,  // 3: scribe.v1.ImageProcessingService.ProcessImageURL:input_type -> scribe.v1.ProcessImageURLRequest
-	2,  // 4: scribe.v1.ImageProcessingService.ProcessImageUpload:input_type -> scribe.v1.ProcessImageUploadRequest
-	3,  // 5: scribe.v1.ImageProcessingService.ProcessHOCR:input_type -> scribe.v1.ProcessHOCRRequest
-	7,  // 6: scribe.v1.ImageProcessingService.GetOCRRun:input_type -> scribe.v1.GetOCRRunRequest
-	9,  // 7: scribe.v1.ImageProcessingService.SaveOCREdits:input_type -> scribe.v1.SaveOCREditsRequest
-	11, // 8: scribe.v1.ImageProcessingService.ReprocessItemImage:input_type -> scribe.v1.ReprocessItemImageRequest
-	4,  // 9: scribe.v1.ImageProcessingService.ProcessImageURL:output_type -> scribe.v1.ProcessImageURLResponse
-	5,  // 10: scribe.v1.ImageProcessingService.ProcessImageUpload:output_type -> scribe.v1.ProcessImageUploadResponse
-	6,  // 11: scribe.v1.ImageProcessingService.ProcessHOCR:output_type -> scribe.v1.ProcessHOCRResponse
-	8,  // 12: scribe.v1.ImageProcessingService.GetOCRRun:output_type -> scribe.v1.GetOCRRunResponse
-	10, // 13: scribe.v1.ImageProcessingService.SaveOCREdits:output_type -> scribe.v1.SaveOCREditsResponse
-	12, // 14: scribe.v1.ImageProcessingService.ReprocessItemImage:output_type -> scribe.v1.ReprocessItemImageResponse
-	9,  // [9:15] is the sub-list for method output_type
-	3,  // [3:9] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	0, // 0: scribe.v1.ImageProcessingService.ProcessImageURL:input_type -> scribe.v1.ProcessImageURLRequest
+	1, // 1: scribe.v1.ImageProcessingService.ProcessHOCR:input_type -> scribe.v1.ProcessHOCRRequest
+	4, // 2: scribe.v1.ImageProcessingService.GetOCRRun:input_type -> scribe.v1.GetOCRRunRequest
+	6, // 3: scribe.v1.ImageProcessingService.ReprocessItemImage:input_type -> scribe.v1.ReprocessItemImageRequest
+	2, // 4: scribe.v1.ImageProcessingService.ProcessImageURL:output_type -> scribe.v1.ProcessImageURLResponse
+	3, // 5: scribe.v1.ImageProcessingService.ProcessHOCR:output_type -> scribe.v1.ProcessHOCRResponse
+	5, // 6: scribe.v1.ImageProcessingService.GetOCRRun:output_type -> scribe.v1.GetOCRRunResponse
+	7, // 7: scribe.v1.ImageProcessingService.ReprocessItemImage:output_type -> scribe.v1.ReprocessItemImageResponse
+	4, // [4:8] is the sub-list for method output_type
+	0, // [0:4] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_scribe_v1_process_proto_init() }
@@ -1182,14 +816,13 @@ func file_scribe_v1_process_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_process_proto_rawDesc), len(file_scribe_v1_process_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   12,
+			NumEnums:      0,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_scribe_v1_process_proto_goTypes,
 		DependencyIndexes: file_scribe_v1_process_proto_depIdxs,
-		EnumInfos:         file_scribe_v1_process_proto_enumTypes,
 		MessageInfos:      file_scribe_v1_process_proto_msgTypes,
 	}.Build()
 	File_scribe_v1_process_proto = out.File

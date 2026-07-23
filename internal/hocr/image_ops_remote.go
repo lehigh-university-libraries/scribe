@@ -11,7 +11,13 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
 
-func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lineIndex int) (string, error) {
+func (s *Service) extractLineImage(ctx context.Context, imagePath string, minX, minY, maxX, maxY, lineIndex int) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	width := maxX - minX
 	height := maxY - minY
 	if width <= 0 || height <= 0 {
@@ -21,10 +27,10 @@ func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lin
 	padding := 10
 	client := imageservice.New()
 	if !client.Enabled() {
-		return "", fmt.Errorf("image_service.url is required when built with remoteocr")
+		return "", fmt.Errorf("iiif.internal_base, iiif.source_base, and the Triplet source token are required when built with remoteocr")
 	}
 
-	data, err := client.Crop(context.Background(), imagePath, imageservice.Box{
+	data, err := client.Crop(ctx, imagePath, imageservice.Box{
 		X:      max(0, minX-padding),
 		Y:      max(0, minY-padding),
 		Width:  width + 2*padding,
@@ -36,13 +42,19 @@ func (s *Service) extractLineImage(imagePath string, minX, minY, maxX, maxY, lin
 	return writeTempImage(data, "line-*.jpg")
 }
 
-func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordBox) (string, error) {
+func (s *Service) stitchWordImages(ctx context.Context, imagePath string, words []worddetection.WordBox) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if len(words) == 0 {
 		return "", fmt.Errorf("no words to stitch")
 	}
 	client := imageservice.New()
 	if !client.Enabled() {
-		return "", fmt.Errorf("image_service.url is required when built with remoteocr")
+		return "", fmt.Errorf("iiif.internal_base, iiif.source_base, and the Triplet source token are required when built with remoteocr")
 	}
 
 	boxes := make([]imageservice.Box, 0, len(words))
@@ -54,7 +66,7 @@ func (s *Service) stitchWordImages(imagePath string, words []worddetection.WordB
 			Height: word.Height,
 		})
 	}
-	data, err := client.StitchHorizontal(context.Background(), imagePath, boxes, 5)
+	data, err := client.StitchHorizontal(ctx, imagePath, boxes, 5)
 	if err != nil {
 		return "", err
 	}

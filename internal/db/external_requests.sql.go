@@ -8,46 +8,181 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
-const completeExternalRequestManual = `-- name: CompleteExternalRequestManual :exec
+const completeExternalRequestManual = `-- name: CompleteExternalRequestManual :execresult
 UPDATE external_requests
 SET
   status = 'completed',
   item_id = ?,
   item_image_id = ?,
   transcription_job_id = ?,
+  session_id = ?,
   error_message = NULL,
   lease_until = NULL,
   locked_by = NULL,
   updated_at = NOW()
-WHERE workspace_id = ?
-  AND source = ?
-  AND idempotency_key = ?
+WHERE external_requests.workspace_id = ?
+  AND external_requests.source = ?
+	AND external_requests.idempotency_key = ?
+	AND external_requests.status = 'in_progress'
+	AND external_requests.locked_by = ?
+  AND (
+    ? IS NULL
+    OR EXISTS (
+      SELECT 1 FROM items i
+      WHERE i.workspace_id = ?
+        AND i.id = ?
+    )
+  )
+  AND (
+    ? IS NULL
+    OR EXISTS (
+      SELECT 1 FROM item_images ii
+      WHERE ii.workspace_id = ?
+        AND ii.id = ?
+        AND (? IS NULL OR ii.item_id = ?)
+    )
+  )
+  AND (
+    ? IS NULL
+    OR EXISTS (
+      SELECT 1 FROM transcription_jobs tj
+      WHERE tj.workspace_id = ?
+        AND tj.id = ?
+        AND (? IS NULL OR tj.item_image_id = ?)
+    )
+  )
+  AND (
+    ? IS NULL
+    OR EXISTS (
+      SELECT 1 FROM ocr_runs run
+      WHERE run.workspace_id = ?
+        AND run.session_id = ?
+        AND (? IS NULL OR run.item_image_id = ?)
+    )
+  )
+  AND (
+    ? IS NULL
+    OR ? IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM transcription_jobs item_job
+      JOIN item_images item_job_image ON item_job_image.id = item_job.item_image_id
+      WHERE item_job.workspace_id = ?
+        AND item_job.id = ?
+        AND item_job_image.workspace_id = ?
+        AND item_job_image.item_id = ?
+    )
+  )
+  AND (
+    ? IS NULL
+    OR ? IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM ocr_runs item_run
+      JOIN item_images item_run_image ON item_run_image.id = item_run.item_image_id
+      WHERE item_run.workspace_id = ?
+        AND item_run.session_id = ?
+        AND item_run_image.workspace_id = ?
+        AND item_run_image.item_id = ?
+    )
+  )
+  AND (
+    ? IS NULL
+    OR ? IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM transcription_jobs paired_job
+      JOIN ocr_runs paired_run
+        ON paired_run.workspace_id = paired_job.workspace_id
+       AND paired_run.item_image_id = paired_job.item_image_id
+      WHERE paired_job.workspace_id = ?
+        AND paired_job.id = ?
+        AND paired_run.session_id = ?
+    )
+  )
 `
 
 type CompleteExternalRequestManualParams struct {
 	ItemID             sql.NullString `json:"item_id"`
 	ItemImageID        sql.NullInt64  `json:"item_image_id"`
 	TranscriptionJobID sql.NullInt64  `json:"transcription_job_id"`
+	SessionID          sql.NullString `json:"session_id"`
 	WorkspaceID        uint64         `json:"workspace_id"`
 	Source             string         `json:"source"`
 	IdempotencyKey     string         `json:"idempotency_key"`
+	LockedBy           sql.NullString `json:"locked_by"`
 }
 
-func (q *Queries) CompleteExternalRequestManual(ctx context.Context, arg CompleteExternalRequestManualParams) error {
-	_, err := q.db.ExecContext(ctx, completeExternalRequestManual,
+func (q *Queries) CompleteExternalRequestManual(ctx context.Context, arg CompleteExternalRequestManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, completeExternalRequestManual,
 		arg.ItemID,
 		arg.ItemImageID,
 		arg.TranscriptionJobID,
+		arg.SessionID,
 		arg.WorkspaceID,
 		arg.Source,
 		arg.IdempotencyKey,
+		arg.LockedBy,
+		arg.ItemID,
+		arg.WorkspaceID,
+		arg.ItemID,
+		arg.ItemImageID,
+		arg.WorkspaceID,
+		arg.ItemImageID,
+		arg.ItemID,
+		arg.ItemID,
+		arg.TranscriptionJobID,
+		arg.WorkspaceID,
+		arg.TranscriptionJobID,
+		arg.ItemImageID,
+		arg.ItemImageID,
+		arg.SessionID,
+		arg.WorkspaceID,
+		arg.SessionID,
+		arg.ItemImageID,
+		arg.ItemImageID,
+		arg.ItemID,
+		arg.TranscriptionJobID,
+		arg.WorkspaceID,
+		arg.TranscriptionJobID,
+		arg.WorkspaceID,
+		arg.ItemID,
+		arg.ItemID,
+		arg.SessionID,
+		arg.WorkspaceID,
+		arg.SessionID,
+		arg.WorkspaceID,
+		arg.ItemID,
+		arg.TranscriptionJobID,
+		arg.SessionID,
+		arg.WorkspaceID,
+		arg.TranscriptionJobID,
+		arg.SessionID,
 	)
-	return err
 }
 
-const failExternalRequestManual = `-- name: FailExternalRequestManual :exec
+const deleteRetainableExternalRequestsManual = `-- name: DeleteRetainableExternalRequestsManual :execresult
+DELETE FROM external_requests
+WHERE updated_at < ?
+  AND (
+    status IN ('completed', 'failed')
+    OR (
+      status = 'in_progress'
+      AND (lease_until IS NULL OR lease_until < NOW())
+    )
+  )
+ORDER BY id
+LIMIT 1000
+`
+
+func (q *Queries) DeleteRetainableExternalRequestsManual(ctx context.Context, cutoff time.Time) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteRetainableExternalRequestsManual, cutoff)
+}
+
+const failExternalRequestManual = `-- name: FailExternalRequestManual :execresult
 UPDATE external_requests
 SET
   status = 'failed',
@@ -57,7 +192,9 @@ SET
   updated_at = NOW()
 WHERE workspace_id = ?
   AND source = ?
-  AND idempotency_key = ?
+	AND idempotency_key = ?
+	AND status = 'in_progress'
+	AND locked_by = ?
 `
 
 type FailExternalRequestManualParams struct {
@@ -65,16 +202,57 @@ type FailExternalRequestManualParams struct {
 	WorkspaceID    uint64         `json:"workspace_id"`
 	Source         string         `json:"source"`
 	IdempotencyKey string         `json:"idempotency_key"`
+	LockedBy       sql.NullString `json:"locked_by"`
 }
 
-func (q *Queries) FailExternalRequestManual(ctx context.Context, arg FailExternalRequestManualParams) error {
-	_, err := q.db.ExecContext(ctx, failExternalRequestManual,
+func (q *Queries) FailExternalRequestManual(ctx context.Context, arg FailExternalRequestManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, failExternalRequestManual,
 		arg.ErrorMessage,
 		arg.WorkspaceID,
 		arg.Source,
 		arg.IdempotencyKey,
+		arg.LockedBy,
 	)
-	return err
+}
+
+const getExternalRequestManual = `-- name: GetExternalRequestManual :one
+SELECT id, workspace_id, source, idempotency_key, request_hash, status, item_id, item_image_id, transcription_job_id, session_id, event_header, attempt_count, max_attempts, lease_until, locked_by, error_message, created_at, updated_at
+FROM external_requests
+WHERE workspace_id = ?
+  AND source = ?
+  AND idempotency_key = ?
+`
+
+type GetExternalRequestManualParams struct {
+	WorkspaceID    uint64 `json:"workspace_id"`
+	Source         string `json:"source"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+func (q *Queries) GetExternalRequestManual(ctx context.Context, arg GetExternalRequestManualParams) (ExternalRequest, error) {
+	row := q.db.QueryRowContext(ctx, getExternalRequestManual, arg.WorkspaceID, arg.Source, arg.IdempotencyKey)
+	var i ExternalRequest
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Source,
+		&i.IdempotencyKey,
+		&i.RequestHash,
+		&i.Status,
+		&i.ItemID,
+		&i.ItemImageID,
+		&i.TranscriptionJobID,
+		&i.SessionID,
+		&i.EventHeader,
+		&i.AttemptCount,
+		&i.MaxAttempts,
+		&i.LeaseUntil,
+		&i.LockedBy,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const insertExternalRequestManual = `-- name: InsertExternalRequestManual :execresult
@@ -82,40 +260,56 @@ INSERT INTO external_requests (
   workspace_id,
   source,
   idempotency_key,
+  request_hash,
   status,
+  item_image_id,
   event_header,
   attempt_count,
   lease_until,
   locked_by
-) VALUES (
+) SELECT
+  w.id,
   ?,
   ?,
   ?,
   'in_progress',
   ?,
+  ?,
   1,
   ?,
   ?
-)
+FROM workspaces w
+LEFT JOIN item_images ii
+  ON ii.workspace_id = w.id
+ AND ii.id = ?
+WHERE w.id = ?
+  AND (? IS NULL OR ii.id IS NOT NULL)
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(external_requests.id)
 `
 
 type InsertExternalRequestManualParams struct {
-	WorkspaceID    uint64         `json:"workspace_id"`
 	Source         string         `json:"source"`
 	IdempotencyKey string         `json:"idempotency_key"`
+	RequestHash    string         `json:"request_hash"`
+	ItemImageID    sql.NullInt64  `json:"item_image_id"`
 	EventHeader    sql.NullString `json:"event_header"`
 	LeaseUntil     sql.NullTime   `json:"lease_until"`
 	LockedBy       sql.NullString `json:"locked_by"`
+	WorkspaceID    uint64         `json:"workspace_id"`
 }
 
 func (q *Queries) InsertExternalRequestManual(ctx context.Context, arg InsertExternalRequestManualParams) (sql.Result, error) {
 	return q.db.ExecContext(ctx, insertExternalRequestManual,
-		arg.WorkspaceID,
 		arg.Source,
 		arg.IdempotencyKey,
+		arg.RequestHash,
+		arg.ItemImageID,
 		arg.EventHeader,
 		arg.LeaseUntil,
 		arg.LockedBy,
+		arg.ItemImageID,
+		arg.WorkspaceID,
+		arg.ItemImageID,
 	)
 }
 
@@ -124,6 +318,10 @@ UPDATE external_requests
 SET
   status = 'in_progress',
   event_header = ?,
+  item_id = NULL,
+  item_image_id = COALESCE(?, item_image_id),
+  transcription_job_id = NULL,
+  session_id = NULL,
   error_message = NULL,
   attempt_count = attempt_count + 1,
   lease_until = ?,
@@ -134,6 +332,7 @@ WHERE id = ?
 
 type ReclaimExternalRequestManualParams struct {
 	EventHeader sql.NullString `json:"event_header"`
+	ItemImageID sql.NullInt64  `json:"item_image_id"`
 	LeaseUntil  sql.NullTime   `json:"lease_until"`
 	LockedBy    sql.NullString `json:"locked_by"`
 	ID          uint64         `json:"id"`
@@ -142,6 +341,7 @@ type ReclaimExternalRequestManualParams struct {
 func (q *Queries) ReclaimExternalRequestManual(ctx context.Context, arg ReclaimExternalRequestManualParams) error {
 	_, err := q.db.ExecContext(ctx, reclaimExternalRequestManual,
 		arg.EventHeader,
+		arg.ItemImageID,
 		arg.LeaseUntil,
 		arg.LockedBy,
 		arg.ID,
@@ -155,10 +355,12 @@ SELECT
   workspace_id,
   source,
   idempotency_key,
+  request_hash,
   status,
   item_id,
   item_image_id,
   transcription_job_id,
+  session_id,
   attempt_count,
   max_attempts,
   lease_until,
@@ -182,10 +384,12 @@ type SelectExternalRequestForUpdateManualRow struct {
 	WorkspaceID        uint64                 `json:"workspace_id"`
 	Source             string                 `json:"source"`
 	IdempotencyKey     string                 `json:"idempotency_key"`
+	RequestHash        string                 `json:"request_hash"`
 	Status             ExternalRequestsStatus `json:"status"`
 	ItemID             sql.NullString         `json:"item_id"`
 	ItemImageID        sql.NullInt64          `json:"item_image_id"`
 	TranscriptionJobID sql.NullInt64          `json:"transcription_job_id"`
+	SessionID          sql.NullString         `json:"session_id"`
 	AttemptCount       int32                  `json:"attempt_count"`
 	MaxAttempts        int32                  `json:"max_attempts"`
 	LeaseUntil         sql.NullTime           `json:"lease_until"`
@@ -201,10 +405,12 @@ func (q *Queries) SelectExternalRequestForUpdateManual(ctx context.Context, arg 
 		&i.WorkspaceID,
 		&i.Source,
 		&i.IdempotencyKey,
+		&i.RequestHash,
 		&i.Status,
 		&i.ItemID,
 		&i.ItemImageID,
 		&i.TranscriptionJobID,
+		&i.SessionID,
 		&i.AttemptCount,
 		&i.MaxAttempts,
 		&i.LeaseUntil,

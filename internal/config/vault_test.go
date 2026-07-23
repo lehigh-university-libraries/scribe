@@ -116,3 +116,41 @@ func TestLoadSecretsStillRequiresDatabaseSecret(t *testing.T) {
 		t.Fatal("expected error when required database secret is missing")
 	}
 }
+
+func TestLoadSecretsPreviewModeRequiresOnlyItsDatabaseBootstrap(t *testing.T) {
+	t.Setenv("VAULT_ADDRESS", "")
+	t.Setenv("VAULT_TOKEN", "test-token")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/secret/data/scribe/pr-75/openai", "/v1/secret/data/scribe/pr-75/gemini":
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{"errors": []string{}})
+		case "/v1/secret/data/scribe/pr-75/database/app":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": map[string]string{"password": "preview-db-password"}}})
+		default:
+			t.Fatalf("preview attempted unauthorized Vault path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := Config{
+		Auth: AuthConfig{PreviewAnonymous: true},
+		Vault: VaultConfig{
+			Address: srv.URL, KVMount: "secret", GCPAuthRole: "scribe-app-pr-75", Token: "test-token",
+			Paths: VaultPaths{
+				GoogleOAuth: "scribe/pr-75/google_oauth",
+				OpenAI:      "scribe/pr-75/openai",
+				Gemini:      "scribe/pr-75/gemini",
+				Database:    "scribe/pr-75/database/app",
+			},
+		},
+	}
+	secrets, err := LoadSecrets(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("LoadSecrets preview: %v", err)
+	}
+	if secrets.DatabasePassword != "preview-db-password" || secrets.GoogleOAuthClientID != "" || secrets.GoogleOAuthClientSecret != "" {
+		t.Fatalf("preview secrets = %+v", secrets)
+	}
+}

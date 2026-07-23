@@ -1,18 +1,42 @@
 version: 2
 before:
   hooks:
-    - go mod tidy
+    - go mod verify
 builds:
-  - binary: scribe
+  - id: api
+    main: ./cmd/api
+    binary: scribe-api
     env:
       - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    tags:
+      - remoteocr
+    goos:
+      - linux
+      - windows
+      - darwin
+  - id: worker
+    main: ./cmd/worker
+    binary: scribe-worker
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    tags:
+      - remoteocr
     goos:
       - linux
       - windows
       - darwin
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     # this name template makes the OS and Arch compatible with the results of uname.
     name_template: >-
       {{ .ProjectName }}_
@@ -23,12 +47,13 @@ archives:
       {{- if .Arm }}v{{ .Arm }}{{ end }}
     # use zip for windows archives
     format_overrides:
-    - goos: windows
-      format: zip
+      - goos: windows
+        formats:
+          - zip
 checksum:
   name_template: 'checksums.txt'
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 changelog:
   sort: asc
   filters:
@@ -37,12 +62,22 @@ changelog:
       - '^test:'
       - '^fixtures:'
 
-brews:
+release:
+  draft: true
+  use_existing_draft: true
+  replace_existing_artifacts: true
+
+homebrew_casks:
   - name: scribe
+    binaries:
+      - scribe-api
+      - scribe-worker
     homepage: "https://github.com/lehigh-university-libraries/scribe"
+    description: "IIIF-native handwritten document segmentation, transcription, and correction services"
     commit_author:
       name: joecorall
       email: jjc223@lehigh.edu
     repository:
       owner: lehigh-university-libraries
       name: homebrew
+      token: "{{ .Env.HOMEBREW_REPO_TOKEN }}"

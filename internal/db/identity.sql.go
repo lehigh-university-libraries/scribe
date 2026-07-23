@@ -11,21 +11,103 @@ import (
 	"time"
 )
 
+const acquireIdentityConvergenceLockManual = `-- name: AcquireIdentityConvergenceLockManual :one
+SELECT GET_LOCK(?, 30)
+`
+
+// Name-locking is connection scoped and intentionally wraps the entire
+// identity transaction. The caller hashes subject/email values before use so
+// lock names never expose identity data through MariaDB diagnostics.
+func (q *Queries) AcquireIdentityConvergenceLockManual(ctx context.Context, lockName string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, acquireIdentityConvergenceLockManual, lockName)
+	var get_lock bool
+	err := row.Scan(&get_lock)
+	return get_lock, err
+}
+
+const addWorkspaceMemberManual = `-- name: AddWorkspaceMemberManual :exec
+INSERT INTO workspace_members (
+  workspace_id,
+  user_id,
+  role
+) VALUES (
+  ?,
+  ?,
+  ?
+)
+`
+
+type AddWorkspaceMemberManualParams struct {
+	WorkspaceID uint64               `json:"workspace_id"`
+	UserID      uint64               `json:"user_id"`
+	Role        WorkspaceMembersRole `json:"role"`
+}
+
+func (q *Queries) AddWorkspaceMemberManual(ctx context.Context, arg AddWorkspaceMemberManualParams) error {
+	_, err := q.db.ExecContext(ctx, addWorkspaceMemberManual, arg.WorkspaceID, arg.UserID, arg.Role)
+	return err
+}
+
+const countAuthSessionsForUserManual = `-- name: CountAuthSessionsForUserManual :one
+SELECT COUNT(*) FROM auth_sessions WHERE user_id = ?
+`
+
+func (q *Queries) CountAuthSessionsForUserManual(ctx context.Context, userID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAuthSessionsForUserManual, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countWorkspaceAccessByUserManual = `-- name: CountWorkspaceAccessByUserManual :one
+SELECT COUNT(*) FROM workspace_members WHERE user_id = ?
+`
+
+func (q *Queries) CountWorkspaceAccessByUserManual(ctx context.Context, userID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countWorkspaceAccessByUserManual, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countWorkspaceAdminsManual = `-- name: CountWorkspaceAdminsManual :one
+SELECT COUNT(*)
+FROM workspace_members
+WHERE workspace_id = ?
+  AND role = 'admin'
+`
+
+func (q *Queries) CountWorkspaceAdminsManual(ctx context.Context, workspaceID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countWorkspaceAdminsManual, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countWorkspaceMembersManual = `-- name: CountWorkspaceMembersManual :one
+SELECT COUNT(*) FROM workspace_members WHERE workspace_id = ?
+`
+
+func (q *Queries) CountWorkspaceMembersManual(ctx context.Context, workspaceID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countWorkspaceMembersManual, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAuthSessionManual = `-- name: CreateAuthSessionManual :exec
 INSERT INTO auth_sessions (
   token_hash,
   user_id,
   expires_at,
   user_agent,
-  ip_address,
-  last_seen_at
+  ip_address
 ) VALUES (
   ?,
   ?,
   ?,
   ?,
-  ?,
-  NOW()
+  ?
 )
 `
 
@@ -86,7 +168,6 @@ func (q *Queries) CreateUserManual(ctx context.Context, arg CreateUserManualPara
 
 const createWorkspaceManual = `-- name: CreateWorkspaceManual :execresult
 INSERT INTO workspaces (
-  organization_id,
   owner_user_id,
   name,
   slug,
@@ -97,13 +178,11 @@ INSERT INTO workspaces (
   ?,
   ?,
   ?,
-  ?,
   ?
 )
 `
 
 type CreateWorkspaceManualParams struct {
-	OrganizationID  sql.NullInt64 `json:"organization_id"`
 	OwnerUserID     sql.NullInt64 `json:"owner_user_id"`
 	Name            string        `json:"name"`
 	Slug            string        `json:"slug"`
@@ -113,7 +192,6 @@ type CreateWorkspaceManualParams struct {
 
 func (q *Queries) CreateWorkspaceManual(ctx context.Context, arg CreateWorkspaceManualParams) (sql.Result, error) {
 	return q.db.ExecContext(ctx, createWorkspaceManual,
-		arg.OrganizationID,
 		arg.OwnerUserID,
 		arg.Name,
 		arg.Slug,
@@ -155,6 +233,53 @@ func (q *Queries) DeleteAuthSessionByTokenHashManual(ctx context.Context, tokenH
 	return err
 }
 
+const deleteExpiredAuthSessionsBatchManual = `-- name: DeleteExpiredAuthSessionsBatchManual :execresult
+DELETE FROM auth_sessions
+WHERE expires_at <= ?
+ORDER BY expires_at ASC, id ASC
+LIMIT 1000
+`
+
+func (q *Queries) DeleteExpiredAuthSessionsBatchManual(ctx context.Context, cutoff time.Time) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteExpiredAuthSessionsBatchManual, cutoff)
+}
+
+const deleteExpiredAuthSessionsForUserManual = `-- name: DeleteExpiredAuthSessionsForUserManual :exec
+DELETE FROM auth_sessions
+WHERE user_id = ? AND expires_at <= NOW()
+`
+
+func (q *Queries) DeleteExpiredAuthSessionsForUserManual(ctx context.Context, userID uint64) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredAuthSessionsForUserManual, userID)
+	return err
+}
+
+const deleteOldestAuthSessionForUserManual = `-- name: DeleteOldestAuthSessionForUserManual :execresult
+DELETE FROM auth_sessions
+WHERE user_id = ?
+ORDER BY created_at ASC, id ASC
+LIMIT 1
+`
+
+func (q *Queries) DeleteOldestAuthSessionForUserManual(ctx context.Context, userID uint64) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteOldestAuthSessionForUserManual, userID)
+}
+
+const deleteWorkspaceMemberManual = `-- name: DeleteWorkspaceMemberManual :execresult
+DELETE FROM workspace_members
+WHERE workspace_id = ?
+  AND user_id = ?
+`
+
+type DeleteWorkspaceMemberManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	UserID      uint64 `json:"user_id"`
+}
+
+func (q *Queries) DeleteWorkspaceMemberManual(ctx context.Context, arg DeleteWorkspaceMemberManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteWorkspaceMemberManual, arg.WorkspaceID, arg.UserID)
+}
+
 const getAuthSessionByTokenHashManual = `-- name: GetAuthSessionByTokenHashManual :one
 SELECT
   id,
@@ -163,7 +288,6 @@ SELECT
   expires_at,
   user_agent,
   ip_address,
-  last_seen_at,
   created_at
 FROM auth_sessions
 WHERE token_hash = ?
@@ -180,7 +304,6 @@ func (q *Queries) GetAuthSessionByTokenHashManual(ctx context.Context, tokenHash
 		&i.ExpiresAt,
 		&i.UserAgent,
 		&i.IpAddress,
-		&i.LastSeenAt,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -189,7 +312,6 @@ func (q *Queries) GetAuthSessionByTokenHashManual(ctx context.Context, tokenHash
 const getPersonalWorkspaceByUserIDManual = `-- name: GetPersonalWorkspaceByUserIDManual :one
 SELECT
   id,
-  organization_id,
   owner_user_id,
   name,
   slug,
@@ -208,7 +330,6 @@ func (q *Queries) GetPersonalWorkspaceByUserIDManual(ctx context.Context, userID
 	var i Workspace
 	err := row.Scan(
 		&i.ID,
-		&i.OrganizationID,
 		&i.OwnerUserID,
 		&i.Name,
 		&i.Slug,
@@ -355,7 +476,7 @@ func (q *Queries) GetUserManual(ctx context.Context, id uint64) (GetUserManualRo
 }
 
 const getWorkspaceAccessManual = `-- name: GetWorkspaceAccessManual :one
-SELECT w.id, w.organization_id, w.owner_user_id, w.name, w.slug, w.is_personal, w.created_by_user_id, w.created_at, w.updated_at, wm.role
+SELECT w.id, w.owner_user_id, w.name, w.slug, w.is_personal, w.created_by_user_id, w.created_at, w.updated_at, wm.role
 FROM workspaces w
 JOIN workspace_members wm ON wm.workspace_id = w.id
 WHERE w.id = ?
@@ -378,7 +499,6 @@ func (q *Queries) GetWorkspaceAccessManual(ctx context.Context, arg GetWorkspace
 	var i GetWorkspaceAccessManualRow
 	err := row.Scan(
 		&i.Workspace.ID,
-		&i.Workspace.OrganizationID,
 		&i.Workspace.OwnerUserID,
 		&i.Workspace.Name,
 		&i.Workspace.Slug,
@@ -391,12 +511,89 @@ func (q *Queries) GetWorkspaceAccessManual(ctx context.Context, arg GetWorkspace
 	return i, err
 }
 
+const getWorkspaceManual = `-- name: GetWorkspaceManual :one
+SELECT
+  id,
+  owner_user_id,
+  name,
+  slug,
+  is_personal,
+  created_by_user_id,
+  created_at,
+  updated_at
+FROM workspaces
+WHERE id = ?
+LIMIT 1
+`
+
+func (q *Queries) GetWorkspaceManual(ctx context.Context, id uint64) (Workspace, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceManual, id)
+	var i Workspace
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.Slug,
+		&i.IsPersonal,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceMemberManual = `-- name: GetWorkspaceMemberManual :one
+SELECT
+  wm.workspace_id,
+  wm.role,
+  wm.created_at,
+  u.id, u.name, u.email, u.google_subject, u.picture_url, u.is_admin, u.created_at, u.last_login_at, u.updated_at
+FROM workspace_members wm
+JOIN users u ON u.id = wm.user_id
+WHERE wm.workspace_id = ?
+  AND wm.user_id = ?
+LIMIT 1
+`
+
+type GetWorkspaceMemberManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	UserID      uint64 `json:"user_id"`
+}
+
+type GetWorkspaceMemberManualRow struct {
+	WorkspaceID uint64               `json:"workspace_id"`
+	Role        WorkspaceMembersRole `json:"role"`
+	CreatedAt   time.Time            `json:"created_at"`
+	User        User                 `json:"user"`
+}
+
+func (q *Queries) GetWorkspaceMemberManual(ctx context.Context, arg GetWorkspaceMemberManualParams) (GetWorkspaceMemberManualRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceMemberManual, arg.WorkspaceID, arg.UserID)
+	var i GetWorkspaceMemberManualRow
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.Role,
+		&i.CreatedAt,
+		&i.User.ID,
+		&i.User.Name,
+		&i.User.Email,
+		&i.User.GoogleSubject,
+		&i.User.PictureUrl,
+		&i.User.IsAdmin,
+		&i.User.CreatedAt,
+		&i.User.LastLoginAt,
+		&i.User.UpdatedAt,
+	)
+	return i, err
+}
+
 const listWorkspaceAccessByUserManual = `-- name: ListWorkspaceAccessByUserManual :many
-SELECT w.id, w.organization_id, w.owner_user_id, w.name, w.slug, w.is_personal, w.created_by_user_id, w.created_at, w.updated_at, wm.role
+SELECT w.id, w.owner_user_id, w.name, w.slug, w.is_personal, w.created_by_user_id, w.created_at, w.updated_at, wm.role
 FROM workspaces w
 JOIN workspace_members wm ON wm.workspace_id = w.id
 WHERE wm.user_id = ?
 ORDER BY w.is_personal DESC, w.name ASC
+LIMIT 50
 `
 
 type ListWorkspaceAccessByUserManualRow struct {
@@ -415,7 +612,6 @@ func (q *Queries) ListWorkspaceAccessByUserManual(ctx context.Context, userID ui
 		var i ListWorkspaceAccessByUserManualRow
 		if err := rows.Scan(
 			&i.Workspace.ID,
-			&i.Workspace.OrganizationID,
 			&i.Workspace.OwnerUserID,
 			&i.Workspace.Name,
 			&i.Workspace.Slug,
@@ -438,15 +634,205 @@ func (q *Queries) ListWorkspaceAccessByUserManual(ctx context.Context, userID ui
 	return items, nil
 }
 
-const touchAuthSessionManual = `-- name: TouchAuthSessionManual :exec
-UPDATE auth_sessions
-SET last_seen_at = NOW()
-WHERE token_hash = ?
+const listWorkspaceMembersManual = `-- name: ListWorkspaceMembersManual :many
+SELECT
+  wm.workspace_id,
+  wm.role,
+  wm.created_at,
+  u.id, u.name, u.email, u.google_subject, u.picture_url, u.is_admin, u.created_at, u.last_login_at, u.updated_at
+FROM workspace_members wm
+JOIN users u ON u.id = wm.user_id
+WHERE wm.workspace_id = ?
+ORDER BY FIELD(wm.role, 'admin', 'write', 'create', 'read'), LOWER(u.name), LOWER(COALESCE(u.email, ''))
+LIMIT 100
 `
 
-func (q *Queries) TouchAuthSessionManual(ctx context.Context, tokenHash string) error {
-	_, err := q.db.ExecContext(ctx, touchAuthSessionManual, tokenHash)
-	return err
+type ListWorkspaceMembersManualRow struct {
+	WorkspaceID uint64               `json:"workspace_id"`
+	Role        WorkspaceMembersRole `json:"role"`
+	CreatedAt   time.Time            `json:"created_at"`
+	User        User                 `json:"user"`
+}
+
+func (q *Queries) ListWorkspaceMembersManual(ctx context.Context, workspaceID uint64) ([]ListWorkspaceMembersManualRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkspaceMembersManual, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkspaceMembersManualRow{}
+	for rows.Next() {
+		var i ListWorkspaceMembersManualRow
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.Role,
+			&i.CreatedAt,
+			&i.User.ID,
+			&i.User.Name,
+			&i.User.Email,
+			&i.User.GoogleSubject,
+			&i.User.PictureUrl,
+			&i.User.IsAdmin,
+			&i.User.CreatedAt,
+			&i.User.LastLoginAt,
+			&i.User.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockUserByEmailForIdentityManual = `-- name: LockUserByEmailForIdentityManual :one
+SELECT u.id, u.name, u.email, u.google_subject, u.picture_url, u.is_admin, u.created_at, u.last_login_at, u.updated_at
+FROM users u
+WHERE u.email = ?
+LIMIT 1
+FOR UPDATE
+`
+
+type LockUserByEmailForIdentityManualRow struct {
+	User User `json:"user"`
+}
+
+func (q *Queries) LockUserByEmailForIdentityManual(ctx context.Context, email sql.NullString) (LockUserByEmailForIdentityManualRow, error) {
+	row := q.db.QueryRowContext(ctx, lockUserByEmailForIdentityManual, email)
+	var i LockUserByEmailForIdentityManualRow
+	err := row.Scan(
+		&i.User.ID,
+		&i.User.Name,
+		&i.User.Email,
+		&i.User.GoogleSubject,
+		&i.User.PictureUrl,
+		&i.User.IsAdmin,
+		&i.User.CreatedAt,
+		&i.User.LastLoginAt,
+		&i.User.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockUserByGoogleSubjectForIdentityManual = `-- name: LockUserByGoogleSubjectForIdentityManual :one
+SELECT u.id, u.name, u.email, u.google_subject, u.picture_url, u.is_admin, u.created_at, u.last_login_at, u.updated_at
+FROM users u
+WHERE u.google_subject = ?
+LIMIT 1
+FOR UPDATE
+`
+
+type LockUserByGoogleSubjectForIdentityManualRow struct {
+	User User `json:"user"`
+}
+
+func (q *Queries) LockUserByGoogleSubjectForIdentityManual(ctx context.Context, googleSubject sql.NullString) (LockUserByGoogleSubjectForIdentityManualRow, error) {
+	row := q.db.QueryRowContext(ctx, lockUserByGoogleSubjectForIdentityManual, googleSubject)
+	var i LockUserByGoogleSubjectForIdentityManualRow
+	err := row.Scan(
+		&i.User.ID,
+		&i.User.Name,
+		&i.User.Email,
+		&i.User.GoogleSubject,
+		&i.User.PictureUrl,
+		&i.User.IsAdmin,
+		&i.User.CreatedAt,
+		&i.User.LastLoginAt,
+		&i.User.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockUserForIdentityAdmissionManual = `-- name: LockUserForIdentityAdmissionManual :one
+SELECT id FROM users WHERE id = ? FOR UPDATE
+`
+
+func (q *Queries) LockUserForIdentityAdmissionManual(ctx context.Context, userID uint64) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, lockUserForIdentityAdmissionManual, userID)
+	var id uint64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockWorkspaceForUseManual = `-- name: LockWorkspaceForUseManual :one
+SELECT id
+FROM workspaces
+WHERE id = ?
+LOCK IN SHARE MODE
+`
+
+func (q *Queries) LockWorkspaceForUseManual(ctx context.Context, id uint64) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, lockWorkspaceForUseManual, id)
+	var id_2 uint64
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
+const lockWorkspaceManual = `-- name: LockWorkspaceManual :one
+SELECT
+  id,
+  owner_user_id,
+  name,
+  slug,
+  is_personal,
+  created_by_user_id,
+  created_at,
+  updated_at
+FROM workspaces
+WHERE id = ?
+FOR UPDATE
+`
+
+func (q *Queries) LockWorkspaceManual(ctx context.Context, id uint64) (Workspace, error) {
+	row := q.db.QueryRowContext(ctx, lockWorkspaceManual, id)
+	var i Workspace
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.Name,
+		&i.Slug,
+		&i.IsPersonal,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockWorkspaceMemberRoleManual = `-- name: LockWorkspaceMemberRoleManual :one
+SELECT role
+FROM workspace_members
+WHERE workspace_id = ?
+  AND user_id = ?
+FOR UPDATE
+`
+
+type LockWorkspaceMemberRoleManualParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	UserID      uint64 `json:"user_id"`
+}
+
+func (q *Queries) LockWorkspaceMemberRoleManual(ctx context.Context, arg LockWorkspaceMemberRoleManualParams) (WorkspaceMembersRole, error) {
+	row := q.db.QueryRowContext(ctx, lockWorkspaceMemberRoleManual, arg.WorkspaceID, arg.UserID)
+	var role WorkspaceMembersRole
+	err := row.Scan(&role)
+	return role, err
+}
+
+const releaseIdentityConvergenceLockManual = `-- name: ReleaseIdentityConvergenceLockManual :one
+SELECT RELEASE_LOCK(?)
+`
+
+func (q *Queries) ReleaseIdentityConvergenceLockManual(ctx context.Context, lockName string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, releaseIdentityConvergenceLockManual, lockName)
+	var release_lock bool
+	err := row.Scan(&release_lock)
+	return release_lock, err
 }
 
 const updateUserAuthProfileManual = `-- name: UpdateUserAuthProfileManual :exec
@@ -480,4 +866,36 @@ func (q *Queries) UpdateUserAuthProfileManual(ctx context.Context, arg UpdateUse
 		arg.ID,
 	)
 	return err
+}
+
+const updateWorkspaceMemberRoleManual = `-- name: UpdateWorkspaceMemberRoleManual :execresult
+UPDATE workspace_members
+SET role = ?
+WHERE workspace_id = ?
+  AND user_id = ?
+`
+
+type UpdateWorkspaceMemberRoleManualParams struct {
+	Role        WorkspaceMembersRole `json:"role"`
+	WorkspaceID uint64               `json:"workspace_id"`
+	UserID      uint64               `json:"user_id"`
+}
+
+func (q *Queries) UpdateWorkspaceMemberRoleManual(ctx context.Context, arg UpdateWorkspaceMemberRoleManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, updateWorkspaceMemberRoleManual, arg.Role, arg.WorkspaceID, arg.UserID)
+}
+
+const updateWorkspaceNameManual = `-- name: UpdateWorkspaceNameManual :execresult
+UPDATE workspaces
+SET name = ?
+WHERE id = ?
+`
+
+type UpdateWorkspaceNameManualParams struct {
+	Name string `json:"name"`
+	ID   uint64 `json:"id"`
+}
+
+func (q *Queries) UpdateWorkspaceNameManual(ctx context.Context, arg UpdateWorkspaceNameManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, updateWorkspaceNameManual, arg.Name, arg.ID)
 }

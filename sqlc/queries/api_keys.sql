@@ -29,7 +29,6 @@ SELECT
   key_hash,
   role,
   scopes,
-  last_used_at,
   expires_at,
   created_at,
   updated_at
@@ -47,7 +46,6 @@ SELECT
   key_hash,
   role,
   scopes,
-  last_used_at,
   expires_at,
   created_at,
   updated_at
@@ -65,13 +63,16 @@ SELECT
   key_hash,
   role,
   scopes,
-  last_used_at,
   expires_at,
   created_at,
   updated_at
 FROM api_keys
 WHERE workspace_id = sqlc.arg(workspace_id)
-ORDER BY created_at DESC;
+ORDER BY created_at DESC
+LIMIT 100;
+
+-- name: CountAPIKeysByWorkspaceManual :one
+SELECT COUNT(*) FROM api_keys WHERE workspace_id = sqlc.arg(workspace_id);
 
 -- name: DeleteAPIKeyManual :exec
 DELETE FROM api_keys
@@ -81,8 +82,3 @@ WHERE id = sqlc.arg(id);
 DELETE FROM api_keys
 WHERE id = sqlc.arg(id)
   AND workspace_id = sqlc.arg(workspace_id);
-
--- name: TouchAPIKeyManual :exec
-UPDATE api_keys
-SET last_used_at = NOW()
-WHERE id = sqlc.arg(id);

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FRONTEND_TEST_IMAGE="${FRONTEND_TEST_IMAGE:-node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f}"
+FRONTEND_TEST_IMAGE="${FRONTEND_TEST_IMAGE:-node:24.18.0-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Error: docker is required to run frontend tests." >&2
@@ -11,32 +11,14 @@ fi
 
 run_tests="
     cd /app/web
-    npm ci
+    npm ci --ignore-scripts --no-audit --progress=false
     npm test
     npm run build
     cd /app/mirador-scribe
-    npm ci
+    npm ci --ignore-scripts --no-audit --progress=false
     npm test
     npm run build
   "
-
-if docker run --rm \
-  --mount "type=bind,src=${ROOT_DIR},dst=/app" \
-  -w /app \
-  "$FRONTEND_TEST_IMAGE" \
-  sh -c 'test -f web/package.json && test -f mirador-scribe/package.json' >/dev/null 2>&1; then
-  docker run --rm \
-    --mount "type=bind,src=${ROOT_DIR},dst=/app" \
-    --mount "type=volume,dst=/app/web/node_modules" \
-    --mount "type=volume,dst=/app/web/dist" \
-    --mount "type=volume,dst=/app/mirador-scribe/node_modules" \
-    --mount "type=volume,dst=/app/mirador-scribe/dist" \
-    -e CI=true \
-    -w /app \
-    "$FRONTEND_TEST_IMAGE" \
-    sh -lc "$run_tests"
-  exit 0
-fi
 
 container_id="$(
   docker create \
@@ -50,5 +32,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-tar --exclude=.git --exclude=web/node_modules --exclude=web/dist --exclude=mirador-scribe/node_modules --exclude=mirador-scribe/dist -C "$ROOT_DIR" -cf - . | docker cp - "$container_id:/app"
+tar \
+  --exclude='web/node_modules*' \
+  --exclude=web/dist \
+  --exclude='mirador-scribe/node_modules*' \
+  --exclude=mirador-scribe/dist \
+  -C "$ROOT_DIR" -cf - web mirador-scribe | docker cp - "$container_id:/app"
 docker start -a "$container_id"

@@ -10,21 +10,86 @@ option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/
 // AnnotationService handles IIIF Presentation 3 annotation storage and
 // annotation enrichment operations on the main API server.
 
+enum AnnotationGranularity {
+  ANNOTATION_GRANULARITY_UNSPECIFIED = 0;
+  ANNOTATION_GRANULARITY_ALL = 1;
+  ANNOTATION_GRANULARITY_PAGE = 2;
+  ANNOTATION_GRANULARITY_BLOCK = 3;
+  ANNOTATION_GRANULARITY_PARAGRAPH = 4;
+  ANNOTATION_GRANULARITY_LINE = 5;
+  ANNOTATION_GRANULARITY_WORD = 6;
+  ANNOTATION_GRANULARITY_GLYPH = 7;
+}
+
 message SearchAnnotationsRequest {
-  string canvas_uri = 1 [
+  // item_image_id is the canonical, tenant-scoped resource identifier.
+  uint64 item_image_id = 1 [
     (buf.validate.field).required = true,
-    (buf.validate.field).string.pattern = ".*\\S.*"
+    (buf.validate.field).uint64.gt = 0
   ];
+  // Optional interoperability consistency check. The value is treated as an
+  // opaque Canvas ID and must match the item's stored target; it is never a
+  // lookup or authorization key.
+  string canvas_uri = 2 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_len: 2048
+  }];
+  AnnotationGranularity granularity = 3;
 }
 
 message SearchAnnotationsResponse {
   // Full IIIF AnnotationPage JSON, serialised as string for round-trip fidelity.
   string annotation_page_json = 1;
+  uint64 revision = 2;
+}
+
+// GetAnnotationPageRequest loads the canonical IIIF Presentation 3
+// AnnotationPage for one item image.
+message GetAnnotationPageRequest {
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+}
+
+message GetAnnotationPageResponse {
+  uint64 item_image_id = 1;
+  string canvas_uri = 2;
+  string annotation_page_json = 3;
+  uint64 revision = 4;
+  string updated_at = 5;
+}
+
+// SaveAnnotationPageRequest atomically replaces one canonical page. A zero
+// expected_revision creates the page; every subsequent save must provide the
+// exact current revision.
+message SaveAnnotationPageRequest {
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  string annotation_page_json = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  uint64 expected_revision = 3;
+}
+
+message SaveAnnotationPageResponse {
+  uint64 item_image_id = 1;
+  string canvas_uri = 2;
+  string annotation_page_json = 3;
+  uint64 revision = 4;
+  string updated_at = 5;
 }
 
 message GetAnnotationRequest {
-  // Bare ID suffix (the part after /v1/annotations/3/item/)
-  string id = 1 [
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  // Complete canonical Scribe annotation ID from the current page.
+  string id = 2 [
     (buf.validate.field).required = true,
     (buf.validate.field).string.pattern = ".*\\S.*"
   ];
@@ -34,49 +99,26 @@ message GetAnnotationResponse {
   string annotation_json = 1;
 }
 
-message CreateAnnotationRequest {
-  string annotation_json = 1 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).string.pattern = ".*\\S.*"
-  ];
-}
-
-message CreateAnnotationResponse {
-  string annotation_json = 1;
-}
-
-message UpdateAnnotationRequest {
-  string annotation_json = 1 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).string.pattern = ".*\\S.*"
-  ];
-}
-
-message UpdateAnnotationResponse {
-  string annotation_json = 1;
-}
-
-message DeleteAnnotationRequest {
-  string uri = 1 [
-    (buf.validate.field).required = true,
-    (buf.validate.field).string.pattern = ".*\\S.*"
-  ];
-}
-
-message DeleteAnnotationResponse {}
-
 message PublishItemImageEditsRequest {
   uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  // The draft revision the caller just saved. Publication fails explicitly if
+  // a newer correction was committed before this transaction acquired its lock.
+  uint64 expected_revision = 2 [
     (buf.validate.field).required = true,
     (buf.validate.field).uint64.gt = 0
   ];
 }
 
 message PublishItemImageEditsResponse {
-  uint64 item_image_id        = 1;
-  string canvas_uri           = 2;
+  uint64 item_image_id = 1;
+  string canvas_uri = 2;
   string annotation_page_json = 3;
-  string published_at         = 4;
+  string published_at = 4;
+  uint64 published_revision = 5;
+  string public_url = 6;
 }
 
 // EnrichAnnotationRequest sends a IIIF annotation (one line or an entire
@@ -85,160 +127,222 @@ message PublishItemImageEditsResponse {
 message EnrichAnnotationRequest {
   option (buf.validate.message).cel = {
     id: "enrich_annotation.scope"
-    message: "scope must be line or page"
-    expression: "(this.scope == 'line' || this.scope == 'page') && this.annotation_json.matches('.*\\\\S.*')"
+    message: "item_image_id and annotation_json are required, and scope must be line or page"
+    expression: "this.item_image_id > 0u && (this.scope == 'line' || this.scope == 'page') && this.annotation_json.matches('.*\\\\S.*')"
   };
+  // Exact tenant-scoped image whose region will be transcribed. Canvas IDs are
+  // targets/provenance and are not authorization or lookup keys.
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
   // "line" = single Annotation JSON; "page" = full AnnotationPage JSON
-  string scope           = 1 [(buf.validate.field).string.pattern = ".*\\S.*"];
-  string annotation_json = 2 [(buf.validate.field).string.pattern = ".*\\S.*"];
+  string scope = 2 [(buf.validate.field).string.pattern = ".*\\S.*"];
+  string annotation_json = 3 [(buf.validate.field).string.pattern = ".*\\S.*"];
   // Optional: override context used for transcription
-  uint64 context_id      = 3;
+  uint64 context_id = 4;
 }
 
 message EnrichAnnotationResponse {
   string annotation_json = 1;
 }
 
-// Split a line annotation into proportionally-spaced word annotations.
-// If words is empty the line text is tokenised on whitespace.
+// Transform one selected line in a complete AnnotationPage into
+// proportionally-spaced word annotations. If words is empty the selected
+// line's text is tokenised on whitespace.
 message SplitLineIntoWordsRequest {
-  string            annotation_json = 1 [
+  option (buf.validate.message).cel = {
+    id: "split_line_into_words.selection"
+    message: "item_image_id, annotation_page_json, and selected_annotation_id are required"
+    expression: "this.item_image_id > 0u && this.annotation_page_json.matches('.*\\\\S.*') && this.selected_annotation_id.matches('.*\\\\S.*')"
+  };
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  string annotation_page_json = 2 [
     (buf.validate.field).required = true,
     (buf.validate.field).string.pattern = ".*\\S.*"
   ];
-  repeated string   words           = 2;
+  string selected_annotation_id = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  repeated string words = 4 [(buf.validate.field).repeated = {
+    max_items: 10000
+    items: {
+      string: {max_bytes: 16384}
+    }
+  }];
 }
 
 message SplitLineIntoWordsResponse {
-  // Full AnnotationPage JSON containing the new word annotations.
+  // Complete transformed AnnotationPage JSON.
   string annotation_page_json = 1;
 }
 
-// Split a line annotation into two lines at a word boundary.
+// Transform one selected line in a complete AnnotationPage into two lines at
+// a word boundary.
 message SplitLineIntoTwoLinesRequest {
-  string annotation_json = 1 [
+  option (buf.validate.message).cel = {
+    id: "split_line_into_two_lines.selection"
+    message: "item_image_id, annotation_page_json, and selected_annotation_id are required"
+    expression: "this.item_image_id > 0u && this.annotation_page_json.matches('.*\\\\S.*') && this.selected_annotation_id.matches('.*\\\\S.*')"
+  };
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  string annotation_page_json = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  string selected_annotation_id = 3 [
     (buf.validate.field).required = true,
     (buf.validate.field).string.pattern = ".*\\S.*"
   ];
   // 0 means split at midpoint.
-  int32  split_at_word   = 2;
+  int32 split_at_word = 4 [(buf.validate.field).int32.gte = 0];
 }
 
 message SplitLineIntoTwoLinesResponse {
-  repeated string annotation_jsons = 1;
+  // Complete transformed AnnotationPage JSON.
+  string annotation_page_json = 1;
 }
 
-// Join two or more line annotations into one (union bbox, concatenated text).
+// Transform two or more selected lines in a complete AnnotationPage into one
+// line (union bbox, concatenated text).
 message JoinLinesRequest {
-  repeated string annotation_jsons = 1 [(buf.validate.field).repeated.min_items = 2];
+  option (buf.validate.message).cel = {
+    id: "join_lines.selection"
+    message: "item_image_id, annotation_page_json, and at least two non-empty selected_annotation_ids are required"
+    expression: "this.item_image_id > 0u && this.annotation_page_json.matches('.*\\\\S.*') && this.selected_annotation_ids.size() >= 2 && this.selected_annotation_ids.all(id, id.matches('.*\\\\S.*'))"
+  };
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  string annotation_page_json = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  repeated string selected_annotation_ids = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).repeated = {
+      min_items: 2
+      max_items: 10000
+      unique: true
+    }
+  ];
 }
 
 message JoinLinesResponse {
-  string annotation_json = 1;
+  // Complete transformed AnnotationPage JSON.
+  string annotation_page_json = 1;
 }
 
+// Transform two or more selected word annotations in a complete
+// AnnotationPage into one line annotation.
 message JoinWordsIntoLineRequest {
-  repeated string annotation_jsons = 1 [(buf.validate.field).repeated.min_items = 2];
+  option (buf.validate.message).cel = {
+    id: "join_words_into_line.selection"
+    message: "item_image_id, annotation_page_json, and at least two non-empty selected_annotation_ids are required"
+    expression: "this.item_image_id > 0u && this.annotation_page_json.matches('.*\\\\S.*') && this.selected_annotation_ids.size() >= 2 && this.selected_annotation_ids.all(id, id.matches('.*\\\\S.*'))"
+  };
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  string annotation_page_json = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = ".*\\S.*"
+  ];
+  repeated string selected_annotation_ids = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).repeated = {
+      min_items: 2
+      max_items: 10000
+      unique: true
+    }
+  ];
 }
 
 message JoinWordsIntoLineResponse {
-  string annotation_json = 1;
+  // Complete transformed AnnotationPage JSON.
+  string annotation_page_json = 1;
 }
 
-// Crosswalk: convert an AnnotationPage (or single annotation) to an export format.
-message CrosswalkToPlainTextRequest {
+// AnnotationExportFormat selects a rebuildable view of one committed canonical
+// AnnotationPage. Export operations never accept caller-supplied annotation
+// JSON, so every format is derived from the same tenant-owned revision.
+enum AnnotationExportFormat {
+  ANNOTATION_EXPORT_FORMAT_UNSPECIFIED = 0;
+  ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT = 1;
+  ANNOTATION_EXPORT_FORMAT_HOCR = 2;
+  ANNOTATION_EXPORT_FORMAT_PAGE_XML = 3;
+  ANNOTATION_EXPORT_FORMAT_ALTO_XML = 4;
+}
+
+message ExportAnnotationPageRequest {
   option (buf.validate.message).cel = {
-    id: "crosswalk.input"
-    message: "annotation_page_json or annotation_json is required"
-    expression: "this.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')"
+    id: "export_annotation_page.required"
+    message: "item_image_id, expected_revision, and format are required"
+    expression: "this.item_image_id > 0u && this.expected_revision > 0u && this.format != 0"
   };
-  // Provide one of the two fields; annotation_page_json takes priority.
-  string annotation_page_json = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-  string annotation_json      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  // The exact committed revision to export. A stale value fails explicitly so
+  // callers can never mistake a newer background result for their saved draft.
+  uint64 expected_revision = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  AnnotationExportFormat format = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).enum = {
+      defined_only: true
+      not_in: 0
+    }
+  ];
 }
 
-message CrosswalkToPlainTextResponse {
-  string format  = 1; // MIME type of the exported content
-  string content = 2;
-}
-
-message CrosswalkToHOCRRequest {
-  option (buf.validate.message).cel = {
-    id: "crosswalk.input"
-    message: "annotation_page_json or annotation_json is required"
-    expression: "this.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')"
-  };
-  // Provide one of the two fields; annotation_page_json takes priority.
-  string annotation_page_json = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-  string annotation_json      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-}
-
-message CrosswalkToHOCRResponse {
-  string format  = 1; // MIME type of the exported content
-  string content = 2;
-}
-
-message CrosswalkToPageXMLRequest {
-  option (buf.validate.message).cel = {
-    id: "crosswalk.input"
-    message: "annotation_page_json or annotation_json is required"
-    expression: "this.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')"
-  };
-  // Provide one of the two fields; annotation_page_json takes priority.
-  string annotation_page_json = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-  string annotation_json      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-}
-
-message CrosswalkToPageXMLResponse {
-  string format  = 1; // MIME type of the exported content
-  string content = 2;
-}
-
-message CrosswalkToALTOXMLRequest {
-  option (buf.validate.message).cel = {
-    id: "crosswalk.input"
-    message: "annotation_page_json or annotation_json is required"
-    expression: "this.annotation_page_json.matches('.*\\\\S.*') || this.annotation_json.matches('.*\\\\S.*')"
-  };
-  // Provide one of the two fields; annotation_page_json takes priority.
-  string annotation_page_json = 1 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-  string annotation_json      = 2 [(buf.validate.field).string.pattern = "^$|.*\\S.*"];
-}
-
-message CrosswalkToALTOXMLResponse {
-  string format  = 1; // MIME type of the exported content
-  string content = 2;
+message ExportAnnotationPageResponse {
+  uint64 item_image_id = 1;
+  uint64 revision = 2;
+  string media_type = 3;
+  bytes content = 4;
+  string filename = 5;
 }
 
 service AnnotationService {
+  rpc GetAnnotationPage(GetAnnotationPageRequest) returns (GetAnnotationPageResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_READ
+      resource_id_field: "item_image_id"
+    };
+  }
+  rpc SaveAnnotationPage(SaveAnnotationPageRequest) returns (SaveAnnotationPageResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
+    };
+  }
   rpc SearchAnnotations(SearchAnnotationsRequest) returns (SearchAnnotationsResponse) {
     option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
+      resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_READ
+      resource_id_field: "item_image_id"
     };
   }
   rpc GetAnnotation(GetAnnotationRequest) returns (GetAnnotationResponse) {
     option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
+      resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_READ
-    };
-  }
-  rpc CreateAnnotation(CreateAnnotationRequest) returns (CreateAnnotationResponse) {
-    option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
-      level: ACCESS_LEVEL_WRITE
-    };
-  }
-  rpc UpdateAnnotation(UpdateAnnotationRequest) returns (UpdateAnnotationResponse) {
-    option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
-      level: ACCESS_LEVEL_WRITE
-    };
-  }
-  rpc DeleteAnnotation(DeleteAnnotationRequest) returns (DeleteAnnotationResponse) {
-    option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
-      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
     };
   }
   rpc PublishItemImageEdits(PublishItemImageEditsRequest) returns (PublishItemImageEditsResponse) {
@@ -251,60 +355,48 @@ service AnnotationService {
   // Improve transcription for one line or a full canvas.
   rpc EnrichAnnotation(EnrichAnnotationRequest) returns (EnrichAnnotationResponse) {
     option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
+      resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
     };
   }
 
   // Structural split/join operations.
   rpc SplitLineIntoWords(SplitLineIntoWordsRequest) returns (SplitLineIntoWordsResponse) {
     option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
+      resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
     };
   }
   rpc SplitLineIntoTwoLines(SplitLineIntoTwoLinesRequest) returns (SplitLineIntoTwoLinesResponse) {
     option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
+      resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
     };
   }
   rpc JoinLines(JoinLinesRequest) returns (JoinLinesResponse) {
     option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
+      resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
     };
   }
   rpc JoinWordsIntoLine(JoinWordsIntoLineRequest) returns (JoinWordsIntoLineResponse) {
     option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
+      resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
     };
   }
 
-  // Export / crosswalk operations.
-  rpc CrosswalkToPlainText(CrosswalkToPlainTextRequest) returns (CrosswalkToPlainTextResponse) {
+  // Export one exact committed canonical revision to a rebuildable OCR view.
+  rpc ExportAnnotationPage(ExportAnnotationPageRequest) returns (ExportAnnotationPageResponse) {
     option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
+      resource: RESOURCE_TYPE_ITEM_IMAGE
       level: ACCESS_LEVEL_READ
-    };
-  }
-  rpc CrosswalkToHOCR(CrosswalkToHOCRRequest) returns (CrosswalkToHOCRResponse) {
-    option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
-      level: ACCESS_LEVEL_READ
-    };
-  }
-  rpc CrosswalkToPageXML(CrosswalkToPageXMLRequest) returns (CrosswalkToPageXMLResponse) {
-    option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
-      level: ACCESS_LEVEL_READ
-    };
-  }
-  rpc CrosswalkToALTOXML(CrosswalkToALTOXMLRequest) returns (CrosswalkToALTOXMLResponse) {
-    option (scribe.v1.options.v1.authz) = {
-      resource: RESOURCE_TYPE_USER
-      level: ACCESS_LEVEL_READ
+      resource_id_field: "item_image_id"
     };
   }
 }

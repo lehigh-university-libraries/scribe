@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Emit a GitHub Actions build matrix for every Cloud Run OCR image derivable
-# from config.yaml. The output is a single JSON object on stdout:
+# from config/ocr.yaml. The output is a single JSON object on stdout:
 #
 #   {"include": [ {...entry...}, ... ]}
 #
@@ -24,7 +24,7 @@
 #   IMAGE_TAG        Tag applied to every built image (git sha or branch slug).
 #
 # Optional env:
-#   CONFIG_PATH      Path to config.yaml (default: config.yaml at repo root).
+#   CONFIG_PATH      Path to OCR deploy metadata (default: config/ocr.yaml).
 #   GAR_LOCATION     Artifact Registry location (default: us).
 #   GAR_REPOSITORY   Artifact Registry repository (default: internal).
 
@@ -35,7 +35,7 @@ set -euo pipefail
 : "${IMAGE_TAG:?IMAGE_TAG is required}"
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-config_path="${CONFIG_PATH:-$repo_root/config.yaml}"
+config_path="${CONFIG_PATH:-$repo_root/config/ocr.yaml}"
 gar_location="${GAR_LOCATION:-us}"
 gar_repository="${GAR_REPOSITORY:-internal}"
 gar_repo="${gar_location}-docker.pkg.dev/${GCLOUD_PROJECT}/${gar_repository}"
@@ -96,36 +96,103 @@ build_args_json() {
   jq -Rs . <<<"$out"
 }
 
-kraken_pip_spec="$(yq -r '.ocr.kraken.pip_spec // "kraken==7.0"' "$config_path")"
-default_tx_key="$(yq -r '.ocr.kraken.default_transcription_model // ""' "$config_path")"
-if [ -z "$default_tx_key" ]; then
-  echo "config.yaml ocr.kraken.default_transcription_model must be set" >&2
+validate_model_key() {
+  local label="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || [[ "$value" == *..* ]]; then
+    echo "$label must be a safe model key: $value" >&2
+    exit 1
+  fi
+}
+
+validate_segmentation_model_key() {
+  local label="$1"
+  local value="$2"
+  local normalized
+  validate_model_key "$label" "$value"
+  normalized="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  case "$normalized" in
+    auto | custom | scribe | tesseract)
+      echo "$label conflicts with the built-in segmentation selection: $value" >&2
+      exit 1
+      ;;
+    kraken)
+      if [ "$value" != "kraken" ]; then
+        echo "$label must use the canonical built-in ID 'kraken': $value" >&2
+        exit 1
+      fi
+      ;;
+  esac
+}
+
+validate_model_ref() {
+  local label="$1"
+  local doi="$2"
+  local filename="$3"
+  local sha256="$4"
+  if [ -z "$doi" ]; then
+    echo "$label must declare a DOI" >&2
+    exit 1
+  fi
+  if [[ ! "$filename" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.mlmodel$ ]] || [[ "$filename" == *..* ]]; then
+    echo "$label file must be an exact .mlmodel basename: $filename" >&2
+    exit 1
+  fi
+  if [[ ! "$doi" =~ ^10\.[0-9]{4,9}/[A-Za-z0-9._:/+()-]+$ ]]; then
+    echo "$label DOI is invalid: $doi" >&2
+    exit 1
+  fi
+  if [[ ! "$sha256" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "$label must declare the lowercase SHA-256 digest of its DOI artifact" >&2
+    exit 1
+  fi
+}
+
+kraken_pip_spec="$(yq -r '.kraken.pip_spec // "kraken==7.0.2"' "$config_path")"
+if [[ ! "$kraken_pip_spec" =~ ^kraken==[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+  echo "config/ocr.yaml kraken.pip_spec must pin an exact kraken release: $kraken_pip_spec" >&2
   exit 1
 fi
-if ! DEFAULT_TX_KEY="$default_tx_key" yq -e '.ocr.kraken.transcription_models | has(strenv(DEFAULT_TX_KEY))' "$config_path" >/dev/null; then
-  echo "config.yaml ocr.kraken.default_transcription_model must reference a key in ocr.kraken.transcription_models" >&2
+default_tx_key="$(yq -r '.kraken.default_transcription_model // ""' "$config_path")"
+if [ -z "$default_tx_key" ]; then
+  echo "config/ocr.yaml kraken.default_transcription_model must be set" >&2
+  exit 1
+fi
+validate_model_key "default transcription model" "$default_tx_key"
+if ! DEFAULT_TX_KEY="$default_tx_key" yq -e '.kraken.transcription_models | has(strenv(DEFAULT_TX_KEY))' "$config_path" >/dev/null; then
+  echo "config/ocr.yaml kraken.default_transcription_model must reference a key in kraken.transcription_models" >&2
   exit 1
 fi
 
-default_tx_doi="$(yq -r ".ocr.kraken.transcription_models[\"${default_tx_key}\"].doi // \"\"" "$config_path")"
-default_tx_file="$(yq -r ".ocr.kraken.transcription_models[\"${default_tx_key}\"].file // \"\"" "$config_path")"
+default_tx_doi="$(yq -r ".kraken.transcription_models[\"${default_tx_key}\"].doi // \"\"" "$config_path")"
+default_tx_file="$(yq -r ".kraken.transcription_models[\"${default_tx_key}\"].file // \"\"" "$config_path")"
+default_tx_sha256="$(yq -r ".kraken.transcription_models[\"${default_tx_key}\"].sha256 // \"\"" "$config_path")"
+validate_model_ref "default transcription model" "$default_tx_doi" "$default_tx_file" "$default_tx_sha256"
 
 # The segmentor service bundles the default segmentation + default transcription
 # models so the primary segmentation path still has a recognizer available.
-default_seg_key="$(yq -r '.ocr.kraken.default_segmentation_model // ""' "$config_path")"
+default_seg_key="$(yq -r '.kraken.default_segmentation_model // ""' "$config_path")"
 if [ -z "$default_seg_key" ]; then
-  default_seg_key="$(yq -r '.ocr.kraken.segmentation_models | keys | sort | .[0] // ""' "$config_path")"
+  default_seg_key="$(yq -r '.kraken.segmentation_models | keys | sort | .[0] // ""' "$config_path")"
 fi
+validate_segmentation_model_key "default segmentation model" "$default_seg_key"
 if [ -z "$default_seg_key" ]; then
-  echo "config.yaml ocr.kraken.segmentation_models must declare at least one model" >&2
+  echo "config/ocr.yaml kraken.segmentation_models must declare at least one model" >&2
   exit 1
 fi
-if ! DEFAULT_SEG_KEY="$default_seg_key" yq -e '.ocr.kraken.segmentation_models | has(strenv(DEFAULT_SEG_KEY))' "$config_path" >/dev/null; then
-  echo "config.yaml ocr.kraken.default_segmentation_model must reference a key in ocr.kraken.segmentation_models" >&2
+if ! DEFAULT_SEG_KEY="$default_seg_key" yq -e '.kraken.segmentation_models | has(strenv(DEFAULT_SEG_KEY))' "$config_path" >/dev/null; then
+  echo "config/ocr.yaml kraken.default_segmentation_model must reference a key in kraken.segmentation_models" >&2
   exit 1
 fi
-default_seg_doi="$(yq -r ".ocr.kraken.segmentation_models[\"${default_seg_key}\"].doi // \"\"" "$config_path")"
-default_seg_file="$(yq -r ".ocr.kraken.segmentation_models[\"${default_seg_key}\"].file // \"\"" "$config_path")"
+default_seg_doi="$(yq -r ".kraken.segmentation_models[\"${default_seg_key}\"].doi // \"\"" "$config_path")"
+default_seg_file="$(yq -r ".kraken.segmentation_models[\"${default_seg_key}\"].file // \"\"" "$config_path")"
+default_seg_sha256="$(yq -r ".kraken.segmentation_models[\"${default_seg_key}\"].sha256 // \"\"" "$config_path")"
+validate_model_ref "default segmentation model" "$default_seg_doi" "$default_seg_file" "$default_seg_sha256"
+if [ "$(printf '%s' "$default_tx_file" | tr '[:upper:]' '[:lower:]')" = \
+  "$(printf '%s' "$default_seg_file" | tr '[:upper:]' '[:lower:]')" ]; then
+  echo "default transcription and segmentation models must use distinct baked filenames: ${default_tx_file}" >&2
+  exit 1
+fi
 
 segmentor_service="scribe-segmentor"
 append_entry "$(jq -n \
@@ -140,31 +207,33 @@ append_entry "$(jq -n \
   --arg platform "linux/amd64" \
   --argjson build_args "$(build_args_json \
     "KRAKEN_PIP_SPEC=${kraken_pip_spec}" \
+    "KRAKEN_TRANSCRIPTION_MODEL_ID=${default_tx_key}" \
     "KRAKEN_RECOGNITION_MODEL_DOI=${default_tx_doi}" \
     "KRAKEN_RECOGNITION_MODEL_FILE=${default_tx_file}" \
+    "KRAKEN_RECOGNITION_MODEL_SHA256=${default_tx_sha256}" \
+    "KRAKEN_SEGMENTATION_MODEL_ID=${default_seg_key}" \
     "KRAKEN_SEGMENTATION_MODEL_DOI=${default_seg_doi}" \
-    "KRAKEN_SEGMENTATION_MODEL_FILE=${default_seg_file}")" \
-  '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
-
-image_service="scribe-image-service"
-append_entry "$(jq -n \
-  --arg key "image-service" \
-  --arg service "$image_service" \
-  --arg ghcr_image "$image_service" \
-  --arg gar_image "${gar_repo}/${image_service}" \
-  --arg image "$(gar_image "$image_service")" \
-  --arg context "." \
-  --arg dockerfile "Dockerfile.image-service" \
-  --arg file "Dockerfile.image-service" \
-  --arg platform "linux/amd64" \
-  --argjson build_args "$(build_args_json)" \
+    "KRAKEN_SEGMENTATION_MODEL_FILE=${default_seg_file}" \
+    "KRAKEN_SEGMENTATION_MODEL_SHA256=${default_seg_sha256}")" \
   '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
 
 # Kraken segmentation services: one per entry in ocr.kraken.segmentation_models.
+seen_segmentation_keys="|"
 while IFS= read -r seg_key; do
   [ -z "$seg_key" ] && continue
-  seg_doi="$(yq -r ".ocr.kraken.segmentation_models[\"${seg_key}\"].doi // \"\"" "$config_path")"
-  seg_file="$(yq -r ".ocr.kraken.segmentation_models[\"${seg_key}\"].file // \"\"" "$config_path")"
+  validate_segmentation_model_key "segmentation model" "$seg_key"
+  normalized_seg_key="$(printf '%s' "$seg_key" | tr '[:upper:]' '[:lower:]')"
+  case "$seen_segmentation_keys" in
+    *"|${normalized_seg_key}|"*)
+      echo "config/ocr.yaml contains case-insensitive duplicate segmentation model IDs: ${seg_key}" >&2
+      exit 1
+      ;;
+  esac
+  seen_segmentation_keys="${seen_segmentation_keys}${normalized_seg_key}|"
+  seg_doi="$(yq -r ".kraken.segmentation_models[\"${seg_key}\"].doi // \"\"" "$config_path")"
+  seg_file="$(yq -r ".kraken.segmentation_models[\"${seg_key}\"].file // \"\"" "$config_path")"
+  seg_sha256="$(yq -r ".kraken.segmentation_models[\"${seg_key}\"].sha256 // \"\"" "$config_path")"
+  validate_model_ref "segmentation model ${seg_key}" "$seg_doi" "$seg_file" "$seg_sha256"
   service="scribe-ks-$(hash8 "$seg_key")"
   append_entry "$(jq -n \
     --arg key "kraken-seg/${seg_key}" \
@@ -178,18 +247,34 @@ while IFS= read -r seg_key; do
     --arg platform "linux/amd64" \
     --argjson build_args "$(build_args_json \
       "KRAKEN_PIP_SPEC=${kraken_pip_spec}" \
+      "KRAKEN_TRANSCRIPTION_MODEL_ID=" \
       "KRAKEN_RECOGNITION_MODEL_DOI=" \
       "KRAKEN_RECOGNITION_MODEL_FILE=" \
+      "KRAKEN_RECOGNITION_MODEL_SHA256=" \
+      "KRAKEN_SEGMENTATION_MODEL_ID=${seg_key}" \
       "KRAKEN_SEGMENTATION_MODEL_DOI=${seg_doi}" \
-      "KRAKEN_SEGMENTATION_MODEL_FILE=${seg_file}")" \
+      "KRAKEN_SEGMENTATION_MODEL_FILE=${seg_file}" \
+      "KRAKEN_SEGMENTATION_MODEL_SHA256=${seg_sha256}")" \
     '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
-done < <(yq -r '.ocr.kraken.segmentation_models | keys | sort | .[]' "$config_path")
+done < <(yq -r '.kraken.segmentation_models | keys | sort | .[]' "$config_path")
 
 # Kraken transcription services: one per entry in ocr.kraken.transcription_models.
+seen_transcription_keys="|"
 while IFS= read -r tx_key; do
   [ -z "$tx_key" ] && continue
-  tx_doi="$(yq -r ".ocr.kraken.transcription_models[\"${tx_key}\"].doi // \"\"" "$config_path")"
-  tx_file="$(yq -r ".ocr.kraken.transcription_models[\"${tx_key}\"].file // \"\"" "$config_path")"
+  validate_model_key "transcription model" "$tx_key"
+  normalized_tx_key="$(printf '%s' "$tx_key" | tr '[:upper:]' '[:lower:]')"
+  case "$seen_transcription_keys" in
+    *"|${normalized_tx_key}|"*)
+      echo "config/ocr.yaml contains case-insensitive duplicate transcription model IDs: ${tx_key}" >&2
+      exit 1
+      ;;
+  esac
+  seen_transcription_keys="${seen_transcription_keys}${normalized_tx_key}|"
+  tx_doi="$(yq -r ".kraken.transcription_models[\"${tx_key}\"].doi // \"\"" "$config_path")"
+  tx_file="$(yq -r ".kraken.transcription_models[\"${tx_key}\"].file // \"\"" "$config_path")"
+  tx_sha256="$(yq -r ".kraken.transcription_models[\"${tx_key}\"].sha256 // \"\"" "$config_path")"
+  validate_model_ref "transcription model ${tx_key}" "$tx_doi" "$tx_file" "$tx_sha256"
   service="scribe-ko-$(hash8 "$tx_key")"
   append_entry "$(jq -n \
     --arg key "kraken-ocr/${tx_key}" \
@@ -203,20 +288,42 @@ while IFS= read -r tx_key; do
     --arg platform "linux/amd64" \
     --argjson build_args "$(build_args_json \
       "KRAKEN_PIP_SPEC=${kraken_pip_spec}" \
+      "KRAKEN_TRANSCRIPTION_MODEL_ID=${tx_key}" \
       "KRAKEN_RECOGNITION_MODEL_DOI=${tx_doi}" \
       "KRAKEN_RECOGNITION_MODEL_FILE=${tx_file}" \
-      "KRAKEN_SEGMENTATION_MODEL_DOI=${default_seg_doi}" \
-      "KRAKEN_SEGMENTATION_MODEL_FILE=${default_seg_file}")" \
+      "KRAKEN_RECOGNITION_MODEL_SHA256=${tx_sha256}" \
+      "KRAKEN_SEGMENTATION_MODEL_ID=" \
+      "KRAKEN_SEGMENTATION_MODEL_DOI=" \
+      "KRAKEN_SEGMENTATION_MODEL_FILE=" \
+      "KRAKEN_SEGMENTATION_MODEL_SHA256=")" \
     '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
-done < <(yq -r '.ocr.kraken.transcription_models | keys | sort | .[]' "$config_path")
+done < <(yq -r '.kraken.transcription_models | keys | sort | .[]' "$config_path")
 
 # Ollama services: one per entry in ocr.ollama.models. Prod only — Terraform
 # gates the deploy side on workspace == "prod", but building the images in
 # every environment is fine since they'd be reused if promoted.
-ollama_base="$(yq -r '.ocr.ollama.base_image // ""' "$config_path")"
+ollama_base="$(yq -r '.ollama.base_image // ""' "$config_path")"
+if [[ ! "$ollama_base" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]; then
+  echo "config/ocr.yaml ollama.base_image must use an immutable sha256 digest: $ollama_base" >&2
+  exit 1
+fi
+ollama_default_model="$(yq -r '.ollama.default_model // ""' "$config_path")"
+if [ -z "$ollama_default_model" ]; then
+  echo "config/ocr.yaml ollama.default_model must be set" >&2
+  exit 1
+fi
+if ! OLLAMA_DEFAULT_MODEL="$ollama_default_model" yq -e '.ollama.models | has(strenv(OLLAMA_DEFAULT_MODEL))' "$config_path" >/dev/null; then
+  echo "config/ocr.yaml ollama.default_model must reference a key in ollama.models" >&2
+  exit 1
+fi
 while IFS= read -r model; do
   [ -z "$model" ] && continue
   slug="$(slugify "$model")"
+  model_digest="$(MODEL="$model" yq -r '.ollama.models[strenv(MODEL)].manifest_digest // ""' "$config_path")"
+  if [[ ! "$model_digest" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "config/ocr.yaml ollama model ${model} must declare an exact manifest_digest" >&2
+    exit 1
+  fi
   service="ollama-${slug}"
   if [ "${#service}" -gt 63 ]; then service="$(printf '%s' "$service" | cut -c1-63 | sed 's/-*$//')"; fi
   append_entry "$(jq -n \
@@ -231,8 +338,9 @@ while IFS= read -r model; do
     --arg platform "linux/amd64" \
     --argjson build_args "$(build_args_json \
       "OLLAMA_BASE_IMAGE=${ollama_base}" \
-      "OLLAMA_MODEL=${model}")" \
+      "OLLAMA_MODEL=${model}" \
+      "OLLAMA_MODEL_DIGEST=${model_digest}")" \
     '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
-done < <(yq -r '.ocr.ollama.models[]?' "$config_path")
+done < <(yq -r '.ollama.models | keys | sort | .[]' "$config_path")
 
 jq -c '{include: .}' <<<"$entries_json"

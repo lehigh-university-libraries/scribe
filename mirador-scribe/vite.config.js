@@ -1,4 +1,5 @@
 import react from '@vitejs/plugin-react';
+import { copyFileSync, mkdirSync } from 'node:fs';
 import pkg from './package.json';
 
 const peers = Object.keys(pkg.peerDependencies || {});
@@ -7,7 +8,7 @@ export default {
   build: {
     lib: {
       entry: './src/index.js',
-      fileName: (format) => `mirador-scribe.${format}.js`,
+      fileName: (format) => format === 'es' ? 'mirador-scribe.mjs' : 'mirador-scribe.cjs',
       formats: ['es', 'cjs'],
       name: 'MiradorScribePlugin',
     },
@@ -31,8 +32,17 @@ export default {
     },
     sourcemap: true,
   },
-  esbuild: { include: [/src\/.*\.jsx?$/], loader: 'jsx' },
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      closeBundle() {
+        mkdirSync('dist/types', { recursive: true });
+        copyFileSync('src/index.d.ts', 'dist/index.d.ts');
+        copyFileSync('src/types/scribe.d.ts', 'dist/types/scribe.d.ts');
+      },
+      name: 'copy-types',
+    },
+  ],
   resolve: {
     dedupe: [
       'react',

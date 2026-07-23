@@ -1,11 +1,16 @@
 .env
+gha-creds-*.json
 .terraform
 terraform.tfstate
+terraform/*.tfstate
+terraform/*.tfstate.*
 terraform/terraform.tfvars
 uploads
 secrets
 web/node_modules
 web/dist
+web/playwright-report
+web/test-results
 mirador-scribe/node_modules
 mirador-scribe/dist
 /db
@@ -13,3 +18,4 @@ internal/server/cache/sessions/*/original.hocr
 docker-compose.override.yaml
 .bin
 .tools
+site

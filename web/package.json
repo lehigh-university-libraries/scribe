@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && CI=true vite build",
     "test": "vitest run",
+    "test:browser": "playwright test",
+    "test:browser:types": "tsc --noEmit -p e2e/tsconfig.json",
     "preview": "vite preview",
     "serve": "node server.mjs"
   },
@@ -20,21 +22,24 @@
     "@mui/material": "7.3.11",
     "@mui/system": "7.3.11",
     "i18next": "26.3.1",
-    "lodash": "^4.17.21",
+    "lodash": "4.18.1",
     "mirador": "4.1.0",
     "openseadragon": "6.0.2",
     "prop-types": "15.8.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-i18next": "15.7.4",
-    "uuid": "^14.0.0"
+    "uuid": "14.0.0"
   },
   "overrides": {
-    "lodash": "^4.17.21",
-    "uuid": "^14.0.0"
+    "esbuild": "0.28.1",
+    "lodash": "4.18.1",
+    "uuid": "14.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@tailwindcss/postcss": "4.3.1",
+    "@types/node": "24.13.3",
     "@vitejs/plugin-react": "5.2.0",
     "autoprefixer": "10.5.0",
     "happy-dom": "20.10.6",

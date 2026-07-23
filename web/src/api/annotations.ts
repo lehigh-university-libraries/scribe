@@ -1,118 +1,245 @@
-import { createClient } from "@connectrpc/connect";
+import { Code, ConnectError, createClient } from "@connectrpc/connect";
 import { AnnotationService } from "../proto/scribe/v1/annotation_connect";
+import { AnnotationExportFormat, AnnotationGranularity } from "../proto/scribe/v1/annotation_pb";
+import type {
+  CanonicalIIIFAnnotationPage,
+  ScribeAnnotationClient,
+} from "mirador-scribe";
+import { parseIIIFJSON } from "../lib/iiif-json";
 import { getTransport } from "./transport";
 
 function client() {
   return createClient(AnnotationService, getTransport());
 }
 
-export async function searchAnnotations(canvasUri: string): Promise<unknown> {
-  const resp = await client().searchAnnotations({ canvasUri });
-  return JSON.parse(resp.annotationPageJson);
+export type AnnotationPage = CanonicalIIIFAnnotationPage;
+
+export interface AnnotationPageSnapshot {
+  page: AnnotationPage;
+  revision: string;
+  updatedAt: string;
+  canvasUri: string;
 }
 
-export async function getAnnotation(annotationId: string): Promise<unknown> {
-  const resp = await client().getAnnotation({ id: annotationId });
-  return JSON.parse(resp.annotationJson);
+export class AnnotationRevisionConflictError extends Error {
+  constructor(expectedRevision: string, cause: ConnectError) {
+    super(`annotation page revision conflict at expected revision ${expectedRevision}`, { cause });
+    this.name = "RevisionConflict";
+  }
 }
 
-export async function createAnnotation(annotationJson: string): Promise<unknown> {
-  const resp = await client().createAnnotation({ annotationJson });
-  return JSON.parse(resp.annotationJson);
+function parseAnnotationPage(raw: string): AnnotationPage {
+  const value = parseIIIFJSON(raw);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("annotation service returned a non-object page");
+  }
+  const page = value as Record<string, unknown>;
+  if (page.type !== "AnnotationPage" || typeof page.id !== "string" || !Array.isArray(page.items)) {
+    throw new Error("annotation service returned an invalid IIIF AnnotationPage");
+  }
+  if (!page.items.every((item) => (
+    item !== null
+      && typeof item === "object"
+      && !Array.isArray(item)
+      && typeof (item as Record<string, unknown>).id === "string"
+  ))) {
+    throw new Error("annotation service returned an AnnotationPage with invalid items");
+  }
+  return page as AnnotationPage;
 }
 
-export async function updateAnnotation(annotationJson: string): Promise<unknown> {
-  const resp = await client().updateAnnotation({ annotationJson });
-  return JSON.parse(resp.annotationJson);
+export async function getAnnotationPage(itemImageId: string): Promise<AnnotationPageSnapshot> {
+  const resp = await client().getAnnotationPage({ itemImageId: BigInt(itemImageId) });
+  return {
+    canvasUri: resp.canvasUri,
+    page: parseAnnotationPage(resp.annotationPageJson),
+    revision: resp.revision.toString(),
+    updatedAt: resp.updatedAt,
+  };
 }
 
-export async function deleteAnnotation(uri: string): Promise<void> {
-  await client().deleteAnnotation({ uri });
+export async function saveAnnotationPage(
+  itemImageId: string,
+  annotationPageJson: string,
+  expectedRevision: string,
+): Promise<AnnotationPageSnapshot> {
+  try {
+    const resp = await client().saveAnnotationPage({
+      annotationPageJson,
+      expectedRevision: BigInt(expectedRevision || "0"),
+      itemImageId: BigInt(itemImageId),
+    });
+    return {
+      canvasUri: resp.canvasUri,
+      page: parseAnnotationPage(resp.annotationPageJson),
+      revision: resp.revision.toString(),
+      updatedAt: resp.updatedAt,
+    };
+  } catch (error) {
+    const connectError = ConnectError.from(error);
+    if (connectError.code === Code.Aborted) {
+      throw new AnnotationRevisionConflictError(expectedRevision || "0", connectError);
+    }
+    throw error;
+  }
 }
 
-export async function publishItemImageEdits(itemImageId: string): Promise<{ itemImageId: string; canvasUri: string; annotationPageJson: string; publishedAt: string }> {
-  const resp = await client().publishItemImageEdits({ itemImageId: BigInt(itemImageId) });
+export async function searchAnnotations({
+  itemImageId,
+  canvasUri = "",
+  granularity = AnnotationGranularity.ALL,
+}: {
+  itemImageId: string;
+  canvasUri?: string;
+  granularity?: AnnotationGranularity;
+}): Promise<AnnotationPageSnapshot> {
+  const resp = await client().searchAnnotations({
+    canvasUri,
+    granularity,
+    itemImageId: BigInt(itemImageId),
+  });
+  return {
+    canvasUri,
+    page: parseAnnotationPage(resp.annotationPageJson),
+    revision: resp.revision.toString(),
+    updatedAt: "",
+  };
+}
+
+export async function getAnnotation(itemImageId: string, annotationId: string): Promise<unknown> {
+  const resp = await client().getAnnotation({ id: annotationId, itemImageId: BigInt(itemImageId) });
+  return parseIIIFJSON(resp.annotationJson);
+}
+
+export async function publishItemImageEdits(
+  itemImageId: string,
+  expectedRevision: string,
+): Promise<{
+  itemImageId: string;
+  canvasUri: string;
+  annotationPageJson: string;
+  publishedAt: string;
+  publishedRevision: string;
+  publicUrl: string;
+}> {
+  const resp = await client().publishItemImageEdits({
+    expectedRevision: BigInt(expectedRevision),
+    itemImageId: BigInt(itemImageId),
+  });
   return {
     itemImageId: resp.itemImageId.toString(),
     canvasUri: resp.canvasUri,
     annotationPageJson: resp.annotationPageJson,
     publishedAt: resp.publishedAt,
+    publishedRevision: resp.publishedRevision.toString(),
+    publicUrl: resp.publicUrl,
   };
 }
 
 export async function enrichAnnotation(
+  itemImageId: string,
   scope: "line" | "page",
   annotationJson: string,
-  contextId = 0,
+  contextId: string | number | bigint = 0,
 ): Promise<unknown> {
   const resp = await client().enrichAnnotation({
+    itemImageId: BigInt(itemImageId),
     scope,
     annotationJson,
     contextId: BigInt(contextId),
   });
-  return JSON.parse(resp.annotationJson);
+  return parseIIIFJSON(resp.annotationJson);
 }
 
 export async function splitLineIntoWords(
-  annotationJson: string,
+  itemImageId: string,
+  annotationPageJson: string,
+  selectedAnnotationId: string,
   words: string[] = [],
-): Promise<unknown> {
-  const resp = await client().splitLineIntoWords({ annotationJson, words });
-  return JSON.parse(resp.annotationPageJson);
+): Promise<AnnotationPage> {
+  const resp = await client().splitLineIntoWords({
+    annotationPageJson,
+    itemImageId: BigInt(itemImageId),
+    selectedAnnotationId,
+    words,
+  });
+  return parseAnnotationPage(resp.annotationPageJson);
 }
 
 export async function splitLineIntoTwoLines(
-  annotationJson: string,
+  itemImageId: string,
+  annotationPageJson: string,
+  selectedAnnotationId: string,
   splitAtWord = 0,
-): Promise<unknown[]> {
-  const resp = await client().splitLineIntoTwoLines({ annotationJson, splitAtWord });
-  return resp.annotationJsons.map((j) => JSON.parse(j));
+): Promise<AnnotationPage> {
+  const resp = await client().splitLineIntoTwoLines({
+    annotationPageJson,
+    itemImageId: BigInt(itemImageId),
+    selectedAnnotationId,
+    splitAtWord,
+  });
+  return parseAnnotationPage(resp.annotationPageJson);
 }
 
-export async function joinLines(annotationJsons: string[]): Promise<unknown> {
-  const resp = await client().joinLines({ annotationJsons });
-  return JSON.parse(resp.annotationJson);
+export async function joinLines(
+  itemImageId: string,
+  annotationPageJson: string,
+  selectedAnnotationIds: string[],
+): Promise<AnnotationPage> {
+  const resp = await client().joinLines({
+    annotationPageJson,
+    itemImageId: BigInt(itemImageId),
+    selectedAnnotationIds,
+  });
+  return parseAnnotationPage(resp.annotationPageJson);
 }
 
-export async function joinWordsIntoLine(annotationJsons: string[]): Promise<unknown> {
-  const resp = await client().joinWordsIntoLine({ annotationJsons });
-  return JSON.parse(resp.annotationJson);
+export async function joinWordsIntoLine(
+  itemImageId: string,
+  annotationPageJson: string,
+  selectedAnnotationIds: string[],
+): Promise<AnnotationPage> {
+  const resp = await client().joinWordsIntoLine({
+    annotationPageJson,
+    itemImageId: BigInt(itemImageId),
+    selectedAnnotationIds,
+  });
+  return parseAnnotationPage(resp.annotationPageJson);
 }
 
-export async function crosswalkToPlainText(annotationPageJson: string, annotationJson = ""): Promise<{ format: string; content: string }> {
-  const resp = await client().crosswalkToPlainText({ annotationPageJson, annotationJson });
-  return { format: resp.format, content: resp.content };
+export async function exportAnnotationPage(
+  itemImageId: string,
+  expectedRevision: string,
+  format: AnnotationExportFormat,
+): Promise<{ itemImageId: string; revision: string; mediaType: string; content: Uint8Array; filename: string }> {
+  const resp = await client().exportAnnotationPage({
+    expectedRevision: BigInt(expectedRevision),
+    format,
+    itemImageId: BigInt(itemImageId),
+  });
+  return {
+    content: resp.content,
+    filename: resp.filename,
+    itemImageId: resp.itemImageId.toString(),
+    mediaType: resp.mediaType,
+    revision: resp.revision.toString(),
+  };
 }
 
-export async function crosswalkToHOCR(annotationPageJson: string, annotationJson = ""): Promise<{ format: string; content: string }> {
-  const resp = await client().crosswalkToHOCR({ annotationPageJson, annotationJson });
-  return { format: resp.format, content: resp.content };
-}
-
-export async function crosswalkToPageXML(annotationPageJson: string, annotationJson = ""): Promise<{ format: string; content: string }> {
-  const resp = await client().crosswalkToPageXML({ annotationPageJson, annotationJson });
-  return { format: resp.format, content: resp.content };
-}
-
-export async function crosswalkToALTOXML(annotationPageJson: string, annotationJson = ""): Promise<{ format: string; content: string }> {
-  const resp = await client().crosswalkToALTOXML({ annotationPageJson, annotationJson });
-  return { format: resp.format, content: resp.content };
-}
-
-export const annotationClient = {
-  searchAnnotations,
-  getAnnotation,
-  createAnnotation,
-  updateAnnotation,
-  deleteAnnotation,
-  publishItemImageEdits,
+const adapterAnnotationClient = {
+  getAnnotationPage,
+  saveAnnotationPage,
   enrichAnnotation,
   splitLineIntoWords,
   splitLineIntoTwoLines,
   joinLines,
   joinWordsIntoLine,
-  crosswalkToPlainText,
-  crosswalkToHOCR,
-  crosswalkToPageXML,
-  crosswalkToALTOXML,
+} satisfies ScribeAnnotationClient;
+
+export const annotationClient = {
+  ...adapterAnnotationClient,
+  searchAnnotations,
+  getAnnotation,
+  publishItemImageEdits,
+  exportAnnotationPage,
 };
