@@ -1,0 +1,10 @@
+# Terraform owns this narrow compatibility overlay so an automatic rollback to
+# an older application SHA still uses collision-free IPAM. Keep these values in
+# lockstep with docker-compose.yaml; the contract renders and compares both.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${SCRIBE_COMPOSE_SUBNET:-172.30.0.0/24}
+          ip_range: ${SCRIBE_COMPOSE_IP_RANGE:-172.30.0.128/25}
+          gateway: ${SCRIBE_COMPOSE_GATEWAY:-172.30.0.1}

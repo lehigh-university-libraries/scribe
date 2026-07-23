@@ -95,7 +95,7 @@ func (q *PubSubTranscriptionQueue) ReceiveTranscriptionJobs(
 	err := q.subscriber.Receive(ctx, func(msgCtx context.Context, msg *pubsub.Message) {
 		jobID, err := parseTranscriptionJobMessage(msg)
 		if err != nil {
-			slog.Warn("Dropping invalid transcription job message", "message_id", msg.ID, "error", err)
+			slog.Warn("Dropping invalid transcription job message", "message_id", msg.ID, "failure", "invalid transcription queue message")
 			if poison != nil {
 				poison(msgCtx, msg.ID, err, msg.Data)
 			}
@@ -103,7 +103,7 @@ func (q *PubSubTranscriptionQueue) ReceiveTranscriptionJobs(
 			return
 		}
 		if err := handle(msgCtx, jobID); err != nil {
-			slog.Warn("Transcription job message failed", "message_id", msg.ID, "job_id", jobID, "error", err)
+			slog.Warn("Transcription job message failed", "message_id", msg.ID, "job_id", jobID, "failure", "transcription attempt failed")
 			msg.Nack()
 			return
 		}

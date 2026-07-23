@@ -12,6 +12,49 @@ import (
 	"time"
 )
 
+type AnnotationMirrorOutboxStatus string
+
+const (
+	AnnotationMirrorOutboxStatusPending    AnnotationMirrorOutboxStatus = "pending"
+	AnnotationMirrorOutboxStatusProcessing AnnotationMirrorOutboxStatus = "processing"
+	AnnotationMirrorOutboxStatusFailed     AnnotationMirrorOutboxStatus = "failed"
+)
+
+func (e *AnnotationMirrorOutboxStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = AnnotationMirrorOutboxStatus(s)
+	case string:
+		*e = AnnotationMirrorOutboxStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for AnnotationMirrorOutboxStatus: %T", src)
+	}
+	return nil
+}
+
+type NullAnnotationMirrorOutboxStatus struct {
+	AnnotationMirrorOutboxStatus AnnotationMirrorOutboxStatus `json:"annotation_mirror_outbox_status"`
+	Valid                        bool                         `json:"valid"` // Valid is true if AnnotationMirrorOutboxStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullAnnotationMirrorOutboxStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.AnnotationMirrorOutboxStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.AnnotationMirrorOutboxStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullAnnotationMirrorOutboxStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.AnnotationMirrorOutboxStatus), nil
+}
+
 type ApiKeysRole string
 
 const (
@@ -105,6 +148,7 @@ const (
 	ItemsSourceTypeUrl      ItemsSourceType = "url"
 	ItemsSourceTypeUpload   ItemsSourceType = "upload"
 	ItemsSourceTypeManifest ItemsSourceType = "manifest"
+	ItemsSourceTypeHocr     ItemsSourceType = "hocr"
 )
 
 func (e *ItemsSourceType) Scan(src interface{}) error {
@@ -142,57 +186,191 @@ func (ns NullItemsSourceType) Value() (driver.Value, error) {
 	return string(ns.ItemsSourceType), nil
 }
 
-type OrganizationMembersRole string
+type ProviderSecretsLifecycleState string
 
 const (
-	OrganizationMembersRoleAdmin  OrganizationMembersRole = "admin"
-	OrganizationMembersRoleWrite  OrganizationMembersRole = "write"
-	OrganizationMembersRoleCreate OrganizationMembersRole = "create"
-	OrganizationMembersRoleRead   OrganizationMembersRole = "read"
+	ProviderSecretsLifecycleStatePendingWrite   ProviderSecretsLifecycleState = "pending_write"
+	ProviderSecretsLifecycleStateActive         ProviderSecretsLifecycleState = "active"
+	ProviderSecretsLifecycleStateCleanupPending ProviderSecretsLifecycleState = "cleanup_pending"
 )
 
-func (e *OrganizationMembersRole) Scan(src interface{}) error {
+func (e *ProviderSecretsLifecycleState) Scan(src interface{}) error {
 	switch s := src.(type) {
 	case []byte:
-		*e = OrganizationMembersRole(s)
+		*e = ProviderSecretsLifecycleState(s)
 	case string:
-		*e = OrganizationMembersRole(s)
+		*e = ProviderSecretsLifecycleState(s)
 	default:
-		return fmt.Errorf("unsupported scan type for OrganizationMembersRole: %T", src)
+		return fmt.Errorf("unsupported scan type for ProviderSecretsLifecycleState: %T", src)
 	}
 	return nil
 }
 
-type NullOrganizationMembersRole struct {
-	OrganizationMembersRole OrganizationMembersRole `json:"organization_members_role"`
-	Valid                   bool                    `json:"valid"` // Valid is true if OrganizationMembersRole is not NULL
+type NullProviderSecretsLifecycleState struct {
+	ProviderSecretsLifecycleState ProviderSecretsLifecycleState `json:"provider_secrets_lifecycle_state"`
+	Valid                         bool                          `json:"valid"` // Valid is true if ProviderSecretsLifecycleState is not NULL
 }
 
 // Scan implements the Scanner interface.
-func (ns *NullOrganizationMembersRole) Scan(value interface{}) error {
+func (ns *NullProviderSecretsLifecycleState) Scan(value interface{}) error {
 	if value == nil {
-		ns.OrganizationMembersRole, ns.Valid = "", false
+		ns.ProviderSecretsLifecycleState, ns.Valid = "", false
 		return nil
 	}
 	ns.Valid = true
-	return ns.OrganizationMembersRole.Scan(value)
+	return ns.ProviderSecretsLifecycleState.Scan(value)
 }
 
 // Value implements the driver Valuer interface.
-func (ns NullOrganizationMembersRole) Value() (driver.Value, error) {
+func (ns NullProviderSecretsLifecycleState) Value() (driver.Value, error) {
 	if !ns.Valid {
 		return nil, nil
 	}
-	return string(ns.OrganizationMembersRole), nil
+	return string(ns.ProviderSecretsLifecycleState), nil
+}
+
+type ResourceCleanupOutboxKind string
+
+const (
+	ResourceCleanupOutboxKindUploadBlob               ResourceCleanupOutboxKind = "upload_blob"
+	ResourceCleanupOutboxKindTripletPresentationImage ResourceCleanupOutboxKind = "triplet_presentation_image"
+	ResourceCleanupOutboxKindTripletPresentationItem  ResourceCleanupOutboxKind = "triplet_presentation_item"
+)
+
+func (e *ResourceCleanupOutboxKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ResourceCleanupOutboxKind(s)
+	case string:
+		*e = ResourceCleanupOutboxKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ResourceCleanupOutboxKind: %T", src)
+	}
+	return nil
+}
+
+type NullResourceCleanupOutboxKind struct {
+	ResourceCleanupOutboxKind ResourceCleanupOutboxKind `json:"resource_cleanup_outbox_kind"`
+	Valid                     bool                      `json:"valid"` // Valid is true if ResourceCleanupOutboxKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullResourceCleanupOutboxKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.ResourceCleanupOutboxKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ResourceCleanupOutboxKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullResourceCleanupOutboxKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ResourceCleanupOutboxKind), nil
+}
+
+type ResourceCleanupOutboxStatus string
+
+const (
+	ResourceCleanupOutboxStatusPending    ResourceCleanupOutboxStatus = "pending"
+	ResourceCleanupOutboxStatusProcessing ResourceCleanupOutboxStatus = "processing"
+	ResourceCleanupOutboxStatusFailed     ResourceCleanupOutboxStatus = "failed"
+)
+
+func (e *ResourceCleanupOutboxStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ResourceCleanupOutboxStatus(s)
+	case string:
+		*e = ResourceCleanupOutboxStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ResourceCleanupOutboxStatus: %T", src)
+	}
+	return nil
+}
+
+type NullResourceCleanupOutboxStatus struct {
+	ResourceCleanupOutboxStatus ResourceCleanupOutboxStatus `json:"resource_cleanup_outbox_status"`
+	Valid                       bool                        `json:"valid"` // Valid is true if ResourceCleanupOutboxStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullResourceCleanupOutboxStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ResourceCleanupOutboxStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ResourceCleanupOutboxStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullResourceCleanupOutboxStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ResourceCleanupOutboxStatus), nil
+}
+
+type TranscriptionJobAttemptsOutcome string
+
+const (
+	TranscriptionJobAttemptsOutcomeRunning         TranscriptionJobAttemptsOutcome = "running"
+	TranscriptionJobAttemptsOutcomeCompleted       TranscriptionJobAttemptsOutcome = "completed"
+	TranscriptionJobAttemptsOutcomeRetryableFailed TranscriptionJobAttemptsOutcome = "retryable_failed"
+	TranscriptionJobAttemptsOutcomeFailed          TranscriptionJobAttemptsOutcome = "failed"
+	TranscriptionJobAttemptsOutcomeCanceled        TranscriptionJobAttemptsOutcome = "canceled"
+	TranscriptionJobAttemptsOutcomeSuperseded      TranscriptionJobAttemptsOutcome = "superseded"
+	TranscriptionJobAttemptsOutcomeLeaseExpired    TranscriptionJobAttemptsOutcome = "lease_expired"
+)
+
+func (e *TranscriptionJobAttemptsOutcome) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TranscriptionJobAttemptsOutcome(s)
+	case string:
+		*e = TranscriptionJobAttemptsOutcome(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TranscriptionJobAttemptsOutcome: %T", src)
+	}
+	return nil
+}
+
+type NullTranscriptionJobAttemptsOutcome struct {
+	TranscriptionJobAttemptsOutcome TranscriptionJobAttemptsOutcome `json:"transcription_job_attempts_outcome"`
+	Valid                           bool                            `json:"valid"` // Valid is true if TranscriptionJobAttemptsOutcome is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTranscriptionJobAttemptsOutcome) Scan(value interface{}) error {
+	if value == nil {
+		ns.TranscriptionJobAttemptsOutcome, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TranscriptionJobAttemptsOutcome.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTranscriptionJobAttemptsOutcome) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TranscriptionJobAttemptsOutcome), nil
 }
 
 type TranscriptionJobsStatus string
 
 const (
-	TranscriptionJobsStatusPending   TranscriptionJobsStatus = "pending"
-	TranscriptionJobsStatusRunning   TranscriptionJobsStatus = "running"
-	TranscriptionJobsStatusCompleted TranscriptionJobsStatus = "completed"
-	TranscriptionJobsStatusFailed    TranscriptionJobsStatus = "failed"
+	TranscriptionJobsStatusPending    TranscriptionJobsStatus = "pending"
+	TranscriptionJobsStatusRunning    TranscriptionJobsStatus = "running"
+	TranscriptionJobsStatusCompleted  TranscriptionJobsStatus = "completed"
+	TranscriptionJobsStatusFailed     TranscriptionJobsStatus = "failed"
+	TranscriptionJobsStatusCanceled   TranscriptionJobsStatus = "canceled"
+	TranscriptionJobsStatusSuperseded TranscriptionJobsStatus = "superseded"
 )
 
 func (e *TranscriptionJobsStatus) Scan(src interface{}) error {
@@ -228,6 +406,94 @@ func (ns NullTranscriptionJobsStatus) Value() (driver.Value, error) {
 		return nil, nil
 	}
 	return string(ns.TranscriptionJobsStatus), nil
+}
+
+type UploadBatchFilesStatus string
+
+const (
+	UploadBatchFilesStatusPending    UploadBatchFilesStatus = "pending"
+	UploadBatchFilesStatusProcessing UploadBatchFilesStatus = "processing"
+	UploadBatchFilesStatusCompleted  UploadBatchFilesStatus = "completed"
+	UploadBatchFilesStatusFailed     UploadBatchFilesStatus = "failed"
+	UploadBatchFilesStatusCanceled   UploadBatchFilesStatus = "canceled"
+)
+
+func (e *UploadBatchFilesStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UploadBatchFilesStatus(s)
+	case string:
+		*e = UploadBatchFilesStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UploadBatchFilesStatus: %T", src)
+	}
+	return nil
+}
+
+type NullUploadBatchFilesStatus struct {
+	UploadBatchFilesStatus UploadBatchFilesStatus `json:"upload_batch_files_status"`
+	Valid                  bool                   `json:"valid"` // Valid is true if UploadBatchFilesStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUploadBatchFilesStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.UploadBatchFilesStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UploadBatchFilesStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUploadBatchFilesStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UploadBatchFilesStatus), nil
+}
+
+type UploadBatchesStatus string
+
+const (
+	UploadBatchesStatusInProgress UploadBatchesStatus = "in_progress"
+	UploadBatchesStatusCompleted  UploadBatchesStatus = "completed"
+	UploadBatchesStatusCanceled   UploadBatchesStatus = "canceled"
+)
+
+func (e *UploadBatchesStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UploadBatchesStatus(s)
+	case string:
+		*e = UploadBatchesStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UploadBatchesStatus: %T", src)
+	}
+	return nil
+}
+
+type NullUploadBatchesStatus struct {
+	UploadBatchesStatus UploadBatchesStatus `json:"upload_batches_status"`
+	Valid               bool                `json:"valid"` // Valid is true if UploadBatchesStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUploadBatchesStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.UploadBatchesStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UploadBatchesStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUploadBatchesStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UploadBatchesStatus), nil
 }
 
 type WebhookDeliveriesStatus string
@@ -319,11 +585,50 @@ func (ns NullWorkspaceMembersRole) Value() (driver.Value, error) {
 }
 
 type Annotation struct {
-	ID        string    `json:"id"`
-	CanvasUri string    `json:"canvas_uri"`
-	Payload   string    `json:"payload"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	WorkspaceID     uint64         `json:"workspace_id"`
+	ItemImageID     uint64         `json:"item_image_id"`
+	ID              string         `json:"id"`
+	CanvasUri       string         `json:"canvas_uri"`
+	TextGranularity sql.NullString `json:"text_granularity"`
+	Position        uint32         `json:"position"`
+	Payload         string         `json:"payload"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+type AnnotationMirrorOutbox struct {
+	ItemImageID   uint64                       `json:"item_image_id"`
+	Revision      uint64                       `json:"revision"`
+	Payload       string                       `json:"payload"`
+	Status        AnnotationMirrorOutboxStatus `json:"status"`
+	AttemptCount  int32                        `json:"attempt_count"`
+	MaxAttempts   int32                        `json:"max_attempts"`
+	NextAttemptAt time.Time                    `json:"next_attempt_at"`
+	LeaseUntil    sql.NullTime                 `json:"lease_until"`
+	LockedBy      sql.NullString               `json:"locked_by"`
+	LastError     sql.NullString               `json:"last_error"`
+	CreatedAt     time.Time                    `json:"created_at"`
+	UpdatedAt     time.Time                    `json:"updated_at"`
+}
+
+type AnnotationMirrorTombstone struct {
+	ItemImageID   uint64    `json:"item_image_id"`
+	Generation    uint64    `json:"generation"`
+	AnnotationIds string    `json:"annotation_ids"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type AnnotationPage struct {
+	WorkspaceID     uint64        `json:"workspace_id"`
+	ItemImageID     uint64        `json:"item_image_id"`
+	PageID          string        `json:"page_id"`
+	CanvasUri       string        `json:"canvas_uri"`
+	Payload         string        `json:"payload"`
+	Revision        uint64        `json:"revision"`
+	UpdatedByUserID sql.NullInt64 `json:"updated_by_user_id"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
 }
 
 type ApiKey struct {
@@ -335,21 +640,19 @@ type ApiKey struct {
 	KeyHash         string          `json:"key_hash"`
 	Role            ApiKeysRole     `json:"role"`
 	Scopes          json.RawMessage `json:"scopes"`
-	LastUsedAt      sql.NullTime    `json:"last_used_at"`
 	ExpiresAt       sql.NullTime    `json:"expires_at"`
 	CreatedAt       time.Time       `json:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
 type AuthSession struct {
-	ID         uint64         `json:"id"`
-	TokenHash  string         `json:"token_hash"`
-	UserID     uint64         `json:"user_id"`
-	ExpiresAt  time.Time      `json:"expires_at"`
-	UserAgent  sql.NullString `json:"user_agent"`
-	IpAddress  sql.NullString `json:"ip_address"`
-	LastSeenAt sql.NullTime   `json:"last_seen_at"`
-	CreatedAt  time.Time      `json:"created_at"`
+	ID        uint64         `json:"id"`
+	TokenHash string         `json:"token_hash"`
+	UserID    uint64         `json:"user_id"`
+	ExpiresAt time.Time      `json:"expires_at"`
+	UserAgent sql.NullString `json:"user_agent"`
+	IpAddress sql.NullString `json:"ip_address"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 type Context struct {
@@ -360,14 +663,12 @@ type Context struct {
 	Description           sql.NullString  `json:"description"`
 	IsDefault             bool            `json:"is_default"`
 	SegmentationModel     string          `json:"segmentation_model"`
-	ImagePreprocessors    json.RawMessage `json:"image_preprocessors"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
-	TranscriptionBaseUrl  sql.NullString  `json:"transcription_base_url"`
-	TranscriptionAudience sql.NullString  `json:"transcription_audience"`
 	Temperature           sql.NullFloat64 `json:"temperature"`
 	SystemPrompt          sql.NullString  `json:"system_prompt"`
-	PostProcessingSteps   json.RawMessage `json:"post_processing_steps"`
+	ScopeID               sql.NullInt64   `json:"scope_id"`
+	DefaultScopeID        sql.NullInt64   `json:"default_scope_id"`
 	CreatedAt             time.Time       `json:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at"`
 }
@@ -378,6 +679,12 @@ type ContextSelectionRule struct {
 	Priority   int32           `json:"priority"`
 	Conditions json.RawMessage `json:"conditions"`
 	CreatedAt  time.Time       `json:"created_at"`
+}
+
+type CurrentOcrRun struct {
+	ItemImageID uint64    `json:"item_image_id"`
+	SessionID   string    `json:"session_id"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type EventOutbox struct {
@@ -395,10 +702,12 @@ type ExternalRequest struct {
 	WorkspaceID        uint64                 `json:"workspace_id"`
 	Source             string                 `json:"source"`
 	IdempotencyKey     string                 `json:"idempotency_key"`
+	RequestHash        string                 `json:"request_hash"`
 	Status             ExternalRequestsStatus `json:"status"`
 	ItemID             sql.NullString         `json:"item_id"`
 	ItemImageID        sql.NullInt64          `json:"item_image_id"`
 	TranscriptionJobID sql.NullInt64          `json:"transcription_job_id"`
+	SessionID          sql.NullString         `json:"session_id"`
 	EventHeader        sql.NullString         `json:"event_header"`
 	AttemptCount       int32                  `json:"attempt_count"`
 	MaxAttempts        int32                  `json:"max_attempts"`
@@ -410,108 +719,136 @@ type ExternalRequest struct {
 }
 
 type Item struct {
-	ID          string          `json:"id"`
-	UserID      uint64          `json:"user_id"`
-	WorkspaceID uint64          `json:"workspace_id"`
-	Name        string          `json:"name"`
-	SourceType  ItemsSourceType `json:"source_type"`
-	SourceUrl   sql.NullString  `json:"source_url"`
-	Metadata    json.RawMessage `json:"metadata"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID             string          `json:"id"`
+	UserID         uint64          `json:"user_id"`
+	WorkspaceID    uint64          `json:"workspace_id"`
+	Name           string          `json:"name"`
+	SourceType     ItemsSourceType `json:"source_type"`
+	SourceUrl      sql.NullString  `json:"source_url"`
+	SourceManifest sql.NullString  `json:"source_manifest"`
+	Metadata       json.RawMessage `json:"metadata"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
 type ItemImage struct {
-	ID        uint64         `json:"id"`
-	ItemID    string         `json:"item_id"`
-	Sequence  uint32         `json:"sequence"`
-	ImageUrl  string         `json:"image_url"`
-	CanvasUri sql.NullString `json:"canvas_uri"`
-	Width     sql.NullInt32  `json:"width"`
-	Height    sql.NullInt32  `json:"height"`
-	Label     sql.NullString `json:"label"`
-	HocrUrl   sql.NullString `json:"hocr_url"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID           uint64         `json:"id"`
+	WorkspaceID  uint64         `json:"workspace_id"`
+	ItemID       string         `json:"item_id"`
+	Sequence     uint32         `json:"sequence"`
+	ImageUrl     string         `json:"image_url"`
+	StorageBytes uint64         `json:"storage_bytes"`
+	CanvasUri    sql.NullString `json:"canvas_uri"`
+	Width        sql.NullInt32  `json:"width"`
+	Height       sql.NullInt32  `json:"height"`
+	Label        sql.NullString `json:"label"`
+	HocrUrl      sql.NullString `json:"hocr_url"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 type OcrRun struct {
-	SessionID           string         `json:"session_id"`
-	ItemImageID         sql.NullInt64  `json:"item_image_id"`
-	ContextID           sql.NullInt64  `json:"context_id"`
-	ImageUrl            string         `json:"image_url"`
-	Provider            string         `json:"provider"`
-	Model               string         `json:"model"`
-	OriginalHocr        string         `json:"original_hocr"`
-	OriginalText        string         `json:"original_text"`
-	CorrectedHocr       sql.NullString `json:"corrected_hocr"`
-	CorrectedText       sql.NullString `json:"corrected_text"`
-	EditCount           int32          `json:"edit_count"`
-	LevenshteinDistance int32          `json:"levenshtein_distance"`
-	BoxEditCount        int32          `json:"box_edit_count"`
-	BoxesAdded          int32          `json:"boxes_added"`
-	BoxesDeleted        int32          `json:"boxes_deleted"`
-	BoxChangeScore      float64        `json:"box_change_score"`
-	CreatedAt           time.Time      `json:"created_at"`
-	UpdatedAt           time.Time      `json:"updated_at"`
-}
-
-type Organization struct {
-	ID              uint64        `json:"id"`
-	Name            string        `json:"name"`
-	Slug            string        `json:"slug"`
-	CreatedByUserID sql.NullInt64 `json:"created_by_user_id"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
-}
-
-type OrganizationMember struct {
-	OrganizationID uint64                  `json:"organization_id"`
-	UserID         uint64                  `json:"user_id"`
-	Role           OrganizationMembersRole `json:"role"`
-	CreatedAt      time.Time               `json:"created_at"`
+	SessionID           string        `json:"session_id"`
+	WorkspaceID         uint64        `json:"workspace_id"`
+	ItemImageID         uint64        `json:"item_image_id"`
+	ContextID           sql.NullInt64 `json:"context_id"`
+	ContextScopeID      sql.NullInt64 `json:"context_scope_id"`
+	ImageUrl            string        `json:"image_url"`
+	Provider            string        `json:"provider"`
+	Model               string        `json:"model"`
+	OriginalHocr        string        `json:"original_hocr"`
+	OriginalText        string        `json:"original_text"`
+	CanonicalRevision   sql.NullInt64 `json:"canonical_revision"`
+	LevenshteinDistance int32         `json:"levenshtein_distance"`
+	CreatedAt           time.Time     `json:"created_at"`
+	UpdatedAt           time.Time     `json:"updated_at"`
 }
 
 type ProviderCallAudit struct {
-	ID           uint64         `json:"id"`
-	SessionID    sql.NullString `json:"session_id"`
-	ItemImageID  sql.NullInt64  `json:"item_image_id"`
-	ContextID    sql.NullInt64  `json:"context_id"`
-	Provider     string         `json:"provider"`
-	Model        string         `json:"model"`
-	Operation    string         `json:"operation"`
-	Prompt       sql.NullString `json:"prompt"`
-	RequestJson  sql.NullString `json:"request_json"`
-	ResponseJson sql.NullString `json:"response_json"`
-	ErrorMessage sql.NullString `json:"error_message"`
-	HttpStatus   sql.NullInt32  `json:"http_status"`
-	CreatedAt    time.Time      `json:"created_at"`
+	ID             uint64         `json:"id"`
+	WorkspaceID    uint64         `json:"workspace_id"`
+	SessionID      sql.NullString `json:"session_id"`
+	ItemImageID    sql.NullInt64  `json:"item_image_id"`
+	ContextID      sql.NullInt64  `json:"context_id"`
+	ContextScopeID sql.NullInt64  `json:"context_scope_id"`
+	Provider       string         `json:"provider"`
+	Model          string         `json:"model"`
+	Operation      string         `json:"operation"`
+	ErrorMessage   sql.NullString `json:"error_message"`
+	HttpStatus     sql.NullInt32  `json:"http_status"`
+	DurationMs     uint64         `json:"duration_ms"`
+	DatabaseBytes  uint64         `json:"database_bytes"`
+	CreatedAt      time.Time      `json:"created_at"`
 }
 
 type ProviderSecret struct {
-	ID          uint64         `json:"id"`
-	UserID      sql.NullInt64  `json:"user_id"`
-	WorkspaceID sql.NullInt64  `json:"workspace_id"`
-	Provider    string         `json:"provider"`
-	Name        string         `json:"name"`
-	VaultPath   string         `json:"vault_path"`
-	KeyHint     sql.NullString `json:"key_hint"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	ID             uint64                        `json:"id"`
+	UserID         sql.NullInt64                 `json:"user_id"`
+	WorkspaceID    uint64                        `json:"workspace_id"`
+	Provider       string                        `json:"provider"`
+	Name           string                        `json:"name"`
+	VaultPath      string                        `json:"vault_path"`
+	KeyHint        sql.NullString                `json:"key_hint"`
+	LifecycleState ProviderSecretsLifecycleState `json:"lifecycle_state"`
+	CreatedAt      time.Time                     `json:"created_at"`
+	UpdatedAt      time.Time                     `json:"updated_at"`
 }
 
-type Session struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+type PublishedAnnotationPage struct {
+	WorkspaceID       uint64        `json:"workspace_id"`
+	ItemImageID       uint64        `json:"item_image_id"`
+	PageID            string        `json:"page_id"`
+	CanvasUri         string        `json:"canvas_uri"`
+	Payload           string        `json:"payload"`
+	PublishedRevision uint64        `json:"published_revision"`
+	PublishedByUserID sql.NullInt64 `json:"published_by_user_id"`
+	PublishedAt       time.Time     `json:"published_at"`
+	CreatedAt         time.Time     `json:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+}
+
+type ResourceCleanupOutbox struct {
+	ID             uint64                      `json:"id"`
+	Kind           ResourceCleanupOutboxKind   `json:"kind"`
+	ResourceKey    string                      `json:"resource_key"`
+	WorkspaceID    uint64                      `json:"workspace_id"`
+	StorageBytes   uint64                      `json:"storage_bytes"`
+	Generation     uint64                      `json:"generation"`
+	DeleteFencedAt sql.NullTime                `json:"delete_fenced_at"`
+	Status         ResourceCleanupOutboxStatus `json:"status"`
+	AttemptCount   int32                       `json:"attempt_count"`
+	MaxAttempts    int32                       `json:"max_attempts"`
+	NextAttemptAt  time.Time                   `json:"next_attempt_at"`
+	LeaseUntil     sql.NullTime                `json:"lease_until"`
+	LockedBy       sql.NullString              `json:"locked_by"`
+	LastError      sql.NullString              `json:"last_error"`
+	CreatedAt      time.Time                   `json:"created_at"`
+	UpdatedAt      time.Time                   `json:"updated_at"`
+}
+
+type StorageQuotaUsage struct {
+	WorkspaceID             uint64    `json:"workspace_id"`
+	UploadBlobBytes         uint64    `json:"upload_blob_bytes"`
+	DatabaseBytes           uint64    `json:"database_bytes"`
+	ItemCount               uint64    `json:"item_count"`
+	ImageCount              uint64    `json:"image_count"`
+	ReservedUploadBlobBytes uint64    `json:"reserved_upload_blob_bytes"`
+	ReservedDatabaseBytes   uint64    `json:"reserved_database_bytes"`
+	ReservedItemCount       uint64    `json:"reserved_item_count"`
+	ReservedImageCount      uint64    `json:"reserved_image_count"`
+	UpdatedAt               time.Time `json:"updated_at"`
 }
 
 type TranscriptionJob struct {
 	ID                       uint64                  `json:"id"`
+	WorkspaceID              uint64                  `json:"workspace_id"`
 	ItemImageID              uint64                  `json:"item_image_id"`
 	ContextID                sql.NullInt64           `json:"context_id"`
+	ContextScopeID           sql.NullInt64           `json:"context_scope_id"`
+	ContextSnapshot          json.RawMessage         `json:"context_snapshot"`
+	InputRevision            uint64                  `json:"input_revision"`
 	Status                   TranscriptionJobsStatus `json:"status"`
+	ActiveItemImageID        sql.NullInt64           `json:"active_item_image_id"`
 	TotalSegments            int32                   `json:"total_segments"`
 	CompletedSegments        int32                   `json:"completed_segments"`
 	FailedSegments           int32                   `json:"failed_segments"`
@@ -526,6 +863,53 @@ type TranscriptionJob struct {
 	ErrorMessage             sql.NullString          `json:"error_message"`
 	CreatedAt                time.Time               `json:"created_at"`
 	UpdatedAt                time.Time               `json:"updated_at"`
+}
+
+type TranscriptionJobAttempt struct {
+	JobID            uint64                          `json:"job_id"`
+	AttemptNumber    uint32                          `json:"attempt_number"`
+	ContextSnapshot  json.RawMessage                 `json:"context_snapshot"`
+	InputRevision    uint64                          `json:"input_revision"`
+	LeaseOwner       string                          `json:"lease_owner"`
+	LeaseToken       string                          `json:"lease_token"`
+	Outcome          TranscriptionJobAttemptsOutcome `json:"outcome"`
+	SafeErrorMessage sql.NullString                  `json:"safe_error_message"`
+	ResultRevision   sql.NullInt64                   `json:"result_revision"`
+	StartedAt        time.Time                       `json:"started_at"`
+	FinishedAt       sql.NullTime                    `json:"finished_at"`
+}
+
+type UploadBatch struct {
+	WorkspaceID     uint64              `json:"workspace_id"`
+	ID              string              `json:"id"`
+	ItemID          string              `json:"item_id"`
+	ContextID       sql.NullInt64       `json:"context_id"`
+	ContextScopeID  sql.NullInt64       `json:"context_scope_id"`
+	ContextSnapshot json.RawMessage     `json:"context_snapshot"`
+	RequestHash     string              `json:"request_hash"`
+	CreationToken   string              `json:"creation_token"`
+	Status          UploadBatchesStatus `json:"status"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+}
+
+type UploadBatchFile struct {
+	WorkspaceID        uint64                 `json:"workspace_id"`
+	BatchID            string                 `json:"batch_id"`
+	Sequence           uint32                 `json:"sequence"`
+	Filename           string                 `json:"filename"`
+	Size               uint64                 `json:"size"`
+	ContentSha256      string                 `json:"content_sha256"`
+	Status             UploadBatchFilesStatus `json:"status"`
+	AttemptCount       uint32                 `json:"attempt_count"`
+	MaxAttempts        uint32                 `json:"max_attempts"`
+	LeaseUntil         sql.NullTime           `json:"lease_until"`
+	LockedBy           sql.NullString         `json:"locked_by"`
+	ItemImageID        sql.NullInt64          `json:"item_image_id"`
+	TranscriptionJobID sql.NullInt64          `json:"transcription_job_id"`
+	ErrorMessage       sql.NullString         `json:"error_message"`
+	CreatedAt          time.Time              `json:"created_at"`
+	UpdatedAt          time.Time              `json:"updated_at"`
 }
 
 type User struct {
@@ -558,7 +942,6 @@ type WebhookDelivery struct {
 
 type Workspace struct {
 	ID              uint64        `json:"id"`
-	OrganizationID  sql.NullInt64 `json:"organization_id"`
 	OwnerUserID     sql.NullInt64 `json:"owner_user_id"`
 	Name            string        `json:"name"`
 	Slug            string        `json:"slug"`
@@ -573,4 +956,16 @@ type WorkspaceMember struct {
 	UserID      uint64               `json:"user_id"`
 	Role        WorkspaceMembersRole `json:"role"`
 	CreatedAt   time.Time            `json:"created_at"`
+}
+
+type WorkspaceStorageReservation struct {
+	ID                    string         `json:"id"`
+	WorkspaceID           uint64         `json:"workspace_id"`
+	ReservedBytes         uint64         `json:"reserved_bytes"`
+	ReservedDatabaseBytes uint64         `json:"reserved_database_bytes"`
+	ReservedItems         uint32         `json:"reserved_items"`
+	ReservedImages        uint32         `json:"reserved_images"`
+	ResourceKey           sql.NullString `json:"resource_key"`
+	ExpiresAt             time.Time      `json:"expires_at"`
+	CreatedAt             time.Time      `json:"created_at"`
 }

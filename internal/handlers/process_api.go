@@ -2,79 +2,26 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"path/filepath"
-	"strings"
-	"time"
 
+	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
-	"github.com/lehigh-university-libraries/scribe/internal/models"
 	"github.com/lehigh-university-libraries/scribe/internal/utils"
 )
 
 type ProcessResult struct {
-	SessionID string `json:"session_id"`
-	HOCR      string `json:"hocr"`
-	PlainText string `json:"plain_text"`
-	ImageURL  string `json:"image_url"`
-	Provider  string `json:"provider,omitempty"`
-	Model     string `json:"model,omitempty"`
+	SessionID   string         `json:"session_id"`
+	HOCR        string         `json:"hocr"`
+	PlainText   string         `json:"plain_text"`
+	ImageURL    string         `json:"image_url"`
+	StoredBytes uint64         `json:"stored_bytes"`
+	Provider    string         `json:"provider,omitempty"`
+	Model       string         `json:"model,omitempty"`
+	ParsedHOCR  *hocr.Document `json:"-"`
 }
 
-func (h *Handler) ProcessImageURL(imageURL string) (*ProcessResult, error) {
-	return h.ProcessImageURLWithProviderAndModel(imageURL, "", "")
-}
-
-func (h *Handler) ProcessImageURLWithModel(imageURL, model string) (*ProcessResult, error) {
-	return h.ProcessImageURLWithProviderAndModel(imageURL, "", model)
-}
-
-func (h *Handler) ProcessImageURLWithProviderAndModel(imageURL, provider, model string) (*ProcessResult, error) {
-	return h.ProcessImageURLWithProviderAndModelContext(context.Background(), imageURL, provider, model)
-}
-
-func (h *Handler) ProcessImageURLWithProviderAndModelContext(ctx context.Context, imageURL, provider, model string) (*ProcessResult, error) {
-	result, err := h.processImageFromURLWithContext(ctx, imageURL, provider, model)
-	if err != nil {
-		return nil, err
-	}
-
-	filename := safeSessionName(h.extractFilenameFromURL(imageURL, result.ContentHash))
-	sessionID := fmt.Sprintf("%s_%d", filename, time.Now().Unix())
-	session := h.createImageSession(sessionID, result, SessionConfig{Model: model})
-	h.sessionStore.Set(sessionID, session)
-
-	return h.buildProcessResult(sessionID)
-}
-
-func (h *Handler) ProcessImageUpload(filename string, fileData []byte) (*ProcessResult, error) {
-	return h.ProcessImageUploadWithProviderAndModel(filename, fileData, "", "")
-}
-
-func (h *Handler) ProcessImageUploadWithModel(filename string, fileData []byte, model string) (*ProcessResult, error) {
-	return h.ProcessImageUploadWithProviderAndModel(filename, fileData, "", model)
-}
-
-func (h *Handler) ProcessImageUploadWithProviderAndModel(filename string, fileData []byte, provider, model string) (*ProcessResult, error) {
-	if err := h.ensureUploadsDir(); err != nil {
-		return nil, fmt.Errorf("create uploads dir: %w", err)
-	}
-
-	result, err := h.processImageFileWithProviderAndModel(fileData, filename, provider, model)
-	if err != nil {
-		return nil, err
-	}
-
-	baseFilename := safeSessionName(filename)
-	sessionID := fmt.Sprintf("%s_%d", baseFilename, time.Now().Unix())
-
-	session := h.createImageSession(sessionID, result, SessionConfig{Model: model})
-	h.sessionStore.Set(sessionID, session)
-
-	return h.buildProcessResult(sessionID)
-}
-
-func (h *Handler) StoreUploadedImage(filename string, fileData []byte) (string, error) {
+func (h *Handler) StoreUploadedImage(ctx context.Context, _ string, fileData []byte) (string, error) {
 	if err := h.ensureUploadsDir(); err != nil {
 		return "", fmt.Errorf("create uploads dir: %w", err)
 	}
@@ -82,63 +29,38 @@ func (h *Handler) StoreUploadedImage(filename string, fileData []byte) (string, 
 		return "", err
 	}
 
-	contentHash := utils.CalculateDataHash(fileData)
-	ext := safeImageExtension(filepath.Ext(filename))
-	if ext == "" {
-		ext = ".jpg"
+	contentType, ext, err := canonicalImageMediaType(fileData)
+	if err != nil {
+		return "", err
 	}
 
-	imageFilename := contentHash + ext
-	if _, err := h.saveUploadedImageBytes(context.Background(), imageFilename, fileData, ""); err != nil {
+	imageFilename := immutableUploadName(fileData, ext)
+	imagePath, err := h.saveUploadedImageBytes(ctx, imageFilename, fileData, contentType)
+	if err != nil {
 		return "", fmt.Errorf("save uploaded image: %w", err)
+	}
+	if err := removeLocalUploadAfterSharedCommit(imagePath); err != nil {
+		cleanupCtx, cancel := uploadCleanupContext(ctx)
+		cleanupErr := h.deleteUploadedImage(cleanupCtx, imageFilename)
+		cancel()
+		return "", &StoredUploadError{
+			ImageURL:    "/static/uploads/" + imageFilename,
+			StoredBytes: uint64(len(fileData)),
+			Err:         errors.Join(err, cleanupErr),
+		}
 	}
 
 	return "/static/uploads/" + imageFilename, nil
 }
 
-func (h *Handler) buildProcessResult(sessionID string) (*ProcessResult, error) {
-	session, exists := h.sessionStore.Get(sessionID)
-	if !exists || len(session.Images) == 0 {
-		return nil, fmt.Errorf("session %q not found", sessionID)
-	}
-
-	hocrXML := session.Images[0].OriginalHOCR
-	plainText, err := HOCRToPlainText(hocrXML)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ProcessResult{
-		SessionID: sessionID,
-		HOCR:      hocrXML,
-		PlainText: plainText,
-		ImageURL:  session.Images[0].ImageURL,
-	}, nil
+func immutableUploadName(data []byte, extension string) string {
+	return utils.CalculateDataHash(data) + "-" + uuid.NewString() + extension
 }
 
 func HOCRToPlainText(hocrXML string) (string, error) {
-	lines, err := HOCRToLines(hocrXML)
+	document, err := hocr.ParseDocument(hocrXML)
 	if err != nil {
-		return "", fmt.Errorf("parse hocr lines: %w", err)
+		return "", fmt.Errorf("parse hocr: %w", err)
 	}
-
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		words := make([]string, 0, len(line.Words))
-		for _, word := range line.Words {
-			text := strings.TrimSpace(word.Text)
-			if text != "" {
-				words = append(words, text)
-			}
-		}
-		if len(words) > 0 {
-			out = append(out, strings.Join(words, " "))
-		}
-	}
-
-	return strings.Join(out, "\n"), nil
-}
-
-func HOCRToLines(hocrXML string) ([]models.HOCRLine, error) {
-	return hocr.ParseHOCRLines(hocrXML)
+	return hocr.PlainText(document.Lines), nil
 }

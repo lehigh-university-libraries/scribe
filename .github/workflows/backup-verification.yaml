@@ -1,0 +1,153 @@
+name: Production Backup Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      restore_probe_object:
+        description: Optional uploads-backup object name to download into the ephemeral runner as an isolated restore probe.
+        required: false
+        type: string
+  schedule:
+    - cron: "42 9 * * *"
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+concurrency:
+  group: production-backup-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+      SCRIBE_REGION: ${{ vars.SCRIBE_REGION != '' && vars.SCRIBE_REGION || 'us-east5' }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      RESTORE_PROBE_OBJECT: ${{ inputs.restore_probe_object }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.BACKUP_GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.BACKUP_RESTORE_GSA }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: 576.0.0
+      - name: Verify backup WIF trust boundary
+        env:
+          WIF_EXPECTED_ENVIRONMENT: production
+          WIF_IDENTITY_CLASS: backup
+          WIF_PROVIDER: ${{ secrets.BACKUP_GCLOUD_OIDC_POOL }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.BACKUP_RESTORE_GSA }}
+        run: ./ci/verify-gcp-wif.sh
+      - name: Verify state, Vault, upload, and transfer recovery points
+        id: backups
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GCLOUD_PROJECT" || { echo "GCLOUD_PROJECT is required" >&2; exit 1; }
+          test -n "$TF_STATE_BUCKET" || { echo "TF_STATE_BUCKET is required" >&2; exit 1; }
+          terraform -chdir=terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="prefix=scribe"
+          terraform -chdir=terraform workspace select prod
+          uploads_bucket="$(terraform -chdir=terraform output -raw uploads_bucket)"
+          backup_bucket="$(terraform -chdir=terraform output -raw uploads_backup_bucket)"
+          transfer_job="$(terraform -chdir=terraform output -raw uploads_backup_transfer_job)"
+          vault_data_bucket="$(terraform -chdir=terraform output -raw vault_data_bucket)"
+          vault_key_bucket="$(terraform -chdir=terraform output -raw vault_key_bucket)"
+          instance_json="$(terraform -chdir=terraform output -json instance)"
+          deployment_json="$(terraform -chdir=terraform output -json deployment_inputs)"
+          UPLOADS_BUCKET="$uploads_bucket" \
+          UPLOADS_BACKUP_BUCKET="$backup_bucket" \
+          UPLOADS_BACKUP_TRANSFER_JOB="$transfer_job" \
+          VAULT_DATA_BUCKET="$vault_data_bucket" \
+          VAULT_KEY_BUCKET="$vault_key_bucket" \
+            ./ci/verify-cloud-backups.sh
+          {
+            echo "backup_bucket=$backup_bucket"
+            echo "production_instance=$(jq -r '.name' <<<"$instance_json")"
+            echo "production_zone=$(jq -r '.zone | split("/") | last' <<<"$instance_json")"
+            echo "production_data_disk=$(jq -r '.data_disk.name' <<<"$instance_json")"
+            echo "production_data_disk_self_link=$(jq -r '.data_disk.self_link' <<<"$instance_json")"
+            echo "production_volumes_disk=$(jq -r '.docker_volumes_disk.name' <<<"$instance_json")"
+            echo "production_volumes_disk_self_link=$(jq -r '.docker_volumes_disk.self_link' <<<"$instance_json")"
+            echo "data_generation=$(jq -r '.data_generation' <<<"$deployment_json")"
+          } >> "$GITHUB_OUTPUT"
+      - name: Materialize and inspect isolated snapshot clones
+        env:
+          PRODUCTION_INSTANCE: ${{ steps.backups.outputs.production_instance }}
+          PRODUCTION_ZONE: ${{ steps.backups.outputs.production_zone }}
+          PRODUCTION_REGION: ${{ env.SCRIBE_REGION }}
+          PRODUCTION_DATA_DISK: ${{ steps.backups.outputs.production_data_disk }}
+          PRODUCTION_DATA_DISK_SELF_LINK: ${{ steps.backups.outputs.production_data_disk_self_link }}
+          PRODUCTION_VOLUMES_DISK: ${{ steps.backups.outputs.production_volumes_disk }}
+          PRODUCTION_VOLUMES_DISK_SELF_LINK: ${{ steps.backups.outputs.production_volumes_disk_self_link }}
+          SCRIBE_DATA_GENERATION: ${{ steps.backups.outputs.data_generation }}
+        run: ./ci/cloud-snapshot-restore-drill.sh
+      - name: Clean up isolated snapshot drill resources
+        if: always() && steps.backups.outcome == 'success'
+        env:
+          PRODUCTION_INSTANCE: ${{ steps.backups.outputs.production_instance }}
+          PRODUCTION_ZONE: ${{ steps.backups.outputs.production_zone }}
+          PRODUCTION_REGION: ${{ env.SCRIBE_REGION }}
+          PRODUCTION_DATA_DISK: ${{ steps.backups.outputs.production_data_disk }}
+          PRODUCTION_DATA_DISK_SELF_LINK: ${{ steps.backups.outputs.production_data_disk_self_link }}
+          PRODUCTION_VOLUMES_DISK: ${{ steps.backups.outputs.production_volumes_disk }}
+          PRODUCTION_VOLUMES_DISK_SELF_LINK: ${{ steps.backups.outputs.production_volumes_disk_self_link }}
+          SCRIBE_DATA_GENERATION: ${{ steps.backups.outputs.data_generation }}
+        run: ./ci/cloud-snapshot-restore-drill.sh --cleanup-current
+      - name: Exercise an isolated object restore
+        if: inputs.restore_probe_object != ''
+        env:
+          BACKUP_BUCKET: ${{ steps.backups.outputs.backup_bucket }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RESTORE_PROBE_OBJECT" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,1023}$ ]] || [[ "$RESTORE_PROBE_OBJECT" == *..* ]]; then
+            echo "restore_probe_object must be a safe exact object name" >&2
+            exit 2
+          fi
+          umask 077
+          gcloud storage cp --quiet "gs://${BACKUP_BUCKET}/${RESTORE_PROBE_OBJECT}" "$RUNNER_TEMP/scribe-recovery-probe"
+          test -s "$RUNNER_TEMP/scribe-recovery-probe"
+          sha256sum "$RUNNER_TEMP/scribe-recovery-probe" >/dev/null
+          echo "Isolated restore probe succeeded."
+
+  open-issue:
+    if: failure() && github.event_name == 'schedule'
+    needs: [verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const title = 'Production backup verification failed';
+            const { data: issues } = await github.rest.issues.listForRepo({ ...context.repo, state: 'open' });
+            if (issues.some(issue => issue.title === title)) return;
+            await github.rest.issues.create({
+              ...context.repo,
+              title,
+              body: `Production backup policy, freshness, or restore verification failed.\n\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });

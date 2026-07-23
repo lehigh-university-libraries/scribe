@@ -43,7 +43,10 @@ func (m *Manager) CreateWorkspace(ctx context.Context, req *connect.Request[scri
 
 	workspace, err := m.identities.CreateWorkspaceForUser(ctx, principal.UserID, req.Msg.GetName())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		if errors.Is(err, store.ErrWorkspaceAccessLimit) {
+			return nil, connect.NewError(connect.CodeResourceExhausted, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create workspace persistence failed"))
 	}
 	return connect.NewResponse(&scribev1.CreateWorkspaceResponse{
 		Workspace: workspaceAccessToProto(workspace),
@@ -63,7 +66,7 @@ func (m *Manager) UpdateWorkspace(ctx context.Context, req *connect.Request[scri
 		case errors.Is(err, store.ErrPersonalWorkspaceImmutable):
 			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 		default:
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("update workspace persistence failed"))
 		}
 	}
 	return connect.NewResponse(&scribev1.UpdateWorkspaceResponse{
@@ -163,6 +166,8 @@ func workspaceMutationError(err error) error {
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, store.ErrPersonalWorkspaceImmutable):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
+	case errors.Is(err, store.ErrWorkspaceAccessLimit), errors.Is(err, store.ErrWorkspaceMemberLimit):
+		return connect.NewError(connect.CodeResourceExhausted, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

@@ -1,15 +1,13 @@
 package server
 
 import (
-	"encoding/json"
 	"fmt"
 	"html"
 	"log/slog"
-	"net/http"
 	"sort"
 	"strings"
 
-	"github.com/lehigh-university-libraries/scribe/internal/hocr"
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
 )
 
@@ -20,104 +18,38 @@ func abs(v int) int {
 	return v
 }
 
-type annotationCrosswalkRequest struct {
-	AnnotationPageJSON string `json:"annotation_page_json"`
-	AnnotationJSON     string `json:"annotation_json"`
-}
-
-type annotationCrosswalkResponse struct {
-	Format  string `json:"format"`
-	Content string `json:"content"`
-}
-
-func (h *Handler) handleCrosswalkToPlainText(w http.ResponseWriter, r *http.Request) {
-	var req annotationCrosswalkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, 400, "invalid json")
-		return
-	}
-	lines, _, _, err := annotationPayloadToHOCRLines(req.AnnotationPageJSON, req.AnnotationJSON)
-	if err != nil {
-		writeError(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 200, annotationCrosswalkResponse{
-		Format:  "text/plain",
-		Content: linesToPlainText(lines),
-	})
-}
-
-func (h *Handler) handleCrosswalkToHOCR(w http.ResponseWriter, r *http.Request) {
-	var req annotationCrosswalkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, 400, "invalid json")
-		return
-	}
-	lines, pageW, pageH, err := annotationPayloadToHOCRLines(req.AnnotationPageJSON, req.AnnotationJSON)
-	if err != nil {
-		writeError(w, 400, err.Error())
-		return
-	}
-	converter := hocr.NewConverter()
-	xml := converter.ConvertHOCRLinesToXML(lines, pageW, pageH)
-	writeJSON(w, 200, annotationCrosswalkResponse{
-		Format:  "text/vnd.hocr+html",
-		Content: xml,
-	})
-}
-
-func (h *Handler) handleCrosswalkToPageXML(w http.ResponseWriter, r *http.Request) {
-	var req annotationCrosswalkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, 400, "invalid json")
-		return
-	}
-	lines, pageW, pageH, err := annotationPayloadToHOCRLines(req.AnnotationPageJSON, req.AnnotationJSON)
-	if err != nil {
-		writeError(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 200, annotationCrosswalkResponse{
-		Format:  "application/vnd.prima.page+xml",
-		Content: linesToPageXML(lines, pageW, pageH),
-	})
-}
-
-func (h *Handler) handleCrosswalkToALTOXML(w http.ResponseWriter, r *http.Request) {
-	var req annotationCrosswalkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, 400, "invalid json")
-		return
-	}
-	lines, pageW, pageH, err := annotationPayloadToHOCRLines(req.AnnotationPageJSON, req.AnnotationJSON)
-	if err != nil {
-		writeError(w, 400, err.Error())
-		return
-	}
-	writeJSON(w, 200, annotationCrosswalkResponse{
-		Format:  "application/alto+xml",
-		Content: linesToALTOXML(lines, pageW, pageH),
-	})
-}
-
 func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, error) {
+	return annotationPageToHOCRLinesWithDimensions(pageJSON, 0, 0)
+}
+
+func annotationPageToHOCRLinesWithDimensions(pageJSON string, canvasWidth, canvasHeight int) ([]models.HOCRLine, int, int, error) {
 	raw := strings.TrimSpace(pageJSON)
 	if raw == "" {
 		return nil, 0, 0, fmt.Errorf("annotation_page_json is required")
 	}
 	var page map[string]any
-	if err := json.Unmarshal([]byte(raw), &page); err != nil {
+	if err := iiif.DecodeJSON([]byte(raw), &page); err != nil {
 		return nil, 0, 0, fmt.Errorf("invalid annotation page json")
 	}
-	items, _ := page["items"].([]any)
-	if len(items) == 0 {
-		return nil, 0, 0, fmt.Errorf("annotation page has no items")
+	itemsValue, present := page["items"]
+	if !present {
+		return nil, 0, 0, fmt.Errorf("annotation page items are required")
+	}
+	items, ok := itemsValue.([]any)
+	if !ok {
+		return nil, 0, 0, fmt.Errorf("annotation page items must be an array")
 	}
 
 	lineByID := map[string]*models.HOCRLine{}
 	lineOrder := make([]string, 0)
+	type rankedLine struct {
+		rank int
+		line models.HOCRLine
+	}
+	lineCandidates := make([]rankedLine, 0)
+	bestLineRank := 0
 	var allWords []models.HOCRWord
-	pageW, pageH := 1, 1
+	pageW, pageH := maxInt(1, canvasWidth), maxInt(1, canvasHeight)
 	lineCounter := 0
 	wordCounter := 0
 
@@ -126,21 +58,31 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 		if !ok {
 			continue
 		}
+		granularity := strings.ToLower(strings.TrimSpace(annStringValue(anno, "textGranularity")))
+		// Canonical pages may also contain ordinary Web Annotations created by
+		// Mirador or another editor. Preserve those annotations in the page, but
+		// never reinterpret a comment/tag as OCR merely because it has geometry.
+		if !iiif.IsTextGranularity(granularity) {
+			continue
+		}
 		anno = normalizeAnnotation(anno, "")
 		fragment := extractFragment(anno)
-		if fragment == "" {
+		x1, y1, x2, y2 := 0, 0, pageW, pageH
+		if fragment == "" && granularity != "page" {
 			slog.Info("Crosswalk skipping annotation without fragment",
 				"annotation", annotationDebugSummary(anno),
 			)
 			continue
 		}
-		x1, y1, x2, y2, err := parseXYWH(fragment)
-		if err != nil {
-			slog.Info("Crosswalk skipping annotation with invalid fragment",
-				"annotation", annotationDebugSummary(anno),
-				"error", err,
-			)
-			continue
+		if fragment != "" {
+			var err error
+			x1, y1, x2, y2, err = parseXYWH(fragment)
+			if err != nil {
+				slog.Info("Crosswalk skipping annotation with invalid fragment",
+					"annotation", annotationDebugSummary(anno),
+				)
+				continue
+			}
 		}
 		if x2 > pageW {
 			pageW = x2
@@ -155,11 +97,6 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 			)
 			continue
 		}
-		granularity := strings.ToLower(strings.TrimSpace(annStringValue(anno, "textGranularity")))
-		if granularity == "" {
-			granularity = "line"
-		}
-
 		switch granularity {
 		case "word", "glyph":
 			wordCounter++
@@ -169,7 +106,7 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 				Text:   text,
 				BBox:   models.BBox{X1: x1, Y1: y1, X2: x2, Y2: y2},
 			})
-		default: // line/block/page/paragraph => treat as line
+		default: // line/block/page/paragraph => ranked line fallback
 			lineID := strings.TrimSpace(annStringValue(anno, "id"))
 			if lineID == "" {
 				lineCounter++
@@ -179,12 +116,31 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 				ID:   lineID,
 				BBox: models.BBox{X1: x1, Y1: y1, X2: x2, Y2: y2},
 			}
-			if existing, ok := lineByID[lineID]; ok {
-				existing.BBox = line.BBox
-			} else {
-				lineByID[lineID] = &line
-				lineOrder = append(lineOrder, lineID)
+			rank := 4
+			switch granularity {
+			case "page":
+				rank = 1
+			case "block":
+				rank = 2
+			case "paragraph":
+				rank = 3
 			}
+			if rank > bestLineRank {
+				bestLineRank = rank
+			}
+			lineCandidates = append(lineCandidates, rankedLine{rank: rank, line: line})
+		}
+	}
+	for _, candidate := range lineCandidates {
+		if candidate.rank != bestLineRank {
+			continue
+		}
+		line := candidate.line
+		if existing, ok := lineByID[line.ID]; ok {
+			existing.BBox = line.BBox
+		} else {
+			lineByID[line.ID] = &line
+			lineOrder = append(lineOrder, line.ID)
 		}
 	}
 
@@ -212,10 +168,10 @@ func annotationPageToHOCRLines(pageJSON string) ([]models.HOCRLine, int, int, er
 		}
 		looseLines = append(looseLines, *line)
 	}
-
-	if len(looseLines) == 0 {
+	if len(items) > 0 && len(looseLines) == 0 {
 		return nil, 0, 0, fmt.Errorf("annotation page has no parseable textual annotations")
 	}
+
 	sort.Slice(looseLines, func(i, j int) bool {
 		ai := looseLines[i].BBox.Y1 + looseLines[i].BBox.Y2
 		aj := looseLines[j].BBox.Y1 + looseLines[j].BBox.Y2
@@ -330,26 +286,6 @@ func extractLineTextFromID(page map[string]any, lineID string) string {
 	return ""
 }
 
-func annotationPayloadToHOCRLines(pageJSON, annotationJSON string) ([]models.HOCRLine, int, int, error) {
-	if strings.TrimSpace(pageJSON) != "" {
-		return annotationPageToHOCRLines(pageJSON)
-	}
-	if strings.TrimSpace(annotationJSON) == "" {
-		return nil, 0, 0, fmt.Errorf("annotation_page_json or annotation_json is required")
-	}
-	var anno map[string]any
-	if err := json.Unmarshal([]byte(annotationJSON), &anno); err != nil {
-		return nil, 0, 0, fmt.Errorf("invalid annotation json")
-	}
-	page := map[string]any{
-		"@context": annotationPageContexts(),
-		"type":     "AnnotationPage",
-		"items":    []any{anno},
-	}
-	b, _ := json.Marshal(page)
-	return annotationPageToHOCRLines(string(b))
-}
-
 func splitLineTextToWords(text string, x1, y1, x2, y2 int, lineID string) []models.HOCRWord {
 	tokens := strings.Fields(strings.TrimSpace(text))
 	if len(tokens) == 0 {
@@ -459,24 +395,58 @@ func linesToPlainText(lines []models.HOCRLine) string {
 	return strings.Join(out, "\n")
 }
 
+// PAGE requires creation metadata and an image filename, but those values are
+// not part of the canonical OCR geometry passed to this derived renderer. Keep
+// stable derivation markers here so repeated exports of one revision are byte
+// identical; source-image provenance remains in the canonical IIIF page.
+const (
+	pageXMLCreator       = "Scribe"
+	pageXMLDerivedAt     = "1970-01-01T00:00:00Z"
+	pageXMLImageFilename = "source-image.png"
+)
+
+func escapeXMLContent(value string) string {
+	value = strings.Map(func(r rune) rune {
+		switch {
+		case r == '\t', r == '\n', r == '\r':
+			return r
+		case r >= 0x20 && r <= 0xD7FF:
+			return r
+		case r >= 0xE000 && r <= 0xFFFD:
+			return r
+		case r >= 0x10000 && r <= 0x10FFFF:
+			return r
+		default:
+			return '\uFFFD'
+		}
+	}, strings.TrimSpace(value))
+	return html.EscapeString(value)
+}
+
 func linesToPageXML(lines []models.HOCRLine, pageW, pageH int) string {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15">` + "\n")
-	fmt.Fprintf(&b, `<Page imageWidth="%d" imageHeight="%d">`+"\n", pageW, pageH)
+	b.WriteString(`<Metadata>` + "\n")
+	b.WriteString(`<Creator>` + pageXMLCreator + `</Creator>` + "\n")
+	b.WriteString(`<Created>` + pageXMLDerivedAt + `</Created>` + "\n")
+	b.WriteString(`<LastChange>` + pageXMLDerivedAt + `</LastChange>` + "\n")
+	b.WriteString(`</Metadata>` + "\n")
+	fmt.Fprintf(&b, `<Page imageFilename="%s" imageWidth="%d" imageHeight="%d">`+"\n", pageXMLImageFilename, pageW, pageH)
 	b.WriteString(`<TextRegion id="r1">` + "\n")
+	fmt.Fprintf(&b, `<Coords points="0,0 %d,0 %d,%d 0,%d"/>`+"\n", pageW, pageW, pageH, pageH)
 	for i, line := range lines {
 		fmt.Fprintf(&b, `<TextLine id="l%d">`, i+1)
 		fmt.Fprintf(&b, `<Coords points="%d,%d %d,%d %d,%d %d,%d"/>`,
 			line.BBox.X1, line.BBox.Y1, line.BBox.X2, line.BBox.Y1, line.BBox.X2, line.BBox.Y2, line.BBox.X1, line.BBox.Y2)
-		b.WriteString(`<TextEquiv><Unicode>` + html.EscapeString(strings.TrimSpace(joinLineWords(line))) + `</Unicode></TextEquiv>`)
 		for j, word := range line.Words {
 			fmt.Fprintf(&b, `<Word id="w%d_%d">`, i+1, j+1)
 			fmt.Fprintf(&b, `<Coords points="%d,%d %d,%d %d,%d %d,%d"/>`,
 				word.BBox.X1, word.BBox.Y1, word.BBox.X2, word.BBox.Y1, word.BBox.X2, word.BBox.Y2, word.BBox.X1, word.BBox.Y2)
-			b.WriteString(`<TextEquiv><Unicode>` + html.EscapeString(strings.TrimSpace(word.Text)) + `</Unicode></TextEquiv>`)
+			b.WriteString(`<TextEquiv><Unicode>` + escapeXMLContent(word.Text) + `</Unicode></TextEquiv>`)
 			b.WriteString(`</Word>`)
 		}
+		b.WriteString(`<TextEquiv><Unicode>` + escapeXMLContent(joinLineWords(line)) + `</Unicode></TextEquiv>`)
 		b.WriteString(`</TextLine>` + "\n")
 	}
 	b.WriteString(`</TextRegion>` + "\n")
@@ -488,9 +458,9 @@ func linesToPageXML(lines []models.HOCRLine, pageW, pageH int) string {
 func linesToALTOXML(lines []models.HOCRLine, pageW, pageH int) string {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
-	b.WriteString(`<alto xmlns="http://www.loc.gov/standards/alto/ns-v4#">` + "\n")
+	b.WriteString(`<alto xmlns="http://www.loc.gov/standards/alto/ns-v4#" SCHEMAVERSION="4.4">` + "\n")
 	b.WriteString(`<Layout>` + "\n")
-	fmt.Fprintf(&b, `<Page WIDTH="%d" HEIGHT="%d">`+"\n", pageW, pageH)
+	fmt.Fprintf(&b, `<Page ID="P1" PHYSICAL_IMG_NR="1" WIDTH="%d" HEIGHT="%d">`+"\n", pageW, pageH)
 	fmt.Fprintf(&b, `<PrintSpace HPOS="0" VPOS="0" WIDTH="%d" HEIGHT="%d">`+"\n", pageW, pageH)
 	b.WriteString(`<TextBlock ID="TB1">` + "\n")
 	for i, line := range lines {
@@ -501,7 +471,7 @@ func linesToALTOXML(lines []models.HOCRLine, pageW, pageH int) string {
 			ww := maxInt(1, word.BBox.X2-word.BBox.X1)
 			wh := maxInt(1, word.BBox.Y2-word.BBox.Y1)
 			fmt.Fprintf(&b, `<String ID="S%d_%d" CONTENT="%s" HPOS="%d" VPOS="%d" WIDTH="%d" HEIGHT="%d"/>`,
-				i+1, j+1, html.EscapeString(strings.TrimSpace(word.Text)), word.BBox.X1, word.BBox.Y1, ww, wh)
+				i+1, j+1, escapeXMLContent(word.Text), word.BBox.X1, word.BBox.Y1, ww, wh)
 		}
 		b.WriteString(`</TextLine>` + "\n")
 	}

@@ -2,9 +2,11 @@
 // @generated from file scribe/v1/item.proto (package scribe.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
+import type { AnnotationExportFormat } from "./annotation_pb";
+import { file_scribe_v1_annotation } from "./annotation_pb";
 import { file_scribe_v1_options_v1_auth } from "./options/v1/auth_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file scribe/v1/item.proto.
  */
 export const file_scribe_v1_item: GenFile = /*@__PURE__*/
-  fileDesc("ChRzY3JpYmUvdjEvaXRlbS5wcm90bxIJc2NyaWJlLnYxInAKCUl0ZW1JbWFnZRIKCgJpZBgBIAEoBBIPCgdpdGVtX2lkGAIgASgJEhAKCHNlcXVlbmNlGAMgASgNEhEKCWltYWdlX3VybBgEIAEoCRISCgpjYW52YXNfdXJpGAUgASgJEg0KBWxhYmVsGAYgASgJIroBCgRJdGVtEgoKAmlkGAEgASgJEg8KB3VzZXJfaWQYAiABKAQSDAoEbmFtZRgDIAEoCRITCgtzb3VyY2VfdHlwZRgEIAEoCRISCgpzb3VyY2VfdXJsGAUgASgJEhAKCG1ldGFkYXRhGAYgASgJEiQKBmltYWdlcxgHIAMoCzIULnNjcmliZS52MS5JdGVtSW1hZ2USEgoKY3JlYXRlZF9hdBgIIAEoCRISCgp1cGRhdGVkX2F0GAkgASgJIhIKEExpc3RJdGVtc1JlcXVlc3QiMwoRTGlzdEl0ZW1zUmVzcG9uc2USHgoFaXRlbXMYASADKAsyDy5zY3JpYmUudjEuSXRlbSIzCg5HZXRJdGVtUmVxdWVzdBIhCgdpdGVtX2lkGAEgASgJQhC6SA3IAQFyCDIGLipcUy4qIjAKD0dldEl0ZW1SZXNwb25zZRIdCgRpdGVtGAEgASgLMg8uc2NyaWJlLnYxLkl0ZW0i9QIKEUNyZWF0ZUl0ZW1SZXF1ZXN0EgwKBG5hbWUYASABKAkSJQoLc291cmNlX3R5cGUYAiABKAlCELpIDXILMgleJHwuKlxTLioSJAoKc291cmNlX3VybBgDIAEoCUIQukgNcgsyCV4kfC4qXFMuKhISCgpjb250ZXh0X2lkGAQgASgEEiIKCG1ldGFkYXRhGAUgASgJQhC6SA1yCzIJXiR8LipcUy4qOswBukjIARrFAQoXY3JlYXRlX2l0ZW0uc291cmNlX3R5cGUSM3NvdXJjZV90eXBlIG11c3QgYmUgZW1wdHksIHVybCwgbWFuaWZlc3QsIG9yIHVwbG9hZBp1dGhpcy5zb3VyY2VfdHlwZSA9PSAnJyB8fCB0aGlzLnNvdXJjZV90eXBlID09ICd1cmwnIHx8IHRoaXMuc291cmNlX3R5cGUgPT0gJ21hbmlmZXN0JyB8fCB0aGlzLnNvdXJjZV90eXBlID09ICd1cGxvYWQnIjMKEkNyZWF0ZUl0ZW1SZXNwb25zZRIdCgRpdGVtGAEgASgLMg8uc2NyaWJlLnYxLkl0ZW0ipQEKFlVwbG9hZEl0ZW1JbWFnZVJlcXVlc3QSIQoHaXRlbV9pZBgBIAEoCUIQukgNyAEBcggyBi4qXFMuKhIeCgppbWFnZV9kYXRhGAMgASgMQgq6SAfIAQF6AhABEiIKCGZpbGVuYW1lGAQgASgJQhC6SA1yCzIJXiR8LipcUy4qEhAKCHNlcXVlbmNlGAUgASgNEhIKCmNvbnRleHRfaWQYBiABKAQiXQoXVXBsb2FkSXRlbUltYWdlUmVzcG9uc2USHQoEaXRlbRgBIAEoCzIPLnNjcmliZS52MS5JdGVtEiMKBWltYWdlGAIgASgLMhQuc2NyaWJlLnYxLkl0ZW1JbWFnZSI2ChFEZWxldGVJdGVtUmVxdWVzdBIhCgdpdGVtX2lkGAEgASgJQhC6SA3IAQFyCDIGLipcUy4qIhQKEkRlbGV0ZUl0ZW1SZXNwb25zZTLUAwoLSXRlbVNlcnZpY2USUAoJTGlzdEl0ZW1zEhsuc2NyaWJlLnYxLkxpc3RJdGVtc1JlcXVlc3QaHC5zY3JpYmUudjEuTGlzdEl0ZW1zUmVzcG9uc2UiCJK1GAQQAhgBElMKB0dldEl0ZW0SGS5zY3JpYmUudjEuR2V0SXRlbVJlcXVlc3QaGi5zY3JpYmUudjEuR2V0SXRlbVJlc3BvbnNlIhGStRgNEAMYASIHaXRlbV9pZBJTCgpDcmVhdGVJdGVtEhwuc2NyaWJlLnYxLkNyZWF0ZUl0ZW1SZXF1ZXN0Gh0uc2NyaWJlLnYxLkNyZWF0ZUl0ZW1SZXNwb25zZSIIkrUYBBACGAISawoPVXBsb2FkSXRlbUltYWdlEiEuc2NyaWJlLnYxLlVwbG9hZEl0ZW1JbWFnZVJlcXVlc3QaIi5zY3JpYmUudjEuVXBsb2FkSXRlbUltYWdlUmVzcG9uc2UiEZK1GA0QAxgCIgdpdGVtX2lkElwKCkRlbGV0ZUl0ZW0SHC5zY3JpYmUudjEuRGVsZXRlSXRlbVJlcXVlc3QaHS5zY3JpYmUudjEuRGVsZXRlSXRlbVJlc3BvbnNlIhGStRgNEAMYAiIHaXRlbV9pZEKnAQoNY29tLnNjcmliZS52MUIJSXRlbVByb3RvUAFaRmdpdGh1Yi5jb20vbGVoaWdoLXVuaXZlcnNpdHktbGlicmFyaWVzL3NjcmliZS9wcm90by9zY3JpYmUvdjE7c2NyaWJldjGiAgNTWFiqAglTY3JpYmUuVjHKAglTY3JpYmVcVjHiAhVTY3JpYmVcVjFcR1BCTWV0YWRhdGHqAgpTY3JpYmU6OlYxYgZwcm90bzM", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
+  fileDesc("ChRzY3JpYmUvdjEvaXRlbS5wcm90bxIJc2NyaWJlLnYxIo8BCglJdGVtSW1hZ2USCgoCaWQYASABKAQSDwoHaXRlbV9pZBgCIAEoCRIQCghzZXF1ZW5jZRgDIAEoDRIRCglpbWFnZV91cmwYBCABKAkSEgoKY2FudmFzX3VyaRgFIAEoCRINCgVsYWJlbBgGIAEoCRINCgV3aWR0aBgHIAEoDRIOCgZoZWlnaHQYCCABKA0iugEKBEl0ZW0SCgoCaWQYASABKAkSDwoHdXNlcl9pZBgCIAEoBBIMCgRuYW1lGAMgASgJEhMKC3NvdXJjZV90eXBlGAQgASgJEhIKCnNvdXJjZV91cmwYBSABKAkSEAoIbWV0YWRhdGEYBiABKAkSJAoGaW1hZ2VzGAcgAygLMhQuc2NyaWJlLnYxLkl0ZW1JbWFnZRISCgpjcmVhdGVkX2F0GAggASgJEhIKCnVwZGF0ZWRfYXQYCSABKAkipgEKC0l0ZW1TdW1tYXJ5EgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSEwoLc291cmNlX3R5cGUYAyABKAkSEwoLaW1hZ2VfY291bnQYBCABKAQSKwoNcHJldmlld19pbWFnZRgFIAEoCzIULnNjcmliZS52MS5JdGVtSW1hZ2USEgoKY3JlYXRlZF9hdBgGIAEoCRISCgp1cGRhdGVkX2F0GAcgASgJImUKEExpc3RJdGVtc1JlcXVlc3QSGgoJcGFnZV9zaXplGAEgASgNQge6SAQqAhhkEhwKCnBhZ2VfdG9rZW4YAiABKAlCCLpIBXIDGIAEEhcKBXF1ZXJ5GAMgASgJQgi6SAVyAxjIASJTChFMaXN0SXRlbXNSZXNwb25zZRIlCgVpdGVtcxgBIAMoCzIWLnNjcmliZS52MS5JdGVtU3VtbWFyeRIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkiMwoOR2V0SXRlbVJlcXVlc3QSIQoHaXRlbV9pZBgBIAEoCUIQukgNyAEBcggyBi4qXFMuKiJsCg9HZXRJdGVtUmVzcG9uc2USHQoEaXRlbRgBIAEoCzIPLnNjcmliZS52MS5JdGVtEjoKFGFubm90YXRpb25fcmV2aXNpb25zGAIgAygLMhwuc2NyaWJlLnYxLkl0ZW1JbWFnZVJldmlzaW9uIj0KGEdldEVkaXRvck1hbmlmZXN0UmVxdWVzdBIhCg1pdGVtX2ltYWdlX2lkGAEgASgEQgq6SAfIAQEyAiAAIm0KGUdldEVkaXRvck1hbmlmZXN0UmVzcG9uc2USHQoEaXRlbRgBIAEoCzIPLnNjcmliZS52MS5JdGVtEhUKDW1hbmlmZXN0X2pzb24YAiABKAkSGgoSc2VsZWN0ZWRfY2FudmFzX2lkGAMgASgJIlQKEUl0ZW1JbWFnZVJldmlzaW9uEiEKDWl0ZW1faW1hZ2VfaWQYASABKARCCrpIB8gBATICIAASHAoIcmV2aXNpb24YAiABKARCCrpIB8gBATICIAAijgMKGFByZXBhcmVJdGVtRXhwb3J0UmVxdWVzdBIhCgdpdGVtX2lkGAEgASgJQhC6SA3IAQFyCDIGLipcUy4qEkAKBmZvcm1hdBgCIAEoDjIhLnNjcmliZS52MS5Bbm5vdGF0aW9uRXhwb3J0Rm9ybWF0Qg26SArIAQGCAQQQASAAEkgKEmV4cGVjdGVkX3JldmlzaW9ucxgDIAMoCzIcLnNjcmliZS52MS5JdGVtSW1hZ2VSZXZpc2lvbkIOukgLyAEBkgEFCAEQ6Ac6wgG6SL4BGrsBChxwcmVwYXJlX2l0ZW1fZXhwb3J0LnJlcXVpcmVkEkBpdGVtX2lkLCBmb3JtYXQsIGFuZCBhdCBsZWFzdCBvbmUgZXhwZWN0ZWQgcmV2aXNpb24gYXJlIHJlcXVpcmVkGll0aGlzLml0ZW1faWQubWF0Y2hlcygnLipcXFMuKicpICYmIHRoaXMuZm9ybWF0ICE9IDAgJiYgdGhpcy5leHBlY3RlZF9yZXZpc2lvbnMuc2l6ZSgpID4gMCKcAQoZUHJlcGFyZUl0ZW1FeHBvcnRSZXNwb25zZRIUCgxkb3dubG9hZF91cmwYASABKAkSEAoIZmlsZW5hbWUYAiABKAkSEgoKbWVkaWFfdHlwZRgDIAEoCRIvCglyZXZpc2lvbnMYBCADKAsyHC5zY3JpYmUudjEuSXRlbUltYWdlUmV2aXNpb24SEgoKZXhwaXJlc19hdBgFIAEoCSK+AQoVSW1wb3J0TWFuaWZlc3RSZXF1ZXN0EikKDG1hbmlmZXN0X3VybBgBIAEoCUITukgQyAEBcgsYgBAyBi4qXFMuKhIWCgRuYW1lGAIgASgJQgi6SAVyAxj/ARISCgpjb250ZXh0X2lkGAMgASgEEiYKCG1ldGFkYXRhGAQgASgJQhS6SBFyDyiAgEAyCV4kfC4qXFMuKhImCg9pZGVtcG90ZW5jeV9rZXkYBSABKAlCDbpICsgBAXIFEAEYgAIiNwoWSW1wb3J0TWFuaWZlc3RSZXNwb25zZRIdCgRpdGVtGAEgASgLMg8uc2NyaWJlLnYxLkl0ZW0igAEKFFVwbG9hZEJhdGNoRmlsZUlucHV0Eh8KCGZpbGVuYW1lGAEgASgJQg26SArIAQFyBRABGP8BEhUKBHNpemUYAiABKARCB7pIBDICIAASMAoOY29udGVudF9zaGEyNTYYAyABKAlCGLpIFcgBAXIQMg5eWzAtOWEtZl17NjR9JCKGAgoPVXBsb2FkQmF0Y2hGaWxlEhAKCHNlcXVlbmNlGAEgASgNEhAKCGZpbGVuYW1lGAIgASgJEgwKBHNpemUYAyABKAQSFgoOY29udGVudF9zaGEyNTYYBCABKAkSMAoGc3RhdHVzGAUgASgOMiAuc2NyaWJlLnYxLlVwbG9hZEJhdGNoRmlsZVN0YXR1cxIVCg1hdHRlbXB0X2NvdW50GAYgASgNEhQKDG1heF9hdHRlbXB0cxgHIAEoDRIVCg1pdGVtX2ltYWdlX2lkGAggASgEEhwKFHRyYW5zY3JpcHRpb25fam9iX2lkGAkgASgEEhUKDWVycm9yX21lc3NhZ2UYCiABKAki7gEKC1VwbG9hZEJhdGNoEgoKAmlkGAEgASgJEg8KB2l0ZW1faWQYAiABKAkSEgoKY29udGV4dF9pZBgDIAEoBBIsCgZzdGF0dXMYBCABKA4yHC5zY3JpYmUudjEuVXBsb2FkQmF0Y2hTdGF0dXMSKQoFZmlsZXMYBSADKAsyGi5zY3JpYmUudjEuVXBsb2FkQmF0Y2hGaWxlEhcKD2NvbXBsZXRlZF9maWxlcxgGIAEoDRIUCgxmYWlsZWRfZmlsZXMYByABKA0SEgoKY3JlYXRlZF9hdBgIIAEoCRISCgp1cGRhdGVkX2F0GAkgASgJIrUBChdTdGFydFVwbG9hZEJhdGNoUmVxdWVzdBIxCghiYXRjaF9pZBgBIAEoCUIfukgcyAEBchcyFV5bQS1aYS16MC05Xy1dezEsNjR9JBIWCgRuYW1lGAIgASgJQgi6SAVyAxj/ARISCgpjb250ZXh0X2lkGAMgASgEEjsKBWZpbGVzGAQgAygLMh8uc2NyaWJlLnYxLlVwbG9hZEJhdGNoRmlsZUlucHV0Qgu6SAiSAQUIARDoByJgChhTdGFydFVwbG9hZEJhdGNoUmVzcG9uc2USHQoEaXRlbRgBIAEoCzIPLnNjcmliZS52MS5JdGVtEiUKBWJhdGNoGAIgASgLMhYuc2NyaWJlLnYxLlVwbG9hZEJhdGNoIkoKFUdldFVwbG9hZEJhdGNoUmVxdWVzdBIxCghiYXRjaF9pZBgBIAEoCUIfukgcyAEBchcyFV5bQS1aYS16MC05Xy1dezEsNjR9JCJeChZHZXRVcGxvYWRCYXRjaFJlc3BvbnNlEh0KBGl0ZW0YASABKAsyDy5zY3JpYmUudjEuSXRlbRIlCgViYXRjaBgCIAEoCzIWLnNjcmliZS52MS5VcGxvYWRCYXRjaCJNChhDYW5jZWxVcGxvYWRCYXRjaFJlcXVlc3QSMQoIYmF0Y2hfaWQYASABKAlCH7pIHMgBAXIXMhVeW0EtWmEtejAtOV8tXXsxLDY0fSQiQgoZQ2FuY2VsVXBsb2FkQmF0Y2hSZXNwb25zZRIlCgViYXRjaBgBIAEoCzIWLnNjcmliZS52MS5VcGxvYWRCYXRjaCKLAQoWVXBsb2FkSXRlbUltYWdlUmVxdWVzdBIxCghiYXRjaF9pZBgBIAEoCUIfukgcyAEBchcyFV5bQS1aYS16MC05Xy1dezEsNjR9JBIZCghzZXF1ZW5jZRgCIAEoDUIHukgEKgIgABIjCgppbWFnZV9kYXRhGAMgASgMQg+6SAzIAQF6BxABGICAgDIiogEKF1VwbG9hZEl0ZW1JbWFnZVJlc3BvbnNlEh0KBGl0ZW0YASABKAsyDy5zY3JpYmUudjEuSXRlbRIjCgVpbWFnZRgCIAEoCzIULnNjcmliZS52MS5JdGVtSW1hZ2USHAoUdHJhbnNjcmlwdGlvbl9qb2JfaWQYAyABKAQSJQoFYmF0Y2gYBCABKAsyFi5zY3JpYmUudjEuVXBsb2FkQmF0Y2giNgoRRGVsZXRlSXRlbVJlcXVlc3QSIQoHaXRlbV9pZBgBIAEoCUIQukgNyAEBcggyBi4qXFMuKiIUChJEZWxldGVJdGVtUmVzcG9uc2UigQMKEVByb3ZpZGVyQ2FsbEF1ZGl0EgoKAmlkGAEgASgEEg8KB2l0ZW1faWQYAiABKAkSGgoNaXRlbV9pbWFnZV9pZBgDIAEoBEgAiAEBEhsKE2l0ZW1faW1hZ2Vfc2VxdWVuY2UYBCABKA0SGAoQaXRlbV9pbWFnZV9sYWJlbBgFIAEoCRISCgpzZXNzaW9uX2lkGAYgASgJEhcKCmNvbnRleHRfaWQYByABKARIAYgBARIQCghwcm92aWRlchgIIAEoCRINCgVtb2RlbBgJIAEoCRIRCglvcGVyYXRpb24YCiABKAkSFQoNZXJyb3JfbWVzc2FnZRgOIAEoCRIYCgtodHRwX3N0YXR1cxgPIAEoBUgCiAEBEhMKC2R1cmF0aW9uX21zGBAgASgDEhIKCmNyZWF0ZWRfYXQYESABKAlCEAoOX2l0ZW1faW1hZ2VfaWRCDQoLX2NvbnRleHRfaWRCDgoMX2h0dHBfc3RhdHVzSgQICxAMSgQIDBANSgQIDRAOIl8KIUxpc3RJdGVtUHJvdmlkZXJDYWxsQXVkaXRzUmVxdWVzdBIhCgdpdGVtX2lkGAEgASgJQhC6SA3IAQFyCDIGLipcUy4qEhcKBWxpbWl0GAIgASgNQgi6SAUqAxj0AyJSCiJMaXN0SXRlbVByb3ZpZGVyQ2FsbEF1ZGl0c1Jlc3BvbnNlEiwKBmF1ZGl0cxgBIAMoCzIcLnNjcmliZS52MS5Qcm92aWRlckNhbGxBdWRpdCqiAQoRVXBsb2FkQmF0Y2hTdGF0dXMSIwofVVBMT0FEX0JBVENIX1NUQVRVU19VTlNQRUNJRklFRBAAEiMKH1VQTE9BRF9CQVRDSF9TVEFUVVNfSU5fUFJPR1JFU1MQARIhCh1VUExPQURfQkFUQ0hfU1RBVFVTX0NPTVBMRVRFRBACEiAKHFVQTE9BRF9CQVRDSF9TVEFUVVNfQ0FOQ0VMRUQQAyqEAgoVVXBsb2FkQmF0Y2hGaWxlU3RhdHVzEigKJFVQTE9BRF9CQVRDSF9GSUxFX1NUQVRVU19VTlNQRUNJRklFRBAAEiQKIFVQTE9BRF9CQVRDSF9GSUxFX1NUQVRVU19QRU5ESU5HEAESJwojVVBMT0FEX0JBVENIX0ZJTEVfU1RBVFVTX1BST0NFU1NJTkcQAhImCiJVUExPQURfQkFUQ0hfRklMRV9TVEFUVVNfQ09NUExFVEVEEAMSIwofVVBMT0FEX0JBVENIX0ZJTEVfU1RBVFVTX0ZBSUxFRBAEEiUKIVVQTE9BRF9CQVRDSF9GSUxFX1NUQVRVU19DQU5DRUxFRBAFMqIJCgtJdGVtU2VydmljZRJQCglMaXN0SXRlbXMSGy5zY3JpYmUudjEuTGlzdEl0ZW1zUmVxdWVzdBocLnNjcmliZS52MS5MaXN0SXRlbXNSZXNwb25zZSIIkrUYBBACGAESUwoHR2V0SXRlbRIZLnNjcmliZS52MS5HZXRJdGVtUmVxdWVzdBoaLnNjcmliZS52MS5HZXRJdGVtUmVzcG9uc2UiEZK1GA0QAxgBIgdpdGVtX2lkEncKEUdldEVkaXRvck1hbmlmZXN0EiMuc2NyaWJlLnYxLkdldEVkaXRvck1hbmlmZXN0UmVxdWVzdBokLnNjcmliZS52MS5HZXRFZGl0b3JNYW5pZmVzdFJlc3BvbnNlIheStRgTEAQYASINaXRlbV9pbWFnZV9pZBJxChFQcmVwYXJlSXRlbUV4cG9ydBIjLnNjcmliZS52MS5QcmVwYXJlSXRlbUV4cG9ydFJlcXVlc3QaJC5zY3JpYmUudjEuUHJlcGFyZUl0ZW1FeHBvcnRSZXNwb25zZSIRkrUYDRADGAEiB2l0ZW1faWQSXwoOSW1wb3J0TWFuaWZlc3QSIC5zY3JpYmUudjEuSW1wb3J0TWFuaWZlc3RSZXF1ZXN0GiEuc2NyaWJlLnYxLkltcG9ydE1hbmlmZXN0UmVzcG9uc2UiCJK1GAQQAhgCEmUKEFN0YXJ0VXBsb2FkQmF0Y2gSIi5zY3JpYmUudjEuU3RhcnRVcGxvYWRCYXRjaFJlcXVlc3QaIy5zY3JpYmUudjEuU3RhcnRVcGxvYWRCYXRjaFJlc3BvbnNlIgiStRgEEAIYAhJpCg5HZXRVcGxvYWRCYXRjaBIgLnNjcmliZS52MS5HZXRVcGxvYWRCYXRjaFJlcXVlc3QaIS5zY3JpYmUudjEuR2V0VXBsb2FkQmF0Y2hSZXNwb25zZSISkrUYDhAIGAEiCGJhdGNoX2lkEmwKD1VwbG9hZEl0ZW1JbWFnZRIhLnNjcmliZS52MS5VcGxvYWRJdGVtSW1hZ2VSZXF1ZXN0GiIuc2NyaWJlLnYxLlVwbG9hZEl0ZW1JbWFnZVJlc3BvbnNlIhKStRgOEAgYAiIIYmF0Y2hfaWQScgoRQ2FuY2VsVXBsb2FkQmF0Y2gSIy5zY3JpYmUudjEuQ2FuY2VsVXBsb2FkQmF0Y2hSZXF1ZXN0GiQuc2NyaWJlLnYxLkNhbmNlbFVwbG9hZEJhdGNoUmVzcG9uc2UiEpK1GA4QCBgCIghiYXRjaF9pZBJcCgpEZWxldGVJdGVtEhwuc2NyaWJlLnYxLkRlbGV0ZUl0ZW1SZXF1ZXN0Gh0uc2NyaWJlLnYxLkRlbGV0ZUl0ZW1SZXNwb25zZSIRkrUYDRADGAIiB2l0ZW1faWQSjAEKGkxpc3RJdGVtUHJvdmlkZXJDYWxsQXVkaXRzEiwuc2NyaWJlLnYxLkxpc3RJdGVtUHJvdmlkZXJDYWxsQXVkaXRzUmVxdWVzdBotLnNjcmliZS52MS5MaXN0SXRlbVByb3ZpZGVyQ2FsbEF1ZGl0c1Jlc3BvbnNlIhGStRgNEAMYASIHaXRlbV9pZEKnAQoNY29tLnNjcmliZS52MUIJSXRlbVByb3RvUAFaRmdpdGh1Yi5jb20vbGVoaWdoLXVuaXZlcnNpdHktbGlicmFyaWVzL3NjcmliZS9wcm90by9zY3JpYmUvdjE7c2NyaWJldjGiAgNTWFiqAglTY3JpYmUuVjHKAglTY3JpYmVcVjHiAhVTY3JpYmVcVjFcR1BCTWV0YWRhdGHqAgpTY3JpYmU6OlYxYgZwcm90bzM", [file_buf_validate_validate, file_scribe_v1_annotation, file_scribe_v1_options_v1_auth]);
 
 /**
  * ItemImage represents a single image (canvas) within an item.
@@ -49,6 +51,16 @@ export type ItemImage = Message<"scribe.v1.ItemImage"> & {
    * @generated from field: string label = 6;
    */
   label: string;
+
+  /**
+   * @generated from field: uint32 width = 7;
+   */
+  width: number;
+
+  /**
+   * @generated from field: uint32 height = 8;
+   */
+  height: number;
 };
 
 /**
@@ -80,7 +92,7 @@ export type Item = Message<"scribe.v1.Item"> & {
   name: string;
 
   /**
-   * url | upload | manifest
+   * url | upload | manifest | hocr
    *
    * @generated from field: string source_type = 4;
    */
@@ -122,9 +134,81 @@ export const ItemSchema: GenMessage<Item> = /*@__PURE__*/
   messageDesc(file_scribe_v1_item, 1);
 
 /**
+ * ItemSummary is the bounded library representation of an item. The complete
+ * image list is available from GetItem; list responses include only the first
+ * image needed to open the editor and the total image count.
+ *
+ * @generated from message scribe.v1.ItemSummary
+ */
+export type ItemSummary = Message<"scribe.v1.ItemSummary"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string source_type = 3;
+   */
+  sourceType: string;
+
+  /**
+   * @generated from field: uint64 image_count = 4;
+   */
+  imageCount: bigint;
+
+  /**
+   * @generated from field: scribe.v1.ItemImage preview_image = 5;
+   */
+  previewImage?: ItemImage;
+
+  /**
+   * @generated from field: string created_at = 6;
+   */
+  createdAt: string;
+
+  /**
+   * @generated from field: string updated_at = 7;
+   */
+  updatedAt: string;
+};
+
+/**
+ * Describes the message scribe.v1.ItemSummary.
+ * Use `create(ItemSummarySchema)` to create a new message.
+ */
+export const ItemSummarySchema: GenMessage<ItemSummary> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 2);
+
+/**
  * @generated from message scribe.v1.ListItemsRequest
  */
 export type ListItemsRequest = Message<"scribe.v1.ListItemsRequest"> & {
+  /**
+   * Number of items to return. Zero uses the server default of 50.
+   *
+   * @generated from field: uint32 page_size = 1;
+   */
+  pageSize: number;
+
+  /**
+   * Opaque continuation token returned by the previous response.
+   *
+   * @generated from field: string page_token = 2;
+   */
+  pageToken: string;
+
+  /**
+   * Case-insensitive literal substring match over item name, ID, and source type.
+   * Continuation tokens are bound to the normalized query.
+   *
+   * @generated from field: string query = 3;
+   */
+  query: string;
 };
 
 /**
@@ -132,16 +216,23 @@ export type ListItemsRequest = Message<"scribe.v1.ListItemsRequest"> & {
  * Use `create(ListItemsRequestSchema)` to create a new message.
  */
 export const ListItemsRequestSchema: GenMessage<ListItemsRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 2);
+  messageDesc(file_scribe_v1_item, 3);
 
 /**
  * @generated from message scribe.v1.ListItemsResponse
  */
 export type ListItemsResponse = Message<"scribe.v1.ListItemsResponse"> & {
   /**
-   * @generated from field: repeated scribe.v1.Item items = 1;
+   * @generated from field: repeated scribe.v1.ItemSummary items = 1;
    */
-  items: Item[];
+  items: ItemSummary[];
+
+  /**
+   * Empty when there are no more items in this workspace.
+   *
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
 };
 
 /**
@@ -149,7 +240,7 @@ export type ListItemsResponse = Message<"scribe.v1.ListItemsResponse"> & {
  * Use `create(ListItemsResponseSchema)` to create a new message.
  */
 export const ListItemsResponseSchema: GenMessage<ListItemsResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 3);
+  messageDesc(file_scribe_v1_item, 4);
 
 /**
  * @generated from message scribe.v1.GetItemRequest
@@ -166,7 +257,7 @@ export type GetItemRequest = Message<"scribe.v1.GetItemRequest"> & {
  * Use `create(GetItemRequestSchema)` to create a new message.
  */
 export const GetItemRequestSchema: GenMessage<GetItemRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 4);
+  messageDesc(file_scribe_v1_item, 5);
 
 /**
  * @generated from message scribe.v1.GetItemResponse
@@ -176,6 +267,15 @@ export type GetItemResponse = Message<"scribe.v1.GetItemResponse"> & {
    * @generated from field: scribe.v1.Item item = 1;
    */
   item?: Item;
+
+  /**
+   * Existing committed canonical AnnotationPage revisions, in item image
+   * order. A missing entry means that image has not committed a page yet.
+   * This bounded server-side vector avoids one browser RPC per page.
+   *
+   * @generated from field: repeated scribe.v1.ItemImageRevision annotation_revisions = 2;
+   */
+  annotationRevisions: ItemImageRevision[];
 };
 
 /**
@@ -183,57 +283,200 @@ export type GetItemResponse = Message<"scribe.v1.GetItemResponse"> & {
  * Use `create(GetItemResponseSchema)` to create a new message.
  */
 export const GetItemResponseSchema: GenMessage<GetItemResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 5);
+  messageDesc(file_scribe_v1_item, 6);
 
 /**
- * CreateItemRequest covers URL ingest, manifest ingest, and upload containers.
+ * GetEditorManifestRequest asks for the private Presentation 3 Manifest used
+ * to initialize an editor session. The JSON travels through the authenticated
+ * Connect contract; Scribe does not expose a second draft Presentation HTTP
+ * server beside Triplet.
  *
- * @generated from message scribe.v1.CreateItemRequest
+ * @generated from message scribe.v1.GetEditorManifestRequest
  */
-export type CreateItemRequest = Message<"scribe.v1.CreateItemRequest"> & {
+export type GetEditorManifestRequest = Message<"scribe.v1.GetEditorManifestRequest"> & {
   /**
-   * @generated from field: string name = 1;
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+};
+
+/**
+ * Describes the message scribe.v1.GetEditorManifestRequest.
+ * Use `create(GetEditorManifestRequestSchema)` to create a new message.
+ */
+export const GetEditorManifestRequestSchema: GenMessage<GetEditorManifestRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 7);
+
+/**
+ * @generated from message scribe.v1.GetEditorManifestResponse
+ */
+export type GetEditorManifestResponse = Message<"scribe.v1.GetEditorManifestResponse"> & {
+  /**
+   * @generated from field: scribe.v1.Item item = 1;
+   */
+  item?: Item;
+
+  /**
+   * @generated from field: string manifest_json = 2;
+   */
+  manifestJson: string;
+
+  /**
+   * @generated from field: string selected_canvas_id = 3;
+   */
+  selectedCanvasId: string;
+};
+
+/**
+ * Describes the message scribe.v1.GetEditorManifestResponse.
+ * Use `create(GetEditorManifestResponseSchema)` to create a new message.
+ */
+export const GetEditorManifestResponseSchema: GenMessage<GetEditorManifestResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 8);
+
+/**
+ * ItemImageRevision identifies the exact committed page snapshot included in
+ * an item export. The complete vector is required so a background save cannot
+ * silently change a multi-page download after the user requests it.
+ *
+ * @generated from message scribe.v1.ItemImageRevision
+ */
+export type ItemImageRevision = Message<"scribe.v1.ItemImageRevision"> & {
+  /**
+   * @generated from field: uint64 item_image_id = 1;
+   */
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: uint64 revision = 2;
+   */
+  revision: bigint;
+};
+
+/**
+ * Describes the message scribe.v1.ItemImageRevision.
+ * Use `create(ItemImageRevisionSchema)` to create a new message.
+ */
+export const ItemImageRevisionSchema: GenMessage<ItemImageRevision> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 9);
+
+/**
+ * @generated from message scribe.v1.PrepareItemExportRequest
+ */
+export type PrepareItemExportRequest = Message<"scribe.v1.PrepareItemExportRequest"> & {
+  /**
+   * @generated from field: string item_id = 1;
+   */
+  itemId: string;
+
+  /**
+   * @generated from field: scribe.v1.AnnotationExportFormat format = 2;
+   */
+  format: AnnotationExportFormat;
+
+  /**
+   * @generated from field: repeated scribe.v1.ItemImageRevision expected_revisions = 3;
+   */
+  expectedRevisions: ItemImageRevision[];
+};
+
+/**
+ * Describes the message scribe.v1.PrepareItemExportRequest.
+ * Use `create(PrepareItemExportRequestSchema)` to create a new message.
+ */
+export const PrepareItemExportRequestSchema: GenMessage<PrepareItemExportRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 10);
+
+/**
+ * @generated from message scribe.v1.PrepareItemExportResponse
+ */
+export type PrepareItemExportResponse = Message<"scribe.v1.PrepareItemExportResponse"> & {
+  /**
+   * @generated from field: string download_url = 1;
+   */
+  downloadUrl: string;
+
+  /**
+   * @generated from field: string filename = 2;
+   */
+  filename: string;
+
+  /**
+   * @generated from field: string media_type = 3;
+   */
+  mediaType: string;
+
+  /**
+   * @generated from field: repeated scribe.v1.ItemImageRevision revisions = 4;
+   */
+  revisions: ItemImageRevision[];
+
+  /**
+   * @generated from field: string expires_at = 5;
+   */
+  expiresAt: string;
+};
+
+/**
+ * Describes the message scribe.v1.PrepareItemExportResponse.
+ * Use `create(PrepareItemExportResponseSchema)` to create a new message.
+ */
+export const PrepareItemExportResponseSchema: GenMessage<PrepareItemExportResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 11);
+
+/**
+ * ImportManifestRequest is the one explicit IIIF Presentation ingest contract.
+ * Upload batches, URL processing, and hOCR import have separate operations and
+ * cannot create partially initialized Item containers through this RPC.
+ *
+ * @generated from message scribe.v1.ImportManifestRequest
+ */
+export type ImportManifestRequest = Message<"scribe.v1.ImportManifestRequest"> & {
+  /**
+   * @generated from field: string manifest_url = 1;
+   */
+  manifestUrl: string;
+
+  /**
+   * Optional display name. The manifest label is used when this is empty.
+   *
+   * @generated from field: string name = 2;
    */
   name: string;
 
   /**
-   * source_type: "url" | "manifest" | "upload"
+   * Optional processing context for Canvases without imported OCR.
    *
-   * @generated from field: string source_type = 2;
-   */
-  sourceType: string;
-
-  /**
-   * @generated from field: string source_url = 3;
-   */
-  sourceUrl: string;
-
-  /**
-   * Optional context to use for processing; if empty, selection engine runs.
-   *
-   * @generated from field: uint64 context_id = 4;
+   * @generated from field: uint64 context_id = 3;
    */
   contextId: bigint;
 
   /**
    * Optional metadata JSON to seed the item (for integrations like Islandora).
    *
-   * @generated from field: string metadata = 5;
+   * @generated from field: string metadata = 4;
    */
   metadata: string;
+
+  /**
+   * Stable client-generated key used to resume an interrupted import.
+   *
+   * @generated from field: string idempotency_key = 5;
+   */
+  idempotencyKey: string;
 };
 
 /**
- * Describes the message scribe.v1.CreateItemRequest.
- * Use `create(CreateItemRequestSchema)` to create a new message.
+ * Describes the message scribe.v1.ImportManifestRequest.
+ * Use `create(ImportManifestRequestSchema)` to create a new message.
  */
-export const CreateItemRequestSchema: GenMessage<CreateItemRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 6);
+export const ImportManifestRequestSchema: GenMessage<ImportManifestRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 12);
 
 /**
- * @generated from message scribe.v1.CreateItemResponse
+ * @generated from message scribe.v1.ImportManifestResponse
  */
-export type CreateItemResponse = Message<"scribe.v1.CreateItemResponse"> & {
+export type ImportManifestResponse = Message<"scribe.v1.ImportManifestResponse"> & {
   /**
    * @generated from field: scribe.v1.Item item = 1;
    */
@@ -241,43 +484,308 @@ export type CreateItemResponse = Message<"scribe.v1.CreateItemResponse"> & {
 };
 
 /**
- * Describes the message scribe.v1.CreateItemResponse.
- * Use `create(CreateItemResponseSchema)` to create a new message.
+ * Describes the message scribe.v1.ImportManifestResponse.
+ * Use `create(ImportManifestResponseSchema)` to create a new message.
  */
-export const CreateItemResponseSchema: GenMessage<CreateItemResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 7);
+export const ImportManifestResponseSchema: GenMessage<ImportManifestResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 13);
 
 /**
- * UploadItemImageRequest adds a single uploaded image to an existing item.
- * Returns the item after all images are added.
+ * UploadBatchFileInput fixes the ordered file set before processing starts.
+ * The server verifies content_sha256 when each file is uploaded.
+ *
+ * @generated from message scribe.v1.UploadBatchFileInput
+ */
+export type UploadBatchFileInput = Message<"scribe.v1.UploadBatchFileInput"> & {
+  /**
+   * @generated from field: string filename = 1;
+   */
+  filename: string;
+
+  /**
+   * @generated from field: uint64 size = 2;
+   */
+  size: bigint;
+
+  /**
+   * @generated from field: string content_sha256 = 3;
+   */
+  contentSha256: string;
+};
+
+/**
+ * Describes the message scribe.v1.UploadBatchFileInput.
+ * Use `create(UploadBatchFileInputSchema)` to create a new message.
+ */
+export const UploadBatchFileInputSchema: GenMessage<UploadBatchFileInput> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 14);
+
+/**
+ * @generated from message scribe.v1.UploadBatchFile
+ */
+export type UploadBatchFile = Message<"scribe.v1.UploadBatchFile"> & {
+  /**
+   * @generated from field: uint32 sequence = 1;
+   */
+  sequence: number;
+
+  /**
+   * @generated from field: string filename = 2;
+   */
+  filename: string;
+
+  /**
+   * @generated from field: uint64 size = 3;
+   */
+  size: bigint;
+
+  /**
+   * @generated from field: string content_sha256 = 4;
+   */
+  contentSha256: string;
+
+  /**
+   * @generated from field: scribe.v1.UploadBatchFileStatus status = 5;
+   */
+  status: UploadBatchFileStatus;
+
+  /**
+   * @generated from field: uint32 attempt_count = 6;
+   */
+  attemptCount: number;
+
+  /**
+   * @generated from field: uint32 max_attempts = 7;
+   */
+  maxAttempts: number;
+
+  /**
+   * @generated from field: uint64 item_image_id = 8;
+   */
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: uint64 transcription_job_id = 9;
+   */
+  transcriptionJobId: bigint;
+
+  /**
+   * @generated from field: string error_message = 10;
+   */
+  errorMessage: string;
+};
+
+/**
+ * Describes the message scribe.v1.UploadBatchFile.
+ * Use `create(UploadBatchFileSchema)` to create a new message.
+ */
+export const UploadBatchFileSchema: GenMessage<UploadBatchFile> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 15);
+
+/**
+ * @generated from message scribe.v1.UploadBatch
+ */
+export type UploadBatch = Message<"scribe.v1.UploadBatch"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string item_id = 2;
+   */
+  itemId: string;
+
+  /**
+   * @generated from field: uint64 context_id = 3;
+   */
+  contextId: bigint;
+
+  /**
+   * @generated from field: scribe.v1.UploadBatchStatus status = 4;
+   */
+  status: UploadBatchStatus;
+
+  /**
+   * @generated from field: repeated scribe.v1.UploadBatchFile files = 5;
+   */
+  files: UploadBatchFile[];
+
+  /**
+   * @generated from field: uint32 completed_files = 6;
+   */
+  completedFiles: number;
+
+  /**
+   * @generated from field: uint32 failed_files = 7;
+   */
+  failedFiles: number;
+
+  /**
+   * @generated from field: string created_at = 8;
+   */
+  createdAt: string;
+
+  /**
+   * @generated from field: string updated_at = 9;
+   */
+  updatedAt: string;
+};
+
+/**
+ * Describes the message scribe.v1.UploadBatch.
+ * Use `create(UploadBatchSchema)` to create a new message.
+ */
+export const UploadBatchSchema: GenMessage<UploadBatch> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 16);
+
+/**
+ * @generated from message scribe.v1.StartUploadBatchRequest
+ */
+export type StartUploadBatchRequest = Message<"scribe.v1.StartUploadBatchRequest"> & {
+  /**
+   * @generated from field: string batch_id = 1;
+   */
+  batchId: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: uint64 context_id = 3;
+   */
+  contextId: bigint;
+
+  /**
+   * @generated from field: repeated scribe.v1.UploadBatchFileInput files = 4;
+   */
+  files: UploadBatchFileInput[];
+};
+
+/**
+ * Describes the message scribe.v1.StartUploadBatchRequest.
+ * Use `create(StartUploadBatchRequestSchema)` to create a new message.
+ */
+export const StartUploadBatchRequestSchema: GenMessage<StartUploadBatchRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 17);
+
+/**
+ * @generated from message scribe.v1.StartUploadBatchResponse
+ */
+export type StartUploadBatchResponse = Message<"scribe.v1.StartUploadBatchResponse"> & {
+  /**
+   * @generated from field: scribe.v1.Item item = 1;
+   */
+  item?: Item;
+
+  /**
+   * @generated from field: scribe.v1.UploadBatch batch = 2;
+   */
+  batch?: UploadBatch;
+};
+
+/**
+ * Describes the message scribe.v1.StartUploadBatchResponse.
+ * Use `create(StartUploadBatchResponseSchema)` to create a new message.
+ */
+export const StartUploadBatchResponseSchema: GenMessage<StartUploadBatchResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 18);
+
+/**
+ * @generated from message scribe.v1.GetUploadBatchRequest
+ */
+export type GetUploadBatchRequest = Message<"scribe.v1.GetUploadBatchRequest"> & {
+  /**
+   * @generated from field: string batch_id = 1;
+   */
+  batchId: string;
+};
+
+/**
+ * Describes the message scribe.v1.GetUploadBatchRequest.
+ * Use `create(GetUploadBatchRequestSchema)` to create a new message.
+ */
+export const GetUploadBatchRequestSchema: GenMessage<GetUploadBatchRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 19);
+
+/**
+ * @generated from message scribe.v1.GetUploadBatchResponse
+ */
+export type GetUploadBatchResponse = Message<"scribe.v1.GetUploadBatchResponse"> & {
+  /**
+   * @generated from field: scribe.v1.Item item = 1;
+   */
+  item?: Item;
+
+  /**
+   * @generated from field: scribe.v1.UploadBatch batch = 2;
+   */
+  batch?: UploadBatch;
+};
+
+/**
+ * Describes the message scribe.v1.GetUploadBatchResponse.
+ * Use `create(GetUploadBatchResponseSchema)` to create a new message.
+ */
+export const GetUploadBatchResponseSchema: GenMessage<GetUploadBatchResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 20);
+
+/**
+ * @generated from message scribe.v1.CancelUploadBatchRequest
+ */
+export type CancelUploadBatchRequest = Message<"scribe.v1.CancelUploadBatchRequest"> & {
+  /**
+   * @generated from field: string batch_id = 1;
+   */
+  batchId: string;
+};
+
+/**
+ * Describes the message scribe.v1.CancelUploadBatchRequest.
+ * Use `create(CancelUploadBatchRequestSchema)` to create a new message.
+ */
+export const CancelUploadBatchRequestSchema: GenMessage<CancelUploadBatchRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 21);
+
+/**
+ * @generated from message scribe.v1.CancelUploadBatchResponse
+ */
+export type CancelUploadBatchResponse = Message<"scribe.v1.CancelUploadBatchResponse"> & {
+  /**
+   * @generated from field: scribe.v1.UploadBatch batch = 1;
+   */
+  batch?: UploadBatch;
+};
+
+/**
+ * Describes the message scribe.v1.CancelUploadBatchResponse.
+ * Use `create(CancelUploadBatchResponseSchema)` to create a new message.
+ */
+export const CancelUploadBatchResponseSchema: GenMessage<CancelUploadBatchResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 22);
+
+/**
+ * UploadItemImageRequest processes one file declared by StartUploadBatch.
  *
  * @generated from message scribe.v1.UploadItemImageRequest
  */
 export type UploadItemImageRequest = Message<"scribe.v1.UploadItemImageRequest"> & {
   /**
-   * @generated from field: string item_id = 1;
+   * @generated from field: string batch_id = 1;
    */
-  itemId: string;
+  batchId: string;
+
+  /**
+   * @generated from field: uint32 sequence = 2;
+   */
+  sequence: number;
 
   /**
    * @generated from field: bytes image_data = 3;
    */
   imageData: Uint8Array;
-
-  /**
-   * @generated from field: string filename = 4;
-   */
-  filename: string;
-
-  /**
-   * @generated from field: uint32 sequence = 5;
-   */
-  sequence: number;
-
-  /**
-   * @generated from field: uint64 context_id = 6;
-   */
-  contextId: bigint;
 };
 
 /**
@@ -285,7 +793,7 @@ export type UploadItemImageRequest = Message<"scribe.v1.UploadItemImageRequest">
  * Use `create(UploadItemImageRequestSchema)` to create a new message.
  */
 export const UploadItemImageRequestSchema: GenMessage<UploadItemImageRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 8);
+  messageDesc(file_scribe_v1_item, 23);
 
 /**
  * @generated from message scribe.v1.UploadItemImageResponse
@@ -300,6 +808,16 @@ export type UploadItemImageResponse = Message<"scribe.v1.UploadItemImageResponse
    * @generated from field: scribe.v1.ItemImage image = 2;
    */
   image?: ItemImage;
+
+  /**
+   * @generated from field: uint64 transcription_job_id = 3;
+   */
+  transcriptionJobId: bigint;
+
+  /**
+   * @generated from field: scribe.v1.UploadBatch batch = 4;
+   */
+  batch?: UploadBatch;
 };
 
 /**
@@ -307,7 +825,7 @@ export type UploadItemImageResponse = Message<"scribe.v1.UploadItemImageResponse
  * Use `create(UploadItemImageResponseSchema)` to create a new message.
  */
 export const UploadItemImageResponseSchema: GenMessage<UploadItemImageResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 9);
+  messageDesc(file_scribe_v1_item, 24);
 
 /**
  * @generated from message scribe.v1.DeleteItemRequest
@@ -324,7 +842,7 @@ export type DeleteItemRequest = Message<"scribe.v1.DeleteItemRequest"> & {
  * Use `create(DeleteItemRequestSchema)` to create a new message.
  */
 export const DeleteItemRequestSchema: GenMessage<DeleteItemRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 10);
+  messageDesc(file_scribe_v1_item, 25);
 
 /**
  * @generated from message scribe.v1.DeleteItemResponse
@@ -337,7 +855,200 @@ export type DeleteItemResponse = Message<"scribe.v1.DeleteItemResponse"> & {
  * Use `create(DeleteItemResponseSchema)` to create a new message.
  */
 export const DeleteItemResponseSchema: GenMessage<DeleteItemResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_item, 11);
+  messageDesc(file_scribe_v1_item, 26);
+
+/**
+ * @generated from message scribe.v1.ProviderCallAudit
+ */
+export type ProviderCallAudit = Message<"scribe.v1.ProviderCallAudit"> & {
+  /**
+   * @generated from field: uint64 id = 1;
+   */
+  id: bigint;
+
+  /**
+   * @generated from field: string item_id = 2;
+   */
+  itemId: string;
+
+  /**
+   * @generated from field: optional uint64 item_image_id = 3;
+   */
+  itemImageId?: bigint;
+
+  /**
+   * @generated from field: uint32 item_image_sequence = 4;
+   */
+  itemImageSequence: number;
+
+  /**
+   * @generated from field: string item_image_label = 5;
+   */
+  itemImageLabel: string;
+
+  /**
+   * @generated from field: string session_id = 6;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: optional uint64 context_id = 7;
+   */
+  contextId?: bigint;
+
+  /**
+   * @generated from field: string provider = 8;
+   */
+  provider: string;
+
+  /**
+   * @generated from field: string model = 9;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string operation = 10;
+   */
+  operation: string;
+
+  /**
+   * @generated from field: string error_message = 14;
+   */
+  errorMessage: string;
+
+  /**
+   * @generated from field: optional int32 http_status = 15;
+   */
+  httpStatus?: number;
+
+  /**
+   * @generated from field: int64 duration_ms = 16;
+   */
+  durationMs: bigint;
+
+  /**
+   * @generated from field: string created_at = 17;
+   */
+  createdAt: string;
+};
+
+/**
+ * Describes the message scribe.v1.ProviderCallAudit.
+ * Use `create(ProviderCallAuditSchema)` to create a new message.
+ */
+export const ProviderCallAuditSchema: GenMessage<ProviderCallAudit> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 27);
+
+/**
+ * @generated from message scribe.v1.ListItemProviderCallAuditsRequest
+ */
+export type ListItemProviderCallAuditsRequest = Message<"scribe.v1.ListItemProviderCallAuditsRequest"> & {
+  /**
+   * @generated from field: string item_id = 1;
+   */
+  itemId: string;
+
+  /**
+   * @generated from field: uint32 limit = 2;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message scribe.v1.ListItemProviderCallAuditsRequest.
+ * Use `create(ListItemProviderCallAuditsRequestSchema)` to create a new message.
+ */
+export const ListItemProviderCallAuditsRequestSchema: GenMessage<ListItemProviderCallAuditsRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 28);
+
+/**
+ * @generated from message scribe.v1.ListItemProviderCallAuditsResponse
+ */
+export type ListItemProviderCallAuditsResponse = Message<"scribe.v1.ListItemProviderCallAuditsResponse"> & {
+  /**
+   * @generated from field: repeated scribe.v1.ProviderCallAudit audits = 1;
+   */
+  audits: ProviderCallAudit[];
+};
+
+/**
+ * Describes the message scribe.v1.ListItemProviderCallAuditsResponse.
+ * Use `create(ListItemProviderCallAuditsResponseSchema)` to create a new message.
+ */
+export const ListItemProviderCallAuditsResponseSchema: GenMessage<ListItemProviderCallAuditsResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_item, 29);
+
+/**
+ * @generated from enum scribe.v1.UploadBatchStatus
+ */
+export enum UploadBatchStatus {
+  /**
+   * @generated from enum value: UPLOAD_BATCH_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: UPLOAD_BATCH_STATUS_IN_PROGRESS = 1;
+   */
+  IN_PROGRESS = 1,
+
+  /**
+   * @generated from enum value: UPLOAD_BATCH_STATUS_COMPLETED = 2;
+   */
+  COMPLETED = 2,
+
+  /**
+   * @generated from enum value: UPLOAD_BATCH_STATUS_CANCELED = 3;
+   */
+  CANCELED = 3,
+}
+
+/**
+ * Describes the enum scribe.v1.UploadBatchStatus.
+ */
+export const UploadBatchStatusSchema: GenEnum<UploadBatchStatus> = /*@__PURE__*/
+  enumDesc(file_scribe_v1_item, 0);
+
+/**
+ * @generated from enum scribe.v1.UploadBatchFileStatus
+ */
+export enum UploadBatchFileStatus {
+  /**
+   * @generated from enum value: UPLOAD_BATCH_FILE_STATUS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: UPLOAD_BATCH_FILE_STATUS_PENDING = 1;
+   */
+  PENDING = 1,
+
+  /**
+   * @generated from enum value: UPLOAD_BATCH_FILE_STATUS_PROCESSING = 2;
+   */
+  PROCESSING = 2,
+
+  /**
+   * @generated from enum value: UPLOAD_BATCH_FILE_STATUS_COMPLETED = 3;
+   */
+  COMPLETED = 3,
+
+  /**
+   * @generated from enum value: UPLOAD_BATCH_FILE_STATUS_FAILED = 4;
+   */
+  FAILED = 4,
+
+  /**
+   * @generated from enum value: UPLOAD_BATCH_FILE_STATUS_CANCELED = 5;
+   */
+  CANCELED = 5,
+}
+
+/**
+ * Describes the enum scribe.v1.UploadBatchFileStatus.
+ */
+export const UploadBatchFileStatusSchema: GenEnum<UploadBatchFileStatus> = /*@__PURE__*/
+  enumDesc(file_scribe_v1_item, 1);
 
 /**
  * @generated from service scribe.v1.ItemService
@@ -360,12 +1071,44 @@ export const ItemService: GenService<{
     output: typeof GetItemResponseSchema;
   },
   /**
-   * @generated from rpc scribe.v1.ItemService.CreateItem
+   * @generated from rpc scribe.v1.ItemService.GetEditorManifest
    */
-  createItem: {
+  getEditorManifest: {
     methodKind: "unary";
-    input: typeof CreateItemRequestSchema;
-    output: typeof CreateItemResponseSchema;
+    input: typeof GetEditorManifestRequestSchema;
+    output: typeof GetEditorManifestResponseSchema;
+  },
+  /**
+   * @generated from rpc scribe.v1.ItemService.PrepareItemExport
+   */
+  prepareItemExport: {
+    methodKind: "unary";
+    input: typeof PrepareItemExportRequestSchema;
+    output: typeof PrepareItemExportResponseSchema;
+  },
+  /**
+   * @generated from rpc scribe.v1.ItemService.ImportManifest
+   */
+  importManifest: {
+    methodKind: "unary";
+    input: typeof ImportManifestRequestSchema;
+    output: typeof ImportManifestResponseSchema;
+  },
+  /**
+   * @generated from rpc scribe.v1.ItemService.StartUploadBatch
+   */
+  startUploadBatch: {
+    methodKind: "unary";
+    input: typeof StartUploadBatchRequestSchema;
+    output: typeof StartUploadBatchResponseSchema;
+  },
+  /**
+   * @generated from rpc scribe.v1.ItemService.GetUploadBatch
+   */
+  getUploadBatch: {
+    methodKind: "unary";
+    input: typeof GetUploadBatchRequestSchema;
+    output: typeof GetUploadBatchResponseSchema;
   },
   /**
    * @generated from rpc scribe.v1.ItemService.UploadItemImage
@@ -376,12 +1119,28 @@ export const ItemService: GenService<{
     output: typeof UploadItemImageResponseSchema;
   },
   /**
+   * @generated from rpc scribe.v1.ItemService.CancelUploadBatch
+   */
+  cancelUploadBatch: {
+    methodKind: "unary";
+    input: typeof CancelUploadBatchRequestSchema;
+    output: typeof CancelUploadBatchResponseSchema;
+  },
+  /**
    * @generated from rpc scribe.v1.ItemService.DeleteItem
    */
   deleteItem: {
     methodKind: "unary";
     input: typeof DeleteItemRequestSchema;
     output: typeof DeleteItemResponseSchema;
+  },
+  /**
+   * @generated from rpc scribe.v1.ItemService.ListItemProviderCallAudits
+   */
+  listItemProviderCallAudits: {
+    methodKind: "unary";
+    input: typeof ListItemProviderCallAuditsRequestSchema;
+    output: typeof ListItemProviderCallAuditsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_scribe_v1_item, 0);

@@ -26,6 +26,23 @@ func (q *Queries) DeleteItemForWorkspaceManual(ctx context.Context, arg DeleteIt
 	return q.db.ExecContext(ctx, deleteItemForWorkspaceManual, arg.ID, arg.WorkspaceID)
 }
 
+const deleteItemImageForWorkspaceManual = `-- name: DeleteItemImageForWorkspaceManual :execresult
+DELETE ii
+FROM item_images ii
+JOIN items i ON i.id = ii.item_id
+WHERE ii.id = ?
+  AND i.workspace_id = ?
+`
+
+type DeleteItemImageForWorkspaceManualParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) DeleteItemImageForWorkspaceManual(ctx context.Context, arg DeleteItemImageForWorkspaceManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteItemImageForWorkspaceManual, arg.ID, arg.WorkspaceID)
+}
+
 const getItemForWorkspaceManual = `-- name: GetItemForWorkspaceManual :one
 SELECT
   id,
@@ -34,6 +51,7 @@ SELECT
   name,
   source_type,
   source_url,
+  source_manifest,
   COALESCE(metadata, JSON_OBJECT()) AS metadata,
   created_at,
   updated_at
@@ -58,59 +76,8 @@ func (q *Queries) GetItemForWorkspaceManual(ctx context.Context, arg GetItemForW
 		&i.Name,
 		&i.SourceType,
 		&i.SourceUrl,
+		&i.SourceManifest,
 		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getItemImageByCanvasURIForWorkspaceManual = `-- name: GetItemImageByCanvasURIForWorkspaceManual :one
-SELECT
-  ii.id,
-  ii.item_id,
-  ii.sequence,
-  ii.image_url,
-  ii.canvas_uri,
-  ii.label,
-  ii.hocr_url,
-  ii.created_at,
-  ii.updated_at
-FROM item_images ii
-JOIN items i ON i.id = ii.item_id
-WHERE ii.canvas_uri = ?
-  AND i.workspace_id = ?
-LIMIT 1
-`
-
-type GetItemImageByCanvasURIForWorkspaceManualParams struct {
-	CanvasUri   sql.NullString `json:"canvas_uri"`
-	WorkspaceID uint64         `json:"workspace_id"`
-}
-
-type GetItemImageByCanvasURIForWorkspaceManualRow struct {
-	ID        uint64         `json:"id"`
-	ItemID    string         `json:"item_id"`
-	Sequence  uint32         `json:"sequence"`
-	ImageUrl  string         `json:"image_url"`
-	CanvasUri sql.NullString `json:"canvas_uri"`
-	Label     sql.NullString `json:"label"`
-	HocrUrl   sql.NullString `json:"hocr_url"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-}
-
-func (q *Queries) GetItemImageByCanvasURIForWorkspaceManual(ctx context.Context, arg GetItemImageByCanvasURIForWorkspaceManualParams) (GetItemImageByCanvasURIForWorkspaceManualRow, error) {
-	row := q.db.QueryRowContext(ctx, getItemImageByCanvasURIForWorkspaceManual, arg.CanvasUri, arg.WorkspaceID)
-	var i GetItemImageByCanvasURIForWorkspaceManualRow
-	err := row.Scan(
-		&i.ID,
-		&i.ItemID,
-		&i.Sequence,
-		&i.ImageUrl,
-		&i.CanvasUri,
-		&i.Label,
-		&i.HocrUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -123,7 +90,10 @@ SELECT
   ii.item_id,
   ii.sequence,
   ii.image_url,
+  ii.storage_bytes,
   ii.canvas_uri,
+  ii.width,
+  ii.height,
   ii.label,
   ii.hocr_url,
   ii.created_at,
@@ -141,15 +111,18 @@ type GetItemImageForWorkspaceManualParams struct {
 }
 
 type GetItemImageForWorkspaceManualRow struct {
-	ID        uint64         `json:"id"`
-	ItemID    string         `json:"item_id"`
-	Sequence  uint32         `json:"sequence"`
-	ImageUrl  string         `json:"image_url"`
-	CanvasUri sql.NullString `json:"canvas_uri"`
-	Label     sql.NullString `json:"label"`
-	HocrUrl   sql.NullString `json:"hocr_url"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID           uint64         `json:"id"`
+	ItemID       string         `json:"item_id"`
+	Sequence     uint32         `json:"sequence"`
+	ImageUrl     string         `json:"image_url"`
+	StorageBytes uint64         `json:"storage_bytes"`
+	CanvasUri    sql.NullString `json:"canvas_uri"`
+	Width        sql.NullInt32  `json:"width"`
+	Height       sql.NullInt32  `json:"height"`
+	Label        sql.NullString `json:"label"`
+	HocrUrl      sql.NullString `json:"hocr_url"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 func (q *Queries) GetItemImageForWorkspaceManual(ctx context.Context, arg GetItemImageForWorkspaceManualParams) (GetItemImageForWorkspaceManualRow, error) {
@@ -160,7 +133,10 @@ func (q *Queries) GetItemImageForWorkspaceManual(ctx context.Context, arg GetIte
 		&i.ItemID,
 		&i.Sequence,
 		&i.ImageUrl,
+		&i.StorageBytes,
 		&i.CanvasUri,
+		&i.Width,
+		&i.Height,
 		&i.Label,
 		&i.HocrUrl,
 		&i.CreatedAt,
@@ -175,7 +151,10 @@ SELECT
   ii.item_id,
   ii.sequence,
   ii.image_url,
+  ii.storage_bytes,
   ii.canvas_uri,
+  ii.width,
+  ii.height,
   ii.label,
   ii.hocr_url,
   ii.created_at,
@@ -187,15 +166,18 @@ ORDER BY ii.item_id ASC, ii.sequence ASC
 `
 
 type ListItemImagesByWorkspaceManualRow struct {
-	ID        uint64         `json:"id"`
-	ItemID    string         `json:"item_id"`
-	Sequence  uint32         `json:"sequence"`
-	ImageUrl  string         `json:"image_url"`
-	CanvasUri sql.NullString `json:"canvas_uri"`
-	Label     sql.NullString `json:"label"`
-	HocrUrl   sql.NullString `json:"hocr_url"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	ID           uint64         `json:"id"`
+	ItemID       string         `json:"item_id"`
+	Sequence     uint32         `json:"sequence"`
+	ImageUrl     string         `json:"image_url"`
+	StorageBytes uint64         `json:"storage_bytes"`
+	CanvasUri    sql.NullString `json:"canvas_uri"`
+	Width        sql.NullInt32  `json:"width"`
+	Height       sql.NullInt32  `json:"height"`
+	Label        sql.NullString `json:"label"`
+	HocrUrl      sql.NullString `json:"hocr_url"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
 func (q *Queries) ListItemImagesByWorkspaceManual(ctx context.Context, workspaceID uint64) ([]ListItemImagesByWorkspaceManualRow, error) {
@@ -212,7 +194,10 @@ func (q *Queries) ListItemImagesByWorkspaceManual(ctx context.Context, workspace
 			&i.ItemID,
 			&i.Sequence,
 			&i.ImageUrl,
+			&i.StorageBytes,
 			&i.CanvasUri,
+			&i.Width,
+			&i.Height,
 			&i.Label,
 			&i.HocrUrl,
 			&i.CreatedAt,
@@ -229,6 +214,232 @@ func (q *Queries) ListItemImagesByWorkspaceManual(ctx context.Context, workspace
 		return nil, err
 	}
 	return items, nil
+}
+
+const listItemImagesForCleanup = `-- name: ListItemImagesForCleanup :many
+SELECT ii.id, ii.image_url, ii.storage_bytes, i.workspace_id
+FROM item_images ii
+JOIN items i ON i.id = ii.item_id
+WHERE i.id = ?
+  AND i.workspace_id = ?
+ORDER BY ii.id ASC
+FOR UPDATE
+`
+
+type ListItemImagesForCleanupParams struct {
+	ItemID      string `json:"item_id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+type ListItemImagesForCleanupRow struct {
+	ID           uint64 `json:"id"`
+	ImageUrl     string `json:"image_url"`
+	StorageBytes uint64 `json:"storage_bytes"`
+	WorkspaceID  uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) ListItemImagesForCleanup(ctx context.Context, arg ListItemImagesForCleanupParams) ([]ListItemImagesForCleanupRow, error) {
+	rows, err := q.db.QueryContext(ctx, listItemImagesForCleanup, arg.ItemID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListItemImagesForCleanupRow{}
+	for rows.Next() {
+		var i ListItemImagesForCleanupRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ImageUrl,
+			&i.StorageBytes,
+			&i.WorkspaceID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockItemForCleanup = `-- name: LockItemForCleanup :one
+SELECT id
+FROM items
+WHERE id = ?
+  AND workspace_id = ?
+FOR UPDATE
+`
+
+type LockItemForCleanupParams struct {
+	ID          string `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) LockItemForCleanup(ctx context.Context, arg LockItemForCleanupParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, lockItemForCleanup, arg.ID, arg.WorkspaceID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockItemForUseManual = `-- name: LockItemForUseManual :one
+SELECT id
+FROM items
+WHERE id = ?
+  AND workspace_id = ?
+LOCK IN SHARE MODE
+`
+
+type LockItemForUseManualParams struct {
+	ID          string `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) LockItemForUseManual(ctx context.Context, arg LockItemForUseManualParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, lockItemForUseManual, arg.ID, arg.WorkspaceID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockItemImageDimensionsForWorkspaceManual = `-- name: LockItemImageDimensionsForWorkspaceManual :one
+SELECT width, height
+FROM item_images
+WHERE id = ?
+  AND workspace_id = ?
+FOR UPDATE
+`
+
+type LockItemImageDimensionsForWorkspaceManualParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+type LockItemImageDimensionsForWorkspaceManualRow struct {
+	Width  sql.NullInt32 `json:"width"`
+	Height sql.NullInt32 `json:"height"`
+}
+
+func (q *Queries) LockItemImageDimensionsForWorkspaceManual(ctx context.Context, arg LockItemImageDimensionsForWorkspaceManualParams) (LockItemImageDimensionsForWorkspaceManualRow, error) {
+	row := q.db.QueryRowContext(ctx, lockItemImageDimensionsForWorkspaceManual, arg.ID, arg.WorkspaceID)
+	var i LockItemImageDimensionsForWorkspaceManualRow
+	err := row.Scan(&i.Width, &i.Height)
+	return i, err
+}
+
+const lockItemImageForCleanup = `-- name: LockItemImageForCleanup :one
+SELECT ii.id, ii.item_id, ii.image_url, ii.storage_bytes, i.workspace_id
+FROM item_images ii
+JOIN items i ON i.id = ii.item_id
+WHERE ii.id = ?
+  AND i.workspace_id = ?
+FOR UPDATE
+`
+
+type LockItemImageForCleanupParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+type LockItemImageForCleanupRow struct {
+	ID           uint64 `json:"id"`
+	ItemID       string `json:"item_id"`
+	ImageUrl     string `json:"image_url"`
+	StorageBytes uint64 `json:"storage_bytes"`
+	WorkspaceID  uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) LockItemImageForCleanup(ctx context.Context, arg LockItemImageForCleanupParams) (LockItemImageForCleanupRow, error) {
+	row := q.db.QueryRowContext(ctx, lockItemImageForCleanup, arg.ID, arg.WorkspaceID)
+	var i LockItemImageForCleanupRow
+	err := row.Scan(
+		&i.ID,
+		&i.ItemID,
+		&i.ImageUrl,
+		&i.StorageBytes,
+		&i.WorkspaceID,
+	)
+	return i, err
+}
+
+const lockItemImageForUseManual = `-- name: LockItemImageForUseManual :one
+SELECT item_id
+FROM item_images
+WHERE id = ?
+  AND workspace_id = ?
+LOCK IN SHARE MODE
+`
+
+type LockItemImageForUseManualParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) LockItemImageForUseManual(ctx context.Context, arg LockItemImageForUseManualParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, lockItemImageForUseManual, arg.ID, arg.WorkspaceID)
+	var item_id string
+	err := row.Scan(&item_id)
+	return item_id, err
+}
+
+const userCanReadImageURLManual = `-- name: UserCanReadImageURLManual :one
+SELECT EXISTS(
+  SELECT 1
+  FROM item_images ii
+  JOIN items i
+    ON i.id = ii.item_id
+   AND i.workspace_id = ii.workspace_id
+  JOIN workspaces w
+    ON w.id = ii.workspace_id
+  JOIN workspace_members wm
+    ON wm.workspace_id = w.id
+  WHERE ii.image_url = ?
+    AND wm.user_id = ?
+  LIMIT 1
+) AS can_read_image_url
+`
+
+type UserCanReadImageURLManualParams struct {
+	ImageUrl string `json:"image_url"`
+	UserID   uint64 `json:"user_id"`
+}
+
+func (q *Queries) UserCanReadImageURLManual(ctx context.Context, arg UserCanReadImageURLManualParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, userCanReadImageURLManual, arg.ImageUrl, arg.UserID)
+	var can_read_image_url bool
+	err := row.Scan(&can_read_image_url)
+	return can_read_image_url, err
+}
+
+const workspaceOwnsImageURLManual = `-- name: WorkspaceOwnsImageURLManual :one
+SELECT EXISTS(
+  SELECT 1
+  FROM item_images ii
+  JOIN items i
+    ON i.id = ii.item_id
+   AND i.workspace_id = ii.workspace_id
+  JOIN workspaces w
+    ON w.id = ii.workspace_id
+  WHERE ii.image_url = ?
+    AND ii.workspace_id = ?
+  LIMIT 1
+) AS owns_image_url
+`
+
+type WorkspaceOwnsImageURLManualParams struct {
+	ImageUrl    string `json:"image_url"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) WorkspaceOwnsImageURLManual(ctx context.Context, arg WorkspaceOwnsImageURLManualParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, workspaceOwnsImageURLManual, arg.ImageUrl, arg.WorkspaceID)
+	var owns_image_url bool
+	err := row.Scan(&owns_image_url)
+	return owns_image_url, err
 }
 
 const workspaceOwnsItemImageManual = `-- name: WorkspaceOwnsItemImageManual :one

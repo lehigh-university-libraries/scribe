@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
 )
 
 const (
-	bucketEnv = "SCRIBE_UPLOADS_BUCKET"
-	prefixEnv = "SCRIBE_UPLOADS_PREFIX"
+	bucketEnv            = "SCRIBE_UPLOADS_BUCKET"
+	prefixEnv            = "SCRIBE_UPLOADS_PREFIX"
+	maxStoredUploadBytes = 100 << 20
 )
 
 type Attrs struct {
@@ -25,9 +27,9 @@ type Attrs struct {
 }
 
 var (
-	clientOnce sync.Once
-	client     *storage.Client
-	clientErr  error
+	clientMu         sync.Mutex
+	client           *storage.Client
+	newStorageClient = storage.NewClient
 )
 
 func Enabled() bool {
@@ -77,14 +79,20 @@ func Read(ctx context.Context, name string) ([]byte, Attrs, error) {
 	if err != nil {
 		return nil, Attrs{}, fmt.Errorf("stat gs://%s/%s: %w", bucket(), obj, err)
 	}
+	if attrs.Size < 0 || attrs.Size > maxStoredUploadBytes {
+		return nil, Attrs{}, fmt.Errorf("gs://%s/%s exceeds the %d-byte read limit", bucket(), obj, maxStoredUploadBytes)
+	}
 	r, err := handle.NewReader(ctx)
 	if err != nil {
 		return nil, Attrs{}, fmt.Errorf("open gs://%s/%s: %w", bucket(), obj, err)
 	}
 	defer r.Close()
-	data, err := io.ReadAll(r)
+	data, err := io.ReadAll(io.LimitReader(r, maxStoredUploadBytes+1))
 	if err != nil {
 		return nil, Attrs{}, fmt.Errorf("read gs://%s/%s: %w", bucket(), obj, err)
+	}
+	if len(data) > maxStoredUploadBytes {
+		return nil, Attrs{}, fmt.Errorf("gs://%s/%s exceeds the %d-byte read limit", bucket(), obj, maxStoredUploadBytes)
 	}
 	return data, Attrs{
 		Updated:     attrs.Updated,
@@ -93,9 +101,29 @@ func Read(ctx context.Context, name string) ([]byte, Attrs, error) {
 	}, nil
 }
 
+// Delete removes one validated upload object. Missing objects are already in
+// the desired state and therefore do not fail cleanup.
+func Delete(ctx context.Context, name string) error {
+	if !Enabled() {
+		return nil
+	}
+	obj, err := objectName(name)
+	if err != nil {
+		return err
+	}
+	c, err := getClient(ctx)
+	if err != nil {
+		return err
+	}
+	if err := c.Bucket(bucket()).Object(obj).Delete(ctx); err != nil && err != storage.ErrObjectNotExist {
+		return fmt.Errorf("delete gs://%s/%s: %w", bucket(), obj, err)
+	}
+	return nil
+}
+
 func objectName(name string) (string, error) {
 	clean := strings.TrimSpace(name)
-	if clean == "" || filepath.Base(clean) != clean || strings.ContainsAny(clean, `/\`) {
+	if clean == "" || filepath.Base(clean) != clean || strings.ContainsAny(clean, `/\`) || !uploadref.IsImmutableName(clean) {
 		return "", fmt.Errorf("invalid upload object name %q", name)
 	}
 	prefix := strings.Trim(strings.TrimSpace(os.Getenv(prefixEnv)), "/")
@@ -113,11 +141,34 @@ func getClient(ctx context.Context) (*storage.Client, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	clientOnce.Do(func() {
-		client, clientErr = storage.NewClient(ctx)
-	})
-	if clientErr != nil {
-		return nil, fmt.Errorf("create storage client: %w", clientErr)
+	clientMu.Lock()
+	defer clientMu.Unlock()
+	if client != nil {
+		return client, nil
 	}
-	return client, nil
+	created, err := newStorageClient(ctx)
+	if err != nil {
+		// Initialization failures are intentionally not cached. A canceled
+		// startup request or transient credential outage must not poison the
+		// process for the remainder of its lifetime.
+		return nil, fmt.Errorf("create storage client: %w", err)
+	}
+	client = created
+	return created, nil
+}
+
+// Close releases the process-owned shared upload client. It is idempotent and
+// permits a later call to initialize a fresh client.
+func Close() error {
+	clientMu.Lock()
+	defer clientMu.Unlock()
+	if client == nil {
+		return nil
+	}
+	err := client.Close()
+	client = nil
+	if err != nil {
+		return fmt.Errorf("close storage client: %w", err)
+	}
+	return nil
 }

@@ -9,23 +9,31 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/db"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
-	"github.com/lehigh-university-libraries/scribe/internal/metrics"
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
+	"github.com/lehigh-university-libraries/scribe/internal/providerregistry"
+	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
 
-func providerFromHeader(h map[string][]string) string {
-	return strings.TrimSpace(firstHeaderValue(h, "X-Provider"))
-}
+var (
+	errProcessHOCRLocalUpload  = errors.New("local upload URLs cannot be reused; send image_data")
+	errProcessHOCRInvalidImage = errors.New("image URL must be an absolute public HTTP(S) URL")
+)
 
 func firstHeaderValue(h map[string][]string, key string) string {
 	for k, values := range h {
@@ -39,11 +47,13 @@ func firstHeaderValue(h map[string][]string, key string) string {
 type externalProcessingRequest struct {
 	source      string
 	key         string
+	requestHash string
 	eventHeader string
+	leaseOwner  string
 }
 
-func externalRequestFromHeaders(headers map[string][]string, imageURL string, contextID uint64, metadataJSON string) externalProcessingRequest {
-	key := strings.TrimSpace(firstHeaderValue(headers, "X-Idempotency-Key"))
+func externalRequestFromHeaders(headers map[string][]string, idempotencyKey, defaultSource, requestHash string) externalProcessingRequest {
+	key := strings.TrimSpace(idempotencyKey)
 	source := strings.TrimSpace(firstHeaderValue(headers, "X-External-Source"))
 	if source == "" {
 		source = strings.TrimSpace(firstHeaderValue(headers, "X-Scribe-External-Source"))
@@ -53,14 +63,13 @@ func externalRequestFromHeaders(headers map[string][]string, imageURL string, co
 		source = "islandora"
 	}
 	if source == "" {
+		source = strings.TrimSpace(defaultSource)
+	}
+	if source == "" {
 		source = "external"
 	}
 	if len(eventHeader) > 256*1024 {
 		eventHeader = eventHeader[:256*1024]
-	}
-	if key == "" && eventHeader != "" {
-		sum := sha256.Sum256([]byte(fmt.Sprintf("%s\n%d\n%s\n%s", imageURL, contextID, strings.TrimSpace(metadataJSON), eventHeader)))
-		key = hex.EncodeToString(sum[:])
 	}
 	if key == "" {
 		return externalProcessingRequest{}
@@ -69,52 +78,9 @@ func externalRequestFromHeaders(headers map[string][]string, imageURL string, co
 	return externalProcessingRequest{
 		source:      source,
 		key:         hex.EncodeToString(sum[:]),
+		requestHash: strings.TrimSpace(requestHash),
 		eventHeader: eventHeader,
 	}
-}
-
-func (h *Handler) resolveTranscriptionConfig(
-	ctx context.Context,
-	contextID uint64,
-	metadataJSON string,
-	headerProvider string,
-) (string, string, error) {
-	var selectedProvider string
-	var selectedModel string
-
-	if contextID > 0 {
-		c, err := h.contextForRead(ctx, contextID)
-		if err != nil {
-			return "", "", fmt.Errorf("context not found")
-		}
-		selectedProvider = c.TranscriptionProvider
-		selectedModel = c.TranscriptionModel
-	} else {
-		var metadata map[string]any
-		raw := strings.TrimSpace(metadataJSON)
-		if raw != "" {
-			if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
-				return "", "", fmt.Errorf("invalid metadata json")
-			}
-		}
-		c, _, err := h.contexts.ResolveForWorkspace(ctx, h.currentWorkspaceID(ctx), metadata)
-		if err != nil {
-			return "", "", fmt.Errorf("resolve context: %w", err)
-		}
-		selectedProvider = c.TranscriptionProvider
-		selectedModel = c.TranscriptionModel
-	}
-
-	headerProvider = strings.TrimSpace(headerProvider)
-	if headerProvider != "" {
-		// Explicit request override for provider should not inherit a model from a different provider.
-		selectedProvider = headerProvider
-		selectedModel = ""
-	}
-
-	provider := effectiveProvider(selectedProvider)
-	model := effectiveModel(provider, selectedModel)
-	return provider, model, nil
 }
 
 // resolveContext returns the full store.Context for a request, resolving via
@@ -123,239 +89,223 @@ func (h *Handler) resolveContext(ctx context.Context, contextID uint64, metadata
 	return h.resolveContextForRequest(ctx, contextID, metadataJSON)
 }
 
-// processingContextFromStore converts a store.Context into an hocr.ProcessingContext.
-func processingContextFromStore(c store.Context, providerOverride string) hocr.ProcessingContext {
-	provider := c.TranscriptionProvider
-	model := c.TranscriptionModel
-	if providerOverride != "" {
-		provider = providerOverride
-		model = "" // let the hocr service pick the default for this provider
+func resolveContextConnectError(err error) error {
+	switch {
+	case errors.Is(err, errInvalidContextMetadata), errors.Is(err, store.ErrInvalidContextMetadata):
+		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("metadata_json must be a bounded flat JSON object"))
+	case errors.Is(err, store.ErrContextResolutionLimit):
+		return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("workspace selection rule evaluation limit exceeded"))
+	case errors.Is(err, sql.ErrNoRows):
+		return connect.NewError(connect.CodeNotFound, fmt.Errorf("processing context not found"))
+	default:
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("resolve processing context: %w", err))
 	}
+}
+
+// processingContextFromStore converts a store.Context into an hocr.ProcessingContext.
+func processingContextFromStore(c store.Context) hocr.ProcessingContext {
 	return hocr.ProcessingContext{
 		SegmentationModel:     c.SegmentationModel,
-		TranscriptionProvider: effectiveProvider(provider),
-		TranscriptionModel:    effectiveModel(effectiveProvider(provider), model),
-		TranscriptionBaseURL:  c.TranscriptionBaseURL,
-		TranscriptionAudience: c.TranscriptionAudience,
+		TranscriptionProvider: effectiveProvider(c.TranscriptionProvider),
+		TranscriptionModel:    effectiveModel(effectiveProvider(c.TranscriptionProvider), c.TranscriptionModel),
 		Temperature:           c.Temperature,
 		SystemPrompt:          c.SystemPrompt,
 	}
 }
 
+func processingLimitProvider(c store.Context) string {
+	// Provider concurrency is a property of the installed transcription
+	// capability. Segmentor/model choices must not create independent buckets
+	// that allow callers to exceed that provider's configured limit.
+	return effectiveProvider(c.TranscriptionProvider)
+}
+
+func processingLimitSegmentor(c store.Context) string {
+	descriptor, _, _, err := providerregistry.New(config.Get().Config).ResolveSegmentor(c.SegmentationModel)
+	if err == nil && strings.TrimSpace(descriptor.ID) != "" {
+		return "segmentor:" + strings.TrimSpace(descriptor.ID)
+	}
+	selection := strings.ToLower(strings.TrimSpace(c.SegmentationModel))
+	if selection == "" {
+		selection = "auto"
+	}
+	if kind, _, found := strings.Cut(selection, ":"); found {
+		selection = kind
+	}
+	return "segmentor:" + selection
+}
+
+func (h *Handler) acquireProcessingSlot(ctx context.Context, workspaceID uint64, processingContext store.Context) (func(), error) {
+	release, err := h.processingLimiter.Acquire(ctx, workspaceID, processingLimitProvider(processingContext))
+	if err == nil {
+		return release, nil
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		return nil, connect.NewError(connect.CodeCanceled, fmt.Errorf("processing request canceled"))
+	case errors.Is(err, context.DeadlineExceeded):
+		return nil, connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("processing request deadline exceeded"))
+	default:
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("acquire processing capacity: %w", err))
+	}
+}
+
+func imageProcessingConnectError(operation string, err error) error {
+	if errors.Is(err, store.ErrStorageQuotaExceeded) {
+		return storageQuotaConnectError(err)
+	}
+	if ocrhandlers.IsInvalidImageError(err) {
+		return connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	// Preserve the diagnostic for the inner logging interceptor. The outer
+	// sanitizer replaces Internal messages before they cross the API boundary.
+	return connect.NewError(connect.CodeInternal, fmt.Errorf("%s: %w", operation, err))
+}
+
 func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scribev1.ProcessImageURLRequest]) (*connect.Response[scribev1.ProcessImageURLResponse], error) {
-	providerHeader := providerFromHeader(req.Header())
 	imageURL := strings.TrimSpace(req.Msg.GetImageUrl())
 	if imageURL == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("image_url is required"))
 	}
-	externalReq := externalRequestFromHeaders(req.Header(), imageURL, req.Msg.GetContextId(), req.Msg.GetMetadata())
-	externalReserved := false
-	if externalReq.key != "" && h.transcriptionJobs != nil {
-		reservation, created, err := h.transcriptionJobs.ReserveExternalRequest(ctx, h.currentWorkspaceID(ctx), externalReq.source, externalReq.key, externalReq.eventHeader)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reserve external request: %w", err))
-		}
-		if !created {
-			switch reservation.Status {
-			case store.ExternalRequestStatusCompleted:
-				if reservation.ItemImageID == 0 {
-					return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("external request already completed without an item image"))
-				}
-				run, err := h.ocrRuns.GetByItemImageID(ctx, reservation.ItemImageID)
-				if err != nil {
-					return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("external request already completed"))
-				}
-				return connect.NewResponse(&scribev1.ProcessImageURLResponse{
-					ItemId:      reservation.ItemID,
-					ItemImageId: reservation.ItemImageID,
-					SessionId:   run.SessionID,
-					ImageUrl:    run.ImageURL,
-					Hocr:        run.OriginalHOCR,
-					PlainText:   run.OriginalText,
-				}), nil
-			case store.ExternalRequestStatusInProgress:
-				return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("external request is already in progress"))
-			default:
-				return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("external request already exists"))
-			}
-		}
-		externalReserved = true
+	idempotencyKey := strings.TrimSpace(req.Msg.GetIdempotencyKey())
+	if idempotencyKey == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("idempotency_key is required"))
 	}
-	failExternal := func(err error) {
-		if externalReserved && err != nil {
-			_ = h.transcriptionJobs.FailExternalRequest(ctx, h.currentWorkspaceID(ctx), externalReq.source, externalReq.key, err.Error())
-		}
+	if h.transcriptionJobs == nil || h.ocrRuns == nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("processing idempotency repository is not configured"))
 	}
-
+	externalReq := externalRequestFromHeaders(
+		req.Header(),
+		idempotencyKey,
+		"image-url",
+		stableRequestHash(imageURL, strconv.FormatUint(req.Msg.GetContextId(), 10), strings.TrimSpace(req.Msg.GetMetadata())),
+	)
 	resolvedCtx, err := h.resolveContext(ctx, req.Msg.GetContextId(), req.Msg.GetMetadata())
 	if err != nil {
-		failExternal(err)
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, resolveContextConnectError(err)
 	}
-
-	var result *ocrhandlers.ProcessResult
-	var provider, model string
-	runAsync := true
 	var contextID *uint64
 	if resolvedCtx.ID > 0 {
 		v := resolvedCtx.ID
 		contextID = &v
 	}
-
-	seg := strings.ToLower(strings.TrimSpace(resolvedCtx.SegmentationModel))
-	if seg != "" && providerHeader == "" {
-		// Segmentation model set: detect segments only, then enqueue a batch
-		// transcription job. The client is redirected to the editor immediately
-		// and the job worker transcribes segment by segment in the background.
-		pctx := processingContextFromStore(resolvedCtx, "")
-		pctx.SegmentOnly = true
-		callCtx := hocr.WithProviderCallMetadata(ctx, "", nil, contextID)
-		result, err = h.ocr.ProcessImageURLWithContext(callCtx, imageURL, pctx)
-		runAsync = false
-	} else {
-		// Detection-only hOCR. Transcription now always runs through the durable worker queue.
-		provider, model, err = h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), req.Msg.GetMetadata(), providerHeader)
+	reservation, created, err := h.transcriptionJobs.ReserveExternalRequest(ctx, h.currentWorkspaceID(ctx), externalReq.source, externalReq.key, externalReq.requestHash, externalReq.eventHeader)
+	if err != nil {
+		if errors.Is(err, store.ErrExternalRequestMismatch) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reserve external request: %w", err))
+	}
+	if !created {
+		switch reservation.Status {
+		case store.ExternalRequestStatusCompleted:
+			if reservation.ItemImageID == 0 {
+				return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("external request already completed without an item image"))
+			}
+			run, err := h.ocrRuns.GetByItemImageID(ctx, reservation.ItemImageID)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload completed image URL import"))
+			}
+			return connect.NewResponse(&scribev1.ProcessImageURLResponse{
+				ItemId:      reservation.ItemID,
+				ItemImageId: reservation.ItemImageID,
+				SessionId:   run.SessionID,
+				ImageUrl:    run.ImageURL,
+				Hocr:        run.OriginalHOCR,
+				PlainText:   run.OriginalText,
+			}), nil
+		case store.ExternalRequestStatusInProgress:
+			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("external request is already in progress"))
+		default:
+			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("external request already exists"))
+		}
+	}
+	externalReq.leaseOwner = reservation.LeaseOwner
+	failExternal := func(err error) {
 		if err != nil {
-			failExternal(err)
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+			failureCtx, cancel := context.WithTimeout(h.backgroundContext(), 10*time.Second)
+			defer cancel()
+			if failErr := h.transcriptionJobs.FailExternalRequest(failureCtx, h.currentWorkspaceID(ctx), externalReq.source, externalReq.key, externalReq.leaseOwner, err.Error()); failErr != nil {
+				slog.Warn("failed to release external request reservation", "source", externalReq.source, "error_type", safeLogErrorType(failErr))
+			}
 		}
-		result, err = h.ocr.ProcessImageURLWithProviderAndModelContext(ctx, imageURL, provider, model)
 	}
+	storageReservation, err := h.reserveStorageQuota(ctx, store.StorageQuotaRequest{
+		Bytes:  uint64(maxDeclaredImageBytes),
+		Items:  1,
+		Images: 1,
+	})
+	if err != nil {
+		failExternal(err)
+		return nil, err
+	}
+	defer func() { h.releaseStorageQuota(storageReservation) }()
+
+	// Ingest performs segmentation only. Transcription is always durable and
+	// asynchronous so every client observes the same job semantics.
+	pctx := processingContextFromStore(resolvedCtx)
+	pctx.SegmentOnly = true
+	callCtx := withStorageQuotaReservation(ctx, storageReservation)
+	callCtx = hocr.WithProviderCallMetadata(callCtx, h.currentWorkspaceID(ctx), "", nil, contextID)
+	releaseProcessing, err := h.acquireProcessingSlot(ctx, h.currentWorkspaceID(ctx), resolvedCtx)
+	if err != nil {
+		failExternal(err)
+		return nil, err
+	}
+	result, err := func() (*ocrhandlers.ProcessResult, error) {
+		defer releaseProcessing()
+		return h.ocr.ProcessImageURLWithContext(callCtx, imageURL, pctx)
+	}()
 
 	if err != nil {
+		h.queueUploadFromProcessingError(ctx, err)
 		failExternal(err)
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, imageProcessingConnectError("process image URL", err)
 	}
-	if !runAsync {
-		provider = result.Provider
-		model = result.Model
+	storedBytes := result.StoredBytes
+	if storedBytes == 0 {
+		storedBytes = uint64(maxDeclaredImageBytes)
 	}
-	item, itemImage, err := h.createOCRItemAndImage(ctx, "url", result.ImageURL, imageURL, imageURL, resolvedCtx)
+	storageReservation, err = h.resizeStorageQuota(ctx, storageReservation, store.StorageQuotaRequest{Bytes: storedBytes, Items: 1, Images: 1})
 	if err != nil {
+		h.queueUnreferencedUploads(ctx, h.currentWorkspaceID(ctx), []store.ItemImage{{ImageURL: result.ImageURL, StorageBytes: storedBytes}})
 		failExternal(err)
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, err
 	}
-	sessionID := item.ID
-	if err := h.ocrRuns.Create(ctx, store.OCRRun{
-		SessionID:    sessionID,
-		ItemImageID:  &itemImage.ID,
-		ContextID:    contextID,
-		ImageURL:     result.ImageURL,
-		Provider:     provider,
-		Model:        model,
-		OriginalHOCR: result.HOCR,
-		OriginalText: result.PlainText,
-	}); err != nil {
+	atomicExternal := &store.SingleFileIngestExternalRequest{
+		Source:         externalReq.source,
+		IdempotencyKey: externalReq.key,
+		LeaseOwner:     externalReq.leaseOwner,
+	}
+	committedIngest, err := h.commitSingleFileOCRIngest(ctx, singleFileOCRIngestRequest{
+		SourceType:           "url",
+		ImageURL:             result.ImageURL,
+		SourceURL:            imageURL,
+		SourceLabel:          imageURL,
+		StorageBytes:         storedBytes,
+		ResolvedContext:      resolvedCtx,
+		ContextID:            contextID,
+		Provider:             result.Provider,
+		Model:                result.Model,
+		HOCR:                 result.HOCR,
+		PlainText:            result.PlainText,
+		ParsedHOCR:           result.ParsedHOCR,
+		EnqueueTranscription: true,
+		Reservation:          storageReservation,
+		ExternalRequest:      atomicExternal,
+	})
+	if err != nil {
+		h.queueUnreferencedUploads(ctx, h.currentWorkspaceID(ctx), []store.ItemImage{{ImageURL: result.ImageURL, StorageBytes: storedBytes}})
 		failExternal(err)
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	if err := h.ensureItemImageCanvasAndAnnotations(ctx, store.OCRRun{
-		SessionID:    sessionID,
-		ItemImageID:  &itemImage.ID,
-		OriginalHOCR: result.HOCR,
-	}, itemImage.ID); err != nil {
-		slog.Warn("Failed to initialize item image canvas/annotations", "item_image_id", itemImage.ID, "error", err)
-	}
-	var jobID uint64
-	if createdJobID, err := h.createTranscriptionJob(ctx, itemImage.ID, contextID); err != nil {
-		slog.Warn("Failed to enqueue transcription job", "item_image_id", itemImage.ID, "error", err)
-		failExternal(err)
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("enqueue transcription job: %w", err))
-	} else {
-		jobID = createdJobID
-	}
-	if externalReserved {
-		if err := h.transcriptionJobs.CompleteExternalRequest(ctx, h.currentWorkspaceID(ctx), externalReq.source, externalReq.key, item.ID, itemImage.ID, jobID); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("complete external request: %w", err))
+		if errors.As(err, new(*store.TranscriptionJobQuotaExceededError)) {
+			return nil, transcriptionJobConnectError("enqueue transcription job", err)
 		}
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	item, itemImage := committedIngest.Item, committedIngest.Image
+	sessionID := item.ID
 
 	return connect.NewResponse(&scribev1.ProcessImageURLResponse{
-		ItemId:      item.ID,
-		ItemImageId: itemImage.ID,
-		SessionId:   sessionID,
-		ImageUrl:    result.ImageURL,
-		Hocr:        result.HOCR,
-		PlainText:   result.PlainText,
-	}), nil
-}
-
-func (h *Handler) ProcessImageUpload(ctx context.Context, req *connect.Request[scribev1.ProcessImageUploadRequest]) (*connect.Response[scribev1.ProcessImageUploadResponse], error) {
-	providerHeader := providerFromHeader(req.Header())
-	filename := strings.TrimSpace(req.Msg.GetFilename())
-	if filename == "" {
-		filename = "upload.jpg"
-	}
-	if len(req.Msg.GetImageData()) == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("image_data is required"))
-	}
-
-	resolvedCtx, err := h.resolveContext(ctx, req.Msg.GetContextId(), "")
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-
-	var result *ocrhandlers.ProcessResult
-	var provider, model string
-	runAsync := true
-	var contextID *uint64
-	if resolvedCtx.ID > 0 {
-		v := resolvedCtx.ID
-		contextID = &v
-	}
-
-	seg := strings.ToLower(strings.TrimSpace(resolvedCtx.SegmentationModel))
-	if seg != "" && providerHeader == "" {
-		pctx := processingContextFromStore(resolvedCtx, "")
-		pctx.SegmentOnly = true
-		callCtx := hocr.WithProviderCallMetadata(ctx, "", nil, contextID)
-		result, err = h.ocr.ProcessImageUploadWithContext(callCtx, filename, req.Msg.GetImageData(), pctx)
-		runAsync = false
-	} else {
-		provider, model, err = h.resolveTranscriptionConfig(ctx, req.Msg.GetContextId(), "", providerHeader)
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, err)
-		}
-		result, err = h.ocr.ProcessImageUploadWithProviderAndModel(filename, req.Msg.GetImageData(), provider, model)
-	}
-
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	if !runAsync {
-		provider = result.Provider
-		model = result.Model
-	}
-	item, itemImage, err := h.createOCRItemAndImage(ctx, "upload", result.ImageURL, "", filename, resolvedCtx)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	sessionID := item.ID
-	if err := h.ocrRuns.Create(ctx, store.OCRRun{
-		SessionID:    sessionID,
-		ItemImageID:  &itemImage.ID,
-		ContextID:    contextID,
-		ImageURL:     result.ImageURL,
-		Provider:     provider,
-		Model:        model,
-		OriginalHOCR: result.HOCR,
-		OriginalText: result.PlainText,
-	}); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	if err := h.ensureItemImageCanvasAndAnnotations(ctx, store.OCRRun{
-		SessionID:    sessionID,
-		ItemImageID:  &itemImage.ID,
-		OriginalHOCR: result.HOCR,
-	}, itemImage.ID); err != nil {
-		slog.Warn("Failed to initialize item image canvas/annotations", "item_image_id", itemImage.ID, "error", err)
-	}
-	if _, err := h.createTranscriptionJob(ctx, itemImage.ID, contextID); err != nil {
-		slog.Warn("Failed to enqueue transcription job", "item_image_id", itemImage.ID, "error", err)
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("enqueue transcription job: %w", err))
-	}
-
-	return connect.NewResponse(&scribev1.ProcessImageUploadResponse{
 		ItemId:      item.ID,
 		ItemImageId: itemImage.ID,
 		SessionId:   sessionID,
@@ -373,46 +323,161 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1
 	if len(hocrXML) > maxInlineHOCRBytes {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("hocr exceeds 10 MiB limit"))
 	}
+	idempotencyKey := strings.TrimSpace(req.Msg.GetIdempotencyKey())
+	if idempotencyKey == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("idempotency_key is required"))
+	}
+	parsedHOCR, err := hocr.ParseDocument(hocrXML)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid hocr"))
+	}
+	plainText := hocr.PlainText(parsedHOCR.Lines)
 
 	imageURL := strings.TrimSpace(req.Msg.GetImageUrl())
-	if len(req.Msg.GetImageData()) > 0 {
-		filename := strings.TrimSpace(req.Msg.GetFilename())
+	hasImageData := len(req.Msg.GetImageData()) > 0
+	if hasImageData == (imageURL != "") {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("exactly one of image_url or image_data is required"))
+	}
+	filename := strings.TrimSpace(req.Msg.GetFilename())
+	storageBytes := uint64(0)
+	imageIdentity := "url:" + imageURL
+	sourceLabel := imageURL
+	if hasImageData {
+		if err := ocrhandlers.ValidateUploadedImageData(req.Msg.GetImageData()); err != nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		storageBytes = uint64(len(req.Msg.GetImageData()))
+		imageDigest := sha256.Sum256(req.Msg.GetImageData())
+		imageIdentity = "data:" + hex.EncodeToString(imageDigest[:])
 		if filename == "" {
 			filename = "upload.jpg"
 		}
-		storedURL, err := h.ocr.StoreUploadedImage(filename, req.Msg.GetImageData())
-		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+		sourceLabel = filename
+	} else {
+		if err := h.authorizeProcessHOCRImageURL(ctx, imageURL); err != nil {
+			switch {
+			case errors.Is(err, errProcessHOCRLocalUpload):
+				return nil, connect.NewError(connect.CodeInvalidArgument, errProcessHOCRLocalUpload)
+			case errors.Is(err, errProcessHOCRInvalidImage):
+				return nil, connect.NewError(connect.CodeInvalidArgument, errProcessHOCRInvalidImage)
+			default:
+				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("authorize image_url"))
+			}
+		}
+	}
+	if h.transcriptionJobs == nil || h.ocrRuns == nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("hOCR idempotency repositories are not configured"))
+	}
+	hocrDigest := sha256.Sum256([]byte(hocrXML))
+	externalReq := externalRequestFromHeaders(
+		req.Header(),
+		idempotencyKey,
+		"hocr-import",
+		stableRequestHash(hex.EncodeToString(hocrDigest[:]), imageIdentity, filename),
+	)
+	workspaceID := h.currentWorkspaceID(ctx)
+	reservation, created, err := h.transcriptionJobs.ReserveExternalRequest(
+		ctx,
+		workspaceID,
+		externalReq.source,
+		externalReq.key,
+		externalReq.requestHash,
+		externalReq.eventHeader,
+	)
+	if err != nil {
+		if errors.Is(err, store.ErrExternalRequestMismatch) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reserve hOCR import: %w", err))
+	}
+	if !created {
+		if reservation.Status != store.ExternalRequestStatusCompleted || reservation.ItemImageID == 0 {
+			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("hOCR import already exists"))
+		}
+		run, loadErr := h.ocrRuns.GetByItemImageID(ctx, reservation.ItemImageID)
+		if loadErr != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload completed hOCR import"))
+		}
+		return connect.NewResponse(&scribev1.ProcessHOCRResponse{
+			ItemId:      reservation.ItemID,
+			ItemImageId: reservation.ItemImageID,
+			ImageUrl:    run.ImageURL,
+			Hocr:        run.OriginalHOCR,
+			PlainText:   run.OriginalText,
+			SessionId:   run.SessionID,
+		}), nil
+	}
+	externalReq.leaseOwner = reservation.LeaseOwner
+	failExternal := func(processingErr error) {
+		if processingErr == nil {
+			return
+		}
+		failureCtx, cancel := context.WithTimeout(h.backgroundContext(), 10*time.Second)
+		defer cancel()
+		if failErr := h.transcriptionJobs.FailExternalRequest(
+			failureCtx,
+			workspaceID,
+			externalReq.source,
+			externalReq.key,
+			externalReq.leaseOwner,
+			processingErr.Error(),
+		); failErr != nil {
+			slog.Warn("failed to release hOCR import reservation", "source", externalReq.source, "error_type", safeLogErrorType(failErr))
+		}
+	}
+	storageReservation, err := h.reserveStorageQuota(ctx, store.StorageQuotaRequest{Bytes: storageBytes, Items: 1, Images: 1})
+	if err != nil {
+		failExternal(err)
+		return nil, err
+	}
+	defer h.releaseStorageQuota(storageReservation)
+	if hasImageData {
+		storedURL, storeErr := h.ocr.StoreUploadedImage(withStorageQuotaReservation(ctx, storageReservation), filename, req.Msg.GetImageData())
+		if storeErr != nil {
+			h.queueUploadFromProcessingError(ctx, storeErr)
+			failExternal(storeErr)
+			if errors.Is(storeErr, store.ErrStorageQuotaExceeded) {
+				return nil, storageQuotaConnectError(storeErr)
+			}
+			return nil, connect.NewError(connect.CodeInternal, storeErr)
 		}
 		imageURL = storedURL
 	}
 
-	plainText, err := ocrhandlers.HOCRToPlainText(hocrXML)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid hocr"))
-	}
-
-	item, itemImage, err := h.createOCRItemAndImage(ctx, "hocr", imageURL, "", imageURL, store.Context{
+	importedContext := store.Context{
 		Name:                  "Imported hOCR",
 		SegmentationModel:     "imported",
 		TranscriptionProvider: "custom",
 		TranscriptionModel:    "custom",
+	}
+	committedIngest, err := h.commitSingleFileOCRIngest(ctx, singleFileOCRIngestRequest{
+		SourceType:      "hocr",
+		ImageURL:        imageURL,
+		SourceLabel:     sourceLabel,
+		StorageBytes:    storageBytes,
+		ResolvedContext: importedContext,
+		Provider:        "custom",
+		Model:           "custom",
+		HOCR:            hocrXML,
+		PlainText:       plainText,
+		ParsedHOCR:      &parsedHOCR,
+		Reservation:     storageReservation,
+		ExternalRequest: &store.SingleFileIngestExternalRequest{
+			Source:         externalReq.source,
+			IdempotencyKey: externalReq.key,
+			LeaseOwner:     externalReq.leaseOwner,
+		},
 	})
 	if err != nil {
+		h.queueUnreferencedUploads(ctx, h.currentWorkspaceID(ctx), []store.ItemImage{{ImageURL: imageURL, StorageBytes: storageBytes}})
+		failExternal(err)
+		if errors.Is(err, store.ErrStorageQuotaExceeded) {
+			return nil, storageQuotaConnectError(err)
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	item, itemImage := committedIngest.Item, committedIngest.Image
 	sessionID := item.ID
-	if err := h.ocrRuns.Create(ctx, store.OCRRun{
-		SessionID:    sessionID,
-		ItemImageID:  &itemImage.ID,
-		ImageURL:     imageURL,
-		Provider:     "custom",
-		Model:        "custom",
-		OriginalHOCR: hocrXML,
-		OriginalText: plainText,
-	}); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
 	return connect.NewResponse(&scribev1.ProcessHOCRResponse{
 		ItemId:      item.ID,
 		ItemImageId: itemImage.ID,
@@ -423,17 +488,30 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1
 	}), nil
 }
 
+// authorizeProcessHOCRImageURL prevents a caller from converting knowledge of
+// another tenant's private immutable upload name into a local ownership row.
+// Absolute public external image URLs retain their existing import behavior;
+// application-relative upload references are always rejected here.
+func (h *Handler) authorizeProcessHOCRImageURL(_ context.Context, imageURL string) error {
+	if _, localUpload := uploadref.NameFromURL(imageURL); localUpload {
+		return errProcessHOCRLocalUpload
+	}
+	parsed, err := url.Parse(strings.TrimSpace(imageURL))
+	if err != nil || safehttp.ValidatePublicURL(parsed) != nil {
+		return errProcessHOCRInvalidImage
+	}
+	return nil
+}
+
 func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[scribev1.GetOCRRunRequest]) (*connect.Response[scribev1.GetOCRRunResponse], error) {
 	itemImageID := req.Msg.GetItemImageId()
 	if itemImageID == 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_image_id is required"))
 	}
-	// Use the on-demand fallback: if no OCR run exists but the item_image
-	// has a hocr_url (from a manifest seeAlso), fetch and cache it now.
 	if _, authErr := h.itemImageForRequest(ctx, itemImageID); authErr != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
 	}
-	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
+	run, err := h.ocrRuns.GetByItemImageID(ctx, itemImageID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
@@ -446,200 +524,268 @@ func (h *Handler) GetOCRRun(ctx context.Context, req *connect.Request[scribev1.G
 		Model:               run.Model,
 		OriginalHocr:        run.OriginalHOCR,
 		OriginalText:        run.OriginalText,
-		EditCount:           int32FromIntBounded(run.EditCount),
 		LevenshteinDistance: int32FromIntBounded(run.LevenshteinDistance),
 	}
 	if run.ItemImageID != nil {
 		resp.ItemImageId = *run.ItemImageID
 	}
-	if run.CorrectedHOCR != nil {
-		resp.CorrectedHocr = *run.CorrectedHOCR
+	if run.ContextID != nil {
+		resp.ContextId = *run.ContextID
 	}
-	if run.CorrectedText != nil {
-		resp.CorrectedText = *run.CorrectedText
+	if run.CanonicalRevision != nil {
+		resp.CanonicalRevision = *run.CanonicalRevision
 	}
 	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) SaveOCREdits(ctx context.Context, req *connect.Request[scribev1.SaveOCREditsRequest]) (*connect.Response[scribev1.SaveOCREditsResponse], error) {
+func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[scribev1.ReprocessItemImageRequest]) (*connect.Response[scribev1.ReprocessItemImageResponse], error) {
 	itemImageID := req.Msg.GetItemImageId()
 	if itemImageID == 0 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_image_id is required"))
 	}
-	correctedHOCR := strings.TrimSpace(req.Msg.GetCorrectedHocr())
-	if correctedHOCR == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("corrected_hocr is required"))
+	expectedRevision := req.Msg.GetExpectedRevision()
+	if expectedRevision == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("expected_revision is required"))
 	}
-
-	run, err := h.ocrRunForRequest(ctx, "", itemImageID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+	requestedContextID := req.Msg.GetContextId()
+	if h.transcriptionJobs == nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reprocess request repository is not configured"))
 	}
-
-	correctedText, err := ocrhandlers.HOCRToPlainText(correctedHOCR)
-	if err != nil {
-		correctedText = hocrToPlainTextLenient(correctedHOCR)
-	}
-
-	lev := metrics.LevenshteinDistance(run.OriginalText, correctedText)
-	boxMetrics := calculateBoxEditMetrics(run.OriginalHOCR, correctedHOCR)
-	if err := h.ocrRuns.SaveEdits(
-		ctx,
-		run.SessionID,
-		correctedHOCR,
-		correctedText,
-		int(req.Msg.GetEditCount()),
-		lev,
-		boxMetrics.ChangedCount,
-		boxMetrics.AddedCount,
-		boxMetrics.DeletedCount,
-		boxMetrics.ChangeScore,
-	); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	return connect.NewResponse(&scribev1.SaveOCREditsResponse{
-		SessionId:           run.SessionID,
-		ItemImageId:         itemImageID,
-		EditCount:           req.Msg.GetEditCount(),
-		LevenshteinDistance: int32FromIntBounded(lev),
-		CorrectedPlainText:  correctedText,
-		OriginalPlainText:   run.OriginalText,
-	}), nil
-}
-
-func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[scribev1.ReprocessItemImageRequest]) (*connect.Response[scribev1.ReprocessItemImageResponse], error) {
-	if req.Msg.GetItemImageId() == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_image_id is required"))
-	}
-	run, err := h.ocrRunForRequest(ctx, "", req.Msg.GetItemImageId())
-	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("ocr run not found"))
-	}
-
-	img, err := h.itemImageForRequest(ctx, req.Msg.GetItemImageId())
+	img, err := h.itemImageForRequest(ctx, itemImageID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item image not found"))
 	}
-
-	contextIDValue := req.Msg.GetContextId()
-	if contextIDValue == 0 && run.ContextID != nil {
-		contextIDValue = *run.ContextID
-	}
-	resolvedCtx, err := h.resolveContext(ctx, contextIDValue, "")
+	basePage, err := h.currentAnnotationPage(ctx, itemImageID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	var contextID *uint64
-	if resolvedCtx.ID > 0 {
-		v := resolvedCtx.ID
-		contextID = &v
+		return nil, annotationConnectError(err)
 	}
 
-	pctx := processingContextFromStore(resolvedCtx, "")
-	callCtx := hocr.WithProviderCallMetadata(ctx, run.SessionID, &img.ID, contextID)
-
-	runAsync := true
-	if strings.TrimSpace(pctx.SegmentationModel) != "" {
-		pctx.SegmentOnly = true
-		runAsync = false
-	}
-
-	var (
-		result   *ocrhandlers.ProcessResult
-		provider string
-		model    string
+	workspaceID := h.currentWorkspaceID(ctx)
+	operationKey := fmt.Sprintf("%d:%d", itemImageID, expectedRevision)
+	requestHash := stableRequestHash(
+		strconv.FormatUint(itemImageID, 10),
+		strconv.FormatUint(expectedRevision, 10),
+		strconv.FormatUint(requestedContextID, 10),
 	)
-	if runAsync {
-		provider = pctx.TranscriptionProvider
-		model = pctx.TranscriptionModel
-		result, err = h.ocr.ProcessImageURLWithProviderAndModelContext(ctx, run.ImageURL, provider, model)
-	} else {
-		result, err = h.ocr.ProcessImageURLWithContext(callCtx, run.ImageURL, pctx)
-	}
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
-	}
-	if !runAsync {
-		provider = result.Provider
-		model = result.Model
-	}
-
-	itemImageID := req.Msg.GetItemImageId()
-	if err := h.ocrRuns.Create(ctx, store.OCRRun{
-		SessionID:    run.SessionID,
-		ItemImageID:  &itemImageID,
-		ContextID:    contextID,
-		ImageURL:     result.ImageURL,
-		Provider:     provider,
-		Model:        model,
-		OriginalHOCR: result.HOCR,
-		OriginalText: result.PlainText,
-	}); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+	if basePage.Revision != expectedRevision {
+		prior, lookupErr := h.transcriptionJobs.GetExternalRequest(ctx, workspaceID, "image-reprocess", operationKey)
+		if lookupErr == nil {
+			if prior.Status == store.ExternalRequestStatusCompleted {
+				if prior.RequestHash != requestHash {
+					return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("this annotation revision was reprocessed with different parameters"))
+				}
+				return h.replayedReprocessResponse(ctx, itemImageID, prior)
+			}
+		} else if !errors.Is(lookupErr, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("look up image reprocess: %w", lookupErr))
+		}
+		return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("canonical annotations changed; reload before reprocessing"))
 	}
 	canvasURI := strings.TrimSpace(img.CanvasURI)
-	if canvasURI == "" {
-		canvasURI = fmt.Sprintf("%s/v1/item-images/%d/manifest/canvas/page-1", h.internalAnnotationBaseURL(), itemImageID)
-		if err := h.items.UpdateImageCanvasURI(ctx, itemImageID, canvasURI); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist canvas uri: %w", err))
+	if canvasURI == "" || canvasURI != strings.TrimSpace(basePage.CanvasURI) {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("item image canonical canvas invariant is invalid"))
+	}
+	resolvedCtx, err := h.resolveContext(ctx, requestedContextID, "")
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("processing context not found"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve processing context: %w", err))
+	}
+	contextID := &resolvedCtx.ID
+
+	reservation, created, err := h.transcriptionJobs.ReserveExternalRequestForItemImage(
+		ctx,
+		workspaceID,
+		itemImageID,
+		"image-reprocess",
+		operationKey,
+		requestHash,
+		"",
+	)
+	if err != nil {
+		if errors.Is(err, store.ErrExternalRequestMismatch) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("this annotation revision is already being reprocessed with different parameters"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reserve image reprocess: %w", err))
+	}
+	if !created {
+		switch reservation.Status {
+		case store.ExternalRequestStatusCompleted:
+			return h.replayedReprocessResponse(ctx, itemImageID, reservation)
+		case store.ExternalRequestStatusInProgress:
+			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("this annotation revision is already being reprocessed"))
+		default:
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("this annotation revision exhausted its reprocess attempts"))
 		}
 	}
-	annotationScopeID := fmt.Sprintf("item-image-%d", itemImageID)
-	if run.ItemImageID != nil {
-		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
+	reservationCommitted := false
+	defer func() {
+		if reservationCommitted {
+			return
+		}
+		failureCtx, cancel := context.WithTimeout(h.backgroundContext(), 10*time.Second)
+		defer cancel()
+		if failErr := h.transcriptionJobs.FailExternalRequest(
+			failureCtx,
+			workspaceID,
+			"image-reprocess",
+			operationKey,
+			reservation.LeaseOwner,
+			"image reprocess did not commit",
+		); failErr != nil {
+			slog.Warn("failed to release image reprocess reservation", "item_image_id", itemImageID, "error_type", safeLogErrorType(failErr))
+		}
+	}()
+
+	pctx := processingContextFromStore(resolvedCtx)
+	pctx.SegmentOnly = true
+	callCtx := hocr.WithProviderCallMetadata(ctx, workspaceID, "", &img.ID, contextID)
+	releaseProcessing, err := h.acquireProcessingSlot(ctx, workspaceID, resolvedCtx)
+	if err != nil {
+		return nil, err
 	}
-	lines, err := hocr.ParseHOCRLines(result.HOCR)
+	result, err := func() (*ocrhandlers.ProcessResult, error) {
+		defer releaseProcessing()
+		return h.ocr.ProcessImageURLTransientWithContext(callCtx, img.ImageURL, pctx)
+	}()
+	if err != nil {
+		return nil, imageProcessingConnectError("reprocess item image", err)
+	}
+	provider := result.Provider
+	model := result.Model
+
+	annotationScopeID := fmt.Sprintf("item-image-%d", itemImageID)
+	parsedHOCR, err := parsedHOCRDocument(result.HOCR, result.ParsedHOCR)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("parse reprocessed hocr: %w", err))
 	}
-	annotationItems := buildLineAnnotations(annotationScopeID, canvasURI, lines)
-	if _, err := h.replaceAnnotationItems(ctx, canvasURI, annotationItems); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("replace annotations: %w", err))
+	annotationItems := buildLineAnnotations(annotationScopeID, canvasURI, parsedHOCR.Lines)
+	annotationItems = append(annotationItems, buildWordAnnotations(annotationScopeID, canvasURI, parsedHOCR.Words)...)
+	var pageDocument map[string]any
+	if err := iiif.DecodeJSON([]byte(basePage.Payload), &pageDocument); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("decode canonical annotation page: %w", err))
 	}
-	h.publishEvent("dev.scribe.annotations.created", subjectForItemImage(itemImageID), map[string]any{
-		"itemImageId":      itemImageID,
-		"canvasUri":        canvasURI,
-		"annotationCount":  len(annotationItems),
-		"annotationPageId": annotationPageID(canvasURI),
+	pageDocument["items"] = annotationItems
+	draftPage, err := json.Marshal(pageDocument)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("encode reprocessed annotation page: %w", err))
+	}
+	normalizedPage, err := iiif.NormalizeAnnotationPage(draftPage, iiif.PageIdentity{
+		PublicBaseURL: h.publicAnnotationBaseURL(),
+		ItemImageID:   itemImageID,
+		CanvasURI:     canvasURI,
 	})
-	if _, err := h.createTranscriptionJob(ctx, itemImageID, contextID); err != nil {
-		slog.Warn("Failed to enqueue transcription job after reprocess", "item_image_id", itemImageID, "error", err)
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("enqueue transcription job: %w", err))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("validate reprocessed annotation page: %w", err))
 	}
+	if err := iiif.ValidateAnnotationPageGeometry(normalizedPage, img.Width, img.Height); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("validate reprocessed annotation geometry: %w", err))
+	}
+	basePage.Payload = string(normalizedPage)
+	if userID := h.currentUserID(ctx); userID > 0 {
+		basePage.UpdatedByUserID = &userID
+	}
+	event := h.newCloudEvent("dev.scribe.annotations.reprocessed", subjectForItemImage(itemImageID), map[string]any{
+		"itemImageId":       itemImageID,
+		"canvasUri":         canvasURI,
+		"annotationCount":   len(annotationItems),
+		"annotationPageId":  basePage.PageID,
+		"canonicalRevision": basePage.Revision + 1,
+	})
+	eventBody, err := json.Marshal(event)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("encode reprocess event: %w", err))
+	}
+	commit, err := h.annotations.SavePageAndStartReprocessing(ctx, basePage, expectedRevision, store.AnnotationReprocessCommit{
+		OCRRun: store.OCRRun{
+			SessionID:    result.SessionID,
+			ItemImageID:  &itemImageID,
+			ContextID:    contextID,
+			ImageURL:     img.ImageURL,
+			Provider:     provider,
+			Model:        model,
+			OriginalHOCR: result.HOCR,
+			OriginalText: result.PlainText,
+		},
+		Context:     resolvedCtx,
+		EventID:     event.ID,
+		EventType:   event.Type,
+		Subject:     event.Subject,
+		BodyJSON:    string(eventBody),
+		WebhookURLs: h.webhookURLs,
+		ExternalRequest: &store.AnnotationReprocessExternalRequest{
+			Source:         "image-reprocess",
+			IdempotencyKey: operationKey,
+			LeaseOwner:     reservation.LeaseOwner,
+		},
+	})
+	if err != nil {
+		if errors.Is(err, store.ErrAnnotationRevisionConflict) {
+			return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("canonical annotations changed while reprocessing"))
+		}
+		return nil, transcriptionJobConnectError("commit reprocessed annotations", err)
+	}
+	reservationCommitted = true
+	h.publishTranscriptionJob(ctx, commit.TranscriptionJobID)
+	h.publishCloudEvent(event, false)
 
 	return connect.NewResponse(&scribev1.ReprocessItemImageResponse{
-		SessionId:   run.SessionID,
-		ItemImageId: req.Msg.GetItemImageId(),
-		ContextId:   contextIDValue,
-		ImageUrl:    result.ImageURL,
-		Hocr:        result.HOCR,
-		PlainText:   result.PlainText,
-		Provider:    provider,
-		Model:       model,
+		SessionId:          result.SessionID,
+		ItemImageId:        itemImageID,
+		ContextId:          resolvedCtx.ID,
+		ImageUrl:           img.ImageURL,
+		Hocr:               result.HOCR,
+		PlainText:          result.PlainText,
+		Provider:           provider,
+		Model:              model,
+		TranscriptionJobId: commit.TranscriptionJobID,
+		CanonicalRevision:  commit.Page.Revision,
+	}), nil
+}
+
+func (h *Handler) replayedReprocessResponse(
+	ctx context.Context,
+	itemImageID uint64,
+	request store.ExternalRequest,
+) (*connect.Response[scribev1.ReprocessItemImageResponse], error) {
+	if request.ItemImageID != itemImageID || request.TranscriptionJobID == 0 || strings.TrimSpace(request.SessionID) == "" {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("completed image reprocess result is incomplete"))
+	}
+	run, err := h.ocrRuns.Get(ctx, request.SessionID)
+	if err != nil || run.ItemImageID == nil || *run.ItemImageID != itemImageID {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("completed image reprocess OCR baseline is unavailable"))
+	}
+	job, err := h.transcriptionJobs.Get(ctx, request.TranscriptionJobID)
+	if err != nil || job.ItemImageID != itemImageID || job.InputRevision == 0 {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("completed image reprocess job is unavailable"))
+	}
+	contextID := uint64(0)
+	if run.ContextID != nil {
+		contextID = *run.ContextID
+	}
+	return connect.NewResponse(&scribev1.ReprocessItemImageResponse{
+		SessionId:          run.SessionID,
+		ItemImageId:        itemImageID,
+		ContextId:          contextID,
+		ImageUrl:           run.ImageURL,
+		Hocr:               run.OriginalHOCR,
+		PlainText:          run.OriginalText,
+		Provider:           run.Provider,
+		Model:              run.Model,
+		TranscriptionJobId: job.ID,
+		CanonicalRevision:  job.InputRevision,
 	}), nil
 }
 
 func contextProviderLabel(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "gemini":
-		return "Google Gemini"
-	case "openai":
-		return "OpenAI"
-	case "ollama":
-		return "Ollama"
-	case "kraken":
-		return "Kraken"
-	case "tesseract":
-		return "Tesseract"
-	default:
-		if provider = strings.TrimSpace(provider); provider != "" {
-			return provider
-		}
-		return "OCR"
+	if descriptor, err := providerregistry.New(config.Get().Config).ResolveProvider(provider); err == nil {
+		return descriptor.Label
 	}
+	if provider = strings.TrimSpace(provider); provider != "" {
+		return provider
+	}
+	return "OCR"
 }
 
 func itemSourceLabel(sourceLabel, imageURL string) string {
@@ -674,27 +820,123 @@ func itemContextLabel(resolvedCtx store.Context) string {
 	return fmt.Sprintf("%s (%s, %s)", provider, segmentation, model)
 }
 
-func (h *Handler) createOCRItemAndImage(ctx context.Context, sourceType, imageURL, sourceURL, sourceLabel string, resolvedCtx store.Context) (store.Item, store.ItemImage, error) {
-	itemID := fmt.Sprintf("item_%d", time.Now().UnixNano())
-	itemName := fmt.Sprintf("%s %s", itemSourceLabel(sourceLabel, imageURL), itemContextLabel(resolvedCtx))
-	item, err := h.items.Create(ctx, db.CreateItemParams{
-		ID:          itemID,
-		UserID:      h.currentUserID(ctx),
-		WorkspaceID: h.currentWorkspaceID(ctx),
-		Name:        itemName,
-		SourceType:  sourceType,
-		SourceURL:   sourceURL,
+type singleFileOCRIngestRequest struct {
+	SourceType           string
+	ImageURL             string
+	SourceURL            string
+	SourceLabel          string
+	StorageBytes         uint64
+	ResolvedContext      store.Context
+	ContextID            *uint64
+	Provider             string
+	Model                string
+	HOCR                 string
+	PlainText            string
+	ParsedHOCR           *hocr.Document
+	EnqueueTranscription bool
+	Reservation          store.StorageQuotaReservation
+	ExternalRequest      *store.SingleFileIngestExternalRequest
+}
+
+func (h *Handler) commitSingleFileOCRIngest(ctx context.Context, request singleFileOCRIngestRequest) (store.SingleFileIngestResult, error) {
+	parsedHOCR, err := parsedHOCRDocument(request.HOCR, request.ParsedHOCR)
+	if err != nil {
+		return store.SingleFileIngestResult{}, fmt.Errorf("parse hOCR: %w", err)
+	}
+	lines, words := parsedHOCR.Lines, parsedHOCR.Words
+	pageWidth, pageHeight := parsedHOCR.PageWidth, parsedHOCR.PageHeight
+	if pageWidth <= 0 || pageHeight <= 0 || pageWidth > math.MaxInt32 || pageHeight > math.MaxInt32 {
+		return store.SingleFileIngestResult{}, fmt.Errorf("hOCR page dimensions are required and must be within processing limits")
+	}
+	imageWidth := uint32(pageWidth)
+	imageHeight := uint32(pageHeight)
+	workspaceID := h.currentWorkspaceID(ctx)
+	userID := h.currentUserID(ctx)
+	itemID := "item_" + uuid.NewString()
+	itemName := fmt.Sprintf("%s %s", itemSourceLabel(request.SourceLabel, request.ImageURL), itemContextLabel(request.ResolvedContext))
+	var transcriptionContext *store.Context
+	if request.EnqueueTranscription {
+		processingContext := request.ResolvedContext
+		transcriptionContext = &processingContext
+	}
+	result, err := h.annotations.CommitSingleFileIngest(ctx, store.SingleFileIngestCommit{
+		Item: db.CreateItemParams{
+			ID:          itemID,
+			UserID:      userID,
+			WorkspaceID: workspaceID,
+			Name:        itemName,
+			SourceType:  request.SourceType,
+			SourceURL:   request.SourceURL,
+		},
+		Image: db.CreateItemImageParams{
+			ItemID:       itemID,
+			Sequence:     0,
+			ImageURL:     request.ImageURL,
+			StorageBytes: request.StorageBytes,
+			Width:        imageWidth,
+			Height:       imageHeight,
+		},
+		OCRRun: store.OCRRun{
+			SessionID:    itemID,
+			ContextID:    request.ContextID,
+			ImageURL:     request.ImageURL,
+			Provider:     request.Provider,
+			Model:        request.Model,
+			OriginalHOCR: request.HOCR,
+			OriginalText: request.PlainText,
+		},
+		PublicBaseURL:        h.publicAnnotationBaseURL(),
+		TranscriptionContext: transcriptionContext,
+		Reservation:          request.Reservation,
+		Limits:               configuredStorageQuotaLimits(),
+		ExternalRequest:      request.ExternalRequest,
+		BuildPage: func(itemImageID uint64, canvasURI string) (store.AnnotationPage, error) {
+			annotationScopeID := fmt.Sprintf("item-image-%d", itemImageID)
+			items := buildLineAnnotations(annotationScopeID, canvasURI, lines)
+			items = append(items, buildWordAnnotations(annotationScopeID, canvasURI, words)...)
+			payload, pageErr := iiif.NewAnnotationPage(iiif.PageIdentity{
+				PublicBaseURL: h.publicAnnotationBaseURL(),
+				ItemImageID:   itemImageID,
+				CanvasURI:     canvasURI,
+			}, items)
+			if pageErr != nil {
+				return store.AnnotationPage{}, pageErr
+			}
+			if pageErr := iiif.ValidateAnnotationPageGeometry(payload, imageWidth, imageHeight); pageErr != nil {
+				return store.AnnotationPage{}, pageErr
+			}
+			pageID, pageErr := iiif.CanonicalPageID(h.publicAnnotationBaseURL(), itemImageID)
+			if pageErr != nil {
+				return store.AnnotationPage{}, pageErr
+			}
+			return store.AnnotationPage{
+				WorkspaceID:     workspaceID,
+				ItemImageID:     itemImageID,
+				PageID:          pageID,
+				CanvasURI:       canvasURI,
+				Payload:         string(payload),
+				UpdatedByUserID: &userID,
+			}, nil
+		},
 	})
 	if err != nil {
-		return store.Item{}, store.ItemImage{}, fmt.Errorf("create item: %w", err)
+		return store.SingleFileIngestResult{}, err
 	}
-	itemImage, err := h.items.AddImage(ctx, db.CreateItemImageParams{
-		ItemID:   item.ID,
-		Sequence: 0,
-		ImageURL: imageURL,
+	h.publishEvent("dev.scribe.annotations.created", subjectForItemImage(result.Image.ID), map[string]any{
+		"itemImageId":      result.Image.ID,
+		"canvasUri":        result.Page.CanvasURI,
+		"annotationCount":  len(lines) + len(words),
+		"annotationPageId": result.Page.PageID,
 	})
-	if err != nil {
-		return store.Item{}, store.ItemImage{}, fmt.Errorf("add item image: %w", err)
+	if result.TranscriptionJobID != 0 {
+		h.publishTranscriptionJob(ctx, result.TranscriptionJobID)
 	}
-	return item, itemImage, nil
+	return result, nil
+}
+
+func parsedHOCRDocument(raw string, parsed *hocr.Document) (hocr.Document, error) {
+	if parsed != nil {
+		return *parsed, nil
+	}
+	return hocr.ParseDocument(raw)
 }

@@ -1,203 +1,199 @@
 package segmentor
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"mime/multipart"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/htr/pkg/auth/gcpidtoken"
+	"github.com/lehigh-university-libraries/htr/pkg/httpclient"
+	"github.com/lehigh-university-libraries/htr/pkg/providers"
+	"github.com/lehigh-university-libraries/htr/pkg/remoteocr"
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
+	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
-	"github.com/lehigh-university-libraries/scribe/internal/serviceauth"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadlimits"
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
 
-// tripletIIIFBase is the in-cluster URL of the Triplet IIIF server. The
-// segmentor cannot decode TIFF/JP2 directly, so we route those formats through
-// Triplet to get a normalized JPEG.
-const tripletIIIFBase = "http://triplet:8080/iiif/3"
+const maxSegmentorResponseBytes int64 = 16 << 20
 
+// InferenceRequestTimeout is the end-to-end deadline shared by Scribe callers
+// and deployment readiness. The segmentor server keeps a small write margin
+// above this deadline so client cancellation, not the HTTP writer, owns the
+// inference budget.
+const InferenceRequestTimeout = 120 * time.Second
+
+var segmentorIdentityTokens, segmentorIdentityTokensErr = gcpidtoken.New(gcpidtoken.Options{})
+
+// Client prepares Scribe-owned image bytes and delegates the remote protocol
+// to HTR's generic OCR client.
 type Client struct {
-	http *http.Client
-	auth *serviceauth.CloudRunTokenSource
-	base string
-	aud  string
+	remote *remoteocr.Client
+	images tripletImageClient
 }
 
-type detectResponse struct {
-	Provider string                  `json:"provider"`
-	Words    []worddetection.WordBox `json:"words"`
+type tripletImageClient interface {
+	Enabled() bool
+	FullJPEG(context.Context, string) ([]byte, error)
+	Normalize(context.Context, []byte, string) ([]byte, error)
 }
 
-type transcribeResponse struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	Text     string `json:"text"`
-}
-
-func NewClient() *Client {
-	cfg := config.Get().Config.Segmentation
-	return newClient(cfg.URL, cfg.Audience)
-}
-
-func NewSegmentationModelClient(model string) *Client {
-	cfg := config.Get().Config.Segmentation
-	baseURL, audience := cfg.ResolveForModel(model)
+// NewClientForEndpoint constructs a segmentor client from an endpoint already
+// resolved by the trusted provider registry. Request data must never be passed
+// as either argument.
+func NewClientForEndpoint(baseURL, audience string) (*Client, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
-		baseURL = strings.TrimSpace(cfg.URL)
+		return nil, fmt.Errorf("segmentation endpoint is not configured")
 	}
-	if audience == "" {
-		audience = strings.TrimSpace(cfg.Audience)
+	authenticator, err := segmentorAuthenticator(baseURL, audience)
+	if err != nil {
+		return nil, err
 	}
-	return newClient(baseURL, audience)
-}
-
-func NewKrakenClient(model, overrideBaseURL, overrideAudience string) *Client {
-	cfg := config.Get().Config
-	baseURL := strings.TrimSpace(overrideBaseURL)
-	audience := strings.TrimSpace(overrideAudience)
-	if baseURL == "" {
-		baseURL, audience = cfg.LLM.Kraken.ResolveForModel(model)
-	}
-	if baseURL == "" {
-		baseURL = strings.TrimSpace(cfg.LLM.Kraken.URL)
-	}
-	if baseURL == "" {
-		baseURL, audience = cfg.Segmentation.ResolveForModel(model)
-	}
-	if audience == "" {
-		audience = strings.TrimSpace(cfg.LLM.Kraken.Audience)
-	}
-	if audience == "" {
-		audience = strings.TrimSpace(cfg.Segmentation.Audience)
-	}
-	return newClient(baseURL, audience)
-}
-
-func newClient(baseURL, audience string) *Client {
-	httpClient := &http.Client{Timeout: 120 * time.Second}
-	return &Client{
-		http: httpClient,
-		auth: serviceauth.NewCloudRunTokenSource(httpClient),
-		base: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		aud:  strings.TrimSpace(audience),
-	}
-}
-
-func (c *Client) Enabled() bool {
-	return c != nil && c.base != ""
-}
-
-func (c *Client) DetectWords(ctx context.Context, imagePath, model string) ([]worddetection.WordBox, string, error) {
-	body, contentType, err := c.newMultipartBody(imagePath, map[string]string{
-		"model": strings.TrimSpace(model),
+	remote, err := remoteocr.NewClient(remoteocr.Options{
+		Endpoint:         baseURL,
+		Authenticator:    authenticator,
+		Timeout:          InferenceRequestTimeout,
+		MaxImageBytes:    uploadlimits.MaxImageBytes,
+		MaxRequestBytes:  uploadlimits.MaxMultipartBodyBytes,
+		MaxResponseBytes: maxSegmentorResponseBytes,
+		MaxBoxes:         iiif.MaxAnnotationsPerPage / 2,
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	respBody, err := c.post(ctx, "/v1/segment", body, contentType)
-	if err != nil {
-		return nil, "", err
-	}
-	var parsed detectResponse
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return nil, "", fmt.Errorf("parse segmentor response: %w", err)
-	}
-	return parsed.Words, strings.TrimSpace(parsed.Provider), nil
+	return &Client{remote: remote, images: imageservice.New()}, nil
 }
 
-func (c *Client) Transcribe(ctx context.Context, imagePath, model string) (string, string, error) {
-	body, contentType, err := c.newMultipartBody(imagePath, map[string]string{
-		"model": strings.TrimSpace(model),
-	})
-	if err != nil {
-		return "", "", err
-	}
-	respBody, err := c.post(ctx, "/v1/transcribe", body, contentType)
-	if err != nil {
-		return "", "", err
-	}
-	var parsed transcribeResponse
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return "", "", fmt.Errorf("parse segmentor transcription response: %w", err)
-	}
-	return strings.TrimSpace(parsed.Text), strings.TrimSpace(parsed.Model), nil
-}
+// Enabled reports whether the HTR remote client is ready.
+func (c *Client) Enabled() bool { return c != nil && c.remote != nil }
 
-func (c *Client) newMultipartBody(imagePath string, fields map[string]string) (*bytes.Buffer, string, error) {
+// Name implements providers.Client for registered remote transcription models.
+func (c *Client) Name() string { return "remoteocr" }
+
+// Extract implements providers.Client by delegating to HTR's generic remote
+// transcription operation. Scribe's provider registry binds the approved
+// model before exposing this client to the processing pipeline.
+func (c *Client) Extract(ctx context.Context, request providers.Request) (providers.Result, error) {
 	if !c.Enabled() {
-		return nil, "", fmt.Errorf("segmentor service is not configured")
+		return providers.Result{}, providers.NewError(providers.ErrorInvalidRequest, 0, false, nil)
 	}
-
-	uploadName := filepath.Base(imagePath)
-	var imageData []byte
-	var err error
-	if needsTripletNormalize(imagePath) {
-		imageData, err = c.fetchTripletJPEG(filepath.Base(imagePath))
-		if err != nil {
-			return nil, "", fmt.Errorf("normalize image %s via triplet: %w", imagePath, err)
-		}
-		uploadName = strings.TrimSuffix(uploadName, filepath.Ext(uploadName)) + ".jpg"
-	} else {
-		imageData, err = safefile.ReadFile(imagePath)
-		if err != nil {
-			return nil, "", fmt.Errorf("read image %s: %w", imagePath, err)
-		}
-	}
-
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-	for key, value := range fields {
-		if strings.TrimSpace(value) == "" {
-			continue
-		}
-		if err := writer.WriteField(key, value); err != nil {
-			return nil, "", err
-		}
-	}
-	part, err := writer.CreateFormFile("image", uploadName)
+	image, err := c.prepareProviderImage(ctx, request.Image)
 	if err != nil {
-		return nil, "", err
+		return providers.Result{}, err
 	}
-	if _, err := part.Write(imageData); err != nil {
-		return nil, "", err
+	result, err := c.remote.Transcribe(ctx, image, request.Model)
+	if err != nil {
+		return providers.Result{}, err
 	}
-	if err := writer.Close(); err != nil {
-		return nil, "", err
-	}
-	return &buf, writer.FormDataContentType(), nil
+	return providers.Result{
+		Text:           result.Text,
+		EffectiveModel: result.EffectiveModel,
+	}, nil
 }
 
-func (c *Client) post(ctx context.Context, path string, body *bytes.Buffer, contentType string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, body)
+func (c *Client) prepareProviderImage(ctx context.Context, image providers.Image) (providers.Image, error) {
+	if !needsTripletNormalize(image.Filename) {
+		return image, nil
+	}
+	if c.images == nil || !c.images.Enabled() {
+		return providers.Image{}, providers.NewError(providers.ErrorInvalidRequest, 0, false, nil)
+	}
+	data, err := c.images.Normalize(ctx, image.Data, image.MediaType)
 	if err != nil {
-		return nil, err
+		return providers.Image{}, providers.ErrorForRequest(ctx, err)
 	}
-	req.Header.Set("Content-Type", contentType)
-	if err := c.authorize(ctx, req); err != nil {
-		return nil, err
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	return providers.Image{Data: data, MediaType: "image/jpeg", Filename: "image.jpg"}, nil
+}
 
-	respBody, err := io.ReadAll(resp.Body)
+// DetectWords sends prepared image bytes to HTR's segmentation operation.
+func (c *Client) DetectWords(ctx context.Context, imagePath, model string) ([]worddetection.WordBox, string, error) {
+	image, err := c.prepareImage(ctx, imagePath)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("segmentor %s status %d: %s", path, resp.StatusCode, string(respBody))
+	result, err := c.remote.Segment(ctx, image, strings.TrimSpace(model))
+	if err != nil {
+		return nil, "", err
 	}
-	return respBody, nil
+	words := make([]worddetection.WordBox, len(result.Words))
+	for index, box := range result.Words {
+		words[index] = worddetection.WordBox{
+			X: box.X, Y: box.Y, Width: box.Width, Height: box.Height,
+			Text: box.Text, Confidence: box.Confidence,
+		}
+	}
+	return words, result.Provider, nil
+}
+
+// Transcribe sends prepared image bytes to HTR's transcription operation.
+func (c *Client) Transcribe(ctx context.Context, imagePath, model string) (string, string, error) {
+	image, err := c.prepareImage(ctx, imagePath)
+	if err != nil {
+		return "", "", err
+	}
+	result, err := c.remote.Transcribe(ctx, image, strings.TrimSpace(model))
+	if err != nil {
+		return "", "", err
+	}
+	return strings.TrimSpace(result.Text), result.EffectiveModel, nil
+}
+
+func segmentorAuthenticator(endpointRaw, audienceRaw string) (httpclient.Authenticator, error) {
+	audienceRaw = strings.TrimSpace(audienceRaw)
+	if audienceRaw == "" {
+		return httpclient.NoAuth{}, nil
+	}
+	endpoint, endpointErr := httpclient.ParseEndpoint(endpointRaw)
+	audience, audienceErr := httpclient.ParseEndpoint(audienceRaw)
+	if endpointErr != nil || audienceErr != nil || !strings.EqualFold(endpoint.Scheme, "https") ||
+		!strings.EqualFold(endpoint.Scheme, audience.Scheme) || !strings.EqualFold(endpoint.Host, audience.Host) ||
+		(audience.Path != "" && audience.Path != "/") {
+		return nil, providers.NewError(providers.ErrorInvalidRequest, 0, false, nil)
+	}
+	if segmentorIdentityTokensErr != nil {
+		return nil, providers.NewError(providers.ErrorAuthentication, 0, false, nil)
+	}
+	return httpclient.BearerAuthenticator{Source: segmentorIdentityTokens, Audience: strings.TrimRight(audience.String(), "/")}, nil
+}
+
+func (c *Client) prepareImage(ctx context.Context, imagePath string) (providers.Image, error) {
+	if !c.Enabled() {
+		return providers.Image{}, providers.NewError(providers.ErrorInvalidRequest, 0, false, nil)
+	}
+	if needsTripletNormalize(imagePath) {
+		data, err := c.fetchTripletJPEG(ctx, imagePath)
+		if err != nil {
+			return providers.Image{}, err
+		}
+		return providers.Image{Data: data, MediaType: "image/jpeg"}, nil
+	}
+	data, err := safefile.ReadFileLimit(imagePath, uploadlimits.MaxImageBytes)
+	if err != nil {
+		return providers.Image{}, err
+	}
+	return providers.Image{Data: data, MediaType: imageMediaType(imagePath, data)}, nil
+}
+
+func imageMediaType(imagePath string, data []byte) string {
+	detected := http.DetectContentType(data)
+	if strings.HasPrefix(detected, "image/") {
+		return detected
+	}
+	switch strings.ToLower(filepath.Ext(imagePath)) {
+	case ".jp2", ".j2k", ".jpx":
+		return "image/jp2"
+	case ".tif", ".tiff":
+		return "image/tiff"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
 }
 
 func needsTripletNormalize(imagePath string) bool {
@@ -208,27 +204,9 @@ func needsTripletNormalize(imagePath string) bool {
 	return false
 }
 
-func (c *Client) fetchTripletJPEG(identifier string) ([]byte, error) {
-	u := tripletIIIFBase + "/" + url.PathEscape(identifier) + "/full/max/0/default.jpg"
-	resp, err := c.http.Get(u)
-	if err != nil {
-		return nil, err
+func (c *Client) fetchTripletJPEG(ctx context.Context, imagePath string) ([]byte, error) {
+	if c == nil || c.images == nil || !c.images.Enabled() {
+		return nil, fmt.Errorf("triplet image client is not configured")
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("triplet %s status %d: %s", u, resp.StatusCode, string(body))
-	}
-	return io.ReadAll(resp.Body)
-}
-
-func (c *Client) authorize(ctx context.Context, req *http.Request) error {
-	header, err := c.auth.AuthorizationHeader(ctx, c.aud)
-	if err != nil {
-		return err
-	}
-	if header != "" {
-		req.Header.Set("Authorization", header)
-	}
-	return nil
+	return c.images.FullJPEG(ctx, imagePath)
 }

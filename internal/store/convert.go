@@ -13,6 +13,20 @@ func int32FromInt(value int) (int32, error) {
 	return int32(value), nil
 }
 
+func attemptNumberFromInt(value int) (uint32, error) {
+	if value <= 0 || value > math.MaxInt32 {
+		return 0, fmt.Errorf("attempt number %d is outside the database range", value)
+	}
+	return uint32(value), nil
+}
+
+func int32FromUint32(value uint32) (int32, error) {
+	if value > math.MaxInt32 {
+		return 0, fmt.Errorf("uint32 value %d exceeds int32 range", value)
+	}
+	return int32(value), nil
+}
+
 func uint64FromNonNegativeInt64(value int64) (uint64, bool) {
 	if value < 0 {
 		return 0, false

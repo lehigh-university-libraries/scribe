@@ -3,12 +3,29 @@ package hocr
 import (
 	"encoding/xml"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
+)
+
+const (
+	maxHOCRBytes                = 10 << 20
+	maxHOCRDepth                = 128
+	maxHOCRElements             = iiif.MaxAnnotationsPerPage * 8
+	maxHOCRAttributesPerElement = 64
+	maxHOCRAttributeBytes       = 64 << 10
+	maxHOCRWordTextBytes        = 4 << 10
+)
+
+var (
+	bboxPattern       = regexp.MustCompile(`bbox\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)`)
+	confidencePattern = regexp.MustCompile(`x_wconf\s+(\d+(?:\.\d+)?)`)
+	cutsPattern       = regexp.MustCompile(`cuts\s+([0-9,\s]+)`)
 )
 
 type XMLElement struct {
@@ -23,47 +40,254 @@ type WordWithGlyphs struct {
 	Glyphs []models.HOCRGlyph `json:"glyphs"`
 }
 
-func ParseHOCRLines(hocrXML string) ([]models.HOCRLine, error) {
-	var doc XMLElement
+// Document is the bounded, reusable hOCR projection needed by ingest and
+// processing use cases. Callers that need lines, words, text, and page bounds
+// should parse once and carry this value through the transaction.
+type Document struct {
+	Lines      []models.HOCRLine
+	Words      []models.HOCRWord
+	PageWidth  int
+	PageHeight int
+}
 
-	decoder := xml.NewDecoder(strings.NewReader(hocrXML))
-	if err := decoder.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("failed to parse XML: %w", err)
+func ParseDocument(hocrXML string) (Document, error) {
+	root, err := decodeBoundedHOCR(hocrXML)
+	if err != nil {
+		return Document{}, err
+	}
+	var lines []models.HOCRLine
+	traverseLinesElements(root, &lines)
+	if err := validateParsedLines(lines); err != nil {
+		return Document{}, err
+	}
+	var words []models.HOCRWord
+	traverseElementsWithLineContext(root, &words, "")
+	if err := validateParsedWords(words); err != nil {
+		return Document{}, err
+	}
+	width, height := findPageDimensions(root)
+	return Document{Lines: lines, Words: words, PageWidth: width, PageHeight: height}, nil
+}
+
+func PlainText(lines []models.HOCRLine) string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		words := make([]string, 0, len(line.Words))
+		for _, word := range line.Words {
+			if text := strings.TrimSpace(word.Text); text != "" {
+				words = append(words, text)
+			}
+		}
+		if len(words) > 0 {
+			out = append(out, strings.Join(words, " "))
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func ParseHOCRLines(hocrXML string) ([]models.HOCRLine, error) {
+	doc, err := decodeBoundedHOCR(hocrXML)
+	if err != nil {
+		return nil, err
 	}
 
 	var lines []models.HOCRLine
 
 	traverseLinesElements(doc, &lines)
+	if err := validateParsedLines(lines); err != nil {
+		return nil, err
+	}
 
 	return lines, nil
 }
 
-func ParseHOCRWords(hocrXML string) ([]models.HOCRWord, error) {
-	var doc XMLElement
+func validateParsedLines(lines []models.HOCRLine) error {
+	totalWords := 0
+	for _, line := range lines {
+		if len(line.Words) > iiif.MaxAnnotationsPerPage-totalWords {
+			return fmt.Errorf("hOCR contains more than %d words", iiif.MaxAnnotationsPerPage)
+		}
+		totalWords += len(line.Words)
+	}
+	if len(lines) > iiif.MaxAnnotationsPerPage {
+		return fmt.Errorf("hOCR contains more than %d lines", iiif.MaxAnnotationsPerPage)
+	}
+	return nil
+}
 
-	decoder := xml.NewDecoder(strings.NewReader(hocrXML))
-	if err := decoder.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("failed to parse XML: %w", err)
+func ParseHOCRWords(hocrXML string) ([]models.HOCRWord, error) {
+	doc, err := decodeBoundedHOCR(hocrXML)
+	if err != nil {
+		return nil, err
 	}
 
 	var words []models.HOCRWord
 
 	traverseElementsWithLineContext(doc, &words, "")
+	if err := validateParsedWords(words); err != nil {
+		return nil, err
+	}
 
 	return words, nil
 }
 
-func ParseHOCRWordGlyphs(hocrXML string) ([]WordWithGlyphs, error) {
-	var doc XMLElement
+func validateParsedWords(words []models.HOCRWord) error {
+	if len(words) > iiif.MaxAnnotationsPerPage {
+		return fmt.Errorf("hOCR contains more than %d words", iiif.MaxAnnotationsPerPage)
+	}
+	return nil
+}
 
-	decoder := xml.NewDecoder(strings.NewReader(hocrXML))
-	if err := decoder.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("failed to parse XML: %w", err)
+func findPageDimensions(element XMLElement) (int, int) {
+	if hasClass(element, "ocr_page") {
+		for _, attribute := range element.Attrs {
+			if attribute.Name.Local != "title" {
+				continue
+			}
+			matches := bboxPattern.FindStringSubmatch(attribute.Value)
+			if len(matches) != 5 {
+				break
+			}
+			x2, xErr := strconv.Atoi(matches[3])
+			y2, yErr := strconv.Atoi(matches[4])
+			if xErr == nil && yErr == nil && x2 > 0 && y2 > 0 {
+				return x2, y2
+			}
+			break
+		}
+	}
+	for _, child := range element.Children {
+		if width, height := findPageDimensions(child); width > 0 && height > 0 {
+			return width, height
+		}
+	}
+	return 0, 0
+}
+
+func ParseHOCRWordGlyphs(hocrXML string) ([]WordWithGlyphs, error) {
+	doc, err := decodeBoundedHOCR(hocrXML)
+	if err != nil {
+		return nil, err
 	}
 
 	var words []WordWithGlyphs
-	traverseWordGlyphElements(doc, &words, "")
+	totalGlyphs := 0
+	if err := traverseWordGlyphElements(doc, &words, "", &totalGlyphs); err != nil {
+		return nil, err
+	}
 	return words, nil
+}
+
+type hocrElementFrame struct {
+	element     *XMLElement
+	captureText bool
+	isLine      bool
+	content     strings.Builder
+}
+
+// decodeBoundedHOCR enforces the input envelope at the parser boundary. This
+// covers imported and provider-produced hOCR as well as validated RPC input,
+// and avoids handing an unrestricted recursive tree to encoding/xml.
+func decodeBoundedHOCR(hocrXML string) (XMLElement, error) {
+	if len(hocrXML) > maxHOCRBytes {
+		return XMLElement{}, fmt.Errorf("hOCR exceeds %d bytes", maxHOCRBytes)
+	}
+	decoder := xml.NewDecoder(strings.NewReader(hocrXML))
+	decoder.Strict = true
+	var root XMLElement
+	frames := make([]hocrElementFrame, 0, 16)
+	elementCount := 0
+	haveRoot := false
+	rootComplete := false
+
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			if len(frames) != 0 {
+				return XMLElement{}, fmt.Errorf("failed to parse XML: unexpected end of input")
+			}
+			return root, nil
+		}
+		if err != nil {
+			return XMLElement{}, fmt.Errorf("failed to parse XML: %w", err)
+		}
+		switch value := token.(type) {
+		case xml.StartElement:
+			if rootComplete || len(frames)+1 > maxHOCRDepth {
+				return XMLElement{}, fmt.Errorf("hOCR XML exceeds structural limits")
+			}
+			elementCount++
+			if elementCount > maxHOCRElements || len(value.Attr) > maxHOCRAttributesPerElement {
+				return XMLElement{}, fmt.Errorf("hOCR XML exceeds structural limits")
+			}
+			attributeBytes := 0
+			for _, attribute := range value.Attr {
+				attributeBytes += len(attribute.Name.Space) + len(attribute.Name.Local) + len(attribute.Value)
+			}
+			if attributeBytes > maxHOCRAttributeBytes {
+				return XMLElement{}, fmt.Errorf("hOCR XML exceeds attribute limits")
+			}
+			element := XMLElement{XMLName: value.Name, Attrs: append([]xml.Attr(nil), value.Attr...)}
+			var elementPointer *XMLElement
+			if len(frames) == 0 {
+				if haveRoot {
+					return XMLElement{}, fmt.Errorf("failed to parse XML: multiple root elements")
+				}
+				root = element
+				elementPointer = &root
+				haveRoot = true
+			} else {
+				parent := frames[len(frames)-1].element
+				parent.Children = append(parent.Children, element)
+				elementPointer = &parent.Children[len(parent.Children)-1]
+			}
+			captureText := hasClass(*elementPointer, "ocrx_word")
+			lineElement := hasClass(*elementPointer, "ocr_line")
+			if captureText {
+				for index := range frames {
+					if frames[index].captureText {
+						return XMLElement{}, fmt.Errorf("hOCR contains nested word elements")
+					}
+				}
+			}
+			if lineElement {
+				for index := range frames {
+					if frames[index].isLine {
+						return XMLElement{}, fmt.Errorf("hOCR contains nested line elements")
+					}
+				}
+			}
+			frames = append(frames, hocrElementFrame{element: elementPointer, captureText: captureText, isLine: lineElement})
+		case xml.CharData:
+			if len(frames) == 0 {
+				if strings.TrimSpace(string(value)) != "" {
+					return XMLElement{}, fmt.Errorf("failed to parse XML: text outside root element")
+				}
+				continue
+			}
+			for index := range frames {
+				if !frames[index].captureText {
+					continue
+				}
+				if frames[index].content.Len()+len(value) > maxHOCRWordTextBytes {
+					return XMLElement{}, fmt.Errorf("hOCR word text exceeds %d bytes", maxHOCRWordTextBytes)
+				}
+				_, _ = frames[index].content.Write(value)
+			}
+		case xml.EndElement:
+			if len(frames) == 0 {
+				return XMLElement{}, fmt.Errorf("failed to parse XML: unexpected closing element")
+			}
+			frame := &frames[len(frames)-1]
+			if frame.captureText {
+				frame.element.Content = frame.content.String()
+			}
+			frames = frames[:len(frames)-1]
+			if len(frames) == 0 {
+				rootComplete = true
+			}
+		}
+	}
 }
 
 func traverseLinesElements(element XMLElement, lines *[]models.HOCRLine) {
@@ -105,7 +329,7 @@ func traverseElementsWithLineContext(element XMLElement, words *[]models.HOCRWor
 	}
 }
 
-func traverseWordGlyphElements(element XMLElement, words *[]WordWithGlyphs, currentLineID string) {
+func traverseWordGlyphElements(element XMLElement, words *[]WordWithGlyphs, currentLineID string, totalGlyphs *int) error {
 	if isLineElement(element) {
 		for _, attr := range element.Attrs {
 			if attr.Name.Local == "id" {
@@ -119,31 +343,44 @@ func traverseWordGlyphElements(element XMLElement, words *[]WordWithGlyphs, curr
 		word, title, err := parseWordElementWithTitle(element)
 		if err == nil && word.ID != "" && isValidWordText(word.Text) {
 			word.LineID = currentLineID
+			glyphs := glyphsFromWord(word, title)
+			usedAnnotations := len(*words) + *totalGlyphs
+			if usedAnnotations >= iiif.MaxAnnotationsPerPage || len(glyphs) > iiif.MaxAnnotationsPerPage-usedAnnotations-1 {
+				return fmt.Errorf("hOCR text granularity exceeds %d annotations", iiif.MaxAnnotationsPerPage)
+			}
+			*totalGlyphs += len(glyphs)
 			*words = append(*words, WordWithGlyphs{
 				Word:   word,
-				Glyphs: glyphsFromWord(word, title),
+				Glyphs: glyphs,
 			})
 		}
 	}
 
 	for _, child := range element.Children {
-		traverseWordGlyphElements(child, words, currentLineID)
+		if err := traverseWordGlyphElements(child, words, currentLineID, totalGlyphs); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func isLineElement(element XMLElement) bool {
-	for _, attr := range element.Attrs {
-		if attr.Name.Local == "class" && strings.Contains(attr.Value, "ocr_line") {
-			return true
-		}
-	}
-	return false
+	return hasClass(element, "ocr_line")
 }
 
 func isWordElement(element XMLElement) bool {
+	return hasClass(element, "ocrx_word")
+}
+
+func hasClass(element XMLElement, className string) bool {
 	for _, attr := range element.Attrs {
-		if attr.Name.Local == "class" && strings.Contains(attr.Value, "ocrx_word") {
-			return true
+		if attr.Name.Local != "class" {
+			continue
+		}
+		for _, candidate := range strings.Fields(attr.Value) {
+			if candidate == className {
+				return true
+			}
 		}
 	}
 	return false
@@ -192,8 +429,7 @@ func findAllWordsInLine(element XMLElement, words *[]models.HOCRWord, lineID str
 }
 
 func parseLineTitleAttribute(title string, line *models.HOCRLine) error {
-	bboxRegex := regexp.MustCompile(`bbox\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)`)
-	if matches := bboxRegex.FindStringSubmatch(title); len(matches) == 5 {
+	if matches := bboxPattern.FindStringSubmatch(title); len(matches) == 5 {
 		var err error
 		if line.BBox.X1, err = strconv.Atoi(matches[1]); err != nil {
 			return fmt.Errorf("invalid bbox x1: %w", err)
@@ -311,8 +547,7 @@ func glyphsFromWord(word models.HOCRWord, title string) []models.HOCRGlyph {
 }
 
 func parseCuts(title string) []int {
-	re := regexp.MustCompile(`cuts\s+([0-9,\s]+)`)
-	matches := re.FindStringSubmatch(title)
+	matches := cutsPattern.FindStringSubmatch(title)
 	if len(matches) != 2 {
 		return nil
 	}
@@ -376,8 +611,7 @@ func evenlySplitBoundaries(x1, x2, segments int) []int {
 }
 
 func parseTitleAttribute(title string, word *models.HOCRWord) error {
-	bboxRegex := regexp.MustCompile(`bbox\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)`)
-	if matches := bboxRegex.FindStringSubmatch(title); len(matches) == 5 {
+	if matches := bboxPattern.FindStringSubmatch(title); len(matches) == 5 {
 		var err error
 		if word.BBox.X1, err = strconv.Atoi(matches[1]); err != nil {
 			return fmt.Errorf("invalid bbox x1: %w", err)
@@ -393,8 +627,7 @@ func parseTitleAttribute(title string, word *models.HOCRWord) error {
 		}
 	}
 
-	confRegex := regexp.MustCompile(`x_wconf\s+(\d+(?:\.\d+)?)`)
-	if matches := confRegex.FindStringSubmatch(title); len(matches) == 2 {
+	if matches := confidencePattern.FindStringSubmatch(title); len(matches) == 2 {
 		var err error
 		if word.Confidence, err = strconv.ParseFloat(matches[1], 64); err != nil {
 			return fmt.Errorf("invalid confidence: %w", err)

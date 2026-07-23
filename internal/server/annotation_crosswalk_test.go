@@ -1,11 +1,9 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"flag"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -13,31 +11,50 @@ import (
 
 var updateGolden = flag.Bool("update", false, "overwrite golden fixture files with current output")
 
-// postCrosswalkHandler POSTs a JSON body to an http.HandlerFunc and returns the recorder.
-func postCrosswalkHandler(t *testing.T, fn http.HandlerFunc, body any) *httptest.ResponseRecorder {
-	t.Helper()
-	b, err := json.Marshal(body)
-	if err != nil {
-		t.Fatalf("marshal request: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(b))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	fn(rec, req)
-	return rec
+type crosswalkKind int
+
+const (
+	crosswalkPlainText crosswalkKind = iota
+	crosswalkHOCR
+	crosswalkPageXML
+	crosswalkALTOXML
+)
+
+type crosswalkResult struct {
+	format    string
+	content   string
+	extension string
 }
 
-// decodeCrosswalkResponse decodes the standard annotationCrosswalkResponse JSON.
-func decodeCrosswalkResponse(t *testing.T, rec *httptest.ResponseRecorder) annotationCrosswalkResponse {
+// callCrosswalk exercises the canonical-page crosswalk boundary. Connect
+// tenant and revision semantics are covered by the export acceptance tests.
+func callCrosswalk(
+	t *testing.T,
+	_ *Handler,
+	kind crosswalkKind,
+	annotationPageJSON, annotationJSON string,
+	canvasWidth, canvasHeight uint32,
+) (crosswalkResult, error) {
 	t.Helper()
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if strings.TrimSpace(annotationJSON) != "" {
+		return crosswalkResult{}, errItemExportInvalid
 	}
-	var resp annotationCrosswalkResponse
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode response: %v", err)
+	var format string
+	switch kind {
+	case crosswalkPlainText:
+		format = "txt"
+	case crosswalkHOCR:
+		format = "hocr"
+	case crosswalkPageXML:
+		format = "pagexml"
+	case crosswalkALTOXML:
+		format = "alto"
+	default:
+		t.Fatalf("unknown crosswalk kind %d", kind)
+		return crosswalkResult{}, nil
 	}
-	return resp
+	content, mediaType, extension, err := renderAnnotationExport(annotationPageJSON, int(canvasWidth), int(canvasHeight), format)
+	return crosswalkResult{format: mediaType, content: content, extension: extension}, err
 }
 
 // checkGolden compares content against a golden file, or writes it when -update is set.
@@ -70,146 +87,191 @@ func loadJSON(t *testing.T, path string) string {
 	return string(b)
 }
 
-// TestCrosswalkRoutes verifies every crosswalk handler against golden fixtures,
-// for both the full annotation-page path and the single-annotation path.
-func TestCrosswalkRoutes(t *testing.T) {
+func TestOCRDerivedCrosswalksExcludeGenericWebAnnotations(t *testing.T) {
+	page := `{
+  "@context":["http://iiif.io/api/extension/text-granularity/context.json","http://iiif.io/api/presentation/3/context.json"],
+  "id":"https://scribe.example/presentation/v3/item-image-1/canvas/page-1/annotations",
+  "type":"AnnotationPage",
+  "items":[
+    {
+      "id":"https://scribe.example/presentation/v3/item-image-1/canvas/page-1/annotations/items/11111111111111111111111111111111",
+      "type":"Annotation","motivation":"supplementing","textGranularity":"line",
+      "body":{"type":"TextualBody","value":"canonical OCR words","format":"text/plain"},
+      "target":{"type":"SpecificResource","source":"https://scribe.example/presentation/v3/item-image-1/canvas/page-1","selector":{"type":"FragmentSelector","conformsTo":"http://www.w3.org/TR/media-frags/","value":"xywh=10,20,200,30"}}
+    },
+    {
+      "id":"https://scribe.example/presentation/v3/item-image-1/canvas/page-1/annotations/items/22222222222222222222222222222222",
+      "type":"Annotation","motivation":"commenting","ex:editorState":"preserve me",
+      "body":{"type":"TextualBody","value":"generic editorial comment","format":"text/plain"},
+      "target":{"type":"SpecificResource","source":"https://scribe.example/presentation/v3/item-image-1/canvas/page-1","selector":{"type":"FragmentSelector","conformsTo":"http://www.w3.org/TR/media-frags/","value":"xywh=10,20,200,30"}}
+    }
+  ]
+}`
+
+	for _, test := range []struct {
+		name string
+		kind crosswalkKind
+	}{
+		{name: "plain text", kind: crosswalkPlainText},
+		{name: "hOCR", kind: crosswalkHOCR},
+		{name: "PAGE XML", kind: crosswalkPageXML},
+		{name: "ALTO XML", kind: crosswalkALTOXML},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := callCrosswalk(t, &Handler{}, test.kind, page, "", 400, 300)
+			if err != nil {
+				t.Fatalf("crosswalk: %v", err)
+			}
+			if strings.Contains(result.content, "generic editorial comment") {
+				t.Fatalf("generic annotation leaked into OCR-derived %s: %s", test.name, result.content)
+			}
+			if !strings.Contains(result.content, "canonical") || !strings.Contains(result.content, "OCR") || !strings.Contains(result.content, "words") {
+				t.Fatalf("Text Granularity annotation missing from %s: %s", test.name, result.content)
+			}
+		})
+	}
+
+	var canonical map[string]any
+	if err := json.Unmarshal([]byte(page), &canonical); err != nil {
+		t.Fatal(err)
+	}
+	items := canonical["items"].([]any)
+	if got := items[1].(map[string]any)["ex:editorState"]; got != "preserve me" {
+		t.Fatalf("generic annotation was not preserved canonically: %#v", items[1])
+	}
+}
+
+// TestCanonicalCrosswalkFormats verifies every derived format against golden
+// fixtures using only complete committed-page input.
+func TestCanonicalCrosswalkFormats(t *testing.T) {
 	h := &Handler{}
 	pageJSON := loadJSON(t, "testdata/crosswalk/annotation_page.json")
-	singleJSON := loadJSON(t, "testdata/crosswalk/single_annotation.json")
 
 	tests := []struct {
-		name       string
-		fn         http.HandlerFunc
-		inputKey   string
-		inputVal   string
-		wantFormat string
-		goldenFile string
+		name               string
+		kind               crosswalkKind
+		annotationPageJSON string
+		annotationJSON     string
+		wantFormat         string
+		goldenFile         string
 	}{
 		{
-			name:       "annotation_page to plain text",
-			fn:         h.handleCrosswalkToPlainText,
-			inputKey:   "annotation_page_json",
-			inputVal:   pageJSON,
-			wantFormat: "text/plain",
-			goldenFile: "testdata/crosswalk/expected_plain.txt",
+			name:               "annotation_page to plain text",
+			kind:               crosswalkPlainText,
+			annotationPageJSON: pageJSON,
+			wantFormat:         "text/plain; charset=utf-8",
+			goldenFile:         "testdata/crosswalk/expected_plain.txt",
 		},
 		{
-			name:       "annotation_page to hOCR",
-			fn:         h.handleCrosswalkToHOCR,
-			inputKey:   "annotation_page_json",
-			inputVal:   pageJSON,
-			wantFormat: "text/vnd.hocr+html",
-			goldenFile: "testdata/crosswalk/expected_hocr.html",
+			name:               "annotation_page to hOCR",
+			kind:               crosswalkHOCR,
+			annotationPageJSON: pageJSON,
+			wantFormat:         "text/vnd.hocr+html; charset=utf-8",
+			goldenFile:         "testdata/crosswalk/expected_hocr.html",
 		},
 		{
-			name:       "annotation_page to PageXML",
-			fn:         h.handleCrosswalkToPageXML,
-			inputKey:   "annotation_page_json",
-			inputVal:   pageJSON,
-			wantFormat: "application/vnd.prima.page+xml",
-			goldenFile: "testdata/crosswalk/expected_page.xml",
+			name:               "annotation_page to PageXML",
+			kind:               crosswalkPageXML,
+			annotationPageJSON: pageJSON,
+			wantFormat:         "application/vnd.prima.page+xml; charset=utf-8",
+			goldenFile:         "testdata/crosswalk/expected_page.xml",
 		},
 		{
-			name:       "annotation_page to ALTO XML",
-			fn:         h.handleCrosswalkToALTOXML,
-			inputKey:   "annotation_page_json",
-			inputVal:   pageJSON,
-			wantFormat: "application/alto+xml",
-			goldenFile: "testdata/crosswalk/expected_alto.xml",
-		},
-		{
-			name:       "single annotation to plain text",
-			fn:         h.handleCrosswalkToPlainText,
-			inputKey:   "annotation_json",
-			inputVal:   singleJSON,
-			wantFormat: "text/plain",
-			goldenFile: "testdata/crosswalk/expected_single_plain.txt",
-		},
-		{
-			name:       "single annotation to hOCR",
-			fn:         h.handleCrosswalkToHOCR,
-			inputKey:   "annotation_json",
-			inputVal:   singleJSON,
-			wantFormat: "text/vnd.hocr+html",
-			goldenFile: "testdata/crosswalk/expected_single_hocr.html",
-		},
-		{
-			name:       "single annotation to PageXML",
-			fn:         h.handleCrosswalkToPageXML,
-			inputKey:   "annotation_json",
-			inputVal:   singleJSON,
-			wantFormat: "application/vnd.prima.page+xml",
-			goldenFile: "testdata/crosswalk/expected_single_page.xml",
-		},
-		{
-			name:       "single annotation to ALTO XML",
-			fn:         h.handleCrosswalkToALTOXML,
-			inputKey:   "annotation_json",
-			inputVal:   singleJSON,
-			wantFormat: "application/alto+xml",
-			goldenFile: "testdata/crosswalk/expected_single_alto.xml",
+			name:               "annotation_page to ALTO XML",
+			kind:               crosswalkALTOXML,
+			annotationPageJSON: pageJSON,
+			wantFormat:         "application/alto+xml; charset=utf-8",
+			goldenFile:         "testdata/crosswalk/expected_alto.xml",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := postCrosswalkHandler(t, tt.fn, map[string]string{tt.inputKey: tt.inputVal})
-			resp := decodeCrosswalkResponse(t, rec)
-
-			if resp.Format != tt.wantFormat {
-				t.Errorf("format: got %q, want %q", resp.Format, tt.wantFormat)
+			resp, err := callCrosswalk(t, h, tt.kind, tt.annotationPageJSON, tt.annotationJSON, 0, 0)
+			if err != nil {
+				t.Fatalf("crosswalk: %v", err)
 			}
-			checkGolden(t, tt.goldenFile, resp.Content)
+
+			if resp.format != tt.wantFormat {
+				t.Errorf("format: got %q, want %q", resp.format, tt.wantFormat)
+			}
+			if resp.extension == "" {
+				t.Fatal("production renderer returned an empty extension")
+			}
+			checkGolden(t, tt.goldenFile, resp.content)
 		})
 	}
 }
 
-// TestCrosswalkErrors verifies that bad inputs return 400 with an error body.
+func TestXMLCrosswalksEscapeTextAndReplaceInvalidXMLRunes(t *testing.T) {
+	pageJSON := `{
+  "type":"AnnotationPage",
+  "items":[{
+    "id":"line-1",
+    "type":"Annotation",
+    "motivation":"supplementing",
+    "textGranularity":"line",
+    "body":{"type":"TextualBody","value":"A & < \"quoted\" bad\u0000rune C"},
+    "target":{"source":"https://example.test/canvas/1","selector":{"type":"FragmentSelector","value":"xywh=1,2,100,20"}}
+  }]
+}`
+
+	for _, kind := range []crosswalkKind{crosswalkPageXML, crosswalkALTOXML} {
+		result, err := callCrosswalk(t, &Handler{}, kind, pageJSON, "", 200, 100)
+		if err != nil {
+			t.Fatalf("crosswalk %d: %v", kind, err)
+		}
+		var root struct {
+			XMLName xml.Name
+		}
+		if err := xml.Unmarshal([]byte(result.content), &root); err != nil {
+			t.Fatalf("crosswalk %d emitted malformed XML: %v\n%s", kind, err, result.content)
+		}
+		if strings.ContainsRune(result.content, '\x00') || !strings.ContainsRune(result.content, '\uFFFD') {
+			t.Fatalf("crosswalk %d did not replace an XML 1.0-invalid rune: %q", kind, result.content)
+		}
+		if !strings.Contains(result.content, "&amp;") || !strings.Contains(result.content, "&lt;") {
+			t.Fatalf("crosswalk %d did not XML-escape text: %q", kind, result.content)
+		}
+	}
+}
+
+// TestCrosswalkErrors verifies that malformed canonical-page inputs fail.
 func TestCrosswalkErrors(t *testing.T) {
 	h := &Handler{}
 
 	tests := []struct {
-		name string
-		fn   http.HandlerFunc
-		body string
+		name               string
+		kind               crosswalkKind
+		annotationPageJSON string
+		annotationJSON     string
 	}{
 		{
-			name: "invalid JSON body",
-			fn:   h.handleCrosswalkToPlainText,
-			body: `not json`,
+			name:               "invalid annotation page JSON",
+			kind:               crosswalkPlainText,
+			annotationPageJSON: `not json`,
 		},
 		{
-			name: "empty object — no annotation fields",
-			fn:   h.handleCrosswalkToPlainText,
-			body: `{}`,
+			name: "empty request",
+			kind: crosswalkPlainText,
 		},
 		{
-			name: "annotation page with no items",
-			fn:   h.handleCrosswalkToHOCR,
-			body: buildCrosswalkBody(t, "annotation_page_json", `{"type":"AnnotationPage","items":[]}`),
+			name:               "annotation page items is not an array",
+			kind:               crosswalkHOCR,
+			annotationPageJSON: `{"type":"AnnotationPage","items":{}}`,
 		},
 		{
-			name: "annotation page with items but no parseable text",
-			fn:   h.handleCrosswalkToPageXML,
-			body: buildCrosswalkBody(t, "annotation_page_json", `{"type":"AnnotationPage","items":[{"id":"x","type":"Annotation","body":[]}]}`),
+			name:               "annotation page with items but no parseable text",
+			kind:               crosswalkPageXML,
+			annotationPageJSON: `{"type":"AnnotationPage","items":[{"id":"x","type":"Annotation","body":[]}]}`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
-			req.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			tt.fn(rec, req)
-			if rec.Code != http.StatusBadRequest {
-				t.Errorf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-			}
-			var errResp map[string]string
-			if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
-				t.Errorf("error response is not valid JSON: %v", err)
-			}
-			if errResp["error"] == "" {
-				t.Errorf("error response missing 'error' field: %v", errResp)
+			_, err := callCrosswalk(t, h, tt.kind, tt.annotationPageJSON, tt.annotationJSON, 0, 0)
+			if err == nil {
+				t.Fatal("malformed canonical page was accepted")
 			}
 		})
 	}
@@ -247,16 +309,49 @@ func TestCrosswalkMixedLineAndWordGranularity(t *testing.T) {
 	  ]
 	}`
 
-	rec := postCrosswalkHandler(t, h.handleCrosswalkToPlainText, map[string]string{"annotation_page_json": pageJSON})
-	resp := decodeCrosswalkResponse(t, rec)
-	if strings.TrimSpace(resp.Content) != "Course Catalog" {
-		t.Fatalf("plain text crosswalk duplicated or lost mixed granularity content: %q", resp.Content)
+	resp, err := callCrosswalk(t, h, crosswalkPlainText, pageJSON, "", 0, 0)
+	if err != nil {
+		t.Fatalf("plain-text crosswalk: %v", err)
+	}
+	if strings.TrimSpace(resp.content) != "Course Catalog" {
+		t.Fatalf("plain text crosswalk duplicated or lost mixed granularity content: %q", resp.content)
 	}
 
-	rec = postCrosswalkHandler(t, h.handleCrosswalkToHOCR, map[string]string{"annotation_page_json": pageJSON})
-	resp = decodeCrosswalkResponse(t, rec)
-	if strings.Count(resp.Content, "Course") != 1 || strings.Count(resp.Content, "Catalog") != 1 {
-		t.Fatalf("hOCR crosswalk duplicated mixed granularity content:\n%s", resp.Content)
+	resp, err = callCrosswalk(t, h, crosswalkHOCR, pageJSON, "", 0, 0)
+	if err != nil {
+		t.Fatalf("hOCR crosswalk: %v", err)
+	}
+	if strings.Count(resp.content, "Course") != 1 || strings.Count(resp.content, "Catalog") != 1 {
+		t.Fatalf("hOCR crosswalk duplicated mixed granularity content:\n%s", resp.content)
+	}
+}
+
+func TestCrosswalkPageGranularityWithoutFragmentUsesCanvasBounds(t *testing.T) {
+	h := &Handler{}
+	pageJSON := `{
+  "@context": [
+    "http://iiif.io/api/extension/text-granularity/context.json",
+    "http://iiif.io/api/presentation/3/context.json"
+  ],
+  "id": "https://example.test/page/annotations",
+  "type": "AnnotationPage",
+  "items": [{
+    "id": "https://example.test/annotations/page-text",
+    "type": "Annotation",
+    "motivation": "supplementing",
+    "textGranularity": "page",
+    "body": [{"type":"TextualBody","purpose":"supplementing","format":"text/plain","value":"Whole page text"}],
+    "target": "https://example.test/canvas/1"
+  }]
+}`
+	for _, kind := range []crosswalkKind{crosswalkPlainText, crosswalkHOCR, crosswalkPageXML, crosswalkALTOXML} {
+		result, err := callCrosswalk(t, h, kind, pageJSON, "", 1200, 1600)
+		if err != nil {
+			t.Fatalf("page-granularity crosswalk %d: %v", kind, err)
+		}
+		if !strings.Contains(result.content, "Whole page text") && (!strings.Contains(result.content, "Whole") || !strings.Contains(result.content, "page") || !strings.Contains(result.content, "text")) {
+			t.Fatalf("page-granularity crosswalk %d lost text: %s", kind, result.content)
+		}
 	}
 }
 
@@ -283,19 +378,56 @@ func TestCrosswalkSelectorArray(t *testing.T) {
 	  ]
 	}`
 
-	rec := postCrosswalkHandler(t, h.handleCrosswalkToPlainText, map[string]string{"annotation_page_json": pageJSON})
-	resp := decodeCrosswalkResponse(t, rec)
-	if strings.TrimSpace(resp.Content) != "Hello world" {
-		t.Fatalf("plain text = %q; want %q", resp.Content, "Hello world")
+	resp, err := callCrosswalk(t, h, crosswalkPlainText, pageJSON, "", 0, 0)
+	if err != nil {
+		t.Fatalf("plain-text crosswalk: %v", err)
+	}
+	if strings.TrimSpace(resp.content) != "Hello world" {
+		t.Fatalf("plain text = %q; want %q", resp.content, "Hello world")
 	}
 }
 
-// buildCrosswalkBody JSON-encodes a crosswalk request with a single string field.
-func buildCrosswalkBody(t *testing.T, key, value string) string {
-	t.Helper()
-	b, err := json.Marshal(map[string]string{key: value})
+func TestCrosswalkEmptyAnnotationPageUsesCanvasDimensions(t *testing.T) {
+	h := &Handler{}
+	emptyPage := `{
+	  "@context": "http://iiif.io/api/presentation/3/context.json",
+	  "id": "https://example.org/annotations/empty",
+	  "type": "AnnotationPage",
+	  "items": []
+	}`
+
+	pageResponse, err := callCrosswalk(t, h, crosswalkPageXML, emptyPage, "", 2160, 3632)
 	if err != nil {
-		t.Fatalf("build body: %v", err)
+		t.Fatalf("PAGE XML crosswalk: %v", err)
 	}
-	return string(b)
+	if !strings.Contains(pageResponse.content, `<Page imageFilename="source-image.png" imageWidth="2160" imageHeight="3632">`) {
+		t.Fatalf("PAGE XML did not preserve empty Canvas dimensions:\n%s", pageResponse.content)
+	}
+	if strings.Contains(pageResponse.content, "<TextLine") {
+		t.Fatalf("PAGE XML invented text lines for an empty page:\n%s", pageResponse.content)
+	}
+
+	altoResponse, err := callCrosswalk(t, h, crosswalkALTOXML, emptyPage, "", 2160, 3632)
+	if err != nil {
+		t.Fatalf("ALTO XML crosswalk: %v", err)
+	}
+	if !strings.Contains(altoResponse.content, `<Page ID="P1" PHYSICAL_IMG_NR="1" WIDTH="2160" HEIGHT="3632">`) {
+		t.Fatalf("ALTO XML did not preserve empty Canvas dimensions:\n%s", altoResponse.content)
+	}
+
+	hocrResponse, err := callCrosswalk(t, h, crosswalkHOCR, emptyPage, "", 2160, 3632)
+	if err != nil {
+		t.Fatalf("hOCR crosswalk: %v", err)
+	}
+	if !strings.Contains(hocrResponse.content, "bbox 0 0 2160 3632") {
+		t.Fatalf("hOCR did not preserve empty Canvas dimensions:\n%s", hocrResponse.content)
+	}
+
+	plainResponse, err := callCrosswalk(t, h, crosswalkPlainText, emptyPage, "", 2160, 3632)
+	if err != nil {
+		t.Fatalf("plain-text crosswalk: %v", err)
+	}
+	if plainResponse.content != "" {
+		t.Fatalf("plain text for empty page = %q; want empty", plainResponse.content)
+	}
 }

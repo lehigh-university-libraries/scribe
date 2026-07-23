@@ -25,17 +25,12 @@ on:
         required: false
         type: string
         default: ""
-      run_snapshots:
-        required: true
-        type: string
-      push_image:
-        required: true
-        type: boolean
       image_tag:
         required: false
         type: string
         default: ""
       frontend_image_tag:
+        description: Reviewed GHCR frontend source image promoted to GAR during apply; Terraform never receives or records it.
         required: false
         type: string
         default: ""
@@ -48,6 +43,14 @@ on:
         required: false
         type: string
         default: "{}"
+      region:
+        description: GCP region shared by the workflow and Terraform.
+        required: true
+        type: string
+      zone:
+        description: GCP zone shared by frontend proxy configuration and Terraform.
+        required: true
+        type: string
     outputs:
       status:
         description: Workflow status for the terraform action.
@@ -59,26 +62,50 @@ on:
         description: Deployed GHCR image reference.
         value: ${{ jobs.deploy.outputs.image }}
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     environment: ${{ inputs.environment_name }}
     permissions:
       id-token: write
       contents: read
-      packages: write
+      packages: read
     env:
       GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       ALLOWED_IPS: ${{ vars.ALLOWED_IPS }}
       ALLOWED_SSH_IPV4: ${{ vars.ALLOWED_SSH_IPV4 }}
-      SCRIBE_ZONE: ${{ vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || 'us-east5-b' }}
+      ALLOWED_SSH_IPV6: ${{ vars.ALLOWED_SSH_IPV6 != '' && vars.ALLOWED_SSH_IPV6 || '[]' }}
       SCRIBE_API_IMAGE: ${{ inputs.image_tag }}
+      SCRIBE_DATA_GENERATION: canonical-v1
       SCRIBE_FRONTEND_IMAGE: ${{ inputs.frontend_image_tag }}
       SCRIBE_FRONTEND_GAR_IMAGE: ${{ inputs.frontend_gar_image_tag }}
       SCRIBE_OCR_IMAGES_JSON: ${{ inputs.ocr_images_json }}
-      VAULT_ADMIN_EMAILS: '["jjc223@lehigh.edu"]'
+      SCRIBE_REGION: ${{ inputs.region }}
+      SCRIBE_ZONE: ${{ inputs.zone }}
+      VAULT_ADMIN_EMAILS: ${{ vars.VAULT_ADMIN_EMAILS }}
       VAULT_CI_SERVICE_ACCOUNT_EMAILS: '["${{ secrets.GSA }}"]'
+      TF_VAR_transcription_max_active_jobs_per_workspace: ${{ vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE != '' && vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE || '1000' }}
+      TF_VAR_storage_max_bytes_per_workspace: ${{ vars.STORAGE_MAX_BYTES_PER_WORKSPACE != '' && vars.STORAGE_MAX_BYTES_PER_WORKSPACE || '5368709120' }}
+      TF_VAR_storage_max_bytes_total: ${{ vars.STORAGE_MAX_BYTES_TOTAL != '' && vars.STORAGE_MAX_BYTES_TOTAL || '32212254720' }}
+      TF_VAR_storage_max_items_per_workspace: ${{ vars.STORAGE_MAX_ITEMS_PER_WORKSPACE != '' && vars.STORAGE_MAX_ITEMS_PER_WORKSPACE || '5000' }}
+      TF_VAR_storage_max_items_total: ${{ vars.STORAGE_MAX_ITEMS_TOTAL != '' && vars.STORAGE_MAX_ITEMS_TOTAL || '50000' }}
+      TF_VAR_storage_max_images_per_workspace: ${{ vars.STORAGE_MAX_IMAGES_PER_WORKSPACE != '' && vars.STORAGE_MAX_IMAGES_PER_WORKSPACE || '10000' }}
+      TF_VAR_storage_max_images_total: ${{ vars.STORAGE_MAX_IMAGES_TOTAL != '' && vars.STORAGE_MAX_IMAGES_TOTAL || '100000' }}
+      TF_VAR_storage_reservation_ttl: ${{ vars.STORAGE_RESERVATION_TTL != '' && vars.STORAGE_RESERVATION_TTL || '6h' }}
+      TF_VAR_storage_normalization_cache_max_bytes: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_BYTES != '' && vars.STORAGE_NORMALIZATION_CACHE_MAX_BYTES || '2147483648' }}
+      TF_VAR_storage_normalization_cache_max_age: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_AGE != '' && vars.STORAGE_NORMALIZATION_CACHE_MAX_AGE || '168h' }}
+      TF_VAR_iiif_max_manifest_canvases: ${{ vars.IIIF_MAX_MANIFEST_CANVASES != '' && vars.IIIF_MAX_MANIFEST_CANVASES || '500' }}
+      TF_VAR_iiif_max_manifest_import_bytes: ${{ vars.IIIF_MAX_MANIFEST_IMPORT_BYTES != '' && vars.IIIF_MAX_MANIFEST_IMPORT_BYTES || '67108864' }}
+      TF_VAR_monitoring_notification_channels: ${{ vars.MONITORING_NOTIFICATION_CHANNELS != '' && vars.MONITORING_NOTIFICATION_CHANNELS || '[]' }}
+      TF_VAR_network_ip_cidr_range: ${{ vars.NETWORK_IP_CIDR_RANGE != '' && vars.NETWORK_IP_CIDR_RANGE || '10.42.0.0/24' }}
+      TF_VAR_compose_network_cidr: ${{ vars.COMPOSE_NETWORK_CIDR != '' && vars.COMPOSE_NETWORK_CIDR || '172.30.0.0/24' }}
+      TF_VAR_backup_restore_service_account_email: ${{ secrets.BACKUP_RESTORE_GSA }}
+      VAULT_BOOTSTRAP_MODE: jwt-or-root-token
 
     outputs:
       status: ${{ steps.capture.outputs.status }}
@@ -88,9 +115,89 @@ jobs:
     steps:
       - name: Validate workflow variables
         shell: bash
+        env:
+          CHECKOUT_REF: ${{ inputs.checkout_ref }}
+          COMPOSE_REF: ${{ inputs.docker_compose_branch }}
+          DEPLOY_MODE: ${{ inputs.mode }}
+          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          SITE_NAME: ${{ inputs.site_name }}
+          TF_WORKSPACE: ${{ inputs.tf_workspace }}
         run: |
+          set -euo pipefail
           if [ -z "$GCLOUD_PROJECT" ]; then
             echo "GitHub Actions variable GCLOUD_PROJECT must be set." >&2
+            exit 1
+          fi
+          if [ -z "$TF_STATE_BUCKET" ]; then
+            echo "Protected environment secret TF_STATE_BUCKET must be set." >&2
+            exit 1
+          fi
+          if [ "$DEPLOY_MODE" != "destroy" ] && ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' <<<"$ALLOWED_IPS" >/dev/null; then
+            echo "Protected environment variable ALLOWED_IPS must be a non-empty JSON CIDR array." >&2
+            exit 1
+          fi
+          if ! jq -e 'type == "array" and all(.[]; type == "string" and test("^[0-9.]+/[0-9]{1,2}$"))' <<<"${ALLOWED_SSH_IPV4:-[]}" >/dev/null; then
+            echo "Protected environment variable ALLOWED_SSH_IPV4 must be a JSON IPv4 CIDR array." >&2
+            exit 1
+          fi
+          if ! jq -e 'type == "array" and all(.[]; type == "string" and test("^[0-9A-Fa-f:]+/[0-9]{1,3}$"))' <<<"$ALLOWED_SSH_IPV6" >/dev/null; then
+            echo "Protected environment variable ALLOWED_SSH_IPV6 must be a JSON IPv6 CIDR array." >&2
+            exit 1
+          fi
+          if ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and test("^[^@[:space:]]+@[^@[:space:]]+$"))' <<<"$VAULT_ADMIN_EMAILS" >/dev/null; then
+            echo "Protected environment variable VAULT_ADMIN_EMAILS must be a non-empty JSON email array." >&2
+            exit 1
+          fi
+          if ! jq -e 'all(.[]; endswith("@lehigh.edu"))' <<<"$VAULT_ADMIN_EMAILS" >/dev/null; then
+            echo "VAULT_ADMIN_EMAILS entries must use the lehigh.edu hosted domain required by the Vault JWT role." >&2
+            exit 1
+          fi
+          if ! jq -e 'type == "array" and length == 1 and all(.[]; type == "string" and test("^[^@[:space:]]+@[^@[:space:]]+$"))' <<<"$VAULT_CI_SERVICE_ACCOUNT_EMAILS" >/dev/null; then
+            echo "Protected environment secret GSA must be a service-account email." >&2
+            exit 1
+          fi
+          [[ "$CHECKOUT_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "checkout_ref must be an immutable commit SHA" >&2; exit 1; }
+          [[ "$COMPOSE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "docker_compose_branch must be an immutable commit SHA" >&2; exit 1; }
+          [[ "$DEPLOY_MODE" =~ ^(plan|apply|destroy)$ ]] || { echo "invalid Terraform mode" >&2; exit 1; }
+          [[ "$TF_WORKSPACE" =~ ^(prod|dev|pr-[0-9]+)$ ]] || { echo "invalid Terraform workspace" >&2; exit 1; }
+          [[ "$SITE_NAME" =~ ^scribe(-pr-[0-9]+)?$ ]] || { echo "invalid site name" >&2; exit 1; }
+          [[ "$SCRIBE_REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || { echo "invalid GCP region" >&2; exit 1; }
+          [[ "$SCRIBE_ZONE" =~ ^${SCRIBE_REGION}-[a-z]$ ]] || { echo "GCP zone must belong to the configured region" >&2; exit 1; }
+          [[ "$SCRIBE_DATA_GENERATION" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || { echo "invalid persistence data generation" >&2; exit 1; }
+          if [ "$DEPLOY_MODE" != "destroy" ]; then
+            [[ "$SCRIBE_API_IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] || { echo "backend image must be digest-pinned" >&2; exit 1; }
+            jq -e 'type == "object" and length > 0 and all(.[]; test("^[^[:space:]@]+@sha256:[0-9a-f]{64}$"))' <<<"$SCRIBE_OCR_IMAGES_JSON" >/dev/null || {
+              echo "OCR images must be a non-empty digest-pinned JSON map" >&2
+              exit 1
+            }
+          fi
+          if [ "$DEPLOY_MODE" = "apply" ]; then
+            [[ "$SCRIBE_FRONTEND_IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] || { echo "frontend source image must be digest-pinned for promotion" >&2; exit 1; }
+          fi
+          if [ -n "$PR_NUMBER" ]; then
+            [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be numeric" >&2; exit 1; }
+          fi
+          if [ "$ENVIRONMENT_NAME" = "production" ]; then
+            [ "$TF_WORKSPACE" = "prod" ] && [ "$SITE_NAME" = "scribe" ] && [ -z "$PR_NUMBER" ] || {
+              echo "production environment requires workspace=prod, site=scribe, and no PR number" >&2
+              exit 1
+            }
+          elif [ "$ENVIRONMENT_NAME" = "preview" ]; then
+            [ -n "$PR_NUMBER" ] && [ "$TF_WORKSPACE" = "pr-${PR_NUMBER}" ] && [ "$SITE_NAME" = "scribe-pr-${PR_NUMBER}" ] || {
+              echo "preview environment, workspace, site, and PR number must identify the same PR" >&2
+              exit 1
+            }
+          else
+            echo "environment_name must be production or preview" >&2
+            exit 1
+          fi
+          if [ "$ENVIRONMENT_NAME" = "production" ] && ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and startswith("projects/"))' <<<"$TF_VAR_monitoring_notification_channels" >/dev/null; then
+            echo "Protected production variable MONITORING_NOTIFICATION_CHANNELS must be a non-empty JSON channel-name array." >&2
+            exit 1
+          fi
+          if [ "$ENVIRONMENT_NAME" = "production" ] && [[ ! "$TF_VAR_backup_restore_service_account_email" =~ ^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$ ]]; then
+            echo "Protected production secret BACKUP_RESTORE_GSA must be a dedicated service-account email." >&2
             exit 1
           fi
 
@@ -98,6 +205,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
 
       - name: Prepare Terraform artifact directory
         run: mkdir -p .github-artifacts/terraform
@@ -105,16 +213,11 @@ jobs:
       - name: Install Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: 1.15.2
+          terraform_version: 1.15.8
 
       - name: Check Terraform formatting
         if: inputs.mode == 'apply' || inputs.mode == 'plan'
         run: terraform fmt -check -recursive
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
-        with:
-          version: latest
 
       - name: Authenticate to Google Cloud
         id: auth
@@ -127,12 +230,34 @@ jobs:
             https://www.googleapis.com/auth/cloud-platform
             https://www.googleapis.com/auth/userinfo.email
 
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: 576.0.0
+
+      - name: Verify deploy WIF trust boundary
+        env:
+          WIF_EXPECTED_ENVIRONMENT: ${{ inputs.environment_name }}
+          WIF_IDENTITY_CLASS: deploy
+          WIF_PROVIDER: ${{ secrets.GCLOUD_OIDC_POOL }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.GSA }}
+        run: ./ci/verify-gcp-wif.sh
+
       - name: Configure gcloud
         run: |
           gcloud config set project "${GCLOUD_PROJECT}"
           gcloud config set disable_prompts true
 
+      - name: Verify external Terraform state recovery policy
+        if: inputs.mode == 'apply' || inputs.mode == 'plan'
+        env:
+          BACKUP_AUDIT_SCOPE: state
+        run: |
+          ./ci/verify-cloud-backups.sh
+          echo "TF_VAR_terraform_state_backup_audited=true" >> "$GITHUB_ENV"
+
       - name: "GAR login"
+        if: inputs.mode == 'apply' || inputs.mode == 'plan'
         uses: "docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee" # v4
         with:
           registry: "us-docker.pkg.dev"
@@ -140,6 +265,7 @@ jobs:
           password: "${{ steps.auth.outputs.access_token }}"
 
       - name: "GHCR login"
+        if: inputs.mode == 'apply' || inputs.mode == 'plan'
         uses: "docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee" # v4
         with:
           registry: "ghcr.io"
@@ -150,31 +276,49 @@ jobs:
         id: backend_ghcr_image
         if: (inputs.mode == 'apply' || inputs.mode == 'plan') && startsWith(inputs.image_tag, 'ghcr.io/')
         shell: bash
+        env:
+          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          resolved_image="$(./ci/resolve-ghcr-image.sh '${{ inputs.image_tag }}')"
+          resolved_image="$(./ci/resolve-ghcr-image.sh "$INPUT_IMAGE_TAG")"
           echo "resolved_image=$resolved_image" >> "$GITHUB_OUTPUT"
           echo "SCRIBE_API_IMAGE=$resolved_image" >> "$GITHUB_ENV"
 
       - name: Resolve pinned frontend GHCR image
         id: frontend_ghcr_image
-        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && startsWith(inputs.frontend_image_tag, 'ghcr.io/')
+        if: inputs.mode == 'apply' && startsWith(inputs.frontend_image_tag, 'ghcr.io/')
         shell: bash
+        env:
+          INPUT_FRONTEND_IMAGE_TAG: ${{ inputs.frontend_image_tag }}
         run: |
-          resolved_image="$(./ci/resolve-ghcr-image.sh '${{ inputs.frontend_image_tag }}')"
+          resolved_image="$(./ci/resolve-ghcr-image.sh "$INPUT_FRONTEND_IMAGE_TAG")"
           echo "resolved_image=$resolved_image" >> "$GITHUB_OUTPUT"
-          echo "SCRIBE_FRONTEND_IMAGE=$resolved_image" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        if: inputs.mode == 'apply' && inputs.frontend_gar_image_tag != '' && steps.frontend_ghcr_image.outputs.resolved_image != ''
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Promote the reviewed frontend digest to GAR
+        if: inputs.mode == 'apply' && inputs.frontend_gar_image_tag != '' && steps.frontend_ghcr_image.outputs.resolved_image != ''
+        shell: bash
+        env:
+          FRONTEND_GAR_TAG: ${{ inputs.frontend_gar_image_tag }}
+          FRONTEND_GHCR_DIGEST: ${{ steps.frontend_ghcr_image.outputs.resolved_image }}
+        run: docker buildx imagetools create --tag "$FRONTEND_GAR_TAG" "$FRONTEND_GHCR_DIGEST"
 
       - name: Resolve pinned frontend GAR image
         id: frontend_gar_image
         if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.frontend_gar_image_tag != ''
         shell: bash
+        env:
+          INPUT_FRONTEND_GAR_IMAGE_TAG: ${{ inputs.frontend_gar_image_tag }}
         run: |
-          resolved_image="$(./ci/resolve-gar-image.sh '${{ inputs.frontend_gar_image_tag }}')"
+          resolved_image="$(./ci/resolve-gar-image.sh "$INPUT_FRONTEND_GAR_IMAGE_TAG")"
           echo "resolved_image=$resolved_image" >> "$GITHUB_OUTPUT"
           echo "SCRIBE_FRONTEND_GAR_IMAGE=$resolved_image" >> "$GITHUB_ENV"
 
       - name: Authenticate Vault admin header token
         id: auth_vault_access
+        if: inputs.pr_number != ''
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
@@ -185,6 +329,7 @@ jobs:
 
       - name: Resolve shared Vault address
         id: vault_addr
+        if: inputs.pr_number != ''
         shell: bash
         run: |
           if [ "${{ inputs.tf_workspace }}" = "prod" ]; then
@@ -192,8 +337,8 @@ jobs:
           else
             vault_service="vault-server-dev"
           fi
-          vault_addr="$(gcloud run services describe "$vault_service" --region us-east5 --format='value(status.url)')"
-          vault_audience="$(gcloud run services describe "$vault_service" --region us-east5 --format='value(uri)')"
+          vault_addr="$(gcloud run services describe "$vault_service" --region "$SCRIBE_REGION" --format='value(status.url)')"
+          vault_audience="$(gcloud run services describe "$vault_service" --region "$SCRIBE_REGION" --format='value(uri)')"
           if [ -z "$vault_addr" ]; then
             echo "Failed to resolve Vault address for $vault_service" >&2
             exit 1
@@ -206,6 +351,7 @@ jobs:
 
       - name: Compute Vault CI role name
         id: vault_role
+        if: inputs.pr_number != ''
         shell: bash
         env:
           VAULT_GSA: ${{ secrets.GSA }}
@@ -215,6 +361,7 @@ jobs:
 
       - name: Authenticate Google ID token for Vault
         id: auth_vault_id
+        if: inputs.pr_number != ''
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
@@ -225,6 +372,7 @@ jobs:
           create_credentials_file: false
 
       - name: Login to Vault
+        if: inputs.pr_number != ''
         shell: bash
         env:
           VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
@@ -234,68 +382,305 @@ jobs:
         run: |
           bash ./ci/vault-login.sh
 
-      - name: Refresh Vault CI policy
+      - name: Ensure isolated preview bootstrap secrets
+        if: inputs.mode == 'apply' && inputs.pr_number != ''
         shell: bash
         env:
+          PREVIEW_PREFIX: scribe/previews/${{ inputs.site_name }}@${{ vars.GCLOUD_PROJECT }}.iam.gserviceaccount.com
+          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
           VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
         run: |
-          bash ./ci/vault-sync-ci-policy.sh
+          bash ./ci/preview-vault-secrets.sh ensure "$PREVIEW_PREFIX"
 
       - name: Run production Terraform plan
         id: plan
         if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.pr_number == ''
         shell: bash
+        env:
+          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
         run: |
-          set -o pipefail
-          make tf-prod ACTION=plan 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-plan.log"
+          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-plan.log" make tf-prod BRANCH="$DEPLOY_BRANCH" ACTION=plan
 
       - name: Run preview Terraform plan
         id: plan_preview
         if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.pr_number != ''
         shell: bash
+        env:
+          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          set -o pipefail
-          make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=plan 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-plan.log"
+          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-plan.log" make tf-preview PR="$PR_NUMBER" BRANCH="$DEPLOY_BRANCH" ACTION=plan
+
+      - name: Capture current production rollback inputs
+        id: previous
+        if: inputs.mode == 'apply' && inputs.pr_number == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw_file=".github-artifacts/terraform/previous-deployment-inputs.raw.json"
+          previous_file=".github-artifacts/terraform/previous-deployment-inputs.json"
+          if ! terraform -chdir=terraform output -json deployment_inputs >"$raw_file" 2>/dev/null \
+            || ! ./ci/resolve-rollback-inputs.sh "$raw_file" >"$previous_file"; then
+            rm -f "$raw_file" "$previous_file"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No complete prior deployment source and configuration record exists; automatic rollback is unavailable for this first rollout."
+            exit 0
+          fi
+          rm -f "$raw_file"
+          previous_project="$(jq -r '.configuration.project_id' "$previous_file")"
+          if [ "$previous_project" != "$GCLOUD_PROJECT" ]; then
+            echo "Prior deployment project does not match the protected deployment project." >&2
+            exit 1
+          fi
+          {
+            echo "available=true"
+            echo "compose_sha=$(jq -r '.docker_compose_sha' "$previous_file")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout prior production source
+        if: inputs.mode == 'apply' && inputs.pr_number == '' && steps.previous.outputs.available == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ steps.previous.outputs.compose_sha }}
+          fetch-depth: 0
+          path: .rollback-source
+          persist-credentials: false
+
+      - name: Verify prior production source
+        if: inputs.mode == 'apply' && inputs.pr_number == '' && steps.previous.outputs.available == 'true'
+        shell: bash
+        env:
+          CURRENT_SHA: ${{ inputs.checkout_ref }}
+          DEPLOY_EVENT_AFTER: ${{ github.event.after }}
+          DEPLOY_EVENT_BEFORE: ${{ github.event.before }}
+          DEPLOY_EVENT_FORCED: ${{ github.event.forced }}
+          DEPLOY_EVENT_NAME: ${{ github.event_name }}
+          PREVIOUS_SHA: ${{ steps.previous.outputs.compose_sha }}
+        run: |
+          set -euo pipefail
+          [ "$(git -C .rollback-source rev-parse HEAD)" = "$PREVIOUS_SHA" ] || {
+            echo "Prior deployment source checkout did not resolve to the recorded commit." >&2
+            exit 1
+          }
+          ./ci/verify-production-source-lineage.sh .rollback-source "$PREVIOUS_SHA" "$CURRENT_SHA"
 
       - name: Run production Terraform
         id: apply
         if: inputs.mode == 'apply' && inputs.pr_number == ''
         shell: bash
+        env:
+          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
         run: |
-          set -o pipefail
-          make tf-prod ACTION=apply 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-apply.log"
+          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-apply.log" make tf-prod BRANCH="$DEPLOY_BRANCH" ACTION=apply
 
       - name: Run preview Terraform
         id: apply_preview
         if: inputs.mode == 'apply' && inputs.pr_number != ''
         shell: bash
+        env:
+          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          set -o pipefail
-          make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=apply 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-apply.log"
+          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-apply.log" make tf-preview PR="$PR_NUMBER" BRANCH="$DEPLOY_BRANCH" ACTION=apply
+
+      - name: Attest deployed Cloud Run revision
+        id: revision_attestation
+        if: inputs.mode == 'apply'
+        shell: bash
+        env:
+          SERVICE_NAME: ${{ inputs.site_name }}
+        run: |
+          set -euo pipefail
+          service_json="$(mktemp)"
+          revision_json="$(mktemp)"
+          trap 'rm -f "$service_json" "$revision_json"' EXIT
+          gcloud run services describe "$SERVICE_NAME" \
+            --project "$GCLOUD_PROJECT" \
+            --region "$SCRIBE_REGION" \
+            --format=json > "$service_json"
+          revision="$(jq -r '.status.latestReadyRevisionName' "$service_json")"
+          gcloud run revisions describe "$revision" \
+            --project "$GCLOUD_PROJECT" \
+            --region "$SCRIBE_REGION" \
+            --format=json > "$revision_json"
+          revision="$(./ci/attest-cloud-run-revision.sh "$service_json" "$revision_json" "$SCRIBE_FRONTEND_GAR_IMAGE")"
+          echo "Attested Ready Cloud Run revision $revision at the expected frontend digest."
+
+      - name: Verify frontend, backend, and OCR readiness
+        id: readiness
+        if: inputs.mode == 'apply'
+        shell: bash
+        run: |
+          set -euo pipefail
+          job_name="$(terraform -chdir=terraform output -raw backend_readiness_job)"
+          if [ -z "$job_name" ]; then
+            echo "Terraform did not return a backend readiness job" >&2
+            exit 1
+          fi
+          ./ci/run-cloud-run-readiness.sh \
+            "$job_name" \
+            backend \
+            ".github-artifacts/terraform/${{ inputs.tf_workspace }}-backend-readiness-diagnostics.log"
+          ocr_job_name="$(terraform -chdir=terraform output -raw ocr_readiness_job)"
+          if [ -z "$ocr_job_name" ]; then
+            echo "Terraform did not return an OCR readiness job" >&2
+            exit 1
+          fi
+          ./ci/run-cloud-run-readiness.sh \
+            "$ocr_job_name" \
+            ocr \
+            ".github-artifacts/terraform/${{ inputs.tf_workspace }}-ocr-readiness-diagnostics.log"
 
       - name: Read preview URL
         id: preview_url
         if: inputs.mode == 'apply'
         run: |
           cd terraform
-          url="$(terraform output -json | jq -r '.urls.value["us-east5"] // ""')"
+          url="$(terraform output -json | jq -r --arg region "$SCRIBE_REGION" '.urls.value[$region] // ""')"
+          if [ -z "$url" ]; then
+            echo "Terraform did not return a preview URL for $SCRIBE_REGION" >&2
+            exit 1
+          fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Capture failed production VM diagnostics
+        if: failure() && inputs.mode == 'apply' && inputs.pr_number == '' && steps.apply.outcome != 'skipped'
+        continue-on-error: true
+        shell: bash
+        env:
+          SCRIBE_INSTANCE: ${{ inputs.site_name }}
+        run: ./ci/gcp-vm-bootstrap-diagnostics.sh > ".github-artifacts/terraform/${{ inputs.tf_workspace }}-vm-bootstrap-diagnostics.log" 2>&1
+
+      - name: Roll back failed production rollout
+        id: rollback
+        if: failure() && inputs.mode == 'apply' && inputs.pr_number == '' && steps.apply.outcome != 'skipped' && steps.previous.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_file="$GITHUB_WORKSPACE/.github-artifacts/terraform/previous-deployment-inputs.json"
+          previous="$("$GITHUB_WORKSPACE/ci/resolve-rollback-inputs.sh" "$previous_file")"
+          [ "$(jq -r '.configuration.project_id' <<<"$previous")" = "$GCLOUD_PROJECT" ]
+
+          DEPLOY_BRANCH="$(jq -r '.docker_compose_sha' <<<"$previous")"
+          SCRIBE_API_IMAGE="$(jq -r '.api_image' <<<"$previous")"
+          SCRIBE_DATA_GENERATION="$(jq -r '.data_generation' <<<"$previous")"
+          SCRIBE_FRONTEND_GAR_IMAGE="$(jq -r '.frontend_gar_image' <<<"$previous")"
+          recorded_ocr_images="$(jq -c '.ocr_service_images' <<<"$previous")"
+          SCRIBE_OCR_IMAGES_JSON="$(
+            GCLOUD_PROJECT="$GCLOUD_PROJECT" \
+              WORKSPACE_SLUG=prod \
+              INCLUDE_OLLAMA=true \
+              "$GITHUB_WORKSPACE/ci/select-current-ocr-images.sh" <<<"$recorded_ocr_images"
+          )"
+          SCRIBE_REGION="$(jq -r '.configuration.region' <<<"$previous")"
+          SCRIBE_ZONE="$(jq -r '.configuration.zone' <<<"$previous")"
+          ALLOWED_IPS="$(jq -c '.configuration.allowed_ips' <<<"$previous")"
+          ALLOWED_SSH_IPV4="$(jq -c '.configuration.allowed_ssh_ipv4' <<<"$previous")"
+          ALLOWED_SSH_IPV6="$(jq -c '.configuration.allowed_ssh_ipv6' <<<"$previous")"
+          VAULT_ADMIN_EMAILS="$(jq -c '.configuration.vault_admin_emails' <<<"$previous")"
+          VAULT_CI_SERVICE_ACCOUNT_EMAILS="$(jq -c '.configuration.vault_ci_service_account_emails' <<<"$previous")"
+          TF_VAR_monitoring_notification_channels="$(jq -c '.configuration.monitoring_notification_channels' <<<"$previous")"
+          TF_VAR_backup_restore_service_account_email="$(jq -r '.configuration.backup_restore_service_account_email' <<<"$previous")"
+          TF_VAR_network_ip_cidr_range="$(jq -r '.configuration.network_ip_cidr_range' <<<"$previous")"
+          TF_VAR_compose_network_cidr="$(jq -r '.configuration.compose_network_cidr' <<<"$previous")"
+          TF_VAR_transcription_max_active_jobs_per_workspace="$(jq -r '.configuration.transcription_max_active_jobs_per_workspace' <<<"$previous")"
+          TF_VAR_storage_max_bytes_per_workspace="$(jq -r '.configuration.storage_max_bytes_per_workspace' <<<"$previous")"
+          TF_VAR_storage_max_bytes_total="$(jq -r '.configuration.storage_max_bytes_total' <<<"$previous")"
+          TF_VAR_storage_max_items_per_workspace="$(jq -r '.configuration.storage_max_items_per_workspace' <<<"$previous")"
+          TF_VAR_storage_max_items_total="$(jq -r '.configuration.storage_max_items_total' <<<"$previous")"
+          TF_VAR_storage_max_images_per_workspace="$(jq -r '.configuration.storage_max_images_per_workspace' <<<"$previous")"
+          TF_VAR_storage_max_images_total="$(jq -r '.configuration.storage_max_images_total' <<<"$previous")"
+          TF_VAR_storage_reservation_ttl="$(jq -r '.configuration.storage_reservation_ttl' <<<"$previous")"
+          TF_VAR_storage_normalization_cache_max_bytes="$(jq -r '.configuration.storage_normalization_cache_max_bytes' <<<"$previous")"
+          TF_VAR_storage_normalization_cache_max_age="$(jq -r '.configuration.storage_normalization_cache_max_age' <<<"$previous")"
+          TF_VAR_iiif_max_manifest_canvases="$(jq -r '.configuration.iiif_max_manifest_canvases' <<<"$previous")"
+          TF_VAR_iiif_max_manifest_import_bytes="$(jq -r '.configuration.iiif_max_manifest_import_bytes' <<<"$previous")"
+          export DEPLOY_BRANCH SCRIBE_API_IMAGE SCRIBE_DATA_GENERATION SCRIBE_FRONTEND_GAR_IMAGE
+          export SCRIBE_OCR_IMAGES_JSON SCRIBE_REGION SCRIBE_ZONE ALLOWED_IPS ALLOWED_SSH_IPV4 ALLOWED_SSH_IPV6
+          export VAULT_ADMIN_EMAILS VAULT_CI_SERVICE_ACCOUNT_EMAILS TF_VAR_monitoring_notification_channels
+          export TF_VAR_backup_restore_service_account_email TF_VAR_network_ip_cidr_range TF_VAR_compose_network_cidr
+          export TF_VAR_transcription_max_active_jobs_per_workspace TF_VAR_storage_max_bytes_per_workspace
+          export TF_VAR_storage_max_bytes_total TF_VAR_storage_max_items_per_workspace TF_VAR_storage_max_items_total
+          export TF_VAR_storage_max_images_per_workspace TF_VAR_storage_max_images_total TF_VAR_storage_reservation_ttl
+          export TF_VAR_storage_normalization_cache_max_bytes TF_VAR_storage_normalization_cache_max_age
+          export TF_VAR_iiif_max_manifest_canvases TF_VAR_iiif_max_manifest_import_bytes
+
+          echo "The production rollout failed after apply began; restoring the prior reviewed artifacts, generation, and configuration with the current infrastructure safety code."
+          log_file="$GITHUB_WORKSPACE/.github-artifacts/terraform/${{ inputs.tf_workspace }}-rollback.log"
+          "$GITHUB_WORKSPACE/ci/capture-command-log.sh" "$log_file" make tf-prod BRANCH="$DEPLOY_BRANCH" ACTION=apply
+
+          service_file="$(mktemp)"
+          revision_file="$(mktemp)"
+          trap 'rm -f "$service_file" "$revision_file"' EXIT
+          gcloud run services describe "${{ inputs.site_name }}" --project "$GCLOUD_PROJECT" --region "$SCRIBE_REGION" --format=json >"$service_file"
+          revision="$(jq -r '.status.latestReadyRevisionName' "$service_file")"
+          gcloud run revisions describe "$revision" --project "$GCLOUD_PROJECT" --region "$SCRIBE_REGION" --format=json >"$revision_file"
+          "$GITHUB_WORKSPACE/ci/attest-cloud-run-revision.sh" "$service_file" "$revision_file" "$SCRIBE_FRONTEND_GAR_IMAGE" >/dev/null
+
+          backend_job="$(terraform -chdir=terraform output -raw backend_readiness_job)"
+          ocr_job="$(terraform -chdir=terraform output -raw ocr_readiness_job)"
+          "$GITHUB_WORKSPACE/ci/run-cloud-run-readiness.sh" \
+            "$backend_job" \
+            backend \
+            "$GITHUB_WORKSPACE/.github-artifacts/terraform/${{ inputs.tf_workspace }}-rollback-backend-readiness-diagnostics.log"
+          "$GITHUB_WORKSPACE/ci/run-cloud-run-readiness.sh" \
+            "$ocr_job" \
+            ocr \
+            "$GITHUB_WORKSPACE/.github-artifacts/terraform/${{ inputs.tf_workspace }}-rollback-ocr-readiness-diagnostics.log"
+
+      - name: Read production backup outputs
+        id: backup_outputs
+        if: inputs.mode == 'apply' && inputs.pr_number == '' && steps.readiness.outcome == 'success'
+        shell: bash
+        run: |
+          {
+            echo "uploads_bucket=$(terraform -chdir=terraform output -raw uploads_bucket)"
+            echo "backup_bucket=$(terraform -chdir=terraform output -raw uploads_backup_bucket)"
+            echo "transfer_job=$(terraform -chdir=terraform output -raw uploads_backup_transfer_job)"
+            echo "vault_data_bucket=$(terraform -chdir=terraform output -raw vault_data_bucket)"
+            echo "vault_key_bucket=$(terraform -chdir=terraform output -raw vault_key_bucket)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify deployed production backup policy
+        id: backup_verify
+        if: inputs.mode == 'apply' && inputs.pr_number == '' && steps.readiness.outcome == 'success'
+        env:
+          ALLOW_MISSING_TRANSFER_OPERATION: "true"
+          UPLOADS_BUCKET: ${{ steps.backup_outputs.outputs.uploads_bucket }}
+          UPLOADS_BACKUP_BUCKET: ${{ steps.backup_outputs.outputs.backup_bucket }}
+          UPLOADS_BACKUP_TRANSFER_JOB: ${{ steps.backup_outputs.outputs.transfer_job }}
+          VAULT_DATA_BUCKET: ${{ steps.backup_outputs.outputs.vault_data_bucket }}
+          VAULT_KEY_BUCKET: ${{ steps.backup_outputs.outputs.vault_key_bucket }}
+        run: ./ci/verify-cloud-backups.sh
 
       - name: Destroy production Terraform
         id: destroy
         if: inputs.mode == 'destroy' && inputs.pr_number == ''
         shell: bash
+        env:
+          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
         run: |
-          set -o pipefail
-          make tf-prod ACTION=destroy 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log"
+          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log" make tf-prod BRANCH="$DEPLOY_BRANCH" ACTION=destroy
 
       - name: Destroy preview Terraform
         id: destroy_preview
         if: inputs.mode == 'destroy' && inputs.pr_number != ''
         shell: bash
+        env:
+          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          set -o pipefail
-          make tf-preview PR=${{ inputs.pr_number }} BRANCH=${{ inputs.docker_compose_branch }} ACTION=destroy 2>&1 | tee ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log"
+          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log" make tf-preview PR="$PR_NUMBER" BRANCH="$DEPLOY_BRANCH" ACTION=destroy
+
+      - name: Remove preview Vault namespace
+        if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
+        shell: bash
+        env:
+          PREVIEW_PREFIX: scribe/previews/${{ inputs.site_name }}@${{ vars.GCLOUD_PROJECT }}.iam.gserviceaccount.com
+          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
+          VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
+        run: |
+          bash ./ci/preview-vault-secrets.sh delete "$PREVIEW_PREFIX"
 
       - name: Upload Terraform logs
         if: failure() || inputs.mode == 'apply' || inputs.mode == 'plan'
@@ -311,21 +696,21 @@ jobs:
         if: always()
         run: |
           image_ref="$(printf '%s' "${SCRIBE_API_IMAGE}" | tr '[:upper:]' '[:lower:]')"
-          if [ '${{ inputs.mode }}' = 'apply' ]; then
-            status='${{ steps.apply.outcome }}'
-            if [ "$status" = '' ]; then
-              status='${{ steps.apply_preview.outcome }}'
-            fi
-          elif [ '${{ inputs.mode }}' = 'plan' ]; then
-            status='${{ steps.plan.outcome }}'
-            if [ "$status" = '' ]; then
-              status='${{ steps.plan_preview.outcome }}'
-            fi
-          else
-            status='${{ steps.destroy.outcome }}'
-            if [ "$status" = '' ]; then
-              status='${{ steps.destroy_preview.outcome }}'
-            fi
-          fi
+          status="$(
+            DEPLOY_MODE='${{ inputs.mode }}' \
+            PR_NUMBER='${{ inputs.pr_number }}' \
+            PLAN_OUTCOME='${{ steps.plan.outcome }}' \
+            PLAN_PREVIEW_OUTCOME='${{ steps.plan_preview.outcome }}' \
+            APPLY_OUTCOME='${{ steps.apply.outcome }}' \
+            APPLY_PREVIEW_OUTCOME='${{ steps.apply_preview.outcome }}' \
+            REVISION_OUTCOME='${{ steps.revision_attestation.outcome }}' \
+            URL_OUTCOME='${{ steps.preview_url.outcome }}' \
+            READINESS_OUTCOME='${{ steps.readiness.outcome }}' \
+            ROLLBACK_OUTCOME='${{ steps.rollback.outcome }}' \
+            BACKUP_OUTCOME='${{ steps.backup_verify.outcome }}' \
+            DESTROY_OUTCOME='${{ steps.destroy.outcome }}' \
+            DESTROY_PREVIEW_OUTCOME='${{ steps.destroy_preview.outcome }}' \
+              ./ci/deployment-status.sh
+          )"
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "image=$image_ref" >> "$GITHUB_OUTPUT"

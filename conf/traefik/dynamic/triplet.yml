@@ -6,6 +6,9 @@ http:
           - url: http://triplet:8080
   routers:
     triplet:
-      rule: PathPrefix(`/iiif`) || PathPrefix(`/presentation`)
+      # Triplet is the sole public IIIF protocol server. For protected draft
+      # images it forwards browser Cookie/Authorization only to the exact
+      # allowlisted Scribe source origin configured in triplet.config.yaml.
+      rule: (Method(`GET`) || Method(`HEAD`) || Method(`OPTIONS`)) && (Path(`/iiif`) || PathPrefix(`/iiif/`) || Path(`/presentation`) || PathPrefix(`/presentation/`))
       service: triplet
       priority: 100

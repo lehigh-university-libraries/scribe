@@ -13,42 +13,32 @@ import (
 const getContextOCRRunMetricsManual = `-- name: GetContextOCRRunMetricsManual :one
 SELECT
   COUNT(*) AS total_runs,
-  CAST(COALESCE(SUM(has_correction), 0) AS SIGNED) AS corrected_runs,
-  CAST(COALESCE(AVG(CASE WHEN has_correction = 1 THEN levenshtein_distance END), 0) AS DOUBLE) AS avg_levenshtein_distance,
-  CAST(COALESCE(AVG(CASE WHEN has_correction = 1 THEN edit_count END), 0) AS DOUBLE) AS avg_edit_count,
-  CAST(COALESCE(AVG(CASE WHEN has_correction = 1 THEN box_change_score END), 0) AS DOUBLE) AS avg_box_change_score
-FROM (
-  SELECT
-    MAX(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN 1 ELSE 0 END) AS has_correction,
-    MAX(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN levenshtein_distance ELSE 0 END) AS levenshtein_distance,
-    MAX(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN edit_count ELSE 0 END) AS edit_count,
-    MAX(CASE WHEN corrected_hocr IS NOT NULL AND corrected_hocr != '' THEN box_change_score ELSE 0 END) AS box_change_score
-  FROM ocr_runs
-  WHERE context_id = ?
-  GROUP BY CASE
-    WHEN item_image_id IS NOT NULL THEN CONCAT('img:', CAST(item_image_id AS CHAR))
-    ELSE CONCAT('sess:', session_id)
-  END
-) deduped_runs
+  CAST(COALESCE(SUM(current_run.canonical_revision IS NOT NULL), 0) AS SIGNED) AS corrected_runs,
+  CAST(COALESCE(AVG(CASE WHEN current_run.canonical_revision IS NOT NULL THEN current_run.levenshtein_distance END), 0) AS DOUBLE) AS avg_levenshtein_distance
+FROM current_ocr_runs current_pointer
+JOIN ocr_runs current_run
+  ON current_run.session_id = current_pointer.session_id
+ AND current_run.item_image_id = current_pointer.item_image_id
+JOIN item_images current_image ON current_image.id = current_run.item_image_id
+JOIN items current_item ON current_item.id = current_image.item_id
+WHERE current_run.context_id = ?
+  AND current_item.workspace_id = ?
 `
+
+type GetContextOCRRunMetricsManualParams struct {
+	ContextID   sql.NullInt64 `json:"context_id"`
+	WorkspaceID uint64        `json:"workspace_id"`
+}
 
 type GetContextOCRRunMetricsManualRow struct {
 	TotalRuns              int64   `json:"total_runs"`
 	CorrectedRuns          int64   `json:"corrected_runs"`
 	AvgLevenshteinDistance float64 `json:"avg_levenshtein_distance"`
-	AvgEditCount           float64 `json:"avg_edit_count"`
-	AvgBoxChangeScore      float64 `json:"avg_box_change_score"`
 }
 
-func (q *Queries) GetContextOCRRunMetricsManual(ctx context.Context, contextID sql.NullInt64) (GetContextOCRRunMetricsManualRow, error) {
-	row := q.db.QueryRowContext(ctx, getContextOCRRunMetricsManual, contextID)
+func (q *Queries) GetContextOCRRunMetricsManual(ctx context.Context, arg GetContextOCRRunMetricsManualParams) (GetContextOCRRunMetricsManualRow, error) {
+	row := q.db.QueryRowContext(ctx, getContextOCRRunMetricsManual, arg.ContextID, arg.WorkspaceID)
 	var i GetContextOCRRunMetricsManualRow
-	err := row.Scan(
-		&i.TotalRuns,
-		&i.CorrectedRuns,
-		&i.AvgLevenshteinDistance,
-		&i.AvgEditCount,
-		&i.AvgBoxChangeScore,
-	)
+	err := row.Scan(&i.TotalRuns, &i.CorrectedRuns, &i.AvgLevenshteinDistance)
 	return i, err
 }

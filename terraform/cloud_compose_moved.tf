@@ -9,7 +9,7 @@ moved {
 
 moved {
   from = module.scribe.module.gcp.google_service_account.cloud-compose
-  to   = module.scribe.module.gcp[0].google_service_account.cloud-compose
+  to   = module.scribe.module.gcp[0].google_service_account.cloud-compose[0]
 }
 
 moved {

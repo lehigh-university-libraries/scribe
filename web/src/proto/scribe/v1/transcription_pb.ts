@@ -12,7 +12,72 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file scribe/v1/transcription.proto.
  */
 export const file_scribe_v1_transcription: GenFile = /*@__PURE__*/
-  fileDesc("Ch1zY3JpYmUvdjEvdHJhbnNjcmlwdGlvbi5wcm90bxIJc2NyaWJlLnYxIu0CChBUcmFuc2NyaXB0aW9uSm9iEgoKAmlkGAEgASgEEhUKDWl0ZW1faW1hZ2VfaWQYAiABKAQSEgoKY29udGV4dF9pZBgDIAEoBBIxCgZzdGF0dXMYBCABKA4yIS5zY3JpYmUudjEuVHJhbnNjcmlwdGlvbkpvYlN0YXR1cxIWCg50b3RhbF9zZWdtZW50cxgFIAEoBRIaChJjb21wbGV0ZWRfc2VnbWVudHMYBiABKAUSFwoPZmFpbGVkX3NlZ21lbnRzGAcgASgFEh0KFWN1cnJlbnRfYW5ub3RhdGlvbl9pZBgIIAEoCRIfChdjdXJyZW50X2Fubm90YXRpb25fanNvbhgJIAEoCRIjChtsYXN0X3Jlc3VsdF9hbm5vdGF0aW9uX2pzb24YCiABKAkSFQoNZXJyb3JfbWVzc2FnZRgLIAEoCRISCgpjcmVhdGVkX2F0GAwgASgJEhIKCnVwZGF0ZWRfYXQYDSABKAkiVgodQ3JlYXRlVHJhbnNjcmlwdGlvbkpvYlJlcXVlc3QSIQoNaXRlbV9pbWFnZV9pZBgBIAEoBEIKukgHyAEBMgIgABISCgpjb250ZXh0X2lkGAIgASgEIjAKHkNyZWF0ZVRyYW5zY3JpcHRpb25Kb2JSZXNwb25zZRIOCgZqb2JfaWQYASABKAQiOAoaR2V0VHJhbnNjcmlwdGlvbkpvYlJlcXVlc3QSGgoGam9iX2lkGAEgASgEQgq6SAfIAQEyAiAAIkcKG0dldFRyYW5zY3JpcHRpb25Kb2JSZXNwb25zZRIoCgNqb2IYASABKAsyGy5zY3JpYmUudjEuVHJhbnNjcmlwdGlvbkpvYiI1ChxMaXN0VHJhbnNjcmlwdGlvbkpvYnNSZXF1ZXN0EhUKDWl0ZW1faW1hZ2VfaWQYASABKAQiSgodTGlzdFRyYW5zY3JpcHRpb25Kb2JzUmVzcG9uc2USKQoEam9icxgBIAMoCzIbLnNjcmliZS52MS5UcmFuc2NyaXB0aW9uSm9iIjsKHVN0cmVhbVRyYW5zY3JpcHRpb25Kb2JSZXF1ZXN0EhoKBmpvYl9pZBgBIAEoBEIKukgHyAEBMgIgACJKCh5TdHJlYW1UcmFuc2NyaXB0aW9uSm9iUmVzcG9uc2USKAoDam9iGAEgASgLMhsuc2NyaWJlLnYxLlRyYW5zY3JpcHRpb25Kb2Iq2wEKFlRyYW5zY3JpcHRpb25Kb2JTdGF0dXMSKAokVFJBTlNDUklQVElPTl9KT0JfU1RBVFVTX1VOU1BFQ0lGSUVEEAASJAogVFJBTlNDUklQVElPTl9KT0JfU1RBVFVTX1BFTkRJTkcQARIkCiBUUkFOU0NSSVBUSU9OX0pPQl9TVEFUVVNfUlVOTklORxACEiYKIlRSQU5TQ1JJUFRJT05fSk9CX1NUQVRVU19DT01QTEVURUQQAxIjCh9UUkFOU0NSSVBUSU9OX0pPQl9TVEFUVVNfRkFJTEVEEAQykQQKFFRyYW5zY3JpcHRpb25TZXJ2aWNlEoYBChZDcmVhdGVUcmFuc2NyaXB0aW9uSm9iEiguc2NyaWJlLnYxLkNyZWF0ZVRyYW5zY3JpcHRpb25Kb2JSZXF1ZXN0Gikuc2NyaWJlLnYxLkNyZWF0ZVRyYW5zY3JpcHRpb25Kb2JSZXNwb25zZSIXkrUYExAEGAIiDWl0ZW1faW1hZ2VfaWQSdgoTR2V0VHJhbnNjcmlwdGlvbkpvYhIlLnNjcmliZS52MS5HZXRUcmFuc2NyaXB0aW9uSm9iUmVxdWVzdBomLnNjcmliZS52MS5HZXRUcmFuc2NyaXB0aW9uSm9iUmVzcG9uc2UiEJK1GAwQBhgBIgZqb2JfaWQSdAoVTGlzdFRyYW5zY3JpcHRpb25Kb2JzEicuc2NyaWJlLnYxLkxpc3RUcmFuc2NyaXB0aW9uSm9ic1JlcXVlc3QaKC5zY3JpYmUudjEuTGlzdFRyYW5zY3JpcHRpb25Kb2JzUmVzcG9uc2UiCJK1GAQQAhgBEoEBChZTdHJlYW1UcmFuc2NyaXB0aW9uSm9iEiguc2NyaWJlLnYxLlN0cmVhbVRyYW5zY3JpcHRpb25Kb2JSZXF1ZXN0Gikuc2NyaWJlLnYxLlN0cmVhbVRyYW5zY3JpcHRpb25Kb2JSZXNwb25zZSIQkrUYDBAGGAEiBmpvYl9pZDABQrABCg1jb20uc2NyaWJlLnYxQhJUcmFuc2NyaXB0aW9uUHJvdG9QAVpGZ2l0aHViLmNvbS9sZWhpZ2gtdW5pdmVyc2l0eS1saWJyYXJpZXMvc2NyaWJlL3Byb3RvL3NjcmliZS92MTtzY3JpYmV2MaICA1NYWKoCCVNjcmliZS5WMcoCCVNjcmliZVxWMeICFVNjcmliZVxWMVxHUEJNZXRhZGF0YeoCClNjcmliZTo6VjFiBnByb3RvMw", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
+  fileDesc("Ch1zY3JpYmUvdjEvdHJhbnNjcmlwdGlvbi5wcm90bxIJc2NyaWJlLnYxIqcCChdUcmFuc2NyaXB0aW9uSm9iQXR0ZW1wdBIOCgZqb2JfaWQYASABKAQSFgoOYXR0ZW1wdF9udW1iZXIYAiABKA0SFgoOaW5wdXRfcmV2aXNpb24YAyABKAQSHQoVY29udGV4dF9zbmFwc2hvdF9qc29uGAQgASgJEhMKC2xlYXNlX293bmVyGAUgASgJEjoKB291dGNvbWUYBiABKA4yKS5zY3JpYmUudjEuVHJhbnNjcmlwdGlvbkpvYkF0dGVtcHRPdXRjb21lEhoKEnNhZmVfZXJyb3JfbWVzc2FnZRgHIAEoCRIXCg9yZXN1bHRfcmV2aXNpb24YCCABKAQSEgoKc3RhcnRlZF9hdBgJIAEoCRITCgtmaW5pc2hlZF9hdBgKIAEoCSLoAwoQVHJhbnNjcmlwdGlvbkpvYhIKCgJpZBgBIAEoBBIVCg1pdGVtX2ltYWdlX2lkGAIgASgEEhIKCmNvbnRleHRfaWQYAyABKAQSMQoGc3RhdHVzGAQgASgOMiEuc2NyaWJlLnYxLlRyYW5zY3JpcHRpb25Kb2JTdGF0dXMSFgoOdG90YWxfc2VnbWVudHMYBSABKAUSGgoSY29tcGxldGVkX3NlZ21lbnRzGAYgASgFEhcKD2ZhaWxlZF9zZWdtZW50cxgHIAEoBRIdChVjdXJyZW50X2Fubm90YXRpb25faWQYCCABKAkSHwoXY3VycmVudF9hbm5vdGF0aW9uX2pzb24YCSABKAkSIwobbGFzdF9yZXN1bHRfYW5ub3RhdGlvbl9qc29uGAogASgJEhUKDWVycm9yX21lc3NhZ2UYCyABKAkSEgoKY3JlYXRlZF9hdBgMIAEoCRISCgp1cGRhdGVkX2F0GA0gASgJEhYKDmlucHV0X3JldmlzaW9uGA4gASgEEhUKDWF0dGVtcHRfY291bnQYDyABKAUSFAoMbWF4X2F0dGVtcHRzGBAgASgFEjQKCGF0dGVtcHRzGBEgAygLMiIuc2NyaWJlLnYxLlRyYW5zY3JpcHRpb25Kb2JBdHRlbXB0IvMCChdUcmFuc2NyaXB0aW9uSm9iU3VtbWFyeRIKCgJpZBgBIAEoBBIVCg1pdGVtX2ltYWdlX2lkGAIgASgEEhIKCmNvbnRleHRfaWQYAyABKAQSMQoGc3RhdHVzGAQgASgOMiEuc2NyaWJlLnYxLlRyYW5zY3JpcHRpb25Kb2JTdGF0dXMSFgoOdG90YWxfc2VnbWVudHMYBSABKAUSGgoSY29tcGxldGVkX3NlZ21lbnRzGAYgASgFEhcKD2ZhaWxlZF9zZWdtZW50cxgHIAEoBRIdChVjdXJyZW50X2Fubm90YXRpb25faWQYCCABKAkSFQoNZXJyb3JfbWVzc2FnZRgJIAEoCRISCgpjcmVhdGVkX2F0GAogASgJEhIKCnVwZGF0ZWRfYXQYCyABKAkSFgoOaW5wdXRfcmV2aXNpb24YDCABKAQSFQoNYXR0ZW1wdF9jb3VudBgNIAEoBRIUCgxtYXhfYXR0ZW1wdHMYDiABKAUiVgodQ3JlYXRlVHJhbnNjcmlwdGlvbkpvYlJlcXVlc3QSIQoNaXRlbV9pbWFnZV9pZBgBIAEoBEIKukgHyAEBMgIgABISCgpjb250ZXh0X2lkGAIgASgEIjAKHkNyZWF0ZVRyYW5zY3JpcHRpb25Kb2JSZXNwb25zZRIOCgZqb2JfaWQYASABKAQiOAoaR2V0VHJhbnNjcmlwdGlvbkpvYlJlcXVlc3QSGgoGam9iX2lkGAEgASgEQgq6SAfIAQEyAiAAIkcKG0dldFRyYW5zY3JpcHRpb25Kb2JSZXNwb25zZRIoCgNqb2IYASABKAsyGy5zY3JpYmUudjEuVHJhbnNjcmlwdGlvbkpvYiJvChxMaXN0VHJhbnNjcmlwdGlvbkpvYnNSZXF1ZXN0EhUKDWl0ZW1faW1hZ2VfaWQYASABKAQSGgoJcGFnZV9zaXplGAIgASgNQge6SAQqAhhkEhwKCnBhZ2VfdG9rZW4YAyABKAlCCLpIBXIDGIAEImoKHUxpc3RUcmFuc2NyaXB0aW9uSm9ic1Jlc3BvbnNlEjAKBGpvYnMYASADKAsyIi5zY3JpYmUudjEuVHJhbnNjcmlwdGlvbkpvYlN1bW1hcnkSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIjsKHVN0cmVhbVRyYW5zY3JpcHRpb25Kb2JSZXF1ZXN0EhoKBmpvYl9pZBgBIAEoBEIKukgHyAEBMgIgACJKCh5TdHJlYW1UcmFuc2NyaXB0aW9uSm9iUmVzcG9uc2USKAoDam9iGAEgASgLMhsuc2NyaWJlLnYxLlRyYW5zY3JpcHRpb25Kb2IiOwodQ2FuY2VsVHJhbnNjcmlwdGlvbkpvYlJlcXVlc3QSGgoGam9iX2lkGAEgASgEQgq6SAfIAQEyAiAAIkoKHkNhbmNlbFRyYW5zY3JpcHRpb25Kb2JSZXNwb25zZRIoCgNqb2IYASABKAsyGy5zY3JpYmUudjEuVHJhbnNjcmlwdGlvbkpvYiqrAgoWVHJhbnNjcmlwdGlvbkpvYlN0YXR1cxIoCiRUUkFOU0NSSVBUSU9OX0pPQl9TVEFUVVNfVU5TUEVDSUZJRUQQABIkCiBUUkFOU0NSSVBUSU9OX0pPQl9TVEFUVVNfUEVORElORxABEiQKIFRSQU5TQ1JJUFRJT05fSk9CX1NUQVRVU19SVU5OSU5HEAISJgoiVFJBTlNDUklQVElPTl9KT0JfU1RBVFVTX0NPTVBMRVRFRBADEiMKH1RSQU5TQ1JJUFRJT05fSk9CX1NUQVRVU19GQUlMRUQQBBIlCiFUUkFOU0NSSVBUSU9OX0pPQl9TVEFUVVNfQ0FOQ0VMRUQQBRInCiNUUkFOU0NSSVBUSU9OX0pPQl9TVEFUVVNfU1VQRVJTRURFRBAGKrADCh5UcmFuc2NyaXB0aW9uSm9iQXR0ZW1wdE91dGNvbWUSMQotVFJBTlNDUklQVElPTl9KT0JfQVRURU1QVF9PVVRDT01FX1VOU1BFQ0lGSUVEEAASLQopVFJBTlNDUklQVElPTl9KT0JfQVRURU1QVF9PVVRDT01FX1JVTk5JTkcQARIvCitUUkFOU0NSSVBUSU9OX0pPQl9BVFRFTVBUX09VVENPTUVfQ09NUExFVEVEEAISNgoyVFJBTlNDUklQVElPTl9KT0JfQVRURU1QVF9PVVRDT01FX1JFVFJZQUJMRV9GQUlMRUQQAxIsCihUUkFOU0NSSVBUSU9OX0pPQl9BVFRFTVBUX09VVENPTUVfRkFJTEVEEAQSLgoqVFJBTlNDUklQVElPTl9KT0JfQVRURU1QVF9PVVRDT01FX0NBTkNFTEVEEAUSMAosVFJBTlNDUklQVElPTl9KT0JfQVRURU1QVF9PVVRDT01FX1NVUEVSU0VERUQQBhIzCi9UUkFOU0NSSVBUSU9OX0pPQl9BVFRFTVBUX09VVENPTUVfTEVBU0VfRVhQSVJFRBAHMpIFChRUcmFuc2NyaXB0aW9uU2VydmljZRKGAQoWQ3JlYXRlVHJhbnNjcmlwdGlvbkpvYhIoLnNjcmliZS52MS5DcmVhdGVUcmFuc2NyaXB0aW9uSm9iUmVxdWVzdBopLnNjcmliZS52MS5DcmVhdGVUcmFuc2NyaXB0aW9uSm9iUmVzcG9uc2UiF5K1GBMQBBgCIg1pdGVtX2ltYWdlX2lkEn8KFkNhbmNlbFRyYW5zY3JpcHRpb25Kb2ISKC5zY3JpYmUudjEuQ2FuY2VsVHJhbnNjcmlwdGlvbkpvYlJlcXVlc3QaKS5zY3JpYmUudjEuQ2FuY2VsVHJhbnNjcmlwdGlvbkpvYlJlc3BvbnNlIhCStRgMEAYYAiIGam9iX2lkEnYKE0dldFRyYW5zY3JpcHRpb25Kb2ISJS5zY3JpYmUudjEuR2V0VHJhbnNjcmlwdGlvbkpvYlJlcXVlc3QaJi5zY3JpYmUudjEuR2V0VHJhbnNjcmlwdGlvbkpvYlJlc3BvbnNlIhCStRgMEAYYASIGam9iX2lkEnQKFUxpc3RUcmFuc2NyaXB0aW9uSm9icxInLnNjcmliZS52MS5MaXN0VHJhbnNjcmlwdGlvbkpvYnNSZXF1ZXN0Giguc2NyaWJlLnYxLkxpc3RUcmFuc2NyaXB0aW9uSm9ic1Jlc3BvbnNlIgiStRgEEAIYARKBAQoWU3RyZWFtVHJhbnNjcmlwdGlvbkpvYhIoLnNjcmliZS52MS5TdHJlYW1UcmFuc2NyaXB0aW9uSm9iUmVxdWVzdBopLnNjcmliZS52MS5TdHJlYW1UcmFuc2NyaXB0aW9uSm9iUmVzcG9uc2UiEJK1GAwQBhgBIgZqb2JfaWQwAUKwAQoNY29tLnNjcmliZS52MUISVHJhbnNjcmlwdGlvblByb3RvUAFaRmdpdGh1Yi5jb20vbGVoaWdoLXVuaXZlcnNpdHktbGlicmFyaWVzL3NjcmliZS9wcm90by9zY3JpYmUvdjE7c2NyaWJldjGiAgNTWFiqAglTY3JpYmUuVjHKAglTY3JpYmVcVjHiAhVTY3JpYmVcVjFcR1BCTWV0YWRhdGHqAgpTY3JpYmU6OlYxYgZwcm90bzM", [file_buf_validate_validate, file_scribe_v1_options_v1_auth]);
+
+/**
+ * TranscriptionJobAttempt is the auditable history of one worker claim. Lease
+ * tokens are intentionally not exposed through the application API.
+ *
+ * @generated from message scribe.v1.TranscriptionJobAttempt
+ */
+export type TranscriptionJobAttempt = Message<"scribe.v1.TranscriptionJobAttempt"> & {
+  /**
+   * @generated from field: uint64 job_id = 1;
+   */
+  jobId: bigint;
+
+  /**
+   * @generated from field: uint32 attempt_number = 2;
+   */
+  attemptNumber: number;
+
+  /**
+   * @generated from field: uint64 input_revision = 3;
+   */
+  inputRevision: bigint;
+
+  /**
+   * @generated from field: string context_snapshot_json = 4;
+   */
+  contextSnapshotJson: string;
+
+  /**
+   * @generated from field: string lease_owner = 5;
+   */
+  leaseOwner: string;
+
+  /**
+   * @generated from field: scribe.v1.TranscriptionJobAttemptOutcome outcome = 6;
+   */
+  outcome: TranscriptionJobAttemptOutcome;
+
+  /**
+   * @generated from field: string safe_error_message = 7;
+   */
+  safeErrorMessage: string;
+
+  /**
+   * @generated from field: uint64 result_revision = 8;
+   */
+  resultRevision: bigint;
+
+  /**
+   * @generated from field: string started_at = 9;
+   */
+  startedAt: string;
+
+  /**
+   * @generated from field: string finished_at = 10;
+   */
+  finishedAt: string;
+};
+
+/**
+ * Describes the message scribe.v1.TranscriptionJobAttempt.
+ * Use `create(TranscriptionJobAttemptSchema)` to create a new message.
+ */
+export const TranscriptionJobAttemptSchema: GenMessage<TranscriptionJobAttempt> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_transcription, 0);
 
 /**
  * TranscriptionJob represents a batch transcription job for a single item image.
@@ -93,6 +158,26 @@ export type TranscriptionJob = Message<"scribe.v1.TranscriptionJob"> & {
    * @generated from field: string updated_at = 13;
    */
   updatedAt: string;
+
+  /**
+   * @generated from field: uint64 input_revision = 14;
+   */
+  inputRevision: bigint;
+
+  /**
+   * @generated from field: int32 attempt_count = 15;
+   */
+  attemptCount: number;
+
+  /**
+   * @generated from field: int32 max_attempts = 16;
+   */
+  maxAttempts: number;
+
+  /**
+   * @generated from field: repeated scribe.v1.TranscriptionJobAttempt attempts = 17;
+   */
+  attempts: TranscriptionJobAttempt[];
 };
 
 /**
@@ -100,7 +185,93 @@ export type TranscriptionJob = Message<"scribe.v1.TranscriptionJob"> & {
  * Use `create(TranscriptionJobSchema)` to create a new message.
  */
 export const TranscriptionJobSchema: GenMessage<TranscriptionJob> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_transcription, 0);
+  messageDesc(file_scribe_v1_transcription, 1);
+
+/**
+ * TranscriptionJobSummary is the bounded list projection. Per-segment
+ * annotation payloads and attempt history are available from GetTranscriptionJob
+ * and the stream, but are deliberately excluded from list responses.
+ *
+ * @generated from message scribe.v1.TranscriptionJobSummary
+ */
+export type TranscriptionJobSummary = Message<"scribe.v1.TranscriptionJobSummary"> & {
+  /**
+   * @generated from field: uint64 id = 1;
+   */
+  id: bigint;
+
+  /**
+   * @generated from field: uint64 item_image_id = 2;
+   */
+  itemImageId: bigint;
+
+  /**
+   * @generated from field: uint64 context_id = 3;
+   */
+  contextId: bigint;
+
+  /**
+   * @generated from field: scribe.v1.TranscriptionJobStatus status = 4;
+   */
+  status: TranscriptionJobStatus;
+
+  /**
+   * @generated from field: int32 total_segments = 5;
+   */
+  totalSegments: number;
+
+  /**
+   * @generated from field: int32 completed_segments = 6;
+   */
+  completedSegments: number;
+
+  /**
+   * @generated from field: int32 failed_segments = 7;
+   */
+  failedSegments: number;
+
+  /**
+   * @generated from field: string current_annotation_id = 8;
+   */
+  currentAnnotationId: string;
+
+  /**
+   * @generated from field: string error_message = 9;
+   */
+  errorMessage: string;
+
+  /**
+   * @generated from field: string created_at = 10;
+   */
+  createdAt: string;
+
+  /**
+   * @generated from field: string updated_at = 11;
+   */
+  updatedAt: string;
+
+  /**
+   * @generated from field: uint64 input_revision = 12;
+   */
+  inputRevision: bigint;
+
+  /**
+   * @generated from field: int32 attempt_count = 13;
+   */
+  attemptCount: number;
+
+  /**
+   * @generated from field: int32 max_attempts = 14;
+   */
+  maxAttempts: number;
+};
+
+/**
+ * Describes the message scribe.v1.TranscriptionJobSummary.
+ * Use `create(TranscriptionJobSummarySchema)` to create a new message.
+ */
+export const TranscriptionJobSummarySchema: GenMessage<TranscriptionJobSummary> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_transcription, 2);
 
 /**
  * CreateTranscriptionJobRequest kicks off a batch transcription job for a
@@ -128,7 +299,7 @@ export type CreateTranscriptionJobRequest = Message<"scribe.v1.CreateTranscripti
  * Use `create(CreateTranscriptionJobRequestSchema)` to create a new message.
  */
 export const CreateTranscriptionJobRequestSchema: GenMessage<CreateTranscriptionJobRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_transcription, 1);
+  messageDesc(file_scribe_v1_transcription, 3);
 
 /**
  * @generated from message scribe.v1.CreateTranscriptionJobResponse
@@ -145,7 +316,7 @@ export type CreateTranscriptionJobResponse = Message<"scribe.v1.CreateTranscript
  * Use `create(CreateTranscriptionJobResponseSchema)` to create a new message.
  */
 export const CreateTranscriptionJobResponseSchema: GenMessage<CreateTranscriptionJobResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_transcription, 2);
+  messageDesc(file_scribe_v1_transcription, 4);
 
 /**
  * @generated from message scribe.v1.GetTranscriptionJobRequest
@@ -162,7 +333,7 @@ export type GetTranscriptionJobRequest = Message<"scribe.v1.GetTranscriptionJobR
  * Use `create(GetTranscriptionJobRequestSchema)` to create a new message.
  */
 export const GetTranscriptionJobRequestSchema: GenMessage<GetTranscriptionJobRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_transcription, 3);
+  messageDesc(file_scribe_v1_transcription, 5);
 
 /**
  * @generated from message scribe.v1.GetTranscriptionJobResponse
@@ -179,18 +350,32 @@ export type GetTranscriptionJobResponse = Message<"scribe.v1.GetTranscriptionJob
  * Use `create(GetTranscriptionJobResponseSchema)` to create a new message.
  */
 export const GetTranscriptionJobResponseSchema: GenMessage<GetTranscriptionJobResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_transcription, 4);
+  messageDesc(file_scribe_v1_transcription, 6);
 
 /**
  * @generated from message scribe.v1.ListTranscriptionJobsRequest
  */
 export type ListTranscriptionJobsRequest = Message<"scribe.v1.ListTranscriptionJobsRequest"> & {
   /**
-   * Filter by item_image_id; returns all jobs if zero.
+   * Filter by item_image_id; returns workspace jobs if zero.
    *
    * @generated from field: uint64 item_image_id = 1;
    */
   itemImageId: bigint;
+
+  /**
+   * Number of job summaries to return. Defaults to 50 and is capped at 100.
+   *
+   * @generated from field: uint32 page_size = 2;
+   */
+  pageSize: number;
+
+  /**
+   * Opaque workspace- and filter-bound cursor returned by the previous page.
+   *
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
 };
 
 /**
@@ -198,16 +383,21 @@ export type ListTranscriptionJobsRequest = Message<"scribe.v1.ListTranscriptionJ
  * Use `create(ListTranscriptionJobsRequestSchema)` to create a new message.
  */
 export const ListTranscriptionJobsRequestSchema: GenMessage<ListTranscriptionJobsRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_transcription, 5);
+  messageDesc(file_scribe_v1_transcription, 7);
 
 /**
  * @generated from message scribe.v1.ListTranscriptionJobsResponse
  */
 export type ListTranscriptionJobsResponse = Message<"scribe.v1.ListTranscriptionJobsResponse"> & {
   /**
-   * @generated from field: repeated scribe.v1.TranscriptionJob jobs = 1;
+   * @generated from field: repeated scribe.v1.TranscriptionJobSummary jobs = 1;
    */
-  jobs: TranscriptionJob[];
+  jobs: TranscriptionJobSummary[];
+
+  /**
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
 };
 
 /**
@@ -215,7 +405,7 @@ export type ListTranscriptionJobsResponse = Message<"scribe.v1.ListTranscription
  * Use `create(ListTranscriptionJobsResponseSchema)` to create a new message.
  */
 export const ListTranscriptionJobsResponseSchema: GenMessage<ListTranscriptionJobsResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_transcription, 6);
+  messageDesc(file_scribe_v1_transcription, 8);
 
 /**
  * StreamTranscriptionJobRequest opens a server-sent-events stream for a job.
@@ -236,7 +426,7 @@ export type StreamTranscriptionJobRequest = Message<"scribe.v1.StreamTranscripti
  * Use `create(StreamTranscriptionJobRequestSchema)` to create a new message.
  */
 export const StreamTranscriptionJobRequestSchema: GenMessage<StreamTranscriptionJobRequest> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_transcription, 7);
+  messageDesc(file_scribe_v1_transcription, 9);
 
 /**
  * @generated from message scribe.v1.StreamTranscriptionJobResponse
@@ -253,7 +443,41 @@ export type StreamTranscriptionJobResponse = Message<"scribe.v1.StreamTranscript
  * Use `create(StreamTranscriptionJobResponseSchema)` to create a new message.
  */
 export const StreamTranscriptionJobResponseSchema: GenMessage<StreamTranscriptionJobResponse> = /*@__PURE__*/
-  messageDesc(file_scribe_v1_transcription, 8);
+  messageDesc(file_scribe_v1_transcription, 10);
+
+/**
+ * @generated from message scribe.v1.CancelTranscriptionJobRequest
+ */
+export type CancelTranscriptionJobRequest = Message<"scribe.v1.CancelTranscriptionJobRequest"> & {
+  /**
+   * @generated from field: uint64 job_id = 1;
+   */
+  jobId: bigint;
+};
+
+/**
+ * Describes the message scribe.v1.CancelTranscriptionJobRequest.
+ * Use `create(CancelTranscriptionJobRequestSchema)` to create a new message.
+ */
+export const CancelTranscriptionJobRequestSchema: GenMessage<CancelTranscriptionJobRequest> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_transcription, 11);
+
+/**
+ * @generated from message scribe.v1.CancelTranscriptionJobResponse
+ */
+export type CancelTranscriptionJobResponse = Message<"scribe.v1.CancelTranscriptionJobResponse"> & {
+  /**
+   * @generated from field: scribe.v1.TranscriptionJob job = 1;
+   */
+  job?: TranscriptionJob;
+};
+
+/**
+ * Describes the message scribe.v1.CancelTranscriptionJobResponse.
+ * Use `create(CancelTranscriptionJobResponseSchema)` to create a new message.
+ */
+export const CancelTranscriptionJobResponseSchema: GenMessage<CancelTranscriptionJobResponse> = /*@__PURE__*/
+  messageDesc(file_scribe_v1_transcription, 12);
 
 /**
  * TranscriptionJobStatus represents the lifecycle state of a batch transcription job.
@@ -285,6 +509,16 @@ export enum TranscriptionJobStatus {
    * @generated from enum value: TRANSCRIPTION_JOB_STATUS_FAILED = 4;
    */
   FAILED = 4,
+
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_STATUS_CANCELED = 5;
+   */
+  CANCELED = 5,
+
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_STATUS_SUPERSEDED = 6;
+   */
+  SUPERSEDED = 6,
 }
 
 /**
@@ -292,6 +526,60 @@ export enum TranscriptionJobStatus {
  */
 export const TranscriptionJobStatusSchema: GenEnum<TranscriptionJobStatus> = /*@__PURE__*/
   enumDesc(file_scribe_v1_transcription, 0);
+
+/**
+ * TranscriptionJobAttemptOutcome is the terminal reason for one immutable
+ * worker claim. RUNNING is the only non-terminal value.
+ *
+ * @generated from enum scribe.v1.TranscriptionJobAttemptOutcome
+ */
+export enum TranscriptionJobAttemptOutcome {
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RUNNING = 1;
+   */
+  RUNNING = 1,
+
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_COMPLETED = 2;
+   */
+  COMPLETED = 2,
+
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_RETRYABLE_FAILED = 3;
+   */
+  RETRYABLE_FAILED = 3,
+
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_FAILED = 4;
+   */
+  FAILED = 4,
+
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_CANCELED = 5;
+   */
+  CANCELED = 5,
+
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_SUPERSEDED = 6;
+   */
+  SUPERSEDED = 6,
+
+  /**
+   * @generated from enum value: TRANSCRIPTION_JOB_ATTEMPT_OUTCOME_LEASE_EXPIRED = 7;
+   */
+  LEASE_EXPIRED = 7,
+}
+
+/**
+ * Describes the enum scribe.v1.TranscriptionJobAttemptOutcome.
+ */
+export const TranscriptionJobAttemptOutcomeSchema: GenEnum<TranscriptionJobAttemptOutcome> = /*@__PURE__*/
+  enumDesc(file_scribe_v1_transcription, 1);
 
 /**
  * @generated from service scribe.v1.TranscriptionService
@@ -306,6 +594,17 @@ export const TranscriptionService: GenService<{
     methodKind: "unary";
     input: typeof CreateTranscriptionJobRequestSchema;
     output: typeof CreateTranscriptionJobResponseSchema;
+  },
+  /**
+   * CancelTranscriptionJob fences any active worker and is idempotent for a
+   * job that is already canceled.
+   *
+   * @generated from rpc scribe.v1.TranscriptionService.CancelTranscriptionJob
+   */
+  cancelTranscriptionJob: {
+    methodKind: "unary";
+    input: typeof CancelTranscriptionJobRequestSchema;
+    output: typeof CancelTranscriptionJobResponseSchema;
   },
   /**
    * GetTranscriptionJob returns the current state of a job (for polling).

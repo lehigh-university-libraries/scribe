@@ -15,6 +15,10 @@ enum ResourceType {
   RESOURCE_TYPE_CONTEXT = 5;
   RESOURCE_TYPE_TRANSCRIPTION_JOB = 6;
   RESOURCE_TYPE_WORKSPACE = 7;
+  RESOURCE_TYPE_UPLOAD_BATCH = 8;
+  RESOURCE_TYPE_SELECTION_RULE = 9;
+  RESOURCE_TYPE_API_KEY = 10;
+  RESOURCE_TYPE_PROVIDER_SECRET = 11;
 }
 
 enum AccessLevel {
@@ -29,6 +33,9 @@ message AuthzRule {
   ResourceType resource = 2;
   AccessLevel level = 3;
   string resource_id_field = 4;
+  // Restricts browser account/workspace administration to an interactive
+  // session. Delegated API keys and external JWTs cannot authorize the RPC.
+  bool session_only = 5;
 }
 
 extend google.protobuf.MethodOptions {

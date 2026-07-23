@@ -8,7 +8,36 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 )
+
+const activateProviderSecretManual = `-- name: ActivateProviderSecretManual :execresult
+UPDATE provider_secrets
+SET lifecycle_state = 'active', updated_at = CURRENT_TIMESTAMP(6)
+WHERE id = ?
+  AND workspace_id = ?
+  AND lifecycle_state = 'pending_write'
+`
+
+type ActivateProviderSecretManualParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) ActivateProviderSecretManual(ctx context.Context, arg ActivateProviderSecretManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, activateProviderSecretManual, arg.ID, arg.WorkspaceID)
+}
+
+const countProviderSecretsByWorkspaceManual = `-- name: CountProviderSecretsByWorkspaceManual :one
+SELECT COUNT(*) FROM provider_secrets WHERE workspace_id = ?
+`
+
+func (q *Queries) CountProviderSecretsByWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countProviderSecretsByWorkspaceManual, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const createProviderSecretManual = `-- name: CreateProviderSecretManual :execresult
 INSERT INTO provider_secrets (
@@ -17,20 +46,22 @@ INSERT INTO provider_secrets (
   provider,
   name,
   vault_path,
-  key_hint
+  key_hint,
+  lifecycle_state
 ) VALUES (
   ?,
   ?,
   ?,
   ?,
   ?,
-  ?
+  ?,
+  'pending_write'
 )
 `
 
 type CreateProviderSecretManualParams struct {
 	UserID      sql.NullInt64  `json:"user_id"`
-	WorkspaceID sql.NullInt64  `json:"workspace_id"`
+	WorkspaceID uint64         `json:"workspace_id"`
 	Provider    string         `json:"provider"`
 	Name        string         `json:"name"`
 	VaultPath   string         `json:"vault_path"`
@@ -48,37 +79,20 @@ func (q *Queries) CreateProviderSecretManual(ctx context.Context, arg CreateProv
 	)
 }
 
-const deleteUserProviderSecretManual = `-- name: DeleteUserProviderSecretManual :execresult
+const deleteInactiveProviderSecretManual = `-- name: DeleteInactiveProviderSecretManual :execresult
 DELETE FROM provider_secrets
 WHERE id = ?
   AND workspace_id = ?
-  AND user_id = ?
+  AND lifecycle_state <> 'active'
 `
 
-type DeleteUserProviderSecretManualParams struct {
-	ID          uint64        `json:"id"`
-	WorkspaceID sql.NullInt64 `json:"workspace_id"`
-	UserID      sql.NullInt64 `json:"user_id"`
+type DeleteInactiveProviderSecretManualParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
 }
 
-func (q *Queries) DeleteUserProviderSecretManual(ctx context.Context, arg DeleteUserProviderSecretManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, deleteUserProviderSecretManual, arg.ID, arg.WorkspaceID, arg.UserID)
-}
-
-const deleteWorkspaceProviderSecretManual = `-- name: DeleteWorkspaceProviderSecretManual :execresult
-DELETE FROM provider_secrets
-WHERE id = ?
-  AND workspace_id = ?
-  AND user_id IS NULL
-`
-
-type DeleteWorkspaceProviderSecretManualParams struct {
-	ID          uint64        `json:"id"`
-	WorkspaceID sql.NullInt64 `json:"workspace_id"`
-}
-
-func (q *Queries) DeleteWorkspaceProviderSecretManual(ctx context.Context, arg DeleteWorkspaceProviderSecretManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, deleteWorkspaceProviderSecretManual, arg.ID, arg.WorkspaceID)
+func (q *Queries) DeleteInactiveProviderSecretManual(ctx context.Context, arg DeleteInactiveProviderSecretManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteInactiveProviderSecretManual, arg.ID, arg.WorkspaceID)
 }
 
 const findPreferredProviderSecretManual = `-- name: FindPreferredProviderSecretManual :one
@@ -90,11 +104,13 @@ SELECT
   name,
   vault_path,
   key_hint,
+  lifecycle_state,
   created_at,
   updated_at
 FROM provider_secrets
 WHERE workspace_id = ?
   AND provider = ?
+  AND lifecycle_state = 'active'
   AND (
     user_id IS NULL
     OR user_id = ?
@@ -107,7 +123,7 @@ LIMIT 1
 `
 
 type FindPreferredProviderSecretManualParams struct {
-	WorkspaceID sql.NullInt64 `json:"workspace_id"`
+	WorkspaceID uint64        `json:"workspace_id"`
 	Provider    string        `json:"provider"`
 	UserID      sql.NullInt64 `json:"user_id"`
 }
@@ -128,6 +144,48 @@ func (q *Queries) FindPreferredProviderSecretManual(ctx context.Context, arg Fin
 		&i.Name,
 		&i.VaultPath,
 		&i.KeyHint,
+		&i.LifecycleState,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getProviderSecretLifecycleManual = `-- name: GetProviderSecretLifecycleManual :one
+SELECT
+  id,
+  user_id,
+  workspace_id,
+  provider,
+  name,
+  vault_path,
+  key_hint,
+  lifecycle_state,
+  created_at,
+  updated_at
+FROM provider_secrets
+WHERE id = ?
+  AND workspace_id = ?
+LIMIT 1
+`
+
+type GetProviderSecretLifecycleManualParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) GetProviderSecretLifecycleManual(ctx context.Context, arg GetProviderSecretLifecycleManualParams) (ProviderSecret, error) {
+	row := q.db.QueryRowContext(ctx, getProviderSecretLifecycleManual, arg.ID, arg.WorkspaceID)
+	var i ProviderSecret
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.WorkspaceID,
+		&i.Provider,
+		&i.Name,
+		&i.VaultPath,
+		&i.KeyHint,
+		&i.LifecycleState,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -143,18 +201,20 @@ SELECT
   name,
   vault_path,
   key_hint,
+  lifecycle_state,
   created_at,
   updated_at
 FROM provider_secrets
 WHERE id = ?
   AND workspace_id = ?
+  AND lifecycle_state = 'active'
   AND (user_id IS NULL OR user_id = ?)
 LIMIT 1
 `
 
 type GetProviderSecretVisibleToUserManualParams struct {
 	ID          uint64        `json:"id"`
-	WorkspaceID sql.NullInt64 `json:"workspace_id"`
+	WorkspaceID uint64        `json:"workspace_id"`
 	UserID      sql.NullInt64 `json:"user_id"`
 }
 
@@ -169,10 +229,69 @@ func (q *Queries) GetProviderSecretVisibleToUserManual(ctx context.Context, arg 
 		&i.Name,
 		&i.VaultPath,
 		&i.KeyHint,
+		&i.LifecycleState,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listProviderSecretCleanupCandidatesManual = `-- name: ListProviderSecretCleanupCandidatesManual :many
+SELECT
+  id,
+  user_id,
+  workspace_id,
+  provider,
+  name,
+  vault_path,
+  key_hint,
+  lifecycle_state,
+  created_at,
+  updated_at
+FROM provider_secrets
+WHERE lifecycle_state = 'cleanup_pending'
+   OR (lifecycle_state = 'pending_write' AND created_at < ?)
+ORDER BY created_at ASC, id ASC
+LIMIT ?
+`
+
+type ListProviderSecretCleanupCandidatesManualParams struct {
+	StaleBefore time.Time `json:"stale_before"`
+	Limit       int32     `json:"limit"`
+}
+
+func (q *Queries) ListProviderSecretCleanupCandidatesManual(ctx context.Context, arg ListProviderSecretCleanupCandidatesManualParams) ([]ProviderSecret, error) {
+	rows, err := q.db.QueryContext(ctx, listProviderSecretCleanupCandidatesManual, arg.StaleBefore, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProviderSecret{}
+	for rows.Next() {
+		var i ProviderSecret
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.WorkspaceID,
+			&i.Provider,
+			&i.Name,
+			&i.VaultPath,
+			&i.KeyHint,
+			&i.LifecycleState,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listProviderSecretsVisibleToUserManual = `-- name: ListProviderSecretsVisibleToUserManual :many
@@ -184,16 +303,19 @@ SELECT
   name,
   vault_path,
   key_hint,
+  lifecycle_state,
   created_at,
   updated_at
 FROM provider_secrets
 WHERE workspace_id = ?
+  AND lifecycle_state = 'active'
   AND (user_id IS NULL OR user_id = ?)
 ORDER BY provider ASC, name ASC, updated_at DESC
+LIMIT 100
 `
 
 type ListProviderSecretsVisibleToUserManualParams struct {
-	WorkspaceID sql.NullInt64 `json:"workspace_id"`
+	WorkspaceID uint64        `json:"workspace_id"`
 	UserID      sql.NullInt64 `json:"user_id"`
 }
 
@@ -214,6 +336,7 @@ func (q *Queries) ListProviderSecretsVisibleToUserManual(ctx context.Context, ar
 			&i.Name,
 			&i.VaultPath,
 			&i.KeyHint,
+			&i.LifecycleState,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -228,4 +351,38 @@ func (q *Queries) ListProviderSecretsVisibleToUserManual(ctx context.Context, ar
 		return nil, err
 	}
 	return items, nil
+}
+
+const markActiveProviderSecretCleanupManual = `-- name: MarkActiveProviderSecretCleanupManual :execresult
+UPDATE provider_secrets
+SET lifecycle_state = 'cleanup_pending', updated_at = CURRENT_TIMESTAMP(6)
+WHERE id = ?
+  AND workspace_id = ?
+  AND lifecycle_state = 'active'
+`
+
+type MarkActiveProviderSecretCleanupManualParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) MarkActiveProviderSecretCleanupManual(ctx context.Context, arg MarkActiveProviderSecretCleanupManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, markActiveProviderSecretCleanupManual, arg.ID, arg.WorkspaceID)
+}
+
+const markPendingProviderSecretCleanupManual = `-- name: MarkPendingProviderSecretCleanupManual :execresult
+UPDATE provider_secrets
+SET lifecycle_state = 'cleanup_pending', updated_at = CURRENT_TIMESTAMP(6)
+WHERE id = ?
+  AND workspace_id = ?
+  AND lifecycle_state = 'pending_write'
+`
+
+type MarkPendingProviderSecretCleanupManualParams struct {
+	ID          uint64 `json:"id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) MarkPendingProviderSecretCleanupManual(ctx context.Context, arg MarkPendingProviderSecretCleanupManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, markPendingProviderSecretCleanupManual, arg.ID, arg.WorkspaceID)
 }

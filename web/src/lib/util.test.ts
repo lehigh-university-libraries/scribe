@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { html, raw, setHTML } from "./util";
+import { html, setHTML } from "./util";
 
 describe("setHTML", () => {
   it("removes executable elements and unsafe URL attributes", () => {
@@ -45,14 +45,5 @@ describe("html tagged template", () => {
     expect(items).toHaveLength(2);
     expect(items[0]?.textContent).toBe("a & b");
     expect(items[1]?.textContent).toBe("c < d");
-  });
-
-  it("only emits raw() markup verbatim", () => {
-    const root = document.createElement("div");
-    const icon = raw(`<svg><path d="M0 0"></path></svg>`);
-
-    setHTML(root, html`<span class="icon">${icon}</span>`);
-
-    expect(root.querySelector("svg path")).not.toBeNull();
   });
 });

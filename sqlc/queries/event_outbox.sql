@@ -1,12 +1,14 @@
 -- name: InsertEventOutboxManual :exec
 INSERT IGNORE INTO event_outbox (event_id, event_type, workspace_id, subject, body_json)
-VALUES (
+SELECT
   sqlc.arg(event_id),
   sqlc.arg(event_type),
   sqlc.narg(workspace_id),
   sqlc.narg(subject),
   sqlc.arg(body_json)
-);
+FROM (SELECT 1 AS seed) seed
+LEFT JOIN workspaces w ON w.id = sqlc.narg(workspace_id)
+WHERE sqlc.narg(workspace_id) IS NULL OR w.id IS NOT NULL;
 
 -- name: GetWorkspaceIDForItemImageManual :one
 SELECT i.workspace_id
@@ -21,12 +23,13 @@ INSERT IGNORE INTO webhook_deliveries (
   target_url,
   target_hash,
   status
-) VALUES (
-  sqlc.arg(event_id),
+) SELECT
+  eo.event_id,
   sqlc.arg(target_url),
   sqlc.arg(target_hash),
   'pending'
-);
+FROM event_outbox eo
+WHERE eo.event_id = sqlc.arg(event_id);
 
 -- name: ClaimWebhookDeliveriesManual :many
 SELECT
@@ -54,19 +57,35 @@ ORDER BY wd.created_at ASC
 LIMIT ?
 FOR UPDATE SKIP LOCKED;
 
+-- name: FailExpiredExhaustedWebhookDeliveriesManual :exec
+UPDATE webhook_deliveries
+SET
+  status = 'failed',
+  lease_until = NULL,
+  locked_by = NULL,
+  last_error = COALESCE(last_error, 'delivery lease expired after maximum attempts'),
+  updated_at = NOW()
+WHERE status = 'processing'
+  AND lease_until IS NOT NULL
+  AND lease_until < NOW()
+  AND attempt_count >= max_attempts;
+
 -- name: MarkWebhookDeliveryProcessingManual :execresult
 UPDATE webhook_deliveries
 SET
   status = 'processing',
+  attempt_count = attempt_count + 1,
   lease_until = sqlc.arg(lease_until),
   locked_by = sqlc.arg(locked_by),
   updated_at = NOW()
 WHERE id = sqlc.arg(id);
 
--- name: DeleteDeliveredWebhookDeliveriesBeforeManual :exec
+-- name: DeleteDeliveredWebhookDeliveriesBeforeManual :execresult
 DELETE FROM webhook_deliveries
 WHERE status = 'delivered'
-  AND updated_at < sqlc.arg(cutoff);
+  AND updated_at < sqlc.arg(cutoff)
+ORDER BY id
+LIMIT 1000;
 
 -- name: DeleteOrphanedEventOutboxBeforeManual :exec
 DELETE eo
@@ -75,9 +94,21 @@ LEFT JOIN webhook_deliveries wd ON wd.event_id = eo.event_id
 WHERE eo.created_at < sqlc.arg(cutoff)
   AND wd.id IS NULL;
 
--- name: DeleteEventOutboxBeforeManual :exec
+-- name: LockEventOutboxRetentionBatchManual :many
+SELECT event_id
+FROM event_outbox
+WHERE created_at < sqlc.arg(cutoff)
+ORDER BY id
+LIMIT 1000
+FOR UPDATE;
+
+-- name: DeleteWebhookDeliveriesForEventIDsManual :exec
+DELETE FROM webhook_deliveries
+WHERE event_id IN (sqlc.slice(event_ids));
+
+-- name: DeleteEventOutboxForIDsManual :execresult
 DELETE FROM event_outbox
-WHERE created_at < sqlc.arg(cutoff);
+WHERE event_id IN (sqlc.slice(event_ids));
 
 -- name: MarkWebhookDeliveryDeliveredManual :execresult
 UPDATE webhook_deliveries
@@ -89,9 +120,8 @@ WHERE id = sqlc.arg(id)
 -- name: MarkWebhookDeliveryFailedManual :execresult
 UPDATE webhook_deliveries
 SET
-  attempt_count = attempt_count + 1,
-  status = CASE WHEN attempt_count + 1 >= max_attempts THEN 'failed' ELSE 'pending' END,
-  next_attempt_at = CASE WHEN attempt_count + 1 >= max_attempts THEN NULL ELSE DATE_ADD(NOW(), INTERVAL LEAST(900, POW(2, attempt_count + 1) * 5) SECOND) END,
+  status = CASE WHEN attempt_count >= max_attempts THEN 'failed' ELSE 'pending' END,
+  next_attempt_at = CASE WHEN attempt_count >= max_attempts THEN NULL ELSE DATE_ADD(NOW(), INTERVAL LEAST(900, POW(2, attempt_count) * 5) SECOND) END,
   lease_until = NULL,
   locked_by = NULL,
   last_error = sqlc.narg(last_error),
@@ -103,6 +133,11 @@ WHERE id = sqlc.arg(id)
 -- name: GetEventOutboxHighWaterManual :one
 SELECT COALESCE(MAX(id), 0) AS high_water_id
 FROM event_outbox;
+
+-- name: GetEventOutboxHighWaterForWorkspaceManual :one
+SELECT COALESCE(MAX(id), 0) AS high_water_id
+FROM event_outbox
+WHERE workspace_id = sqlc.arg(workspace_id);
 
 -- name: ListEventOutboxAfterIDManual :many
 SELECT
@@ -129,6 +164,6 @@ SELECT
   created_at
 FROM event_outbox
 WHERE id > sqlc.arg(after_id)
-  AND (workspace_id IS NULL OR workspace_id = sqlc.arg(workspace_id))
+  AND workspace_id = sqlc.arg(workspace_id)
 ORDER BY id ASC
 LIMIT ?;

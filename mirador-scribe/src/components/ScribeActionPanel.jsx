@@ -2,6 +2,8 @@ import { startTransition, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import BackspaceOutlinedIcon from '@mui/icons-material/BackspaceOutlined';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import AddBoxOutlinedIcon from '@mui/icons-material/AddBoxOutlined';
 import BorderColorOutlinedIcon from '@mui/icons-material/BorderColorOutlined';
 import CallSplitOutlinedIcon from '@mui/icons-material/CallSplitOutlined';
 import HorizontalSplitOutlinedIcon from '@mui/icons-material/HorizontalSplitOutlined';
@@ -16,6 +18,7 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
+import CircularProgress from '@mui/material/CircularProgress';
 import Divider from '@mui/material/Divider';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
@@ -32,6 +35,61 @@ import { useTranslation } from 'react-i18next';
 import { ConnectedCompanionWindow as CompanionWindow } from 'mirador';
 import { annotationGranularity, annotationText, isLineAnnotation } from '../utils/iiif';
 
+/**
+ * @typedef {import('react').ElementType<{ fontSize?: 'small' | 'inherit' | 'large' | 'medium' }>} ToolbarIcon
+ * @typedef {import('../types/scribe').IdentifiedIIIFAnnotation} IdentifiedAnnotation
+ * @typedef {'inherit' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning'} ToolbarColor
+ * @typedef {'contained' | 'outlined' | 'text'} ToolbarVariant
+ * @typedef {() => unknown} VoidAction
+ * @typedef {Object} ToolbarActionProps
+ * @property {ToolbarColor} [color]
+ * @property {boolean} disabled
+ * @property {ToolbarIcon} icon
+ * @property {string} label
+ * @property {VoidAction} onClick
+ * @property {boolean} [selected]
+ * @property {string} title
+ * @property {ToolbarVariant} [variant]
+ * @typedef {Object} ScribeActionPanelProps
+ * @property {IdentifiedAnnotation[]} annotations
+ * @property {boolean} canJoinLines
+ * @property {boolean} canJoinWords
+ * @property {boolean} canSplitLine
+ * @property {boolean} canSplitToWords
+ * @property {boolean} drawMode
+ * @property {string} id
+ * @property {boolean} isBusy
+ * @property {'none' | 'read' | 'edit' | 'outline'} overlayMode
+ * @property {VoidAction} onCreateLine
+ * @property {VoidAction} onCreateCenteredLine
+ * @property {VoidAction} onAddWord
+ * @property {(annotationId: string) => void | Promise<void>} onDelete
+ * @property {VoidAction} onExplode
+ * @property {VoidAction} onJoinLines
+ * @property {VoidAction} onJoinWords
+ * @property {VoidAction} onRedo
+ * @property {VoidAction} onPublish
+ * @property {VoidAction} onReload
+ * @property {VoidAction} onSave
+ * @property {VoidAction} onSplit
+ * @property {VoidAction} onCycleOverlayMode
+ * @property {(options: { all: boolean, annotationIds?: string[] }) => void | Promise<void>} onTranscribe
+ * @property {VoidAction} onTranscribeDialogClose
+ * @property {VoidAction} onTranscribeDialogOpen
+ * @property {(annotationIds: string[]) => void} onTranscribeSelectionChange
+ * @property {VoidAction} onUndo
+ * @property {string[]} pendingRemoteIds
+ * @property {boolean} saveDisabled
+ * @property {boolean} revisionConflict
+ * @property {IdentifiedAnnotation | null} selectedAnnotation
+ * @property {'line' | 'word' | null} selectedGranularity
+ * @property {string | null | undefined} statusMessage
+ * @property {boolean} transcribeDialogOpen
+ * @property {string[]} transcribeSelection
+ * @property {string} windowId
+ */
+
+/** @param {ToolbarActionProps} props */
 function ToolbarAction({
   color = 'inherit',
   disabled,
@@ -46,6 +104,8 @@ function ToolbarAction({
     <Tooltip title={title} placement="top">
       <span>
         <Button
+          aria-label={title}
+          aria-pressed={selected || undefined}
           size="small"
           color={color}
           disabled={disabled}
@@ -140,7 +200,7 @@ function ShortcutLegend() {
 }
 
 ToolbarAction.propTypes = {
-  color: PropTypes.oneOf(['default', 'inherit', 'primary', 'secondary', 'error', 'info', 'success', 'warning']),
+  color: PropTypes.oneOf(['inherit', 'primary', 'secondary', 'error', 'info', 'success', 'warning']),
   disabled: PropTypes.bool.isRequired,
   icon: PropTypes.elementType.isRequired,
   label: PropTypes.string.isRequired,
@@ -150,21 +210,27 @@ ToolbarAction.propTypes = {
   variant: PropTypes.oneOf(['contained', 'outlined', 'text']),
 };
 
+/** @param {ScribeActionPanelProps} props */
 export default function ScribeActionPanel({
   annotations,
   canJoinLines,
   canJoinWords,
+  canSplitLine,
+  canSplitToWords,
   drawMode,
   id,
   isBusy,
   overlayMode,
   onCreateLine,
+  onCreateCenteredLine,
+  onAddWord,
   onDelete,
   onExplode,
   onJoinLines,
   onJoinWords,
   onRedo,
   onPublish,
+  onReload,
   onSave,
   onSplit,
   onCycleOverlayMode,
@@ -173,7 +239,9 @@ export default function ScribeActionPanel({
   onTranscribeDialogOpen,
   onTranscribeSelectionChange,
   onUndo,
+  pendingRemoteIds,
   saveDisabled,
+  revisionConflict,
   selectedAnnotation,
   selectedGranularity,
   statusMessage,
@@ -185,7 +253,7 @@ export default function ScribeActionPanel({
   const orderedAnnotations = annotations;
   const hasSelection = Boolean(selectedAnnotation?.id);
 
-  const panelRef = useRef(null);
+  const panelRef = useRef(/** @type {HTMLElement | null} */ (null));
   const overlayModeLabel = overlayMode === 'edit' ? 'Edit overlay'
     : overlayMode === 'read' ? 'Read overlay'
     : overlayMode === 'outline' ? 'Outline overlay'
@@ -285,6 +353,14 @@ export default function ScribeActionPanel({
                     selected={drawMode}
                   />
                   <ToolbarAction
+                    title="Add a line at the viewport center and focus its keyboard resize handle"
+                    label="Add centered line"
+                    icon={AddBoxOutlinedIcon}
+                    color="warning"
+                    disabled={isBusy}
+                    onClick={onCreateCenteredLine}
+                  />
+                  <ToolbarAction
                     title={overlayModeLabel}
                     label={overlayModeLabel}
                     icon={LayersOutlinedIcon}
@@ -324,8 +400,15 @@ export default function ScribeActionPanel({
                     title={t('scribeEditorSplitWords')}
                     label="Split to words"
                     icon={CallSplitOutlinedIcon}
-                    disabled={isBusy || !hasSelection || selectedGranularity !== 'line'}
+                    disabled={isBusy || !hasSelection || !canSplitToWords}
                     onClick={onExplode}
+                  />
+                  <ToolbarAction
+                    title="Add a word annotation beside the selection"
+                    label="Add word"
+                    icon={AddCircleOutlineIcon}
+                    disabled={isBusy || !hasSelection}
+                    onClick={onAddWord}
                   />
                   <ToolbarAction
                     title={t('scribeEditorJoinWords')}
@@ -338,7 +421,7 @@ export default function ScribeActionPanel({
                     title={t('scribeEditorSplitLine')}
                     label="Split line"
                     icon={SplitscreenOutlinedIcon}
-                    disabled={isBusy || !hasSelection || selectedGranularity !== 'line'}
+                    disabled={isBusy || !hasSelection || !canSplitLine}
                     onClick={onSplit}
                   />
                   <ToolbarAction
@@ -363,8 +446,10 @@ export default function ScribeActionPanel({
                     color="error"
                     disabled={isBusy || !hasSelection}
                     onClick={() => {
+                      const annotationId = selectedAnnotation?.id;
+                      if (!annotationId) return;
                       startTransition(() => {
-                        void onDelete(selectedAnnotation.id);
+                        void onDelete(annotationId);
                       });
                     }}
                   />
@@ -415,16 +500,38 @@ export default function ScribeActionPanel({
           <ShortcutLegend />
         </Box>
 
-        {statusMessage ? (
+        {isBusy || statusMessage || revisionConflict ? (
           <Alert
-            severity="info"
+            aria-live="polite"
+            icon={isBusy ? <CircularProgress aria-label="Editor operation in progress" size={18} /> : undefined}
+            role="status"
+            severity={revisionConflict || /fail|error|conflict|changed on the server/i.test(String(statusMessage || '')) ? 'error' : 'info'}
+            action={revisionConflict ? (
+              <Button
+                color="inherit"
+                disabled={isBusy}
+                onClick={() => { void onReload(); }}
+                size="small"
+              >
+                Reload &amp; rebase
+              </Button>
+            ) : undefined}
             sx={{
               mt: 1,
               p: 0.75,
               width: '100%',
             }}
           >
-            {statusMessage}
+            {statusMessage || (revisionConflict
+              ? 'This page needs to be reloaded before it can be saved.'
+              : 'Working…')}
+          </Alert>
+        ) : null}
+        {pendingRemoteIds.length > 0 ? (
+          <Alert aria-live="polite" role="status" severity="warning" sx={{ mt: 1, width: '100%' }}>
+            {pendingRemoteIds.length === 1
+              ? 'One server update is waiting behind your local edit. Save or reload and rebase to resolve it.'
+              : `${pendingRemoteIds.length} server updates are waiting behind local edits. Save or reload and rebase to resolve them.`}
           </Alert>
         ) : null}
       </Box>
@@ -482,7 +589,7 @@ export default function ScribeActionPanel({
                       }}
                       sx={{ borderRadius: 1, mb: 0.5 }}
                     >
-                      <Checkbox edge="start" tabIndex={-1} disableRipple checked={allLinesSelected} />
+                      <Checkbox edge="start" tabIndex={-1} disableRipple checked={allLinesSelected} inputProps={{ 'aria-label': 'Select all visible lines' }} />
                       <ListItemText primary={t('scribeEditorTranscribeSelectVisible')} />
                     </ListItemButton>
                     {lineAnnotations.map((annotation) => {
@@ -500,7 +607,7 @@ export default function ScribeActionPanel({
                           }}
                           sx={{ borderRadius: 1, mb: 0.5 }}
                         >
-                          <Checkbox edge="start" tabIndex={-1} disableRipple checked={checked} />
+                          <Checkbox edge="start" tabIndex={-1} disableRipple checked={checked} inputProps={{ 'aria-label': `Select ${annotationText(annotation) || annotation.id}` }} />
                           <ListItemText
                             primary={annotationText(annotation) || t('scribeEditorUntitled')}
                             secondary={annotation.id}
@@ -551,17 +658,22 @@ ScribeActionPanel.propTypes = {
   })).isRequired,
   canJoinLines: PropTypes.bool.isRequired,
   canJoinWords: PropTypes.bool.isRequired,
+  canSplitLine: PropTypes.bool.isRequired,
+  canSplitToWords: PropTypes.bool.isRequired,
   drawMode: PropTypes.bool.isRequired,
   id: PropTypes.string.isRequired,
   isBusy: PropTypes.bool.isRequired,
   overlayMode: PropTypes.oneOf(['none', 'read', 'edit', 'outline']).isRequired,
   onCreateLine: PropTypes.func.isRequired,
+  onCreateCenteredLine: PropTypes.func.isRequired,
+  onAddWord: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
   onExplode: PropTypes.func.isRequired,
   onJoinLines: PropTypes.func.isRequired,
   onJoinWords: PropTypes.func.isRequired,
   onRedo: PropTypes.func.isRequired,
   onPublish: PropTypes.func.isRequired,
+  onReload: PropTypes.func.isRequired,
   onSave: PropTypes.func.isRequired,
   onSplit: PropTypes.func.isRequired,
   onCycleOverlayMode: PropTypes.func.isRequired,
@@ -570,6 +682,8 @@ ScribeActionPanel.propTypes = {
   onTranscribeDialogOpen: PropTypes.func.isRequired,
   onTranscribeSelectionChange: PropTypes.func.isRequired,
   onUndo: PropTypes.func.isRequired,
+  pendingRemoteIds: PropTypes.arrayOf(PropTypes.string).isRequired,
+  revisionConflict: PropTypes.bool.isRequired,
   saveDisabled: PropTypes.bool.isRequired,
   selectedAnnotation: PropTypes.shape({
     id: PropTypes.string,

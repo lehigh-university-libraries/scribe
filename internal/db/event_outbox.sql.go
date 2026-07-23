@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -83,25 +84,35 @@ func (q *Queries) ClaimWebhookDeliveriesManual(ctx context.Context, limit int32)
 	return items, nil
 }
 
-const deleteDeliveredWebhookDeliveriesBeforeManual = `-- name: DeleteDeliveredWebhookDeliveriesBeforeManual :exec
+const deleteDeliveredWebhookDeliveriesBeforeManual = `-- name: DeleteDeliveredWebhookDeliveriesBeforeManual :execresult
 DELETE FROM webhook_deliveries
 WHERE status = 'delivered'
   AND updated_at < ?
+ORDER BY id
+LIMIT 1000
 `
 
-func (q *Queries) DeleteDeliveredWebhookDeliveriesBeforeManual(ctx context.Context, cutoff time.Time) error {
-	_, err := q.db.ExecContext(ctx, deleteDeliveredWebhookDeliveriesBeforeManual, cutoff)
-	return err
+func (q *Queries) DeleteDeliveredWebhookDeliveriesBeforeManual(ctx context.Context, cutoff time.Time) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteDeliveredWebhookDeliveriesBeforeManual, cutoff)
 }
 
-const deleteEventOutboxBeforeManual = `-- name: DeleteEventOutboxBeforeManual :exec
+const deleteEventOutboxForIDsManual = `-- name: DeleteEventOutboxForIDsManual :execresult
 DELETE FROM event_outbox
-WHERE created_at < ?
+WHERE event_id IN (/*SLICE:event_ids*/?)
 `
 
-func (q *Queries) DeleteEventOutboxBeforeManual(ctx context.Context, cutoff time.Time) error {
-	_, err := q.db.ExecContext(ctx, deleteEventOutboxBeforeManual, cutoff)
-	return err
+func (q *Queries) DeleteEventOutboxForIDsManual(ctx context.Context, eventIds []string) (sql.Result, error) {
+	query := deleteEventOutboxForIDsManual
+	var queryParams []interface{}
+	if len(eventIds) > 0 {
+		for _, v := range eventIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:event_ids*/?", strings.Repeat(",?", len(eventIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:event_ids*/?", "NULL", 1)
+	}
+	return q.db.ExecContext(ctx, query, queryParams...)
 }
 
 const deleteOrphanedEventOutboxBeforeManual = `-- name: DeleteOrphanedEventOutboxBeforeManual :exec
@@ -115,6 +126,58 @@ WHERE eo.created_at < ?
 func (q *Queries) DeleteOrphanedEventOutboxBeforeManual(ctx context.Context, cutoff time.Time) error {
 	_, err := q.db.ExecContext(ctx, deleteOrphanedEventOutboxBeforeManual, cutoff)
 	return err
+}
+
+const deleteWebhookDeliveriesForEventIDsManual = `-- name: DeleteWebhookDeliveriesForEventIDsManual :exec
+DELETE FROM webhook_deliveries
+WHERE event_id IN (/*SLICE:event_ids*/?)
+`
+
+func (q *Queries) DeleteWebhookDeliveriesForEventIDsManual(ctx context.Context, eventIds []string) error {
+	query := deleteWebhookDeliveriesForEventIDsManual
+	var queryParams []interface{}
+	if len(eventIds) > 0 {
+		for _, v := range eventIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:event_ids*/?", strings.Repeat(",?", len(eventIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:event_ids*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
+	return err
+}
+
+const failExpiredExhaustedWebhookDeliveriesManual = `-- name: FailExpiredExhaustedWebhookDeliveriesManual :exec
+UPDATE webhook_deliveries
+SET
+  status = 'failed',
+  lease_until = NULL,
+  locked_by = NULL,
+  last_error = COALESCE(last_error, 'delivery lease expired after maximum attempts'),
+  updated_at = NOW()
+WHERE status = 'processing'
+  AND lease_until IS NOT NULL
+  AND lease_until < NOW()
+  AND attempt_count >= max_attempts
+`
+
+func (q *Queries) FailExpiredExhaustedWebhookDeliveriesManual(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, failExpiredExhaustedWebhookDeliveriesManual)
+	return err
+}
+
+const getEventOutboxHighWaterForWorkspaceManual = `-- name: GetEventOutboxHighWaterForWorkspaceManual :one
+SELECT COALESCE(MAX(id), 0) AS high_water_id
+FROM event_outbox
+WHERE workspace_id = ?
+`
+
+func (q *Queries) GetEventOutboxHighWaterForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (interface{}, error) {
+	row := q.db.QueryRowContext(ctx, getEventOutboxHighWaterForWorkspaceManual, workspaceID)
+	var high_water_id interface{}
+	err := row.Scan(&high_water_id)
+	return high_water_id, err
 }
 
 const getEventOutboxHighWaterManual = `-- name: GetEventOutboxHighWaterManual :one
@@ -146,13 +209,15 @@ func (q *Queries) GetWorkspaceIDForItemImageManual(ctx context.Context, itemImag
 
 const insertEventOutboxManual = `-- name: InsertEventOutboxManual :exec
 INSERT IGNORE INTO event_outbox (event_id, event_type, workspace_id, subject, body_json)
-VALUES (
+SELECT
   ?,
   ?,
   ?,
   ?,
   ?
-)
+FROM (SELECT 1 AS seed) seed
+LEFT JOIN workspaces w ON w.id = ?
+WHERE ? IS NULL OR w.id IS NOT NULL
 `
 
 type InsertEventOutboxManualParams struct {
@@ -170,6 +235,8 @@ func (q *Queries) InsertEventOutboxManual(ctx context.Context, arg InsertEventOu
 		arg.WorkspaceID,
 		arg.Subject,
 		arg.BodyJson,
+		arg.WorkspaceID,
+		arg.WorkspaceID,
 	)
 	return err
 }
@@ -180,22 +247,23 @@ INSERT IGNORE INTO webhook_deliveries (
   target_url,
   target_hash,
   status
-) VALUES (
-  ?,
+) SELECT
+  eo.event_id,
   ?,
   ?,
   'pending'
-)
+FROM event_outbox eo
+WHERE eo.event_id = ?
 `
 
 type InsertWebhookDeliveryIfMissingManualParams struct {
-	EventID    string `json:"event_id"`
 	TargetUrl  string `json:"target_url"`
 	TargetHash string `json:"target_hash"`
+	EventID    string `json:"event_id"`
 }
 
 func (q *Queries) InsertWebhookDeliveryIfMissingManual(ctx context.Context, arg InsertWebhookDeliveryIfMissingManualParams) error {
-	_, err := q.db.ExecContext(ctx, insertWebhookDeliveryIfMissingManual, arg.EventID, arg.TargetUrl, arg.TargetHash)
+	_, err := q.db.ExecContext(ctx, insertWebhookDeliveryIfMissingManual, arg.TargetUrl, arg.TargetHash, arg.EventID)
 	return err
 }
 
@@ -210,7 +278,7 @@ SELECT
   created_at
 FROM event_outbox
 WHERE id > ?
-  AND (workspace_id IS NULL OR workspace_id = ?)
+  AND workspace_id = ?
 ORDER BY id ASC
 LIMIT ?
 `
@@ -303,6 +371,38 @@ func (q *Queries) ListEventOutboxAfterIDManual(ctx context.Context, arg ListEven
 	return items, nil
 }
 
+const lockEventOutboxRetentionBatchManual = `-- name: LockEventOutboxRetentionBatchManual :many
+SELECT event_id
+FROM event_outbox
+WHERE created_at < ?
+ORDER BY id
+LIMIT 1000
+FOR UPDATE
+`
+
+func (q *Queries) LockEventOutboxRetentionBatchManual(ctx context.Context, cutoff time.Time) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, lockEventOutboxRetentionBatchManual, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var event_id string
+		if err := rows.Scan(&event_id); err != nil {
+			return nil, err
+		}
+		items = append(items, event_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markWebhookDeliveryDeliveredManual = `-- name: MarkWebhookDeliveryDeliveredManual :execresult
 UPDATE webhook_deliveries
 SET status = 'delivered', lease_until = NULL, locked_by = NULL, last_error = NULL, updated_at = NOW()
@@ -323,9 +423,8 @@ func (q *Queries) MarkWebhookDeliveryDeliveredManual(ctx context.Context, arg Ma
 const markWebhookDeliveryFailedManual = `-- name: MarkWebhookDeliveryFailedManual :execresult
 UPDATE webhook_deliveries
 SET
-  attempt_count = attempt_count + 1,
-  status = CASE WHEN attempt_count + 1 >= max_attempts THEN 'failed' ELSE 'pending' END,
-  next_attempt_at = CASE WHEN attempt_count + 1 >= max_attempts THEN NULL ELSE DATE_ADD(NOW(), INTERVAL LEAST(900, POW(2, attempt_count + 1) * 5) SECOND) END,
+  status = CASE WHEN attempt_count >= max_attempts THEN 'failed' ELSE 'pending' END,
+  next_attempt_at = CASE WHEN attempt_count >= max_attempts THEN NULL ELSE DATE_ADD(NOW(), INTERVAL LEAST(900, POW(2, attempt_count) * 5) SECOND) END,
   lease_until = NULL,
   locked_by = NULL,
   last_error = ?,
@@ -349,6 +448,7 @@ const markWebhookDeliveryProcessingManual = `-- name: MarkWebhookDeliveryProcess
 UPDATE webhook_deliveries
 SET
   status = 'processing',
+  attempt_count = attempt_count + 1,
   lease_until = ?,
   locked_by = ?,
   updated_at = NOW()

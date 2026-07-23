@@ -12,48 +12,43 @@ import (
 
 const getOCRRunByItemImageIDManual = `-- name: GetOCRRunByItemImageIDManual :one
 SELECT
-  session_id,
-  item_image_id,
-  context_id,
-  image_url,
-  provider,
-  model,
-  original_hocr,
-  original_text,
-  corrected_hocr,
-  corrected_text,
-  edit_count,
-  levenshtein_distance,
-  box_edit_count,
-  boxes_added,
-  boxes_deleted,
-  box_change_score,
-  created_at,
-  updated_at
-FROM ocr_runs
-WHERE item_image_id = ?
+  run.session_id,
+  run.workspace_id,
+  run.item_image_id,
+  run.context_id,
+  run.context_scope_id,
+  run.image_url,
+  run.provider,
+  run.model,
+  run.original_hocr,
+  run.original_text,
+  run.canonical_revision,
+  run.levenshtein_distance,
+  run.created_at,
+  run.updated_at
+FROM current_ocr_runs current_run
+JOIN ocr_runs run
+  ON run.session_id = current_run.session_id
+ AND run.item_image_id = current_run.item_image_id
+WHERE current_run.item_image_id = ?
 `
 
-func (q *Queries) GetOCRRunByItemImageIDManual(ctx context.Context, itemImageID sql.NullInt64) (OcrRun, error) {
+func (q *Queries) GetOCRRunByItemImageIDManual(ctx context.Context, itemImageID uint64) (OcrRun, error) {
 	row := q.db.QueryRowContext(ctx, getOCRRunByItemImageIDManual, itemImageID)
 	var i OcrRun
 	err := row.Scan(
 		&i.SessionID,
+		&i.WorkspaceID,
 		&i.ItemImageID,
 		&i.ContextID,
+		&i.ContextScopeID,
 		&i.ImageUrl,
 		&i.Provider,
 		&i.Model,
 		&i.OriginalHocr,
 		&i.OriginalText,
-		&i.CorrectedHocr,
-		&i.CorrectedText,
-		&i.EditCount,
+		&i.CanonicalRevision,
 		&i.LevenshteinDistance,
-		&i.BoxEditCount,
-		&i.BoxesAdded,
-		&i.BoxesDeleted,
-		&i.BoxChangeScore,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -63,21 +58,17 @@ func (q *Queries) GetOCRRunByItemImageIDManual(ctx context.Context, itemImageID 
 const getOCRRunManual = `-- name: GetOCRRunManual :one
 SELECT
   session_id,
+  workspace_id,
   item_image_id,
   context_id,
+  context_scope_id,
   image_url,
   provider,
   model,
   original_hocr,
   original_text,
-  corrected_hocr,
-  corrected_text,
-  edit_count,
+  canonical_revision,
   levenshtein_distance,
-  box_edit_count,
-  boxes_added,
-  boxes_deleted,
-  box_change_score,
   created_at,
   updated_at
 FROM ocr_runs
@@ -89,98 +80,55 @@ func (q *Queries) GetOCRRunManual(ctx context.Context, sessionID string) (OcrRun
 	var i OcrRun
 	err := row.Scan(
 		&i.SessionID,
+		&i.WorkspaceID,
 		&i.ItemImageID,
 		&i.ContextID,
+		&i.ContextScopeID,
 		&i.ImageUrl,
 		&i.Provider,
 		&i.Model,
 		&i.OriginalHocr,
 		&i.OriginalText,
-		&i.CorrectedHocr,
-		&i.CorrectedText,
-		&i.EditCount,
+		&i.CanonicalRevision,
 		&i.LevenshteinDistance,
-		&i.BoxEditCount,
-		&i.BoxesAdded,
-		&i.BoxesDeleted,
-		&i.BoxChangeScore,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const saveOCREditsManual = `-- name: SaveOCREditsManual :execresult
-UPDATE ocr_runs
-SET
-  corrected_hocr = ?,
-  corrected_text = ?,
-  edit_count = ?,
-  levenshtein_distance = ?,
-  box_edit_count = ?,
-  boxes_added = ?,
-  boxes_deleted = ?,
-  box_change_score = ?
-WHERE session_id = ?
-`
-
-type SaveOCREditsManualParams struct {
-	CorrectedHocr       sql.NullString `json:"corrected_hocr"`
-	CorrectedText       sql.NullString `json:"corrected_text"`
-	EditCount           int32          `json:"edit_count"`
-	LevenshteinDistance int32          `json:"levenshtein_distance"`
-	BoxEditCount        int32          `json:"box_edit_count"`
-	BoxesAdded          int32          `json:"boxes_added"`
-	BoxesDeleted        int32          `json:"boxes_deleted"`
-	BoxChangeScore      float64        `json:"box_change_score"`
-	SessionID           string         `json:"session_id"`
-}
-
-func (q *Queries) SaveOCREditsManual(ctx context.Context, arg SaveOCREditsManualParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, saveOCREditsManual,
-		arg.CorrectedHocr,
-		arg.CorrectedText,
-		arg.EditCount,
-		arg.LevenshteinDistance,
-		arg.BoxEditCount,
-		arg.BoxesAdded,
-		arg.BoxesDeleted,
-		arg.BoxChangeScore,
-		arg.SessionID,
-	)
-}
-
-const upsertOCRRunManual = `-- name: UpsertOCRRunManual :exec
+const insertOCRRunManual = `-- name: InsertOCRRunManual :execresult
 INSERT INTO ocr_runs (
   session_id,
+  workspace_id,
   item_image_id,
   context_id,
+  context_scope_id,
   image_url,
   provider,
   model,
   original_hocr,
   original_text
-) VALUES (
+) SELECT
+  ?,
+  ii.workspace_id,
   ?,
   ?,
-  ?,
+  c.scope_id,
   ?,
   ?,
   ?,
   ?,
   ?
-)
-ON DUPLICATE KEY UPDATE
-  item_image_id = COALESCE(VALUES(item_image_id), item_image_id),
-  context_id = COALESCE(VALUES(context_id), context_id),
-  image_url = VALUES(image_url),
-  provider = VALUES(provider),
-  model = VALUES(model),
-  original_hocr = VALUES(original_hocr),
-  original_text = VALUES(original_text)
+FROM item_images ii
+LEFT JOIN contexts c
+  ON c.id = ?
+ AND (c.workspace_id IS NULL OR c.workspace_id = ii.workspace_id)
+WHERE ii.id = ?
+  AND (? IS NULL OR c.id IS NOT NULL)
 `
 
-type UpsertOCRRunManualParams struct {
+type InsertOCRRunManualParams struct {
 	SessionID    string        `json:"session_id"`
 	ItemImageID  sql.NullInt64 `json:"item_image_id"`
 	ContextID    sql.NullInt64 `json:"context_id"`
@@ -191,8 +139,8 @@ type UpsertOCRRunManualParams struct {
 	OriginalText string        `json:"original_text"`
 }
 
-func (q *Queries) UpsertOCRRunManual(ctx context.Context, arg UpsertOCRRunManualParams) error {
-	_, err := q.db.ExecContext(ctx, upsertOCRRunManual,
+func (q *Queries) InsertOCRRunManual(ctx context.Context, arg InsertOCRRunManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, insertOCRRunManual,
 		arg.SessionID,
 		arg.ItemImageID,
 		arg.ContextID,
@@ -201,6 +149,26 @@ func (q *Queries) UpsertOCRRunManual(ctx context.Context, arg UpsertOCRRunManual
 		arg.Model,
 		arg.OriginalHocr,
 		arg.OriginalText,
+		arg.ContextID,
+		arg.ItemImageID,
+		arg.ContextID,
 	)
+}
+
+const setCurrentOCRRunManual = `-- name: SetCurrentOCRRunManual :exec
+INSERT INTO current_ocr_runs (item_image_id, session_id)
+VALUES (?, ?)
+ON DUPLICATE KEY UPDATE
+  session_id = VALUES(session_id),
+  updated_at = NOW()
+`
+
+type SetCurrentOCRRunManualParams struct {
+	ItemImageID uint64 `json:"item_image_id"`
+	SessionID   string `json:"session_id"`
+}
+
+func (q *Queries) SetCurrentOCRRunManual(ctx context.Context, arg SetCurrentOCRRunManualParams) error {
+	_, err := q.db.ExecContext(ctx, setCurrentOCRRunManual, arg.ItemImageID, arg.SessionID)
 	return err
 }

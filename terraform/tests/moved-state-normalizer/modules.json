@@ -1,0 +1,14 @@
+{
+  "Modules": [
+    {
+      "Key": "scribe",
+      "Source": "https://github.com/libops/cloud-compose/archive/test.tar.gz",
+      "Dir": ".terraform/modules/cloud-compose-fixture"
+    },
+    {
+      "Key": "scribe.gcp",
+      "Source": "./modules/gcp",
+      "Dir": ".terraform/modules/cloud-compose-fixture/modules/gcp"
+    }
+  ]
+}

@@ -296,7 +296,6 @@ type APIKeyRecord struct {
 	KeyPrefix       string                 `protobuf:"bytes,5,opt,name=key_prefix,json=keyPrefix,proto3" json:"key_prefix,omitempty"`
 	Role            string                 `protobuf:"bytes,6,opt,name=role,proto3" json:"role,omitempty"`
 	Scopes          []string               `protobuf:"bytes,7,rep,name=scopes,proto3" json:"scopes,omitempty"`
-	LastUsedAt      string                 `protobuf:"bytes,8,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"`
 	ExpiresAt       string                 `protobuf:"bytes,9,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	CreatedAt       string                 `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt       string                 `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
@@ -381,13 +380,6 @@ func (x *APIKeyRecord) GetScopes() []string {
 		return x.Scopes
 	}
 	return nil
-}
-
-func (x *APIKeyRecord) GetLastUsedAt() string {
-	if x != nil {
-		return x.LastUsedAt
-	}
-	return ""
 }
 
 func (x *APIKeyRecord) GetExpiresAt() string {
@@ -1096,7 +1088,7 @@ const file_scribe_v1_auth_proto_rawDesc = "" +
 	"\n" +
 	"logout_url\x18\x04 \x01(\tR\tlogoutUrl\x12'\n" +
 	"\x04user\x18\x05 \x01(\v2\x13.scribe.v1.AuthUserR\x04user\x126\n" +
-	"\tworkspace\x18\x06 \x01(\v2\x18.scribe.v1.AuthWorkspaceR\tworkspace\"\xcc\x02\n" +
+	"\tworkspace\x18\x06 \x01(\v2\x18.scribe.v1.AuthWorkspaceR\tworkspace\"\xb0\x02\n" +
 	"\fAPIKeyRecord\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12!\n" +
 	"\fworkspace_id\x18\x02 \x01(\x04R\vworkspaceId\x12+\n" +
@@ -1105,25 +1097,23 @@ const file_scribe_v1_auth_proto_rawDesc = "" +
 	"\n" +
 	"key_prefix\x18\x05 \x01(\tR\tkeyPrefix\x12\x12\n" +
 	"\x04role\x18\x06 \x01(\tR\x04role\x12\x16\n" +
-	"\x06scopes\x18\a \x03(\tR\x06scopes\x12 \n" +
-	"\flast_used_at\x18\b \x01(\tR\n" +
-	"lastUsedAt\x12\x1d\n" +
+	"\x06scopes\x18\a \x03(\tR\x06scopes\x12\x1d\n" +
 	"\n" +
 	"expires_at\x18\t \x01(\tR\texpiresAt\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\n" +
 	" \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\v \x01(\tR\tupdatedAt\"\x14\n" +
+	"updated_at\x18\v \x01(\tR\tupdatedAtJ\x04\b\b\x10\t\"\x14\n" +
 	"\x12ListAPIKeysRequest\"I\n" +
 	"\x13ListAPIKeysResponse\x122\n" +
-	"\bapi_keys\x18\x01 \x03(\v2\x17.scribe.v1.APIKeyRecordR\aapiKeys\"\x86\x01\n" +
-	"\x13CreateAPIKeyRequest\x12$\n" +
-	"\x04name\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04name\x12\x12\n" +
-	"\x04role\x18\x02 \x01(\tR\x04role\x12\x16\n" +
-	"\x06scopes\x18\x03 \x03(\tR\x06scopes\x12\x1d\n" +
+	"\bapi_keys\x18\x01 \x03(\v2\x17.scribe.v1.APIKeyRecordR\aapiKeys\"\xe6\x01\n" +
+	"\x13CreateAPIKeyRequest\x12'\n" +
+	"\x04name\x18\x01 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\xff\x012\x06.*\\S.*R\x04name\x12;\n" +
+	"\x04role\x18\x02 \x01(\tB'\xbaH$\xc8\x01\x01r\x1f\x18\x062\x1b^(admin|write|create|read)$R\x04role\x12A\n" +
+	"\x06scopes\x18\x03 \x03(\tB)\xbaH&\x92\x01#\x10 \x18\x01\"\x1dr\x1b\x18@2\x17^(\\*|[a-z_]+:[a-z_*]+)$R\x06scopes\x12&\n" +
 	"\n" +
-	"expires_at\x18\x04 \x01(\tR\texpiresAt\"Z\n" +
+	"expires_at\x18\x04 \x01(\tB\a\xbaH\x04r\x02\x18(R\texpiresAt\"Z\n" +
 	"\x14CreateAPIKeyResponse\x120\n" +
 	"\aapi_key\x18\x01 \x01(\v2\x17.scribe.v1.APIKeyRecordR\x06apiKey\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\"8\n" +
@@ -1145,27 +1135,32 @@ const file_scribe_v1_auth_proto_rawDesc = "" +
 	"updated_at\x18\t \x01(\tR\tupdatedAt\"\x1c\n" +
 	"\x1aListProviderSecretsRequest\"i\n" +
 	"\x1bListProviderSecretsResponse\x12J\n" +
-	"\x10provider_secrets\x18\x01 \x03(\v2\x1f.scribe.v1.ProviderSecretRecordR\x0fproviderSecrets\"\xb2\x01\n" +
-	"\x1bCreateProviderSecretRequest\x12,\n" +
-	"\bprovider\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\bprovider\x12$\n" +
-	"\x04name\x18\x02 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x04name\x12)\n" +
-	"\aapi_key\x18\x03 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06apiKey\x12\x14\n" +
-	"\x05scope\x18\x04 \x01(\tR\x05scope\"h\n" +
+	"\x10provider_secrets\x18\x01 \x03(\v2\x1f.scribe.v1.ProviderSecretRecordR\x0fproviderSecrets\"\xed\x01\n" +
+	"\x1bCreateProviderSecretRequest\x12?\n" +
+	"\bprovider\x18\x01 \x01(\tB#\xbaH \xc8\x01\x01r\x1b\x18@2\x17^[a-z][a-z0-9_-]{0,63}$R\bprovider\x12'\n" +
+	"\x04name\x18\x02 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\xff\x012\x06.*\\S.*R\x04name\x12.\n" +
+	"\aapi_key\x18\x03 \x01(\tB\x15\xbaH\x12\xc8\x01\x01r\r\x10\b\x18\x80@2\x06.*\\S.*R\x06apiKey\x124\n" +
+	"\x05scope\x18\x04 \x01(\tB\x1e\xbaH\x1b\xc8\x01\x01r\x16\x18\t2\x12^(user|workspace)$R\x05scope\"h\n" +
 	"\x1cCreateProviderSecretResponse\x12H\n" +
 	"\x0fprovider_secret\x18\x01 \x01(\v2\x1f.scribe.v1.ProviderSecretRecordR\x0eproviderSecret\"F\n" +
 	"\x1bDeleteProviderSecretRequest\x12'\n" +
 	"\tsecret_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\bsecretId\"\x1e\n" +
-	"\x1cDeleteProviderSecretResponse2\xc5\x05\n" +
+	"\x1cDeleteProviderSecretResponse2\xe4\x05\n" +
 	"\vAuthService\x12R\n" +
 	"\tGetAuthMe\x12\x1b.scribe.v1.GetAuthMeRequest\x1a\x1c.scribe.v1.GetAuthMeResponse\"\n" +
-	"\x92\xb5\x18\x06\b\x01\x10\x02\x18\x01\x12V\n" +
-	"\vListAPIKeys\x12\x1d.scribe.v1.ListAPIKeysRequest\x1a\x1e.scribe.v1.ListAPIKeysResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x03\x12Y\n" +
-	"\fCreateAPIKey\x12\x1e.scribe.v1.CreateAPIKeyRequest\x1a\x1f.scribe.v1.CreateAPIKeyResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x03\x12Y\n" +
-	"\fDeleteAPIKey\x12\x1e.scribe.v1.DeleteAPIKeyRequest\x1a\x1f.scribe.v1.DeleteAPIKeyResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x03\x12n\n" +
-	"\x13ListProviderSecrets\x12%.scribe.v1.ListProviderSecretsRequest\x1a&.scribe.v1.ListProviderSecretsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12q\n" +
-	"\x14CreateProviderSecret\x12&.scribe.v1.CreateProviderSecretRequest\x1a'.scribe.v1.CreateProviderSecretResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02\x12q\n" +
-	"\x14DeleteProviderSecret\x12&.scribe.v1.DeleteProviderSecretRequest\x1a'.scribe.v1.DeleteProviderSecretResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x02B\xa7\x01\n" +
+	"\x92\xb5\x18\x06\b\x01\x10\x02\x18\x01\x12X\n" +
+	"\vListAPIKeys\x12\x1d.scribe.v1.ListAPIKeysRequest\x1a\x1e.scribe.v1.ListAPIKeysResponse\"\n" +
+	"\x92\xb5\x18\x06\x10\x02\x18\x03(\x01\x12[\n" +
+	"\fCreateAPIKey\x12\x1e.scribe.v1.CreateAPIKeyRequest\x1a\x1f.scribe.v1.CreateAPIKeyResponse\"\n" +
+	"\x92\xb5\x18\x06\x10\x02\x18\x03(\x01\x12c\n" +
+	"\fDeleteAPIKey\x12\x1e.scribe.v1.DeleteAPIKeyRequest\x1a\x1f.scribe.v1.DeleteAPIKeyResponse\"\x12\x92\xb5\x18\x0e\x10\n" +
+	"\x18\x03\"\x06key_id(\x01\x12p\n" +
+	"\x13ListProviderSecrets\x12%.scribe.v1.ListProviderSecretsRequest\x1a&.scribe.v1.ListProviderSecretsResponse\"\n" +
+	"\x92\xb5\x18\x06\x10\x02\x18\x01(\x01\x12s\n" +
+	"\x14CreateProviderSecret\x12&.scribe.v1.CreateProviderSecretRequest\x1a'.scribe.v1.CreateProviderSecretResponse\"\n" +
+	"\x92\xb5\x18\x06\x10\x02\x18\x02(\x01\x12~\n" +
+	"\x14DeleteProviderSecret\x12&.scribe.v1.DeleteProviderSecretRequest\x1a'.scribe.v1.DeleteProviderSecretResponse\"\x15\x92\xb5\x18\x11\x10\v\x18\x02\"\tsecret_id(\x01B\xa7\x01\n" +
 	"\rcom.scribe.v1B\tAuthProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 

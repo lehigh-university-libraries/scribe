@@ -5,6 +5,7 @@ locals {
   vault_operator_policy_name  = "operator"
   vault_break_glass_policy    = "break-glass"
   vault_app_policy_name       = "app-${local.workspace_slug}"
+  vault_preview_policy_name   = "scribe-preview-app"
   vault_ci_policy_name        = "ci"
   vault_gcloud_client_id      = "32555940559.apps.googleusercontent.com"
   vault_proxy_admin_emails    = distinct(concat(var.vault_admin_emails, var.vault_ci_service_account_emails))
@@ -18,7 +19,7 @@ locals {
 module "vault" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
-  source = "git::https://github.com/libops/terraform-vault-cloudrun?ref=bf62fe8cb4e8d391a357431894bf109d797d13a4"
+  source = "./modules/vault-cloud-run"
   providers = {
     docker      = docker
     google      = google
@@ -35,62 +36,41 @@ module "vault" {
   create_repository = false
   kms_key_ring_name = local.vault_kms_key_ring_name
   kms_key_name      = local.vault_kms_key_name
+  bootstrap_service_account_emails = toset(
+    var.vault_ci_service_account_emails,
+  )
   public_routes = [
     "/.well-known/",
     "/v1/auth/gcp/",
+    # "Public" bypasses only the proxy's Google admin header. Vault still
+    # requires X-Vault-Token and enforces the workspace-scoped ACL below.
     "/v1/secret/",
     "/v1/sys/health",
   ]
 }
 
 resource "google_service_account_iam_member" "vault_gcp_auth_app_service_account_viewer" {
-  count = local.vault_is_owner_workspace ? 1 : 0
-
   service_account_id = module.scribe.appGsa.name
   role               = "roles/iam.serviceAccountViewer"
-  member             = "serviceAccount:${module.vault[0].gsa}"
+  member             = "serviceAccount:${local.vault_gsa}"
 }
 
 resource "google_service_account_iam_member" "vault_gcp_auth_instance_service_account_viewer" {
-  count = local.vault_is_owner_workspace ? 1 : 0
-
   service_account_id = module.scribe.instance.gsa.name
   role               = "roles/iam.serviceAccountViewer"
-  member             = "serviceAccount:${module.vault[0].gsa}"
-}
-
-resource "google_project_iam_custom_role" "vault_gcp_auth_key_verifier" {
-  count = local.vault_is_owner_workspace ? 1 : 0
-
-  project     = var.project_id
-  role_id     = "vaultGcpAuthKeyVerifier"
-  title       = "Vault GCP Auth Key Verifier"
-  description = "Allows Vault's GCP auth backend to verify service-account JWT signing keys without creating or deleting keys."
-  permissions = [
-    "iam.serviceAccountKeys.get",
-  ]
-  stage           = "GA"
-  deletion_policy = "PREVENT"
-
-  lifecycle {
-    prevent_destroy = true
-  }
+  member             = "serviceAccount:${local.vault_gsa}"
 }
 
 resource "google_service_account_iam_member" "vault_gcp_auth_app_service_account_key_verifier" {
-  count = local.vault_is_owner_workspace ? 1 : 0
-
   service_account_id = module.scribe.appGsa.name
-  role               = google_project_iam_custom_role.vault_gcp_auth_key_verifier[0].id
-  member             = "serviceAccount:${module.vault[0].gsa}"
+  role               = local.vault_gcp_auth_key_verifier_role
+  member             = "serviceAccount:${local.vault_gsa}"
 }
 
 resource "google_service_account_iam_member" "vault_gcp_auth_instance_service_account_key_verifier" {
-  count = local.vault_is_owner_workspace ? 1 : 0
-
   service_account_id = module.scribe.instance.gsa.name
-  role               = google_project_iam_custom_role.vault_gcp_auth_key_verifier[0].id
-  member             = "serviceAccount:${module.vault[0].gsa}"
+  role               = local.vault_gcp_auth_key_verifier_role
+  member             = "serviceAccount:${local.vault_gsa}"
 }
 
 resource "vault_mount" "secret" {
@@ -111,6 +91,8 @@ resource "vault_policy" "vault" {
 }
 
 resource "vault_policy" "app" {
+  count = local.vault_is_owner_workspace ? 1 : 0
+
   name = local.vault_app_policy_name
 
   policy = <<-EOT
@@ -140,12 +122,19 @@ path "secret/metadata/scribe/${local.workspace_slug}/provider-secrets/workspaces
 EOT
 }
 
-data "vault_auth_backend" "gcp" {
-  path = local.vault_gcp_auth_backend_path
+resource "vault_policy" "preview_app" {
+  count = terraform.workspace == "dev" ? 1 : 0
 
-  depends_on = [
-    vault_auth_backend.gcp,
-  ]
+  name = local.vault_preview_policy_name
+  # GCP auth uses a stable service-account unique ID as the entity alias and
+  # copies the verified email into alias metadata. The policy therefore renders
+  # one exact database path for the caller; it cannot read another preview's
+  # bootstrap value or any provider/application secret.
+  policy = <<-EOT
+path "secret/data/scribe/previews/{{identity.entity.aliases.${vault_gcp_auth_backend.gcp[0].accessor}.metadata.service_account_email}}/database/app" {
+  capabilities = ["read"]
+}
+EOT
 }
 
 resource "vault_token_auth_backend_role" "ci" {
@@ -178,11 +167,12 @@ resource "vault_audit" "stdout" {
   ]
 }
 
-resource "vault_auth_backend" "gcp" {
+resource "vault_gcp_auth_backend" "gcp" {
   count = local.vault_is_owner_workspace ? 1 : 0
 
-  path = local.vault_gcp_auth_backend_path
-  type = "gcp"
+  path         = local.vault_gcp_auth_backend_path
+  iam_alias    = "unique_id"
+  iam_metadata = ["service_account_email"]
 }
 
 resource "vault_jwt_auth_backend" "google_jwt" {
@@ -278,7 +268,9 @@ resource "vault_jwt_auth_backend_role" "admin_break_glass" {
 }
 
 resource "vault_gcp_auth_backend_role" "app" {
-  backend = local.vault_gcp_auth_backend_path
+  count = local.vault_is_owner_workspace ? 1 : 0
+
+  backend = vault_gcp_auth_backend.gcp[0].path
   role    = local.vault_app_role_name
   type    = "iam"
   bound_service_accounts = [
@@ -293,8 +285,30 @@ resource "vault_gcp_auth_backend_role" "app" {
   ]
 
   depends_on = [
-    vault_auth_backend.gcp,
+    vault_gcp_auth_backend.gcp,
     vault_policy.app,
+  ]
+}
+
+resource "vault_gcp_auth_backend_role" "preview_app" {
+  count = terraform.workspace == "dev" ? 1 : 0
+
+  backend                 = vault_gcp_auth_backend.gcp[0].path
+  role                    = local.vault_preview_policy_name
+  type                    = "iam"
+  bound_service_accounts  = ["*"]
+  bound_projects          = [var.project_id]
+  allow_gce_inference     = false
+  token_no_default_policy = true
+  token_ttl               = 300
+  token_max_ttl           = 900
+  token_policies = [
+    local.vault_preview_policy_name,
+  ]
+
+  depends_on = [
+    vault_gcp_auth_backend.gcp,
+    vault_policy.preview_app,
   ]
 }
 
@@ -315,7 +329,7 @@ resource "vault_gcp_auth_backend_role" "ci" {
   ]
 
   depends_on = [
-    vault_auth_backend.gcp,
+    vault_gcp_auth_backend.gcp,
     vault_policy.vault,
   ]
 }

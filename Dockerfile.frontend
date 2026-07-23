@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.25@sha256:0adf442eae370b6087e08edc7c50b552d80ddf261576f4ebd6421006b2461f12
-FROM node:24-alpine@sha256:156b55f92e98ccd5ef49578a8cea0df4679826564bad1c9d4ef04462b9f0ded6 AS web-build
+FROM node:24.18.0-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS web-build
 
 WORKDIR /app
 COPY mirador-scribe/ /app/mirador-scribe/
@@ -12,17 +12,26 @@ RUN --mount=type=cache,target=/root/.npm \
 COPY web/ ./
 RUN npm run build
 
-FROM node:24-alpine@sha256:156b55f92e98ccd5ef49578a8cea0df4679826564bad1c9d4ef04462b9f0ded6
+FROM node:24.18.0-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd
 
 WORKDIR /app/web
 ENV NODE_ENV=production
+# The production image is reachable only through PPB's localhost sidecar
+# proxy. PPB 0.5.1 emits one validated client IP and establishes external
+# HTTPS; server.mjs rejects proxy requests that do not satisfy that contract.
+ENV SCRIBE_FRONTEND_EDGE_MODE=ppb
 ARG SCRIBE_FRONTEND_BACKEND_ORIGIN=""
-ARG SCRIBE_FRONTEND_IIIF_ORIGIN=""
+ARG SCRIBE_FRONTEND_PRESENTATION_ORIGIN=""
 ENV SCRIBE_FRONTEND_BACKEND_ORIGIN=${SCRIBE_FRONTEND_BACKEND_ORIGIN}
-ENV SCRIBE_FRONTEND_IIIF_ORIGIN=${SCRIBE_FRONTEND_IIIF_ORIGIN}
+ENV SCRIBE_FRONTEND_PRESENTATION_ORIGIN=${SCRIBE_FRONTEND_PRESENTATION_ORIGIN}
 
 COPY --from=web-build /app/web/dist /app/web/dist
 COPY web/server.mjs /app/web/server.mjs
+COPY web/readiness-job.mjs /app/web/readiness-job.mjs
+COPY web/proxy-url.mjs /app/web/proxy-url.mjs
+COPY web/proxy-headers.mjs /app/web/proxy-headers.mjs
+COPY web/proxy-pipeline.mjs /app/web/proxy-pipeline.mjs
+COPY web/static-pipeline.mjs /app/web/static-pipeline.mjs
 
 EXPOSE 8888
 USER node

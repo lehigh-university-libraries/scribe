@@ -1,18 +1,18 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
-	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 )
 
 // lineAnno builds a minimal IIIF line annotation JSON string.
 func lineAnno(id, canvasURI, text string, x, y, w, h int) string {
+	id = testAnnotationID(strings.TrimPrefix(id, testAnnotationPage+"/items/"))
 	return fmt.Sprintf(`{
 		"id": %q,
 		"type": "Annotation",
@@ -26,7 +26,18 @@ func lineAnno(id, canvasURI, text string, x, y, w, h int) string {
 	}`, id, text, canvasURI, x, y, w, h)
 }
 
-const testCanvas = "https://example.org/canvas/1"
+func testAnnotationID(seed string) string {
+	id, err := iiif.AnnotationID(testAnnotationPage, seed)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+const (
+	testCanvas         = "https://example.org/canvas/1"
+	testAnnotationPage = "https://scribe.example/item-image-1/canvas/page-1/annotations"
+)
 
 // --- parseLineAnnotation ---
 
@@ -45,7 +56,7 @@ func TestParseLineAnnotation(t *testing.T) {
 	if canvas != testCanvas {
 		t.Errorf("canvas: got %q, want %q", canvas, testCanvas)
 	}
-	if annStringValue(anno, "id") != "anno-1" {
+	if annStringValue(anno, "id") != testAnnotationID("anno-1") {
 		t.Errorf("id not preserved in parsed annotation")
 	}
 }
@@ -125,233 +136,413 @@ func TestBuildLineAnnotation(t *testing.T) {
 	}
 }
 
-// --- SplitLineIntoWords Connect handler ---
+// --- Complete-page structural transforms ---
 
-func TestSplitLineIntoWords_ExplicitWords(t *testing.T) {
-	h := &Handler{}
-	raw := lineAnno("line-1", testCanvas, "Hello World", 0, 0, 200, 30)
-	req := connect.NewRequest(&scribev1.SplitLineIntoWordsRequest{
-		AnnotationJson: raw,
-		Words:          []string{"Hello", "World"},
-	})
-	resp, err := h.SplitLineIntoWords(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+var testPageIdentity = iiif.PageIdentity{
+	PublicBaseURL: "https://scribe.example",
+	ItemImageID:   1,
+	CanvasURI:     testCanvas,
+}
 
-	var page map[string]any
-	if jsonErr := json.Unmarshal([]byte(resp.Msg.GetAnnotationPageJson()), &page); jsonErr != nil {
-		t.Fatalf("invalid annotation page json: %v", jsonErr)
-	}
-	items, _ := page["items"].([]any)
-	if len(items) != 2 {
-		t.Fatalf("expected 2 word items, got %d", len(items))
-	}
+func TestSplitDraftLineIntoWordsRetainsLine(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "line-retained", "line", "Hello World", 0, 0, 200, 30)
+	lineID := annStringValue(line, "id")
+	draft := canonicalAnnotationDraft(t, nil, line)
 
-	// Verify granularity and proportional widths.
-	for i, item := range items {
-		anno, _ := item.(map[string]any)
-		if annStringValue(anno, "textGranularity") != "word" {
-			t.Errorf("item %d: textGranularity: got %q, want %q", i, annStringValue(anno, "textGranularity"), "word")
+	if err := splitDraftLineIntoWords(draft, lineID, []string{"Hello", "World"}); err != nil {
+		t.Fatalf("split line into words: %v", err)
+	}
+	assertCanonicalDraft(t, draft)
+
+	retained := draftAnnotationByID(t, draft, lineID)
+	if got := extractAnnotationText(retained); got != "Hello World" {
+		t.Fatalf("retained line text = %q", got)
+	}
+	words := draftAnnotationsByGranularity(draft, "word")
+	if len(words) != 2 || len(draft.items) != 3 {
+		t.Fatalf("items = %d, words = %d; want retained line plus two words", len(draft.items), len(words))
+	}
+	for index, word := range words {
+		if _, err := iiif.PageIdentityFromAnnotationID(annStringValue(word, "id"), testCanvas); err != nil {
+			t.Errorf("word %d has noncanonical id: %v", index, err)
 		}
-		// ID should be derived from parent line ID.
-		if !strings.HasPrefix(annStringValue(anno, "id"), "line-1-word-") {
-			t.Errorf("item %d: id %q doesn't have expected prefix", i, annStringValue(anno, "id"))
+		_, text, x1, y1, x2, y2, canvas, err := parseLineAnnotation(mustMarshal(t, word))
+		if err != nil {
+			t.Fatalf("parse word %d: %v", index, err)
+		}
+		wantText := []string{"Hello", "World"}[index]
+		if text != wantText || x1 != index*100 || y1 != 0 || x2 != (index+1)*100 || y2 != 30 || canvas != testCanvas {
+			t.Errorf("word %d = %q (%d,%d,%d,%d) on %q", index, text, x1, y1, x2, y2, canvas)
 		}
 	}
-
-	// Word 0 should start at x=0, word 1 at x=100.
-	_, _, x10, _, _, _, _, _ := parseLineAnnotation(mustMarshal(t, items[0]))
-	_, _, x11, _, _, _, _, _ := parseLineAnnotation(mustMarshal(t, items[1]))
-	if x10 != 0 {
-		t.Errorf("word 0 x1: got %d, want 0", x10)
-	}
-	if x11 != 100 {
-		t.Errorf("word 1 x1: got %d, want 100", x11)
-	}
 }
 
-func TestSplitLineIntoWords_TokenizesTextWhenWordsEmpty(t *testing.T) {
-	h := &Handler{}
-	raw := lineAnno("line-1", testCanvas, "one two three", 0, 0, 300, 20)
-	req := connect.NewRequest(&scribev1.SplitLineIntoWordsRequest{
-		AnnotationJson: raw,
+func TestSplitDraftLineIntoWordsTokenizesAndRejectsInvalidFanout(t *testing.T) {
+	t.Parallel()
+	t.Run("tokenizes canonical line text", func(t *testing.T) {
+		draft := canonicalAnnotationDraft(t, nil, structuralAnnotation(t, "tokenize", "line", "one two three", 0, 0, 300, 20))
+		lineID := annStringValue(draft.items[0].(map[string]any), "id")
+		if err := splitDraftLineIntoWords(draft, lineID, nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := len(draftAnnotationsByGranularity(draft, "word")); got != 3 {
+			t.Fatalf("word count = %d, want 3", got)
+		}
+		assertCanonicalDraft(t, draft)
 	})
-	resp, err := h.SplitLineIntoWords(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 
-	var page map[string]any
-	if jsonErr := json.Unmarshal([]byte(resp.Msg.GetAnnotationPageJson()), &page); jsonErr != nil {
-		t.Fatalf("invalid annotation page json: %v", jsonErr)
-	}
-	items, _ := page["items"].([]any)
-	if len(items) != 3 {
-		t.Fatalf("expected 3 word items, got %d", len(items))
-	}
-}
-
-func TestSplitLineIntoWords_EmptyLine(t *testing.T) {
-	h := &Handler{}
-	raw := lineAnno("line-1", testCanvas, "", 0, 0, 200, 30)
-	req := connect.NewRequest(&scribev1.SplitLineIntoWordsRequest{
-		AnnotationJson: raw,
+	t.Run("width must admit distinct boxes", func(t *testing.T) {
+		line := structuralAnnotation(t, "narrow", "line", "one two three", 0, 0, 2, 20)
+		draft := canonicalAnnotationDraft(t, nil, line)
+		before := assertCanonicalDraft(t, draft)
+		err := splitDraftLineIntoWords(draft, annStringValue(line, "id"), nil)
+		if err == nil || !strings.Contains(err.Error(), "too narrow") {
+			t.Fatalf("narrow line error = %v", err)
+		}
+		if after := assertCanonicalDraft(t, draft); after != before {
+			t.Fatal("narrow-line rejection mutated the draft")
+		}
 	})
-	_, err := h.SplitLineIntoWords(context.Background(), req)
-	if err == nil {
-		t.Fatal("expected error for empty line, got nil")
-	}
-}
 
-// --- SplitLineIntoTwoLines Connect handler ---
-
-func TestSplitLineIntoTwoLines(t *testing.T) {
-	h := &Handler{}
-	raw := lineAnno("line-1", testCanvas, "Hello World foo bar", 10, 20, 200, 40)
-	req := connect.NewRequest(&scribev1.SplitLineIntoTwoLinesRequest{
-		AnnotationJson: raw,
-		SplitAtWord:    2, // "Hello World" | "foo bar"
+	t.Run("empty line", func(t *testing.T) {
+		line := structuralAnnotation(t, "empty", "line", "", 0, 0, 200, 20)
+		draft := canonicalAnnotationDraft(t, nil, line)
+		if err := splitDraftLineIntoWords(draft, annStringValue(line, "id"), nil); err == nil {
+			t.Fatal("empty line was accepted")
+		}
 	})
-	resp, err := h.SplitLineIntoTwoLines(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	parts := resp.Msg.GetAnnotationJsons()
-	if len(parts) != 2 {
-		t.Fatalf("expected 2 parts, got %d", len(parts))
-	}
+}
 
-	_, textA, x1A, y1A, x2A, y2A, _, err := parseLineAnnotation(parts[0])
+func TestSplitDraftLineIntoWordsRejectsUnrelatedDeterministicIDCollision(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "collision-line", "line", "one two", 0, 0, 200, 20)
+	lineID := annStringValue(line, "id")
+	collisionID, err := iiif.AnnotationID(testAnnotationPage, lineID+"\x00word\x001")
 	if err != nil {
-		t.Fatalf("part 0 parse: %v", err)
+		t.Fatal(err)
 	}
-	_, textB, x1B, y1B, x2B, y2B, _, err := parseLineAnnotation(parts[1])
-	if err != nil {
-		t.Fatalf("part 1 parse: %v", err)
-	}
+	unrelated := structuralAnnotation(t, "unrelated", "word", "elsewhere", 500, 500, 20, 20)
+	unrelated["id"] = collisionID
+	draft := canonicalAnnotationDraft(t, nil, line, unrelated)
+	before := assertCanonicalDraft(t, draft)
 
-	if textA != "Hello World" {
-		t.Errorf("part 0 text: got %q, want %q", textA, "Hello World")
+	err = splitDraftLineIntoWords(draft, lineID, []string{"one", "two"})
+	if err == nil || !strings.Contains(err.Error(), "collides with an unrelated") {
+		t.Fatalf("collision error = %v", err)
 	}
-	if textB != "foo bar" {
-		t.Errorf("part 1 text: got %q, want %q", textB, "foo bar")
-	}
-	// Both parts share the same x span.
-	if x1A != x1B || x2A != x2B {
-		t.Errorf("x spans differ: A=(%d,%d) B=(%d,%d)", x1A, x2A, x1B, x2B)
-	}
-	// Parts stack vertically and cover the original height.
-	totalH := (y2A - y1A) + (y2B - y1B)
-	if totalH != 40 {
-		t.Errorf("total height: got %d, want 40", totalH)
-	}
-	// Part B starts where part A ends.
-	if y1B != y2A {
-		t.Errorf("vertical join: y1B=%d, y2A=%d", y1B, y2A)
+	if after := assertCanonicalDraft(t, draft); after != before {
+		t.Fatal("collision rejection mutated the draft")
 	}
 }
 
-func TestSplitLineIntoTwoLines_DefaultMidpoint(t *testing.T) {
-	h := &Handler{}
-	raw := lineAnno("line-1", testCanvas, "one two three four", 0, 0, 400, 20)
-	req := connect.NewRequest(&scribev1.SplitLineIntoTwoLinesRequest{
-		AnnotationJson: raw,
-		SplitAtWord:    0, // default = midpoint
+func TestSplitDraftLineIntoWordsPreflightsFanoutBeforeMutation(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "fanout", "line", "original text", 0, 0, 1000, 20)
+	draft := canonicalAnnotationDraft(t, nil, line)
+	before := assertCanonicalDraft(t, draft)
+	// Simulate a valid page at the admission ceiling. The conservative fanout
+	// estimate must reject before changing the line body or adding any clone.
+	draft.rawBytes = iiif.MaxAnnotationPageBytes - 1
+	err := splitDraftLineIntoWords(draft, annStringValue(line, "id"), []string{"replacement", "tokens"})
+	if err == nil || !strings.Contains(err.Error(), "would exceed") {
+		t.Fatalf("fanout error = %v", err)
+	}
+	if after := assertCanonicalDraft(t, draft); after != before {
+		t.Fatal("fanout preflight rejection mutated or cloned the draft")
+	}
+}
+
+func TestStructuralDerivationPreservesExtensionsAndClearsChangedResourceIDs(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "rich-line", "line", "one two", 0, 0, 200, 40)
+	line["motivation"] = []any{"supplementing", "tagging"}
+	line["scribe:annotationCounter"] = json.Number("9007199254740993")
+	body := line["body"].([]any)[0].(map[string]any)
+	body["id"] = "https://example.org/bodies/original"
+	body["language"] = "en"
+	body["scribe:bodyCounter"] = json.Number("9007199254740993")
+	target := line["target"].(map[string]any)
+	target["id"] = "https://example.org/targets/original"
+	target["scribe:targetCounter"] = json.Number("9007199254740993")
+	source := target["source"].(map[string]any)
+	source["service"] = []any{map[string]any{
+		"id": "https://example.org/iiif/image/1", "type": "ImageService3", "profile": "level2",
+	}}
+	nonspatialID := "https://example.org/selectors/time"
+	spatialID := "https://example.org/selectors/space"
+	target["selector"] = []any{
+		map[string]any{
+			"id": nonspatialID, "type": "FragmentSelector",
+			"conformsTo": "http://www.w3.org/TR/media-frags/", "value": "t=7,8",
+		},
+		map[string]any{
+			"id": spatialID, "type": "FragmentSelector",
+			"conformsTo":             "http://www.w3.org/TR/media-frags/",
+			"value":                  "t=1,2&xywh=pixel:0,0,200,40&track=audio",
+			"scribe:selectorCounter": json.Number("9007199254740993"),
+		},
+	}
+	draft := canonicalAnnotationDraft(t, map[string]any{
+		"service": []any{map[string]any{
+			"id": "https://example.org/services/page-extension", "type": "ScribePageExtensionService",
+			"scribe:pageCounter": json.Number("9007199254740993"),
+		}},
+	}, line)
+	lineID := annStringValue(line, "id")
+
+	if err := splitDraftLineIntoWords(draft, lineID, []string{"one", "two"}); err != nil {
+		t.Fatalf("split rich line: %v", err)
+	}
+	encoded := assertCanonicalDraft(t, draft)
+	if strings.Count(encoded, "9007199254740993") < 7 {
+		t.Fatalf("large JSON numbers were rounded or dropped: %s", encoded)
+	}
+	pageServices := draft.document["service"].([]any)
+	pageService := pageServices[0].(map[string]any)
+	if got := pageService["scribe:pageCounter"]; !reflect.DeepEqual(got, json.Number("9007199254740993")) {
+		t.Fatalf("page service extension counter = %#v (%T)", got, got)
+	}
+
+	retained := draftAnnotationByID(t, draft, lineID)
+	if !reflect.DeepEqual(retained["motivation"], []any{"supplementing", "tagging"}) {
+		t.Fatalf("retained motivation = %#v", retained["motivation"])
+	}
+	if got := retained["scribe:annotationCounter"]; !reflect.DeepEqual(got, json.Number("9007199254740993")) {
+		t.Fatalf("retained annotation extension = %#v", got)
+	}
+
+	for _, word := range draftAnnotationsByGranularity(draft, "word") {
+		if !reflect.DeepEqual(word["motivation"], []any{"supplementing", "tagging"}) {
+			t.Errorf("derived motivation = %#v", word["motivation"])
+		}
+		derivedBody := word["body"].([]any)[0].(map[string]any)
+		if _, exists := derivedBody["id"]; exists {
+			t.Errorf("changed textual body retained its resource id: %#v", derivedBody)
+		}
+		if derivedBody["language"] != "en" || !reflect.DeepEqual(derivedBody["scribe:bodyCounter"], json.Number("9007199254740993")) {
+			t.Errorf("body extensions were not preserved: %#v", derivedBody)
+		}
+		derivedTarget := word["target"].(map[string]any)
+		if _, exists := derivedTarget["id"]; exists {
+			t.Errorf("changed target retained its resource id: %#v", derivedTarget)
+		}
+		if !reflect.DeepEqual(derivedTarget["scribe:targetCounter"], json.Number("9007199254740993")) {
+			t.Errorf("target extension was not preserved: %#v", derivedTarget)
+		}
+		derivedSource := derivedTarget["source"].(map[string]any)
+		if derivedSource["id"] != testCanvas || len(derivedSource["service"].([]any)) != 1 {
+			t.Errorf("Canvas source properties were not preserved: %#v", derivedSource)
+		}
+		selectors := derivedTarget["selector"].([]any)
+		nonspatial := selectors[0].(map[string]any)
+		spatial := selectors[1].(map[string]any)
+		if nonspatial["id"] != nonspatialID || nonspatial["value"] != "t=7,8" {
+			t.Errorf("nonspatial selector identity changed: %#v", nonspatial)
+		}
+		if _, exists := spatial["id"]; exists {
+			t.Errorf("changed spatial selector retained id %q: %#v", spatialID, spatial)
+		}
+		if !strings.HasPrefix(spatial["value"].(string), "t=1,2&xywh=pixel:") || !strings.HasSuffix(spatial["value"].(string), "&track=audio") {
+			t.Errorf("spatial fragment dimensions were not preserved: %#v", spatial)
+		}
+		if !reflect.DeepEqual(spatial["scribe:selectorCounter"], json.Number("9007199254740993")) {
+			t.Errorf("selector extension was not preserved: %#v", spatial)
+		}
+	}
+}
+
+func TestStructuralDerivationPreservesCompactTargetDimensions(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "compact-target", "line", "left right", 0, 0, 200, 20)
+	line["target"] = testCanvas + "#t=10,20&xywh=pixel:0,0,200,20&track=video"
+	draft := canonicalAnnotationDraft(t, nil, line)
+
+	if err := splitDraftLineIntoWords(draft, annStringValue(line, "id"), nil); err != nil {
+		t.Fatal(err)
+	}
+	assertCanonicalDraft(t, draft)
+	words := draftAnnotationsByGranularity(draft, "word")
+	for index, word := range words {
+		target := word["target"].(map[string]any)
+		if got := iiif.TargetCanvas(target); got != testCanvas {
+			t.Errorf("word %d canvas = %q", index, got)
+		}
+		selector := target["selector"].(map[string]any)
+		want := fmt.Sprintf("t=10,20&xywh=pixel:%d,0,100,20&track=video", index*100)
+		if selector["value"] != want {
+			t.Errorf("word %d selector = %q, want %q", index, selector["value"], want)
+		}
+	}
+}
+
+func TestSplitDraftLineIntoTwoRetainsAndRetargetsWords(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "split-with-words", "line", "one two three four", 10, 20, 400, 40)
+	lineID := annStringValue(line, "id")
+	items := []map[string]any{line}
+	texts := []string{"one", "two", "three", "four"}
+	wordIDs := make([]string, 0, len(texts))
+	for index, text := range texts {
+		word := structuralAnnotation(t, fmt.Sprintf("split-word-%d", index), "word", text, 10+index*100, 20, 100, 40)
+		word["scribe:wordState"] = "reviewed"
+		wordIDs = append(wordIDs, annStringValue(word, "id"))
+		items = append(items, word)
+	}
+	draft := canonicalAnnotationDraft(t, nil, items...)
+
+	if err := splitDraftLineIntoTwo(draft, lineID, 2); err != nil {
+		t.Fatalf("split line into two: %v", err)
+	}
+	assertCanonicalDraft(t, draft)
+	if _, found := findDraftAnnotation(draft, lineID); found {
+		t.Fatal("original line was retained after replacement split")
+	}
+	lines := draftAnnotationsByGranularity(draft, "line")
+	if len(lines) != 2 {
+		t.Fatalf("line count = %d, want 2", len(lines))
+	}
+	if extractAnnotationText(lines[0]) != "one two" || extractAnnotationText(lines[1]) != "three four" {
+		t.Fatalf("split texts = %q / %q", extractAnnotationText(lines[0]), extractAnnotationText(lines[1]))
+	}
+	for index, id := range wordIDs {
+		word := draftAnnotationByID(t, draft, id)
+		if extractAnnotationText(word) != texts[index] || word["scribe:wordState"] != "reviewed" {
+			t.Errorf("word %d changed: %#v", index, word)
+		}
+		_, _, _, y1, _, y2, _, err := parseLineAnnotation(mustMarshal(t, word))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantY1, wantY2 := 20, 40
+		if index >= 2 {
+			wantY1, wantY2 = 40, 60
+		}
+		if y1 != wantY1 || y2 != wantY2 {
+			t.Errorf("word %d y span = (%d,%d), want (%d,%d)", index, y1, y2, wantY1, wantY2)
+		}
+	}
+}
+
+func TestSplitDraftLineIntoTwoRejectsShortOrUnsynchronizedLine(t *testing.T) {
+	t.Parallel()
+	t.Run("line height", func(t *testing.T) {
+		line := structuralAnnotation(t, "short-line", "line", "one two", 0, 0, 100, 1)
+		draft := canonicalAnnotationDraft(t, nil, line)
+		if err := splitDraftLineIntoTwo(draft, annStringValue(line, "id"), 1); err == nil || !strings.Contains(err.Error(), "too short") {
+			t.Fatalf("short-line error = %v", err)
+		}
 	})
-	resp, err := h.SplitLineIntoTwoLines(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(resp.Msg.GetAnnotationJsons()) != 2 {
-		t.Fatalf("expected 2 parts, got %d", len(resp.Msg.GetAnnotationJsons()))
-	}
-}
-
-func TestSplitLineIntoTwoLines_SingleWordError(t *testing.T) {
-	h := &Handler{}
-	raw := lineAnno("line-1", testCanvas, "single", 0, 0, 100, 20)
-	req := connect.NewRequest(&scribev1.SplitLineIntoTwoLinesRequest{
-		AnnotationJson: raw,
+	t.Run("line and words", func(t *testing.T) {
+		line := structuralAnnotation(t, "unsynchronized-line", "line", "one two", 0, 0, 200, 20)
+		word := structuralAnnotation(t, "unsynchronized-word", "word", "different", 0, 0, 100, 20)
+		draft := canonicalAnnotationDraft(t, nil, line, word)
+		if err := splitDraftLineIntoTwo(draft, annStringValue(line, "id"), 1); err == nil || !strings.Contains(err.Error(), "synchronized") {
+			t.Fatalf("unsynchronized error = %v", err)
+		}
 	})
-	_, err := h.SplitLineIntoTwoLines(context.Background(), req)
-	if err == nil {
-		t.Fatal("expected error for single-word line, got nil")
+}
+
+func TestJoinDraftLinesUsesReadingOrderAndRetainsWords(t *testing.T) {
+	t.Parallel()
+	draft, lineIDs, wordIDs := readingOrderDraft(t)
+	wordSnapshots := snapshotDraftAnnotations(t, draft, wordIDs)
+
+	if err := joinDraftLines(draft, []string{lineIDs[1], lineIDs[0]}); err != nil {
+		t.Fatalf("join reversed lines: %v", err)
+	}
+	assertCanonicalDraft(t, draft)
+	lines := draftAnnotationsByGranularity(draft, "line")
+	if len(lines) != 1 || extractAnnotationText(lines[0]) != "one two three four" {
+		t.Fatalf("joined lines = %#v", lines)
+	}
+	expectedID, err := iiif.AnnotationID(testAnnotationPage, strings.Join(lineIDs, "\x00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if annStringValue(lines[0], "id") != expectedID {
+		t.Fatalf("joined line id = %q, want deterministic reading-order id %q", annStringValue(lines[0], "id"), expectedID)
+	}
+	assertDraftAnnotationsUnchanged(t, draft, wordSnapshots)
+}
+
+func TestJoinDraftLinesRejectsMixedWordCoverageWithoutMutation(t *testing.T) {
+	t.Parallel()
+	withWords := structuralAnnotation(t, "mixed-covered-line", "line", "one two", 0, 0, 200, 20)
+	lineOnly := structuralAnnotation(t, "mixed-line-only", "line", "three four", 0, 30, 200, 20)
+	one := structuralAnnotation(t, "mixed-word-one", "word", "one", 0, 0, 100, 20)
+	two := structuralAnnotation(t, "mixed-word-two", "word", "two", 100, 0, 100, 20)
+	draft := canonicalAnnotationDraft(t, nil, withWords, one, two, lineOnly)
+	before := assertCanonicalDraft(t, draft)
+
+	err := joinDraftLines(draft, []string{annStringValue(lineOnly, "id"), annStringValue(withWords, "id")})
+	if err == nil || !strings.Contains(err.Error(), "either all have word annotations or none") {
+		t.Fatalf("mixed word coverage error = %v", err)
+	}
+	if after := assertCanonicalDraft(t, draft); after != before {
+		t.Fatal("mixed word coverage rejection mutated the draft")
 	}
 }
 
-// --- JoinLines / JoinWordsIntoLine Connect handlers ---
+func TestJoinDraftWordsUsesLineReadingOrderAndRetainsWords(t *testing.T) {
+	t.Parallel()
+	draft, _, wordIDs := readingOrderDraft(t)
+	wordSnapshots := snapshotDraftAnnotations(t, draft, wordIDs)
+	reversed := []string{wordIDs[3], wordIDs[2], wordIDs[1], wordIDs[0]}
 
-func TestJoinLines(t *testing.T) {
-	h := &Handler{}
-	a := lineAnno("line-1", testCanvas, "Hello", 10, 20, 90, 25)
-	b := lineAnno("line-2", testCanvas, "World", 110, 20, 90, 25)
-
-	req := connect.NewRequest(&scribev1.JoinLinesRequest{
-		AnnotationJsons: []string{a, b},
-	})
-	resp, err := h.JoinLines(context.Background(), req)
+	if err := joinDraftWordsIntoLine(draft, reversed); err != nil {
+		t.Fatalf("join reversed uneven words: %v", err)
+	}
+	assertCanonicalDraft(t, draft)
+	lines := draftAnnotationsByGranularity(draft, "line")
+	if len(lines) != 1 || extractAnnotationText(lines[0]) != "one two three four" {
+		t.Fatalf("joined word line = %#v", lines)
+	}
+	expectedID, err := iiif.AnnotationID(testAnnotationPage, strings.Join(wordIDs, "\x00"))
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatal(err)
 	}
+	if annStringValue(lines[0], "id") != expectedID {
+		t.Fatalf("joined word line id = %q, want %q", annStringValue(lines[0], "id"), expectedID)
+	}
+	assertDraftAnnotationsUnchanged(t, draft, wordSnapshots)
+}
 
-	merged := resp.Msg.GetAnnotationJson()
-	_, text, x1, y1, x2, y2, canvas, err := parseLineAnnotation(merged)
-	if err != nil {
-		t.Fatalf("parse merged: %v", err)
+func TestJoinDraftLinesRejectsConflictingNonspatialFragments(t *testing.T) {
+	t.Parallel()
+	first := structuralAnnotation(t, "fragment-a", "line", "Hello", 0, 0, 100, 20)
+	second := structuralAnnotation(t, "fragment-b", "line", "World", 100, 0, 100, 20)
+	first["target"].(map[string]any)["selector"].(map[string]any)["value"] = "t=1,2&xywh=pixel:0,0,100,20&track=audio"
+	second["target"].(map[string]any)["selector"].(map[string]any)["value"] = "t=9,10&xywh=pixel:100,0,100,20&track=audio"
+	draft := canonicalAnnotationDraft(t, nil, first, second)
+	before := assertCanonicalDraft(t, draft)
+
+	err := joinDraftLines(draft, []string{annStringValue(second, "id"), annStringValue(first, "id")})
+	if err == nil || !strings.Contains(err.Error(), "conflicting IIIF properties") {
+		t.Fatalf("nonspatial conflict error = %v", err)
 	}
-	if text != "Hello World" {
-		t.Errorf("merged text: got %q, want %q", text, "Hello World")
-	}
-	// Union bbox: x1=10, y1=20, x2=200, y2=45
-	if x1 != 10 || y1 != 20 || x2 != 200 || y2 != 45 {
-		t.Errorf("union bbox: got (%d,%d,%d,%d), want (10,20,200,45)", x1, y1, x2, y2)
-	}
-	if canvas != testCanvas {
-		t.Errorf("canvas: got %q, want %q", canvas, testCanvas)
+	if after := assertCanonicalDraft(t, draft); after != before {
+		t.Fatal("conflicting join mutated the draft")
 	}
 }
 
-func TestJoinWordsIntoLine(t *testing.T) {
-	h := &Handler{}
-	a := lineAnno("word-1", testCanvas, "foo", 0, 0, 50, 20)
-	b := lineAnno("word-2", testCanvas, "bar", 60, 0, 50, 20)
-
-	req := connect.NewRequest(&scribev1.JoinWordsIntoLineRequest{
-		AnnotationJsons: []string{a, b},
-	})
-	resp, err := h.JoinWordsIntoLine(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestCompletePageTransformsRejectInvalidSelections(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "selection", "line", "one two", 0, 0, 100, 20)
+	draft := canonicalAnnotationDraft(t, nil, line)
+	lineID := annStringValue(line, "id")
+	if err := joinDraftLines(draft, []string{lineID}); err == nil {
+		t.Fatal("join accepted one annotation")
 	}
-
-	_, text, x1, _, x2, _, _, err := parseLineAnnotation(resp.Msg.GetAnnotationJson())
-	if err != nil {
-		t.Fatalf("parse merged: %v", err)
+	if err := joinDraftLines(draft, []string{lineID, lineID}); err == nil || !strings.Contains(err.Error(), "unique") {
+		t.Fatalf("duplicate selection error = %v", err)
 	}
-	if text != "foo bar" {
-		t.Errorf("merged text: got %q, want %q", text, "foo bar")
-	}
-	if x1 != 0 || x2 != 110 {
-		t.Errorf("union x span: got (%d,%d), want (0,110)", x1, x2)
+	if err := splitDraftLineIntoWords(draft, testAnnotationID("missing"), nil); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("missing selection error = %v", err)
 	}
 }
 
-func TestJoinLines_TooFewAnnotations(t *testing.T) {
-	h := &Handler{}
-	req := connect.NewRequest(&scribev1.JoinLinesRequest{
-		AnnotationJsons: []string{lineAnno("line-1", testCanvas, "Hello", 0, 0, 100, 20)},
-	})
-	_, err := h.JoinLines(context.Background(), req)
-	if err == nil {
-		t.Fatal("expected error for single annotation, got nil")
-	}
-}
-
-// --- Crosswalk Connect handlers ---
-
-func TestCrosswalkConnectHandlers(t *testing.T) {
-	h := &Handler{}
+func TestRenderAnnotationExportUsesCompleteCanonicalPage(t *testing.T) {
 	pageJSON := `{
 		"type": "AnnotationPage",
 		"items": [{
@@ -367,107 +558,27 @@ func TestCrosswalkConnectHandlers(t *testing.T) {
 		}]
 	}`
 
-	t.Run("plain text", func(t *testing.T) {
-		req := connect.NewRequest(&scribev1.CrosswalkToPlainTextRequest{AnnotationPageJson: pageJSON})
-		resp, err := h.CrosswalkToPlainText(context.Background(), req)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if resp.Msg.GetFormat() != "text/plain" {
-			t.Errorf("format: got %q", resp.Msg.GetFormat())
-		}
-		if strings.TrimSpace(resp.Msg.GetContent()) != "Hello World" {
-			t.Errorf("content: got %q", resp.Msg.GetContent())
-		}
-	})
-
-	t.Run("hOCR contains text", func(t *testing.T) {
-		req := connect.NewRequest(&scribev1.CrosswalkToHOCRRequest{AnnotationPageJson: pageJSON})
-		resp, err := h.CrosswalkToHOCR(context.Background(), req)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if resp.Msg.GetFormat() != "text/vnd.hocr+html" {
-			t.Errorf("format: got %q", resp.Msg.GetFormat())
-		}
-		if !strings.Contains(resp.Msg.GetContent(), "Hello") || !strings.Contains(resp.Msg.GetContent(), "World") {
-			t.Errorf("hOCR missing text: %s", resp.Msg.GetContent())
-		}
-	})
-
-	t.Run("PageXML contains text", func(t *testing.T) {
-		req := connect.NewRequest(&scribev1.CrosswalkToPageXMLRequest{AnnotationPageJson: pageJSON})
-		resp, err := h.CrosswalkToPageXML(context.Background(), req)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if resp.Msg.GetFormat() != "application/vnd.prima.page+xml" {
-			t.Errorf("format: got %q", resp.Msg.GetFormat())
-		}
-		if !strings.Contains(resp.Msg.GetContent(), "Hello World") {
-			t.Errorf("PageXML missing text: %s", resp.Msg.GetContent())
-		}
-	})
-
-	t.Run("ALTO XML contains text", func(t *testing.T) {
-		req := connect.NewRequest(&scribev1.CrosswalkToALTOXMLRequest{AnnotationPageJson: pageJSON})
-		resp, err := h.CrosswalkToALTOXML(context.Background(), req)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if resp.Msg.GetFormat() != "application/alto+xml" {
-			t.Errorf("format: got %q", resp.Msg.GetFormat())
-		}
-		if !strings.Contains(resp.Msg.GetContent(), "Hello") || !strings.Contains(resp.Msg.GetContent(), "World") {
-			t.Errorf("ALTO XML missing text: %s", resp.Msg.GetContent())
-		}
-	})
-}
-
-// --- Round-trip: split then join ---
-
-func TestSplitLineIntoWords_ThenJoinBack(t *testing.T) {
-	h := &Handler{}
-	raw := lineAnno("line-1", testCanvas, "one two three", 0, 0, 300, 30)
-
-	// Split into words.
-	splitResp, err := h.SplitLineIntoWords(context.Background(), connect.NewRequest(&scribev1.SplitLineIntoWordsRequest{
-		AnnotationJson: raw,
-	}))
-	if err != nil {
-		t.Fatalf("split: %v", err)
-	}
-	var page map[string]any
-	if jsonErr := json.Unmarshal([]byte(splitResp.Msg.GetAnnotationPageJson()), &page); jsonErr != nil {
-		t.Fatalf("parse page: %v", jsonErr)
-	}
-	items, _ := page["items"].([]any)
-	if len(items) != 3 {
-		t.Fatalf("expected 3 words, got %d", len(items))
-	}
-
-	// Join them back.
-	wordJSONs := make([]string, len(items))
-	for i, item := range items {
-		wordJSONs[i] = mustMarshal(t, item)
-	}
-	joinResp, err := h.JoinWordsIntoLine(context.Background(), connect.NewRequest(&scribev1.JoinWordsIntoLineRequest{
-		AnnotationJsons: wordJSONs,
-	}))
-	if err != nil {
-		t.Fatalf("join: %v", err)
-	}
-
-	_, text, x1, y1, x2, y2, _, err := parseLineAnnotation(joinResp.Msg.GetAnnotationJson())
-	if err != nil {
-		t.Fatalf("parse joined: %v", err)
-	}
-	if text != "one two three" {
-		t.Errorf("joined text: got %q, want %q", text, "one two three")
-	}
-	// Union bbox should recover the original.
-	if x1 != 0 || y1 != 0 || x2 != 300 || y2 != 30 {
-		t.Errorf("recovered bbox: got (%d,%d,%d,%d), want (0,0,300,30)", x1, y1, x2, y2)
+	for _, test := range []struct {
+		format    string
+		mediaType string
+	}{
+		{format: "txt", mediaType: "text/plain; charset=utf-8"},
+		{format: "hocr", mediaType: "text/vnd.hocr+html; charset=utf-8"},
+		{format: "pagexml", mediaType: "application/vnd.prima.page+xml; charset=utf-8"},
+		{format: "alto", mediaType: "application/alto+xml; charset=utf-8"},
+	} {
+		t.Run(test.format, func(t *testing.T) {
+			content, mediaType, extension, err := renderAnnotationExport(pageJSON, 400, 300, test.format)
+			if err != nil {
+				t.Fatalf("render canonical export: %v", err)
+			}
+			if mediaType != test.mediaType || extension == "" {
+				t.Fatalf("metadata = %q/%q, want %q/non-empty", mediaType, extension, test.mediaType)
+			}
+			if !strings.Contains(content, "Hello") || !strings.Contains(content, "World") {
+				t.Fatalf("export missing canonical text: %s", content)
+			}
+		})
 	}
 }
 
@@ -479,4 +590,128 @@ func mustMarshal(t *testing.T, v any) string {
 		t.Fatalf("marshal: %v", err)
 	}
 	return string(b)
+}
+
+func structuralAnnotation(t *testing.T, seed, granularity, text string, x, y, w, h int) map[string]any {
+	t.Helper()
+	var annotation map[string]any
+	if err := iiif.DecodeJSON([]byte(lineAnno(seed, testCanvas, text, x, y, w, h)), &annotation); err != nil {
+		t.Fatalf("decode annotation fixture: %v", err)
+	}
+	annotation["textGranularity"] = granularity
+	return annotation
+}
+
+func canonicalAnnotationDraft(t *testing.T, pageProperties map[string]any, annotations ...map[string]any) *annotationDraft {
+	t.Helper()
+	items := make([]any, 0, len(annotations))
+	for _, annotation := range annotations {
+		items = append(items, annotation)
+	}
+	document := map[string]any{
+		"@context": []any{iiif.TextGranularityContext, iiif.PresentationContext},
+		"id":       testAnnotationPage,
+		"type":     "AnnotationPage",
+		"items":    items,
+	}
+	for key, value := range pageProperties {
+		document[key] = value
+	}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatalf("encode canonical draft fixture: %v", err)
+	}
+	// ValidateCanonicalAnnotationPage invokes libops/iiif-spec before applying
+	// the stricter Scribe ownership and Text Granularity invariants.
+	if err := iiif.ValidateCanonicalAnnotationPage(raw, testPageIdentity); err != nil {
+		t.Fatalf("fixture is not a valid canonical IIIF page: %v\n%s", err, raw)
+	}
+	draft, err := decodeAnnotationDraft(string(raw), testPageIdentity)
+	if err != nil {
+		t.Fatalf("decode canonical annotation draft: %v", err)
+	}
+	return draft
+}
+
+func assertCanonicalDraft(t *testing.T, draft *annotationDraft) string {
+	t.Helper()
+	encoded, err := draft.encode()
+	if err != nil {
+		t.Fatalf("encode transformed draft: %v", err)
+	}
+	if err := iiif.ValidateCanonicalAnnotationPage([]byte(encoded), testPageIdentity); err != nil {
+		t.Fatalf("transformed draft failed libops/canonical validation: %v\n%s", err, encoded)
+	}
+	return encoded
+}
+
+func findDraftAnnotation(draft *annotationDraft, id string) (map[string]any, bool) {
+	for _, raw := range draft.items {
+		annotation, ok := raw.(map[string]any)
+		if ok && annStringValue(annotation, "id") == id {
+			return annotation, true
+		}
+	}
+	return nil, false
+}
+
+func draftAnnotationByID(t *testing.T, draft *annotationDraft, id string) map[string]any {
+	t.Helper()
+	annotation, found := findDraftAnnotation(draft, id)
+	if !found {
+		t.Fatalf("annotation %q not found", id)
+	}
+	return annotation
+}
+
+func draftAnnotationsByGranularity(draft *annotationDraft, granularity string) []map[string]any {
+	annotations := make([]map[string]any, 0)
+	for _, raw := range draft.items {
+		annotation, ok := raw.(map[string]any)
+		if ok && strings.EqualFold(annStringValue(annotation, "textGranularity"), granularity) {
+			annotations = append(annotations, annotation)
+		}
+	}
+	return annotations
+}
+
+func readingOrderDraft(t *testing.T) (*annotationDraft, []string, []string) {
+	t.Helper()
+	topLine := structuralAnnotation(t, "reading-line-top", "line", "one two", 0, 0, 140, 40)
+	bottomLine := structuralAnnotation(t, "reading-line-bottom", "line", "three four", 0, 50, 140, 60)
+	one := structuralAnnotation(t, "reading-word-one", "word", "one", 0, 18, 50, 20)
+	two := structuralAnnotation(t, "reading-word-two", "word", "two", 70, 1, 50, 10)
+	three := structuralAnnotation(t, "reading-word-three", "word", "three", 0, 90, 50, 10)
+	four := structuralAnnotation(t, "reading-word-four", "word", "four", 70, 51, 50, 20)
+	// Deliberately put each row's words in reverse item order. Their vertical
+	// centers and heights also disagree, so only line ownership plus x order
+	// yields the stable OCR reading order.
+	draft := canonicalAnnotationDraft(t, nil, topLine, two, one, bottomLine, four, three)
+	lineIDs := []string{annStringValue(topLine, "id"), annStringValue(bottomLine, "id")}
+	wordIDs := []string{annStringValue(one, "id"), annStringValue(two, "id"), annStringValue(three, "id"), annStringValue(four, "id")}
+	return draft, lineIDs, wordIDs
+}
+
+func snapshotDraftAnnotations(t *testing.T, draft *annotationDraft, ids []string) map[string]map[string]any {
+	t.Helper()
+	snapshots := make(map[string]map[string]any, len(ids))
+	for _, id := range ids {
+		annotation := draftAnnotationByID(t, draft, id)
+		clone, err := cloneAnnotation(annotation)
+		if err != nil {
+			t.Fatalf("snapshot annotation %q: %v", id, err)
+		}
+		snapshots[id] = clone
+	}
+	return snapshots
+}
+
+func assertDraftAnnotationsUnchanged(t *testing.T, draft *annotationDraft, snapshots map[string]map[string]any) {
+	t.Helper()
+	for id, before := range snapshots {
+		after := draftAnnotationByID(t, draft, id)
+		if !reflect.DeepEqual(after, before) {
+			t.Errorf("retained annotation %q changed\nbefore: %#v\nafter:  %#v", id, before, after)
+		}
+	}
 }

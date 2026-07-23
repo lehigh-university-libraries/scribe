@@ -2,197 +2,21 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 
-	"github.com/lehigh-university-libraries/scribe/internal/db"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
+	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
-const (
-	iiifTextGranularityContext = "http://iiif.io/api/extension/text-granularity/context.json"
-	iiifPresentationContext    = "http://iiif.io/api/presentation/3/context.json"
-)
-
-func annotationPageContexts() []string {
-	return []string{
-		iiifTextGranularityContext,
-		iiifPresentationContext,
-	}
-}
-
-var (
-	itemImageFromCanvasPattern = regexp.MustCompile(`/v1/item-images/([0-9]+)/manifest/`)
-)
-
-// bootstrapAnnotationsFromHOCR fetches the hOCR annotation page from the
-// core API for a canvas that has no saved annotations yet.
-func (h *Handler) bootstrapAnnotationsFromHOCR(ctx context.Context, canvasURI, base string) ([]any, error) {
-	matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI)
-	if len(matches) < 2 {
-		return nil, fmt.Errorf("cannot extract item image reference from canvas uri")
-	}
-	itemImageID, err := strconv.ParseUint(strings.TrimSpace(matches[1]), 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid item image reference in canvas uri: %w", err)
-	}
-	return h.bootstrapStoredAnnotationsForItemImage(ctx, itemImageID, canvasURI, "line", "word")
-}
-
-// bootstrapAnnotationsForCanvas returns bootstrapped annotations for any canvas URI.
-// For our own item-image manifests it delegates to bootstrapAnnotationsFromHOCR.
-// For external canvases it looks up (or auto-ingests) the item_image by canvas_uri.
-func (h *Handler) bootstrapAnnotationsForCanvas(ctx context.Context, canvasURI, base string) ([]any, error) {
-	// Fast path: canvas belongs to our own manifest.
-	if itemImageFromCanvasPattern.MatchString(canvasURI) {
-		return h.bootstrapAnnotationsFromHOCR(ctx, canvasURI, base)
-	}
-
-	// Look up item_image by canvas_uri.
-	img, err := h.items.GetImageByCanvasURI(ctx, canvasURI)
-	if err != nil {
-		// Not yet registered — try to ingest the manifest.
-		candidates := manifestURLCandidatesFromCanvasURI(canvasURI)
-		if len(candidates) == 0 {
-			return nil, fmt.Errorf("cannot determine manifest URL for canvas %q", canvasURI)
-		}
-		var lastIngestErr error
-		for _, manifestURL := range candidates {
-			if ingestErr := h.autoIngestManifest(ctx, manifestURL); ingestErr == nil {
-				lastIngestErr = nil
-				break
-			} else {
-				lastIngestErr = ingestErr
-			}
-		}
-		if lastIngestErr != nil {
-			return nil, fmt.Errorf("auto-ingest for canvas %q: %w", canvasURI, lastIngestErr)
-		}
-		img, err = h.items.GetImageByCanvasURI(ctx, canvasURI)
-		if err != nil {
-			return nil, fmt.Errorf("canvas not found after ingest: %w", err)
-		}
-	}
-
-	return h.bootstrapStoredAnnotationsForItemImage(ctx, img.ID, canvasURI, "line", "word")
-}
-
-func (h *Handler) bootstrapStoredAnnotationsForItemImage(
-	ctx context.Context,
-	itemImageID uint64,
-	canvasURI string,
-	granularities ...string,
-) ([]any, error) {
-	run, err := h.fetchOrCacheHOCRRun(ctx, itemImageID)
-	if err != nil {
-		return nil, err
-	}
-
-	hocrXML := strings.TrimSpace(run.OriginalHOCR)
-	if run.CorrectedHOCR != nil && strings.TrimSpace(*run.CorrectedHOCR) != "" {
-		hocrXML = strings.TrimSpace(*run.CorrectedHOCR)
-	}
-	if hocrXML == "" {
-		return nil, fmt.Errorf("hocr not found")
-	}
-
-	annotationScopeID := run.SessionID
-	if run.ItemImageID != nil {
-		annotationScopeID = fmt.Sprintf("item-image-%d", *run.ItemImageID)
-	}
-
-	items := make([]any, 0)
-	for _, granularity := range granularities {
-		switch granularity {
-		case "line":
-			lines, err := hocr.ParseHOCRLines(hocrXML)
-			if err != nil {
-				return nil, fmt.Errorf("parse hocr lines: %w", err)
-			}
-			items = append(items, buildLineAnnotations(annotationScopeID, canvasURI, lines)...)
-		case "word":
-			words, err := hocr.ParseHOCRWords(hocrXML)
-			if err != nil {
-				return nil, fmt.Errorf("parse hocr words: %w", err)
-			}
-			items = append(items, buildWordAnnotations(annotationScopeID, canvasURI, words)...)
-		case "glyph":
-			wordGlyphs, err := hocr.ParseHOCRWordGlyphs(hocrXML)
-			if err != nil {
-				return nil, fmt.Errorf("parse hocr glyphs: %w", err)
-			}
-			items = append(items, buildGlyphAnnotations(annotationScopeID, canvasURI, wordGlyphs)...)
-		}
-	}
-	return items, nil
-}
-
-func (h *Handler) persistAnnotationItems(ctx context.Context, canvasURI string, items []any) ([]string, error) {
-	current, err := h.currentAnnotationItems(ctx, canvasURI, h.internalAnnotationBaseURL())
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range items {
-		anno, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		current = upsertAnnotationItem(current, normalizeAnnotation(anno, canvasURI))
-	}
-	return h.saveAnnotationPage(ctx, canvasURI, current)
-}
-
-func (h *Handler) replaceAnnotationItems(ctx context.Context, canvasURI string, items []any) ([]string, error) {
-	return h.saveAnnotationPage(ctx, canvasURI, items)
-}
-
-// manifestURLCandidatesFromCanvasURI returns manifest URL candidates derived from a
-// IIIF canvas URI by stripping the "/canvas/..." suffix and trying common patterns.
-// The most common IIIF pattern ("{base}/manifest") is tried first, followed by the
-// bare base URL for servers that serve the manifest directly at the node path.
-func manifestURLCandidatesFromCanvasURI(canvasURI string) []string {
-	if idx := strings.Index(canvasURI, "/canvas/"); idx >= 0 {
-		base := canvasURI[:idx]
-		return []string{base + "/manifest", base}
-	}
-	return nil
-}
-
-// autoIngestManifest fetches a IIIF manifest and creates an item + item_images for it.
-func (h *Handler) autoIngestManifest(ctx context.Context, manifestURL string) error {
-	manifest, err := fetchIIIFManifest(ctx, manifestURL)
-	if err != nil {
-		return fmt.Errorf("fetch manifest: %w", err)
-	}
-	label := extractManifestLabel(manifest)
-	if label == "" {
-		label = manifestURL
-	}
-	itemID := fmt.Sprintf("auto-%d-%x", h.currentUserID(ctx), sha256.Sum256([]byte(manifestURL)))[:32]
-	it, err := h.items.Create(ctx, db.CreateItemParams{
-		ID:          itemID,
-		UserID:      h.currentUserID(ctx),
-		WorkspaceID: h.currentWorkspaceID(ctx),
-		Name:        label,
-		SourceType:  "manifest",
-		SourceURL:   manifestURL,
-	})
-	if err != nil {
-		return fmt.Errorf("create item: %w", err)
-	}
-	_, err = h.ingestParsedManifest(ctx, it.ID, manifest)
-	return err
-}
+var errInvalidAnnotationEnrichmentInput = errors.New("invalid annotation enrichment input")
 
 // --- IIIF annotation normalisation (ported from annotationserver) ---
 
@@ -206,8 +30,8 @@ func normalizeAnnotation(anno map[string]any, defaultCanvasURI string) map[strin
 	}
 	if id != "" {
 		anno["id"] = id
-		anno["@id"] = id
 	}
+	delete(anno, "@id")
 	annoType := strings.TrimSpace(annStringValue(anno, "type"))
 	if annoType == "" {
 		annoType = strings.TrimSpace(annStringValue(anno, "@type"))
@@ -216,7 +40,7 @@ func normalizeAnnotation(anno map[string]any, defaultCanvasURI string) map[strin
 		annoType = "Annotation"
 	}
 	anno["type"] = annoType
-	anno["@type"] = annoType
+	delete(anno, "@type")
 
 	bodyValue := strings.TrimSpace(annStringValue(anno, "bodyValue"))
 	if bodyValue == "" {
@@ -227,83 +51,80 @@ func normalizeAnnotation(anno map[string]any, defaultCanvasURI string) map[strin
 			}
 		}
 	}
-	var bodyList []any
+	var normalizedBody any
+	hasBody := false
 	switch b := anno["body"].(type) {
 	case []any:
-		bodyList = b
+		normalizeTextualBodyPurpose(b)
+		normalizedBody = b
+		hasBody = len(b) > 0
 	case map[string]any:
-		bodyList = []any{b}
+		normalizeTextualBodyPurpose(b)
+		normalizedBody = b
+		hasBody = true
 	case string:
 		if trimmed := strings.TrimSpace(b); trimmed != "" {
-			bodyList = []any{map[string]any{
+			normalizedBody = map[string]any{
 				"type": "TextualBody", "purpose": "supplementing",
 				"value": trimmed, "format": "text/plain",
-			}}
+			}
+			hasBody = true
 		}
 	}
-	if len(bodyList) == 0 && bodyValue != "" {
-		bodyList = []any{map[string]any{
+	if !hasBody && bodyValue != "" {
+		normalizedBody = map[string]any{
 			"type": "TextualBody", "purpose": "supplementing",
 			"value": bodyValue, "format": "text/plain",
-		}}
+		}
+		hasBody = true
 	}
-	if len(bodyList) > 0 {
-		anno["body"] = bodyList
+	if hasBody {
+		anno["body"] = normalizedBody
 		if strings.TrimSpace(annStringValue(anno, "textGranularity")) == "" {
 			anno["textGranularity"] = "line"
+		}
+		if anno["motivation"] == nil {
+			anno["motivation"] = "supplementing"
 		}
 	}
 
 	canvasURI := strings.TrimSpace(defaultCanvasURI)
+	targetValue, hasTarget := anno["target"]
+	if !hasTarget || targetValue == nil {
+		targetValue = anno["on"]
+	}
 	if canvasURI == "" {
-		canvasURI = extractCanvasURI(anno)
+		canvasURI = iiif.TargetCanvas(targetValue)
 	}
-	var fragment string
-	switch on := anno["on"].(type) {
-	case string:
-		if idx := strings.Index(on, "#"); idx >= 0 {
-			fragment = strings.TrimPrefix(on[idx+1:], "xywh=")
-		}
-	case map[string]any:
-		if selector := fragmentSelectorFromValue(on["selector"]); selector != nil {
-			fragment = strings.TrimPrefix(strings.TrimSpace(annStringValue(selector, "value")), "xywh=")
-		}
-	}
-
-	var target map[string]any
-	switch tv := anno["target"].(type) {
-	case map[string]any:
-		target = tv
-	case string:
-		// Some clients send target as a plain string: "canvasURI#xywh=x,y,w,h"
-		if canvasURI == "" {
-			if idx := strings.Index(tv, "#"); idx >= 0 {
-				canvasURI = tv[:idx]
-			} else {
-				canvasURI = tv
+	fragment, hasFragment, fragmentErr := iiif.TargetPixelXYWH(targetValue)
+	if fragmentErr == nil && hasFragment && canvasURI != "" {
+		if rounded := roundXYWHFragment(fragment); rounded != "" {
+			if target, err := iiif.ReplaceTargetPixelXYWH(targetValue, canvasURI, rounded); err == nil {
+				anno["target"] = target
 			}
 		}
-		if fragment == "" {
-			if idx := strings.Index(tv, "#xywh="); idx >= 0 {
-				fragment = roundXYWHFragment(tv[idx+6:])
+	} else if canvasURI != "" {
+		switch target := targetValue.(type) {
+		case string:
+			// Compact targets without geometry are already valid and retain their
+			// complete fragment rather than being rewritten.
+			anno["target"] = target
+		case map[string]any:
+			switch source := target["source"].(type) {
+			case string:
+				target["source"] = canvasURI
+			case map[string]any:
+				source["id"] = canvasURI
+				if strings.TrimSpace(annStringValue(source, "type")) == "" {
+					source["type"] = "Canvas"
+				}
+			default:
+				target["source"] = map[string]any{"id": canvasURI, "type": "Canvas"}
 			}
+			anno["target"] = target
+		default:
+			anno["target"] = map[string]any{"source": map[string]any{"id": canvasURI, "type": "Canvas"}}
 		}
-		target = map[string]any{}
-	default:
-		target = map[string]any{}
-	}
-	if canvasURI != "" {
-		target["source"] = map[string]any{"id": canvasURI, "type": "Canvas"}
-	}
-	if fragment != "" {
-		target["selector"] = map[string]any{
-			"type":       "FragmentSelector",
-			"conformsTo": "http://www.w3.org/TR/media-frags/",
-			"value":      "xywh=" + fragment,
-		}
-	}
-	if len(target) > 0 {
-		anno["target"] = target
 	}
 	delete(anno, "resource")
 	delete(anno, "on")
@@ -311,20 +132,23 @@ func normalizeAnnotation(anno map[string]any, defaultCanvasURI string) map[strin
 	return anno
 }
 
+func normalizeTextualBodyPurpose(raw any) {
+	switch body := raw.(type) {
+	case map[string]any:
+		if strings.EqualFold(strings.TrimSpace(annStringValue(body, "type")), "TextualBody") && body["purpose"] == nil {
+			body["purpose"] = "supplementing"
+		}
+	case []any:
+		for _, entry := range body {
+			normalizeTextualBodyPurpose(entry)
+		}
+	}
+}
+
 func extractCanvasURI(anno map[string]any) string {
 	on := strings.TrimSpace(annStringValue(anno, "on"))
 	if on == "" {
-		switch tv := anno["target"].(type) {
-		case string:
-			on = strings.TrimSpace(tv)
-		case map[string]any:
-			switch source := tv["source"].(type) {
-			case string:
-				on = strings.TrimSpace(source)
-			case map[string]any:
-				on = strings.TrimSpace(annStringValue(source, "id"))
-			}
-		}
+		on = iiif.TargetCanvas(anno["target"])
 	}
 	if on == "" {
 		return ""
@@ -353,23 +177,6 @@ func annStringValue(v map[string]any, key string) string {
 	}
 }
 
-func annRandomID() string {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "anno-fallback"
-	}
-	return hex.EncodeToString(buf)
-}
-
-func annStableID(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
-}
-
-func annotationPageID(canvasURI string) string {
-	return "urn:scribe:annotation-page:" + url.QueryEscape(strings.TrimSpace(canvasURI))
-}
-
 func annotationID(parts ...string) string {
 	escaped := make([]string, 0, len(parts))
 	for _, part := range parts {
@@ -384,57 +191,72 @@ func annotationID(parts ...string) string {
 
 // enrichSingleAnnotation re-transcribes the image region referenced by a single
 // IIIF annotation and returns the updated annotation JSON.
-func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON string, pctx store.Context) (string, error) {
+func (h *Handler) enrichSingleAnnotation(ctx context.Context, itemImageID uint64, annotationJSON string, pctx store.Context) (string, error) {
+	workspaceID := h.currentWorkspaceID(ctx)
+	var userID *uint64
+	if currentUserID := h.currentUserID(ctx); currentUserID > 0 {
+		userID = &currentUserID
+	}
+	return h.enrichSingleAnnotationInWorkspace(ctx, itemImageID, annotationJSON, pctx, workspaceID, userID)
+}
+
+// enrichSingleAnnotationInWorkspace is the shared request/worker use case. Its
+// tenant and credential ownership are explicit because queue contexts do not
+// contain an authenticated HTTP principal.
+func (h *Handler) enrichSingleAnnotationInWorkspace(
+	ctx context.Context,
+	itemImageID uint64,
+	annotationJSON string,
+	pctx store.Context,
+	workspaceID uint64,
+	userID *uint64,
+) (string, error) {
+	if workspaceID == 0 || itemImageID == 0 {
+		return "", fmt.Errorf("workspace and item image are required")
+	}
 	var anno map[string]any
-	if err := json.Unmarshal([]byte(annotationJSON), &anno); err != nil {
-		return "", fmt.Errorf("parse annotation json: %w", err)
+	if err := iiif.DecodeJSON([]byte(annotationJSON), &anno); err != nil {
+		return "", fmt.Errorf("%w: annotation_json must contain one JSON object", errInvalidAnnotationEnrichmentInput)
 	}
 	anno = normalizeAnnotation(anno, "")
 
 	canvasURI := extractCanvasURI(anno)
 	fragment := extractFragment(anno)
 	if canvasURI == "" || fragment == "" {
-		return "", fmt.Errorf("annotation must have a canvas uri and bbox fragment")
+		return "", fmt.Errorf("%w: annotation must have a canvas uri and bbox fragment", errInvalidAnnotationEnrichmentInput)
 	}
 
 	x1, y1, x2, y2, err := parseXYWH(fragment)
 	if err != nil {
-		return "", fmt.Errorf("parse fragment: %w", err)
+		return "", fmt.Errorf("%w: invalid annotation bbox fragment", errInvalidAnnotationEnrichmentInput)
 	}
 
-	var itemImageID *uint64
-	if matches := itemImageFromCanvasPattern.FindStringSubmatch(canvasURI); len(matches) >= 2 {
-		if parsed, parseErr := strconv.ParseUint(strings.TrimSpace(matches[1]), 10, 64); parseErr == nil {
-			itemImageID = &parsed
-		}
-	}
-	if itemImageID == nil {
-		return "", fmt.Errorf("resolve source image from canvas: cannot extract item image reference from canvas uri %q", canvasURI)
-	}
-	run, err := h.ocrRuns.GetByItemImageID(ctx, *itemImageID)
+	image, err := h.items.GetImageForWorkspace(ctx, itemImageID, workspaceID)
 	if err != nil {
-		return "", fmt.Errorf("lookup run by item image id %d: %w", *itemImageID, err)
+		return "", fmt.Errorf("resolve source image %d: %w", itemImageID, err)
+	}
+	if strings.TrimSpace(image.CanvasURI) != canvasURI {
+		return "", fmt.Errorf("annotation target does not match item image %d", itemImageID)
 	}
 	var contextID *uint64
 	if pctx.ID > 0 {
 		contextID = &pctx.ID
 	}
-	ctx = hocr.WithProviderCallMetadata(ctx, "", itemImageID, contextID)
-	workspaceID := h.currentWorkspaceID(ctx)
-	var userID *uint64
-	if currentUserID := h.currentUserID(ctx); currentUserID > 0 {
-		userID = &currentUserID
-	}
+	ctx = hocr.WithProviderCallMetadata(ctx, workspaceID, "", &itemImageID, contextID)
 	ctx = h.contextWithProviderSecret(ctx, workspaceID, userID, pctx.TranscriptionProvider)
 
-	imagePath, cleanup, err := fetchImageRegionToTemp(ctx, run.ImageURL, x1, y1, x2, y2)
+	fetchRegion := h.imageRegionFetcher
+	if fetchRegion == nil {
+		fetchRegion = fetchImageRegionToTemp
+	}
+	imagePath, cleanup, err := fetchRegion(ctx, image.ImageURL, x1, y1, x2, y2)
 	if err != nil {
-		return "", fmt.Errorf("fetch image region: %w", err)
+		return "", fmt.Errorf("fetch image region for item image id %d: %w", image.ID, err)
 	}
 	defer cleanup()
 
 	text, err := h.ocr.TranscribeImageFileWithContext(
-		hocr.WithProviderConfigOverrides(ctx, pctx.TranscriptionBaseURL, pctx.TranscriptionAudience),
+		hocr.WithTranscriptionOptions(ctx, pctx.SystemPrompt, pctx.Temperature),
 		imagePath,
 		pctx.TranscriptionProvider, pctx.TranscriptionModel,
 	)
@@ -442,13 +264,11 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 		return "", fmt.Errorf("transcribe region: %w", err)
 	}
 
-	// Replace body with enriched text.
-	anno["body"] = []any{map[string]any{
-		"type":    "TextualBody",
-		"purpose": "supplementing",
-		"format":  "text/plain",
-		"value":   strings.TrimSpace(text),
-	}}
+	// Change the first TextualBody in place so language, service, confidence,
+	// and extension properties survive the model operation. Its old RDF
+	// identity cannot survive a changed value, so the mutated body is anonymous.
+	anno["body"] = textBodyWithValue(anno["body"], strings.TrimSpace(text))
+	clearFirstTextualBodyIdentity(anno["body"])
 	if strings.TrimSpace(annStringValue(anno, "textGranularity")) == "" {
 		anno["textGranularity"] = "line"
 	}
@@ -457,130 +277,176 @@ func (h *Handler) enrichSingleAnnotation(ctx context.Context, annotationJSON str
 	return string(b), nil
 }
 
-// enrichAnnotationPage re-transcribes all annotations in a IIIF AnnotationPage.
-func (h *Handler) enrichAnnotationPage(ctx context.Context, pageJSON string, pctx store.Context) (string, error) {
+// enrichAnnotationPage re-transcribes every line in a IIIF AnnotationPage.
+// Finer-granularity words remain in the draft and are reconciled from the
+// changed line text by SaveAnnotationPage, avoiding duplicate provider calls.
+func (h *Handler) enrichAnnotationPage(ctx context.Context, itemImageID uint64, pageJSON string, pctx store.Context) (string, error) {
+	return enrichAnnotationPageWithLimit(ctx, pageJSON, pctx, config.Get().Config.Processing.MaxPageEnrichmentLines, func(callCtx context.Context, annotationJSON string, callContext store.Context) (string, error) {
+		return h.enrichSingleAnnotation(callCtx, itemImageID, annotationJSON, callContext)
+	})
+}
+
+func enrichAnnotationPageWith(
+	ctx context.Context,
+	pageJSON string,
+	pctx store.Context,
+	enrich func(context.Context, string, store.Context) (string, error),
+) (string, error) {
+	return enrichAnnotationPageWithLimit(ctx, pageJSON, pctx, config.DefaultMaxPageEnrichmentLines, enrich)
+}
+
+func enrichAnnotationPageWithLimit(
+	ctx context.Context,
+	pageJSON string,
+	pctx store.Context,
+	maxLines int,
+	enrich func(context.Context, string, store.Context) (string, error),
+) (string, error) {
 	var page map[string]any
-	if err := json.Unmarshal([]byte(pageJSON), &page); err != nil {
-		return "", fmt.Errorf("parse annotation page: %w", err)
+	if err := iiif.DecodeJSON([]byte(pageJSON), &page); err != nil {
+		return "", fmt.Errorf("%w: annotation_json must contain an AnnotationPage", errInvalidAnnotationEnrichmentInput)
 	}
-	rawItems, _ := page["items"].([]any)
+	rawItems, ok := page["items"].([]any)
+	if !ok {
+		return "", fmt.Errorf("%w: annotation page items must be an array", errInvalidAnnotationEnrichmentInput)
+	}
+	if maxLines < 1 {
+		maxLines = config.DefaultMaxPageEnrichmentLines
+	}
+	lineCount := 0
 	for i, item := range rawItems {
 		anno, ok := item.(map[string]any)
 		if !ok {
-			continue
+			return "", fmt.Errorf("%w: annotation page item %d must be an object", errInvalidAnnotationEnrichmentInput, i)
 		}
-		b, _ := json.Marshal(anno)
-		enriched, err := h.enrichSingleAnnotation(ctx, string(b), pctx)
-		if err != nil {
-			slog.Warn("enrich annotation item failed", "index", i, "error", err)
-			continue
-		}
-		var enrichedAnno map[string]any
-		if err := json.Unmarshal([]byte(enriched), &enrichedAnno); err == nil {
-			rawItems[i] = enrichedAnno
+		if strings.EqualFold(strings.TrimSpace(annStringValue(anno, "textGranularity")), "line") {
+			lineCount++
+			if lineCount > maxLines {
+				return "", fmt.Errorf("%w: annotation page contains %d or more lines; page enrichment limit is %d", errInvalidAnnotationEnrichmentInput, lineCount, maxLines)
+			}
 		}
 	}
-	page["items"] = rawItems
-	b, _ := json.Marshal(page)
+	enrichedItems := make([]any, len(rawItems))
+	for i, item := range rawItems {
+		anno, ok := item.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("annotation page item %d must be an object", i)
+		}
+		if !strings.EqualFold(strings.TrimSpace(annStringValue(anno, "textGranularity")), "line") {
+			enrichedItems[i] = anno
+			continue
+		}
+		b, err := json.Marshal(anno)
+		if err != nil {
+			return "", fmt.Errorf("encode annotation page item %d: %w", i, err)
+		}
+		enriched, err := enrich(ctx, string(b), pctx)
+		if err != nil {
+			return "", fmt.Errorf("enrich annotation page item %d: %w", i, err)
+		}
+		var enrichedAnno map[string]any
+		if err := iiif.DecodeJSON([]byte(enriched), &enrichedAnno); err != nil {
+			return "", fmt.Errorf("decode enriched annotation page item %d: %w", i, err)
+		}
+		enrichedItems[i] = enrichedAnno
+	}
+	page["items"] = enrichedItems
+	b, err := json.Marshal(page)
+	if err != nil {
+		return "", fmt.Errorf("encode enriched annotation page: %w", err)
+	}
 	return string(b), nil
 }
 
 // extractFragment returns the xywh fragment value from an annotation target selector.
 func extractFragment(anno map[string]any) string {
-	target, _ := anno["target"].(map[string]any)
-	if target == nil {
+	value, present, err := iiif.TargetPixelXYWH(anno["target"])
+	if err != nil || !present {
 		return ""
 	}
-	selector := fragmentSelectorFromValue(target["selector"])
-	if selector == nil {
-		return ""
-	}
-	val := strings.TrimSpace(annStringValue(selector, "value"))
-	return strings.TrimPrefix(val, "xywh=")
-}
-
-func fragmentSelectorFromValue(raw any) map[string]any {
-	isFragmentSelector := func(selector map[string]any) bool {
-		if selector == nil {
-			return false
-		}
-		selectorType := strings.TrimSpace(annStringValue(selector, "type"))
-		if strings.EqualFold(selectorType, "FragmentSelector") {
-			return true
-		}
-		value := strings.TrimSpace(annStringValue(selector, "value"))
-		return strings.HasPrefix(value, "xywh=") || strings.Count(value, ",") == 3
-	}
-
-	switch selector := raw.(type) {
-	case map[string]any:
-		if isFragmentSelector(selector) {
-			return selector
-		}
-	case []any:
-		for _, item := range selector {
-			if obj, ok := item.(map[string]any); ok {
-				if isFragmentSelector(obj) {
-					return obj
-				}
-			}
-		}
-	}
-	return nil
+	return value
 }
 
 func annotationDebugSummary(anno map[string]any) map[string]any {
 	if anno == nil {
 		return map[string]any{"nil": true}
 	}
+	granularity := strings.ToLower(strings.TrimSpace(annStringValue(anno, "textGranularity")))
+	if granularity != "" && !iiif.IsTextGranularity(granularity) {
+		granularity = "other"
+	}
+	target, _ := anno["target"].(map[string]any)
 	return map[string]any{
-		"id":              strings.TrimSpace(annStringValue(anno, "id")),
-		"textGranularity": strings.TrimSpace(annStringValue(anno, "textGranularity")),
-		"canvasUri":       extractCanvasURI(anno),
-		"fragment":        extractFragment(anno),
-		"text":            strings.TrimSpace(extractAnnotationText(anno)),
-		"targetType":      fmt.Sprintf("%T", anno["target"]),
-		"selectorType": func() string {
-			target, _ := anno["target"].(map[string]any)
-			if target == nil {
-				return ""
-			}
-			return fmt.Sprintf("%T", target["selector"])
-		}(),
+		"hasId":           strings.TrimSpace(annStringValue(anno, "id")) != "",
+		"textGranularity": granularity,
+		"hasCanvas":       strings.TrimSpace(extractCanvasURI(anno)) != "",
+		"hasFragment":     strings.TrimSpace(extractFragment(anno)) != "",
+		"hasText":         strings.TrimSpace(extractAnnotationText(anno)) != "",
+		"targetType":      annotationJSONValueType(anno["target"]),
+		"selectorType":    annotationJSONValueType(target["selector"]),
+	}
+}
+
+func annotationJSONValueType(value any) string {
+	switch value.(type) {
+	case nil:
+		return "missing"
+	case map[string]any:
+		return "object"
+	case []any:
+		return "array"
+	case string:
+		return "string"
+	case float64, json.Number:
+		return "number"
+	case bool:
+		return "boolean"
+	default:
+		return "other"
 	}
 }
 
 // roundXYWHFragment rounds each float component of an "x,y,w,h" string to the
 // nearest integer, returning a new "x,y,w,h" string with integer values.
 func roundXYWHFragment(raw string) string {
-	parts := strings.Split(raw, ",")
-	if len(parts) != 4 {
+	rounded, err := parseRoundedXYWH(raw)
+	if err != nil {
 		return raw
-	}
-	var rounded [4]int
-	for i, p := range parts {
-		f, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
-		if err != nil {
-			return raw
-		}
-		rounded[i] = int(math.Round(f))
 	}
 	return fmt.Sprintf("%d,%d,%d,%d", rounded[0], rounded[1], rounded[2], rounded[3])
 }
 
 // parseXYWH parses "x,y,w,h" (integer or float) into x1,y1,x2,y2 coordinates.
 func parseXYWH(fragment string) (x1, y1, x2, y2 int, err error) {
+	vals, err := parseRoundedXYWH(fragment)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+	if vals[0] < 0 || vals[1] < 0 || vals[2] <= 0 || vals[3] <= 0 || vals[0] > iiif.MaxPixelCoordinate-vals[2] || vals[1] > iiif.MaxPixelCoordinate-vals[3] {
+		return 0, 0, 0, 0, fmt.Errorf("invalid xywh fragment %q: geometry is outside processing limits", fragment)
+	}
+	return vals[0], vals[1], vals[0] + vals[2], vals[1] + vals[3], nil
+}
+
+func parseRoundedXYWH(fragment string) ([4]int, error) {
+	fragment = strings.TrimSpace(fragment)
+	if strings.HasPrefix(fragment, "pixel:") {
+		fragment = strings.TrimSpace(strings.TrimPrefix(fragment, "pixel:"))
+	}
+	if strings.HasPrefix(fragment, "percent:") {
+		return [4]int{}, fmt.Errorf("invalid xywh fragment %q: percent coordinates are not supported", fragment)
+	}
 	parts := strings.Split(fragment, ",")
 	if len(parts) != 4 {
-		return 0, 0, 0, 0, fmt.Errorf("invalid xywh fragment %q", fragment)
+		return [4]int{}, fmt.Errorf("invalid xywh fragment %q", fragment)
 	}
-	vals := make([]int, 4)
+	var vals [4]int
 	for i, p := range parts {
 		f, e := strconv.ParseFloat(strings.TrimSpace(p), 64)
-		if e != nil {
-			return 0, 0, 0, 0, fmt.Errorf("invalid xywh fragment %q: %w", fragment, e)
+		if e != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 0 || f > float64(iiif.MaxPixelCoordinate) {
+			return [4]int{}, fmt.Errorf("invalid xywh fragment %q", fragment)
 		}
 		vals[i] = int(math.Round(f))
 	}
-	return vals[0], vals[1], vals[0] + vals[2], vals[1] + vals[3], nil
+	return vals, nil
 }

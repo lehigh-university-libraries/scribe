@@ -15,10 +15,13 @@ export interface EventSubscription {
   close: () => void;
 }
 
+const streamReadyEvent = "dev.scribe.stream.ready";
+
 export function subscribeToEvents(
   options: {
     itemImageId?: string;
     types?: string[];
+    onReady?: () => void;
   },
   onEvent: (event: CloudEvent) => void,
   onError?: (event: Event) => void,
@@ -32,6 +35,10 @@ export function subscribeToEvents(
   }
   const url = scribePath(`/v1/events${params.toString() ? `?${params.toString()}` : ""}`);
   const source = new EventSource(url);
+
+  source.addEventListener(streamReadyEvent, () => {
+    options.onReady?.();
+  });
 
   source.onmessage = (message) => {
     try {

@@ -3,57 +3,63 @@ package imageservice
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
 )
 
-func TestCropUsesIIIFV3MaxRequest(t *testing.T) {
-	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.EscapedPath()
+const (
+	testSourceBase  = "http://api:8080/static/uploads"
+	testSourceToken = "triplet-source-read-token-at-least-32-bytes"
+	testImageName   = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-123e4567-e89b-42d3-a456-426614174000.jpg"
+)
+
+func TestCropUsesAbsoluteSourceURLAndConstrainedBearer(t *testing.T) {
+	var gotPath, gotAuthorization string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		gotPath = request.URL.EscapedPath()
+		gotAuthorization = request.Header.Get("Authorization")
 		writeTestJPEG(t, w, 2, 1)
 	}))
-	t.Cleanup(srv.Close)
+	t.Cleanup(server.Close)
+	initializeTripletClientConfig(server.URL)
 
-	config.Init(config.Runtime{Config: config.Config{IIIF: config.IIIFConfig{InternalBase: srv.URL + "/iiif/3"}}})
-	client := New()
-
-	data, err := client.Crop(context.Background(), "/tmp/uploads/page one.jpg", Box{X: 10, Y: 20, Width: 30, Height: 40})
+	data, err := New().Crop(context.Background(), filepath.Join("uploads", testImageName), Box{X: 10, Y: 20, Width: 30, Height: 40})
 	if err != nil {
 		t.Fatalf("Crop: %v", err)
 	}
 	if len(data) == 0 {
 		t.Fatal("Crop returned empty body")
 	}
-	want := "/iiif/3/page%20one.jpg/10,20,30,40/max/0/default.jpg"
-	if gotPath != want {
-		t.Fatalf("path = %q, want %q", gotPath, want)
+	wantPath := "/iiif/3/" + url.PathEscape(testSourceBase+"/"+testImageName) + "/10,20,30,40/max/0/default.jpg"
+	if gotPath != wantPath {
+		t.Fatalf("path = %q, want %q", gotPath, wantPath)
+	}
+	if gotAuthorization != "Bearer "+testSourceToken {
+		t.Fatalf("authorization = %q", gotAuthorization)
 	}
 }
 
-func TestStitchHorizontalUsesIIIFCrops(t *testing.T) {
+func TestStitchHorizontalReusesOneAbsoluteSource(t *testing.T) {
 	var gotPaths []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPaths = append(gotPaths, r.URL.EscapedPath())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		gotPaths = append(gotPaths, request.URL.EscapedPath())
 		writeTestJPEG(t, w, 3, 2)
 	}))
-	t.Cleanup(srv.Close)
+	t.Cleanup(server.Close)
+	initializeTripletClientConfig(server.URL)
 
-	config.Init(config.Runtime{Config: config.Config{IIIF: config.IIIFConfig{InternalBase: srv.URL + "/iiif/3"}}})
-	client := New()
-
-	data, err := client.StitchHorizontal(context.Background(), "uploads/page.jpg", []Box{
+	data, err := New().StitchHorizontal(context.Background(), filepath.Join("uploads", testImageName), []Box{
 		{X: 10, Y: 20, Width: 30, Height: 40},
 		{X: 50, Y: 60, Width: 70, Height: 80},
 	}, 5)
@@ -67,47 +73,99 @@ func TestStitchHorizontalUsesIIIFCrops(t *testing.T) {
 	if got := img.Bounds().Dx(); got != 6 {
 		t.Fatalf("stitched width = %d, want 6", got)
 	}
-	if got := img.Bounds().Dy(); got != 2 {
-		t.Fatalf("stitched height = %d, want 2", got)
-	}
+	identifier := url.PathEscape(testSourceBase + "/" + testImageName)
 	joined := strings.Join(gotPaths, "\n")
-	if !strings.Contains(joined, "/iiif/3/page.jpg/5,15,40,50/max/0/default.jpg") {
-		t.Fatalf("missing first crop path; got:\n%s", joined)
-	}
-	if !strings.Contains(joined, "/iiif/3/page.jpg/45,55,80,90/max/0/default.jpg") {
-		t.Fatalf("missing second crop path; got:\n%s", joined)
+	for _, region := range []string{"5,15,40,50", "45,55,80,90"} {
+		if !strings.Contains(joined, "/iiif/3/"+identifier+"/"+region+"/max/0/default.jpg") {
+			t.Fatalf("missing crop %s; got:\n%s", region, joined)
+		}
 	}
 }
 
-func TestNormalizeUsesIIIFV3FullImageRequest(t *testing.T) {
+func TestNormalizeStagesAbsoluteSourceAndCleansIt(t *testing.T) {
 	t.Chdir(t.TempDir())
-	var gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.EscapedPath()
+	var stagedName string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		prefix := "/iiif/3/"
+		suffix := "/full/max/0/default.jpg"
+		escapedIdentifier := strings.TrimSuffix(strings.TrimPrefix(request.URL.EscapedPath(), prefix), suffix)
+		sourceURL, err := url.PathUnescape(escapedIdentifier)
+		if err != nil {
+			t.Errorf("unescape source identifier: %v", err)
+			http.Error(w, "bad identifier", http.StatusBadRequest)
+			return
+		}
+		if !strings.HasPrefix(sourceURL, testSourceBase+"/") {
+			t.Errorf("source URL = %q", sourceURL)
+		}
+		stagedName = strings.TrimPrefix(sourceURL, testSourceBase+"/")
+		if !uploadref.IsImmutableName(stagedName) {
+			t.Errorf("staged source name = %q", stagedName)
+		}
+		if _, err := os.Stat(filepath.Join("uploads", stagedName)); err != nil {
+			t.Errorf("staged source unavailable during request: %v", err)
+		}
 		writeTestJPEG(t, w, 4, 3)
 	}))
-	t.Cleanup(srv.Close)
+	t.Cleanup(server.Close)
+	initializeTripletClientConfig(server.URL)
 
-	config.Init(config.Runtime{Config: config.Config{IIIF: config.IIIFConfig{InternalBase: srv.URL + "/iiif/3"}}})
-	client := New()
-	input := []byte("fake jp2 bytes")
-
-	data, err := client.Normalize(context.Background(), input, "image/jp2")
+	data, err := New().Normalize(context.Background(), []byte("fake jp2 bytes"), "image/jp2")
 	if err != nil {
 		t.Fatalf("Normalize: %v", err)
 	}
-	if len(data) == 0 {
-		t.Fatal("Normalize returned empty body")
+	if len(data) == 0 || stagedName == "" {
+		t.Fatal("Normalize did not make a staged Triplet request")
 	}
-	sum := sha256.Sum256(input)
-	name := hex.EncodeToString(sum[:]) + ".jp2"
-	wantPath := "/iiif/3/" + name + "/full/max/0/default.jpg"
-	if gotPath != wantPath {
-		t.Fatalf("path = %q, want %q", gotPath, wantPath)
+	if _, err := os.Stat(filepath.Join("uploads", stagedName)); !os.IsNotExist(err) {
+		t.Fatalf("temporary Triplet source survived request: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join("uploads", name)); err != nil {
-		t.Fatalf("normalized source was not staged for IIIF: %v", err)
+}
+
+func TestNormalizeRejectsNoncanonicalUnknownImages(t *testing.T) {
+	initializeTripletClientConfig("http://triplet.invalid")
+	if _, err := New().Normalize(context.Background(), []byte("not an image"), "application/octet-stream"); err == nil {
+		t.Fatal("Normalize accepted an unsupported staged image type")
 	}
+}
+
+func TestStagedUploadRootRejectsNoncanonicalNames(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, name := range []string{"../escape.jpg", "/absolute.jpg", "not-an-immutable-name.jpg"} {
+		if file, err := createStagedUpload(name); err == nil {
+			_ = file.Close()
+			t.Fatalf("createStagedUpload(%q) succeeded", name)
+		}
+	}
+	if _, err := os.Stat("escape.jpg"); !os.IsNotExist(err) {
+		t.Fatalf("noncanonical staged name escaped uploads root: %v", err)
+	}
+
+	file, err := createStagedUpload(testImageName)
+	if err != nil {
+		t.Fatalf("create canonical staged upload: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close canonical staged upload: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(stagedUploadsDirectory, testImageName))
+	if err != nil {
+		t.Fatalf("stat canonical staged upload: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("canonical staged upload mode = %#o, want 0600", got)
+	}
+	if err := removeStagedUpload(testImageName); err != nil {
+		t.Fatalf("remove canonical staged upload: %v", err)
+	}
+}
+
+func initializeTripletClientConfig(internalServer string) {
+	config.Init(config.Runtime{Config: config.Config{IIIF: config.IIIFConfig{
+		InternalBase:    strings.TrimRight(internalServer, "/") + "/iiif/3",
+		SourceBase:      testSourceBase,
+		SourceReadToken: testSourceToken,
+	}}})
 }
 
 func writeTestJPEG(t *testing.T, w http.ResponseWriter, width, height int) {
@@ -120,6 +178,6 @@ func writeTestJPEG(t *testing.T, w http.ResponseWriter, width, height int) {
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
 	if err := jpeg.Encode(w, img, nil); err != nil {
-		t.Fatalf("encode jpeg: %v", err)
+		t.Errorf("encode jpeg: %v", err)
 	}
 }

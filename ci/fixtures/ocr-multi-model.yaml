@@ -1,0 +1,28 @@
+kraken:
+  pip_spec: "kraken==7.0.2"
+  default_segmentation_model: layout-default
+  default_transcription_model: handwriting-default
+  segmentation_models:
+    layout-default:
+      file: default-layout.mlmodel
+      doi: "10.5281/zenodo.10000001"
+      sha256: "1111111111111111111111111111111111111111111111111111111111111111"
+    layout-lines-v2:
+      file: segmentation-engine.mlmodel
+      doi: "10.5281/zenodo.10000002"
+      sha256: "2222222222222222222222222222222222222222222222222222222222222222"
+  transcription_models:
+    handwriting-default:
+      file: default-transcriber.mlmodel
+      doi: "10.5281/zenodo.10000003"
+      sha256: "3333333333333333333333333333333333333333333333333333333333333333"
+    latin-handwriting-v2:
+      file: transcription-engine.mlmodel
+      doi: "10.5281/zenodo.10000004"
+      sha256: "4444444444444444444444444444444444444444444444444444444444444444"
+ollama:
+  base_image: "ollama/ollama:0.19.0@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  default_model: "vision-default:latest"
+  models:
+    "vision-default:latest":
+      manifest_digest: "6666666666666666666666666666666666666666666666666666666666666666"

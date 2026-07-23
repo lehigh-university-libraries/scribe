@@ -37,9 +37,24 @@ iiif:
     write_token: "${TRIPLET_PRESENTATION_WRITE_TOKEN}"
 
 sources:
-  default: file
+  default: http
   file:
     root: /var/lib/triplet/images
+    url_mappings:
+      - prefix: http://api:8080/static/uploads
+        root: /var/lib/triplet/images
+        auth_probe: true
+  http:
+    # Triplet is the IIIF Image API boundary, while Scribe remains the
+    # authorization and blob-storage boundary for original uploads. Only this
+    # exact in-cluster origin may supply source bytes.
+    allowed_origins:
+      - http://api:8080
+    allow_private_hosts: true
+    forward_auth_headers: true
+    request_timeout: 2m
+    max_bytes: 100MiB
+    metadata_cache_ttl: 0s
 
 cache:
   root: /var/lib/triplet/cache

@@ -1,7 +1,7 @@
 package db
 
-// Compatibility wrappers in this file preserve concise store-facing methods
-// while delegating SQL execution to sqlc-generated queries.
+// Workflow query adapters in this file are the sole mapping boundary from
+// application-shaped operations to sqlc-generated statements.
 
 import (
 	"context"
@@ -18,7 +18,7 @@ func (q *Queries) InsertExternalRequest(ctx context.Context, arg InsertExternalR
 	if err != nil {
 		return 0, err
 	}
-	return compatLastInsertID(res)
+	return lastInsertID(res)
 }
 
 func (q *Queries) ReclaimExternalRequest(ctx context.Context, arg ReclaimExternalRequestManualParams) error {
@@ -26,94 +26,12 @@ func (q *Queries) ReclaimExternalRequest(ctx context.Context, arg ReclaimExterna
 }
 
 func (q *Queries) CompleteExternalRequest(ctx context.Context, arg CompleteExternalRequestManualParams) error {
-	return q.CompleteExternalRequestManual(ctx, arg)
+	res, err := q.CompleteExternalRequestManual(ctx, arg)
+	return requireAffectedRow(res, err)
 }
 
 func (q *Queries) FailExternalRequest(ctx context.Context, arg FailExternalRequestManualParams) error {
-	return q.FailExternalRequestManual(ctx, arg)
-}
-
-func (q *Queries) ClaimNextLeasedTranscriptionJob(ctx context.Context, leaseUntil time.Time, lockedBy string) (TranscriptionJob, error) {
-	row, err := q.ClaimNextLeasedTranscriptionJobManual(ctx)
-	if err != nil {
-		return TranscriptionJob{}, err
-	}
-	res, err := q.MarkTranscriptionJobLeasedManual(ctx, MarkTranscriptionJobLeasedManualParams{
-		LeaseUntil: sql.NullTime{Time: leaseUntil, Valid: true},
-		LockedBy:   compatNullableString(lockedBy),
-		ID:         row.ID,
-	})
-	if err := requireAffectedRow(res, err); err != nil {
-		return TranscriptionJob{}, err
-	}
-	return leasedRowToTranscriptionJob(row), nil
-}
-
-func (q *Queries) ClaimNextLeasedTranscriptionJobOlderThan(ctx context.Context, cutoff, leaseUntil time.Time, lockedBy string) (TranscriptionJob, error) {
-	row, err := q.ClaimNextLeasedTranscriptionJobOlderThanManual(ctx, cutoff)
-	if err != nil {
-		return TranscriptionJob{}, err
-	}
-	res, err := q.MarkTranscriptionJobLeasedManual(ctx, MarkTranscriptionJobLeasedManualParams{
-		LeaseUntil: sql.NullTime{Time: leaseUntil, Valid: true},
-		LockedBy:   compatNullableString(lockedBy),
-		ID:         row.ID,
-	})
-	if err := requireAffectedRow(res, err); err != nil {
-		return TranscriptionJob{}, err
-	}
-	return row, nil
-}
-
-func (q *Queries) ClaimLeasedTranscriptionJobByID(ctx context.Context, id uint64, leaseUntil time.Time, lockedBy string) (TranscriptionJob, error) {
-	row, err := q.ClaimLeasedTranscriptionJobByIDManual(ctx, id)
-	if err != nil {
-		return TranscriptionJob{}, err
-	}
-	res, err := q.MarkTranscriptionJobLeasedManual(ctx, MarkTranscriptionJobLeasedManualParams{
-		LeaseUntil: sql.NullTime{Time: leaseUntil, Valid: true},
-		LockedBy:   compatNullableString(lockedBy),
-		ID:         row.ID,
-	})
-	if err := requireAffectedRow(res, err); err != nil {
-		return TranscriptionJob{}, err
-	}
-	return leasedByIDRowToTranscriptionJob(row), nil
-}
-
-func (q *Queries) CompleteTranscriptionJobLeased(ctx context.Context, id uint64, lockedBy string) error {
-	res, err := q.CompleteTranscriptionJobLeasedManual(ctx, CompleteTranscriptionJobLeasedManualParams{
-		ID:       id,
-		LockedBy: compatNullableString(lockedBy),
-	})
-	return requireAffectedRow(res, err)
-}
-
-func (q *Queries) ExtendTranscriptionJobLease(ctx context.Context, id uint64, lockedBy string, leaseUntil time.Time) error {
-	res, err := q.ExtendTranscriptionJobLeaseManual(ctx, ExtendTranscriptionJobLeaseManualParams{
-		LeaseUntil: sql.NullTime{Time: leaseUntil, Valid: true},
-		ID:         id,
-		LockedBy:   compatNullableString(lockedBy),
-	})
-	return requireAffectedRow(res, err)
-}
-
-func (q *Queries) RetryOrFailTranscriptionJob(ctx context.Context, id uint64, lockedBy string, errorMessage sql.NullString) error {
-	res, err := q.RetryOrFailTranscriptionJobManual(ctx, RetryOrFailTranscriptionJobManualParams{
-		ErrorMessage: errorMessage,
-		ID:           id,
-		LockedBy:     compatNullableString(lockedBy),
-	})
-	return requireAffectedRow(res, err)
-}
-
-func (q *Queries) DeferTranscriptionJobLease(ctx context.Context, id uint64, lockedBy string, retryAfter time.Time, errorMessage sql.NullString) error {
-	res, err := q.DeferTranscriptionJobLeaseManual(ctx, DeferTranscriptionJobLeaseManualParams{
-		RetryAfter:   sql.NullTime{Time: retryAfter, Valid: true},
-		ErrorMessage: errorMessage,
-		ID:           id,
-		LockedBy:     compatNullableString(lockedBy),
-	})
+	res, err := q.FailExternalRequestManual(ctx, arg)
 	return requireAffectedRow(res, err)
 }
 
@@ -136,8 +54,11 @@ func (q *Queries) InsertWebhookDeliveryIfMissing(ctx context.Context, eventID, t
 }
 
 func (q *Queries) ClaimWebhookDeliveries(ctx context.Context, limit int, leaseUntil time.Time, lockedBy string) ([]ClaimWebhookDeliveriesManualRow, error) {
-	convertedLimit, err := compatInt32(limit)
+	convertedLimit, err := intToInt32(limit)
 	if err != nil {
+		return nil, err
+	}
+	if err := q.FailExpiredExhaustedWebhookDeliveriesManual(ctx); err != nil {
 		return nil, err
 	}
 	rows, err := q.ClaimWebhookDeliveriesManual(ctx, convertedLimit)
@@ -147,13 +68,14 @@ func (q *Queries) ClaimWebhookDeliveries(ctx context.Context, limit int, leaseUn
 	for i, row := range rows {
 		res, err := q.MarkWebhookDeliveryProcessingManual(ctx, MarkWebhookDeliveryProcessingManualParams{
 			LeaseUntil: sql.NullTime{Time: leaseUntil, Valid: true},
-			LockedBy:   compatNullableString(lockedBy),
+			LockedBy:   nullableString(lockedBy),
 			ID:         row.ID,
 		})
 		if err := requireAffectedRow(res, err); err != nil {
 			return nil, err
 		}
-		rows[i].LockedBy = compatNullableString(lockedBy)
+		rows[i].LockedBy = nullableString(lockedBy)
+		rows[i].AttemptCount++
 	}
 	return rows, nil
 }
@@ -161,7 +83,7 @@ func (q *Queries) ClaimWebhookDeliveries(ctx context.Context, limit int, leaseUn
 func (q *Queries) MarkWebhookDeliveryDelivered(ctx context.Context, id uint64, lockedBy string) error {
 	res, err := q.MarkWebhookDeliveryDeliveredManual(ctx, MarkWebhookDeliveryDeliveredManualParams{
 		ID:       id,
-		LockedBy: compatNullableString(lockedBy),
+		LockedBy: nullableString(lockedBy),
 	})
 	return requireAffectedRow(res, err)
 }
@@ -169,7 +91,7 @@ func (q *Queries) MarkWebhookDeliveryDelivered(ctx context.Context, id uint64, l
 func (q *Queries) MarkWebhookDeliveryFailed(ctx context.Context, id uint64, lockedBy string, lastError sql.NullString) error {
 	res, err := q.MarkWebhookDeliveryFailedManual(ctx, MarkWebhookDeliveryFailedManualParams{
 		LastError: lastError,
-		LockedBy:  compatNullableString(lockedBy),
+		LockedBy:  nullableString(lockedBy),
 		ID:        id,
 	})
 	return requireAffectedRow(res, err)
@@ -180,15 +102,31 @@ func (q *Queries) GetEventOutboxHighWater(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	converted, err := compatInt64(raw)
+	converted, err := scanInt64(raw)
 	if err != nil {
 		return 0, err
 	}
-	return compatUint64FromInt64(converted)
+	return uint64FromInt64(converted)
+}
+
+func (q *Queries) GetEventOutboxHighWaterForWorkspace(ctx context.Context, workspaceID uint64) (uint64, error) {
+	convertedWorkspaceID, err := uint64ToInt64(workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	raw, err := q.GetEventOutboxHighWaterForWorkspaceManual(ctx, sql.NullInt64{Int64: convertedWorkspaceID, Valid: true})
+	if err != nil {
+		return 0, err
+	}
+	converted, err := scanInt64(raw)
+	if err != nil {
+		return 0, err
+	}
+	return uint64FromInt64(converted)
 }
 
 func (q *Queries) ListEventOutboxAfterID(ctx context.Context, afterID uint64, limit int) ([]EventOutbox, error) {
-	convertedLimit, err := compatInt32(limit)
+	convertedLimit, err := intToInt32(limit)
 	if err != nil {
 		return nil, err
 	}
@@ -199,11 +137,11 @@ func (q *Queries) ListEventOutboxAfterID(ctx context.Context, afterID uint64, li
 }
 
 func (q *Queries) ListEventOutboxAfterIDForWorkspace(ctx context.Context, afterID, workspaceID uint64, limit int) ([]EventOutbox, error) {
-	convertedLimit, err := compatInt32(limit)
+	convertedLimit, err := intToInt32(limit)
 	if err != nil {
 		return nil, err
 	}
-	convertedWorkspaceID, err := compatUint64ToInt64(workspaceID)
+	convertedWorkspaceID, err := uint64ToInt64(workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -212,14 +150,6 @@ func (q *Queries) ListEventOutboxAfterIDForWorkspace(ctx context.Context, afterI
 		WorkspaceID: sql.NullInt64{Int64: convertedWorkspaceID, Valid: true},
 		Limit:       convertedLimit,
 	})
-}
-
-func leasedRowToTranscriptionJob(row TranscriptionJob) TranscriptionJob {
-	return row
-}
-
-func leasedByIDRowToTranscriptionJob(row TranscriptionJob) TranscriptionJob {
-	return row
 }
 
 func requireAffectedRow(res sql.Result, err error) error {

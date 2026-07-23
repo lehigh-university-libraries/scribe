@@ -15,9 +15,13 @@ func LoadSecrets(ctx context.Context, cfg Config) (Secrets, error) {
 	}
 	client := vaultkv.New(cfg.Vault.Address, cfg.Vault.Token, cfg.Vault.KVMount, cfg.Vault.GCPAuthRole)
 
-	google, err := client.Read(ctx, cfg.Vault.Paths.GoogleOAuth)
-	if err != nil {
-		return Secrets{}, fmt.Errorf("read google_oauth secret: %w", err)
+	google := map[string]string{}
+	if !cfg.Auth.PreviewAnonymous {
+		var err error
+		google, err = client.Read(ctx, cfg.Vault.Paths.GoogleOAuth)
+		if err != nil {
+			return Secrets{}, fmt.Errorf("read google_oauth secret: %w", err)
+		}
 	}
 	openai, err := client.Read(ctx, cfg.Vault.Paths.OpenAI)
 	if err != nil {

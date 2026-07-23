@@ -1,0 +1,56 @@
+package main
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/lehigh-university-libraries/scribe/internal/segmentor"
+)
+
+func TestSegmentorServerAllowsTheClientInferenceBudget(t *testing.T) {
+	server := newSegmentorHTTPServer(":0")
+	if server.WriteTimeout <= segmentor.InferenceRequestTimeout {
+		t.Fatalf(
+			"segmentor WriteTimeout = %s, must exceed client inference timeout %s",
+			server.WriteTimeout,
+			segmentor.InferenceRequestTimeout,
+		)
+	}
+	if margin := server.WriteTimeout - segmentor.InferenceRequestTimeout; margin != 30*time.Second {
+		t.Fatalf("segmentor write-timeout margin = %s, want 30s", margin)
+	}
+}
+
+func TestCheckSegmentorHealth(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		wantError  bool
+	}{
+		{name: "ready", statusCode: http.StatusOK},
+		{name: "not ready", statusCode: http.StatusServiceUnavailable, wantError: true},
+		{name: "redirect", statusCode: http.StatusTemporaryRedirect, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if test.statusCode >= 300 && test.statusCode < 400 {
+					w.Header().Set("Location", "/healthz")
+				}
+				w.WriteHeader(test.statusCode)
+			}))
+			defer server.Close()
+
+			err := checkSegmentorHealth(context.Background(), server.URL)
+			if test.wantError && err == nil {
+				t.Fatal("checkSegmentorHealth unexpectedly succeeded")
+			}
+			if !test.wantError && err != nil {
+				t.Fatalf("checkSegmentorHealth: %v", err)
+			}
+		})
+	}
+}

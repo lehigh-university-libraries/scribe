@@ -1,0 +1,56 @@
+{
+  "@context": "http://iiif.io/api/presentation/3/context.json",
+  "id": "http://127.0.0.1:4173/e2e/two-canvas-manifest.json",
+  "type": "Manifest",
+  "label": { "en": ["Scribe two-Canvas acceptance fixture"] },
+  "items": [
+    {
+      "id": "http://127.0.0.1:4173/e2e/canvas/a",
+      "type": "Canvas",
+      "height": 600,
+      "width": 1000,
+      "label": { "en": ["Canvas A"] },
+      "items": [{
+        "id": "http://127.0.0.1:4173/e2e/canvas/a/painting",
+        "type": "AnnotationPage",
+        "items": [{
+          "id": "http://127.0.0.1:4173/e2e/canvas/a/painting/image",
+          "type": "Annotation",
+          "motivation": "painting",
+          "target": "http://127.0.0.1:4173/e2e/canvas/a",
+          "body": {
+            "id": "http://127.0.0.1:4173/e2e/canvas-a.svg",
+            "type": "Image",
+            "format": "image/svg+xml",
+            "height": 600,
+            "width": 1000
+          }
+        }]
+      }]
+    },
+    {
+      "id": "http://127.0.0.1:4173/e2e/canvas/b",
+      "type": "Canvas",
+      "height": 600,
+      "width": 1000,
+      "label": { "en": ["Canvas B"] },
+      "items": [{
+        "id": "http://127.0.0.1:4173/e2e/canvas/b/painting",
+        "type": "AnnotationPage",
+        "items": [{
+          "id": "http://127.0.0.1:4173/e2e/canvas/b/painting/image",
+          "type": "Annotation",
+          "motivation": "painting",
+          "target": "http://127.0.0.1:4173/e2e/canvas/b",
+          "body": {
+            "id": "http://127.0.0.1:4173/e2e/canvas-b.svg",
+            "type": "Image",
+            "format": "image/svg+xml",
+            "height": 600,
+            "width": 1000
+          }
+        }]
+      }]
+    }
+  ]
+}

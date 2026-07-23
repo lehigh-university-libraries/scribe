@@ -21,7 +21,10 @@ export function isCompletedStatus(status: TranscriptionJobStatus | string | numb
 export function isFailedStatus(status: TranscriptionJobStatus | string | number): boolean {
   return status === TranscriptionJobStatus.FAILED
     || status === "TRANSCRIPTION_JOB_STATUS_FAILED"
-    || status === "failed";
+    || status === "failed"
+    || status === TranscriptionJobStatus.SUPERSEDED
+    || status === "TRANSCRIPTION_JOB_STATUS_SUPERSEDED"
+    || status === "superseded";
 }
 
 export function eventBigInt(value: unknown): bigint {

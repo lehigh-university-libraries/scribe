@@ -4,9 +4,8 @@ import "testing"
 
 func TestExternalRequestFromHeadersUsesExplicitKey(t *testing.T) {
 	req := externalRequestFromHeaders(map[string][]string{
-		"X-Idempotency-Key":        {"event-123"},
 		"X-Scribe-External-Source": {"islandora"},
-	}, "https://example.test/image.jpg", 7, "")
+	}, "event-123", "image-url", stableRequestHash("request"))
 
 	if req.source != "islandora" {
 		t.Fatalf("source = %q, want islandora", req.source)
@@ -16,16 +15,16 @@ func TestExternalRequestFromHeadersUsesExplicitKey(t *testing.T) {
 	}
 }
 
-func TestExternalRequestFromHeadersDerivesIslandoraKey(t *testing.T) {
+func TestExternalRequestFromHeadersUsesExplicitKeyForIslandoraEvent(t *testing.T) {
 	req := externalRequestFromHeaders(map[string][]string{
 		"X-Islandora-Event": {"eyJ0eXBlIjoiQWN0aXZpdHkifQ=="},
-	}, "https://example.test/image.jpg", 0, "")
+	}, "event-456", "image-url", stableRequestHash("request"))
 
 	if req.source != "islandora" {
 		t.Fatalf("source = %q, want islandora", req.source)
 	}
 	if req.key == "" {
-		t.Fatal("expected derived key")
+		t.Fatal("expected hashed explicit key")
 	}
 	if req.eventHeader == "" {
 		t.Fatal("expected event header to be retained")

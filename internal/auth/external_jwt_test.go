@@ -13,11 +13,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 func TestExternalJWTPrincipalValidatesJWKS(t *testing.T) {
@@ -43,10 +46,11 @@ func TestExternalJWTPrincipalValidatesJWKS(t *testing.T) {
 	manager := &Manager{
 		auth: config.AuthConfig{
 			ExternalJWTIssuers: []config.ExternalJWTIssuerConfig{{
-				Issuer:      issuer,
-				Audience:    "islandora-scribe",
-				JWKSURL:     jwksServer.URL,
-				WorkspaceID: 42,
+				Issuer:        issuer,
+				Audience:      "islandora-scribe",
+				JWKSURL:       jwksServer.URL,
+				WorkspaceID:   42,
+				ServiceUserID: 900,
 				RoleMappings: []config.ExternalJWTRoleMapping{{
 					Roles:  []string{"administrator"},
 					Role:   "write",
@@ -55,6 +59,14 @@ func TestExternalJWTPrincipalValidatesJWKS(t *testing.T) {
 			}},
 		},
 		jwksCache: make(map[string]cachedJWKS),
+		externalIdentityResolver: func(_ context.Context, userID, workspaceID uint64) (store.User, store.WorkspaceAccess, error) {
+			if userID != 900 || workspaceID != 42 {
+				t.Fatalf("service identity lookup = user %d workspace %d, want 900/42", userID, workspaceID)
+			}
+			return store.User{ID: 900, Name: "Islandora service", Email: "islandora@example.org"}, store.WorkspaceAccess{
+				Workspace: store.Workspace{ID: 42, Name: "Islandora imports"}, Role: "write",
+			}, nil
+		},
 	}
 	token := signTestJWT(t, key, "islandora-key", map[string]any{
 		"iss":   issuer,
@@ -76,8 +88,16 @@ func TestExternalJWTPrincipalValidatesJWKS(t *testing.T) {
 	if principal.WorkspaceID != 42 || principal.WorkspaceRole != "write" {
 		t.Fatalf("workspace = %d/%q", principal.WorkspaceID, principal.WorkspaceRole)
 	}
-	if principal.UserID != 123 {
-		t.Fatalf("UserID = %d, want 123", principal.UserID)
+	if principal.UserID != 900 {
+		t.Fatalf("UserID = %d, want configured service user 900; raw webid 123 must never become a Scribe foreign key", principal.UserID)
+	}
+	if !principalHasPermission(principal, "items:create") {
+		t.Fatal("mapped external JWT lost its explicitly delegated items:create scope")
+	}
+	for _, permission := range []string{"items:write", "annotations:write", "admin:api_keys"} {
+		if principalHasPermission(principal, permission) {
+			t.Fatalf("mapped external JWT exceeded its scopes for %q", permission)
+		}
 	}
 }
 
@@ -101,6 +121,7 @@ func TestExternalJWTPrincipalRejectsBadAudience(t *testing.T) {
 	token := signTestJWT(t, key, "islandora-key", map[string]any{
 		"iss": "https://islandora.example",
 		"aud": "other",
+		"sub": "service",
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
 
@@ -121,6 +142,7 @@ func TestExternalJWTAccessRequiresExplicitAllowlist(t *testing.T) {
 func TestValidateExternalClaimsRejectsFutureNBF(t *testing.T) {
 	err := validateExternalClaims(externalJWTClaims{
 		Iss: "https://issuer.example",
+		Sub: "service",
 		Exp: time.Now().Add(time.Hour).Unix(),
 		Nbf: time.Now().Add(time.Hour).Unix(),
 	}, config.ExternalJWTIssuerConfig{Issuer: "https://issuer.example"})
@@ -193,6 +215,7 @@ func TestValidateExternalClaimsUsesTightClockSkew(t *testing.T) {
 	cfg := config.ExternalJWTIssuerConfig{Audience: "scribe"}
 	if err := validateExternalClaims(externalJWTClaims{
 		Iss: "https://issuer.example",
+		Sub: "service",
 		Aud: json.RawMessage(`"scribe"`),
 		Exp: time.Now().Add(-31 * time.Second).Unix(),
 	}, cfg); err == nil || !strings.Contains(err.Error(), "expired") {
@@ -200,11 +223,247 @@ func TestValidateExternalClaimsUsesTightClockSkew(t *testing.T) {
 	}
 	if err := validateExternalClaims(externalJWTClaims{
 		Iss: "https://issuer.example",
+		Sub: "service",
 		Aud: json.RawMessage(`"scribe"`),
 		Exp: time.Now().Add(time.Hour).Unix(),
 		Iat: time.Now().Add(31 * time.Second).Unix(),
 	}, cfg); err == nil || !strings.Contains(err.Error(), "future") {
 		t.Fatalf("expected future iat after 30s skew, got %v", err)
+	}
+}
+
+func TestValidateExternalClaimsRequiresSubject(t *testing.T) {
+	err := validateExternalClaims(externalJWTClaims{
+		Iss: "https://issuer.example",
+		Exp: time.Now().Add(time.Hour).Unix(),
+	}, config.ExternalJWTIssuerConfig{})
+	if err == nil || !strings.Contains(err.Error(), "subject") {
+		t.Fatalf("validateExternalClaims returned %v, want subject rejection", err)
+	}
+}
+
+func TestJWKRSAPublicKeyBoundsKeyMaterial(t *testing.T) {
+	validExponent := base64.RawURLEncoding.EncodeToString([]byte{1, 0, 1})
+	tests := map[string]jwkKey{
+		"weak modulus": {
+			Kty: "RSA", Alg: "RS256",
+			N: base64.RawURLEncoding.EncodeToString(new(big.Int).Lsh(big.NewInt(1), 1023).Bytes()),
+			E: validExponent,
+		},
+		"oversized modulus": {
+			Kty: "RSA", Alg: "RS256",
+			N: base64.RawURLEncoding.EncodeToString(new(big.Int).Lsh(big.NewInt(1), maxJWKRSAKeyBits).Bytes()),
+			E: validExponent,
+		},
+		"oversized exponent": {
+			Kty: "RSA", Alg: "RS256",
+			N: base64.RawURLEncoding.EncodeToString(new(big.Int).Lsh(big.NewInt(1), 2047).Bytes()),
+			E: base64.RawURLEncoding.EncodeToString([]byte{1, 0, 0, 0, 1}),
+		},
+		"even exponent": {
+			Kty: "RSA", Alg: "RS256",
+			N: base64.RawURLEncoding.EncodeToString(new(big.Int).Lsh(big.NewInt(1), 2047).Bytes()),
+			E: base64.RawURLEncoding.EncodeToString([]byte{4}),
+		},
+	}
+	for name, key := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := jwkRSAPublicKey(key); err == nil {
+				t.Fatal("invalid RSA key was accepted")
+			}
+		})
+	}
+}
+
+func TestFetchJWKSRejectsInvalidCatalogShape(t *testing.T) {
+	t.Setenv(safehttp.AllowPrivateFetchesEnv, "true")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := jwkKey{
+		Kty: "RSA", Kid: "key-1", Alg: "RS256",
+		N: base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+		E: base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+	}
+	for name, keys := range map[string][]jwkKey{
+		"blank kid": {func() jwkKey { copy := valid; copy.Kid = ""; return copy }()},
+		"duplicate": {valid, valid},
+		"too many":  make([]jwkKey, maxJWKSKeys+1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(jwksResponse{Keys: keys})
+			}))
+			defer server.Close()
+			if _, err := fetchJWKS(context.Background(), server.URL); err == nil {
+				t.Fatal("invalid JWKS catalog was accepted")
+			}
+		})
+	}
+}
+
+func TestJWKSKeyMissRefreshesOnceForConcurrentCallers(t *testing.T) {
+	t.Setenv(safehttp.AllowPrivateFetchesEnv, "true")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		_ = json.NewEncoder(w).Encode(jwksResponse{Keys: []jwkKey{{
+			Kty: "RSA", Kid: "rotated", Alg: "RS256",
+			N: base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+			E: base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+		}}})
+	}))
+	defer server.Close()
+	manager := &Manager{jwksCache: map[string]cachedJWKS{
+		server.URL: {keys: map[string]*rsa.PublicKey{"old": &key.PublicKey}, misses: make(map[string]time.Time), expiresAt: time.Now().Add(time.Hour)},
+	}}
+	cfg := config.ExternalJWTIssuerConfig{JWKSURL: server.URL}
+	start := make(chan struct{})
+	var wait sync.WaitGroup
+	errors := make(chan error, 20)
+	for range 20 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			_, keyErr := manager.jwksKey(context.Background(), cfg, "rotated")
+			errors <- keyErr
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(errors)
+	for keyErr := range errors {
+		if keyErr != nil {
+			t.Fatalf("jwksKey: %v", keyErr)
+		}
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("JWKS refresh requests = %d, want 1", got)
+	}
+}
+
+func TestJWKSKeyDistinctMissesShareURLRefreshAndBoundNegativeCache(t *testing.T) {
+	t.Setenv(safehttp.AllowPrivateFetchesEnv, "true")
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	releaseResponses := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseResponses) }) }
+	defer release()
+	firstRequest := make(chan struct{})
+	secondRequest := make(chan struct{})
+	var firstOnce, secondOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestNumber := requests.Add(1)
+		if requestNumber == 1 {
+			firstOnce.Do(func() { close(firstRequest) })
+		} else {
+			secondOnce.Do(func() { close(secondRequest) })
+		}
+		<-releaseResponses
+		_ = json.NewEncoder(w).Encode(jwksResponse{Keys: []jwkKey{{
+			Kty: "RSA", Kid: "current", Alg: "RS256",
+			N: base64.RawURLEncoding.EncodeToString(key.N.Bytes()),
+			E: base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes()),
+		}}})
+	}))
+	defer server.Close()
+	manager := &Manager{jwksCache: map[string]cachedJWKS{
+		server.URL: {keys: map[string]*rsa.PublicKey{"old": &key.PublicKey}, misses: make(map[string]time.Time), expiresAt: time.Now().Add(time.Hour)},
+	}}
+	cfg := config.ExternalJWTIssuerConfig{JWKSURL: server.URL}
+	start := make(chan struct{})
+	var wait sync.WaitGroup
+	var callersReady sync.WaitGroup
+	callersReady.Add(32)
+	errorsSeen := make(chan error, 32)
+	for index := range 32 {
+		index := index
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			callersReady.Done()
+			_, keyErr := manager.jwksKey(context.Background(), cfg, fmt.Sprintf("attacker-%d", index))
+			errorsSeen <- keyErr
+		}()
+	}
+	close(start)
+	callersReady.Wait()
+	select {
+	case <-firstRequest:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the coalesced JWKS refresh")
+	}
+	secondFetchStarted := false
+	select {
+	case <-secondRequest:
+		secondFetchStarted = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	release()
+	wait.Wait()
+	close(errorsSeen)
+	for keyErr := range errorsSeen {
+		if keyErr == nil {
+			t.Fatal("unknown key ID unexpectedly resolved")
+		}
+	}
+	if got := requests.Load(); secondFetchStarted || got != 1 {
+		t.Fatalf("concurrent distinct-kid JWKS requests = %d, want 1", got)
+	}
+	if _, err := manager.jwksKey(context.Background(), cfg, "current"); err != nil {
+		t.Fatalf("refreshed known key is unavailable: %v", err)
+	}
+
+	// Alternating attacker-controlled key IDs must neither clear prior misses
+	// nor grow the per-issuer cache without bound during the refresh cooldown.
+	for index := 0; index < maxJWKSNegativeMisses*2; index++ {
+		_, _ = manager.jwksKey(context.Background(), cfg, fmt.Sprintf("alternating-%d", index))
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("alternating distinct-kid JWKS requests = %d, want 1 during cooldown", got)
+	}
+	manager.jwksMu.Lock()
+	cached := manager.jwksCache[server.URL]
+	missCount := len(cached.misses)
+	refreshAfter := cached.refreshAfter
+	manager.jwksMu.Unlock()
+	if missCount > maxJWKSNegativeMisses {
+		t.Fatalf("negative JWKS cache size = %d, maximum %d", missCount, maxJWKSNegativeMisses)
+	}
+	if !time.Now().UTC().Before(refreshAfter) {
+		t.Fatal("successful JWKS refresh did not establish a cooldown")
+	}
+}
+
+func TestJWKSRefreshFailureEstablishesCooldown(t *testing.T) {
+	t.Setenv(safehttp.AllowPrivateFetchesEnv, "true")
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	manager := &Manager{jwksCache: make(map[string]cachedJWKS)}
+	cfg := config.ExternalJWTIssuerConfig{JWKSURL: server.URL}
+	if _, err := manager.jwksKey(context.Background(), cfg, "unknown-a"); err == nil {
+		t.Fatal("failed JWKS refresh unexpectedly resolved a key")
+	}
+	if _, err := manager.jwksKey(context.Background(), cfg, "unknown-b"); err == nil {
+		t.Fatal("cooldown lookup unexpectedly resolved a key")
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("failed JWKS refresh requests = %d, want 1 during cooldown", got)
 	}
 }
 
@@ -257,10 +516,27 @@ func TestExternalJWTPrincipalRejectsUnmappedRole(t *testing.T) {
 	}
 }
 
-func TestParseJWTUserIDRejectsPartialNumericString(t *testing.T) {
-	raw := json.RawMessage(`"123abc"`)
-	if got := parseJWTUserID(raw); got != 0 {
-		t.Fatalf("parseJWTUserID = %d, want 0", got)
+func TestExternalJWTTransportRejectsPlaintextRemoteKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []string{
+		"http://identity.example/keys",
+		"https://identity.example/keys?token=secret",
+		"https://user:pass@identity.example/keys",
+	} {
+		if err := validateExternalJWTTransportURL(raw); err == nil {
+			t.Fatalf("validateExternalJWTTransportURL(%q) accepted an unsafe URL", raw)
+		}
+	}
+	for _, raw := range []string{
+		"https://identity.example/keys",
+		"http://127.0.0.1:8080/keys",
+		"http://[::1]:8080/keys",
+		"http://localhost:8080/keys",
+	} {
+		if err := validateExternalJWTTransportURL(raw); err != nil {
+			t.Fatalf("validateExternalJWTTransportURL(%q) = %v", raw, err)
+		}
 	}
 }
 

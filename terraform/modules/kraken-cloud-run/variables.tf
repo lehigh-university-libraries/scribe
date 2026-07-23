@@ -14,7 +14,7 @@ variable "service_account_id" {
 }
 
 variable "route_type" {
-  description = "Logical route type exposed by this service (e.g. kraken-segmentation, kraken-transcription, generic-segmentation, image-service)."
+  description = "Logical route type exposed by this service (for example kraken-segmentation, kraken-transcription, or generic-segmentation)."
   type        = string
 }
 

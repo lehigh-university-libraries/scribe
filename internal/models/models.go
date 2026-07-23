@@ -1,57 +1,5 @@
 package models
 
-import "time"
-
-type EvalConfig struct {
-	Model       string  `json:"model"`
-	Prompt      string  `json:"prompt"`
-	Temperature float64 `json:"temperature"`
-	CSVPath     string  `json:"csv_path"`
-	TestRows    []int   `json:"rows"`
-	Timestamp   string  `json:"timestamp"`
-}
-
-type EvalResult struct {
-	Identifier            string  `json:"identifier"`
-	ImagePath             string  `json:"image_path"`
-	TranscriptPath        string  `json:"transcript_path"`
-	Public                bool    `json:"public"`
-	OpenAIResponse        string  `json:"openai_response"`
-	CharacterSimilarity   float64 `json:"character_similarity"`
-	WordSimilarity        float64 `json:"word_similarity"`
-	WordAccuracy          float64 `json:"word_accuracy"`
-	WordErrorRate         float64 `json:"word_error_rate"`
-	TotalWordsOriginal    int     `json:"total_words_original"`
-	TotalWordsTranscribed int     `json:"total_words_transcribed"`
-	CorrectWords          int     `json:"correct_words"`
-	Substitutions         int     `json:"substitutions"`
-	Deletions             int     `json:"deletions"`
-	Insertions            int     `json:"insertions"`
-}
-
-type CorrectionSession struct {
-	ID        string       `json:"id"`
-	Images    []ImageItem  `json:"images"`
-	Current   int          `json:"current"`
-	Results   []EvalResult `json:"results"`
-	Config    EvalConfig   `json:"config"`
-	CreatedAt time.Time    `json:"created_at"`
-}
-
-type ImageItem struct {
-	ID              string `json:"id"`
-	ImagePath       string `json:"image_path"`
-	ImageURL        string `json:"image_url"`
-	OriginalHOCR    string `json:"original_hocr"`
-	CorrectedHOCR   string `json:"corrected_hocr"`
-	GroundTruth     string `json:"ground_truth"`
-	Completed       bool   `json:"completed"`
-	ImageWidth      int    `json:"image_width"`
-	ImageHeight     int    `json:"image_height"`
-	DrupalUploadURL string `json:"drupal_upload_url,omitempty"`
-	DrupalNid       string `json:"drupal_nid,omitempty"`
-}
-
 type HOCRLine struct {
 	ID    string     `json:"id"`
 	BBox  BBox       `json:"bbox"`

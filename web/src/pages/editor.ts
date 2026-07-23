@@ -1,16 +1,41 @@
 import Mirador from "mirador";
-import scribeMiradorPlugin, { annotationAdapters } from "mirador-scribe";
-import { annotationClient, publishItemImageEdits } from "../api/annotations";
+import { Code, ConnectError } from "@connectrpc/connect";
+import scribeMiradorPlugin, {
+  annotationAdapters,
+  type ScribeAnnotationAdapterConstructor,
+} from "mirador-scribe";
+import {
+  annotationClient,
+  getAnnotationPage,
+  publishItemImageEdits,
+} from "../api/annotations";
+import { getEditorManifest } from "../api/items";
 import { getOCRRun, reprocessItemImage } from "../api/processing";
 import { listTranscriptionJobs } from "../api/transcription";
 import { subscribeToEvents } from "../api/events";
-import { scribePath } from "../api/http";
-import { syncWorkspaceSelectionFromLocation, workspaceAwarePath } from "../lib/workspace";
+import {
+  syncWorkspaceSelectionFromLocation,
+  workspaceAwarePath,
+} from "../lib/workspace";
 import { TranscriptionJobStatus } from "../proto/scribe/v1/transcription_pb";
 import { html, setHTML, uint64ToString } from "../lib/util";
 import { renderEditorLayout } from "./editor/layout";
+import { createLeaveDialogController } from "./editor/leave-dialog";
 import { commonViewerOptions, hiddenPanels } from "./editor/mirador";
-import { eventBigInt, eventNumber, isCompletedStatus, isFailedStatus, isPendingStatus, isRunningStatus } from "./editor/status";
+import {
+  type CanvasImageRegistry,
+  createCanvasImageRegistry,
+} from "./editor/canvas-image-registry";
+import {
+  eventBigInt,
+  eventNumber,
+  isCompletedStatus,
+  isFailedStatus,
+  isPendingStatus,
+  isRunningStatus,
+} from "./editor/status";
+
+const EDITOR_WINDOW_ID = "scribe-editor-window";
 
 export async function renderEditor(app: HTMLElement): Promise<void> {
   syncWorkspaceSelectionFromLocation();
@@ -19,11 +44,47 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   const itemID = params.get("itemId") ?? "";
   const autoTranscribe = params.get("autoTranscribe") === "1";
   const jobIdParam = params.get("jobId");
-  let hasUnsavedChanges = false;
+  const dirtyWindows = new Map<string, boolean>();
+  let beforeUnloadRegistered = false;
+  let processingContextID = params.get("contextId") ?? "0";
+  let activeItemImageID = itemImageID;
+  let activeCanvasID = "";
+  let activeWindowID = EDITOR_WINDOW_ID;
+  const processingContexts = new Map<string, string>();
   let saveSequence = 0;
   let reprocessInFlight = false;
   let allowHistoryBack = false;
   let leaveAction: "home" | "history-back" = "home";
+  let eventSubscription: { close: () => void } | null = null;
+  let monitoredItemImageID = "";
+  let activationSequence = 0;
+  let canvasImageRegistry: CanvasImageRegistry | null = null;
+  let editorManifestObjectURL = "";
+
+  const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+    event.preventDefault();
+    event.returnValue = "";
+  };
+
+  function hasDirtyWindows(): boolean {
+    return [...dirtyWindows.values()].some(Boolean);
+  }
+
+  function syncBeforeUnloadGuard(): void {
+    const shouldGuard = hasDirtyWindows();
+    if (shouldGuard === beforeUnloadRegistered) return;
+    if (shouldGuard) {
+      window.addEventListener("beforeunload", handleBeforeUnload);
+    } else {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    }
+    beforeUnloadRegistered = shouldGuard;
+  }
+
+  function clearDirtyNavigationGuard(): void {
+    dirtyWindows.clear();
+    syncBeforeUnloadGuard();
+  }
 
   const historySentinel = {
     ...(window.history.state ?? {}),
@@ -37,22 +98,68 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     return new Promise((resolve) => {
       saveSequence += 1;
       const requestId = `save-${saveSequence}`;
-
-      const handleResult = (event: Event) => {
-        const detail = (event as CustomEvent<{ ok: boolean; requestId: string }>).detail;
-        if (!detail || detail.requestId !== requestId) return;
+      const targetWindowID = activeWindowID;
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutID);
         document.removeEventListener("scribe:save-result", handleResult);
-        resolve(Boolean(detail.ok));
+        resolve(ok);
       };
 
+      const handleResult = (event: Event) => {
+        const detail = (
+          event as CustomEvent<{
+            ok: boolean;
+            requestId: string;
+            windowId: string;
+          }>
+        ).detail;
+        if (
+          !detail ||
+          detail.requestId !== requestId ||
+          detail.windowId !== targetWindowID
+        )
+          return;
+        finish(Boolean(detail.ok));
+      };
+      const timeoutID = window.setTimeout(() => finish(false), 30_000);
+
       document.addEventListener("scribe:save-result", handleResult);
-      document.dispatchEvent(new CustomEvent("scribe:request-save", {
-        detail: {
-          requestId,
-          windowId: undefined,
-        },
-      }));
+      document.dispatchEvent(
+        new CustomEvent("scribe:request-save", {
+          detail: {
+            canvasId: activeCanvasID,
+            requestId,
+            windowId: targetWindowID,
+          },
+        }),
+      );
     });
+  }
+
+  async function processingContextForItemImage(
+    targetItemImageID: string,
+  ): Promise<string> {
+    const cached = processingContexts.get(targetItemImageID);
+    if (cached !== undefined) return cached;
+    try {
+      const run = await getOCRRun(targetItemImageID);
+      const returnedItemImageID = uint64ToString(run.itemImageId);
+      if (returnedItemImageID !== targetItemImageID) {
+        throw new Error("The OCR run belongs to a different item image.");
+      }
+      const contextID = run.contextId.toString();
+      processingContexts.set(targetItemImageID, contextID);
+      return contextID;
+    } catch (runError) {
+      if (ConnectError.from(runError).code !== Code.NotFound) throw runError;
+      const jobs = await listTranscriptionJobs(BigInt(targetItemImageID));
+      const contextID = jobs[0]?.contextId?.toString() ?? "0";
+      processingContexts.set(targetItemImageID, contextID);
+      return contextID;
+    }
   }
 
   function navigateHome() {
@@ -60,21 +167,55 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   async function handleFullReprocess() {
-    if (!itemImageID || reprocessInFlight) return;
+    if (!activeItemImageID || reprocessInFlight) return;
+    const targetItemImageID = activeItemImageID;
+    const targetCanvasID = activeCanvasID;
+    const targetWindowID = activeWindowID;
     reprocessInFlight = true;
     reprocessNav.disabled = true;
-    publishBatchState("Reprocessing page with fresh segmentation...", true);
+    publishBatchState("Preparing the canonical page for reprocessing...", true);
     setBatchBanner(
-      "Re-segmenting page",
-      "Scribe is rebuilding page regions and restarting transcription for the new segments.",
+      "Preparing to re-segment page",
+      "Scribe will save pending edits, then reprocess the exact committed annotation revision.",
       true,
     );
     try {
-      await reprocessItemImage(itemImageID);
-      document.dispatchEvent(new CustomEvent("scribe:reload-annotations", { detail: {} }));
-      publishBatchState("Fresh segmentation complete. Automatic transcription is continuing on the new regions.", true);
+      if ([...dirtyWindows.values()].some(Boolean) && !(await requestSave())) {
+        throw new Error(
+          "Pending edits could not be saved, so reprocessing was not started.",
+        );
+      }
+
+      const targetContextID =
+        await processingContextForItemImage(targetItemImageID);
+      const canonicalPage = await getAnnotationPage(targetItemImageID);
+      publishBatchState("Reprocessing page with fresh segmentation...", true);
+      setBatchBanner(
+        "Re-segmenting page",
+        "Scribe is rebuilding page regions and restarting transcription for the new segments.",
+        true,
+      );
+      await reprocessItemImage(
+        targetItemImageID,
+        targetContextID,
+        canonicalPage.revision,
+      );
+      document.dispatchEvent(
+        new CustomEvent("scribe:reload-annotations", {
+          detail: {
+            canvasId: targetCanvasID,
+            itemImageId: targetItemImageID,
+            windowId: targetWindowID,
+          },
+        }),
+      );
+      publishBatchState(
+        "Fresh segmentation complete. Automatic transcription is continuing on the new regions.",
+        true,
+      );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Reprocess failed.";
+      const message =
+        error instanceof Error ? error.message : "Reprocess failed.";
       publishBatchState(`Reprocess failed: ${message}`, false);
       setBatchBanner("", "", false);
     } finally {
@@ -84,10 +225,17 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   function leaveEditor() {
-    closeLeaveDialog();
+    // This is reached only after the user explicitly saves or discards. Remove
+    // the native unload guard immediately before the requested navigation so a
+    // second browser prompt cannot obscure the user's confirmed choice.
+    clearDirtyNavigationGuard();
+    leaveDialogController.close();
     if (leaveAction === "history-back") {
       allowHistoryBack = true;
-      window.history.back();
+      // A dirty back navigation has already moved across the top sentinel and
+      // pushed a replacement guard entry. Skip both editor entries after the
+      // user confirms; one `back()` would only redisplay the editor.
+      window.history.go(-2);
       return;
     }
     navigateHome();
@@ -96,34 +244,57 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   renderEditorLayout(app);
 
   const meta = document.getElementById("editor-meta") as HTMLParagraphElement;
-  const transcriptionStatus = document.getElementById("editor-transcription-status") as HTMLParagraphElement;
-  const batchBanner = document.getElementById("editor-batch-banner") as HTMLDivElement;
-  const batchBannerTitle = document.getElementById("editor-batch-banner-title") as HTMLParagraphElement;
-  const batchBannerDetail = document.getElementById("editor-batch-banner-detail") as HTMLParagraphElement;
+  const transcriptionStatus = document.getElementById(
+    "editor-transcription-status",
+  ) as HTMLParagraphElement;
+  const batchBanner = document.getElementById(
+    "editor-batch-banner",
+  ) as HTMLDivElement;
+  const batchBannerTitle = document.getElementById(
+    "editor-batch-banner-title",
+  ) as HTMLParagraphElement;
+  const batchBannerDetail = document.getElementById(
+    "editor-batch-banner-detail",
+  ) as HTMLParagraphElement;
   const homeNav = document.getElementById("home-nav") as HTMLButtonElement;
-  const reprocessNav = document.getElementById("reprocess-nav") as HTMLButtonElement;
+  const brandNav = document.getElementById("brand-nav") as HTMLAnchorElement;
+  const reprocessNav = document.getElementById(
+    "reprocess-nav",
+  ) as HTMLButtonElement;
   const leaveDialog = document.getElementById("leave-dialog") as HTMLDivElement;
-  const leaveCancel = document.getElementById("leave-cancel") as HTMLButtonElement;
-  const leaveDiscard = document.getElementById("leave-discard") as HTMLButtonElement;
+  const leaveCancel = document.getElementById(
+    "leave-cancel",
+  ) as HTMLButtonElement;
+  const leaveDiscard = document.getElementById(
+    "leave-discard",
+  ) as HTMLButtonElement;
   const leaveSave = document.getElementById("leave-save") as HTMLButtonElement;
-  const runtimeConfig = (window as Window & {
-    __SCRIBE_RUNTIME_CONFIG?: Record<string, string | undefined>;
-  }).__SCRIBE_RUNTIME_CONFIG;
-  const annotationBase = runtimeConfig?.ANNOTATION_API_BASE
-    || (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_ANNOTATION_API_BASE
-    || window.location.origin;
-  const ScribeAnnotationAdapter = annotationAdapters.ScribeAnnotationAdapter as new (
-    endpointURL: string,
-    iiifPresentationVersion: 3,
-    canvasID: string,
-    user: string,
-    client: typeof annotationClient,
-  ) => unknown;
+  const leaveDialogController = createLeaveDialogController({
+    cancel: leaveCancel,
+    dialog: leaveDialog,
+    discard: leaveDiscard,
+    onDiscard: leaveEditor,
+    onSave: async () => {
+      if (await requestSave()) leaveEditor();
+    },
+    save: leaveSave,
+  });
+  const runtimeConfig = (
+    window as Window & {
+      __SCRIBE_RUNTIME_CONFIG?: Record<string, string | undefined>;
+    }
+  ).__SCRIBE_RUNTIME_CONFIG;
+  const annotationBase =
+    runtimeConfig?.ANNOTATION_API_BASE ||
+    (import.meta as ImportMeta & { env?: Record<string, string | undefined> })
+      .env?.VITE_ANNOTATION_API_BASE ||
+    window.location.origin;
+  const ScribeAnnotationAdapter: ScribeAnnotationAdapterConstructor =
+    annotationAdapters.ScribeAnnotationAdapter;
   const osdConfig = {
     crossOriginPolicy: "Anonymous",
     ajaxWithCredentials: false,
   };
-  const viewerOptions = commonViewerOptions(annotationBase, ScribeAnnotationAdapter, annotationClient, osdConfig);
   let lastSegmentKey = "";
   let lastResultKey = "";
   let reloadedCompletedJobId = "";
@@ -146,13 +317,17 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
 
   function publishBatchState(message: string, active: boolean) {
     setTranscriptionStatus(message);
-    document.dispatchEvent(new CustomEvent("scribe:transcription-job-state", {
-      detail: {
-        active,
-        message,
-        windowId: undefined,
-      },
-    }));
+    document.dispatchEvent(
+      new CustomEvent("scribe:transcription-job-state", {
+        detail: {
+          active,
+          canvasId: activeCanvasID,
+          itemImageId: activeItemImageID,
+          message,
+          windowId: activeWindowID,
+        },
+      }),
+    );
   }
 
   function renderJobStatus(job: {
@@ -164,7 +339,10 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }) {
     if (isRunningStatus(job.status)) {
       const total = job.totalSegments > 0 ? job.totalSegments : "?";
-      publishBatchState(`Batch transcription is running. Automatic transcription progress: ${job.completedSegments}/${total}. You can keep editing while new text is applied.`, true);
+      publishBatchState(
+        `Batch transcription is running. Automatic transcription progress: ${job.completedSegments}/${total}. You can keep editing while new text is applied.`,
+        true,
+      );
       setBatchBanner(
         `Automatic transcription in progress: ${job.completedSegments}/${total}`,
         "Scribe is still writing text onto the page line by line. You can keep working in edit mode while those updates continue.",
@@ -173,7 +351,10 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       return;
     }
     if (isPendingStatus(job.status)) {
-      publishBatchState("Preparing batch transcription. Layout is ready; text is being generated line by line.", true);
+      publishBatchState(
+        "Preparing batch transcription. Layout is ready; text is being generated line by line.",
+        true,
+      );
       setBatchBanner(
         "Automatic transcription is starting",
         "The page structure is ready. Scribe is starting line-by-line transcription and the first results will appear here shortly.",
@@ -182,12 +363,20 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       return;
     }
     if (isFailedStatus(job.status)) {
-      publishBatchState(job.errorMessage?.trim() ? `Batch transcription failed: ${job.errorMessage}` : "Batch transcription failed.", false);
+      publishBatchState(
+        job.errorMessage?.trim()
+          ? `Batch transcription failed: ${job.errorMessage}`
+          : "Batch transcription failed.",
+        false,
+      );
       setBatchBanner("", "", false);
       return;
     }
     if (isCompletedStatus(job.status)) {
-      publishBatchState("Batch transcription complete. Updated text is now available in the editor.", false);
+      publishBatchState(
+        "Batch transcription complete. Updated text is now available in the editor.",
+        false,
+      );
       setBatchBanner("", "", false);
       return;
     }
@@ -195,18 +384,22 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     setBatchBanner("", "", false);
   }
 
-  function applyJobUpdate(job: {
-    id: bigint;
-    status: TranscriptionJobStatus | string | number;
-    completedSegments: number;
-    totalSegments: number;
-    failedSegments?: number;
-    currentAnnotationId?: string;
-    currentAnnotationJson?: string;
-    lastResultAnnotationJson?: string;
-    updatedAt?: string;
-    errorMessage?: string;
-  }) {
+  function applyJobUpdate(
+    job: {
+      id: bigint;
+      status: TranscriptionJobStatus | string | number;
+      completedSegments: number;
+      totalSegments: number;
+      failedSegments?: number;
+      currentAnnotationId?: string;
+      currentAnnotationJson?: string;
+      lastResultAnnotationJson?: string;
+      updatedAt?: string;
+      errorMessage?: string;
+    },
+    targetItemImageID: string,
+  ) {
+    if (targetItemImageID !== activeItemImageID) return;
     renderJobStatus(job);
 
     if (job.currentAnnotationJson) {
@@ -215,10 +408,21 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
         lastSegmentKey = segmentKey;
         try {
           const anno = JSON.parse(job.currentAnnotationJson);
-          document.dispatchEvent(new CustomEvent("scribe:transcription-segment", {
-            detail: { annotation: anno, done: job.completedSegments, total: job.totalSegments },
-          }));
-        } catch { /* ignore */ }
+          document.dispatchEvent(
+            new CustomEvent("scribe:transcription-segment", {
+              detail: {
+                annotation: anno,
+                canvasId: activeCanvasID,
+                done: job.completedSegments,
+                itemImageId: targetItemImageID,
+                total: job.totalSegments,
+                windowId: activeWindowID,
+              },
+            }),
+          );
+        } catch {
+          /* ignore */
+        }
       }
     }
 
@@ -228,72 +432,313 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
         lastResultKey = resultKey;
         try {
           const anno = JSON.parse(job.lastResultAnnotationJson);
-          document.dispatchEvent(new CustomEvent("scribe:transcription-result", {
-            detail: { annotation: anno, done: job.completedSegments, total: job.totalSegments },
-          }));
-        } catch { /* ignore */ }
+          document.dispatchEvent(
+            new CustomEvent("scribe:transcription-result", {
+              detail: {
+                annotation: anno,
+                canvasId: activeCanvasID,
+                done: job.completedSegments,
+                itemImageId: targetItemImageID,
+                // Per-segment results are progress previews. The canonical page is
+                // committed atomically only when the entire job completes.
+                persisted: false,
+                total: job.totalSegments,
+                windowId: activeWindowID,
+              },
+            }),
+          );
+        } catch {
+          /* ignore */
+        }
       }
     }
 
     if (isCompletedStatus(job.status) || isFailedStatus(job.status)) {
-      document.dispatchEvent(new CustomEvent("scribe:transcription-segment", {
-        detail: { annotation: null },
-      }));
+      document.dispatchEvent(
+        new CustomEvent("scribe:transcription-segment", {
+          detail: {
+            annotation: null,
+            canvasId: activeCanvasID,
+            itemImageId: targetItemImageID,
+            windowId: activeWindowID,
+          },
+        }),
+      );
     }
 
     if (isCompletedStatus(job.status)) {
       const jobID = job.id.toString();
       if (reloadedCompletedJobId !== jobID) {
         reloadedCompletedJobId = jobID;
-        document.dispatchEvent(new CustomEvent("scribe:reload-annotations", { detail: {} }));
+        document.dispatchEvent(
+          new CustomEvent("scribe:reload-annotations", {
+            detail: {
+              canvasId: activeCanvasID,
+              itemImageId: targetItemImageID,
+              windowId: activeWindowID,
+            },
+          }),
+        );
       }
     }
   }
 
-  function openLeaveDialog() {
-    leaveDialog.classList.remove("hidden");
-    leaveDialog.classList.add("flex");
+  function subscribeToItemImageEvents(
+    targetItemImageID: string,
+    reconcile: () => void,
+  ) {
+    return subscribeToEvents(
+      {
+        itemImageId: targetItemImageID,
+        onReady: reconcile,
+        types: [
+          "dev.scribe.transcription.task.started",
+          "dev.scribe.transcription.task.completed",
+          "dev.scribe.transcription.completed",
+          "dev.scribe.transcription.failed",
+        ],
+      },
+      (event) => {
+        const data = event.data ?? {};
+        switch (event.type) {
+          case "dev.scribe.transcription.task.started":
+            applyJobUpdate(
+              {
+                id: eventBigInt(data.jobId),
+                status: TranscriptionJobStatus.RUNNING,
+                completedSegments: eventNumber(data.completedSegments),
+                failedSegments: eventNumber(data.failedSegments),
+                totalSegments: eventNumber(data.totalSegments),
+                currentAnnotationId:
+                  typeof data.annotationId === "string"
+                    ? data.annotationId
+                    : "",
+                currentAnnotationJson:
+                  typeof data.annotationJson === "string"
+                    ? data.annotationJson
+                    : "",
+                updatedAt: typeof event.time === "string" ? event.time : "",
+              },
+              targetItemImageID,
+            );
+            break;
+          case "dev.scribe.transcription.task.completed":
+            applyJobUpdate(
+              {
+                id: eventBigInt(data.jobId),
+                status: TranscriptionJobStatus.RUNNING,
+                completedSegments: eventNumber(data.completedSegments),
+                failedSegments: eventNumber(data.failedSegments),
+                totalSegments: eventNumber(data.totalSegments),
+                lastResultAnnotationJson:
+                  typeof data.annotationJson === "string"
+                    ? data.annotationJson
+                    : "",
+                updatedAt: typeof event.time === "string" ? event.time : "",
+              },
+              targetItemImageID,
+            );
+            break;
+          case "dev.scribe.transcription.completed":
+            applyJobUpdate(
+              {
+                id: eventBigInt(data.jobId),
+                status: TranscriptionJobStatus.COMPLETED,
+                completedSegments: eventNumber(data.completedSegments),
+                failedSegments: eventNumber(data.failedSegments),
+                totalSegments: eventNumber(data.totalSegments),
+                updatedAt: typeof event.time === "string" ? event.time : "",
+              },
+              targetItemImageID,
+            );
+            break;
+          case "dev.scribe.transcription.failed":
+            applyJobUpdate(
+              {
+                id: eventBigInt(data.jobId),
+                status: TranscriptionJobStatus.FAILED,
+                completedSegments: eventNumber(data.completedSegments),
+                failedSegments: eventNumber(data.failedSegments),
+                totalSegments: eventNumber(data.totalSegments),
+                updatedAt: typeof event.time === "string" ? event.time : "",
+                errorMessage: typeof data.error === "string" ? data.error : "",
+              },
+              targetItemImageID,
+            );
+            break;
+          default:
+            break;
+        }
+        if (
+          event.type === "dev.scribe.transcription.completed" ||
+          event.type === "dev.scribe.transcription.failed"
+        ) {
+          reconcile();
+        }
+      },
+      () => {
+        reconcile();
+        if (
+          activeItemImageID === targetItemImageID &&
+          !transcriptionStatus.textContent
+        ) {
+          publishBatchState(
+            "Waiting for automatic transcription events...",
+            true,
+          );
+        }
+      },
+    );
   }
 
-  function closeLeaveDialog() {
-    leaveDialog.classList.add("hidden");
-    leaveDialog.classList.remove("flex");
+  async function activateItemImage(
+    targetItemImageID: string,
+    knownRun?: Awaited<ReturnType<typeof getOCRRun>>,
+  ): Promise<void> {
+    if (!targetItemImageID) return;
+    if (targetItemImageID === monitoredItemImageID && eventSubscription) return;
+    const sequence = ++activationSequence;
+    activeItemImageID = targetItemImageID;
+    lastSegmentKey = "";
+    lastResultKey = "";
+    reloadedCompletedJobId = "";
+    eventSubscription?.close();
+    eventSubscription = null;
+    monitoredItemImageID = "";
+    publishBatchState(
+      "Loading editor annotations and transcription status...",
+      true,
+    );
+
+    try {
+      const run = knownRun ?? (await getOCRRun(targetItemImageID));
+      if (sequence !== activationSequence) return;
+      const returnedItemImageID = uint64ToString(run.itemImageId);
+      if (returnedItemImageID !== targetItemImageID) {
+        throw new Error("The OCR run belongs to a different item image.");
+      }
+      processingContextID = run.contextId.toString();
+      processingContexts.set(targetItemImageID, processingContextID);
+      meta.textContent = itemID
+        ? `item ${itemID} | image ${targetItemImageID} | model ${run.model}`
+        : `item image ${targetItemImageID} | model ${run.model}`;
+
+      let reconciliation = Promise.resolve();
+      const reconcile = () => {
+        reconciliation = reconciliation
+          .catch(() => undefined)
+          .then(async () => {
+            const jobs = await listTranscriptionJobs(BigInt(targetItemImageID));
+            if (sequence !== activationSequence) return;
+            const latest = jobs[0];
+            if (latest) {
+              applyJobUpdate(latest, targetItemImageID);
+            } else {
+              publishBatchState(
+                "Loading editor annotations. No active batch transcription job detected yet.",
+                false,
+              );
+            }
+          });
+        return reconciliation;
+      };
+      const reconcileAfterStreamSignal = () => {
+        void reconcile().catch(() => {
+          if (sequence === activationSequence) {
+            publishBatchState(
+              "Failed to refresh transcription status; the event stream will retry.",
+              true,
+            );
+          }
+        });
+      };
+      eventSubscription = subscribeToItemImageEvents(
+        targetItemImageID,
+        reconcileAfterStreamSignal,
+      );
+      monitoredItemImageID = targetItemImageID;
+      await reconcile();
+    } catch (error) {
+      if (sequence !== activationSequence) return;
+      publishBatchState(
+        error instanceof Error
+          ? error.message
+          : "Failed to load item image state.",
+        false,
+      );
+    }
   }
 
   async function handleHomeNavigation() {
     leaveAction = "home";
-    if (!hasUnsavedChanges) {
+    if (!hasDirtyWindows()) {
       navigateHome();
       return;
     }
-    openLeaveDialog();
+    leaveDialogController.open();
   }
 
   function handleHistoryBackNavigation() {
     leaveAction = "history-back";
-    if (!hasUnsavedChanges) {
+    if (!hasDirtyWindows()) {
       allowHistoryBack = true;
       window.history.back();
       return;
     }
     window.history.pushState(historySentinel, "", window.location.href);
-    openLeaveDialog();
+    leaveDialogController.open();
   }
 
-  homeNav.addEventListener("click", () => { void handleHomeNavigation(); });
-  reprocessNav.addEventListener("click", () => { void handleFullReprocess(); });
-  leaveCancel.addEventListener("click", closeLeaveDialog);
-  leaveDiscard.addEventListener("click", leaveEditor);
-  leaveSave.addEventListener("click", async () => {
-    leaveSave.disabled = true;
-    const ok = await requestSave();
-    leaveSave.disabled = false;
-    if (ok) leaveEditor();
-  });
-
+  const handleHomeNavigationClick = (event: Event) => {
+    event.preventDefault();
+    void handleHomeNavigation();
+  };
+  const handleReprocessClick = () => {
+    void handleFullReprocess();
+  };
+  brandNav.addEventListener("click", handleHomeNavigationClick);
+  homeNav.addEventListener("click", handleHomeNavigationClick);
+  reprocessNav.addEventListener("click", handleReprocessClick);
   const handleDirtyState = (event: Event) => {
-    const detail = (event as CustomEvent<{ dirty: boolean }>).detail;
-    hasUnsavedChanges = Boolean(detail?.dirty);
+    const detail = (event as CustomEvent<{ dirty: boolean; windowId: string }>)
+      .detail;
+    const windowID = detail?.windowId?.trim() ?? "";
+    if (!windowID) return;
+    if (detail.dirty) dirtyWindows.set(windowID, true);
+    else dirtyWindows.delete(windowID);
+    syncBeforeUnloadGuard();
+  };
+  const handleActiveCanvas = (event: Event) => {
+    const detail = (
+      event as CustomEvent<{
+        canvasId: string;
+        itemImageId: string;
+        windowId: string;
+      }>
+    ).detail;
+    const canvasID = detail?.canvasId?.trim() ?? "";
+    const windowID = detail?.windowId?.trim() ?? "";
+    if (!canvasID || !windowID || !canvasImageRegistry) return;
+    try {
+      const targetItemImageID =
+        canvasImageRegistry.itemImageIdForCanvas(canvasID);
+      if (detail.itemImageId?.trim() !== targetItemImageID) {
+        throw new Error("The focused Canvas item-image identity does not match this item.");
+      }
+      activeCanvasID = canvasID;
+      activeWindowID = windowID;
+      const route = new URL(window.location.href);
+      route.searchParams.set("itemImageId", targetItemImageID);
+      window.history.replaceState(window.history.state, "", route);
+      void activateItemImage(targetItemImageID);
+    } catch (error) {
+      publishBatchState(
+        error instanceof Error
+          ? error.message
+          : "The focused Canvas is not part of this item.",
+        false,
+      );
+    }
   };
   const handlePopState = () => {
     if (allowHistoryBack) {
@@ -303,42 +748,90 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     handleHistoryBackNavigation();
   };
   document.addEventListener("scribe:dirty-state", handleDirtyState);
+  document.addEventListener("scribe:active-canvas", handleActiveCanvas);
   window.addEventListener("popstate", handlePopState);
 
-  document.addEventListener("scribe:request-publish", async (event: Event) => {
-    const detail = (event as CustomEvent<{ itemImageId: string; requestId: string; windowId?: string }>).detail;
-    if (!detail?.itemImageId || !detail?.requestId) return;
+  const handlePublishRequest = async (event: Event) => {
+    const detail = (
+      event as CustomEvent<{
+        canvasId: string;
+        itemImageId: string;
+        expectedRevision: string;
+        requestId: string;
+        windowId: string;
+      }>
+    ).detail;
+    if (
+      !detail?.canvasId ||
+      !detail?.itemImageId ||
+      !detail?.expectedRevision ||
+      !detail?.requestId ||
+      !detail?.windowId ||
+      !canvasImageRegistry
+    )
+      return;
     let ok = false;
+    let result: Awaited<ReturnType<typeof publishItemImageEdits>> | undefined;
     try {
-      await publishItemImageEdits(detail.itemImageId);
+      if (
+        canvasImageRegistry.itemImageIdForCanvas(detail.canvasId) !==
+        detail.itemImageId
+      ) {
+        throw new Error("Publish identity does not match the selected Canvas.");
+      }
+      result = await publishItemImageEdits(
+        detail.itemImageId,
+        detail.expectedRevision,
+      );
       ok = true;
     } catch {
       ok = false;
     }
-    document.dispatchEvent(new CustomEvent("scribe:publish-result", {
-      detail: {
-        ok,
-        requestId: detail.requestId,
-        windowId: detail.windowId,
-      },
-    }));
-  });
+    document.dispatchEvent(
+      new CustomEvent("scribe:publish-result", {
+        detail: {
+          ok,
+          canvasId: detail.canvasId,
+          publicUrl: result?.publicUrl,
+          publishedRevision: result?.publishedRevision,
+          requestId: detail.requestId,
+          windowId: detail.windowId,
+        },
+      }),
+    );
+  };
+  document.addEventListener("scribe:request-publish", handlePublishRequest);
 
-  // No itemImageId — open a bare Mirador workspace so the user can paste any
-  // IIIF manifest URL. Annotations are auto-registered by the backend when the
-  // annotation adapter first calls SearchAnnotations for an unknown canvas.
+  window.addEventListener(
+    "pagehide",
+    () => {
+      document.removeEventListener("scribe:dirty-state", handleDirtyState);
+      document.removeEventListener("scribe:active-canvas", handleActiveCanvas);
+      document.removeEventListener(
+        "scribe:request-publish",
+        handlePublishRequest,
+      );
+      leaveDialogController.destroy();
+      brandNav.removeEventListener("click", handleHomeNavigationClick);
+      homeNav.removeEventListener("click", handleHomeNavigationClick);
+      reprocessNav.removeEventListener("click", handleReprocessClick);
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      beforeUnloadRegistered = false;
+      eventSubscription?.close();
+      if (editorManifestObjectURL) {
+        URL.revokeObjectURL(editorManifestObjectURL);
+        editorManifestObjectURL = "";
+      }
+    },
+    { once: true },
+  );
+
+  // Importing a manifest is an explicit authenticated operation. Read-only
+  // annotation loading must never create backend resources as a side effect.
   if (itemImageID === "") {
     reprocessNav.classList.add("hidden");
-    meta.textContent = "Open a IIIF manifest using the workspace panel (+ button)";
-    Mirador.viewer({
-      ...viewerOptions,
-      windows: [],
-      workspaceControlPanel: { enabled: true },
-      window: {
-        forceDrawAnnotations: true,
-        panels: hiddenPanels,
-      },
-    }, [...scribeMiradorPlugin]);
+    meta.textContent = "Select or import an item before opening the editor.";
     return;
   }
 
@@ -354,6 +847,8 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   const runItemImageID = uint64ToString(runResp.itemImageId);
+  processingContextID = runResp.contextId.toString() || processingContextID;
+  processingContexts.set(runItemImageID, processingContextID);
   meta.textContent = itemID
     ? `item ${itemID} | image ${runItemImageID || "unknown"} | model ${runResp.model}`
     : `item image ${runItemImageID || "unknown"} | model ${runResp.model}`;
@@ -361,140 +856,109 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   if (!runResp.imageUrl || runResp.imageUrl.trim() === "") {
     const viewer = document.getElementById("mirador-viewer");
     if (viewer) {
-      setHTML(viewer, html`<div class="flex h-full items-center justify-center text-sm text-muted-foreground">No image is available for this OCR run.</div>`);
+      setHTML(
+        viewer,
+        html`<div
+          class="flex h-full items-center justify-center text-sm text-muted-foreground"
+        >
+          No image is available for this OCR run.
+        </div>`,
+      );
     }
     return;
   }
 
   if (!runItemImageID) {
-    meta.textContent = "Missing item image reference required for IIIF manifest route";
+    meta.textContent =
+      "Missing item image reference required for IIIF manifest route";
+    return;
+  }
+  let manifestURL = "";
+  try {
+    const editorManifest = await getEditorManifest(runItemImageID);
+    if (itemID && editorManifest.item.id !== itemID) {
+      throw new Error(
+        "The loaded item identity does not match the editor route.",
+      );
+    }
+    canvasImageRegistry = createCanvasImageRegistry(editorManifest.item.images);
+    if (!canvasImageRegistry.hasItemImageId(runItemImageID)) {
+      throw new Error("The selected item image is not part of this item.");
+    }
+    activeCanvasID = canvasImageRegistry.canvasIdForItemImage(runItemImageID);
+    if (activeCanvasID !== editorManifest.selectedCanvasId) {
+      throw new Error("The editor manifest selected a different Canvas.");
+    }
+    editorManifestObjectURL = URL.createObjectURL(new Blob(
+      [editorManifest.manifestJSON],
+      { type: "application/ld+json" },
+    ));
+    manifestURL = editorManifestObjectURL;
+  } catch (error) {
+    meta.textContent =
+      error instanceof Error ? error.message : "Failed to map item Canvases.";
     return;
   }
 
-  const manifestURL = itemID
-    ? `${window.location.origin}${scribePath(`/v1/items/${encodeURIComponent(itemID)}/manifest`)}`
-    : `${window.location.origin}${scribePath(`/v1/item-images/${encodeURIComponent(runItemImageID)}/manifest`)}`;
+  publishBatchState(
+    "Loading editor and checking batch transcription status...",
+    true,
+  );
 
-  publishBatchState("Loading editor and checking batch transcription status...", true);
-
-  Mirador.viewer({
-    ...viewerOptions,
-    windows: [{ manifestId: manifestURL }],
-    workspaceControlPanel: { enabled: false },
-    window: {
-      forceDrawAnnotations: true,
-      allowClose: false,
-      allowFullscreen: false,
-      allowMaximize: false,
-      allowTopMenuButton: false,
-      hideWindowTitle: true,
-      panels: hiddenPanels,
+  const viewerOptions = commonViewerOptions(
+    annotationBase,
+    ScribeAnnotationAdapter,
+    annotationClient,
+    (canvasID) => {
+      if (!canvasImageRegistry)
+        throw new Error("Canvas registry is not initialized");
+      const mappedItemImageID =
+        canvasImageRegistry.itemImageIdForCanvas(canvasID);
+      return {
+        contextId: processingContexts.get(mappedItemImageID) ?? "0",
+        itemImageId: mappedItemImageID,
+        windowId: EDITOR_WINDOW_ID,
+        resolveContextId: () =>
+          processingContextForItemImage(mappedItemImageID),
+      };
     },
-  }, [...scribeMiradorPlugin]);
+    osdConfig,
+  );
+
+  Mirador.viewer(
+    {
+      ...viewerOptions,
+      windows: [{
+        canvasId: activeCanvasID || undefined,
+        id: EDITOR_WINDOW_ID,
+        manifestId: manifestURL,
+      }],
+      workspaceControlPanel: { enabled: false },
+      window: {
+        forceDrawAnnotations: true,
+        allowClose: false,
+        allowFullscreen: false,
+        allowMaximize: false,
+        allowTopMenuButton: false,
+        hideWindowTitle: true,
+        panels: hiddenPanels,
+      },
+    },
+    [...scribeMiradorPlugin],
+  );
+
+  await activateItemImage(runItemImageID, runResp);
 
   if (jobIdParam) {
     publishBatchState("Preparing batch transcription...", true);
   } else if (autoTranscribe) {
     // Legacy path: client-side segment-by-segment transcription via the magic wand.
     setTimeout(() => {
-      document.dispatchEvent(new CustomEvent("scribe:request-transcribe-all", {
-        detail: { windowId: undefined },
-      }));
+      document.dispatchEvent(
+        new CustomEvent("scribe:request-transcribe-all", {
+          detail: { canvasId: activeCanvasID, windowId: activeWindowID },
+        }),
+      );
     }, 3000);
   }
-
-  if (itemImageID) {
-    try {
-      const jobs = await listTranscriptionJobs(BigInt(itemImageID));
-      const latest = jobs[0];
-      if (latest) {
-        applyJobUpdate(latest);
-      } else {
-        publishBatchState("Loading editor annotations. No active batch transcription job detected yet.", false);
-      }
-    } catch {
-      publishBatchState("Loading editor annotations.", false);
-    }
-  }
-
-  const eventSubscription = subscribeToEvents(
-    {
-      itemImageId: itemImageID,
-      types: [
-        "dev.scribe.transcription.task.started",
-        "dev.scribe.transcription.task.completed",
-        "dev.scribe.transcription.completed",
-        "dev.scribe.transcription.failed",
-      ],
-    },
-    (event) => {
-      const data = event.data ?? {};
-      switch (event.type) {
-        case "dev.scribe.transcription.task.started": {
-          const annotationJson = typeof data.annotationJson === "string" ? data.annotationJson : "";
-          const annotationId = typeof data.annotationId === "string" ? data.annotationId : "";
-          applyJobUpdate({
-            id: eventBigInt(data.jobId),
-            status: TranscriptionJobStatus.RUNNING,
-            completedSegments: eventNumber(data.completedSegments),
-            failedSegments: eventNumber(data.failedSegments),
-            totalSegments: eventNumber(data.totalSegments),
-            currentAnnotationId: annotationId,
-            currentAnnotationJson: annotationJson,
-            updatedAt: typeof event.time === "string" ? event.time : "",
-          });
-          break;
-        }
-        case "dev.scribe.transcription.task.completed": {
-          const annotationJson = typeof data.annotationJson === "string" ? data.annotationJson : "";
-          const completedSegments = eventNumber(data.completedSegments);
-          const failedSegments = eventNumber(data.failedSegments);
-          const totalSegments = eventNumber(data.totalSegments);
-          applyJobUpdate({
-            id: eventBigInt(data.jobId),
-            status: TranscriptionJobStatus.RUNNING,
-            completedSegments,
-            failedSegments,
-            totalSegments,
-            lastResultAnnotationJson: annotationJson,
-            updatedAt: typeof event.time === "string" ? event.time : "",
-          });
-          break;
-        }
-        case "dev.scribe.transcription.completed":
-          applyJobUpdate({
-            id: eventBigInt(data.jobId),
-            status: TranscriptionJobStatus.COMPLETED,
-            completedSegments: eventNumber(data.completedSegments),
-            failedSegments: eventNumber(data.failedSegments),
-            totalSegments: eventNumber(data.totalSegments),
-            updatedAt: typeof event.time === "string" ? event.time : "",
-          });
-          break;
-        case "dev.scribe.transcription.failed":
-          applyJobUpdate({
-            id: eventBigInt(data.jobId),
-            status: TranscriptionJobStatus.FAILED,
-            completedSegments: eventNumber(data.completedSegments),
-            failedSegments: eventNumber(data.failedSegments),
-            totalSegments: eventNumber(data.totalSegments),
-            updatedAt: typeof event.time === "string" ? event.time : "",
-            errorMessage: typeof data.error === "string" ? data.error : "",
-          });
-          break;
-        default:
-          break;
-      }
-    },
-    () => {
-      if (!transcriptionStatus.textContent) {
-        publishBatchState("Waiting for automatic transcription events...", true);
-      }
-    },
-  );
-  window.addEventListener("pagehide", () => {
-    document.removeEventListener("scribe:dirty-state", handleDirtyState);
-    window.removeEventListener("popstate", handlePopState);
-    eventSubscription.close();
-  }, { once: true });
 }
