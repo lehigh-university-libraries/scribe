@@ -332,10 +332,13 @@ optional protected variables `NETWORK_IP_CIDR_RANGE` and
 `COMPOSE_NETWORK_CIDR` must be changed together with an infrastructure review;
 the deployment and drift workflows pass the same values to Terraform.
 
-The shared `dev` Vault state exports both its URL and service-account identity.
-Each preview binds that identity to its own app and VM service accounts with
-metadata-read and public-key-read permissions, allowing Vault GCP IAM login
-without granting key creation, deletion, or access to another workspace.
+Each preview discovers the exact shared `vault-server-dev` Cloud Run service by
+project, region, and fixed name, then binds its runtime identity to the
+preview's app and VM service accounts with metadata-read and public-key-read
+permissions. This direct lookup avoids coupling a fresh preview plan to stale
+or partially upgraded root outputs in the owner workspace while still failing
+closed when the shared service is absent. It allows Vault GCP IAM login without
+granting key creation, deletion, or access to another workspace.
 The shared dev Vault pre-creates one `scribe-preview-app` GCP role and an
 identity-templated policy. The verified GCP alias email renders one exact
 preview database read path, so preview Terraform never creates an auth role or
