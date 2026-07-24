@@ -430,6 +430,16 @@ jq -e --arg member "$PREVIEW_MEMBER" '
   [.bindings[] | select((.members // []) | index($member)) | .role] == ["roles/artifactregistry.repoAdmin"]
 ' "$TEST_DIR/state/artifact-policies/us--internal.json" >/dev/null
 
+# The standalone foundation owns this exact repository-scoped custom role.
+# A later bootstrap run must accept and preserve it rather than rejecting the
+# converged policy or trying to duplicate its ownership.
+preview_artifact_policy_role="projects/${PROJECT}/roles/scribePreviewArtifactPolicy"
+jq --arg member "$PREVIEW_MEMBER" --arg role "$preview_artifact_policy_role" '
+  .bindings += [{role: $role, members: [$member]}] |
+  .bindings |= sort_by(.role, (.condition.expression // ""))
+' "$TEST_DIR/state/artifact-policies/us--internal.json" >"$TEST_DIR/state/artifact-policies/us--internal.tmp"
+mv "$TEST_DIR/state/artifact-policies/us--internal.tmp" "$TEST_DIR/state/artifact-policies/us--internal.json"
+
 # A later production Terraform apply owns these two backup-specific project
 # roles. Bootstrap must accept exactly them while still rejecting broader roles.
 backup_member="serviceAccount:scribe-prod-backup@${PROJECT}.iam.gserviceaccount.com"
@@ -449,8 +459,14 @@ jq -e '
   .actions.state_bucket == {name: "scribe-test1-terraform", versioning: "reuse", soft_delete: "reuse", policy: "reuse"} and
   .actions.notification_channel == "reuse" and
   .artifact_registry.repositories[0].action == "reuse" and
+  .artifact_registry.repositories[0].repo_admin_members == ["serviceAccount:scribe-preview-deploy@scribe-test1.iam.gserviceaccount.com"] and
   all(.actions.identities[]; . == {service_account: "reuse", service_account_policy: "reuse", pool: "reuse", provider: "reuse"})
 ' <<<"$second_plan" >/dev/null
+jq -e --arg member "$PREVIEW_MEMBER" --arg policy_role "$preview_artifact_policy_role" '
+  ([.bindings[] | select((.members // []) | index($member)) | .role] | sort) == ([
+    $policy_role, "roles/artifactregistry.repoAdmin"
+  ] | sort)
+' "$TEST_DIR/state/artifact-policies/us--internal.json" >/dev/null
 assert_no_mutation
 
 cp "$TEST_DIR/state/project-policy.json" "$TEST_DIR/state/project-policy.valid.json"

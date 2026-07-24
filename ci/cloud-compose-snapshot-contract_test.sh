@@ -34,6 +34,14 @@ printf '%s\n' "$scribe_module" | grep -Eq 'enabled[[:space:]]*=[[:space:]]*var\.
   fail "Scribe does not pass the reviewed snapshot flag to cloud-compose"
 grep -Eq 'is_prod_workspace[[:space:]]*=[[:space:]]*terraform\.workspace[[:space:]]*==[[:space:]]*"prod"' terraform/main.tf ||
   fail "the production workspace predicate is not exact"
+grep -Eq 'cloud_compose_machine_type[[:space:]]*=[[:space:]]*local\.is_preview_workspace[[:space:]]*\?[[:space:]]*"e2-medium"[[:space:]]*:[[:space:]]*var\.machine_type' terraform/main.tf ||
+  fail "previews do not use the reviewed E2 machine profile"
+grep -Eq 'cloud_compose_disk_type[[:space:]]*=[[:space:]]*local\.is_preview_workspace[[:space:]]*\?[[:space:]]*"pd-standard"[[:space:]]*:[[:space:]]*"hyperdisk-balanced"' terraform/main.tf ||
+  fail "previews still consume production Hyperdisk capacity"
+printf '%s\n' "$scribe_module" | grep -Eq 'machine_type[[:space:]]*=[[:space:]]*local\.cloud_compose_machine_type' ||
+  fail "Scribe does not pass the workspace-specific machine profile to cloud-compose"
+printf '%s\n' "$scribe_module" | grep -Eq 'type[[:space:]]*=[[:space:]]*local\.cloud_compose_disk_type' ||
+  fail "Scribe does not pass the workspace-specific disk profile to cloud-compose"
 
 grep -Eq 'production[[:space:]]*=[[:space:]]*optional\(bool,[[:space:]]*false\)' "$module_variables" ||
   fail "the initialized cloud-compose production default changed"

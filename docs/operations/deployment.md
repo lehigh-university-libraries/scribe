@@ -224,9 +224,13 @@ removes project-policy mutation from preview Terraform is the required target.
 OCR writer access is
 repository-level and limited to `artifact_registry.ocr_publish_repositories`
 in `config/ocr.yaml`; project-wide or non-enumerated repository access fails.
-The preview deploy identity receives `roles/artifactregistry.repoAdmin` only on
-those same repositories so Terraform can maintain repository IAM without a
-project-wide Artifact Registry role.
+The preview deploy identity currently receives
+`roles/artifactregistry.repoAdmin` only on those same repositories for the
+protected preview image path. That built-in role includes artifact deletion but
+does not include repository IAM-policy access. The standalone foundation adds
+the separate two-permission custom role described below; reducing the legacy
+publication grant to `roles/artifactregistry.writer` requires an explicit live
+IAM migration.
 An existing backup identity may have only bootstrap viewer roles plus the
 Terraform-managed Storage Transfer viewer and `scribeBackupRestoreVerifier`
 custom role. Policy writes retain etags so concurrent IAM changes fail.
@@ -359,6 +363,14 @@ Management with `disable_on_destroy = false` and
 `deletion_policy = "ABANDON"`, so removing them from state leaves both APIs
 enabled. The manual plan path does not perform that bootstrap or any other API
 mutation. Dev, production, and previews only consume the foundation outputs.
+The foundation also grants the protected preview deploy identity a custom role
+containing only `artifactregistry.repositories.getIamPolicy` and
+`artifactregistry.repositories.setIamPolicy`, and binds it only on the
+reviewed `us/internal` repository. The built-in repository administrator role
+does not contain those IAM-policy permissions, but Cloud Compose needs them to
+converge each preview VM's repository-reader member. Keeping the two policy
+permissions in a repository-scoped custom role avoids granting project-wide
+Artifact Registry administration.
 
 Vault uses separate runtime and initializer Google service accounts. Runtime
 can access only the data bucket; initializer alone can access initialization
@@ -556,6 +568,12 @@ production VM. Upgrade COS only by reviewing and pinning a Cloud Compose release
 that changes that image. Terraform then replaces the boot disk and VM while
 reattaching the stable data and Docker-volume disks; Scribe does not maintain a
 second host-operating-system path.
+
+Production and development use the reviewed N4/Hyperdisk Balanced profile.
+Ephemeral pull-request previews still run COS, but use `e2-medium` with Standard
+Persistent Disk. That profile keeps preview disks out of the finite production
+Hyperdisk capacity pool while preserving the same Cloud Compose bootstrap,
+separate data and Docker-volume disks, and teardown path.
 
 The Compose checkout is workspace-stable at
 `/mnt/disks/data/scribe/<workspace>`, even though every deployment fetches,

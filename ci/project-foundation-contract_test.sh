@@ -15,6 +15,10 @@ grep -Eq 'source[[:space:]]*=[[:space:]]*"https://github.com/libops/cloud-compos
   fail "foundation does not pin libops/cloud-compose by immutable commit"
 grep -q 'resource "google_artifact_registry_repository" "internal"' terraform/foundation/main.tf ||
   fail "foundation does not own the pre-build Artifact Registry repository"
+grep -q 'resource "google_project_iam_custom_role" "preview_artifact_registry_policy_manager"' terraform/foundation/main.tf ||
+  fail "foundation does not own the preview repository-policy role"
+grep -q 'resource "google_artifact_registry_repository_iam_member" "preview_deploy_policy_manager"' terraform/foundation/main.tf ||
+  fail "foundation does not bind the preview repository-policy role"
 grep -q 'resource "google_project_iam_custom_role" "vault_gcp_auth_key_verifier"' terraform/foundation/main.tf ||
   fail "foundation does not own the Vault verifier role"
 grep -q 'resource "google_project_iam_custom_role" "cloud_compose_observe"' terraform/foundation/main.tf ||
@@ -30,6 +34,27 @@ printf '%s\n' "$control_plane_service" | grep -Eq 'disable_on_destroy[[:space:]]
   fail "control-plane APIs can be disabled on state removal"
 printf '%s\n' "$control_plane_service" | grep -Eq 'deletion_policy[[:space:]]*=[[:space:]]*"ABANDON"' ||
   fail "control-plane APIs are not abandoned on state removal"
+
+preview_policy_role="$(sed -n '/^resource "google_project_iam_custom_role" "preview_artifact_registry_policy_manager" {/,/^}/p' terraform/foundation/main.tf)"
+preview_policy_permissions="$(printf '%s\n' "$preview_policy_role" |
+  sed -n '/^[[:space:]]*permissions[[:space:]]*=[[:space:]]*\[/,/^[[:space:]]*\]/p' |
+  sed -n 's/.*"\([^"]*\)".*/\1/p' |
+  sort)"
+[ "$preview_policy_permissions" = "artifactregistry.repositories.getIamPolicy
+artifactregistry.repositories.setIamPolicy" ] ||
+  fail "preview repository-policy role must contain only getIamPolicy and setIamPolicy"
+printf '%s\n' "$preview_policy_role" | grep -Eq 'deletion_policy[[:space:]]*=[[:space:]]*"PREVENT"' ||
+  fail "preview repository-policy role can be deleted with foundation state"
+
+preview_policy_binding="$(sed -n '/^resource "google_artifact_registry_repository_iam_member" "preview_deploy_policy_manager" {/,/^}/p' terraform/foundation/main.tf)"
+printf '%s\n' "$preview_policy_binding" | grep -Eq 'location[[:space:]]*=[[:space:]]*google_artifact_registry_repository\.internal\.location' ||
+  fail "preview repository-policy role is not scoped to the foundation registry location"
+printf '%s\n' "$preview_policy_binding" | grep -Eq 'repository[[:space:]]*=[[:space:]]*google_artifact_registry_repository\.internal\.repository_id' ||
+  fail "preview repository-policy role is not scoped to the foundation repository"
+printf '%s\n' "$preview_policy_binding" | grep -Eq 'role[[:space:]]*=[[:space:]]*google_project_iam_custom_role\.preview_artifact_registry_policy_manager\.name' ||
+  fail "preview repository-policy binding does not use the two-permission custom role"
+printf '%s\n' "$preview_policy_binding" | grep -Fq 'member     = "serviceAccount:${local.preview_deploy_service_account_email}"' ||
+  fail "preview repository-policy role is not bound to the deterministic preview deploy identity"
 
 foundation_state="$(sed -n '/^data "terraform_remote_state" "shared_foundation" {/,/^}/p' terraform/main.tf)"
 printf '%s\n' "$foundation_state" | grep -Eq 'prefix[[:space:]]*=[[:space:]]*local\.foundation_state_prefix' ||
