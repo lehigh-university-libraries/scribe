@@ -244,9 +244,14 @@ require_pattern 'frontend-image-smoke\.sh' .github/workflows/terraform-apply.yam
 require_pattern 'frontend-image-smoke\.sh' .github/workflows/terraform-preview.yaml
 require_pattern 'vault-init-image-smoke\.sh' .github/workflows/terraform-apply.yaml
 require_pattern '^  publish-images:' .github/workflows/terraform-preview.yaml
-require_pattern 'oci-archive:/images/scribe-backend\.oci\.tar' .github/workflows/terraform-preview.yaml
-require_pattern 'oci-archive:/images/scribe-frontend\.oci\.tar' .github/workflows/terraform-preview.yaml
+require_pattern 'run: \./ci/publish-preview-images\.sh' .github/workflows/terraform-preview.yaml
+require_pattern 'oci-archive:/images/scribe-backend\.oci\.tar' ci/publish-preview-images.sh
+require_pattern 'oci-archive:/images/scribe-frontend\.oci\.tar' ci/publish-preview-images.sh
+require_pattern 'mktemp -d -- .*scribe-preview-publish\.XXXXXXXXXX' ci/publish-preview-images.sh
+require_pattern '\$\{work_dir\}:/var/tmp:rw' ci/publish-preview-images.sh
+forbid_pattern '--tmpfs .*var/tmp' ci/publish-preview-images.sh
 require_pattern 'quay\.io/skopeo/stable:v[0-9.]+@sha256:[0-9a-f]{64}' .github/workflows/terraform-preview.yaml
+bash ci/publish-preview-images_test.sh
 require_pattern 'terraform output -json deployment_inputs' terraform/deploy-local.sh
 require_pattern 'resolve-destroy-inputs\.sh' terraform/deploy-local.sh
 require_pattern 'deployment-status\.sh' .github/workflows/terraform-deploy.yaml
