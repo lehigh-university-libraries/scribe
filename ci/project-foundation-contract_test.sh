@@ -53,6 +53,7 @@ printf '%s\n' "$preview_policy_binding" | grep -Eq 'repository[[:space:]]*=[[:sp
   fail "preview repository-policy role is not scoped to the foundation repository"
 printf '%s\n' "$preview_policy_binding" | grep -Eq 'role[[:space:]]*=[[:space:]]*google_project_iam_custom_role\.preview_artifact_registry_policy_manager\.name' ||
   fail "preview repository-policy binding does not use the two-permission custom role"
+# shellcheck disable=SC2016 # Match the literal Terraform interpolation.
 printf '%s\n' "$preview_policy_binding" | grep -Fq 'member     = "serviceAccount:${local.preview_deploy_service_account_email}"' ||
   fail "preview repository-policy role is not bound to the deterministic preview deploy identity"
 
