@@ -32,7 +32,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout reviewed main release source
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: refs/heads/main
           fetch-depth: 0
@@ -155,7 +155,7 @@ jobs:
 
       - name: Build and publish the reviewed release
         if: steps.release.outputs.publish_required == 'true'
-        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
           distribution: goreleaser
           version: v2.17.0

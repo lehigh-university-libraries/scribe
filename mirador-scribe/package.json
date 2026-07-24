@@ -49,10 +49,10 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "5.2.0",
-    "happy-dom": "20.10.6",
+    "happy-dom": "20.11.0",
     "openseadragon": "6.0.2",
     "typescript": "5.9.3",
-    "vitest": "4.1.9",
-    "vite": "7.3.5"
+    "vitest": "4.1.10",
+    "vite": "7.3.6"
   }
 }
