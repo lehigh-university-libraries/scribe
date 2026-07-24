@@ -11,7 +11,7 @@ x-scribe-api-image: &scribe-api-image ${SCRIBE_API_IMAGE:-ghcr.io/lehigh-univers
 
 services:
   mariadb:
-    image: mariadb:12.3@sha256:b1c7bf836e64ed9406a8984af29509f40089d55cea14b32f12c4726a1f17104b
+    image: mariadb:12.3@sha256:628f228f0fd5913a220438693576b29b6fe4dc1fa0a1298c0e98579fae28635f
     environment:
       MARIADB_DATABASE: scribe
       MARIADB_USER: scribe
@@ -33,7 +33,7 @@ services:
     stop_grace_period: 30s
 
   traefik:
-    image: traefik:v3.7.5@sha256:e4d98158c01ad752fc1071d4e9573788747230d902cdde00a772516e692d07c9
+    image: traefik:v3.7.8@sha256:4299bbed850421258fc5448c2e0e6ad350981d4d335a68de11b92448aedbefe5
     restart: unless-stopped
     command:
       - --api.insecure=false
