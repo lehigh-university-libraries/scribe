@@ -252,6 +252,9 @@ require_pattern '\$\{work_dir\}:/var/tmp:rw' ci/publish-preview-images.sh
 forbid_pattern '--tmpfs .*var/tmp' ci/publish-preview-images.sh
 require_pattern 'quay\.io/skopeo/stable:v[0-9.]+@sha256:[0-9a-f]{64}' .github/workflows/terraform-preview.yaml
 bash ci/publish-preview-images_test.sh
+require_pattern 'artifacts docker tags list' ci/resolve-gar-image.sh
+forbid_pattern 'artifacts docker images describe|containeranalysis' ci/resolve-gar-image.sh
+bash ci/resolve-gar-image_test.sh
 require_pattern 'terraform output -json deployment_inputs' terraform/deploy-local.sh
 require_pattern 'resolve-destroy-inputs\.sh' terraform/deploy-local.sh
 require_pattern 'deployment-status\.sh' .github/workflows/terraform-deploy.yaml
