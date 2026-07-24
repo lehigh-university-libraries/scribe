@@ -200,35 +200,7 @@ jobs:
           BACKEND_TAG: ${{ needs.prepare.outputs.image_tag }}
           FRONTEND_TAG: ${{ needs.prepare.outputs.frontend_image_tag }}
           SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:c7d3c512612f52805023cd38351081dad7e2729fc13d14b701e47c7c8bdd6615
-        shell: bash
-        run: |
-          set -euo pipefail
-          image_dir="$RUNNER_TEMP/preview-images"
-          auth_file="$HOME/.docker/config.json"
-          test -s "$image_dir/scribe-backend.oci.tar"
-          test -s "$image_dir/scribe-frontend.oci.tar"
-          test -s "$auth_file"
-          skopeo=(
-            docker run --rm --read-only --cap-drop=ALL
-            --security-opt no-new-privileges
-            --tmpfs "/tmp:rw,nosuid,nodev,noexec,size=64m"
-            --tmpfs "/var/tmp:rw,nosuid,nodev,noexec,size=64m"
-            --volume "$image_dir:/images:ro"
-            --volume "$auth_file:/auth/config.json:ro"
-            "$SKOPEO_IMAGE"
-          )
-          "${skopeo[@]}" copy --all --authfile /auth/config.json \
-            oci-archive:/images/scribe-backend.oci.tar "docker://${BACKEND_TAG}"
-          "${skopeo[@]}" copy --all --authfile /auth/config.json \
-            oci-archive:/images/scribe-frontend.oci.tar "docker://${FRONTEND_TAG}"
-          backend_digest="$("${skopeo[@]}" inspect --authfile /auth/config.json --format '{{.Digest}}' "docker://${BACKEND_TAG}")"
-          frontend_digest="$("${skopeo[@]}" inspect --authfile /auth/config.json --format '{{.Digest}}' "docker://${FRONTEND_TAG}")"
-          [[ "$backend_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          [[ "$frontend_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-          {
-            echo "backend_image=${BACKEND_TAG%:*}@${backend_digest}"
-            echo "frontend_image=${FRONTEND_TAG%:*}@${frontend_digest}"
-          } >> "$GITHUB_OUTPUT"
+        run: ./ci/publish-preview-images.sh
   build-ocr:
     if: needs.prepare.outputs.mode == 'apply'
     needs: [prepare, lint-test]
