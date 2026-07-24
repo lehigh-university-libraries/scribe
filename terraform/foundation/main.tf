@@ -7,8 +7,9 @@ provider "google-beta" {
 }
 
 locals {
-  artifact_registry_location   = "us"
-  artifact_registry_repository = "internal"
+  artifact_registry_location           = "us"
+  artifact_registry_repository         = "internal"
+  preview_deploy_service_account_email = "scribe-preview-deploy@${var.project_id}.iam.gserviceaccount.com"
   control_plane_services = toset([
     "servicemanagement.googleapis.com",
     "serviceusage.googleapis.com",
@@ -67,6 +68,32 @@ resource "google_artifact_registry_repository" "internal" {
   }
 
   depends_on = [google_project_service.artifact_registry]
+}
+
+resource "google_project_iam_custom_role" "preview_artifact_registry_policy_manager" {
+  project     = var.project_id
+  role_id     = "scribePreviewArtifactPolicy"
+  title       = "Scribe Preview Artifact Policy Manager"
+  description = "Allows protected preview Terraform to reconcile VM reader access on the single reviewed Artifact Registry repository."
+  permissions = [
+    "artifactregistry.repositories.getIamPolicy",
+    "artifactregistry.repositories.setIamPolicy",
+  ]
+  stage = "GA"
+
+  deletion_policy = "PREVENT"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_artifact_registry_repository_iam_member" "preview_deploy_policy_manager" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.internal.location
+  repository = google_artifact_registry_repository.internal.repository_id
+  role       = google_project_iam_custom_role.preview_artifact_registry_policy_manager.name
+  member     = "serviceAccount:${local.preview_deploy_service_account_email}"
 }
 
 resource "google_project_iam_custom_role" "vault_gcp_auth_key_verifier" {

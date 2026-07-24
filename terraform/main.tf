@@ -22,22 +22,23 @@ data "google_project" "current" {
 }
 
 locals {
-  project_number           = tostring(data.google_project.current.number)
-  repo_root                = abspath("${path.module}/..")
-  disk_type                = "hyperdisk-balanced"
-  terraform_state_bucket   = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
-  is_prod_workspace        = terraform.workspace == "prod"
-  is_preview_workspace     = startswith(terraform.workspace, "pr-")
-  foundation_state_prefix  = "scribe-foundation"
-  shared_vault_workspace   = local.is_prod_workspace ? "prod" : "dev"
-  shared_ollama_workspace  = "prod"
-  vault_is_owner_workspace = terraform.workspace == "prod" || terraform.workspace == "dev"
-  workspace_slug           = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
-  preview_app_gsa_email    = format("%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
-  vault_app_role_name      = local.is_preview_workspace ? "scribe-preview-app" : "scribe-app-${local.workspace_slug}"
-  vault_secret_prefix      = local.is_preview_workspace ? "scribe/previews/${local.preview_app_gsa_email}" : "scribe/${local.workspace_slug}"
-  pubsub_service_agent     = "service-${local.project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
-  uploads_bucket_name      = trimsuffix(substr(replace(lower("${var.project_id}-${var.name}-${local.workspace_slug}-uploads"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
+  project_number             = tostring(data.google_project.current.number)
+  repo_root                  = abspath("${path.module}/..")
+  terraform_state_bucket     = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
+  is_prod_workspace          = terraform.workspace == "prod"
+  is_preview_workspace       = startswith(terraform.workspace, "pr-")
+  cloud_compose_machine_type = local.is_preview_workspace ? "e2-medium" : var.machine_type
+  cloud_compose_disk_type    = local.is_preview_workspace ? "pd-standard" : "hyperdisk-balanced"
+  foundation_state_prefix    = "scribe-foundation"
+  shared_vault_workspace     = local.is_prod_workspace ? "prod" : "dev"
+  shared_ollama_workspace    = "prod"
+  vault_is_owner_workspace   = terraform.workspace == "prod" || terraform.workspace == "dev"
+  workspace_slug             = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
+  preview_app_gsa_email      = format("%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
+  vault_app_role_name        = local.is_preview_workspace ? "scribe-preview-app" : "scribe-app-${local.workspace_slug}"
+  vault_secret_prefix        = local.is_preview_workspace ? "scribe/previews/${local.preview_app_gsa_email}" : "scribe/${local.workspace_slug}"
+  pubsub_service_agent       = "service-${local.project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+  uploads_bucket_name        = trimsuffix(substr(replace(lower("${var.project_id}-${var.name}-${local.workspace_slug}-uploads"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
 }
 
 check "immutable_reviewed_deployment_inputs" {
@@ -637,12 +638,12 @@ module "scribe" {
     instance = {
       # Cloud Compose's GCP runtime is COS. Host lifecycle scripts are tested
       # against the jq and shell feature set shipped by that image.
-      machine_type = var.machine_type
+      machine_type = local.cloud_compose_machine_type
       production   = local.is_prod_workspace
     }
 
     disks = {
-      type                   = local.disk_type
+      type                   = local.cloud_compose_disk_type
       data_size_gb           = local.cloud_compose_data_disk_size_gb
       docker_volumes_size_gb = var.disk_size_gb
     }

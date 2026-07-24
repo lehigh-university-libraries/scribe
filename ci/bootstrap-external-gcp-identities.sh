@@ -317,6 +317,7 @@ preview_ocr_member="serviceAccount:$(jq -er '.[] | select(.key == "preview_ocr")
 artifact_writer_members="$(jq -cn --arg prod "$production_ocr_member" --arg preview "$preview_ocr_member" '[$prod, $preview] | sort')"
 artifact_repo_admin_members="$(jq -cn --arg deploy "$preview_deploy_member" '[$deploy]')"
 artifact_publisher_members="$(jq -cn --argjson writers "$artifact_writer_members" --argjson admins "$artifact_repo_admin_members" '$writers + $admins')"
+preview_artifact_policy_role="projects/${GCLOUD_PROJECT}/roles/scribePreviewArtifactPolicy"
 artifact_repository_actions='[]'
 while IFS=$'\t' read -r repository_name repository_format; do
   [[ "$repository_name" =~ /locations/([a-z][a-z0-9-]{0,62})/repositories/([a-z][a-z0-9._-]{1,62}[a-z0-9])$ ]] ||
@@ -347,8 +348,18 @@ while IFS=$'\t' read -r repository_name repository_format; do
       fail "OCR or preview deploy identity has access to non-enumerated GAR repository ${repository_location}/${repository_id}"
     continue
   fi
-  jq -e --arg writer "$ARTIFACT_WRITER_ROLE" --arg admin "roles/artifactregistry.repoAdmin" --arg deploy "$preview_deploy_member" '
-    all(.[]; .condition == null and (if .member == $deploy then .role == $admin else .role == $writer end))
+  jq -e \
+    --arg writer "$ARTIFACT_WRITER_ROLE" \
+    --arg admin "roles/artifactregistry.repoAdmin" \
+    --arg policy_manager "$preview_artifact_policy_role" \
+    --arg deploy "$preview_deploy_member" '
+    all(.[];
+      .condition == null and
+      (if .member == $deploy
+       then (.role == $admin or .role == $policy_manager)
+       else .role == $writer
+       end)
+    )
   ' \
     <<<"$existing_publisher_bindings" >/dev/null ||
     fail "OCR or preview deploy identity has an unexpected role on ${repository_location}/${repository_id}"
