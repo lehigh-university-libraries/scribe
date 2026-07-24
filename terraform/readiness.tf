@@ -109,7 +109,9 @@ locals {
 }
 
 resource "google_cloud_run_v2_job" "ocr_readiness" {
-  count = trimspace(local.segmentor_url) != "" && trimspace(local.default_kraken_url) != "" ? 1 : 0
+  # The checked-in OCR catalog requires both services. Keep resource
+  # cardinality plan-time stable when a fresh workspace creates their URLs.
+  count = 1
 
   name                = "${var.name}-${local.workspace_slug}-ocr-readiness"
   location            = var.region

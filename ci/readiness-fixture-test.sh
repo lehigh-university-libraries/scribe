@@ -37,6 +37,14 @@ grep -Fq 'ocr_readiness_script = file("${local.repo_root}/scripts/ocr-readiness.
   "$ROOT_DIR/terraform/readiness.tf"
 grep -Fq 'name  = "SEGMENTATION_MODEL"' "$ROOT_DIR/terraform/readiness.tf"
 grep -Fq 'value = local.kraken_default_segmentation_key' "$ROOT_DIR/terraform/readiness.tf"
+ocr_readiness_resource="$(
+  sed -n '/^resource "google_cloud_run_v2_job" "ocr_readiness"/,/^}/p' \
+    "$ROOT_DIR/terraform/readiness.tf"
+)"
+grep -Eq '^[[:space:]]*count[[:space:]]*=[[:space:]]*1$' <<<"$ocr_readiness_resource" || {
+  echo "OCR readiness resource count must not depend on newly-created service URLs" >&2
+  exit 1
+}
 grep -Fq 'google_cloud_run_v2_service_iam_member" "ollama_readiness_invoker"' "$ROOT_DIR/terraform/ollama.tf"
 grep -Fq 'name  = "SCRIBE_EXPECTED_BACKEND_IP"' "$ROOT_DIR/terraform/readiness.tf"
 grep -Fq 'value = module.scribe.internal_ip' "$ROOT_DIR/terraform/readiness.tf"

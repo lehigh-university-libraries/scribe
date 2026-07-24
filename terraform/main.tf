@@ -53,14 +53,12 @@ check "immutable_reviewed_deployment_inputs" {
   }
 }
 
-data "terraform_remote_state" "shared_vault" {
-  count   = local.vault_is_owner_workspace ? 0 : 1
-  backend = "gcs"
-  config = {
-    bucket = local.terraform_state_bucket
-    prefix = "scribe"
-  }
-  workspace = local.shared_vault_workspace
+data "google_cloud_run_v2_service" "shared_vault" {
+  count = local.vault_is_owner_workspace ? 0 : 1
+
+  project  = var.project_id
+  location = var.region
+  name     = local.vault_service_name
 }
 
 data "terraform_remote_state" "shared_foundation" {
@@ -82,8 +80,16 @@ data "terraform_remote_state" "shared_ollama" {
 }
 
 locals {
-  vault_url = local.vault_is_owner_workspace ? module.vault[0].vault-url : try(data.terraform_remote_state.shared_vault[0].outputs.vault_url, "")
-  vault_gsa = local.vault_is_owner_workspace ? module.vault[0].gsa : try(data.terraform_remote_state.shared_vault[0].outputs.vault_gsa, "")
+  # Consumer workspaces discover the exact, already-live shared Vault service
+  # by project, region, and fixed name. This keeps a fresh preview plan
+  # independent of stale or partially-upgraded owner-workspace root outputs.
+  vault_expected_gsa = "${local.vault_service_name}@${var.project_id}.iam.gserviceaccount.com"
+  vault_url = local.vault_is_owner_workspace ? module.vault[0].vault-url : join("", compact([
+    try(data.google_cloud_run_v2_service.shared_vault[0].uri, null),
+  ]))
+  vault_gsa = local.vault_is_owner_workspace ? module.vault[0].gsa : join("", compact([
+    try(data.google_cloud_run_v2_service.shared_vault[0].template[0].service_account, null),
+  ]))
   # Project APIs, the shared registry, and custom roles have a standalone state
   # owner applied before image builds or any application workspace.
   shared_artifact_registry_location   = try(data.terraform_remote_state.shared_foundation.outputs.artifact_registry_location, "")
@@ -563,9 +569,9 @@ resource "google_storage_bucket_iam_member" "uploads_app_object_admin" {
 check "shared_vault_ready" {
   assert {
     condition = local.vault_is_owner_workspace || (
-      trimspace(local.vault_url) != "" && trimspace(local.vault_gsa) != ""
+      trimspace(local.vault_url) != "" && local.vault_gsa == local.vault_expected_gsa
     )
-    error_message = "Shared Vault workspace '${local.shared_vault_workspace}' must be applied first and expose the root outputs 'vault_url' and 'vault_gsa'. Apply the dev workspace before running preview environments."
+    error_message = "Shared Vault workspace '${local.shared_vault_workspace}' must expose a live '${local.vault_service_name}' service with a URL and the expected runtime service account '${local.vault_expected_gsa}' before consumer workspaces can be planned."
   }
 }
 

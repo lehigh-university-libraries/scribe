@@ -231,9 +231,9 @@ output "deployment_inputs" {
 
   precondition {
     condition = local.vault_is_owner_workspace || (
-      trimspace(local.vault_url) != "" && trimspace(local.vault_gsa) != ""
+      trimspace(local.vault_url) != "" && local.vault_gsa == local.vault_expected_gsa
     )
-    error_message = "Consumer workspaces require the shared Vault workspace URL and service-account outputs."
+    error_message = "Consumer workspaces require a live shared Vault service URL and its expected fixed runtime service account."
   }
 
   precondition {

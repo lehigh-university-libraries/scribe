@@ -55,6 +55,28 @@ if rg -q '^data "vault_' terraform/vault.tf; then
   fail "a preview plan can still perform a Vault data-source read"
 fi
 
+shared_vault_lookup="$(
+  sed -n '/^data "google_cloud_run_v2_service" "shared_vault" {/,/^}/p' \
+    terraform/main.tf
+)"
+rg -q 'count = local\.vault_is_owner_workspace \? 0 : 1' <<<"$shared_vault_lookup" ||
+  fail "the shared Vault service lookup is not limited to consumer workspaces"
+rg -q 'project[[:space:]]*= var\.project_id' <<<"$shared_vault_lookup" ||
+  fail "the shared Vault service lookup is not project-bound"
+rg -q 'location[[:space:]]*= var\.region' <<<"$shared_vault_lookup" ||
+  fail "the shared Vault service lookup is not region-bound"
+rg -q 'name[[:space:]]*= local\.vault_service_name' <<<"$shared_vault_lookup" ||
+  fail "the shared Vault service lookup does not use the fixed owner name"
+if rg -q '^data "terraform_remote_state" "shared_vault"' terraform/main.tf; then
+  fail "preview Vault discovery still depends on stale owner-workspace root outputs"
+fi
+rg -q 'data\.google_cloud_run_v2_service\.shared_vault\[0\]\.uri' terraform/main.tf ||
+  fail "preview Vault address does not come from the exact live service"
+rg -q 'data\.google_cloud_run_v2_service\.shared_vault\[0\]\.template\[0\]\.service_account' terraform/main.tf ||
+  fail "preview Vault runtime identity does not come from the exact live service"
+rg -q 'local\.vault_gsa == local\.vault_expected_gsa' terraform/main.tf ||
+  fail "preview Vault discovery does not reject runtime identity drift"
+
 preview_policy="$(sed -n '/^resource "vault_policy" "preview_app" {/,/^resource "vault_token_auth_backend_role"/p' terraform/vault.tf)"
 [[ "$(rg -c '^path ' <<<"$preview_policy")" -eq 1 ]] || fail "preview runtime policy must expose exactly one path"
 rg -q 'secret/data/scribe/previews/\{\{identity\.entity\.aliases\.\$\{vault_gcp_auth_backend\.gcp\[0\]\.accessor\}\.metadata\.service_account_email\}\}/database/app' <<<"$preview_policy" ||
