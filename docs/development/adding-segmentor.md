@@ -18,8 +18,13 @@ by an existing segmentor, follow
 
 External helper services remain private. Their URL and identity-token audience
 come from administrator configuration and must match an exact registered
-origin. Use HTR's cached `gcpidtoken` source for Cloud Run authentication;
-workspace/context input may never supply either value.
+origin. Use Scribe's process-wide `internal/gcpidentity` source for Cloud Run
+authentication; workspace/context input may never supply either value. A
+configured `GOOGLE_APPLICATION_CREDENTIALS` file must be an exact service
+account credential using Google's standard token endpoint. Invalid configured
+credentials fail closed; HTR's metadata source is used only when the credential
+file setting is absent. Configure each audience as a canonical HTTPS origin
+without a trailing slash or path.
 
 Kraken model entries in `config/ocr.yaml` use an immutable version DOI and an exact
 basename ending in `.mlmodel`. The image build fails if that named file is not

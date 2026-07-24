@@ -58,11 +58,16 @@ Segmentation engines follow the same rule. Register the engine descriptor and
 factory in `providerregistry`, add its approved selection IDs to trusted runtime
 configuration, and let `Registry.NewSegmentor` resolve exact server-owned
 origins. Remote `/v1/segment` and `/v1/transcribe` calls use
-`htr/pkg/remoteocr`; cached Cloud Run identity tokens use
-`htr/pkg/auth/gcpidtoken`. Scribe owns only image preparation and conversion to
-its `WordBox` domain type. Remote failures remain failures and are never hidden
-by a different engine. Unknown selection IDs are rejected; they never silently
-fall back to a different model.
+`htr/pkg/remoteocr`; all callers share Scribe's `internal/gcpidentity` token
+source. The source accepts only the managed service-account JSON named by
+`GOOGLE_APPLICATION_CREDENTIALS`, binds and caches a provider per exact
+audience, and uses metadata only when no credential file is configured.
+Authenticated audiences are canonical HTTPS origins without a trailing slash
+or path, so preflight and request-time cache keys are identical. Scribe
+owns only image preparation and conversion to its `WordBox` domain type.
+Remote failures remain failures and are never hidden by a different engine.
+Unknown selection IDs are rejected; they never silently fall back to a
+different model.
 
 Reusable evaluation belongs in `htr/pkg/metrics`. Scribe may define the text
 normalization associated with a persisted metric, but it must call HTR for

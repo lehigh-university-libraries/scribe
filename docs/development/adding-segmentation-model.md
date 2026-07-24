@@ -36,11 +36,10 @@ registry instead.
    `SEGMENTATION_MODEL_ENDPOINTS_JSON` from the reviewed registry.
    A route-specific segmentation image contains only its selected segmentation
    artifact and bakes the public model ID separately from the filename. A
-   transcription image contains its selected transcription artifact plus the
-   default segmentation companion required by that combined execution path;
-   the generic segmentor contains the default pair. Thus each route exposes one
-   selectable model for its operation, but not every image contains literally
-   one artifact. None accepts a runtime-selectable model map.
+   route-specific transcription build likewise fetches only its selected
+   recognition artifact and consumes already-cropped lines. The generic paired
+   segmentor fetches the defaults for both operations. None accepts a
+   runtime-selectable model map.
 6. Add registry tests proving the key is cataloged and resolves only to its
    exact administrator-owned endpoint. Unknown keys must be rejected.
 7. Test empty pages, rotations, large dimensions, overlapping regions,

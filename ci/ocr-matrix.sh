@@ -275,11 +275,6 @@ while IFS= read -r tx_key; do
   tx_file="$(yq -r ".kraken.transcription_models[\"${tx_key}\"].file // \"\"" "$config_path")"
   tx_sha256="$(yq -r ".kraken.transcription_models[\"${tx_key}\"].sha256 // \"\"" "$config_path")"
   validate_model_ref "transcription model ${tx_key}" "$tx_doi" "$tx_file" "$tx_sha256"
-  if [ "$(printf '%s' "$tx_file" | tr '[:upper:]' '[:lower:]')" = \
-    "$(printf '%s' "$default_seg_file" | tr '[:upper:]' '[:lower:]')" ]; then
-    echo "transcription model ${tx_key} and default segmentation model must use distinct baked filenames: ${tx_file}" >&2
-    exit 1
-  fi
   service="scribe-ko-$(hash8 "$tx_key")"
   append_entry "$(jq -n \
     --arg key "kraken-ocr/${tx_key}" \
@@ -297,10 +292,10 @@ while IFS= read -r tx_key; do
       "KRAKEN_RECOGNITION_MODEL_DOI=${tx_doi}" \
       "KRAKEN_RECOGNITION_MODEL_FILE=${tx_file}" \
       "KRAKEN_RECOGNITION_MODEL_SHA256=${tx_sha256}" \
-      "KRAKEN_SEGMENTATION_MODEL_ID=${default_seg_key}" \
-      "KRAKEN_SEGMENTATION_MODEL_DOI=${default_seg_doi}" \
-      "KRAKEN_SEGMENTATION_MODEL_FILE=${default_seg_file}" \
-      "KRAKEN_SEGMENTATION_MODEL_SHA256=${default_seg_sha256}")" \
+      "KRAKEN_SEGMENTATION_MODEL_ID=" \
+      "KRAKEN_SEGMENTATION_MODEL_DOI=" \
+      "KRAKEN_SEGMENTATION_MODEL_FILE=" \
+      "KRAKEN_SEGMENTATION_MODEL_SHA256=")" \
     '{key:$key, service_name:$service, ghcr_image:$ghcr_image, gar_image:$gar_image, image:$image, context:$context, dockerfile:$dockerfile, file:$file, platform:$platform, build_args:$build_args}')"
 done < <(yq -r '.kraken.transcription_models | keys | sort | .[]' "$config_path")
 

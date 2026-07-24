@@ -16,10 +16,34 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/uploadlimits"
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
 )
+
+func TestRequestDeadlineCancelsAbandonedInference(t *testing.T) {
+	const timeout = 20 * time.Millisecond
+	observed := make(chan error, 1)
+	handler := withRequestDeadline(timeout, http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+		observed <- request.Context().Err()
+	}))
+
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/segment", nil))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("request deadline did not cancel the abandoned inference")
+	}
+	if err := <-observed; !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("request deadline error = %v, want context deadline exceeded", err)
+	}
+}
 
 func TestReadinessSmokeFixtureFullyDecodes(t *testing.T) {
 	encoded, err := os.ReadFile("../../config/readiness-smoke.png.base64")
@@ -196,14 +220,21 @@ func TestKrakenPublicRoutesResolveToBakedModelFiles(t *testing.T) {
 	krakenPath := filepath.Join(binDirectory, "kraken")
 	fakeKraken := `#!/bin/sh
 set -eu
-if [ "$6" = "-i" ]; then
+if [ "$1" = "-i" ]; then
+  [ "$4" = "segment" ]
+  [ "$5" = "-bl" ]
+  [ "$6" = "-i" ]
   [ "$7" = "$EXPECTED_SEGMENTATION_MODEL_PATH" ]
-  printf '{"image_size":[100,100],"lines":[{"baseline":[[10,20],[80,20]],"boundary":[]}]}' > "$3"
+  printf '{"image_size":[100,100],"lines":[{"baseline":[[10,20],[80,20]],"boundary":[],"tags":{"type":[{"type":"default"}]}}]}' > "$3"
   exit 0
 fi
-[ "$6" = "ocr" ]
+[ "$1" = "--raise-on-error" ]
+[ "$2" = "-i" ]
+[ "$5" = "ocr" ]
+[ "$6" = "--no-segmentation" ]
+[ "$7" = "-m" ]
 [ "$8" = "$EXPECTED_TRANSCRIPTION_MODEL_PATH" ]
-printf 'transcribed text\n' > "$3"
+printf 'transcribed text\n' > "$4"
 `
 	if err := os.WriteFile(krakenPath, []byte(fakeKraken), 0o700); err != nil {
 		t.Fatalf("write fake kraken: %v", err)
@@ -245,6 +276,39 @@ printf 'transcribed text\n' > "$3"
 	}
 	if _, _, err := TranscribeWithKraken(context.Background(), imagePath, "unbaked-transcription"); err == nil {
 		t.Fatal("TranscribeWithKraken() accepted an unbaked public model ID")
+	}
+}
+
+func TestTranscribeWithKrakenPreservesContextDeadline(t *testing.T) {
+	modelDirectory := t.TempDir()
+	modelPath := filepath.Join(modelDirectory, "transcription-engine.mlmodel")
+	if err := os.WriteFile(modelPath, []byte("reviewed model fixture"), 0o600); err != nil {
+		t.Fatalf("write model fixture: %v", err)
+	}
+
+	binDirectory := t.TempDir()
+	krakenPath := filepath.Join(binDirectory, "kraken")
+	if err := os.WriteFile(krakenPath, []byte("#!/bin/sh\nexec /bin/sleep 10\n"), 0o700); err != nil {
+		t.Fatalf("write fake kraken: %v", err)
+	}
+
+	t.Setenv("PATH", binDirectory)
+	t.Setenv("KRAKEN_MODEL_DIR", modelDirectory)
+	t.Setenv("KRAKEN_TRANSCRIPTION_MODEL_ID", "latin-handwriting-v2")
+	t.Setenv("KRAKEN_TRANSCRIPTION_MODEL", filepath.Base(modelPath))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, _, err := TranscribeWithKraken(ctx, "image.png", "latin-handwriting-v2")
+	if err == nil {
+		t.Fatal("TranscribeWithKraken() error = nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("TranscribeWithKraken() error = %v, want context deadline exceeded", err)
+	}
+	var failure *processingFailure
+	if !errors.As(err, &failure) || failure.category != processingFailureTimeout {
+		t.Fatalf("TranscribeWithKraken() failure = %#v, want timeout category", failure)
 	}
 }
 

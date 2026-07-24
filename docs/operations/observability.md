@@ -27,9 +27,13 @@ After every deploy, inspect the backend and OCR readiness job executions. Use
 the [production troubleshooting](troubleshooting.md#cloud-run-readiness)
 runbook to download the bounded diagnostics or rerun a probe safely. OCR
 readiness includes image normalization, segmentation, Kraken transcription,
-and the production default Ollama request. A failed production Terraform apply
-or readiness failure initiates automatic rollback to the prior recorded
-reviewed source, configuration, generation, and digest set.
+and the production default Ollama request. Segmentation and transcription each
+use a 240-second request budget so a scale-to-zero CPU inference service can
+load its model and complete useful work; handler and write deadlines retain
+bounded margins below the current 300-second Cloud Run service request timeout.
+A failed production Terraform apply or readiness failure initiates automatic
+rollback to the prior recorded reviewed source, configuration, generation, and
+digest set.
 `attestation-failed-rolled-back` means the Cloud Run
 revision, traffic, or frontend digest check failed and the prior deployment was
 restored. `readiness-failed-rolled-back` means deep service readiness failed and

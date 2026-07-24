@@ -590,6 +590,17 @@ func TestValidateServiceEndpointAcceptsExactAuthenticatedOrigin(t *testing.T) {
 	}
 }
 
+func TestValidateServiceEndpointRejectsNoncanonicalAudienceSlash(t *testing.T) {
+	err := validateServiceEndpoint(
+		"segmentation_service",
+		"https://segmentor.example/v1",
+		"https://segmentor.example/",
+	)
+	if err == nil || !strings.Contains(err.Error(), "canonical HTTPS origin") {
+		t.Fatalf("validateServiceEndpoint error = %v, want trailing-slash rejection", err)
+	}
+}
+
 func TestValidateServiceEndpointAllowsUnauthenticatedComposeHTTP(t *testing.T) {
 	if err := validateServiceEndpoint("segmentation_service", "http://segmentor:8080", ""); err != nil {
 		t.Fatalf("validateServiceEndpoint returned error: %v", err)

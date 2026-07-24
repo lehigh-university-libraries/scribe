@@ -51,6 +51,31 @@ entry_has_build_arg "kraken-ocr/latin-handwriting-v2" "KRAKEN_TRANSCRIPTION_MODE
   fail "additional transcription image does not bake its public model ID"
 entry_has_build_arg "kraken-ocr/latin-handwriting-v2" "KRAKEN_RECOGNITION_MODEL_FILE=transcription-engine.mlmodel" ||
   fail "additional transcription route does not retain its distinct baked filename"
+while IFS= read -r transcription_route; do
+  for empty_segmentation_arg in \
+    "KRAKEN_SEGMENTATION_MODEL_ID=" \
+    "KRAKEN_SEGMENTATION_MODEL_FILE=" \
+    "KRAKEN_SEGMENTATION_MODEL_DOI=" \
+    "KRAKEN_SEGMENTATION_MODEL_SHA256="; do
+    entry_has_build_arg "$transcription_route" "$empty_segmentation_arg" ||
+      fail "$transcription_route unexpectedly configures $empty_segmentation_arg"
+  done
+done < <(jq -r '.include[].key | select(startswith("kraken-ocr/"))' <<<"${matrix}")
+
+transcription_terraform="$(
+  sed -n \
+    '/^  kraken_transcription_service_defs = {$/,/^  ocr_services = merge(/p' \
+    "${repo_root}/terraform/kraken.tf"
+)"
+for required in \
+  '{ name = "KRAKEN_SEGMENTATION_MODEL_ID", value = "" }' \
+  '{ name = "KRAKEN_SEGMENTATION_MODEL", value = "" }'; do
+  grep -Fq "$required" <<<"${transcription_terraform}" ||
+    fail "dedicated transcription services do not disable the segmentation route"
+done
+if grep -Fq 'local.kraken_default_segmentation' <<<"${transcription_terraform}"; then
+  fail "dedicated transcription services still configure the default segmentation route"
+fi
 
 jq -e '
   all(
@@ -87,6 +112,13 @@ if GCLOUD_PROJECT=scribe-test WORKSPACE_SLUG=prod IMAGE_TAG=test \
   CONFIG_PATH="${colliding_model_files}" "${repo_root}/ci/ocr-matrix.sh" >/dev/null 2>&1; then
   fail "transcription and segmentation artifacts with colliding filenames were accepted"
 fi
+
+nondefault_shared_filename="${test_root}/nondefault-shared-filename.yaml"
+sed 's/file: transcription-engine\.mlmodel/file: default-layout.mlmodel/' \
+  "${fixture}" >"${nondefault_shared_filename}"
+GCLOUD_PROJECT=scribe-test WORKSPACE_SLUG=prod IMAGE_TAG=test \
+  CONFIG_PATH="${nondefault_shared_filename}" "${repo_root}/ci/ocr-matrix.sh" >/dev/null ||
+  fail "an isolated nondefault transcription image could not reuse a filename from another image"
 
 deploy_default="$(yq -r '.ollama.default_model // ""' "${repo_root}/config/ocr.yaml")"
 runtime_default="$(yq -r '.llm.ollama.model // ""' "${repo_root}/config.yaml")"

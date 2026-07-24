@@ -3,16 +3,16 @@
 set -eu
 umask 077
 
-# The current maximum transfer, sleep, and token retry budget is 980 seconds.
+# The current maximum transfer, sleep, and token retry budget is 1460 seconds.
 # The focused contract recomputes it and requires at least five minutes of
 # headroom below the Cloud Run job timeout.
 readonly TOKEN_MAX_ATTEMPTS=6
 readonly TOKEN_REQUEST_TIMEOUT_SECONDS=5
 readonly TOKEN_RETRY_DELAY_SECONDS=2
 readonly SEGMENT_MAX_ATTEMPTS=2
-readonly SEGMENT_REQUEST_TIMEOUT_SECONDS=120
+readonly SEGMENT_REQUEST_TIMEOUT_SECONDS=240
 readonly TRANSCRIBE_MAX_ATTEMPTS=2
-readonly TRANSCRIBE_REQUEST_TIMEOUT_SECONDS=120
+readonly TRANSCRIBE_REQUEST_TIMEOUT_SECONDS=240
 readonly OLLAMA_MAX_ATTEMPTS=3
 readonly OLLAMA_REQUEST_TIMEOUT_SECONDS=120
 readonly SERVICE_RETRY_DELAY_SECONDS=5
@@ -171,6 +171,7 @@ probe_multipart() (
   fi
 
   attempt=1
+  last_failure=request
   while [ "$attempt" -le "$max_attempts" ]; do
     if multipart_request_once \
       "$kind" \
@@ -181,13 +182,20 @@ probe_multipart() (
         exit 0
       fi
       fail_stage "$kind-contract"
+    else
+      request_status=$?
+      if [ "$request_status" -eq 28 ]; then
+        last_failure=timeout
+      else
+        last_failure=request
+      fi
     fi
     if [ "$attempt" -lt "$max_attempts" ]; then
       sleep "$SERVICE_RETRY_DELAY_SECONDS"
     fi
     attempt=$((attempt + 1))
   done
-  fail_stage "$kind-request"
+  fail_stage "$kind-$last_failure"
 )
 
 ollama_request_once() (
@@ -232,19 +240,27 @@ probe_ollama() (
   fi
 
   attempt=1
+  last_failure=request
   while [ "$attempt" -le "$OLLAMA_MAX_ATTEMPTS" ]; do
     if ollama_request_once >/dev/null 2>&1; then
       if validate_ollama_response >/dev/null 2>&1; then
         exit 0
       fi
       fail_stage ollama-contract
+    else
+      request_status=$?
+      if [ "$request_status" -eq 28 ]; then
+        last_failure=timeout
+      else
+        last_failure=request
+      fi
     fi
     if [ "$attempt" -lt "$OLLAMA_MAX_ATTEMPTS" ]; then
       sleep "$SERVICE_RETRY_DELAY_SECONDS"
     fi
     attempt=$((attempt + 1))
   done
-  fail_stage ollama-request
+  fail_stage "ollama-$last_failure"
 )
 
 probe_multipart \

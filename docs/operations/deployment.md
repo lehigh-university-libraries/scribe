@@ -526,7 +526,16 @@ Containers use `restart: unless-stopped`, readiness-aware dependencies, bounded
 startup probes, and graceful stop periods. Compose also waits for Triplet's
 image-supplied `/healthz` probe before starting its dependants. `/livez` reports
 process liveness; `/readyz` and `/healthz` require persistence readiness. The
-cloud-compose boot disk is named from the complete rendered cloud-init digest,
+API and worker load the managed service-account credential and mint an identity
+token for every configured outbound segmentation, Kraken, and Ollama audience
+before either process begins listening. Runtime calls reuse that same
+per-audience cache. Container access to GCE metadata remains blocked by the
+host firewall; an invalid credential or failed token exchange therefore fails
+startup and the ordinary Compose/backend readiness path instead of becoming a
+request-time upload failure. Inbound JWT issuer audiences are never minted by
+this preflight.
+
+The Cloud Compose boot disk is named from the complete rendered cloud-init digest,
 so a reviewed Compose SHA, backend image, or runtime configuration change
 replaces the VM boot disk and reruns bootstrap while retaining the stable data
 and Docker-volume disks. The post-apply backend readiness job also requires the

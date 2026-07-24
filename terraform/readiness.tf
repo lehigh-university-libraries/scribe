@@ -120,10 +120,10 @@ resource "google_cloud_run_v2_job" "ocr_readiness" {
     task_count  = 1
 
     template {
-      # scripts/ocr-readiness.sh has a tested 980-second retry/transfer budget.
+      # scripts/ocr-readiness.sh has a tested 1460-second retry/transfer budget.
       service_account = google_service_account.ocr_readiness.email
       max_retries     = 0
-      timeout         = "1500s"
+      timeout         = "1800s"
 
       containers {
         image   = var.api_image

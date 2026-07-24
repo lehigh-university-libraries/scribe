@@ -39,7 +39,7 @@ jobs:
           test -n "$TF_STATE_BUCKET" || { echo "TF_STATE_BUCKET must be set" >&2; exit 1; }
           [[ "$GSA_EMAIL" =~ ^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$ ]] || { echo "GSA must be a service-account email" >&2; exit 1; }
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
 
@@ -130,7 +130,7 @@ jobs:
           echo "compose_sha=$(jq -r '.docker_compose_sha' <<<"$deployed")" >> "$GITHUB_OUTPUT"
 
       - name: Checkout deployed production source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ steps.deployed.outputs.compose_sha }}
           fetch-depth: 0

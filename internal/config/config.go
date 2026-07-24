@@ -898,8 +898,8 @@ func validateServiceEndpoint(name, rawURL, rawAudience string) error {
 	if err != nil {
 		return err
 	}
-	if !strings.EqualFold(audience.Scheme, "https") || (audience.Path != "" && audience.Path != "/") {
-		return fmt.Errorf("%s.audience must be an HTTPS origin without a path", name)
+	if !strings.EqualFold(audience.Scheme, "https") || audience.Path != "" {
+		return fmt.Errorf("%s.audience must be a canonical HTTPS origin without a trailing slash or path", name)
 	}
 	if !strings.EqualFold(endpoint.Scheme, "https") {
 		return fmt.Errorf("%s.url must use HTTPS when an audience is configured", name)

@@ -97,6 +97,9 @@ func TestOllamaAudienceMustMatchRegisteredEndpointOrigin(t *testing.T) {
 	if _, err := validateOllamaAudience("http://service.example", "http://service.example"); err == nil || !strings.Contains(err.Error(), "provider request failed") {
 		t.Fatalf("plaintext audience error = %v", err)
 	}
+	if _, err := validateOllamaAudience("https://service.example/path", "https://service.example/"); err == nil {
+		t.Fatal("noncanonical trailing-slash audience was accepted")
+	}
 }
 
 func testOllamaDescriptor(endpoint string) Provider {

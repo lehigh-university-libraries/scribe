@@ -233,6 +233,12 @@ if [[ "$1 $2" == "logging read" ]]; then
     "labels": {
       "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
     },
+    "textPayload": "ocr readiness failed: transcribe-timeout\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
     "textPayload": "ocr readiness failed: transcribe-contract\n"
   },
   {
@@ -351,11 +357,12 @@ for expected in \
   'ocr readiness failed: segment-contract' \
   'ocr readiness failed: transcribe-token' \
   'ocr readiness failed: transcribe-request' \
+  'ocr readiness failed: transcribe-timeout' \
   'ocr readiness failed: transcribe-contract' \
   'ocr readiness failed: ollama-token' \
   'ocr readiness failed: ollama-request' \
   'ocr readiness failed: ollama-contract' \
-  '[status] log_query=ok markers=10'; do
+  '[status] log_query=ok markers=11'; do
   grep -Fq "$expected" "$ocr_diagnostics" ||
     fail "OCR diagnostics omitted: $expected"
 done

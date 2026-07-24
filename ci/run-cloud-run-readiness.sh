@@ -10,7 +10,7 @@ readonly BACKEND_PAYLOAD_KIND='(invalid-json|invalid-payload|non-ready-status|mi
 readonly BACKEND_HTTP_KIND='(http-ready|http-non-ready|http-invalid|http-error|http-timeout|http-transport-(EACCES|EADDRINUSE|EAI_AGAIN|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|EPIPE|ENOENT|ETIMEDOUT|ERR_STREAM_PREMATURE_CLOSE|error))'
 readonly BACKEND_NETWORK_KIND="((dns-match|dns-mismatch|dns-empty|dns-timeout|dns-error); (tcp-open|tcp-refused|tcp-timeout|tcp-unreachable|tcp-error); ${BACKEND_HTTP_KIND}|dns-invalid-origin; tcp-skipped; http-skipped)"
 readonly BACKEND_READINESS_LOG_PATTERN="^(frontend readiness failed: (frontend-server-exited|frontend did not respond|HTTP [1-5][0-9]{2} \\(${READINESS_PAYLOAD_KIND}\\)|transport-${READINESS_ERROR_KIND}|internal-${READINESS_ERROR_KIND})|frontend proxy request failed \\[${READINESS_ERROR_KIND}\\]|frontend backend startup gate failed \\[${READINESS_ERROR_KIND}; (readiness-contract; HTTP [1-5][0-9]{2} \\((invalid-json|invalid-payload|missing-status|ready-payload-with-non-success-http)\\)|startup-deadline; (backend did not report ready|HTTP [1-5][0-9]{2} \\(${BACKEND_PAYLOAD_KIND}\\)|transport-${READINESS_ERROR_KIND}))\\]|frontend backend network probe \\[${BACKEND_NETWORK_KIND}\\])$"
-readonly OCR_READINESS_LOG_PATTERN='^ocr readiness failed: (image-contract|(segment|transcribe|ollama)-(token|request|contract))$'
+readonly OCR_READINESS_LOG_PATTERN='^ocr readiness failed: (image-contract|(segment|transcribe|ollama)-(token|request|timeout|contract))$'
 
 fail() {
   printf 'Cloud Run readiness helper failed: %s\n' "$*" >&2

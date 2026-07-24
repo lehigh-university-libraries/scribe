@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lehigh-university-libraries/htr/pkg/auth/gcpidtoken"
 	"github.com/lehigh-university-libraries/htr/pkg/httpclient"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	"github.com/lehigh-university-libraries/htr/pkg/remoteocr"
+	"github.com/lehigh-university-libraries/scribe/internal/gcpidentity"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
@@ -22,12 +22,19 @@ import (
 const maxSegmentorResponseBytes int64 = 16 << 20
 
 // InferenceRequestTimeout is the end-to-end deadline shared by Scribe callers
-// and deployment readiness. The segmentor server keeps a small write margin
-// above this deadline so client cancellation, not the HTTP writer, owns the
-// inference budget.
-const InferenceRequestTimeout = 120 * time.Second
+// and deployment readiness. The server keeps bounded cleanup and response
+// margins above this budget while remaining below the configured Cloud Run
+// service request timeout.
+const InferenceRequestTimeout = 240 * time.Second
 
-var segmentorIdentityTokens, segmentorIdentityTokensErr = gcpidtoken.New(gcpidtoken.Options{})
+const (
+	// InferenceHandlerTimeout is the server-side fallback for clients whose
+	// disconnect is not propagated promptly through the Cloud Run proxy.
+	InferenceHandlerTimeout = InferenceRequestTimeout + 15*time.Second
+	// InferenceServerWriteTimeout leaves the handler time to publish its
+	// redacted timeout response before the HTTP server closes the connection.
+	InferenceServerWriteTimeout = InferenceHandlerTimeout + 15*time.Second
+)
 
 // Client prepares Scribe-owned image bytes and delegates the remote protocol
 // to HTR's generic OCR client.
@@ -152,13 +159,14 @@ func segmentorAuthenticator(endpointRaw, audienceRaw string) (httpclient.Authent
 	audience, audienceErr := httpclient.ParseEndpoint(audienceRaw)
 	if endpointErr != nil || audienceErr != nil || !strings.EqualFold(endpoint.Scheme, "https") ||
 		!strings.EqualFold(endpoint.Scheme, audience.Scheme) || !strings.EqualFold(endpoint.Host, audience.Host) ||
-		(audience.Path != "" && audience.Path != "/") {
+		audience.Path != "" {
 		return nil, providers.NewError(providers.ErrorInvalidRequest, 0, false, nil)
 	}
-	if segmentorIdentityTokensErr != nil {
+	identityTokens, err := gcpidentity.Default()
+	if err != nil {
 		return nil, providers.NewError(providers.ErrorAuthentication, 0, false, nil)
 	}
-	return httpclient.BearerAuthenticator{Source: segmentorIdentityTokens, Audience: strings.TrimRight(audience.String(), "/")}, nil
+	return httpclient.BearerAuthenticator{Source: identityTokens, Audience: audience.String()}, nil
 }
 
 func (c *Client) prepareImage(ctx context.Context, imagePath string) (providers.Image, error) {

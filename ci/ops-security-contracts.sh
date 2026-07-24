@@ -94,6 +94,14 @@ bash ci/gcp-vm-bootstrap-diagnostics_test.sh
 bash ci/run-cloud-run-readiness_test.sh
 bash ci/preview-deployment-evidence-contract_test.sh
 
+# Outbound Cloud Run callers must share the credential-file-aware source.
+# A direct HTR metadata source would hang behind the intentional VM metadata
+# firewall and turn image ingestion into a request-time failure.
+identity_source_imports="$(rg -l 'htr/pkg/auth/gcpidtoken' internal --glob '*.go' || true)"
+test "$identity_source_imports" = "internal/gcpidentity/source.go" ||
+  fail "only internal/gcpidentity may import HTR's metadata identity source"
+require_pattern 'preflightServiceIdentity\(ctx, cfg\)' internal/app/bootstrap.go
+
 # Proxy identity is a two-hop exact allowlist: Cloud Run's deployment subnet
 # into Traefik, then Traefik's fixed container /32 into the application.
 require_pattern 'SERVER_TRUSTED_PROXY_CIDRS:.*172\.30\.0\.2/32' docker-compose.yaml

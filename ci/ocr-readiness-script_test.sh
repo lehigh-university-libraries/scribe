@@ -93,6 +93,11 @@ if [[ "${MOCK_ALWAYS_FAIL_STAGE:-}" == "$kind" ]]; then
   printf '%s\n' 'CURL_FAILURE_BODY_SECRET_SENTINEL' >"$output_file"
   exit 22
 fi
+if [[ "${MOCK_ALWAYS_TIMEOUT_STAGE:-}" == "$kind" ]]; then
+  printf '%s\n' 'CURL_TIMEOUT_SECRET_SENTINEL' >&2
+  printf '%s\n' 'CURL_TIMEOUT_BODY_SECRET_SENTINEL' >"$output_file"
+  exit 28
+fi
 if [[ "${MOCK_TRANSIENT_ONCE:-false}" == true && "$count" -eq 1 ]]; then
   printf '%s\n' 'CURL_TRANSIENT_SECRET_SENTINEL' >&2
   printf '%s\n' 'CURL_TRANSIENT_BODY_SECRET_SENTINEL' >"$output_file"
@@ -184,6 +189,14 @@ run_probe env MOCK_ALWAYS_FAIL_STAGE=segment
 [[ "$(grep -c '^segment ' "$MOCK_CURL_LOG")" -eq 2 ]] ||
   fail "segment request retry attempts are not bounded"
 
+run_probe env MOCK_ALWAYS_TIMEOUT_STAGE=transcribe
+[[ "$PROBE_STATUS" -eq 1 ]] ||
+  fail "an exhausted transcription timeout retry did not fail the readiness probe"
+[[ "$(cat "$TEST_DIR/probe.err")" == 'ocr readiness failed: transcribe-timeout' ]] ||
+  fail "request timeout exhaustion did not emit its exact safe stage marker"
+[[ "$(grep -c '^transcribe ' "$MOCK_CURL_LOG")" -eq 2 ]] ||
+  fail "transcription timeout retry attempts are not bounded"
+
 run_probe env MOCK_BAD_CONTRACT_STAGE=segment
 [[ "$PROBE_STATUS" -eq 1 ]] ||
   fail "an invalid successful response did not fail the readiness probe"
@@ -249,6 +262,8 @@ application_timeout="$(
 )"
 [[ "$application_timeout" =~ ^[1-9][0-9]*$ ]] ||
   fail "the application segmentor timeout is missing or invalid"
+[[ "$application_timeout" -eq 240 ]] ||
+  fail "the application segmentor timeout must cover bounded scale-to-zero cold inference"
 [[ "$segment_timeout" -eq "$application_timeout" ]] ||
   fail "the segmentation readiness timeout differs from the application client timeout"
 [[ "$transcribe_timeout" -eq "$application_timeout" ]] ||
@@ -261,7 +276,7 @@ maximum_probe_budget=$((
     transcribe_attempts * transcribe_timeout + (transcribe_attempts - 1) * service_delay +
     ollama_attempts * ollama_timeout + (ollama_attempts - 1) * service_delay
 ))
-[[ "$maximum_probe_budget" -eq 980 ]] ||
+[[ "$maximum_probe_budget" -eq 1460 ]] ||
   fail "the documented maximum retry/transfer budget drifted to ${maximum_probe_budget}s"
 job_timeout="$(
   sed -n '/^resource "google_cloud_run_v2_job" "ocr_readiness"/,/^}/p' \
@@ -272,5 +287,25 @@ job_timeout="$(
   fail "the OCR Cloud Run job timeout is missing or invalid"
 [[ "$((job_timeout - maximum_probe_budget))" -ge 300 ]] ||
   fail "the OCR Cloud Run job lacks five minutes of control-plane and shell headroom"
+backend_job_timeout="$(
+  sed -n '/^resource "google_cloud_run_v2_job" "backend_readiness"/,/^}/p' \
+    "$ROOT_DIR/terraform/readiness.tf" |
+    sed -nE 's/^[[:space:]]*timeout[[:space:]]*=[[:space:]]*"([0-9]+)s"$/\1/p'
+)"
+[[ "$backend_job_timeout" =~ ^[1-9][0-9]*$ ]] ||
+  fail "the backend Cloud Run job timeout is missing or invalid"
+deploy_timeout_minutes="$(
+  sed -nE 's/^[[:space:]]*timeout-minutes:[[:space:]]*([0-9]+)$/\1/p' \
+    "$ROOT_DIR/.github/workflows/terraform-deploy.yaml"
+)"
+[[ "$deploy_timeout_minutes" =~ ^[1-9][0-9]*$ ]] ||
+  fail "the reusable deploy workflow timeout is missing or invalid"
+readonly DEPLOY_CONTROL_PLANE_HEADROOM_SECONDS=1800
+minimum_deploy_budget=$((
+  2 * (backend_job_timeout + job_timeout) +
+    DEPLOY_CONTROL_PLANE_HEADROOM_SECONDS
+))
+[[ "$((deploy_timeout_minutes * 60))" -ge "$minimum_deploy_budget" ]] ||
+  fail "the reusable deploy workflow cannot complete rollout and rollback readiness plus control-plane work"
 
 echo "OCR readiness retries, timeouts, response contracts, and redacted stage markers passed."

@@ -184,8 +184,10 @@ grep -Fq 'cloud_compose_start_and_wait_for_oneshot()' "$upstream_bootstrap_helpe
   fail "retryable bootstrap release lacks the shared unit wait helper"
 grep -Fq 'exec bash /home/cloud-compose/run.sh' "$upstream_run_bootstrap" ||
   fail "the root bootstrap wrapper does not execute the reviewed convergence runner"
+# shellcheck disable=SC2016 # Match the pinned upstream's literal shell variable.
 grep -Fq 'cloud_compose_marker_exists "$durable_marker"' "$upstream_assert_initialized" ||
   fail "application preflight does not accept durable bootstrap readiness"
+# shellcheck disable=SC2016 # Match the pinned upstream's literal shell variable.
 grep -Fq 'cloud_compose_marker_exists "$boot_marker"' "$upstream_assert_initialized" ||
   fail "application preflight does not accept current-boot initialization readiness"
 grep -Fq 'acquire_cloud_compose_lifecycle_lock "init"' "$upstream_app_init" ||

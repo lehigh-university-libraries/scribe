@@ -4,7 +4,8 @@ Required pull-request checks cover:
 
 - gofmt, ShellCheck, actionlint, golangci-lint, and Buf lint;
 - generated Go, TypeScript, sqlc, and OpenAPI drift;
-- Go race tests, DB integration tests, web/plugin tests and builds;
+- Go race tests, DB integration tests, release-target 32-bit cross-compilation,
+  and web/plugin tests and builds;
 - real Chromium editor acceptance tests in a pinned Playwright container;
 - OCR build tags and DB-backed ingest/revision smoke tests;
 - isolated backup/restore integrity and expired-job recovery smoke tests;
@@ -41,6 +42,12 @@ for its MariaDB health check before backend tests, and removes its containers an
 volumes on success, failure, or interruption. It does not reuse or stop the
 normal development stack, so integration tests cannot silently skip on a clean
 checkout.
+
+`make ocr-build-tags` cross-compiles both GoReleaser binaries for `linux/386`
+with the release build tag in the same pinned Go container used for its native
+build checks. Hosted CI and the local entrypoint therefore reject constants and
+other code that compile on 64-bit development hosts but fail a supported
+release target.
 
 Every Scribe-managed GCP VM, including previews and production, uses
 Container-Optimized OS as the sole host-runtime standard. Terraform-installed

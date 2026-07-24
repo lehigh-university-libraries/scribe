@@ -10,17 +10,26 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/segmentor"
 )
 
-func TestSegmentorServerAllowsTheClientInferenceBudget(t *testing.T) {
+func TestSegmentorTimeoutsLeaveBoundedCleanupAndWriteMargins(t *testing.T) {
 	server := newSegmentorHTTPServer(":0")
-	if server.WriteTimeout <= segmentor.InferenceRequestTimeout {
+	if segmentor.InferenceHandlerTimeout <= segmentor.InferenceRequestTimeout {
 		t.Fatalf(
-			"segmentor WriteTimeout = %s, must exceed client inference timeout %s",
-			server.WriteTimeout,
+			"segmentor handler timeout = %s, must exceed client inference timeout %s",
+			segmentor.InferenceHandlerTimeout,
 			segmentor.InferenceRequestTimeout,
 		)
 	}
-	if margin := server.WriteTimeout - segmentor.InferenceRequestTimeout; margin != 30*time.Second {
-		t.Fatalf("segmentor write-timeout margin = %s, want 30s", margin)
+	if margin := segmentor.InferenceHandlerTimeout - segmentor.InferenceRequestTimeout; margin != 15*time.Second {
+		t.Fatalf("segmentor handler cleanup margin = %s, want 15s", margin)
+	}
+	if server.WriteTimeout != segmentor.InferenceServerWriteTimeout {
+		t.Fatalf("segmentor WriteTimeout = %s, want %s", server.WriteTimeout, segmentor.InferenceServerWriteTimeout)
+	}
+	if margin := server.WriteTimeout - segmentor.InferenceHandlerTimeout; margin != 15*time.Second {
+		t.Fatalf("segmentor response write margin = %s, want 15s", margin)
+	}
+	if server.WriteTimeout >= 300*time.Second {
+		t.Fatalf("segmentor WriteTimeout = %s, must remain below the Cloud Run request timeout", server.WriteTimeout)
 	}
 }
 

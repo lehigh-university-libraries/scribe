@@ -89,8 +89,8 @@ locals {
         { name = "KRAKEN_MODEL_DIR", value = "/models/kraken" },
         { name = "KRAKEN_TRANSCRIPTION_MODEL_ID", value = route_key },
         { name = "KRAKEN_TRANSCRIPTION_MODEL", value = spec.file },
-        { name = "KRAKEN_SEGMENTATION_MODEL_ID", value = local.kraken_default_segmentation_key },
-        { name = "KRAKEN_SEGMENTATION_MODEL", value = try(local.kraken_default_segmentation_spec.file, "") },
+        { name = "KRAKEN_SEGMENTATION_MODEL_ID", value = "" },
+        { name = "KRAKEN_SEGMENTATION_MODEL", value = "" },
         { name = "SEGMENTOR_MAX_CONCURRENCY", value = "1" },
       ]
     }

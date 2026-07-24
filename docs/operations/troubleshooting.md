@@ -228,6 +228,7 @@ curl --noproxy '*' --fail --silent --show-error \
 | `scripts/update-env.py: No such file` under `/mnt/disks/data` | An obsolete data-disk helper was invoked. Stop using it and return to the systemd-owned bootstrap or `cloud-compose.service`; no replacement Python helper is required. |
 | `Address already in use` for Traefik | Inspect the exact project containers, network, port 80, and Traefik state above, then restart `cloud-compose.service`. Its preflight repairs only exact-project stale state. If it reports that the canonical network is owned outside the project label, stop and escalate rather than deleting it. |
 | Traefik reports a configuration parser error | The immutable application configuration is invalid. Fix and redeploy the repository source; do not edit generated configuration on the VM. |
+| Image upload or URL ingest returns `500` after about ten seconds | An old application image is attempting a metadata-only identity-token lookup even though container metadata access is intentionally blocked. Confirm the managed checkout SHA and inspect only the API/worker startup status and redacted logs. Current images mint all configured outbound service audiences from the managed credential before listening, so this condition must fail deployment readiness. Deploy the reviewed fix; do not open metadata access or copy credentials by hand. |
 
 ## Cloud Run readiness
 

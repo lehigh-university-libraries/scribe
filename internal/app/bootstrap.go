@@ -55,6 +55,9 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
+	if err := preflightServiceIdentity(ctx, cfg); err != nil {
+		return nil, fmt.Errorf("preflight service identity: %w", err)
+	}
 	secrets, err := loadSecretsWithRetry(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("load secrets: %w", err)

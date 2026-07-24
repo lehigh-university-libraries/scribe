@@ -36,7 +36,7 @@ const (
 	maxInlineHOCRBytes                      = 10 << 20
 	maxUploadBatchFiles                     = 1000
 	maxDeclaredImageBytes            uint64 = uint64(uploadlimits.MaxImageBytes)
-	maxUploadBatchTotalBytes                = 2 << 30
+	maxUploadBatchTotalBytes         uint64 = 2 << 30
 	maxItemNameRunes                        = 255
 	maxItemMetadataBytes                    = 1 << 20
 	uploadBatchLeaseHeartbeatEvery          = 5 * time.Minute

@@ -9,19 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lehigh-university-libraries/htr/pkg/auth/gcpidtoken"
 	"github.com/lehigh-university-libraries/htr/pkg/httpclient"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	"github.com/lehigh-university-libraries/htr/pkg/remoteocr"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/gcpidentity"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadlimits"
 )
 
 const maxRemoteSegmentResponseBytes int64 = 16 << 20
-
-var remoteIdentityTokens, remoteIdentityTokensErr = gcpidtoken.New(gcpidtoken.Options{})
 
 type remoteProvider struct {
 	model string
@@ -113,10 +111,11 @@ func remoteAuthenticator(audience string) (httpclient.Authenticator, error) {
 	if audience == "" {
 		return httpclient.NoAuth{}, nil
 	}
-	if remoteIdentityTokensErr != nil {
+	identityTokens, err := gcpidentity.Default()
+	if err != nil {
 		return nil, providers.NewError(providers.ErrorAuthentication, 0, false, nil)
 	}
-	return httpclient.BearerAuthenticator{Source: remoteIdentityTokens, Audience: audience}, nil
+	return httpclient.BearerAuthenticator{Source: identityTokens, Audience: audience}, nil
 }
 
 func remoteImageMediaType(imagePath string, data []byte) string {

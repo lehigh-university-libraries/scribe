@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/imagemagick"
@@ -170,9 +171,23 @@ func NewHandler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("POST /v1/segment", expensive.Wrap(http.HandlerFunc(handleSegment)))
-	mux.Handle("POST /v1/transcribe", expensive.Wrap(http.HandlerFunc(handleTranscribe)))
+	mux.Handle(
+		"POST /v1/segment",
+		withRequestDeadline(InferenceHandlerTimeout, expensive.Wrap(http.HandlerFunc(handleSegment))),
+	)
+	mux.Handle(
+		"POST /v1/transcribe",
+		withRequestDeadline(InferenceHandlerTimeout, expensive.Wrap(http.HandlerFunc(handleTranscribe))),
+	)
 	return mux
+}
+
+func withRequestDeadline(timeout time.Duration, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func handleSegment(w http.ResponseWriter, r *http.Request) {
@@ -356,13 +371,20 @@ func TranscribeWithKraken(ctx context.Context, imagePath, model string) (string,
 	}
 	defer func() { _ = os.Remove(outputPath) }()
 
+	// Scribe sends a cropped text line to the transcription provider, so a
+	// second page-segmentation pass is both redundant and can discard an
+	// otherwise valid line. Kraken suppresses pipeline exceptions by default;
+	// raising them keeps a failed recognition from looking like empty output.
 	cmd := exec.CommandContext(ctx, "kraken", // #nosec G204,G702 -- kraken is invoked directly without a shell; model paths are resolved under the configured model directory.
+		"--raise-on-error",
 		"-i", imagePath, outputPath,
-		"segment", "-bl",
-		"ocr", "-m", route.path,
+		"ocr", "--no-segmentation", "-m", route.path,
 	)
 	combined, err := cmd.CombinedOutput()
 	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			err = contextErr
+		}
 		return "", "", redactSubprocessError("kraken transcription", err, combined)
 	}
 

@@ -85,11 +85,10 @@ type krakenSegOutput struct {
 	Lines []struct {
 		Baseline [][]int `json:"baseline"`
 		Boundary [][]int `json:"boundary"`
-		Tags     struct {
-			Type []string `json:"type"`
-		} `json:"tags"`
+		// Kraken's tag payload is extensible and is not part of Scribe's
+		// geometry contract. Leave it unmodeled so additions cannot break
+		// otherwise valid native segmentation output.
 	} `json:"lines"`
-	ImageSize []int `json:"image_size"` // [width, height]
 }
 
 func parseKrakenJSON(path string) ([]WordBox, error) {
@@ -120,27 +119,9 @@ func parseKrakenJSON(path string) ([]WordBox, error) {
 }
 
 func boundingBoxFromBaseline(points [][]int) (WordBox, bool) {
-	if len(points) == 0 {
+	minX, minY, maxX, maxY, ok := pointExtents(points)
+	if !ok {
 		return WordBox{}, false
-	}
-	minX, minY := points[0][0], points[0][1]
-	maxX, maxY := minX, minY
-	for _, pt := range points {
-		if len(pt) < 2 {
-			continue
-		}
-		if pt[0] < minX {
-			minX = pt[0]
-		}
-		if pt[1] < minY {
-			minY = pt[1]
-		}
-		if pt[0] > maxX {
-			maxX = pt[0]
-		}
-		if pt[1] > maxY {
-			maxY = pt[1]
-		}
 	}
 	w := maxX - minX
 	if w <= 0 {
@@ -154,13 +135,27 @@ func boundingBoxFromBaseline(points [][]int) (WordBox, bool) {
 }
 
 func boundingBoxFromPolygon(points [][]int) (WordBox, bool) {
-	if len(points) == 0 {
+	minX, minY, maxX, maxY, ok := pointExtents(points)
+	if !ok {
 		return WordBox{}, false
 	}
-	minX, minY := points[0][0], points[0][1]
-	maxX, maxY := minX, minY
+	w := maxX - minX
+	h := maxY - minY
+	if w <= 0 || h <= 0 {
+		return WordBox{}, false
+	}
+	return WordBox{X: minX, Y: minY, Width: w, Height: h}, true
+}
+
+func pointExtents(points [][]int) (minX, minY, maxX, maxY int, ok bool) {
 	for _, pt := range points {
 		if len(pt) < 2 {
+			continue
+		}
+		if !ok {
+			minX, minY = pt[0], pt[1]
+			maxX, maxY = minX, minY
+			ok = true
 			continue
 		}
 		if pt[0] < minX {
@@ -176,10 +171,5 @@ func boundingBoxFromPolygon(points [][]int) (WordBox, bool) {
 			maxY = pt[1]
 		}
 	}
-	w := maxX - minX
-	h := maxY - minY
-	if w <= 0 || h <= 0 {
-		return WordBox{}, false
-	}
-	return WordBox{X: minX, Y: minY, Width: w, Height: h}, true
+	return minX, minY, maxX, maxY, ok
 }

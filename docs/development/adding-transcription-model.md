@@ -88,9 +88,10 @@ For Kraken transcription:
    `kraken-ocr/<key>`. The build must fail when the DOI download does not
    contain the exact basename or its bytes do not match the configured digest.
    The image bakes the public key and filename as separate values and accepts
-   only that exact transcription key at runtime. It also carries the configured
-   default segmentation artifact required by the combined execution path; it
-   is not literally a one-artifact image.
+   only that exact transcription key at runtime. The dedicated route fetches
+   only its selected recognition artifact and does not configure a segmentation
+   route: Scribe sends already-cropped lines, and Kraken recognizes each crop
+   with `ocr --no-segmentation`.
 4. Exercise `providerregistry` model routing, the remote OCR client contract,
    and a worker job that commits against the expected canonical page revision.
 5. Verify the protected deployment supplies matching `KRAKEN_MODELS_JSON` and

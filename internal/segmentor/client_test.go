@@ -141,6 +141,7 @@ func TestClientRejectsOffOriginOrPlaintextAudience(t *testing.T) {
 		{"https://service.example", "https://other.example"},
 		{"http://service.example", "http://service.example"},
 		{"https://service.example", "https://service.example/path"},
+		{"https://service.example", "https://service.example/"},
 	} {
 		if _, err := NewClientForEndpoint(test.endpoint, test.audience); err == nil {
 			t.Errorf("accepted endpoint %q audience %q", test.endpoint, test.audience)

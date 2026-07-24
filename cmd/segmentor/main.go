@@ -51,7 +51,7 @@ func newSegmentorHTTPServer(addr string) *http.Server {
 		Handler:           segmentor.NewHandler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
-		WriteTimeout:      segmentor.InferenceRequestTimeout + 30*time.Second,
+		WriteTimeout:      segmentor.InferenceServerWriteTimeout,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    httplimits.MaxHeaderBytes,
 	}
