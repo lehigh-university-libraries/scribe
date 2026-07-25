@@ -501,17 +501,23 @@ func Load() (Config, error) {
 		cfg.Vault.GCPAuthRole = "scribe-app"
 	}
 	if cfg.Vault.Workspace != "" {
-		expectedPrefix := "scribe/" + strings.Trim(cfg.Vault.Workspace, "/") + "/"
-		for name, path := range map[string]string{
-			"google_oauth":     cfg.Vault.Paths.GoogleOAuth,
-			"openai":           cfg.Vault.Paths.OpenAI,
-			"gemini":           cfg.Vault.Paths.Gemini,
-			"database":         cfg.Vault.Paths.Database,
-			"provider_secrets": cfg.Vault.Paths.ProviderSecrets,
+		expectedPrefix, err := expectedVaultPathPrefix(cfg)
+		if err != nil {
+			return Config{}, err
+		}
+		for name, path := range map[string]struct {
+			value  string
+			suffix string
+		}{
+			"google_oauth":     {value: cfg.Vault.Paths.GoogleOAuth, suffix: "google_oauth"},
+			"openai":           {value: cfg.Vault.Paths.OpenAI, suffix: "openai"},
+			"gemini":           {value: cfg.Vault.Paths.Gemini, suffix: "gemini"},
+			"database":         {value: cfg.Vault.Paths.Database, suffix: "database/app"},
+			"provider_secrets": {value: cfg.Vault.Paths.ProviderSecrets, suffix: "provider-secrets/workspaces"},
 		} {
-			normalized := strings.Trim(strings.TrimSpace(path), "/") + "/"
-			if !strings.HasPrefix(normalized, expectedPrefix) {
-				return Config{}, fmt.Errorf("vault path %s=%q does not match VAULT_WORKSPACE %q", name, path, cfg.Vault.Workspace)
+			normalized := strings.Trim(strings.TrimSpace(path.value), "/")
+			if normalized != expectedPrefix+"/"+path.suffix {
+				return Config{}, fmt.Errorf("vault path %s=%q does not match VAULT_WORKSPACE %q", name, path.value, cfg.Vault.Workspace)
 			}
 		}
 	}
@@ -528,6 +534,28 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func expectedVaultPathPrefix(cfg Config) (string, error) {
+	workspace := strings.Trim(strings.TrimSpace(cfg.Vault.Workspace), "/")
+	if !cfg.Auth.PreviewAnonymous {
+		return "scribe/" + workspace, nil
+	}
+
+	databasePath := strings.Trim(strings.TrimSpace(cfg.Vault.Paths.Database), "/")
+	const databaseSuffix = "/database/app"
+	if !strings.HasSuffix(databasePath, databaseSuffix) {
+		return "", fmt.Errorf("vault database path %q does not match VAULT_WORKSPACE %q", cfg.Vault.Paths.Database, cfg.Vault.Workspace)
+	}
+	prefix := strings.TrimSuffix(databasePath, databaseSuffix)
+	previewIdentityPrefix := regexp.MustCompile(
+		`^scribe/previews/scribe-` + regexp.QuoteMeta(workspace) +
+			`@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$`,
+	)
+	if !previewIdentityPrefix.MatchString(prefix) {
+		return "", fmt.Errorf("vault database path %q does not match VAULT_WORKSPACE %q identity scope", cfg.Vault.Paths.Database, cfg.Vault.Workspace)
+	}
+	return prefix, nil
 }
 
 func normalizeRuntimeConcurrency(cfg *Config) error {

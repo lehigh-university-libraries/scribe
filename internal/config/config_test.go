@@ -241,7 +241,7 @@ func TestLoadAcceptsMatchingVaultWorkspacePaths(t *testing.T) {
 func TestPreviewAnonymousModeIsBoundToMatchingPreviewOrigin(t *testing.T) {
 	t.Setenv("AUTH_PREVIEW_ANONYMOUS", "true")
 	t.Setenv("VAULT_WORKSPACE", "pr-75")
-	t.Setenv("VAULT_SECRET_PREFIX", "scribe/pr-75")
+	t.Setenv("VAULT_SECRET_PREFIX", "scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com")
 	t.Setenv("PUBLIC_BASE_URL", "https://scribe-pr-75-123456.us-east5.run.app")
 
 	cfg, err := Load()
@@ -264,10 +264,29 @@ func TestPreviewAnonymousModeIsBoundToMatchingPreviewOrigin(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("VAULT_WORKSPACE", test.workspace)
-			t.Setenv("VAULT_SECRET_PREFIX", "scribe/"+test.workspace)
+			t.Setenv("VAULT_SECRET_PREFIX", "scribe/previews/scribe-"+test.workspace+"@example-project.iam.gserviceaccount.com")
 			t.Setenv("PUBLIC_BASE_URL", test.baseURL)
 			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "auth.preview_anonymous") {
 				t.Fatalf("Load error = %v, want preview binding rejection", err)
+			}
+		})
+	}
+}
+
+func TestPreviewAnonymousModeRejectsAnotherServiceAccountNamespace(t *testing.T) {
+	for _, prefix := range []string{
+		"scribe/previews/scribe-pr-76@example-project.iam.gserviceaccount.com",
+		"scribe/previews/scribe-pr-75@bad.iam.gserviceaccount.com",
+		"scribe/pr-75",
+	} {
+		t.Run(prefix, func(t *testing.T) {
+			t.Setenv("AUTH_PREVIEW_ANONYMOUS", "true")
+			t.Setenv("VAULT_WORKSPACE", "pr-75")
+			t.Setenv("VAULT_SECRET_PREFIX", prefix)
+			t.Setenv("PUBLIC_BASE_URL", "https://scribe-pr-75-123456.us-east5.run.app")
+
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "does not match VAULT_WORKSPACE") {
+				t.Fatalf("Load error = %v, want identity-scoped Vault path rejection", err)
 			}
 		})
 	}
