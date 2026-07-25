@@ -25,7 +25,7 @@ Optional environment:
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. For plan/apply only; refresh and destroy reload the recorded map from Terraform state.
   SCRIBE_DATA_GENERATION  Reviewed persistence generation. Defaults to canonical-v1; refresh and destroy always reload the recorded value from Terraform state.
   SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to the immutable --branch commit SHA for production and preview, and the branch slug for development.
-  SCRIBE_ZONE            Optional zone override used when locally building the frontend GAR sidecar. Falls back to TF_VAR_zone, terraform/terraform.tfvars, then us-east5-b.
+  SCRIBE_ZONE            Optional zone override used when locally building the frontend GAR sidecar. Falls back to TF_VAR_zone, terraform/terraform.tfvars, then us-east5-c for previews or us-east5-b otherwise.
   SCRIBE_REGION          Optional region override. Falls back to TF_VAR_region, then us-east5.
   VAULT_ADMIN_EMAILS      Optional Terraform list(string) for vault_admin_emails, e.g. ["you@example.edu"].
   VAULT_CI_SERVICE_ACCOUNT_EMAILS  Optional Terraform list(string) for vault_ci_service_account_emails, e.g. ["github@project.iam.gserviceaccount.com"].
@@ -96,6 +96,11 @@ resolve_terraform_zone() {
       printf '%s\n' "$from_tfvars"
       return 0
     fi
+  fi
+
+  if [ "${environment:-}" = "preview" ]; then
+    printf 'us-east5-c\n'
+    return 0
   fi
 
   printf 'us-east5-b\n'
@@ -684,6 +689,11 @@ if [ "$action" = "destroy" ] || [ "$action" = "refresh" ]; then
   frontend_gar_image_tag="$(jq -r '.frontend_gar_image' <<<"$stored_deployment_inputs")"
   ocr_images_json="$(jq -c '.ocr_service_images' <<<"$stored_deployment_inputs")"
   data_generation="$(jq -r '.data_generation' <<<"$stored_deployment_inputs")"
+  TF_VAR_region="$(jq -r '.configuration.region' <<<"$stored_deployment_inputs")"
+  TF_VAR_zone="$(jq -r '.configuration.zone' <<<"$stored_deployment_inputs")"
+  SCRIBE_REGION="$TF_VAR_region"
+  SCRIBE_ZONE="$TF_VAR_zone"
+  export SCRIBE_REGION SCRIBE_ZONE TF_VAR_region TF_VAR_zone
   if [ "$action" = "refresh" ]; then
     ALLOWED_IPS="$(jq -c '.configuration.allowed_ips' <<<"$stored_deployment_inputs")"
     ALLOWED_SSH_IPV4="$(jq -c '.configuration.allowed_ssh_ipv4' <<<"$stored_deployment_inputs")"
@@ -696,7 +706,6 @@ if [ "$action" = "destroy" ] || [ "$action" = "refresh" ]; then
     TF_VAR_iiif_max_manifest_import_bytes="$(jq -r '.configuration.iiif_max_manifest_import_bytes' <<<"$stored_deployment_inputs")"
     TF_VAR_monitoring_notification_channels="$(jq -c '.configuration.monitoring_notification_channels' <<<"$stored_deployment_inputs")"
     TF_VAR_network_ip_cidr_range="$(jq -r '.configuration.network_ip_cidr_range' <<<"$stored_deployment_inputs")"
-    TF_VAR_region="$(jq -r '.configuration.region' <<<"$stored_deployment_inputs")"
     TF_VAR_storage_max_bytes_per_workspace="$(jq -r '.configuration.storage_max_bytes_per_workspace' <<<"$stored_deployment_inputs")"
     TF_VAR_storage_max_bytes_total="$(jq -r '.configuration.storage_max_bytes_total' <<<"$stored_deployment_inputs")"
     TF_VAR_storage_max_images_per_workspace="$(jq -r '.configuration.storage_max_images_per_workspace' <<<"$stored_deployment_inputs")"
@@ -707,19 +716,15 @@ if [ "$action" = "destroy" ] || [ "$action" = "refresh" ]; then
     TF_VAR_storage_normalization_cache_max_bytes="$(jq -r '.configuration.storage_normalization_cache_max_bytes' <<<"$stored_deployment_inputs")"
     TF_VAR_storage_reservation_ttl="$(jq -r '.configuration.storage_reservation_ttl' <<<"$stored_deployment_inputs")"
     TF_VAR_transcription_max_active_jobs_per_workspace="$(jq -r '.configuration.transcription_max_active_jobs_per_workspace' <<<"$stored_deployment_inputs")"
-    TF_VAR_zone="$(jq -r '.configuration.zone' <<<"$stored_deployment_inputs")"
-    SCRIBE_REGION="$TF_VAR_region"
-    SCRIBE_ZONE="$TF_VAR_zone"
     export ALLOWED_IPS ALLOWED_SSH_IPV4 ALLOWED_SSH_IPV6 VAULT_ADMIN_EMAILS VAULT_CI_SERVICE_ACCOUNT_EMAILS
-    export SCRIBE_REGION SCRIBE_ZONE
     export TF_VAR_backup_restore_service_account_email TF_VAR_compose_network_cidr
     export TF_VAR_iiif_max_manifest_canvases TF_VAR_iiif_max_manifest_import_bytes
-    export TF_VAR_monitoring_notification_channels TF_VAR_network_ip_cidr_range TF_VAR_region
+    export TF_VAR_monitoring_notification_channels TF_VAR_network_ip_cidr_range
     export TF_VAR_storage_max_bytes_per_workspace TF_VAR_storage_max_bytes_total
     export TF_VAR_storage_max_images_per_workspace TF_VAR_storage_max_images_total
     export TF_VAR_storage_max_items_per_workspace TF_VAR_storage_max_items_total
     export TF_VAR_storage_normalization_cache_max_age TF_VAR_storage_normalization_cache_max_bytes
-    export TF_VAR_storage_reservation_ttl TF_VAR_transcription_max_active_jobs_per_workspace TF_VAR_zone
+    export TF_VAR_storage_reservation_ttl TF_VAR_transcription_max_active_jobs_per_workspace
     if [ "$environment" = "prod" ]; then
       BACKUP_AUDIT_SCOPE=state "$repo_root/ci/verify-cloud-backups.sh"
       export TF_VAR_terraform_state_backup_audited=true

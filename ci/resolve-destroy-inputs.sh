@@ -16,6 +16,12 @@ if ! jq -ceS \
   --arg zero_digest "$zero_digest" '
     select(
     type == "object" and
+    (.configuration as $configuration |
+      $configuration | type == "object" and
+      (.project_id == $project) and
+      (.region | type == "string" and test("^[a-z]+-[a-z]+[0-9]+$")) and
+      (.zone | type == "string" and test("^[a-z]+-[a-z]+[0-9]+-[a-z]$")) and
+      (.zone | startswith($configuration.region + "-"))) and
     (.data_generation | type == "string" and test("^[a-z][a-z0-9-]{0,31}$")) and
     (.docker_compose_sha | type == "string" and test("^[0-9a-f]{40}$") and . != $zero_sha) and
     (.api_image |
