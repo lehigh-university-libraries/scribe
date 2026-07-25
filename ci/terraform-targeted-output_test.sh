@@ -67,7 +67,7 @@ printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{"deployment_inputs":{"actions":["no-op"]}}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh"
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities
 
 if printf '%s\n' '{
   "format_version":"1.2",
@@ -76,7 +76,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted an unrelated infrastructure change." >&2
   exit 1
 fi
@@ -88,7 +88,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a dependency-closure mutation." >&2
   exit 1
 fi
@@ -100,7 +100,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a destructive identity mutation." >&2
   exit 1
 fi
@@ -112,7 +112,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a broad Vault module mutation." >&2
   exit 1
 fi
@@ -124,7 +124,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a lookalike identity address." >&2
   exit 1
 fi
@@ -134,8 +134,148 @@ if printf '%s\n' '{
   "resource_changes":[],
   "resource_drift":[],
   "output_changes":{"deployment_inputs":{"actions":["update"]}}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a recorded output change." >&2
+  exit 1
+fi
+
+printf '%s\n' '{
+  "format_version":"1.2",
+  "resource_changes":[
+    {"address":"vault_gcp_auth_backend.gcp[0]","change":{"actions":["no-op"]}},
+    {"address":"vault_policy.preview_app[0]","change":{"actions":["create"]}},
+    {"address":"vault_gcp_auth_backend_role.preview_app[0]","change":{"actions":["update"]}},
+    {"address":"data.google_project.current","change":{"actions":["read"]}}
+  ],
+  "resource_drift":[],
+  "output_changes":{"deployment_inputs":{"actions":["no-op"]}}
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-preview-runtime
+
+if printf '%s\n' '{
+  "format_version":"1.3",
+  "resource_changes":[
+    {"address":"vault_policy.preview_app[0]","change":{"actions":["no-op"]}},
+    {"address":"vault_gcp_auth_backend_role.preview_app[0]","change":{"actions":["no-op"]}}
+  ],
+  "resource_drift":[],
+  "output_changes":{}
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-preview-runtime 2>/dev/null; then
+  echo "Preview Vault runtime verifier accepted an unknown plan JSON format." >&2
+  exit 1
+fi
+
+if printf '%s\n' '{
+  "format_version":"1.2",
+  "resource_changes":[
+    {
+      "address":"vault_policy.preview_app[0]",
+      "previous_address":"vault_policy.break_glass[0]",
+      "change":{"actions":["no-op"]}
+    },
+    {"address":"vault_gcp_auth_backend_role.preview_app[0]","change":{"actions":["no-op"]}}
+  ],
+  "resource_drift":[],
+  "output_changes":{}
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-preview-runtime 2>/dev/null; then
+  echo "Preview Vault runtime verifier accepted a state move into an allowed address." >&2
+  exit 1
+fi
+
+if printf '%s\n' '{
+  "format_version":"1.2",
+  "resource_changes":[
+    {
+      "address":"vault_policy.preview_app[0]",
+      "generated_config":"resource \"vault_policy\" \"preview_app\" {}",
+      "change":{"actions":["create"],"importing":{"id":"preview"}}
+    },
+    {"address":"vault_gcp_auth_backend_role.preview_app[0]","change":{"actions":["no-op"]}}
+  ],
+  "resource_drift":[],
+  "output_changes":{}
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-preview-runtime 2>/dev/null; then
+  echo "Preview Vault runtime verifier accepted an import into an allowed address." >&2
+  exit 1
+fi
+
+if printf '%s\n' '{
+  "format_version":"1.2",
+  "resource_changes":[
+    {
+      "address":"vault_policy.preview_app[0]",
+      "generated_config":"resource \"vault_policy\" \"preview_app\" {}",
+      "change":{"actions":["create"]}
+    },
+    {"address":"vault_gcp_auth_backend_role.preview_app[0]","change":{"actions":["no-op"]}}
+  ],
+  "resource_drift":[],
+  "output_changes":{}
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-preview-runtime 2>/dev/null; then
+  echo "Preview Vault runtime verifier accepted generated configuration." >&2
+  exit 1
+fi
+
+if printf '%s\n' '{
+  "format_version":"1.2",
+  "resource_changes":[
+    {"address":"vault_policy.preview_app[0]","change":{"actions":["no-op"]}},
+    {"address":"vault_gcp_auth_backend_role.preview_app[0]","change":{"actions":["no-op"]}}
+  ],
+  "resource_drift":[
+    {
+      "address":"vault_policy.unrelated_new[0]",
+      "previous_address":"vault_policy.unrelated_old[0]",
+      "change":{"actions":["no-op"]}
+    }
+  ],
+  "output_changes":{}
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-preview-runtime 2>/dev/null; then
+  echo "Preview Vault runtime verifier accepted an unrelated state move in resource drift." >&2
+  exit 1
+fi
+
+if printf '%s\n' '{
+  "format_version":"1.2",
+  "resource_changes":[
+    {"address":"vault_policy.preview_app[0]","change":{"actions":["no-op"]}}
+  ],
+  "resource_drift":[],
+  "output_changes":{}
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-preview-runtime 2>/dev/null; then
+  echo "Preview Vault runtime verifier accepted a plan missing the runtime role." >&2
+  exit 1
+fi
+
+if printf '%s\n' '{
+  "format_version":"1.2",
+  "resource_changes":[
+    {"address":"vault_gcp_auth_backend.gcp[0]","change":{"actions":["update"]}},
+    {"address":"vault_policy.preview_app[0]","change":{"actions":["no-op"]}},
+    {"address":"vault_gcp_auth_backend_role.preview_app[0]","change":{"actions":["no-op"]}}
+  ],
+  "resource_drift":[],
+  "output_changes":{}
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-preview-runtime 2>/dev/null; then
+  echo "Preview Vault runtime verifier accepted an auth-backend dependency mutation." >&2
+  exit 1
+fi
+
+if printf '%s\n' '{
+  "format_version":"1.2",
+  "resource_changes":[
+    {"address":"vault_policy.preview_app[0]","change":{"actions":["delete"]}},
+    {"address":"vault_gcp_auth_backend_role.preview_app[0]","change":{"actions":["no-op"]}}
+  ],
+  "resource_drift":[],
+  "output_changes":{}
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-preview-runtime 2>/dev/null; then
+  echo "Preview Vault runtime verifier accepted a destructive policy mutation." >&2
+  exit 1
+fi
+
+if printf '%s\n' '{"format_version":"1.2"}' |
+  "$ROOT_DIR/ci/verify-vault-target-plan.sh" unreviewed-scope 2>/dev/null; then
+  echo "Vault target verifier accepted an unknown maintenance scope." >&2
   exit 1
 fi
 

@@ -70,6 +70,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     environment: ${{ inputs.environment_name }}
+    concurrency:
+      group: ${{ inputs.environment_name == 'preview' && 'terraform-preview-dev-shared' || format('terraform-deploy-{0}', inputs.site_name) }}
+      queue: max
+      cancel-in-progress: false
     permissions:
       id-token: write
       contents: read
@@ -255,6 +259,15 @@ jobs:
         run: |
           ./ci/verify-cloud-backups.sh
           echo "TF_VAR_terraform_state_backup_audited=true" >> "$GITHUB_ENV"
+
+      - name: Reconcile shared preview Vault runtime access
+        if: inputs.mode == 'apply' && inputs.pr_number != ''
+        shell: bash
+        env:
+          DEPLOY_BRANCH: ${{ inputs.checkout_ref }}
+          VAULT_BOOTSTRAP_MODE: root-token
+        run: |
+          ./ci/capture-command-log.sh ".github-artifacts/terraform/dev-vault-preview-runtime.log" make tf-dev-vault-preview-runtime BRANCH="$DEPLOY_BRANCH" ACTION=apply
 
       - name: "GAR login"
         if: inputs.mode == 'apply' || inputs.mode == 'plan'
@@ -543,8 +556,8 @@ jobs:
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
-      - name: Capture failed production VM diagnostics
-        if: failure() && inputs.mode == 'apply' && inputs.pr_number == '' && steps.apply.outcome != 'skipped'
+      - name: Capture failed VM diagnostics
+        if: failure() && inputs.mode == 'apply' && (steps.apply.outcome != 'skipped' || steps.apply_preview.outcome != 'skipped')
         continue-on-error: true
         shell: bash
         env:

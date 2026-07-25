@@ -356,6 +356,15 @@ bootstrap_vault_token() {
   local bootstrap_mode
   local first_owner_apply=false
 
+  if [ "${target_set:-}" = "vault-preview-runtime" ] \
+    && [ "$target_workspace" = "$shared_workspace" ] \
+    && [ "$action" = "apply" ] \
+    && ! terraform state list 2>/dev/null | grep -q '^module\.vault\[0\]\.'; then
+    echo "The shared dev Vault owner is absent; preview-runtime maintenance cannot bootstrap it outside its verified two-resource plan." >&2
+    echo "Apply and initialize the complete dev owner workspace before retrying." >&2
+    return 1
+  fi
+
   bootstrap_mode="${VAULT_BOOTSTRAP_MODE:-jwt}"
   case "$bootstrap_mode" in
     root-token)
@@ -512,6 +521,7 @@ fi
 
 terraform_targets=()
 needs_frontend_gar_image=true
+needs_api_image=true
 needs_ocr_images=true
 target_plan_verifier=""
 case "$target_set" in
@@ -520,12 +530,30 @@ case "$target_set" in
   vault-ci-identities)
     needs_frontend_gar_image=false
     needs_ocr_images=false
-    target_plan_verifier="$repo_root/ci/verify-vault-ci-target-plan.sh"
+    target_plan_verifier="$repo_root/ci/verify-vault-target-plan.sh"
     terraform_targets+=(
       "-target=module.vault[0].google_storage_bucket_iam_member.bootstrap_key_reader"
       "-target=module.vault[0].google_kms_crypto_key_iam_member.bootstrap_root_token_decrypter"
       "-target=vault_jwt_auth_backend_role.ci"
       "-target=vault_gcp_auth_backend_role.ci"
+    )
+    ;;
+  vault-preview-runtime)
+    if [ "$environment" != "dev" ]; then
+      echo "The vault-preview-runtime target set is owned only by Terraform workspace dev." >&2
+      exit 1
+    fi
+    if [ "$action" != "plan" ] && [ "$action" != "apply" ]; then
+      echo "The vault-preview-runtime target set supports only plan or apply." >&2
+      exit 1
+    fi
+    needs_api_image=false
+    needs_frontend_gar_image=false
+    needs_ocr_images=false
+    target_plan_verifier="$repo_root/ci/verify-vault-target-plan.sh"
+    terraform_targets+=(
+      "-target=vault_policy.preview_app"
+      "-target=vault_gcp_auth_backend_role.preview_app"
     )
     ;;
   ocr)
@@ -615,6 +643,9 @@ if { [ "$environment" = "prod" ] || [ "$environment" = "preview" ]; } \
 fi
 
 image_tag="${SCRIBE_API_IMAGE:-$fallback_image_tag}"
+if [ "$needs_api_image" != "true" ]; then
+  image_tag="ghcr.io/lehigh-university-libraries/scribe@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+fi
 data_generation="${SCRIBE_DATA_GENERATION:-canonical-v1}"
 frontend_tag="$(sanitize_image_tag "$branch")"
 frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:${frontend_tag}}"
@@ -631,7 +662,8 @@ case "$action" in
     ;;
 esac
 
-if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ]; then
+if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ] \
+  && { [ "$needs_api_image" = "true" ] || [ "$needs_frontend_gar_image" = "true" ] || [ "$needs_ocr_images" = "true" ]; }; then
   require_cmd docker
 fi
 
@@ -645,8 +677,11 @@ if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "n
   frontend_gar_image_tag="$(resolve_frontend_gar_image "$frontend_gar_image_tag" "$action")"
 fi
 
-if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ]; then
+if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ] \
+  && [ "$needs_api_image" = "true" ]; then
   image_tag="$("${repo_root}/ci/resolve-ghcr-image.sh" "$image_tag")"
+fi
+if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ]; then
   BACKUP_AUDIT_SCOPE=state "${repo_root}/ci/verify-cloud-backups.sh"
   export TF_VAR_terraform_state_backup_audited=true
 fi
@@ -822,9 +857,24 @@ case "$action" in
         "$repo_root/ci/verify-production-persistent-disk-plan.sh" <"$apply_plan_json"
       fi
       if [ -n "$target_plan_verifier" ]; then
-        "$target_plan_verifier" <"$apply_plan_json"
+        "$target_plan_verifier" "$target_set" <"$apply_plan_json"
       fi
       terraform apply -auto-approve "$apply_plan_path"
+      if [ "$target_set" = "vault-preview-runtime" ]; then
+        preview_runtime_state="$(terraform state list)"
+        preview_policy_present=false
+        preview_role_present=false
+        grep -Fx 'vault_policy.preview_app[0]' <<<"$preview_runtime_state" >/dev/null &&
+          preview_policy_present=true
+        grep -Fx 'vault_gcp_auth_backend_role.preview_app[0]' <<<"$preview_runtime_state" >/dev/null &&
+          preview_role_present=true
+        printf '[preview-vault-runtime] policy=%s role=%s\n' \
+          "$preview_policy_present" "$preview_role_present"
+        if [ "$preview_policy_present" != "true" ] || [ "$preview_role_present" != "true" ]; then
+          echo "Targeted preview Vault runtime reconciliation did not leave both reviewed state objects present." >&2
+          exit 1
+        fi
+      fi
       rm -f "$apply_plan_path" "$apply_plan_json"
       trap - EXIT
     else

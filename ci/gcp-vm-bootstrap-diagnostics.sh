@@ -115,6 +115,39 @@ render_backend_network() {
     '
 }
 
+render_user_managed_key_summary() {
+  local expected_project="$1" expected_account="$2"
+  jq -er --arg expected_project "$expected_project" --arg expected_account "$expected_account" '
+    def valid_key_name:
+      type == "string" and (
+        split("/") as $parts
+        | ($parts | length) == 6
+          and $parts[0] == "projects"
+          and $parts[1] == $expected_project
+          and $parts[2] == "serviceAccounts"
+          and $parts[3] == $expected_account
+          and $parts[4] == "keys"
+          and ($parts[5] | test("^[A-Za-z0-9_-]+$"))
+      );
+
+    select(type == "array" and length <= 64)
+    | [.[] | select(.keyType == "USER_MANAGED")] as $raw_keys
+    | select(all($raw_keys[];
+        (.name | valid_key_name) and
+        ((.disabled // false) | type == "boolean")
+      ))
+    | [$raw_keys[] | {disabled: (.disabled // false)}] as $keys
+    | select(($keys | length) <= 10)
+    | [
+        ($keys | length),
+        ([$keys[] | select(.disabled == false)] | length),
+        ([$keys[] | select(.disabled == true)] | length)
+      ]
+    | map(tostring)
+    | @tsv
+  '
+}
+
 render_effective_firewall() {
   local expected_rule="$1" expected_network="$2" expected_source_cidr="$3" expected_target_tag="$4"
   jq -er \
@@ -279,7 +312,13 @@ region="${SCRIBE_REGION:-}"
 source_cidr="${TF_VAR_network_ip_cidr_range:-}"
 
 [[ "$project" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || fail "GCLOUD_PROJECT must be a valid project ID"
-[[ "$instance" == scribe ]] || fail "SCRIBE_INSTANCE must identify the production scribe instance"
+if [[ "$instance" == scribe ]]; then
+  workspace_slug=prod
+elif [[ "$instance" =~ ^scribe-pr-([1-9][0-9]{0,9})$ ]]; then
+  workspace_slug="pr-${BASH_REMATCH[1]}"
+else
+  fail "SCRIBE_INSTANCE must identify scribe or one scribe-pr-N preview instance"
+fi
 [[ "$zone" =~ ^[a-z]+-[a-z]+[0-9]+-[a-z]$ ]] || fail "SCRIBE_ZONE must be a valid GCP zone"
 [[ "$region" =~ ^[a-z]+-[a-z]+[0-9]+$ && "$zone" == "$region"-[a-z] ]] ||
   fail "SCRIBE_REGION must match SCRIBE_ZONE"
@@ -302,6 +341,8 @@ trap 'exit 143' TERM
 instance_json="$temp_dir/instance.json"
 backend_job_json="$temp_dir/backend-job.json"
 effective_firewalls_json="$temp_dir/effective-firewalls.json"
+app_keys_json="$temp_dir/app-keys.json"
+internal_keys_json="$temp_dir/internal-keys.json"
 
 printf 'Scribe GCP VM diagnostics (typed control-plane fields only)\n'
 printf '== instance ==\n'
@@ -333,7 +374,7 @@ else
 fi
 
 printf '== backend readiness VPC attachment ==\n'
-backend_job="${instance}-prod-backend-readiness"
+backend_job="${instance}-${workspace_slug}-backend-readiness"
 if [[ -z "$instance_network_record" ]]; then
   printf '[backend-network] query=unavailable identity=unknown egress=unknown interfaces=unknown network=unknown subnetwork=unknown\n'
 elif timeout "$QUERY_TIMEOUT_SECONDS" gcloud run jobs describe "$backend_job" \
@@ -358,6 +399,37 @@ elif timeout "$QUERY_TIMEOUT_SECONDS" gcloud run jobs describe "$backend_job" \
 else
   printf '[backend-network] query=unavailable identity=unknown egress=unknown interfaces=unknown network=unknown subnetwork=unknown\n'
 fi
+
+printf '== managed service-account key capacity ==\n'
+for identity in app internal; do
+  case "$identity" in
+    app)
+      account="${instance}@${project}.iam.gserviceaccount.com"
+      keys_json="$app_keys_json"
+      ;;
+    internal)
+      account="internal-${instance}@${project}.iam.gserviceaccount.com"
+      keys_json="$internal_keys_json"
+      ;;
+  esac
+  if timeout "$QUERY_TIMEOUT_SECONDS" gcloud iam service-accounts keys list \
+      --iam-account="$account" \
+      --project "$project" \
+      --format=json >"$keys_json" 2>/dev/null &&
+    key_summary="$(render_user_managed_key_summary "$project" "$account" <"$keys_json" 2>/dev/null)"; then
+    IFS=$'\t' read -r key_count enabled_key_count disabled_key_count <<<"$key_summary"
+    if ((key_count == 10)); then
+      capacity=exhausted
+    else
+      capacity=available
+    fi
+    printf '[service-account-keys] identity=%s query=ok user_managed=%s enabled=%s disabled=%s capacity=%s\n' \
+      "$identity" "$key_count" "$enabled_key_count" "$disabled_key_count" "$capacity"
+  else
+    printf '[service-account-keys] identity=%s query=unavailable user_managed=unknown enabled=unknown disabled=unknown capacity=unknown\n' \
+      "$identity"
+  fi
+done
 
 printf '== VM effective firewall for backend ingress ==\n'
 expected_firewall="allow-cloud-run-${instance}"

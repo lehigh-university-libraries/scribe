@@ -614,7 +614,7 @@ provider "vault" {
 }
 
 module "scribe" {
-  source = "https://github.com/libops/cloud-compose/archive/7c43f84a7650d56785503deae659fe954d1b6e53.tar.gz//cloud-compose-7c43f84a7650d56785503deae659fe954d1b6e53?archive=tar.gz"
+  source = "https://github.com/libops/cloud-compose/archive/52fec3e92cabcdb69f7f9a1b31733ae1f159c102.tar.gz//cloud-compose-52fec3e92cabcdb69f7f9a1b31733ae1f159c102?archive=tar.gz"
   providers = {
     google = google
   }
@@ -628,7 +628,7 @@ module "scribe" {
     zone           = var.zone
 
     identity = {
-      # cloud-compose 1.7.1 mints and rotates the scribe app SA key into
+      # cloud-compose 1.7.2 mints and rotates the scribe app SA key into
       # secrets/GOOGLE_APPLICATION_CREDENTIALS. The app requires that file to
       # sign its Vault GCP-IAM login JWT (metadata signJwt is blocked on the VM),
       # so managed credentials must stay enabled.

@@ -101,4 +101,74 @@ if rg -q 'secret/data/scribe/\+' terraform/policies/vault/ci.hcl; then
   fail "protected orchestration still has an arbitrary workspace wildcard"
 fi
 
-echo "Preview plans are Vault-control-plane-free and runtime database reads are identity-scoped."
+make_target="$(sed -n '/^tf-dev-vault-preview-runtime:/,/^[^[:space:]].*:/p' Makefile)"
+rg -q 'TF_TARGET_SET="vault-preview-runtime".*deploy-local\.sh dev' <<<"$make_target" ||
+  fail "the local preview Vault runtime entry point does not select the exact shared-dev target set"
+
+target_case="$(sed -n '/^  vault-preview-runtime)/,/^  ocr)/p' terraform/deploy-local.sh)"
+[[ "$(rg -c -- '"-target=' <<<"$target_case")" -eq 2 ]] ||
+  fail "preview Vault runtime reconciliation must have exactly two explicit Terraform targets"
+for target in \
+  '-target=vault_policy.preview_app' \
+  '-target=vault_gcp_auth_backend_role.preview_app'; do
+  rg -Fq -- "\"${target}\"" <<<"$target_case" ||
+    fail "preview Vault runtime reconciliation is missing ${target}"
+done
+rg -q 'environment.*!= "dev"' <<<"$target_case" ||
+  fail "preview Vault runtime reconciliation is not restricted to workspace dev"
+rg -q 'needs_api_image=false' <<<"$target_case" ||
+  fail "preview Vault runtime reconciliation still depends on an unrelated application image"
+rg -q 'verify-vault-target-plan\.sh' <<<"$target_case" ||
+  fail "preview Vault runtime apply does not verify its saved plan"
+rg -q 'preview-runtime maintenance cannot bootstrap it outside its verified two-resource plan' terraform/deploy-local.sh ||
+  fail "preview Vault runtime maintenance can bypass its saved-plan boundary during first-owner bootstrap"
+rg -q '\[preview-vault-runtime\].*policy=%s role=%s' terraform/deploy-local.sh ||
+  fail "preview Vault runtime apply does not emit the redacted state-presence diagnostic"
+
+if rg -q '^  reconcile-preview-vault-runtime:' .github/workflows/terraform-preview.yaml; then
+  fail "preview Vault runtime reconciliation duplicates the trusted deploy job"
+fi
+
+trusted_deploy_job="$(sed -n '/^  deploy:/,$p' .github/workflows/terraform-deploy.yaml)"
+for required in \
+  'environment: \$\{\{ inputs\.environment_name \}\}' \
+  'queue: max' \
+  'cancel-in-progress: false' \
+  'SCRIBE_REGION: \$\{\{ inputs\.region \}\}' \
+  'ref: \$\{\{ inputs\.checkout_ref \}\}' \
+  'WIF_EXPECTED_ENVIRONMENT: \$\{\{ inputs\.environment_name \}\}' \
+  'WIF_IDENTITY_CLASS: deploy' \
+  'run: \./ci/verify-gcp-wif\.sh' \
+  "if: inputs.mode == 'apply' && inputs.pr_number != ''" \
+  'VAULT_BOOTSTRAP_MODE: root-token' \
+  'make tf-dev-vault-preview-runtime BRANCH="[$]DEPLOY_BRANCH" ACTION=apply'; do
+  rg -q "$required" <<<"$trusted_deploy_job" ||
+    fail "trusted deploy job is missing preview Vault control: ${required}"
+done
+rg -Fq "group: \${{ inputs.environment_name == 'preview' && 'terraform-preview-dev-shared' || format('terraform-deploy-{0}', inputs.site_name) }}" <<<"$trusted_deploy_job" ||
+  fail "the entire shared preview reconciliation and deployment path is not serialized"
+
+[[ "$(rg -c '^[[:space:]]*- ' .github/actionlint.yaml)" -eq 1 ]] ||
+  fail "the actionlint compatibility exception is not limited to one error"
+rg -Fq '.github/workflows/terraform-deploy.yaml:' .github/actionlint.yaml ||
+  fail "the actionlint compatibility exception is not scoped to the trusted deploy workflow"
+rg -Fq 'unexpected key "queue" for "concurrency" section' .github/actionlint.yaml ||
+  fail "the actionlint compatibility exception does not match only its unsupported queue syntax"
+
+reconcile_line="$(rg -n 'name: Reconcile shared preview Vault runtime access' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
+vault_login_line="$(rg -n 'name: Login to Vault' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
+preview_apply_line="$(rg -n 'name: Run preview Terraform$' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
+readiness_line="$(rg -n 'name: Verify frontend, backend, and OCR readiness' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
+((reconcile_line < vault_login_line && vault_login_line < preview_apply_line && preview_apply_line < readiness_line)) ||
+  fail "shared preview Vault reconciliation is not inside the locked deploy/readiness critical section"
+
+preview_deploy_call="$(sed -n '/^  deploy:/,/^  destroy:/p' .github/workflows/terraform-preview.yaml)"
+rg -q 'checkout_ref: \$\{\{ needs\.prepare\.outputs\.base_sha \}\}' <<<"$preview_deploy_call" ||
+  fail "credentialed preview deploy does not execute the immutable trusted base"
+rg -q 'region: \$\{\{ needs\.prepare\.outputs\.region \}\}' <<<"$preview_deploy_call" ||
+  fail "shared preview Vault reconciliation does not inherit the validated deployment region"
+if rg -q 'reconcile-preview-vault-runtime' <<<"$preview_deploy_call"; then
+  fail "preview deploy still depends on a separately unlocked reconciliation job"
+fi
+
+echo "Preview plans are Vault-control-plane-free; protected shared-dev reconciliation and runtime database reads are identity-scoped."

@@ -62,6 +62,14 @@ sudo systemctl is-active cloud-compose.service
 Do not publish the complete boot log without reviewing it. Never print `.env`,
 secret-file contents, tokens, or raw provider responses into an issue or chat.
 
+Failed protected production and preview applies upload
+`<workspace>-vm-bootstrap-diagnostics.log` with the Terraform artifacts. That
+file contains only typed instance, Direct VPC, effective-firewall, and
+module-owned service-account key counts. `capacity=exhausted` means an app or
+internal identity has reached GCP's ten user-managed-key limit; it does not
+identify or delete any key. Query failures are reported as `unavailable`
+without persisting raw API errors or key IDs.
+
 ## Verify the managed target
 
 The manifest is the source of truth for the checkout, Compose project, and
