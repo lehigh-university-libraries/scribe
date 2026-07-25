@@ -71,6 +71,7 @@ grep -F "vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || 'us-east5-b'" \
   exit 1
 }
 preview_local_fallback="$(
+  # shellcheck disable=SC2016 # Match the deploy helper's literal preview-mode condition.
   sed -n '/if \[ "${environment:-}" = "preview" \]; then/,/^[[:space:]]*fi$/p' \
     "${ROOT_DIR}/terraform/deploy-local.sh"
 )"
