@@ -270,6 +270,30 @@ response_secret='test-vault-response-do-not-log'
 preview_root_token='test-preview-root-token-do-not-log'
 digest="$(printf 'a%.0s' $(seq 1 64))"
 
+vault_resolution="$(
+  env -u VAULT_TOKEN -u VAULT_ADDR \
+    PATH="$TEST_DIR/bin" \
+    GCLOUD_PROJECT=example-project \
+    SCRIBE_REGION=us-east5 \
+    TF_TEST_PROJECT_ID=example-project \
+    TF_TEST_PROJECT_NUMBER=123456789012 \
+    TF_TEST_VAULT_GSA=vault-server-dev@example-project.iam.gserviceaccount.com \
+    TF_TEST_VAULT_SERVICE_NAME=vault-server-dev \
+    TF_TEST_VAULT_STATUS_URL=https://vault-server-dev-legacy-hash-ue.a.run.app \
+    "$ROOT_DIR/ci/resolve-shared-vault.sh" dev
+)"
+jq -e '
+  . == {
+    vault_addr: "https://vault-server-dev-123456789012.us-east5.run.app",
+    vault_audience: "https://vault-server-dev-legacy-hash-ue.a.run.app",
+    project_number: "123456789012",
+    service_account: "vault-server-dev@example-project.iam.gserviceaccount.com"
+  }
+' <<<"$vault_resolution" >/dev/null || {
+  echo "Shared Vault resolution did not preserve the Terraform-owned JWT audience" >&2
+  exit 1
+}
+
 run_deploy() {
   local mode="$1"
   local stdout_file="$2"

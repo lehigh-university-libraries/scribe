@@ -92,8 +92,10 @@ fi
 
 # Cloud Run assigns both deterministic project-number URLs and stable
 # non-deterministic URLs. Depending on the API/client version, status.url can
-# report either one. Bind Vault tokens and clients to the independently derived
-# deterministic origin after verifying the exact project-scoped service.
+# report either one. Clients use the independently derived deterministic
+# origin after verifying the exact project-scoped service. Google ID tokens
+# must retain the reported origin as their audience because the Terraform-owned
+# Vault JWT role is bound to that exact service URI.
 deterministic_label="${service_name}-${project_number}"
 if [ "${#deterministic_label}" -gt 63 ]; then
   echo "The shared Vault service name is too long for a deterministic origin." >&2
@@ -108,7 +110,7 @@ fi
 
 jq -cn \
   --arg vault_addr "$expected_addr" \
-  --arg vault_audience "$expected_addr" \
+  --arg vault_audience "$reported_addr" \
   --arg project_number "$project_number" \
   --arg service_account "$runtime_gsa" \
   '{

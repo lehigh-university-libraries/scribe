@@ -88,6 +88,10 @@ rg -Fq 'gcloud projects describe "$GCLOUD_PROJECT" --format=json' ci/resolve-sha
   fail "the preview reconciler project number is not resolved from the configured project"
 rg -Fq 'gcloud run services describe "$service_name"' ci/resolve-shared-vault.sh ||
   fail "shared Vault discovery does not use one project-bound service resolver"
+rg -Fq -- '--arg vault_addr "$expected_addr"' ci/resolve-shared-vault.sh ||
+  fail "shared Vault clients do not use the independently derived deterministic address"
+rg -Fq -- '--arg vault_audience "$reported_addr"' ci/resolve-shared-vault.sh ||
+  fail "shared Vault JWT login does not preserve the Terraform-owned service URI audience"
 rg -Fq '"$repo_root/ci/resolve-shared-vault.sh" "$shared_workspace"' terraform/deploy-local.sh ||
   fail "local preview Vault reconciliation bypasses the shared resolver"
 rg -Fq 'export_preview_vault_reconciliation_inputs "$shared_vault_workspace_name"' terraform/deploy-local.sh ||

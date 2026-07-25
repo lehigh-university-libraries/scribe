@@ -346,6 +346,9 @@ permissions. This direct lookup avoids coupling a fresh preview plan to stale
 or partially upgraded root outputs in the owner workspace while still failing
 closed when the shared service is absent. It allows Vault GCP IAM login without
 granting key creation, deletion, or access to another workspace.
+The resolver uses the independently derived project-number URL for requests but
+preserves Cloud Run's validated reported service URI as the Google ID-token
+audience owned by the Terraform-managed Vault JWT role.
 The shared dev Vault pre-creates one `scribe-preview-app` GCP role and an
 identity-templated policy. The verified GCP alias email renders one exact
 preview database read path, so preview Terraform never creates an auth role or
