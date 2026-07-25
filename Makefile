@@ -222,7 +222,7 @@ tf-dev-vault-ci-identities: ## Reconcile only shared dev Vault CI login identiti
 	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
 	TF_TARGET_SET="vault-ci-identities" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
 
-tf-dev-vault-preview-runtime: ## Reconcile only the shared dev preview runtime Vault policy and role. Usage: make tf-dev-vault-preview-runtime [BRANCH=name] ACTION=plan|apply
+tf-dev-vault-preview-runtime: ## Check or reconcile the shared dev preview runtime Vault policy and role. Usage: make tf-dev-vault-preview-runtime [BRANCH=name] ACTION=plan|apply
 	@set -eu; \
 	action="${ACTION}"; \
 	if [ -z "$$action" ]; then action="plan"; fi; \

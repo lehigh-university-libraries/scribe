@@ -77,6 +77,24 @@ rg -q 'data\.google_cloud_run_v2_service\.shared_vault\[0\]\.template\[0\]\.serv
 rg -q 'local\.vault_gsa == local\.vault_expected_gsa' terraform/main.tf ||
   fail "preview Vault discovery does not reject runtime identity drift"
 
+vault_provider="$(
+  sed -n '/^provider "vault" {/,/^}/p' terraform/main.tf
+)"
+rg -q 'address[[:space:]]*=[[:space:]]*local\.vault_url' <<<"$vault_provider" ||
+  fail "the normal Vault provider no longer preserves owner bootstrap and destroy ordering"
+rg -q '^resolve_shared_vault_address\(\)' terraform/deploy-local.sh ||
+  fail "the shared deploy path does not resolve the exact live Vault service"
+rg -Fq 'gcloud projects describe "$GCLOUD_PROJECT" --format=json' ci/resolve-shared-vault.sh ||
+  fail "the preview reconciler project number is not resolved from the configured project"
+rg -Fq 'gcloud run services describe "$service_name"' ci/resolve-shared-vault.sh ||
+  fail "shared Vault discovery does not use one project-bound service resolver"
+rg -Fq '"$repo_root/ci/resolve-shared-vault.sh" "$shared_workspace"' terraform/deploy-local.sh ||
+  fail "local preview Vault reconciliation bypasses the shared resolver"
+rg -Fq 'export_preview_vault_reconciliation_inputs "$shared_vault_workspace_name"' terraform/deploy-local.sh ||
+  fail "the preview reconciler does not receive the exact Vault address and project number"
+rg -Fq 'export VAULT_ADDR GCLOUD_PROJECT_NUMBER' terraform/deploy-local.sh ||
+  fail "the preview reconciler cannot bind its Vault origin to the configured project"
+
 preview_policy="$(sed -n '/^resource "vault_policy" "preview_app" {/,/^resource "vault_token_auth_backend_role"/p' terraform/vault.tf)"
 [[ "$(rg -c '^path ' <<<"$preview_policy")" -eq 1 ]] || fail "preview runtime policy must expose exactly one path"
 rg -q 'secret/data/scribe/previews/\{\{identity\.entity\.aliases\.\$\{vault_gcp_auth_backend\.gcp\[0\]\.accessor\}\.metadata\.service_account_email\}\}/database/app' <<<"$preview_policy" ||
@@ -106,30 +124,30 @@ rg -q 'TF_TARGET_SET="vault-preview-runtime".*deploy-local\.sh dev' <<<"$make_ta
   fail "the local preview Vault runtime entry point does not select the exact shared-dev target set"
 
 target_case="$(sed -n '/^  vault-preview-runtime)/,/^  ocr)/p' terraform/deploy-local.sh)"
-[[ "$(rg -c -- '"-target=' <<<"$target_case")" -eq 2 ]] ||
-  fail "preview Vault runtime reconciliation must have exactly two explicit Terraform targets"
-for target in \
-  '-target=vault_policy.preview_app' \
-  '-target=vault_gcp_auth_backend_role.preview_app'; do
-  rg -Fq -- "\"${target}\"" <<<"$target_case" ||
-    fail "preview Vault runtime reconciliation is missing ${target}"
-done
+if rg -q -- '-target=|verify-vault-target-plan' <<<"$target_case"; then
+  fail "preview Vault runtime reconciliation still refreshes the Terraform owner graph"
+fi
+rg -q 'preview_runtime_reconciler=true' <<<"$target_case" ||
+  fail "preview Vault runtime reconciliation does not select the typed reconciler"
 rg -q 'environment.*!= "dev"' <<<"$target_case" ||
   fail "preview Vault runtime reconciliation is not restricted to workspace dev"
 rg -q 'needs_api_image=false' <<<"$target_case" ||
   fail "preview Vault runtime reconciliation still depends on an unrelated application image"
-rg -q 'verify-vault-target-plan\.sh' <<<"$target_case" ||
-  fail "preview Vault runtime apply does not verify its saved plan"
-rg -q 'preview-runtime maintenance cannot bootstrap it outside its verified two-resource plan' terraform/deploy-local.sh ||
-  fail "preview Vault runtime maintenance can bypass its saved-plan boundary during first-owner bootstrap"
-rg -q '\[preview-vault-runtime\].*policy=%s role=%s' terraform/deploy-local.sh ||
-  fail "preview Vault runtime apply does not emit the redacted state-presence diagnostic"
+rg -q 'preview-runtime maintenance cannot bootstrap it outside its reviewed reconciliation boundary' terraform/deploy-local.sh ||
+  fail "preview Vault runtime maintenance can bootstrap the Vault owner implicitly"
+rg -Fq 'env -u VAULT_TOKEN -u VAULT_ADDR "$repo_root/ci/toolchain-check.sh" --go' terraform/deploy-local.sh ||
+  fail "preview Vault runtime maintenance checks the compiler with the recovered token in its environment"
+rg -Uq 'env -u VAULT_TOKEN -u VAULT_ADDR[[:space:]\\]+\n[[:space:]]*go build -trimpath -o "\$preview_reconciler_binary" \./cmd/vault-preview-runtime' terraform/deploy-local.sh ||
+  fail "preview Vault runtime maintenance builds with the recovered token in the compiler environment"
+rg -q '"\$preview_reconciler_binary" -mode="\$reconcile_mode"' terraform/deploy-local.sh ||
+  fail "preview Vault runtime maintenance does not invoke the typed reconciler"
 
 if rg -q '^  reconcile-preview-vault-runtime:' .github/workflows/terraform-preview.yaml; then
   fail "preview Vault runtime reconciliation duplicates the trusted deploy job"
 fi
 
 trusted_deploy_job="$(sed -n '/^  deploy:/,$p' .github/workflows/terraform-deploy.yaml)"
+# shellcheck disable=SC2016 # Match literal workflow and shell variables.
 for required in \
   'environment: \$\{\{ inputs\.environment_name \}\}' \
   'queue: max' \
@@ -140,6 +158,9 @@ for required in \
   'WIF_IDENTITY_CLASS: deploy' \
   'run: \./ci/verify-gcp-wif\.sh' \
   "if: inputs.mode == 'apply' && inputs.pr_number != ''" \
+  'actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16' \
+  'go-version-file: \.go-version' \
+  '\./ci/resolve-shared-vault\.sh "\$vault_workspace"' \
   'VAULT_BOOTSTRAP_MODE: root-token' \
   'make tf-dev-vault-preview-runtime BRANCH="[$]DEPLOY_BRANCH" ACTION=apply'; do
   rg -q "$required" <<<"$trusted_deploy_job" ||
@@ -155,11 +176,12 @@ rg -Fq '.github/workflows/terraform-deploy.yaml:' .github/actionlint.yaml ||
 rg -Fq 'unexpected key "queue" for "concurrency" section' .github/actionlint.yaml ||
   fail "the actionlint compatibility exception does not match only its unsupported queue syntax"
 
+go_setup_line="$(rg -n 'name: Set up Go for preview Vault reconciliation' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
 reconcile_line="$(rg -n 'name: Reconcile shared preview Vault runtime access' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
 vault_login_line="$(rg -n 'name: Login to Vault' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
 preview_apply_line="$(rg -n 'name: Run preview Terraform$' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
 readiness_line="$(rg -n 'name: Verify frontend, backend, and OCR readiness' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
-((reconcile_line < vault_login_line && vault_login_line < preview_apply_line && preview_apply_line < readiness_line)) ||
+((go_setup_line < reconcile_line && reconcile_line < vault_login_line && vault_login_line < preview_apply_line && preview_apply_line < readiness_line)) ||
   fail "shared preview Vault reconciliation is not inside the locked deploy/readiness critical section"
 
 preview_deploy_call="$(sed -n '/^  deploy:/,/^  destroy:/p' .github/workflows/terraform-preview.yaml)"

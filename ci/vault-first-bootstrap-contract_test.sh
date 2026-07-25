@@ -43,7 +43,8 @@ done
 url_output="$(sed -n '/^output "vault-url" {/,/^}/p' terraform/modules/vault-cloud-run/outputs.tf)"
 printf '%s\n' "$url_output" | grep -Eq 'depends_on[[:space:]]*=[[:space:]]*\[google_cloud_run_v2_job\.vault-init\]' ||
   fail "the Vault URL can be consumed before the initialization job succeeds"
-grep -Eq 'vault_url[[:space:]]*=[[:space:]]*local\.vault_is_owner_workspace[[:space:]]*\?[[:space:]]*module\.vault\[0\]\.vault-url' terraform/main.tf ||
+vault_provider="$(sed -n '/^provider "vault" {/,/^}/p' terraform/main.tf)"
+grep -Eq 'address[[:space:]]*=[[:space:]]*local\.vault_url' <<<"$vault_provider" ||
   fail "the root Vault provider address no longer consumes the gated module output"
 
 # Exercise the real deploy helper with an empty owner state. Fakes reject any
@@ -108,16 +109,16 @@ cat >"$TEST_DIR/bin/gcloud" <<'EOF'
 set -euo pipefail
 [ -s "$TF_BOOTSTRAP_READY" ] || { echo "Vault access preceded the initialized service shell: $*" >&2; exit 93; }
 case "${1:-} ${2:-}" in
+  "projects describe")
+    printf '%s\n' '{"projectId":"example-project","projectNumber":"123456789012"}'
+    ;;
   "run services")
-    # JWT auth is not configured until the full owner apply, forcing the
-    # protected stored-root bootstrap after initialization.
-    if [ -z "${VAULT_TOKEN:-}" ]; then
-      exit 1
-    fi
-    printf 'https://vault.example.test\n'
+    # Service discovery is token-independent. JWT auth is not configured until
+    # the full owner apply, so the later auth-token request forces protected
+    # stored-root recovery after initialization.
+    printf '%s\n' '{"metadata":{"name":"vault-server-prod"},"status":{"url":"https://vault-server-prod-legacy-hash-ue.a.run.app"},"spec":{"template":{"spec":{"serviceAccountName":"vault-server-prod@example-project.iam.gserviceaccount.com"}}}}'
     ;;
   "auth print-access-token")
-    [ "${VAULT_TOKEN:-}" = "test-root-token" ] || exit 96
     printf 'test-admin-access-token\n'
     ;;
   "storage cp")
@@ -164,14 +165,14 @@ set -euo pipefail
 args=" $* "
 [[ "$args" == *" -H X-Vault-Token: test-root-token "* ]] || exit 97
 [[ "$args" == *" -H X-Admin-Token: test-admin-access-token "* ]] || exit 98
-[[ "$args" == *" https://vault.example.test/v1/auth/token/lookup-self "* ]] || exit 99
+[[ "$args" == *" https://vault-server-prod-123456789012.us-east5.run.app/v1/auth/token/lookup-self "* ]] || exit 99
 exit 0
 EOF
 
 for command in terraform gcloud git docker curl; do
   chmod +x "$TEST_DIR/bin/$command"
 done
-for command in bash base64 cat cp dirname grep jq mktemp rm sed awk tail tr; do
+for command in bash base64 cat cp dirname env grep jq mktemp rm sed awk tail tr; do
   ln -s "$(command -v "$command")" "$TEST_DIR/bin/$command"
 done
 
@@ -207,7 +208,7 @@ full_line="$(grep -n '^full-apply-complete$' "$TERRAFORM_LOG" | cut -d: -f1)"
 
 # The narrow preview-runtime path is not an owner bootstrap path. An empty dev
 # owner must fail before the helper can apply the Vault module outside the
-# two-resource saved-plan verifier.
+# reviewed typed reconciliation boundary.
 rm -f "$BOOTSTRAP_READY"
 : >"$TERRAFORM_LOG"
 if PATH="$TEST_DIR/bin" \
@@ -223,7 +224,7 @@ if PATH="$TEST_DIR/bin" \
     >"$TEST_DIR/preview-runtime.out" 2>"$TEST_DIR/preview-runtime.err"; then
   fail "preview-runtime maintenance bootstrapped an empty shared Vault owner"
 fi
-grep -Fq 'preview-runtime maintenance cannot bootstrap it outside its verified two-resource plan' \
+grep -Fq 'preview-runtime maintenance cannot bootstrap it outside its reviewed reconciliation boundary' \
   "$TEST_DIR/preview-runtime.err" ||
   fail "preview-runtime empty-owner refusal was not explicit"
 if grep -Fq -- '-target=module.vault' "$TERRAFORM_LOG"; then

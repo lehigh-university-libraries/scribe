@@ -260,6 +260,13 @@ jobs:
           ./ci/verify-cloud-backups.sh
           echo "TF_VAR_terraform_state_backup_audited=true" >> "$GITHUB_ENV"
 
+      - name: Set up Go for preview Vault reconciliation
+        if: inputs.mode == 'apply' && inputs.pr_number != ''
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+          cache: false
+
       - name: Reconcile shared preview Vault runtime access
         if: inputs.mode == 'apply' && inputs.pr_number != ''
         shell: bash
@@ -346,19 +353,13 @@ jobs:
         shell: bash
         run: |
           if [ "${{ inputs.tf_workspace }}" = "prod" ]; then
-            vault_service="vault-server-prod"
+            vault_workspace="prod"
           else
-            vault_service="vault-server-dev"
+            vault_workspace="dev"
           fi
-          vault_addr="$(gcloud run services describe "$vault_service" --region "$SCRIBE_REGION" --format='value(status.url)')"
-          vault_audience="$(gcloud run services describe "$vault_service" --region "$SCRIBE_REGION" --format='value(uri)')"
-          if [ -z "$vault_addr" ]; then
-            echo "Failed to resolve Vault address for $vault_service" >&2
-            exit 1
-          fi
-          if [ -z "$vault_audience" ]; then
-            vault_audience="$vault_addr"
-          fi
+          vault_resolution="$(./ci/resolve-shared-vault.sh "$vault_workspace")"
+          vault_addr="$(jq -er '.vault_addr' <<<"$vault_resolution")"
+          vault_audience="$(jq -er '.vault_audience' <<<"$vault_resolution")"
           echo "vault_addr=$vault_addr" >> "$GITHUB_OUTPUT"
           echo "vault_audience=$vault_audience" >> "$GITHUB_OUTPUT"
 
