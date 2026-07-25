@@ -44,6 +44,9 @@ only when `VAULT_WORKSPACE=pr-<number>` and the public origin is the matching
 HTTPS `scribe-pr-<number>-*.run.app` service; production and dev fail startup if
 it is enabled. Protected orchestration creates only a random database password
 under `scribe/previews/scribe-pr-<number>@<project>.iam.gserviceaccount.com`.
+The API and worker require that exact service-account namespace and, in preview
+mode, read only its database bootstrap path; they do not request OAuth or
+provider credentials that the preview Vault policy intentionally withholds.
 Pull-request code receives no dev or production
 OAuth, database, or provider credential. Reapply preserves the password, and a
 successful preview destroy recursively removes its Vault namespace.

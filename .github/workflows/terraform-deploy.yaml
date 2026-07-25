@@ -206,7 +206,7 @@ jobs:
           fi
 
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -278,7 +278,7 @@ jobs:
 
       - name: "GAR login"
         if: inputs.mode == 'apply' || inputs.mode == 'plan'
-        uses: "docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee" # v4
+        uses: "docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c" # v4
         with:
           registry: "us-docker.pkg.dev"
           username: "oauth2accesstoken"
@@ -286,7 +286,7 @@ jobs:
 
       - name: "GHCR login"
         if: inputs.mode == 'apply' || inputs.mode == 'plan'
-        uses: "docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee" # v4
+        uses: "docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c" # v4
         with:
           registry: "ghcr.io"
           username: "${{ github.actor }}"
@@ -315,7 +315,7 @@ jobs:
 
       - name: Set up Docker Buildx
         if: inputs.mode == 'apply' && inputs.frontend_gar_image_tag != '' && steps.frontend_ghcr_image.outputs.resolved_image != ''
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       - name: Promote the reviewed frontend digest to GAR
         if: inputs.mode == 'apply' && inputs.frontend_gar_image_tag != '' && steps.frontend_ghcr_image.outputs.resolved_image != ''
@@ -453,7 +453,7 @@ jobs:
 
       - name: Checkout prior production source
         if: inputs.mode == 'apply' && inputs.pr_number == '' && steps.previous.outputs.available == 'true'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ steps.previous.outputs.compose_sha }}
           fetch-depth: 0

@@ -123,10 +123,7 @@ func TestLoadSecretsPreviewModeRequiresOnlyItsDatabaseBootstrap(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/secret/data/scribe/pr-75/openai", "/v1/secret/data/scribe/pr-75/gemini":
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]any{"errors": []string{}})
-		case "/v1/secret/data/scribe/pr-75/database/app":
+		case "/v1/secret/data/scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com/database/app":
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": map[string]string{"password": "preview-db-password"}}})
 		default:
 			t.Fatalf("preview attempted unauthorized Vault path %s", r.URL.Path)
@@ -139,10 +136,10 @@ func TestLoadSecretsPreviewModeRequiresOnlyItsDatabaseBootstrap(t *testing.T) {
 		Vault: VaultConfig{
 			Address: srv.URL, KVMount: "secret", GCPAuthRole: "scribe-app-pr-75", Token: "test-token",
 			Paths: VaultPaths{
-				GoogleOAuth: "scribe/pr-75/google_oauth",
-				OpenAI:      "scribe/pr-75/openai",
-				Gemini:      "scribe/pr-75/gemini",
-				Database:    "scribe/pr-75/database/app",
+				GoogleOAuth: "scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com/google_oauth",
+				OpenAI:      "scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com/openai",
+				Gemini:      "scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com/gemini",
+				Database:    "scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com/database/app",
 			},
 		},
 	}
@@ -150,7 +147,11 @@ func TestLoadSecretsPreviewModeRequiresOnlyItsDatabaseBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSecrets preview: %v", err)
 	}
-	if secrets.DatabasePassword != "preview-db-password" || secrets.GoogleOAuthClientID != "" || secrets.GoogleOAuthClientSecret != "" {
+	if secrets.DatabasePassword != "preview-db-password" ||
+		secrets.GoogleOAuthClientID != "" ||
+		secrets.GoogleOAuthClientSecret != "" ||
+		secrets.OpenAIAPIKey != "" ||
+		secrets.GeminiAPIKey != "" {
 		t.Fatalf("preview secrets = %+v", secrets)
 	}
 }
