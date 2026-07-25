@@ -90,8 +90,8 @@ while IFS=: read -r workflow line_number invocation; do
   esac
 done < <(rg -n --no-heading 'make tf-(dev|prod|preview)' "$ROOT_DIR/.github/workflows" | sed "s#^${ROOT_DIR}/##")
 
-[ "$workflow_calls" -eq 8 ] ||
-  fail "expected all eight GitHub Terraform entry points, found ${workflow_calls}"
+[ "$workflow_calls" -eq 9 ] ||
+  fail "expected all nine GitHub Terraform entry points, found ${workflow_calls}"
 if rg -q -- 'deploy-local\.sh' "$ROOT_DIR/.github/workflows"; then
   fail "a workflow bypasses the shared make-based Terraform entry points"
 fi

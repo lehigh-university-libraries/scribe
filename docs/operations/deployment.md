@@ -469,6 +469,31 @@ Preview workspaces never bootstrap Vault. They consume the already reconciled
 shared `dev` URL, service-account identity, templated runtime role, and isolated
 database-secret namespace.
 
+Every protected preview deploy first checks out the immutable current `main`
+base and runs the same narrow entry point available to an authorized operator:
+
+```bash
+export VAULT_ADMIN_EMAILS='["operator@lehigh.edu"]'
+export VAULT_CI_SERVICE_ACCOUNT_EMAILS='["github@example-project.iam.gserviceaccount.com"]'
+export VAULT_BOOTSTRAP_MODE=root-token
+make tf-dev-vault-preview-runtime BRANCH="$(git rev-parse main)" ACTION=apply
+```
+
+The reusable trusted deploy job holds one shared preview lock from this
+reconciliation through Terraform apply and readiness verification, so another
+preview cannot replace the shared role between reconciliation and use. Pending
+preview deploys queue behind that lock instead of replacing one another. The
+operation targets only
+`vault_policy.preview_app` and `vault_gcp_auth_backend_role.preview_app` in the
+shared `dev` workspace. The CI Vault token intentionally cannot administer
+policies or auth roles, so the protected job uses the existing encrypted
+root-token recovery channel. Before applying, it rejects a saved plan that
+mutates either dependency, any unrelated resource, or a recorded root output.
+Success prints only
+`[preview-vault-runtime] policy=true role=true`; it does not print Vault
+configuration or response bodies. Pull-request code never runs with this
+credential.
+
 ## Persistence generations
 
 `data_generation` is an immutable reviewed deployment input. The current

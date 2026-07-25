@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check test test-backend test-frontend test-browser e2e-smoke backup-restore-smoke verify-cloud-backups-test cloud-snapshot-restore-drill-test mariadb-backup-retention-test preview-deployment-test readiness-fixture-test deployment-status-test reset-dev-db-test ocr-build-tags ocr-matrix-test segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-security-contracts terraform-check terraform-state-normalizer-test terraform-targeted-output-test docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-db reset-dev-db down logs sequelace ocr-matrix ocr-images bootstrap-gcp-identities bootstrap-gcp-identities-test tf-dev tf-dev-vault-ci-identities tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
+.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check test test-backend test-frontend test-browser e2e-smoke backup-restore-smoke verify-cloud-backups-test cloud-snapshot-restore-drill-test mariadb-backup-retention-test preview-deployment-test readiness-fixture-test deployment-status-test reset-dev-db-test ocr-build-tags ocr-matrix-test segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-security-contracts terraform-check terraform-state-normalizer-test terraform-targeted-output-test docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-db reset-dev-db down logs sequelace ocr-matrix ocr-images bootstrap-gcp-identities bootstrap-gcp-identities-test tf-dev tf-dev-vault-ci-identities tf-dev-vault-preview-runtime tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
@@ -221,6 +221,14 @@ tf-dev-vault-ci-identities: ## Reconcile only shared dev Vault CI login identiti
 	branch_arg=""; \
 	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
 	TF_TARGET_SET="vault-ci-identities" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
+
+tf-dev-vault-preview-runtime: ## Reconcile only the shared dev preview runtime Vault policy and role. Usage: make tf-dev-vault-preview-runtime [BRANCH=name] ACTION=plan|apply
+	@set -eu; \
+	action="${ACTION}"; \
+	if [ -z "$$action" ]; then action="plan"; fi; \
+	branch_arg=""; \
+	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
+	TF_TARGET_SET="vault-preview-runtime" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
 
 tf-dev-ocr: ## Reapply only the shared dev OCR helper services. Usage: make tf-dev-ocr [BRANCH=name] ACTION=plan|apply
 	@set -eu; \

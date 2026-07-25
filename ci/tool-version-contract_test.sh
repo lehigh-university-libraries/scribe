@@ -146,6 +146,7 @@ grep -F 'EXPECTED_GOLANGCI_LINT_VERSION="2.12.2"' "$ROOT_DIR/ci/lint.sh" >/dev/n
 grep -F 'shellcheck:v0.11.0@sha256:' "$ROOT_DIR/ci/lint.sh" >/dev/null
 grep -F 'rhysd/actionlint:1.7.12@sha256:' "$ROOT_DIR/ci/lint.sh" >/dev/null
 grep -F 'command -v shellcheck >/dev/null 2>&1 && host_shellcheck_is_pinned; then' "$ROOT_DIR/ci/lint.sh" >/dev/null
+[ "$(grep -Fc -- "-config-file \"\${ACTIONLINT_CONFIG}\"" "$ROOT_DIR/ci/lint.sh")" -eq 2 ]
 grep -F 'golangci/golangci-lint:v2.12.2-alpine@sha256:' "$ROOT_DIR/Makefile" >/dev/null
 grep -F 'EXPECTED_TRIVY_VERSION="0.69.3"' "$ROOT_DIR/ci/dependency-scan.sh" >/dev/null
 grep -F 'aquasec/trivy:0.69.3@sha256:' "$ROOT_DIR/ci/dependency-scan.sh" >/dev/null

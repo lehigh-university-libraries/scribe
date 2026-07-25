@@ -205,4 +205,29 @@ full_line="$(grep -n '^full-apply-complete$' "$TERRAFORM_LOG" | cut -d: -f1)"
   && [ "$target_line" -lt "$plan_line" ] && [ "$plan_line" -lt "$full_line" ] ||
   fail "deploy helper did not complete target/init/root-token/saved-plan/full-apply in order"
 
+# The narrow preview-runtime path is not an owner bootstrap path. An empty dev
+# owner must fail before the helper can apply the Vault module outside the
+# two-resource saved-plan verifier.
+rm -f "$BOOTSTRAP_READY"
+: >"$TERRAFORM_LOG"
+if PATH="$TEST_DIR/bin" \
+  GCLOUD_PROJECT=example-project \
+  TF_STATE_BUCKET=bootstrap-state \
+  TF_TARGET_SET=vault-preview-runtime \
+  BACKUP_AUDIT_FIXTURE_DIR="$TEST_DIR/backups" \
+  VAULT_BOOTSTRAP_MODE=root-token \
+  TF_TEST_LOG="$TERRAFORM_LOG" \
+  TF_BOOTSTRAP_READY="$BOOTSTRAP_READY" \
+  TF_SAVED_PLAN_RECORD="$TEST_DIR/saved-plan-path" \
+  "$ROOT_DIR/terraform/deploy-local.sh" dev apply --branch main \
+    >"$TEST_DIR/preview-runtime.out" 2>"$TEST_DIR/preview-runtime.err"; then
+  fail "preview-runtime maintenance bootstrapped an empty shared Vault owner"
+fi
+grep -Fq 'preview-runtime maintenance cannot bootstrap it outside its verified two-resource plan' \
+  "$TEST_DIR/preview-runtime.err" ||
+  fail "preview-runtime empty-owner refusal was not explicit"
+if grep -Fq -- '-target=module.vault' "$TERRAFORM_LOG"; then
+  fail "preview-runtime maintenance bypassed its verified plan with a module.vault apply"
+fi
+
 echo "Vault first-bootstrap contracts passed."

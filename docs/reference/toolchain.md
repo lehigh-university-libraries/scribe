@@ -28,6 +28,8 @@ gate fails instead of silently running a different release.
 Workflow linting uses the host only when both actionlint and ShellCheck match
 the reviewed versions. Otherwise the actionlint image supplies both pinned
 tools, so embedded workflow scripts receive the same checks locally and in CI.
+Both paths explicitly load `.github/actionlint.yaml`; they do not depend on
+repository metadata being present for configuration discovery.
 
 `make install-shell-tools` installs the reviewed ripgrep and yq releases under
 `.tools/bin` after verifying platform-specific checksums. OCR matrix generation
