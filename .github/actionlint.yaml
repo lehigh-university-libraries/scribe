@@ -1,0 +1,6 @@
+# GitHub supports concurrency.queue, but actionlint v1.7.12 predates it.
+# Remove this exact exception once rhysd/actionlint#661 is released.
+paths:
+  .github/workflows/terraform-deploy.yaml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'

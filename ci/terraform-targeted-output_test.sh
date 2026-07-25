@@ -67,7 +67,7 @@ printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{"deployment_inputs":{"actions":["no-op"]}}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh"
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities
 
 if printf '%s\n' '{
   "format_version":"1.2",
@@ -76,7 +76,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted an unrelated infrastructure change." >&2
   exit 1
 fi
@@ -88,7 +88,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a dependency-closure mutation." >&2
   exit 1
 fi
@@ -100,7 +100,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a destructive identity mutation." >&2
   exit 1
 fi
@@ -112,7 +112,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a broad Vault module mutation." >&2
   exit 1
 fi
@@ -124,7 +124,7 @@ if printf '%s\n' '{
   ],
   "resource_drift":[],
   "output_changes":{}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a lookalike identity address." >&2
   exit 1
 fi
@@ -134,8 +134,14 @@ if printf '%s\n' '{
   "resource_changes":[],
   "resource_drift":[],
   "output_changes":{"deployment_inputs":{"actions":["update"]}}
-}' | "$ROOT_DIR/ci/verify-vault-ci-target-plan.sh" 2>/dev/null; then
+}' | "$ROOT_DIR/ci/verify-vault-target-plan.sh" vault-ci-identities 2>/dev/null; then
   echo "Vault CI plan verifier accepted a recorded output change." >&2
+  exit 1
+fi
+
+if printf '%s\n' '{"format_version":"1.2"}' |
+  "$ROOT_DIR/ci/verify-vault-target-plan.sh" unreviewed-scope 2>/dev/null; then
+  echo "Vault target verifier accepted an unknown maintenance scope." >&2
   exit 1
 fi
 

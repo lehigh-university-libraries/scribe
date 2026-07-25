@@ -210,6 +210,32 @@ shared_vault_root_token_object() {
   printf 'gs://%s-%s-key/root-token.enc' "$GCLOUD_PROJECT" "$(shared_vault_service_name "$workspace")"
 }
 
+resolve_shared_vault_address() {
+  local shared_workspace="$1"
+  local resolution
+
+  resolution="$(
+    env -u VAULT_TOKEN -u VAULT_ADDR \
+      SCRIBE_REGION="$(resolve_terraform_region)" \
+      "$repo_root/ci/resolve-shared-vault.sh" "$shared_workspace" --allow-runtime-identity-drift
+  )" || return 1
+  jq -er '.vault_addr' <<<"$resolution"
+}
+
+export_preview_vault_reconciliation_inputs() {
+  local shared_workspace="$1"
+  local resolution
+
+  resolution="$(
+    env -u VAULT_TOKEN -u VAULT_ADDR \
+      SCRIBE_REGION="$(resolve_terraform_region)" \
+      "$repo_root/ci/resolve-shared-vault.sh" "$shared_workspace"
+  )" || return 1
+  VAULT_ADDR="$(jq -er '.vault_addr' <<<"$resolution")" || return 1
+  GCLOUD_PROJECT_NUMBER="$(jq -er '.project_number' <<<"$resolution")" || return 1
+  export VAULT_ADDR GCLOUD_PROJECT_NUMBER
+}
+
 download_vault_root_token() {
   local shared_workspace="$1"
   local object_path kms_location kms_keyring kms_key tmpdir enc_file decoded_file plain_file
@@ -292,15 +318,9 @@ register_vault_token_mask() {
 login_vault_jwt_token() {
   local shared_workspace="$1"
   local role_prefix="$2"
-  local service_name region vault_addr account role_slug role_name access_token id_token payload response token
+  local vault_addr account role_slug role_name access_token id_token payload response token
 
-  service_name="$(shared_vault_service_name "$shared_workspace")"
-  region="$(resolve_terraform_region)"
-
-  if ! vault_addr="$(gcloud run services describe "$service_name" --region "$region" --format='value(status.url)' 2>/dev/null)"; then
-    return 1
-  fi
-  if [ -z "$vault_addr" ]; then
+  if ! vault_addr="$(resolve_shared_vault_address "$shared_workspace")"; then
     return 1
   fi
 
@@ -355,6 +375,15 @@ bootstrap_vault_token() {
   local shared_workspace="$3"
   local bootstrap_mode
   local first_owner_apply=false
+
+  if [ "${target_set:-}" = "vault-preview-runtime" ] \
+    && [ "$target_workspace" = "$shared_workspace" ] \
+    && [ "$action" = "apply" ] \
+    && ! terraform state list 2>/dev/null | grep -q '^module\.vault\[0\]\.'; then
+    echo "The shared dev Vault owner is absent; preview-runtime maintenance cannot bootstrap it outside its reviewed reconciliation boundary." >&2
+    echo "Apply and initialize the complete dev owner workspace before retrying." >&2
+    return 1
+  fi
 
   bootstrap_mode="${VAULT_BOOTSTRAP_MODE:-jwt}"
   case "$bootstrap_mode" in
@@ -425,31 +454,19 @@ vault_token_ready_once() {
 
 wait_for_vault_token_readiness() {
   local shared_workspace="$1"
-  local service_name region vault_addr access_token
+  local vault_addr access_token
 
   if [ -z "${VAULT_TOKEN:-}" ]; then
     echo "Vault token readiness requires a non-empty Vault token." >&2
     return 1
   fi
 
-  service_name="$(shared_vault_service_name "$shared_workspace")"
-  region="$(resolve_terraform_region)"
-  if ! vault_addr="$(gcloud run services describe "$service_name" \
-    --region "$region" \
-    --format='value(status.url)' 2>/dev/null)"; then
-    echo "Failed to resolve the shared Vault service endpoint." >&2
-    return 1
-  fi
-  vault_addr="$(printf '%s' "$vault_addr" | tr -d '\r\n')"
-  case "$vault_addr" in
-    https://*) ;;
-    *)
-      echo "The shared Vault service did not expose a valid HTTPS endpoint." >&2
-      return 1
-      ;;
-  esac
+  vault_addr="$(resolve_shared_vault_address "$shared_workspace")" || return 1
 
-  if ! access_token="$(gcloud auth print-access-token 2>/dev/null)"; then
+  if ! access_token="$(
+    unset VAULT_TOKEN VAULT_ADDR
+    gcloud auth print-access-token 2>/dev/null
+  )"; then
     echo "Failed to mint the Google access token required by the Vault service." >&2
     return 1
   fi
@@ -512,21 +529,37 @@ fi
 
 terraform_targets=()
 needs_frontend_gar_image=true
+needs_api_image=true
 needs_ocr_images=true
 target_plan_verifier=""
+preview_runtime_reconciler=false
 case "$target_set" in
   "")
     ;;
   vault-ci-identities)
     needs_frontend_gar_image=false
     needs_ocr_images=false
-    target_plan_verifier="$repo_root/ci/verify-vault-ci-target-plan.sh"
+    target_plan_verifier="$repo_root/ci/verify-vault-target-plan.sh"
     terraform_targets+=(
       "-target=module.vault[0].google_storage_bucket_iam_member.bootstrap_key_reader"
       "-target=module.vault[0].google_kms_crypto_key_iam_member.bootstrap_root_token_decrypter"
       "-target=vault_jwt_auth_backend_role.ci"
       "-target=vault_gcp_auth_backend_role.ci"
     )
+    ;;
+  vault-preview-runtime)
+    if [ "$environment" != "dev" ]; then
+      echo "The vault-preview-runtime target set is owned only by Terraform workspace dev." >&2
+      exit 1
+    fi
+    if [ "$action" != "plan" ] && [ "$action" != "apply" ]; then
+      echo "The vault-preview-runtime target set supports only plan or apply." >&2
+      exit 1
+    fi
+    needs_api_image=false
+    needs_frontend_gar_image=false
+    needs_ocr_images=false
+    preview_runtime_reconciler=true
     ;;
   ocr)
     needs_frontend_gar_image=false
@@ -615,6 +648,9 @@ if { [ "$environment" = "prod" ] || [ "$environment" = "preview" ]; } \
 fi
 
 image_tag="${SCRIBE_API_IMAGE:-$fallback_image_tag}"
+if [ "$needs_api_image" != "true" ]; then
+  image_tag="ghcr.io/lehigh-university-libraries/scribe@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+fi
 data_generation="${SCRIBE_DATA_GENERATION:-canonical-v1}"
 frontend_tag="$(sanitize_image_tag "$branch")"
 frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:${frontend_tag}}"
@@ -631,7 +667,8 @@ case "$action" in
     ;;
 esac
 
-if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ]; then
+if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ] \
+  && { [ "$needs_api_image" = "true" ] || [ "$needs_frontend_gar_image" = "true" ] || [ "$needs_ocr_images" = "true" ]; }; then
   require_cmd docker
 fi
 
@@ -645,8 +682,11 @@ if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "n
   frontend_gar_image_tag="$(resolve_frontend_gar_image "$frontend_gar_image_tag" "$action")"
 fi
 
-if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ]; then
+if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ] \
+  && [ "$needs_api_image" = "true" ]; then
   image_tag="$("${repo_root}/ci/resolve-ghcr-image.sh" "$image_tag")"
+fi
+if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ]; then
   BACKUP_AUDIT_SCOPE=state "${repo_root}/ci/verify-cloud-backups.sh"
   export TF_VAR_terraform_state_backup_audited=true
 fi
@@ -799,6 +839,26 @@ if [ "$action" = "plan" ] || [ "$action" = "apply" ]; then
   wait_for_vault_token_readiness "$shared_vault_workspace_name"
 fi
 
+if [ "$preview_runtime_reconciler" = "true" ]; then
+  env -u VAULT_TOKEN -u VAULT_ADDR "$repo_root/ci/toolchain-check.sh" --go
+  preview_reconciler_binary="$(mktemp)"
+  trap 'rm -f "$preview_reconciler_binary"' EXIT
+  (
+    cd "$repo_root"
+    env -u VAULT_TOKEN -u VAULT_ADDR \
+      go build -trimpath -o "$preview_reconciler_binary" ./cmd/vault-preview-runtime
+  )
+  export_preview_vault_reconciliation_inputs "$shared_vault_workspace_name"
+  reconcile_mode="apply"
+  if [ "$action" = "plan" ]; then
+    reconcile_mode="check"
+  fi
+  "$preview_reconciler_binary" -mode="$reconcile_mode"
+  rm -f "$preview_reconciler_binary"
+  trap - EXIT
+  exit 0
+fi
+
 if [ "$action" != "destroy" ]; then
   terraform validate
 fi
@@ -822,7 +882,7 @@ case "$action" in
         "$repo_root/ci/verify-production-persistent-disk-plan.sh" <"$apply_plan_json"
       fi
       if [ -n "$target_plan_verifier" ]; then
-        "$target_plan_verifier" <"$apply_plan_json"
+        "$target_plan_verifier" "$target_set" <"$apply_plan_json"
       fi
       terraform apply -auto-approve "$apply_plan_path"
       rm -f "$apply_plan_path" "$apply_plan_json"

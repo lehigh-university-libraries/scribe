@@ -29,7 +29,7 @@ resource "google_project_service" "control_plane" {
 # applied before any GAR build or app plan, so a clean project has an acyclic
 # bootstrap path: external WIF/state -> foundation -> reviewed images -> app.
 module "cloud_compose" {
-  source = "https://github.com/libops/cloud-compose/archive/7c43f84a7650d56785503deae659fe954d1b6e53.tar.gz//cloud-compose-7c43f84a7650d56785503deae659fe954d1b6e53/modules/gcp-foundation?archive=tar.gz"
+  source = "https://github.com/libops/cloud-compose/archive/52fec3e92cabcdb69f7f9a1b31733ae1f159c102.tar.gz//cloud-compose-52fec3e92cabcdb69f7f9a1b31733ae1f159c102/modules/gcp-foundation?archive=tar.gz"
   providers = {
     google      = google
     google-beta = google-beta

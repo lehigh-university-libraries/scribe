@@ -107,16 +107,22 @@ make tf-preview PR=23 ACTION=refresh
 Targeted owner-workspace plans/applies are available for maintenance:
 
 - `make tf-dev-vault-ci-identities BRANCH=<ref> ACTION=plan|apply`
+- `make tf-dev-vault-preview-runtime BRANCH=<ref> ACTION=plan|apply`
 - `make tf-dev-ocr BRANCH=<ref> ACTION=plan|apply`
 - `make tf-prod-ocr BRANCH=<40-character-sha> ACTION=plan|apply`
 
 Targeted apply is not a substitute for the full plan, apply, attestation, and
 readiness path. Root outputs are lifecycle-recorded by full applies, so a
 targeted recovery keeps the last complete snapshot instead of persisting its
-partial inputs. The Vault CI identity path additionally rejects its saved plan
-if it changes any unrelated resource or recorded output. Shared Vault bootstrap
-and authorized root-token recovery are
-documented in the [deployment guide](../docs/operations/deployment.md#shared-vault-owner-bootstrap-and-recovery).
+partial inputs. The Vault CI-identity path rejects its saved plan if it changes
+any unrelated resource or recorded output. The preview-runtime entry point does
+not target the Terraform owner graph: its typed reconciler first verifies the
+project-bound Vault origin and GCP auth alias/metadata contract, then checks or
+idempotently converges only the exact dev-owned policy and role with typed
+readback. Auth-backend drift remains owner configuration and fails closed
+without mutation. Shared Vault bootstrap and authorized root-token recovery are
+documented in the
+[deployment guide](../docs/operations/deployment.md#shared-vault-owner-bootstrap-and-recovery).
 `ACTION=refresh` cannot be combined with a targeted maintenance entry point.
 It validates and replays every field in the exact recorded `deployment_inputs`
 schema, creates a full-graph saved `terraform plan -refresh-only`, and rejects

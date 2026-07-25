@@ -96,13 +96,13 @@ assert_count 1 'inputs\.tf_workspace \}\}-backend-readiness-diagnostics\.log' .g
 assert_count 1 'inputs\.tf_workspace \}\}-ocr-readiness-diagnostics\.log' .github/workflows/terraform-deploy.yaml
 assert_count 1 'inputs\.tf_workspace \}\}-rollback-backend-readiness-diagnostics\.log' .github/workflows/terraform-deploy.yaml
 assert_count 1 'inputs\.tf_workspace \}\}-rollback-ocr-readiness-diagnostics\.log' .github/workflows/terraform-deploy.yaml
-diagnostics_block="$(sed -n '/name: Capture failed production VM diagnostics/,/name: Roll back failed production rollout/p' .github/workflows/terraform-deploy.yaml)"
-grep -Fq "if: failure() && inputs.mode == 'apply' && inputs.pr_number == '' && steps.apply.outcome != 'skipped'" <<<"$diagnostics_block" ||
-  fail "production VM diagnostics must be failure-only, production-only, and run after any started apply"
+diagnostics_block="$(sed -n '/name: Capture failed VM diagnostics/,/name: Roll back failed production rollout/p' .github/workflows/terraform-deploy.yaml)"
+grep -Fq "if: failure() && inputs.mode == 'apply' && (steps.apply.outcome != 'skipped' || steps.apply_preview.outcome != 'skipped')" <<<"$diagnostics_block" ||
+  fail "VM diagnostics must be failure-only and run after any started production or preview apply"
 grep -Fq 'continue-on-error: true' <<<"$diagnostics_block" ||
-  fail "production VM diagnostics must not mask or block the original deployment failure"
+  fail "VM diagnostics must not mask or block the original deployment failure"
 grep -Fq ".github-artifacts/terraform/\${{ inputs.tf_workspace }}-vm-bootstrap-diagnostics.log" <<<"$diagnostics_block" ||
-  fail "production VM diagnostics must reuse the bounded Terraform log artifact"
+  fail "VM diagnostics must reuse the bounded Terraform log artifact"
 
 for pattern in \
   'https://token.actions.githubusercontent.com' \
