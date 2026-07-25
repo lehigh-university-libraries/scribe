@@ -575,6 +575,16 @@ Persistent Disk. That profile keeps preview disks out of the finite production
 Hyperdisk capacity pool while preserving the same Cloud Compose bootstrap,
 separate data and Docker-volume disks, and teardown path.
 
+Production defaults to `us-east5-b`; pull-request previews use the separate
+`us-east5-c` placement default so preview capacity does not contend with the
+production VM's zone. Set the protected repository variable
+`SCRIBE_PREVIEW_ZONE` to another E2-capable zone in the configured region when
+preview placement must change. Local preview commands use the same `us-east5-c`
+default and accept `SCRIBE_ZONE` as an explicit override. Changing a preview's zone replaces its
+three ephemeral zonal disks. Refresh and destroy always replay the region and
+zone recorded in that workspace's deployment inputs instead of guessing from
+the current default.
+
 The Compose checkout is workspace-stable at
 `/mnt/disks/data/scribe/<workspace>`, even though every deployment fetches,
 detaches to, and verifies a different immutable commit. Do not run `git pull`

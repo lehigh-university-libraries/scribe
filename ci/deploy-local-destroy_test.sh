@@ -145,10 +145,12 @@ run_destroy() {
     GCLOUD_PROJECT=example-project \
     TF_STATE_BUCKET=example-state \
     ALLOWED_IPS='["127.0.0.1/32"]' \
+    SCRIBE_REGION=caller-region1 \
+    SCRIBE_ZONE=caller-region1-a \
     VAULT_TOKEN=test-only-token \
     TF_TEST_COMMAND_LOG="${command_log}" \
     TF_TEST_LOG="${terraform_log}" \
-    TF_TEST_STATE_FILE="${state_file}" \
+    TF_TEST_STATE_FILE="${TF_TEST_STATE_FILE:-$state_file}" \
     TF_TEST_STATE_MODE="${mode}" \
     TF_TEST_WORKSPACE_MODE="${TF_TEST_WORKSPACE_MODE:-existing}" \
     "${ROOT_DIR}/terraform/deploy-local.sh" preview destroy \
@@ -192,6 +194,8 @@ grep -F -- '-var=docker_compose_branch=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 grep -F -- '-var=data_generation=canonical-v1' "${terraform_log}" >/dev/null
 grep -F -- '-var=api_image=ghcr.io/lehigh-university-libraries/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "${terraform_log}" >/dev/null
 grep -F -- '-var=frontend_gar_image=us-docker.pkg.dev/example-project/internal/scribe-frontend@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' "${terraform_log}" >/dev/null
+grep -F -- '-var=region=us-east5' "${terraform_log}" >/dev/null
+grep -F -- '-var=zone=us-east5-b' "${terraform_log}" >/dev/null
 if grep -F -- '-var=frontend_image=' "${terraform_log}" >/dev/null; then
   echo "destroy replayed an unused GHCR frontend image into Terraform" >&2
   exit 1
@@ -214,6 +218,25 @@ for mode in corrupt missing; do
     echo "corrupt state content leaked to stderr" >&2
     exit 1
   fi
+done
+
+for invalid_zone in not-a-zone us-west1-a; do
+  invalid_state="${TEST_DIR}/deployment-inputs-${invalid_zone}.json"
+  jq --arg zone "$invalid_zone" '.configuration.zone = $zone' \
+    "${state_file}" >"${invalid_state}"
+  : >"${terraform_log}"
+  if TF_TEST_STATE_FILE="$invalid_state" run_destroy valid \
+    "${TEST_DIR}/invalid-zone-${invalid_zone}.out" \
+    "${TEST_DIR}/invalid-zone-${invalid_zone}.err"; then
+    echo "destroy unexpectedly accepted invalid recorded zone ${invalid_zone}" >&2
+    exit 1
+  fi
+  if grep -F 'destroy -auto-approve' "${terraform_log}" >/dev/null; then
+    echo "destroy ran with invalid recorded zone ${invalid_zone}" >&2
+    exit 1
+  fi
+  grep -F 'Inspect and recover the remote workspace state before retrying destroy.' \
+    "${TEST_DIR}/invalid-zone-${invalid_zone}.err" >/dev/null
 done
 
 : >"${terraform_log}"
