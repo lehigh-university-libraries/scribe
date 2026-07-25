@@ -469,6 +469,46 @@ Preview workspaces never bootstrap Vault. They consume the already reconciled
 shared `dev` URL, service-account identity, templated runtime role, and isolated
 database-secret namespace.
 
+Every protected preview deploy first checks out the immutable current `main`
+base and runs the same narrow entry point available to an authorized operator:
+
+```bash
+export VAULT_ADMIN_EMAILS='["operator@lehigh.edu"]'
+export VAULT_CI_SERVICE_ACCOUNT_EMAILS='["github@example-project.iam.gserviceaccount.com"]'
+export VAULT_BOOTSTRAP_MODE=root-token
+make tf-dev-vault-preview-runtime BRANCH="$(git rev-parse main)" ACTION=apply
+```
+
+The reusable trusted deploy job holds one shared preview lock from this
+reconciliation through Terraform apply and readiness verification, so another
+preview cannot replace the shared role between reconciliation and use. Pending
+preview deploys queue behind that lock instead of replacing one another. The
+CI Vault token intentionally cannot administer policies or auth roles, so the
+protected job uses the existing encrypted root-token recovery channel. The
+shared Make entry point independently resolves the configured project number
+and the exact live `vault-server-dev` service, verifies its runtime identity,
+and runs a typed Go reconciler instead of refreshing the Terraform owner graph.
+The reconciler binds the Vault origin to that project number and requires the
+live `gcp/` auth backend to retain its `unique_id` alias and exact
+`service_account_email` metadata contract. It renders the verified backend
+accessor into the one-path identity policy, idempotently writes only the exact
+`scribe-preview-app` policy and role endpoints, and reads both back before
+reporting success. Backend configuration drift is reported for the normal dev
+Terraform owner to repair; this narrow operation never mutates it. `ACTION=plan`
+performs the same exact comparison without writing; `ACTION=apply` converges
+policy or role drift. The normal dev Terraform configuration remains the
+declarative owner and retains its initialization and reverse-destroy dependency
+on the Vault module. One shared project-bound resolver also supplies the later
+Vault login and secret steps. Owner maintenance still accepts runtime
+service-account drift at discovery time so the full Terraform graph can repair
+it; preview reconciliation and credential use require the exact expected
+identity.
+The reconciler's sole terminal success diagnostic is
+`[preview-vault-runtime] policy=true role=true`; tokens, configuration values,
+and response bodies are never printed. The surrounding deployment path retains
+its normal redacted progress diagnostics. Pull-request code never runs with
+this credential.
+
 ## Persistence generations
 
 `data_generation` is an immutable reviewed deployment input. The current
