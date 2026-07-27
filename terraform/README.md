@@ -136,16 +136,22 @@ image resolution, pull, or build tooling; remote-state, provider, backup-policy,
 and Vault authentication prerequisites may still be required. Refresh and
 ordinary destroy require an existing selected workspace and never create one.
 Destroy retains its one validated input snapshot across at most three attempts
-so short-lived provider dependency cleanup can converge; it deletes a preview
-workspace only after success. If an interrupted teardown already removed the
-current output, the protected preview workflow's explicit `recover-destroy`
-action can read the newest valid lower-serial, same-lineage output from the
-versioned state object's history. It does not restore or overwrite state and is
-not available for production. When a prior protected destroy already deleted
-the exact preview workspace, the same recovery action accepts that outcome only
-after a successful workspace inventory proves the name is absent, then allows
-the workflow to finish its idempotent Vault/evidence cleanup. Ordinary destroy,
-failed inventory, and a listed-but-unselectable workspace remain fail closed.
+for ordinary failures. An exact preview-only Google-managed
+`serverless-ipv4-*` subnet dependency receives up to 25 attempts, five minutes
+apart, because Cloud Run Direct VPC address release can take two hours; it does
+not authorize deletion of the provider-managed address. Only preview destroy
+receives the extended workflow timeout; other deployment modes keep the
+ordinary bound. A preview workspace is deleted only after destroy succeeds. If
+an interrupted teardown already removed the current output, the protected
+preview workflow's explicit
+`recover-destroy` action can read the newest valid lower-serial, same-lineage
+output from the versioned state object's history. It does not restore or
+overwrite state and is not available for production. When a prior protected
+destroy already deleted the exact preview workspace, the same recovery action
+accepts that outcome only after a successful workspace inventory proves the
+name is absent, then allows the workflow to finish its idempotent Vault/evidence
+cleanup. Ordinary destroy, failed inventory, and a listed-but-unselectable
+workspace remain fail closed.
 For a pre-`deployment_inputs` workspace, `ACTION=normalize-moves` verifies the
 remote-state backup policy and applies only the reviewed transitive Scribe and
 pinned cloud-compose address changes with `terraform state mv`. It does not

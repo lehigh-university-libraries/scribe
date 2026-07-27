@@ -80,14 +80,29 @@ case "${1:-}" in
   destroy)
     case "${TF_TEST_DESTROY_MODE:-success}" in
       success) ;;
-      fail-once|always-fail)
+      fail-once|always-fail|serverless-fail-once|serverless-always-fail|serverless-mixed|serverless-wrong-subnet)
         attempts=0
         if [ -f "${TF_TEST_DESTROY_ATTEMPTS_FILE}" ]; then
           read -r attempts <"${TF_TEST_DESTROY_ATTEMPTS_FILE}" || true
         fi
         attempts=$((attempts + 1))
         printf '%s\n' "$attempts" >"${TF_TEST_DESTROY_ATTEMPTS_FILE}"
-        if [ "${TF_TEST_DESTROY_MODE}" = "always-fail" ] || [ "$attempts" -eq 1 ]; then
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-always-fail" ] \
+          || { [ "${TF_TEST_DESTROY_MODE}" = "serverless-fail-once" ] && [ "$attempts" -eq 1 ]; }; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-pr-75', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-mixed" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-pr-75', resourceInUseByAnotherResource" >&2
+          echo "Error: permission denied while deleting an unrelated resource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-wrong-subnet" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-76': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-pr-76', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "always-fail" ] \
+          || { [ "${TF_TEST_DESTROY_MODE}" = "fail-once" ] && [ "$attempts" -eq 1 ]; }; then
           exit 1
         fi
         ;;
@@ -124,6 +139,7 @@ done
 
 cat >"${TEST_DIR}/bin/sleep" <<'EOF'
 #!/usr/bin/env bash
+printf 'sleep %s\n' "$*" >>"${TF_TEST_SLEEP_LOG}"
 exit 0
 EOF
 chmod +x "${TEST_DIR}/bin/sleep"
@@ -191,6 +207,7 @@ run_destroy() {
     TF_TEST_WORKSPACE_MODE="${TF_TEST_WORKSPACE_MODE:-existing}" \
     TF_TEST_DESTROY_MODE="${TF_TEST_DESTROY_MODE:-success}" \
     TF_TEST_DESTROY_ATTEMPTS_FILE="${TEST_DIR}/destroy-attempts" \
+    TF_TEST_SLEEP_LOG="${TEST_DIR}/sleep.log" \
     SCRIBE_RECOVER_PREVIEW_DESTROY_INPUTS="${SCRIBE_RECOVER_PREVIEW_DESTROY_INPUTS:-false}" \
     "${ROOT_DIR}/terraform/deploy-local.sh" preview destroy \
       --branch bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
@@ -258,6 +275,60 @@ fi
 grep -F 'retrying in 15s with the same state-derived inputs' "${TEST_DIR}/destroy-retry.err" >/dev/null
 grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 
+# Cloud Run Direct VPC teardown can leave a provider-managed address holding
+# the subnet for up to two hours. Only that exact preview diagnostic receives
+# the longer five-minute retry window; it still reuses the one state snapshot.
+rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+: >"${terraform_log}"
+if ! TF_TEST_DESTROY_MODE=serverless-fail-once run_destroy valid \
+  "${TEST_DIR}/destroy-serverless-retry.out" "${TEST_DIR}/destroy-serverless-retry.err"; then
+  echo "Google-managed serverless subnet cleanup delay was not retried" >&2
+  exit 1
+fi
+[ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
+[ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
+grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
+grep -F 'waiting for Google to release its serverless-ipv4 subnet reservation' \
+  "${TEST_DIR}/destroy-serverless-retry.err" >/dev/null
+grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
+
+rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+: >"${terraform_log}"
+if TF_TEST_DESTROY_MODE=serverless-always-fail run_destroy valid \
+  "${TEST_DIR}/destroy-serverless-failed.out" "${TEST_DIR}/destroy-serverless-failed.err"; then
+  echo "Google-managed serverless subnet cleanup delay exceeded its two-hour retry bound" >&2
+  exit 1
+fi
+[ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 25 ]
+[ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
+[ "$(grep -Fxc 'sleep 300' "${TEST_DIR}/sleep.log")" -eq 24 ]
+grep -F 'serverless-ipv4 subnet reservation after 25 bounded attempts over two hours' \
+  "${TEST_DIR}/destroy-serverless-failed.err" >/dev/null
+if grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null; then
+  echo "failed serverless subnet destroy deleted its workspace" >&2
+  exit 1
+fi
+
+for destroy_mode in serverless-mixed serverless-wrong-subnet; do
+  rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+  : >"${terraform_log}"
+  if TF_TEST_DESTROY_MODE="$destroy_mode" run_destroy valid \
+    "${TEST_DIR}/destroy-${destroy_mode}.out" "${TEST_DIR}/destroy-${destroy_mode}.err"; then
+    echo "non-exclusive serverless subnet diagnostic received the extended retry path" >&2
+    exit 1
+  fi
+  [ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 3 ]
+  [ "$(grep -Fxc 'sleep 15' "${TEST_DIR}/sleep.log")" -eq 1 ]
+  [ "$(grep -Fxc 'sleep 30' "${TEST_DIR}/sleep.log")" -eq 1 ]
+  grep -F 'Terraform destroy failed after 3 bounded attempts' \
+    "${TEST_DIR}/destroy-${destroy_mode}.err" >/dev/null
+  if grep -F 'waiting for Google to release' "${TEST_DIR}/destroy-${destroy_mode}.err" >/dev/null \
+    || grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null; then
+    echo "non-exclusive serverless subnet failure used unsafe cleanup behavior" >&2
+    exit 1
+  fi
+done
+
 rm -f "${TEST_DIR}/destroy-attempts"
 : >"${terraform_log}"
 if TF_TEST_DESTROY_MODE=always-fail run_destroy valid \
@@ -272,6 +343,24 @@ if grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null; then
   echo "failed Terraform destroy deleted its workspace" >&2
   exit 1
 fi
+
+deploy_job_header="$(sed -n '/^  deploy:$/,/^    permissions:$/p' "${ROOT_DIR}/.github/workflows/terraform-deploy.yaml")"
+grep -F "timeout-minutes: \${{ inputs.mode == 'destroy' && inputs.environment_name == 'preview' && 180 || 120 }}" \
+  <<<"$deploy_job_header" >/dev/null || {
+  echo "Terraform deploy job timeout does not isolate the extended preview destroy window" >&2
+  exit 1
+}
+serverless_attempt_limit="$(sed -nE 's/^    serverless_destroy_attempt_limit=([0-9]+)$/\1/p' "${ROOT_DIR}/terraform/deploy-local.sh")"
+serverless_delay_seconds="$(sed -nE 's/^    serverless_retry_delay_seconds=([0-9]+)$/\1/p' "${ROOT_DIR}/terraform/deploy-local.sh")"
+[ "$serverless_attempt_limit" -eq 25 ]
+[ "$serverless_delay_seconds" -eq 300 ]
+serverless_wait_seconds=$(((serverless_attempt_limit - 1) * serverless_delay_seconds))
+preview_destroy_timeout_seconds=$((180 * 60))
+[ "$serverless_wait_seconds" -eq 7200 ]
+[ $((preview_destroy_timeout_seconds - serverless_wait_seconds)) -ge 3600 ] || {
+  echo "Terraform deploy job timeout lacks a one-hour execution and cleanup margin" >&2
+  exit 1
+}
 
 # Protected previews are applied from the trusted base branch. A preview made
 # before the dev-only OCR IAM output was added therefore has no such state key,

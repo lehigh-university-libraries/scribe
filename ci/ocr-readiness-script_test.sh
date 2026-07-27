@@ -294,12 +294,14 @@ backend_job_timeout="$(
 )"
 [[ "$backend_job_timeout" =~ ^[1-9][0-9]*$ ]] ||
   fail "the backend Cloud Run job timeout is missing or invalid"
-deploy_timeout_minutes="$(
-  sed -nE 's/^[[:space:]]*timeout-minutes:[[:space:]]*([0-9]+)$/\1/p' \
+deploy_timeout_expression="$(
+  sed -nE 's/^[[:space:]]*timeout-minutes:[[:space:]]*(.+)$/\1/p' \
     "$ROOT_DIR/.github/workflows/terraform-deploy.yaml"
 )"
-[[ "$deploy_timeout_minutes" =~ ^[1-9][0-9]*$ ]] ||
-  fail "the reusable deploy workflow timeout is missing or invalid"
+readonly EXPECTED_DEPLOY_TIMEOUT_EXPRESSION="\${{ inputs.mode == 'destroy' && inputs.environment_name == 'preview' && 180 || 120 }}"
+[[ "$deploy_timeout_expression" == "$EXPECTED_DEPLOY_TIMEOUT_EXPRESSION" ]] ||
+  fail "the reusable deploy workflow does not isolate its extended preview destroy timeout"
+readonly deploy_timeout_minutes=120
 readonly DEPLOY_CONTROL_PLANE_HEADROOM_SECONDS=1800
 minimum_deploy_budget=$((
   2 * (backend_job_timeout + job_timeout) +

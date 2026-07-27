@@ -1004,16 +1004,56 @@ case "$action" in
   destroy)
     destroy_attempt=1
     destroy_attempt_limit=3
-    until terraform destroy -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"; do
-      if [ "$destroy_attempt" -ge "$destroy_attempt_limit" ]; then
-        echo "Terraform destroy failed after ${destroy_attempt_limit} bounded attempts; leaving the workspace in place for operator recovery." >&2
-        exit 1
+    serverless_destroy_attempt_limit=25
+    serverless_retry_delay_seconds=300
+    destroy_diagnostics_file="$(mktemp)"
+    trap 'rm -f "$destroy_diagnostics_file"' EXIT
+    while true; do
+      : >"$destroy_diagnostics_file"
+      if terraform destroy -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}" 2>"$destroy_diagnostics_file"; then
+        cat "$destroy_diagnostics_file" >&2
+        break
       fi
-      retry_delay_seconds=$((destroy_attempt * 15))
-      echo "Terraform destroy attempt ${destroy_attempt}/${destroy_attempt_limit} failed; retrying in ${retry_delay_seconds}s with the same state-derived inputs." >&2
-      sleep "$retry_delay_seconds"
+      cat "$destroy_diagnostics_file" >&2
+      destroy_diagnostics="$(<"$destroy_diagnostics_file")"
+      serverless_subnet_delay=false
+      if [ "$environment" = "preview" ]; then
+        serverless_subnet_delay=true
+        serverless_error_seen=false
+        while IFS= read -r destroy_diagnostic_line; do
+          [[ "$destroy_diagnostic_line" == *'Error:'* ]] || continue
+          serverless_error_seen=true
+          if [[ "$destroy_diagnostic_line" != *resourceInUseByAnotherResource* ]] \
+            || [[ "$destroy_diagnostic_line" != *"/subnetworks/${TF_VAR_name}"* ]] \
+            || [[ "$destroy_diagnostic_line" != *'/addresses/serverless-ipv4-'* ]]; then
+            serverless_subnet_delay=false
+            break
+          fi
+        done <<<"$destroy_diagnostics"
+        if [ "$serverless_error_seen" != "true" ]; then
+          serverless_subnet_delay=false
+        fi
+      fi
+      if [ "$serverless_subnet_delay" = "true" ]; then
+        if [ "$destroy_attempt" -ge "$serverless_destroy_attempt_limit" ]; then
+          echo "Terraform preview destroy still has a Google-managed serverless-ipv4 subnet reservation after ${serverless_destroy_attempt_limit} bounded attempts over two hours; leaving the workspace in place for operator recovery." >&2
+          exit 1
+        fi
+        echo "Terraform preview destroy attempt ${destroy_attempt}/${serverless_destroy_attempt_limit} is waiting for Google to release its serverless-ipv4 subnet reservation; retrying in ${serverless_retry_delay_seconds}s with the same state-derived inputs." >&2
+        sleep "$serverless_retry_delay_seconds"
+      else
+        if [ "$destroy_attempt" -ge "$destroy_attempt_limit" ]; then
+          echo "Terraform destroy failed after ${destroy_attempt_limit} bounded attempts; leaving the workspace in place for operator recovery." >&2
+          exit 1
+        fi
+        retry_delay_seconds=$((destroy_attempt * 15))
+        echo "Terraform destroy attempt ${destroy_attempt}/${destroy_attempt_limit} failed; retrying in ${retry_delay_seconds}s with the same state-derived inputs." >&2
+        sleep "$retry_delay_seconds"
+      fi
       destroy_attempt=$((destroy_attempt + 1))
     done
+    rm -f "$destroy_diagnostics_file"
+    trap - EXIT
     if [ "$environment" = "preview" ]; then
       unset TF_WORKSPACE
       terraform workspace select default

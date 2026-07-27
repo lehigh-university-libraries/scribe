@@ -73,7 +73,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: ${{ inputs.mode == 'destroy' && inputs.environment_name == 'preview' && 180 || 120 }}
     environment: ${{ inputs.environment_name }}
     concurrency:
       group: ${{ inputs.environment_name == 'preview' && 'terraform-preview-dev-shared' || format('terraform-deploy-{0}', inputs.site_name) }}
@@ -702,6 +702,40 @@ jobs:
         run: |
           ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log" make tf-preview PR="$PR_NUMBER" BRANCH="$DEPLOY_BRANCH" ACTION=destroy
 
+      - name: Refresh Vault admin header token for preview teardown
+        id: refresh_vault_access
+        if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/userinfo.email
+          create_credentials_file: false
+
+      - name: Refresh Google ID token for preview teardown
+        id: refresh_vault_id
+        if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: id_token
+          id_token_audience: ${{ steps.vault_addr.outputs.vault_audience }}
+          id_token_include_email: true
+          create_credentials_file: false
+
+      - name: Refresh Vault client token for preview teardown
+        if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
+        shell: bash
+        env:
+          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
+          VAULT_ADMIN_TOKEN: ${{ steps.refresh_vault_access.outputs.access_token }}
+          VAULT_ID_TOKEN: ${{ steps.refresh_vault_id.outputs.id_token }}
+          VAULT_ROLE: ${{ steps.vault_role.outputs.role_name }}
+        run: |
+          bash ./ci/vault-login.sh
+
       - name: Remove preview Vault namespace
         id: destroy_preview_vault
         if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
@@ -709,7 +743,7 @@ jobs:
         env:
           PREVIEW_PREFIX: scribe/previews/${{ inputs.site_name }}@${{ vars.GCLOUD_PROJECT }}.iam.gserviceaccount.com
           VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
-          VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
+          VAULT_ADMIN_TOKEN: ${{ steps.refresh_vault_access.outputs.access_token }}
         run: |
           bash ./ci/preview-vault-secrets.sh delete "$PREVIEW_PREFIX"
 

@@ -78,23 +78,38 @@ exception is state recorded before the dev-only external OCR IAM input existed:
 an absent `dev_external_ocr_impersonators` key is normalized to its historical
 empty default. Explicit null, malformed, or non-empty preview/production values
 still fail closed. Terraform destroy makes at most three bounded attempts with
-the same validated state-derived inputs so short-lived cloud dependency cleanup
-can converge without rereading partially changed state. After that bound, a
-later protected run or operator recovery is required. The workspace is deleted
-only after a successful destroy.
+the same validated state-derived inputs for ordinary failures, so short-lived
+cloud dependency cleanup can converge without rereading partially changed
+state. The exact preview-only Google-managed subnet delay described below gets
+a separate two-hour bound. After either bound, a later protected run or operator
+recovery is required. The workspace is deleted only after a successful destroy.
 
 A preview that uses Cloud Run Direct VPC can fail after its services are gone
 with `resourceInUseByAnotherResource` and an
 `/addresses/serverless-ipv4-...` reservation still holding the preview subnet.
 This is a Google-managed cleanup delay, not permission to edit Terraform state
 or delete the reservation: Google documents a **one-to-two-hour wait** after
-removing the Cloud Run resources before deleting the subnet. Let the protected
-run fail closed, wait that interval, and rerun **Terraform Preview** from
-protected `main`. Use ordinary `destroy` while the current state still has a
-readable `deployment_inputs` output. If ordinary destroy instead reports that
-the output is absent, use `recover-destroy` as described below. Never manually
-delete a `serverless-ipv4-*` reservation. See Google's
-[Direct VPC subnet deletion guidance](https://cloud.google.com/run/docs/configuring/vpc-direct-vpc#cannot-delete-subnet).
+removing the Cloud Run resources before deleting the subnet. When Terraform's
+preview-destroy diagnostic contains both the managed `serverless-ipv4-*`
+address and `resourceInUseByAnotherResource`, the protected job retries every
+five minutes for up to two hours using the same already-validated deployment
+inputs. Every Terraform error in that attempt must identify the current preview
+subnet and managed address; mixed or differently scoped failures retain the
+ordinary bound. The wait retains the shared preview serialization lock and the
+job-scoped deploy identity so no other preview can replace shared runtime
+bindings during a partial teardown. Its preview-only timeout leaves a one-hour
+execution and cleanup margin beyond the two-hour sleep budget; other deploy
+modes retain their shorter timeout. After Terraform succeeds, the workflow
+mints new short-lived Vault proxy, identity, and client tokens before removing
+the preview namespace, rather than reusing credentials created before the wait.
+Other errors retain the ordinary three-attempt bound. If Google still has not
+released the address after the longer bound, let the run fail closed and rerun
+**Terraform Preview** from protected `main` later. Use ordinary `destroy` while
+the current state still has a readable `deployment_inputs` output. If ordinary
+destroy instead reports that the output is absent, use `recover-destroy` as
+described below. Never manually delete a `serverless-ipv4-*` reservation. See
+Google's
+[Direct VPC subnet deletion guidance](https://cloud.google.com/run/docs/configuring/vpc-direct-vpc#ip-address-allocation).
 
 An interrupted or older teardown can remove `deployment_inputs` while leaving
 other resources in the current state. In that narrow case, dispatch **Terraform

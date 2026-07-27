@@ -29,6 +29,44 @@ rg -q '^        id: destroy_preview_vault$' "${DEPLOY_WORKFLOW}" \
   || fail "preview Vault cleanup must have a status-bearing step id"
 rg -q 'DESTROY_PREVIEW_VAULT_OUTCOME=.*steps\.destroy_preview_vault\.outcome' "${DEPLOY_WORKFLOW}" \
   || fail "preview destroy status must include Vault namespace cleanup"
+destroy_steps="$(sed -n '/name: Destroy preview Terraform/,/name: Upload Terraform logs/p' "${DEPLOY_WORKFLOW}")"
+rg -q '^        id: refresh_vault_access$' <<<"${destroy_steps}" \
+  || fail "preview teardown must refresh its expiring Vault proxy token after a long destroy"
+refresh_vault_step="$(sed -n '/name: Refresh Vault admin header token for preview teardown/,/name: Remove preview Vault namespace/p' "${DEPLOY_WORKFLOW}")"
+rg -q 'uses: google-github-actions/auth@[0-9a-f]{40} # v3' <<<"${refresh_vault_step}" \
+  || fail "preview teardown Vault refresh must use the pinned Google auth action"
+rg -q '^          token_format: access_token$' <<<"${refresh_vault_step}" \
+  || fail "preview teardown Vault refresh must mint an access token"
+rg -q '^          access_token_scopes: https://www.googleapis.com/auth/userinfo.email$' \
+  <<<"${refresh_vault_step}" \
+  || fail "preview teardown Vault refresh must retain its narrow proxy scope"
+rg -q '^          create_credentials_file: false$' <<<"${refresh_vault_step}" \
+  || fail "preview teardown Vault refresh must not replace Terraform ADC"
+rg -q '^        id: refresh_vault_id$' <<<"${refresh_vault_step}" \
+  || fail "preview teardown must refresh its expiring Vault identity token after a long destroy"
+rg -q '^          token_format: id_token$' <<<"${refresh_vault_step}" \
+  || fail "preview teardown must mint a fresh Vault identity token"
+rg -q 'id_token_audience: \$\{\{ steps\.vault_addr\.outputs\.vault_audience \}\}' \
+  <<<"${refresh_vault_step}" \
+  || fail "preview teardown Vault identity token must retain the resolved audience"
+rg -q 'VAULT_ADMIN_TOKEN: \$\{\{ steps\.refresh_vault_access\.outputs\.access_token \}\}' \
+  <<<"${refresh_vault_step}" \
+  || fail "preview teardown Vault login must consume the post-destroy proxy token"
+rg -q 'VAULT_ID_TOKEN: \$\{\{ steps\.refresh_vault_id\.outputs\.id_token \}\}' \
+  <<<"${refresh_vault_step}" \
+  || fail "preview teardown Vault login must consume the post-destroy identity token"
+rg -q 'bash ./ci/vault-login\.sh' <<<"${refresh_vault_step}" \
+  || fail "preview teardown must obtain a fresh Vault client token before namespace cleanup"
+rg -q "if: inputs\.mode == 'destroy' && inputs\.pr_number != '' && steps\.destroy_preview\.outcome == 'success'" \
+  <<<"${destroy_steps}" \
+  || fail "preview teardown Vault token refresh must run only after successful destroy"
+rg -q 'VAULT_ADMIN_TOKEN: \$\{\{ steps\.refresh_vault_access\.outputs\.access_token \}\}' \
+  <<<"${destroy_steps}" \
+  || fail "preview Vault cleanup must consume the post-destroy token"
+if rg -q 'VAULT_ADMIN_TOKEN: \$\{\{ steps\.auth_vault_access\.outputs\.access_token \}\}' \
+  <<<"${destroy_steps}"; then
+  fail "preview Vault cleanup reuses the expiring pre-destroy token"
+fi
 
 record_job="$(sed -n '/^  record-preview-deployment:/,/^  preview-comment:/p' "${WORKFLOW}")"
 [ -n "${record_job}" ] || fail "record-preview-deployment job is missing"
