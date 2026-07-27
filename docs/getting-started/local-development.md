@@ -53,6 +53,109 @@ running those services elsewhere. Image API requests go through the Compose
 edge to Triplet; Triplet dereferences immutable originals through Scribe's
 constrained source route, matching production.
 
+## Cloud OCR from local development
+
+`make up-cloud-ocr` runs the frontend, API, worker, database, and Triplet
+locally while the API and worker call private dev Cloud Run segmentation and
+Kraken services. It uses
+`docker-compose.override.cloud-example.yaml`; that override deliberately has no
+local `segmentor` service. Host-side Vite hot reload continues to work with
+`npm --prefix web run dev` after the stack is ready.
+
+This path has two operator-supplied inputs:
+
+1. The exact dev-only Cloud Run origins and the server-owned model endpoint
+   maps. Each authenticated audience must equal the canonical HTTPS origin,
+   without a path or trailing slash.
+2. A keyless Application Default Credentials (ADC) file that impersonates the
+   dev-only `scribe-dev-external` service account. The initiating user or group
+   receives `roles/iam.serviceAccountTokenCreator` on that one account, and the
+   account receives `roles/run.invoker` on dev Kraken/segmentor services only.
+   No downloadable service-account private key is used.
+
+Copy `sample.env` to `.env` if needed, then set these non-secret values using
+the real `https://...run.app` origins supplied by the operator:
+
+```dotenv
+GCLOUD_PROJECT=your-dev-project
+OLLAMA_URL=https://OLLAMA-SERVICE-PROJECT.REGION.run.app
+OLLAMA_AUDIENCE=https://OLLAMA-SERVICE-PROJECT.REGION.run.app
+OLLAMA_MODEL_ENDPOINTS_JSON={"glm-ocr:bf16":{"url":"https://OLLAMA-SERVICE-PROJECT.REGION.run.app","audience":"https://OLLAMA-SERVICE-PROJECT.REGION.run.app"}}
+SEGMENTATION_SERVICE_URL=https://SEGMENTOR-SERVICE-PROJECT.REGION.run.app
+SEGMENTATION_SERVICE_AUDIENCE=https://SEGMENTOR-SERVICE-PROJECT.REGION.run.app
+SEGMENTATION_MODEL_ENDPOINTS_JSON={"kraken":{"url":"https://SEGMENTOR-SERVICE-PROJECT.REGION.run.app","audience":"https://SEGMENTOR-SERVICE-PROJECT.REGION.run.app"}}
+KRAKEN_MODEL_ENDPOINTS_JSON={"catmus-print-fondue-large.mlmodel":{"url":"https://KRAKEN-SERVICE-PROJECT.REGION.run.app","audience":"https://KRAKEN-SERVICE-PROJECT.REGION.run.app"}}
+```
+
+`GCLOUD_PROJECT` must be the project that owns the dev-only
+`scribe-dev-external` identity. Compose supplies that same value to the API and
+worker, and `make up-cloud-ocr` resolves it from the active Compose
+configuration before accepting the ADC. A missing, malformed, mismatched, or
+different-project credential fails before any container starts.
+
+After an operator has reviewed and applied the dev Terraform IAM change, create
+the repository-local ADC file through the browser-backed `gcloud` login:
+
+```bash
+GCLOUD_PROJECT=your-dev-project \
+  scripts/configure-dev-cloud-ocr.sh configure
+make up-cloud-ocr
+```
+
+The helper invokes `gcloud auth application-default login
+--impersonate-service-account=...` in an isolated CLI configuration and installs
+the resulting `impersonated_service_account` ADC at
+`secrets/GOOGLE_APPLICATION_CREDENTIALS` with mode `0600`. It refuses to
+overwrite an existing file and never creates or downloads a service-account
+key. The ADC still contains a user refresh token and is secret material. The
+entire `secrets/` directory is ignored by Git, but that is only a last line of
+defense: never stage, paste, or copy the credential into logs or `.env`.
+
+Both the startup target and Scribe validate the credential before use. They
+accept only the exact `scribe-dev-external` account in the project resolved
+from the active Compose configuration, Google's fixed OAuth/IAM endpoints, an
+`authorized_user` source, no delegation chain, and no private key. Success
+means `docker compose ps` reports the local services healthy and
+`docker compose config --services` does not list `segmentor`.
+
+Neither `make up` nor `make up-cloud-ocr` overwrites an existing
+`docker-compose.override.yaml`. If the local-segmentor override already exists,
+preserve it outside the active Compose filename (the ignored `secrets/`
+directory is suitable) before running the cloud target. The cloud target
+refuses to start while the active override still defines `segmentor`; it never
+silently turns a cloud invocation into the local OCR workflow. It also verifies
+that the API and worker resolve identical `https://...run.app` endpoint maps
+and exact matching audiences before creating or starting containers. Restore
+the desired override explicitly when switching workflows.
+
+The repository's Ollama services are intentionally owned by the production
+workspace and are not included in this dev identity's invoker grant. Ollama-
+backed contexts are therefore unavailable through this dev-only boundary. Do
+not broaden the shared production IAM policy for local development; a future
+dev-owned Ollama service would need an explicit architecture and IAM change.
+The override still requires a syntactically valid Ollama endpoint configuration
+because API and worker configuration stays identical, but this identity cannot
+invoke the production-owned service. Segmentation and Kraken transcription do
+not depend on Ollama.
+
+Rotate or revoke the local ADC through the same helper:
+
+```bash
+GCLOUD_PROJECT=your-dev-project \
+  scripts/configure-dev-cloud-ocr.sh rotate
+GCLOUD_PROJECT=your-dev-project \
+  scripts/configure-dev-cloud-ocr.sh revoke
+```
+
+Rotation obtains and installs a new ADC before revoking the prior one. Until
+`gcloud` reports success, the helper retains the prior ADC as a mode-`0600`
+recovery file beside the current credential. If rotation reports a revocation
+failure, do not delete that file: rerun `rotate` to retry the pending revocation,
+or run `revoke` to revoke both credentials. Revocation removes each local file
+only after `gcloud` reports success. When finished, run `make down` and revoke
+the ADC. A lost or exposed ADC is an incident: stop the stack and revoke it
+immediately rather than merely deleting or replacing the file.
+
 `make docs-build` builds the Zensical site strictly into ignored `site/`;
 `make docs` is an alias. `make docs-serve` starts the live-reload server at
 <http://localhost:8000/>. Both targets build and use the pinned local Zensical

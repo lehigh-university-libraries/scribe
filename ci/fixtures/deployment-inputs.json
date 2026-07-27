@@ -13,6 +13,7 @@
     ],
     "backup_restore_service_account_email": "scribe-backup@scribe-test1.iam.gserviceaccount.com",
     "compose_network_cidr": "172.30.0.0/24",
+    "dev_external_ocr_impersonators": [],
     "iiif_max_manifest_canvases": 500,
     "iiif_max_manifest_import_bytes": 67108864,
     "monitoring_notification_channels": [

@@ -30,6 +30,13 @@ vault_ci_service_account_emails = [
   "github@example-project.iam.gserviceaccount.com",
 ]
 
+# Dev workspace only. These human identities may impersonate the keyless,
+# dev-only scribe-dev-external service account. Leave empty in prod/preview.
+dev_external_ocr_impersonators = [
+  "user:developer@example.edu",
+  "group:scribe-developers@example.edu",
+]
+
 # Production requires at least one full notification-channel resource name.
 monitoring_notification_channels = [
   "projects/your-gcp-project-id/notificationChannels/1234567890",

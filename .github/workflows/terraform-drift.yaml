@@ -108,6 +108,7 @@ jobs:
             echo "ALLOWED_IPS=$(jq -c '.configuration.allowed_ips' <<<"$deployed")"
             echo "ALLOWED_SSH_IPV4=$(jq -c '.configuration.allowed_ssh_ipv4' <<<"$deployed")"
             echo "ALLOWED_SSH_IPV6=$(jq -c '.configuration.allowed_ssh_ipv6' <<<"$deployed")"
+            echo "DEV_EXTERNAL_OCR_IMPERSONATORS=$(jq -c '.configuration.dev_external_ocr_impersonators' <<<"$deployed")"
             echo "VAULT_ADMIN_EMAILS=$(jq -c '.configuration.vault_admin_emails' <<<"$deployed")"
             echo "VAULT_CI_SERVICE_ACCOUNT_EMAILS=$(jq -c '.configuration.vault_ci_service_account_emails' <<<"$deployed")"
             echo "TF_VAR_monitoring_notification_channels=$(jq -c '.configuration.monitoring_notification_channels' <<<"$deployed")"

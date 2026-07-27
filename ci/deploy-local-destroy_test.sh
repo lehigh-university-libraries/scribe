@@ -110,6 +110,7 @@ cat >"${state_file}" <<'EOF'
     "allowed_ssh_ipv6": ["2001:db8::/64"],
     "backup_restore_service_account_email": "backup@example-project.iam.gserviceaccount.com",
     "compose_network_cidr": "172.30.0.0/24",
+    "dev_external_ocr_impersonators": [],
     "iiif_max_manifest_canvases": 500,
     "iiif_max_manifest_import_bytes": 67108864,
     "monitoring_notification_channels": ["projects/example-project/notificationChannels/release-alerts"],
@@ -194,6 +195,7 @@ grep -F -- '-var=docker_compose_branch=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 grep -F -- '-var=data_generation=canonical-v1' "${terraform_log}" >/dev/null
 grep -F -- '-var=api_image=ghcr.io/lehigh-university-libraries/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "${terraform_log}" >/dev/null
 grep -F -- '-var=frontend_gar_image=us-docker.pkg.dev/example-project/internal/scribe-frontend@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' "${terraform_log}" >/dev/null
+grep -F -- '-var=dev_external_ocr_impersonators=[]' "${terraform_log}" >/dev/null
 grep -F -- '-var=region=us-east5' "${terraform_log}" >/dev/null
 grep -F -- '-var=zone=us-east5-b' "${terraform_log}" >/dev/null
 if grep -F -- '-var=frontend_image=' "${terraform_log}" >/dev/null; then

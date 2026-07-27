@@ -20,6 +20,7 @@ Optional environment:
   ALLOWED_IPS         Terraform list(string), e.g. ["203.0.113.10/32"]
   ALLOWED_SSH_IPV4    Terraform list(string), e.g. ["203.0.113.10/32"]
   ALLOWED_SSH_IPV6    Terraform list(string), e.g. ["2001:db8::/64"]
+  DEV_EXTERNAL_OCR_IMPERSONATORS  Dev-only JSON array of explicit user: or group: IAM members allowed to impersonate scribe-dev-external. Must be [] outside dev.
   SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar). When unset, local apply resolves the default tag and auto-builds it if missing.
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. For plan/apply only; refresh and destroy reload the recorded map from Terraform state.
@@ -564,6 +565,9 @@ case "$target_set" in
   ocr)
     needs_frontend_gar_image=false
     terraform_targets+=(
+      "-target=terraform_data.dev_external_ocr_workspace_guard"
+      "-target=google_service_account.dev_external_ocr"
+      "-target=google_service_account_iam_member.dev_external_ocr_token_creator"
       "-target=module.kraken"
       "-target=module.ollama_services"
       "-target=google_artifact_registry_repository_iam_member.cloud_run_reader"
@@ -652,6 +656,7 @@ if [ "$needs_api_image" != "true" ]; then
   image_tag="ghcr.io/lehigh-university-libraries/scribe@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 fi
 data_generation="${SCRIBE_DATA_GENERATION:-canonical-v1}"
+dev_external_ocr_impersonators="${DEV_EXTERNAL_OCR_IMPERSONATORS:-}"
 frontend_tag="$(sanitize_image_tag "$branch")"
 frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:${frontend_tag}}"
 if [ "$needs_frontend_gar_image" != "true" ]; then
@@ -729,6 +734,7 @@ if [ "$action" = "destroy" ] || [ "$action" = "refresh" ]; then
   frontend_gar_image_tag="$(jq -r '.frontend_gar_image' <<<"$stored_deployment_inputs")"
   ocr_images_json="$(jq -c '.ocr_service_images' <<<"$stored_deployment_inputs")"
   data_generation="$(jq -r '.data_generation' <<<"$stored_deployment_inputs")"
+  dev_external_ocr_impersonators="$(jq -c '.configuration.dev_external_ocr_impersonators' <<<"$stored_deployment_inputs")"
   TF_VAR_region="$(jq -r '.configuration.region' <<<"$stored_deployment_inputs")"
   TF_VAR_zone="$(jq -r '.configuration.zone' <<<"$stored_deployment_inputs")"
   SCRIBE_REGION="$TF_VAR_region"
@@ -798,6 +804,21 @@ if [[ ! "$data_generation" =~ ^[a-z][a-z0-9-]{0,31}$ ]]; then
   exit 1
 fi
 
+if [ -n "$dev_external_ocr_impersonators" ]; then
+  if ! jq -e '
+    type == "array" and
+    length == (unique | length) and
+    all(.[]; type == "string" and test("^(user|group):[^@[:space:]]+@[^@[:space:]]+$"))
+  ' <<<"$dev_external_ocr_impersonators" >/dev/null; then
+    echo "DEV_EXTERNAL_OCR_IMPERSONATORS must be a JSON array of unique user: or group: email IAM members." >&2
+    exit 1
+  fi
+  if [ "$environment" != "dev" ] && [ "$(jq 'length' <<<"$dev_external_ocr_impersonators")" -ne 0 ]; then
+    echo "DEV_EXTERNAL_OCR_IMPERSONATORS must be empty outside the dev Terraform workspace." >&2
+    exit 1
+  fi
+fi
+
 terraform_vars=(
   "-var=project_id=${GCLOUD_PROJECT}"
   "-var=terraform_state_bucket=${TF_STATE_BUCKET}"
@@ -811,6 +832,10 @@ terraform_vars=(
   "-var=region=$(resolve_terraform_region)"
   "-var=zone=$(resolve_terraform_zone)"
 )
+
+if [ -n "$dev_external_ocr_impersonators" ]; then
+  terraform_vars+=("-var=dev_external_ocr_impersonators=${dev_external_ocr_impersonators}")
+fi
 
 if [ -n "${ALLOWED_IPS:-}" ]; then
   terraform_vars+=("-var=allowed_ips=${ALLOWED_IPS}")

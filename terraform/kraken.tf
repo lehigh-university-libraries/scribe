@@ -16,10 +16,13 @@ locals {
     null,
   )
 
-  ocr_invoker_gsas = [
-    local.scribe_vm_gsa_email,
-    local.scribe_app_gsa_email,
-  ]
+  ocr_invoker_gsas = concat(
+    [
+      local.scribe_vm_gsa_email,
+      local.scribe_app_gsa_email,
+    ],
+    google_service_account.dev_external_ocr[*].email,
+  )
 
   ocr_readiness_services = toset(compact([
     try(local.ocr_services["segmentor"].service_name, ""),
@@ -163,6 +166,7 @@ resource "google_cloud_run_v2_service_iam_member" "kraken_invoker" {
   member   = "serviceAccount:${each.value.gsa}"
 
   depends_on = [
+    google_service_account.dev_external_ocr,
     module.kraken,
     module.scribe,
   ]

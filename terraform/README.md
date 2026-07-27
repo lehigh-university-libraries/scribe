@@ -162,6 +162,8 @@ examples are in [variables.tf](variables.tf) and
 - `SCRIBE_OCR_IMAGE_TAG`
 - `SCRIBE_REGION` and `SCRIBE_ZONE`
 - `ALLOWED_IPS`, `ALLOWED_SSH_IPV4`, and `ALLOWED_SSH_IPV6`
+- `DEV_EXTERNAL_OCR_IMPERSONATORS`, a JSON array of explicit `user:` or
+  `group:` IAM members accepted only by the `dev` workspace
 - `VAULT_ADMIN_EMAILS` and `VAULT_CI_SERVICE_ACCOUNT_EMAILS`
 - the explicitly authorized `VAULT_BOOTSTRAP_MODE` and stored-root recovery
   location overrides described in the deployment guide
@@ -169,6 +171,20 @@ examples are in [variables.tf](variables.tf) and
 Keep `data_generation = "canonical-v1"` unless an intentional greenfield
 cutover is isolating MariaDB, blobs, Triplet, cache, and queued work together.
 Production and preview source refs and runtime images must be immutable.
+
+### Dev external OCR identity
+
+Only workspace `dev` creates `scribe-dev-external`. Populate
+`dev_external_ocr_impersonators` with reviewed `user:` or `group:` members;
+Terraform grants those principals only `roles/iam.serviceAccountTokenCreator`
+on that one service account. The account itself receives Cloud Run invoker on
+the dev-owned Kraken and segmentor services, with no project-wide role and no
+downloadable key.
+
+Ollama is deliberately excluded. This repository's Ollama services are owned
+by workspace `prod`, even when dev consumes them, so granting this identity
+there would cross its dev-only boundary. Review the dev IAM plan explicitly
+before applying any impersonator change.
 
 ### Image contract
 

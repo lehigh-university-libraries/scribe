@@ -82,6 +82,10 @@ require_pattern 'sha256: "77a638a83c9e535620827a09e410ed36391e9e8e8126d5796a0f15
 require_pattern 'https://download\.pytorch\.org/whl/cpu' config/segmentor-requirements.in
 forbid_pattern 'nvidia-cuda|whl/cu[0-9]' Dockerfile.segmentor
 bash ci/ocr-local-defaults-contract_test.sh
+bash ci/cloud-ocr-compose-preflight_test.sh
+bash ci/run-ci-network-contract_test.sh
+bash ci/configure-dev-cloud-ocr_test.sh
+bash ci/dev-external-ocr-iam-contract_test.sh
 bash ci/segmentor-lock-check.sh
 bash ci/tool-version-contract_test.sh
 bash ci/toolchain-check_test.sh

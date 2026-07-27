@@ -19,6 +19,7 @@ locals {
         allowed_ssh_ipv6                            = var.allowed_ssh_ipv6
         backup_restore_service_account_email        = var.backup_restore_service_account_email
         compose_network_cidr                        = var.compose_network_cidr
+        dev_external_ocr_impersonators              = var.dev_external_ocr_impersonators
         iiif_max_manifest_canvases                  = var.iiif_max_manifest_canvases
         iiif_max_manifest_import_bytes              = var.iiif_max_manifest_import_bytes
         monitoring_notification_channels            = var.monitoring_notification_channels

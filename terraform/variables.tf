@@ -246,6 +246,20 @@ variable "vault_ci_service_account_emails" {
   default     = []
 }
 
+variable "dev_external_ocr_impersonators" {
+  description = "Explicit user: or group: IAM members allowed to mint short-lived credentials for the dev-only external OCR service account. Must be empty outside workspace dev."
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for member in var.dev_external_ocr_impersonators :
+      can(regex("^(user|group):[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,63}$", member))
+    ])
+    error_message = "dev_external_ocr_impersonators entries must be explicit user: or group: email IAM members."
+  }
+}
+
 variable "ocr_service_images" {
   description = "Map of OCR service key (e.g. \"segmentor\", \"kraken-ocr/<model>\", \"ollama/<model>\") to a fully digest-pinned GAR image reference. Populated by the build-ocr workflow from config/ocr.yaml."
   type        = map(string)

@@ -91,6 +91,7 @@ jobs:
       SCRIBE_OCR_IMAGES_JSON: ${{ inputs.ocr_images_json }}
       SCRIBE_REGION: ${{ inputs.region }}
       SCRIBE_ZONE: ${{ inputs.zone }}
+      DEV_EXTERNAL_OCR_IMPERSONATORS: '[]'
       VAULT_ADMIN_EMAILS: ${{ vars.VAULT_ADMIN_EMAILS }}
       VAULT_CI_SERVICE_ACCOUNT_EMAILS: '["${{ secrets.GSA }}"]'
       TF_VAR_transcription_max_active_jobs_per_workspace: ${{ vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE != '' && vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE || '1000' }}
@@ -591,6 +592,7 @@ jobs:
           ALLOWED_IPS="$(jq -c '.configuration.allowed_ips' <<<"$previous")"
           ALLOWED_SSH_IPV4="$(jq -c '.configuration.allowed_ssh_ipv4' <<<"$previous")"
           ALLOWED_SSH_IPV6="$(jq -c '.configuration.allowed_ssh_ipv6' <<<"$previous")"
+          DEV_EXTERNAL_OCR_IMPERSONATORS="$(jq -c '.configuration.dev_external_ocr_impersonators' <<<"$previous")"
           VAULT_ADMIN_EMAILS="$(jq -c '.configuration.vault_admin_emails' <<<"$previous")"
           VAULT_CI_SERVICE_ACCOUNT_EMAILS="$(jq -c '.configuration.vault_ci_service_account_emails' <<<"$previous")"
           TF_VAR_monitoring_notification_channels="$(jq -c '.configuration.monitoring_notification_channels' <<<"$previous")"
@@ -611,6 +613,7 @@ jobs:
           TF_VAR_iiif_max_manifest_import_bytes="$(jq -r '.configuration.iiif_max_manifest_import_bytes' <<<"$previous")"
           export DEPLOY_BRANCH SCRIBE_API_IMAGE SCRIBE_DATA_GENERATION SCRIBE_FRONTEND_GAR_IMAGE
           export SCRIBE_OCR_IMAGES_JSON SCRIBE_REGION SCRIBE_ZONE ALLOWED_IPS ALLOWED_SSH_IPV4 ALLOWED_SSH_IPV6
+          export DEV_EXTERNAL_OCR_IMPERSONATORS
           export VAULT_ADMIN_EMAILS VAULT_CI_SERVICE_ACCOUNT_EMAILS TF_VAR_monitoring_notification_channels
           export TF_VAR_backup_restore_service_account_email TF_VAR_network_ip_cidr_range TF_VAR_compose_network_cidr
           export TF_VAR_transcription_max_active_jobs_per_workspace TF_VAR_storage_max_bytes_per_workspace

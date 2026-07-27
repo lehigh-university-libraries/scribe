@@ -9,7 +9,11 @@ if [ "$#" -gt 1 ]; then
   exit 2
 fi
 
-if ! normalized="$({
+# External OCR impersonators are created only by the Terraform dev workspace.
+# Production rollback must replay an empty list so immutable historical inputs
+# can never introduce human impersonation grants outside that dev boundary.
+set +e
+normalized="$(
   jq -ceS '
     def exact_keys($expected): (keys | sort) == ($expected | sort);
     def integer_at_least($minimum): type == "number" and . == floor and . >= $minimum;
@@ -24,6 +28,13 @@ if ! normalized="$({
     | .configuration as $configuration
     | ($configuration.project_id // "") as $project
     | if
+        (($configuration | type) == "object") and
+        ($configuration | has("dev_external_ocr_impersonators")) and
+        (($configuration.dev_external_ocr_impersonators |
+          type == "array" and length == 0) | not)
+      then
+        halt_error(20)
+      elif
         (type == "object") and
         exact_keys([
           "api_image",
@@ -39,6 +50,7 @@ if ! normalized="$({
           "allowed_ssh_ipv6",
           "backup_restore_service_account_email",
           "compose_network_cidr",
+          "dev_external_ocr_impersonators",
           "iiif_max_manifest_canvases",
           "iiif_max_manifest_import_bytes",
           "monitoring_notification_channels",
@@ -72,6 +84,7 @@ if ! normalized="$({
         ($configuration.allowed_ssh_ipv4 | type == "array" and all(.[]; ipv4_cidr)) and
         ($configuration.allowed_ssh_ipv6 | type == "array" and all(.[]; cidr and contains(":"))) and
         ($configuration.backup_restore_service_account_email | service_account_email) and
+        ($configuration.dev_external_ocr_impersonators | type == "array" and length == 0) and
         ($configuration.network_ip_cidr_range | ipv4_cidr) and
         ($configuration.compose_network_cidr | ipv4_cidr) and
         ($configuration.region | type == "string" and test("^[a-z]+-[a-z]+[0-9]+$")) and
@@ -98,10 +111,21 @@ if ! normalized="$({
       else
         error("invalid immutable deployment input schema")
       end
-  ' "$input_path"
-} 2>/dev/null)"; then
-  echo "Deployment inputs are missing, malformed, incomplete, or not immutable." >&2
-  exit 1
-fi
+  ' "$input_path" 2>/dev/null
+)"
+resolve_status=$?
+set -e
+
+case "${resolve_status}" in
+  0) ;;
+  20)
+    echo "Deployment inputs rejected: dev_external_ocr_impersonators must be empty because external OCR impersonation is restricted to the dev workspace." >&2
+    exit 1
+    ;;
+  *)
+    echo "Deployment inputs are missing, malformed, incomplete, or not immutable." >&2
+    exit 1
+    ;;
+esac
 
 printf '%s\n' "$normalized"

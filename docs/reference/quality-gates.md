@@ -37,7 +37,9 @@ dependency and secret scan as the hosted workflow. Runtime image scanning is
 currently deferred and does not gate CI, deployment, or release. Individual
 component commands remain useful for iteration, but a manually checked box is
 not a substitute for a passing required job. The orchestrator creates a unique
-Compose project, waits
+Compose project from the reviewed base file (never a developer's local
+override), atomically reserves the first available private `/24` from its
+bounded CI address pools, waits
 for its MariaDB health check before backend tests, and removes its containers and
 volumes on success, failure, or interruption. It does not reuse or stop the
 normal development stack, so integration tests cannot silently skip on a clean
