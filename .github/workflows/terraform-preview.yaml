@@ -16,7 +16,7 @@ on:
         required: true
         type: choice
         default: deploy
-        options: [deploy, destroy]
+        options: [deploy, destroy, recover-destroy]
   pull_request_target:
     types: [opened, reopened, synchronize, edited, closed]
 
@@ -43,6 +43,7 @@ jobs:
       image_tag: ${{ steps.resolve.outputs.image_tag }}
       mode: ${{ steps.resolve.outputs.mode }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
+      recover_destroy_inputs: ${{ steps.resolve.outputs.recover_destroy_inputs }}
       region: ${{ steps.resolve.outputs.region }}
       tag: ${{ steps.resolve.outputs.tag }}
       zone: ${{ steps.resolve.outputs.zone }}
@@ -257,6 +258,7 @@ jobs:
       docker_compose_branch: ${{ needs.prepare.outputs.base_sha }}
       checkout_ref: ${{ needs.prepare.outputs.base_sha }}
       pr_number: ${{ needs.prepare.outputs.pr_number }}
+      recover_preview_destroy_inputs: ${{ needs.prepare.outputs.recover_destroy_inputs == 'true' }}
       region: ${{ needs.prepare.outputs.region }}
       zone: ${{ needs.prepare.outputs.zone }}
 

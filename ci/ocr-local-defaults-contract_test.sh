@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OCR_CONFIG="${ROOT_DIR}/config/ocr.yaml"
 SEGMENTOR_DOCKERFILE="${ROOT_DIR}/Dockerfile.segmentor"
 COMPOSE_OVERRIDE="${ROOT_DIR}/docker-compose.override-example.yaml"
+CLOUD_COMPOSE_OVERRIDE="${ROOT_DIR}/docker-compose.override.cloud-example.yaml"
 
 fail() {
   echo "OCR local defaults contract failed: $*" >&2
@@ -131,5 +132,49 @@ jq -e --arg model "${default_transcription_model}" '
   .[$model] == {"url": "http://segmentor:8080", "audience": ""}
 ' <<<"${api_transcription_endpoints}" >/dev/null ||
   fail "local transcription endpoint map must expose exactly the configured default"
+
+[ -f "${CLOUD_COMPOSE_OVERRIDE}" ] ||
+  fail "cloud OCR Compose override is missing"
+[ "$(yq -r '.services.segmentor == null' "${CLOUD_COMPOSE_OVERRIDE}")" = "true" ] ||
+  fail "cloud OCR Compose override must not define a local segmentor service"
+
+for service in api worker; do
+  [ "$(SERVICE="${service}" yq -r '.services[strenv(SERVICE)].depends_on.segmentor == null' "${CLOUD_COMPOSE_OVERRIDE}")" = "true" ] ||
+    fail "cloud OCR ${service} must not depend on the local segmentor"
+done
+
+api_cloud_project="$(yq -r '.services.api.environment.GCLOUD_PROJECT // ""' "${CLOUD_COMPOSE_OVERRIDE}")"
+worker_cloud_project="$(yq -r '.services.worker.environment.GCLOUD_PROJECT // ""' "${CLOUD_COMPOSE_OVERRIDE}")"
+assert_equal "cloud OCR API/worker GCP project" "${api_cloud_project}" "${worker_cloud_project}"
+project_required_prefix="\${GCLOUD_PROJECT:?"
+[[ "${api_cloud_project}" == "${project_required_prefix}"* ]] ||
+  fail "cloud OCR GCLOUD_PROJECT must be explicitly supplied instead of accepting an unbound credential"
+
+for key in \
+  OLLAMA_URL \
+  OLLAMA_AUDIENCE \
+  OLLAMA_MODEL_ENDPOINTS_JSON \
+  SEGMENTATION_SERVICE_URL \
+  SEGMENTATION_SERVICE_AUDIENCE \
+  SEGMENTATION_MODEL_ENDPOINTS_JSON \
+  KRAKEN_MODEL_ENDPOINTS_JSON; do
+  api_value="$(KEY="${key}" yq -r '.services.api.environment[strenv(KEY)] // ""' "${CLOUD_COMPOSE_OVERRIDE}")"
+  worker_value="$(KEY="${key}" yq -r '.services.worker.environment[strenv(KEY)] // ""' "${CLOUD_COMPOSE_OVERRIDE}")"
+  assert_equal "cloud OCR API/worker ${key}" "${api_value}" "${worker_value}"
+  required_prefix="\${${key}:?"
+  [[ "${api_value}" == "${required_prefix}"* ]] ||
+    fail "cloud OCR ${key} must be explicitly supplied instead of falling back to a local endpoint"
+done
+
+rg -Fq 'up-cloud-ocr: doctor ##' "${ROOT_DIR}/Makefile" ||
+  fail "Makefile does not expose the cloud OCR startup target"
+rg -Fq 'test -f docker-compose.override.yaml || cp docker-compose.override.cloud-example.yaml docker-compose.override.yaml' "${ROOT_DIR}/Makefile" ||
+  fail "cloud OCR startup does not preserve an existing local override"
+rg -Fq 'cloud_ocr_project="$$(bash ./ci/cloud-ocr-compose-preflight.sh --print-project)"' "${ROOT_DIR}/Makefile" ||
+  fail "cloud OCR startup does not resolve the exact project from its active override"
+rg -Fq 'secrets/GOOGLE_APPLICATION_CREDENTIALS "$$cloud_ocr_project"' "${ROOT_DIR}/Makefile" ||
+  fail "cloud OCR startup does not bind the impersonation ADC to its resolved project"
+rg -Fq 'has("segmentor") | not' "${ROOT_DIR}/ci/cloud-ocr-compose-preflight.sh" ||
+  fail "cloud OCR preflight does not refuse an active local-segmentor override"
 
 echo "OCR local defaults remain aligned."

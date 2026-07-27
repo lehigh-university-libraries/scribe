@@ -9,7 +9,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +20,8 @@ import (
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/auth/credentials"
 	"cloud.google.com/go/auth/credentials/idtoken"
+	"cloud.google.com/go/auth/credentials/impersonate"
+	"cloud.google.com/go/auth/httptransport"
 	"github.com/lehigh-university-libraries/htr/pkg/auth/gcpidtoken"
 	"github.com/lehigh-university-libraries/htr/pkg/httpclient"
 )
@@ -25,6 +29,8 @@ import (
 const (
 	credentialsEnvironment = "GOOGLE_APPLICATION_CREDENTIALS"
 	googleTokenEndpoint    = "https://oauth2.googleapis.com/token"
+	googleIAMHost          = "iamcredentials.googleapis.com"
+	cloudPlatformScope     = "https://www.googleapis.com/auth/cloud-platform"
 	validationAudience     = "https://scribe.invalid"
 	defaultTimeout         = 10 * time.Second
 	defaultMaxAudiences    = 128
@@ -44,6 +50,7 @@ var (
 	ErrTokenUnavailable = errors.New("google identity token unavailable")
 	errResponseTooLarge = errors.New("google identity response too large")
 	silentSDKLogger     = slog.New(slog.NewTextHandler(io.Discard, nil))
+	serviceAccountEmail = regexp.MustCompile(`^[a-z][a-z0-9-]{4,29}@[a-z][a-z0-9-]{4,61}\.iam\.gserviceaccount\.com$`)
 )
 
 // Options configures a Source. An empty CredentialsFile selects the bounded
@@ -58,7 +65,7 @@ type Options struct {
 }
 
 // Source caches one Google token provider for each exact audience. A source
-// uses either the configured service-account file or metadata, never both.
+// uses either one validated configured credential file or metadata, never both.
 type Source struct {
 	metadata     *gcpidtoken.Source
 	newProvider  func(string) (auth.TokenProvider, error)
@@ -72,6 +79,17 @@ type serviceAccountConfig struct {
 	clientEmail  string
 	privateKey   string
 	privateKeyID string
+}
+
+type impersonatedServiceAccountConfig struct {
+	targetPrincipal   string
+	sourceCredentials []byte
+}
+
+type credentialFileConfig struct {
+	credentialType credentials.CredType
+	serviceAccount serviceAccountConfig
+	impersonated   impersonatedServiceAccountConfig
 }
 
 var (
@@ -133,38 +151,81 @@ func New(options Options) (*Source, error) {
 		return nil, ErrInvalidConfiguration
 	}
 	defer clear(credentialJSON)
-	if _, err := idtoken.NewCredentialsFromJSON(
-		credentials.ServiceAccount,
-		credentialJSON,
-		&idtoken.Options{
-			Audience: validationAudience,
-			Client:   client,
-			Logger:   silentSDKLogger,
-		},
-	); err != nil {
-		return nil, ErrInvalidConfiguration
-	}
-	source.newProvider = func(audience string) (auth.TokenProvider, error) {
-		// idtoken.NewCredentialsFromJSON validates its Client option but the
-		// service-account 2LO path does not pass that client to the token
-		// exchange. Build the equivalent provider explicitly so redirects and
-		// total request duration remain bounded.
-		provider, err := auth.New2LOTokenProvider(&auth.Options2LO{
-			Email:        config.clientEmail,
-			PrivateKey:   []byte(config.privateKey),
-			PrivateKeyID: config.privateKeyID,
-			TokenURL:     googleTokenEndpoint,
-			PrivateClaims: map[string]any{
-				"target_audience": audience,
+	switch config.credentialType {
+	case credentials.ServiceAccount:
+		if _, err := idtoken.NewCredentialsFromJSON(
+			credentials.ServiceAccount,
+			credentialJSON,
+			&idtoken.Options{
+				Audience: validationAudience,
+				Client:   client,
+				Logger:   silentSDKLogger,
 			},
-			Client:     client,
-			UseIDToken: true,
-			Logger:     silentSDKLogger,
+		); err != nil {
+			return nil, ErrInvalidConfiguration
+		}
+		source.newProvider = func(audience string) (auth.TokenProvider, error) {
+			// idtoken.NewCredentialsFromJSON validates its Client option but the
+			// service-account 2LO path does not pass that client to the token
+			// exchange. Build the equivalent provider explicitly so redirects and
+			// total request duration remain bounded.
+			provider, err := auth.New2LOTokenProvider(&auth.Options2LO{
+				Email:        config.serviceAccount.clientEmail,
+				PrivateKey:   []byte(config.serviceAccount.privateKey),
+				PrivateKeyID: config.serviceAccount.privateKeyID,
+				TokenURL:     googleTokenEndpoint,
+				PrivateClaims: map[string]any{
+					"target_audience": audience,
+				},
+				Client:     client,
+				UseIDToken: true,
+				Logger:     silentSDKLogger,
+			})
+			if err != nil {
+				return nil, ErrInvalidConfiguration
+			}
+			return auth.NewCachedTokenProvider(provider, nil), nil
+		}
+	case credentials.ImpersonatedServiceAccount:
+		baseCredentials, err := credentials.NewCredentialsFromJSON(
+			credentials.AuthorizedUser,
+			config.impersonated.sourceCredentials,
+			&credentials.DetectOptions{
+				Scopes:   []string{cloudPlatformScope},
+				TokenURL: googleTokenEndpoint,
+				Client:   client,
+				Logger:   silentSDKLogger,
+			},
+		)
+		if err != nil {
+			return nil, ErrInvalidConfiguration
+		}
+		authenticatedClient, err := httptransport.NewClient(&httptransport.Options{
+			BaseRoundTripper: client.Transport,
+			Credentials:      baseCredentials,
+			DisableTelemetry: true,
+			Logger:           silentSDKLogger,
 		})
 		if err != nil {
 			return nil, ErrInvalidConfiguration
 		}
-		return auth.NewCachedTokenProvider(provider, nil), nil
+		authenticatedClient.Timeout = client.Timeout
+		authenticatedClient.CheckRedirect = client.CheckRedirect
+		source.newProvider = func(audience string) (auth.TokenProvider, error) {
+			credential, err := impersonate.NewIDTokenCredentials(&impersonate.IDTokenOptions{
+				Audience:        audience,
+				TargetPrincipal: config.impersonated.targetPrincipal,
+				IncludeEmail:    true,
+				Client:          authenticatedClient,
+				Logger:          silentSDKLogger,
+			})
+			if err != nil {
+				return nil, ErrInvalidConfiguration
+			}
+			return credential.TokenProvider, nil
+		}
+	default:
+		return nil, ErrInvalidConfiguration
 	}
 	if _, err := source.newProvider(validationAudience); err != nil {
 		return nil, ErrInvalidConfiguration
@@ -225,43 +286,154 @@ func (s *Source) provider(audience string) (auth.TokenProvider, error) {
 	return provider, nil
 }
 
-func readCredentialJSON(path string) (serviceAccountConfig, []byte, error) {
+func readCredentialJSON(path string) (credentialFileConfig, []byte, error) {
 	if strings.TrimSpace(path) != path || path == "" ||
 		strings.IndexFunc(path, unicode.IsControl) >= 0 {
-		return serviceAccountConfig{}, nil, ErrInvalidConfiguration
+		return credentialFileConfig{}, nil, ErrInvalidConfiguration
 	}
 	// #nosec G304 -- the path is trusted operator configuration; the file is
-	// bounded below and accepted only as an exact service-account credential.
+	// bounded below and accepted only as one of the explicitly validated Google
+	// credential shapes below.
 	file, err := os.Open(path)
 	if err != nil {
-		return serviceAccountConfig{}, nil, ErrInvalidConfiguration
+		return credentialFileConfig{}, nil, ErrInvalidConfiguration
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxCredentialBytes {
-		return serviceAccountConfig{}, nil, ErrInvalidConfiguration
+		return credentialFileConfig{}, nil, ErrInvalidConfiguration
 	}
 	raw, err := io.ReadAll(io.LimitReader(file, maxCredentialBytes+1))
 	if err != nil || len(raw) == 0 || len(raw) > maxCredentialBytes {
-		return serviceAccountConfig{}, nil, ErrInvalidConfiguration
+		return credentialFileConfig{}, nil, ErrInvalidConfiguration
 	}
 	var descriptor struct {
-		Type         string `json:"type"`
-		TokenURI     string `json:"token_uri"`
-		ClientEmail  string `json:"client_email"`
-		PrivateKey   string `json:"private_key"`
-		PrivateKeyID string `json:"private_key_id"`
+		Type                           string          `json:"type"`
+		TokenURI                       string          `json:"token_uri"`
+		ClientEmail                    string          `json:"client_email"`
+		PrivateKey                     string          `json:"private_key"`
+		PrivateKeyID                   string          `json:"private_key_id"`
+		ServiceAccountImpersonationURL string          `json:"service_account_impersonation_url"`
+		SourceCredentials              json.RawMessage `json:"source_credentials"`
+		Delegates                      []string        `json:"delegates"`
+		Scopes                         []string        `json:"scopes"`
+		UniverseDomain                 string          `json:"universe_domain"`
 	}
-	if err := json.Unmarshal(raw, &descriptor); err != nil ||
-		descriptor.Type != string(credentials.ServiceAccount) ||
-		descriptor.TokenURI != googleTokenEndpoint {
-		return serviceAccountConfig{}, nil, ErrInvalidConfiguration
+	if err := json.Unmarshal(raw, &descriptor); err != nil {
+		return credentialFileConfig{}, nil, ErrInvalidConfiguration
 	}
-	return serviceAccountConfig{
-		clientEmail:  descriptor.ClientEmail,
-		privateKey:   descriptor.PrivateKey,
-		privateKeyID: descriptor.PrivateKeyID,
-	}, raw, nil
+	switch credentials.CredType(descriptor.Type) {
+	case credentials.ServiceAccount:
+		if descriptor.TokenURI != googleTokenEndpoint {
+			return credentialFileConfig{}, nil, ErrInvalidConfiguration
+		}
+		return credentialFileConfig{
+			credentialType: credentials.ServiceAccount,
+			serviceAccount: serviceAccountConfig{
+				clientEmail:  descriptor.ClientEmail,
+				privateKey:   descriptor.PrivateKey,
+				privateKeyID: descriptor.PrivateKeyID,
+			},
+		}, raw, nil
+	case credentials.ImpersonatedServiceAccount:
+		impersonated, validateErr := validateImpersonatedServiceAccount(raw, descriptor)
+		if validateErr != nil {
+			return credentialFileConfig{}, nil, ErrInvalidConfiguration
+		}
+		return credentialFileConfig{
+			credentialType: credentials.ImpersonatedServiceAccount,
+			impersonated:   impersonated,
+		}, raw, nil
+	default:
+		return credentialFileConfig{}, nil, ErrInvalidConfiguration
+	}
+}
+
+func validateImpersonatedServiceAccount(raw []byte, descriptor struct {
+	Type                           string          `json:"type"`
+	TokenURI                       string          `json:"token_uri"`
+	ClientEmail                    string          `json:"client_email"`
+	PrivateKey                     string          `json:"private_key"`
+	PrivateKeyID                   string          `json:"private_key_id"`
+	ServiceAccountImpersonationURL string          `json:"service_account_impersonation_url"`
+	SourceCredentials              json.RawMessage `json:"source_credentials"`
+	Delegates                      []string        `json:"delegates"`
+	Scopes                         []string        `json:"scopes"`
+	UniverseDomain                 string          `json:"universe_domain"`
+}) (impersonatedServiceAccountConfig, error) {
+	if len(descriptor.Delegates) != 0 || len(descriptor.Scopes) != 0 ||
+		(descriptor.UniverseDomain != "" && descriptor.UniverseDomain != "googleapis.com") {
+		return impersonatedServiceAccountConfig{}, ErrInvalidConfiguration
+	}
+	var outerFields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &outerFields); err != nil || !onlyJSONFields(outerFields,
+		"type", "service_account_impersonation_url", "source_credentials",
+		"delegates", "scopes", "universe_domain",
+	) {
+		return impersonatedServiceAccountConfig{}, ErrInvalidConfiguration
+	}
+	target, err := targetPrincipalFromImpersonationURL(descriptor.ServiceAccountImpersonationURL)
+	if err != nil {
+		return impersonatedServiceAccountConfig{}, ErrInvalidConfiguration
+	}
+	var source struct {
+		Type           string `json:"type"`
+		ClientID       string `json:"client_id"`
+		ClientSecret   string `json:"client_secret"`
+		RefreshToken   string `json:"refresh_token"`
+		QuotaProjectID string `json:"quota_project_id"`
+		UniverseDomain string `json:"universe_domain"`
+		Account        string `json:"account"`
+	}
+	var sourceFields map[string]json.RawMessage
+	if len(descriptor.SourceCredentials) == 0 ||
+		json.Unmarshal(descriptor.SourceCredentials, &source) != nil ||
+		json.Unmarshal(descriptor.SourceCredentials, &sourceFields) != nil ||
+		!onlyJSONFields(sourceFields,
+			"type", "client_id", "client_secret", "refresh_token",
+			"quota_project_id", "universe_domain", "account",
+		) ||
+		source.Type != string(credentials.AuthorizedUser) ||
+		source.ClientID == "" || source.ClientSecret == "" || source.RefreshToken == "" ||
+		len(source.ClientID) > 64<<10 || len(source.ClientSecret) > 64<<10 || len(source.RefreshToken) > 64<<10 ||
+		(source.UniverseDomain != "" && source.UniverseDomain != "googleapis.com") {
+		return impersonatedServiceAccountConfig{}, ErrInvalidConfiguration
+	}
+	return impersonatedServiceAccountConfig{
+		targetPrincipal:   target,
+		sourceCredentials: append([]byte(nil), descriptor.SourceCredentials...),
+	}, nil
+}
+
+func onlyJSONFields(fields map[string]json.RawMessage, allowed ...string) bool {
+	allowedFields := make(map[string]struct{}, len(allowed))
+	for _, field := range allowed {
+		allowedFields[field] = struct{}{}
+	}
+	for field := range fields {
+		if _, ok := allowedFields[field]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func targetPrincipalFromImpersonationURL(value string) (string, error) {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != googleIAMHost ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" {
+		return "", ErrInvalidConfiguration
+	}
+	const prefix = "/v1/projects/-/serviceAccounts/"
+	const suffix = ":generateAccessToken"
+	if !strings.HasPrefix(parsed.Path, prefix) || !strings.HasSuffix(parsed.Path, suffix) {
+		return "", ErrInvalidConfiguration
+	}
+	target := strings.TrimSuffix(strings.TrimPrefix(parsed.Path, prefix), suffix)
+	if !serviceAccountEmail.MatchString(target) {
+		return "", ErrInvalidConfiguration
+	}
+	return target, nil
 }
 
 func validateAudience(audience string) error {

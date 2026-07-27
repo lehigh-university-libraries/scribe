@@ -12,6 +12,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+const releasedInitialMigrationChecksum = "94ce97bd9a0621057d4acce159a387c39b96ab371ba74e86ff5535bdca6b65f6"
+
 func TestSplitStatementsIgnoresCommentsAndQuotedSemicolons(t *testing.T) {
 	t.Parallel()
 
@@ -39,6 +41,14 @@ func TestEmbeddedMigrationsAreOrderedAndChecksummed(t *testing.T) {
 	}
 	if len(migrations) == 0 || migrations[0].version != "0001_initial" {
 		t.Fatalf("migrations = %#v", migrations)
+	}
+	if migrations[0].checksum != releasedInitialMigrationChecksum {
+		t.Fatalf(
+			"released migration %q checksum = %q, want immutable production checksum %q; add a later migration instead of editing 0001",
+			migrations[0].version,
+			migrations[0].checksum,
+			releasedInitialMigrationChecksum,
+		)
 	}
 	for _, item := range migrations {
 		if len(item.checksum) != 64 || len(splitStatements(item.body)) == 0 {

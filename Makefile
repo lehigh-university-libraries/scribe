@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check test test-backend test-frontend test-browser e2e-smoke backup-restore-smoke verify-cloud-backups-test cloud-snapshot-restore-drill-test mariadb-backup-retention-test preview-deployment-test readiness-fixture-test deployment-status-test reset-dev-db-test ocr-build-tags ocr-matrix-test segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-security-contracts terraform-check terraform-state-normalizer-test terraform-targeted-output-test docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-db reset-dev-db down logs sequelace ocr-matrix ocr-images bootstrap-gcp-identities bootstrap-gcp-identities-test tf-dev tf-dev-vault-ci-identities tf-dev-vault-preview-runtime tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
+.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check test test-backend test-frontend test-browser e2e-smoke backup-restore-smoke verify-cloud-backups-test cloud-snapshot-restore-drill-test mariadb-backup-retention-test preview-deployment-test readiness-fixture-test deployment-status-test reset-dev-db-test ocr-build-tags ocr-matrix-test segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-security-contracts terraform-check terraform-state-normalizer-test terraform-targeted-output-test docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-cloud-ocr up-db reset-dev-db down logs sequelace ocr-matrix ocr-images bootstrap-gcp-identities bootstrap-gcp-identities-test tf-dev tf-dev-vault-ci-identities tf-dev-vault-preview-runtime tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
@@ -34,6 +34,15 @@ doctor: ## Check the local Docker/Git toolchain and report optional host runtime
 up: doctor ## Start services in detached mode
 	@test -f .env || cp sample.env .env
 	@test -f docker-compose.override.yaml || cp docker-compose.override-example.yaml docker-compose.override.yaml
+	@SCRIBE_REPAIR_LOCAL_TOKENS=true bash generate-secrets.sh
+	@docker compose up $(COMPOSE_UP_FLAGS)
+
+up-cloud-ocr: doctor ## Start local services against configured private Cloud Run OCR endpoints
+	@test -f .env || cp sample.env .env
+	@test -f docker-compose.override.yaml || cp docker-compose.override.cloud-example.yaml docker-compose.override.yaml
+	@cloud_ocr_project="$$(bash ./ci/cloud-ocr-compose-preflight.sh --print-project)" && \
+		bash ./ci/validate-dev-cloud-ocr-credential.sh \
+			secrets/GOOGLE_APPLICATION_CREDENTIALS "$$cloud_ocr_project"
 	@SCRIBE_REPAIR_LOCAL_TOKENS=true bash generate-secrets.sh
 	@docker compose up $(COMPOSE_UP_FLAGS)
 
@@ -192,6 +201,7 @@ mariadb-backup-retention-test: ## Verify logical-backup retention is bounded and
 preview-deployment-test: install-shell-tools ## Test trusted preview input resolution and immutable teardown
 	@bash ./ci/resolve-preview-inputs_test.sh
 	@bash ./ci/preview-deployment-evidence-contract_test.sh
+	@bash ./ci/recover-preview-destroy-inputs_test.sh
 	@bash ./ci/deploy-local-destroy_test.sh
 
 readiness-fixture-test: ## Verify the deterministic non-empty OCR deployment smoke fixture and assertions

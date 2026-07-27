@@ -34,7 +34,10 @@ assert_status success DEPLOY_MODE=apply PR_NUMBER=75 PLAN_PREVIEW_OUTCOME=succes
 assert_status failure DEPLOY_MODE=plan PLAN_OUTCOME=failure
 assert_status success DEPLOY_MODE=plan PR_NUMBER=75 PLAN_PREVIEW_OUTCOME=success
 assert_status failure DEPLOY_MODE=destroy DESTROY_OUTCOME=failure
-assert_status success DEPLOY_MODE=destroy PR_NUMBER=75 DESTROY_PREVIEW_OUTCOME=success
+assert_status failure DEPLOY_MODE=destroy PR_NUMBER=75 DESTROY_PREVIEW_OUTCOME=failure DESTROY_PREVIEW_VAULT_OUTCOME=skipped
+assert_status vault-cleanup-skipped DEPLOY_MODE=destroy PR_NUMBER=75 DESTROY_PREVIEW_OUTCOME=success DESTROY_PREVIEW_VAULT_OUTCOME=skipped
+assert_status vault-cleanup-failure DEPLOY_MODE=destroy PR_NUMBER=75 DESTROY_PREVIEW_OUTCOME=success DESTROY_PREVIEW_VAULT_OUTCOME=failure
+assert_status success DEPLOY_MODE=destroy PR_NUMBER=75 DESTROY_PREVIEW_OUTCOME=success DESTROY_PREVIEW_VAULT_OUTCOME=success
 
 attestation_dir="$(mktemp -d)"
 trap 'rm -rf "$attestation_dir"' EXIT

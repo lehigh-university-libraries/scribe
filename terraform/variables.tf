@@ -51,13 +51,13 @@ variable "docker_compose_branch" {
 }
 
 variable "data_generation" {
-  description = "Reviewed persistence generation shared by MariaDB, blobs, Triplet, caches, and transcription queues. Change only for an intentional greenfield cutover."
+  description = "Reviewed persistence generation shared by MariaDB, blobs, Triplet, caches, and transcription queues. Change only for an intentional persistence-generation cutover."
   type        = string
-  default     = "canonical-v1"
+  default     = "canonical-v2"
 
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{0,31}$", var.data_generation))
-    error_message = "data_generation must start with a lowercase letter and contain at most 32 lowercase letters, digits, or hyphens."
+    condition     = contains(["canonical-v1", "canonical-v2"], var.data_generation)
+    error_message = "data_generation must be an explicitly reviewed canonical generation: canonical-v1 or canonical-v2."
   }
 }
 
@@ -244,6 +244,20 @@ variable "vault_ci_service_account_emails" {
   description = "Service account emails that must keep Vault CI login roles and secret-read access. Terraform creates both google-jwt ci-* roles and GCP auth roles from this list."
   type        = list(string)
   default     = []
+}
+
+variable "dev_external_ocr_impersonators" {
+  description = "Explicit user: or group: IAM members allowed to mint short-lived credentials for the dev-only external OCR service account. Must be empty outside workspace dev."
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for member in var.dev_external_ocr_impersonators :
+      can(regex("^(user|group):[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,63}$", member))
+    ])
+    error_message = "dev_external_ocr_impersonators entries must be explicit user: or group: email IAM members."
+  }
 }
 
 variable "ocr_service_images" {

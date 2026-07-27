@@ -13,6 +13,7 @@
     ],
     "backup_restore_service_account_email": "scribe-backup@scribe-test1.iam.gserviceaccount.com",
     "compose_network_cidr": "172.30.0.0/24",
+    "dev_external_ocr_impersonators": [],
     "iiif_max_manifest_canvases": 500,
     "iiif_max_manifest_import_bytes": 67108864,
     "monitoring_notification_channels": [
@@ -44,6 +45,7 @@
   "frontend_gar_image": "us-docker.pkg.dev/scribe-test1/internal/scribe-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "ocr_service_images": {
     "kraken-ocr/cremma": "us-docker.pkg.dev/scribe-test1/internal/kraken-cremma@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "ollama/glm-ocr:bf16": "us-docker.pkg.dev/scribe-test1/internal/ollama-glm-ocr-bf16@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "segmentor": "us-docker.pkg.dev/scribe-test1/internal/segmentor@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
   }
 }

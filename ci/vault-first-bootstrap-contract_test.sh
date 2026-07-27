@@ -85,7 +85,7 @@ case "${1:-}" in
   show)
     [ "${2:-}" = "-json" ] || { echo "unexpected terraform show: $*" >&2; exit 2; }
     [ "${3:-}" = "$(cat "$TF_SAVED_PLAN_RECORD")" ] || { echo "guard inspected a different plan" >&2; exit 93; }
-    printf '%s\n' '{"format_version":"1.2","resource_changes":[{"address":"module.scribe.module.gcp[0].google_compute_disk.data","change":{"actions":["update"]}}]}'
+    printf '%s\n' '{"format_version":"1.2","variables":{"data_generation":{"value":"canonical-v2"}},"resource_changes":[{"address":"module.scribe.module.gcp[0].google_compute_disk.data","change":{"actions":["update"]}}]}'
     ;;
   apply)
     if [[ " $* " == *" -target=module.vault "* ]]; then

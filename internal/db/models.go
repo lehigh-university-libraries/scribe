@@ -760,10 +760,10 @@ type Item struct {
 	SourceUrl            sql.NullString  `json:"source_url"`
 	SourceManifest       sql.NullString  `json:"source_manifest"`
 	Metadata             json.RawMessage `json:"metadata"`
-	ExternalReferenceID  string          `json:"external_reference_id"`
-	CallerIdempotencyKey string          `json:"caller_idempotency_key"`
 	CreatedAt            time.Time       `json:"created_at"`
 	UpdatedAt            time.Time       `json:"updated_at"`
+	ExternalReferenceID  string          `json:"external_reference_id"`
+	CallerIdempotencyKey string          `json:"caller_idempotency_key"`
 }
 
 type ItemImage struct {

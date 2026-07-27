@@ -16,6 +16,10 @@ if [ "\${1:-}" = api ] && [ "\${2:-}" = repos/example/scribe/commits/main ]; the
   printf '%s\\n' '${main_sha}'
   exit 0
 fi
+if [ "\${1:-}" = api ] && [ "\${2:-}" = repos/example/scribe/pulls/75 ]; then
+  printf '%s\\n' '{"base":{"ref":"main"},"head":{"repo":{"full_name":"example/scribe"},"sha":"${head_sha}"}}'
+  exit 0
+fi
 echo "unexpected gh invocation: \$*" >&2
 exit 1
 EOF
@@ -43,6 +47,7 @@ run_event_case() {
     "${ROOT_DIR}/ci/resolve-preview-inputs.sh"
 
   grep -Fx "mode=${expected_mode}" "${output_file}" >/dev/null
+  grep -Fx "recover_destroy_inputs=false" "${output_file}" >/dev/null
   grep -Fx "base_sha=${main_sha}" "${output_file}" >/dev/null
   grep -Fx "zone=us-east5-c" "${output_file}" >/dev/null
   grep -Fx "backend_origin=http://scribe-pr-75.us-east5-c.c.example-project.internal" "${output_file}" >/dev/null
@@ -55,6 +60,48 @@ run_event_case() {
 
 run_event_case synchronize main "" apply
 run_event_case edited feature main destroy
+
+run_dispatch_case() {
+  local action="$1"
+  local expected_mode="$2"
+  local expected_recovery="$3"
+  local output_file="${TEST_DIR}/output-dispatch-${action}"
+
+  PATH="${TEST_DIR}/bin:${PATH}" \
+    GITHUB_OUTPUT="${output_file}" \
+    GITHUB_REPOSITORY="example/scribe" \
+    GCLOUD_PROJECT="example-project" \
+    SCRIBE_REGION="us-east5" \
+    SCRIBE_ZONE="us-east5-c" \
+    DISPATCH_ACTION="${action}" \
+    DISPATCH_PR="75" \
+    WORKFLOW_REF="refs/heads/main" \
+    "${ROOT_DIR}/ci/resolve-preview-inputs.sh"
+
+  grep -Fx "mode=${expected_mode}" "${output_file}" >/dev/null
+  grep -Fx "recover_destroy_inputs=${expected_recovery}" "${output_file}" >/dev/null
+  grep -Fx "base_sha=${main_sha}" "${output_file}" >/dev/null
+}
+
+run_dispatch_case deploy apply false
+run_dispatch_case destroy destroy false
+run_dispatch_case recover-destroy destroy true
+
+invalid_output="${TEST_DIR}/output-dispatch-invalid"
+if PATH="${TEST_DIR}/bin:${PATH}" \
+  GITHUB_OUTPUT="${invalid_output}" \
+  GITHUB_REPOSITORY="example/scribe" \
+  GCLOUD_PROJECT="example-project" \
+  SCRIBE_REGION="us-east5" \
+  SCRIBE_ZONE="us-east5-c" \
+  DISPATCH_ACTION="unknown" \
+  DISPATCH_PR="75" \
+  WORKFLOW_REF="refs/heads/main" \
+  "${ROOT_DIR}/ci/resolve-preview-inputs.sh" >"${TEST_DIR}/invalid.out" 2>"${TEST_DIR}/invalid.err"; then
+  echo "Preview resolver accepted an unknown dispatch action" >&2
+  exit 1
+fi
+grep -F 'action must be deploy, destroy, or recover-destroy' "${TEST_DIR}/invalid.err" >/dev/null
 
 workflow="${ROOT_DIR}/.github/workflows/terraform-preview.yaml"
 grep -F './ci/resolve-preview-inputs.sh' "${workflow}" >/dev/null || {

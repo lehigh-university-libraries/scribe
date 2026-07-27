@@ -72,8 +72,22 @@ case "$mode" in
     printf '\n'
     ;;
   destroy)
-    if [ -n "$pr_number" ]; then outcome DESTROY_PREVIEW_OUTCOME; else outcome DESTROY_OUTCOME; fi
-    printf '\n'
+    if [ -z "$pr_number" ]; then
+      outcome DESTROY_OUTCOME
+      printf '\n'
+      exit 0
+    fi
+    destroy_preview="$(outcome DESTROY_PREVIEW_OUTCOME)"
+    if [ "$destroy_preview" != "success" ]; then
+      printf '%s\n' "$destroy_preview"
+      exit 0
+    fi
+    destroy_preview_vault="$(outcome DESTROY_PREVIEW_VAULT_OUTCOME)"
+    if [ "$destroy_preview_vault" != "success" ]; then
+      printf 'vault-cleanup-%s\n' "$destroy_preview_vault"
+    else
+      printf 'success\n'
+    fi
     ;;
   *) echo "DEPLOY_MODE must be apply, plan, or destroy" >&2; exit 2 ;;
 esac

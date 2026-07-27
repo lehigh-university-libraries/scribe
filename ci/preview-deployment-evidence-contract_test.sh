@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="${ROOT_DIR}/.github/workflows/terraform-preview.yaml"
+DEPLOY_WORKFLOW="${ROOT_DIR}/.github/workflows/terraform-deploy.yaml"
 
 fail() {
   echo "preview deployment evidence contract failed: $*" >&2
@@ -24,6 +25,10 @@ forbid() {
 
 rg -q '^  pull_request_target:$' "${WORKFLOW}" || fail "preview orchestration must use trusted pull_request_target"
 rg -q '^  cancel-in-progress: false$' "${WORKFLOW}" || fail "preview apply and teardown must remain serialized"
+rg -q '^        id: destroy_preview_vault$' "${DEPLOY_WORKFLOW}" \
+  || fail "preview Vault cleanup must have a status-bearing step id"
+rg -q 'DESTROY_PREVIEW_VAULT_OUTCOME=.*steps\.destroy_preview_vault\.outcome' "${DEPLOY_WORKFLOW}" \
+  || fail "preview destroy status must include Vault namespace cleanup"
 
 record_job="$(sed -n '/^  record-preview-deployment:/,/^  preview-comment:/p' "${WORKFLOW}")"
 [ -n "${record_job}" ] || fail "record-preview-deployment job is missing"

@@ -9,7 +9,11 @@ if [ "$#" -gt 1 ]; then
   exit 2
 fi
 
-if ! normalized="$({
+# External OCR impersonators are created only by the Terraform dev workspace.
+# Production rollback must replay an empty list so immutable historical inputs
+# can never introduce human impersonation grants outside that dev boundary.
+set +e
+normalized="$(
   jq -ceS '
     def exact_keys($expected): (keys | sort) == ($expected | sort);
     def integer_at_least($minimum): type == "number" and . == floor and . >= $minimum;
@@ -20,10 +24,29 @@ if ! normalized="$({
     def service_account_email: type == "string" and test("^[a-z0-9-]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$");
     def digest: type == "string" and test("@sha256:[0-9a-f]{64}$") and (test("@sha256:0{64}$") | not);
 
-    . as $deployment
+    # Production state recorded before the dev-only external OCR IAM feature
+    # has no impersonator key. Absence unambiguously means the old [] default;
+    # present null, malformed, or non-empty values remain rejected below.
+    if (.configuration | type) == "object" then
+      if (.configuration | has("dev_external_ocr_impersonators")) then
+        .
+      else
+        .configuration.dev_external_ocr_impersonators = []
+      end
+    else
+      .
+    end
+    | . as $deployment
     | .configuration as $configuration
     | ($configuration.project_id // "") as $project
     | if
+        (($configuration | type) == "object") and
+        ($configuration | has("dev_external_ocr_impersonators")) and
+        (($configuration.dev_external_ocr_impersonators |
+          type == "array" and length == 0) | not)
+      then
+        halt_error(20)
+      elif
         (type == "object") and
         exact_keys([
           "api_image",
@@ -39,6 +62,7 @@ if ! normalized="$({
           "allowed_ssh_ipv6",
           "backup_restore_service_account_email",
           "compose_network_cidr",
+          "dev_external_ocr_impersonators",
           "iiif_max_manifest_canvases",
           "iiif_max_manifest_import_bytes",
           "monitoring_notification_channels",
@@ -60,18 +84,19 @@ if ! normalized="$({
           "zone"
         ])) and
         (.docker_compose_sha | type == "string" and test("^[0-9a-f]{40}$") and test("^0{40}$") == false) and
-        (.data_generation | type == "string" and test("^[a-z][a-z0-9-]{0,31}$")) and
+        (.data_generation | type == "string" and test("^canonical-v(1|2)$")) and
         (.api_image | digest and startswith("ghcr.io/lehigh-university-libraries/scribe@sha256:")) and
         ($project | type == "string" and test("^[a-z][a-z0-9-]{4,28}[a-z0-9]$")) and
         (.frontend_gar_image | digest and startswith("us-docker.pkg.dev/\($project)/internal/scribe-frontend@sha256:")) and
         (.ocr_service_images | type == "object" and length > 0 and all(to_entries[];
-          (.key | type == "string" and test("^[a-z0-9][a-z0-9._/-]*$")) and
+          (.key | type == "string" and test("^[a-z0-9][a-z0-9._/:-]*$")) and
           (.value | digest and startswith("us-docker.pkg.dev/\($project)/internal/"))
         )) and
         ($configuration.allowed_ips | type == "array" and length > 0 and all(.[]; cidr)) and
         ($configuration.allowed_ssh_ipv4 | type == "array" and all(.[]; ipv4_cidr)) and
         ($configuration.allowed_ssh_ipv6 | type == "array" and all(.[]; cidr and contains(":"))) and
         ($configuration.backup_restore_service_account_email | service_account_email) and
+        ($configuration.dev_external_ocr_impersonators | type == "array" and length == 0) and
         ($configuration.network_ip_cidr_range | ipv4_cidr) and
         ($configuration.compose_network_cidr | ipv4_cidr) and
         ($configuration.region | type == "string" and test("^[a-z]+-[a-z]+[0-9]+$")) and
@@ -98,10 +123,21 @@ if ! normalized="$({
       else
         error("invalid immutable deployment input schema")
       end
-  ' "$input_path"
-} 2>/dev/null)"; then
-  echo "Deployment inputs are missing, malformed, incomplete, or not immutable." >&2
-  exit 1
-fi
+  ' "$input_path" 2>/dev/null
+)"
+resolve_status=$?
+set -e
+
+case "${resolve_status}" in
+  0) ;;
+  20)
+    echo "Deployment inputs rejected: dev_external_ocr_impersonators must be empty because external OCR impersonation is restricted to the dev workspace." >&2
+    exit 1
+    ;;
+  *)
+    echo "Deployment inputs are missing, malformed, incomplete, or not immutable." >&2
+    exit 1
+    ;;
+esac
 
 printf '%s\n' "$normalized"

@@ -23,6 +23,19 @@ mount="${VAULT_KV_MOUNT:-secret}"
 [[ "$prefix" =~ ^scribe/previews/scribe-pr-[0-9]+@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$ ]] || fail "prefix must identify one preview service-account namespace"
 [[ "$mount" =~ ^[a-zA-Z0-9_-]+$ ]] || fail "invalid KV mount"
 
+vault_http_retry_attempts="${VAULT_HTTP_RETRY_ATTEMPTS:-4}"
+vault_http_retry_initial_delay_seconds="${VAULT_HTTP_RETRY_INITIAL_DELAY_SECONDS:-1}"
+vault_http_retry_max_delay_seconds="${VAULT_HTTP_RETRY_MAX_DELAY_SECONDS:-4}"
+case "$vault_http_retry_attempts" in ''|*[!0-9]*|0) fail "invalid Vault HTTP retry configuration" ;; esac
+case "$vault_http_retry_initial_delay_seconds" in ''|*[!0-9]*) fail "invalid Vault HTTP retry configuration" ;; esac
+case "$vault_http_retry_max_delay_seconds" in ''|*[!0-9]*) fail "invalid Vault HTTP retry configuration" ;; esac
+if [ "$vault_http_retry_attempts" -gt 10 ] \
+  || [ "$vault_http_retry_initial_delay_seconds" -gt 30 ] \
+  || [ "$vault_http_retry_max_delay_seconds" -gt 30 ] \
+  || [ "$vault_http_retry_initial_delay_seconds" -gt "$vault_http_retry_max_delay_seconds" ]; then
+  fail "invalid Vault HTTP retry configuration"
+fi
+
 response_file="$(mktemp)"
 status_file="$(mktemp)"
 trap 'rm -f "$response_file" "$status_file"' EXIT
@@ -31,6 +44,8 @@ vault_request() {
   local method="$1"
   local endpoint="$2"
   local payload="${3:-}"
+  local attempt=1
+  local delay_seconds="$vault_http_retry_initial_delay_seconds"
   local -a arguments
 
   arguments=(
@@ -45,13 +60,35 @@ vault_request() {
   if [ -n "$payload" ]; then
     arguments+=(-H "Content-Type: application/json" --data "$payload")
   fi
-  : >"$response_file"
-  : >"$status_file"
-  if ! curl "${arguments[@]}" "${VAULT_ADDR%/}${endpoint}" >"$status_file"; then
-    fail "Vault ${method} request failed"
-  fi
-  VAULT_STATUS="$(tr -d '\r\n' <"$status_file")"
-  [[ "$VAULT_STATUS" =~ ^[0-9]{3}$ ]] || fail "Vault returned an invalid status"
+  while [ "$attempt" -le "$vault_http_retry_attempts" ]; do
+    : >"$response_file"
+    : >"$status_file"
+    if curl "${arguments[@]}" "${VAULT_ADDR%/}${endpoint}" >"$status_file" 2>/dev/null; then
+      VAULT_STATUS="$(tr -d '\r\n' <"$status_file")"
+      [[ "$VAULT_STATUS" =~ ^[0-9]{3}$ ]] || fail "Vault returned an invalid status"
+      if [ "$VAULT_STATUS" -lt 500 ] || [ "$VAULT_STATUS" -ge 600 ]; then
+        return 0
+      fi
+      if [ "$attempt" -ge "$vault_http_retry_attempts" ]; then
+        fail "Vault ${method} request failed after ${vault_http_retry_attempts} attempts (HTTP ${VAULT_STATUS})"
+      fi
+      echo "Vault ${method} request received transient HTTP ${VAULT_STATUS}; retrying (${attempt}/${vault_http_retry_attempts})." >&2
+    else
+      if [ "$attempt" -ge "$vault_http_retry_attempts" ]; then
+        fail "Vault ${method} request failed after ${vault_http_retry_attempts} attempts (transport error)"
+      fi
+      echo "Vault ${method} request encountered a transient transport error; retrying (${attempt}/${vault_http_retry_attempts})." >&2
+    fi
+
+    sleep "$delay_seconds"
+    if [ "$delay_seconds" -lt "$vault_http_retry_max_delay_seconds" ]; then
+      delay_seconds=$((delay_seconds * 2))
+      if [ "$delay_seconds" -gt "$vault_http_retry_max_delay_seconds" ]; then
+        delay_seconds="$vault_http_retry_max_delay_seconds"
+      fi
+    fi
+    attempt=$((attempt + 1))
+  done
 }
 
 ensure_secret() {
@@ -88,7 +125,10 @@ delete_secret_tree() {
   local -a keys
 
   [ "$depth" -le 16 ] || fail "preview secret tree exceeds the cleanup depth limit"
-  vault_request LIST "/v1/${mount}/metadata/${path}"
+  # Vault accepts both LIST and GET ?list=true for KV enumeration. Google
+  # Frontend rejects the non-standard LIST verb before the Cloud Run service
+  # receives it, so use the equivalent GET form on this hosted path.
+  vault_request GET "/v1/${mount}/metadata/${path}?list=true"
   if [ "$VAULT_STATUS" = "404" ]; then
     return
   fi

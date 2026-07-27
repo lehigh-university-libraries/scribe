@@ -26,6 +26,7 @@ if ! normalized="$({
           "allowed_ssh_ipv6",
           "backup_restore_service_account_email",
           "compose_network_cidr",
+          "dev_external_ocr_impersonators",
           "iiif_max_manifest_canvases",
           "iiif_max_manifest_import_bytes",
           "monitoring_notification_channels",
@@ -50,6 +51,10 @@ if ! normalized="$({
         (.configuration.allowed_ips | string_array) and
         (.configuration.allowed_ssh_ipv4 | string_array) and
         (.configuration.allowed_ssh_ipv6 | string_array) and
+        (.configuration.dev_external_ocr_impersonators |
+          string_array and
+          length == (unique | length) and
+          all(.[]; test("^(user|group):[^@[:space:]]+@[^@[:space:]]+$"))) and
         (.configuration.monitoring_notification_channels | string_array) and
         (.configuration.vault_admin_emails | string_array) and
         (.configuration.vault_ci_service_account_emails | string_array) and

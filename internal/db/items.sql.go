@@ -192,9 +192,24 @@ FROM items
 WHERE id = ?
 `
 
-func (q *Queries) GetItemManual(ctx context.Context, id string) (Item, error) {
+type GetItemManualRow struct {
+	ID                   string          `json:"id"`
+	UserID               uint64          `json:"user_id"`
+	WorkspaceID          uint64          `json:"workspace_id"`
+	Name                 string          `json:"name"`
+	SourceType           ItemsSourceType `json:"source_type"`
+	SourceUrl            sql.NullString  `json:"source_url"`
+	SourceManifest       sql.NullString  `json:"source_manifest"`
+	Metadata             json.RawMessage `json:"metadata"`
+	ExternalReferenceID  string          `json:"external_reference_id"`
+	CallerIdempotencyKey string          `json:"caller_idempotency_key"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
+}
+
+func (q *Queries) GetItemManual(ctx context.Context, id string) (GetItemManualRow, error) {
 	row := q.db.QueryRowContext(ctx, getItemManual, id)
-	var i Item
+	var i GetItemManualRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,

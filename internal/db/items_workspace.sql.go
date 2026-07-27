@@ -8,6 +8,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 )
 
@@ -68,9 +69,24 @@ type GetItemForWorkspaceManualParams struct {
 	WorkspaceID uint64 `json:"workspace_id"`
 }
 
-func (q *Queries) GetItemForWorkspaceManual(ctx context.Context, arg GetItemForWorkspaceManualParams) (Item, error) {
+type GetItemForWorkspaceManualRow struct {
+	ID                   string          `json:"id"`
+	UserID               uint64          `json:"user_id"`
+	WorkspaceID          uint64          `json:"workspace_id"`
+	Name                 string          `json:"name"`
+	SourceType           ItemsSourceType `json:"source_type"`
+	SourceUrl            sql.NullString  `json:"source_url"`
+	SourceManifest       sql.NullString  `json:"source_manifest"`
+	Metadata             json.RawMessage `json:"metadata"`
+	ExternalReferenceID  string          `json:"external_reference_id"`
+	CallerIdempotencyKey string          `json:"caller_idempotency_key"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
+}
+
+func (q *Queries) GetItemForWorkspaceManual(ctx context.Context, arg GetItemForWorkspaceManualParams) (GetItemForWorkspaceManualRow, error) {
 	row := q.db.QueryRowContext(ctx, getItemForWorkspaceManual, arg.ID, arg.WorkspaceID)
-	var i Item
+	var i GetItemForWorkspaceManualRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,

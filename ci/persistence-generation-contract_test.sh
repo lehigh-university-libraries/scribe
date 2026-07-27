@@ -13,6 +13,104 @@ fail() {
 command -v docker >/dev/null 2>&1 || fail "Docker is required"
 command -v jq >/dev/null 2>&1 || fail "jq is required"
 
+current_generation="canonical-v2"
+prior_generation="canonical-v1"
+
+# Every forward-entry default must select the schema-isolated generation for
+# this rollout. Historical state fixtures remain on canonical-v1 so replay
+# tests prove rollback and destroy use recorded inputs instead of these defaults.
+rg -Fxq '      SCRIBE_DATA_GENERATION: canonical-v2' .github/workflows/terraform-deploy.yaml ||
+  fail "the protected forward deploy does not select canonical-v2"
+if rg -Fq '      SCRIBE_DATA_GENERATION: canonical-v1' .github/workflows/terraform-deploy.yaml; then
+  fail "the protected forward deploy still selects canonical-v1"
+fi
+generation_variable_block="$(sed -n '/^variable "data_generation" {$/,/^}$/p' terraform/variables.tf)"
+rg -Fxq '  default     = "canonical-v2"' <<<"$generation_variable_block" ||
+  fail "the Terraform data_generation default is not canonical-v2"
+rg -Fq 'contains(["canonical-v1", "canonical-v2"], var.data_generation)' <<<"$generation_variable_block" ||
+  fail "Terraform accepts an unreviewed persistence generation"
+rg -q '^data_generation[[:space:]]*=[[:space:]]*"canonical-v2"$' terraform/terraform.tfvars.example ||
+  fail "the Terraform example does not select canonical-v2"
+rg -Fq 'data_generation="${SCRIBE_DATA_GENERATION:-canonical-v2}"' terraform/deploy-local.sh ||
+  fail "the local Terraform entry point does not default to canonical-v2"
+rg -Fxq 'SCRIBE_DATA_GENERATION=canonical-v2' sample.env ||
+  fail "new local stacks do not select canonical-v2"
+for allowlist_boundary in \
+  .github/workflows/terraform-deploy.yaml \
+  terraform/deploy-local.sh \
+  ci/resolve-rollback-inputs.sh \
+  ci/resolve-destroy-inputs.sh; do
+  rg -Fq 'canonical-v(1|2)' "$allowlist_boundary" ||
+    fail "${allowlist_boundary} does not reject unreviewed canonical generations"
+done
+
+# The production cutover must create v2 alongside the recorded v1 queue graph.
+# Original v1 addresses stay intact for old-source drift after rollback. The
+# keyed forward graph slices an explicit ordered review list through the current
+# generation, so future cutovers retain their immediate predecessor without
+# accepting an attacker-selected resource fan-out.
+rg -Fq 'reviewed_data_generations' terraform/main.tf ||
+  fail "Terraform has no explicit ordered generation review list"
+rg -Fq '["canonical-v1", "canonical-v2"]' terraform/main.tf ||
+  fail "the reviewed generation list does not contain the v1-to-v2 cutover"
+rg -Fq 'toset(slice(local.reviewed_data_generations, 1, local.data_generation_index + 1))' terraform/main.tf ||
+  fail "the forward queue graph does not retain prior canonical generations"
+rg -Fq 'google_pubsub_topic.transcription_jobs_forward[var.data_generation].name' terraform/main.tf ||
+  fail "runtime topic configuration does not select the current generation"
+rg -Fq 'google_pubsub_subscription.transcription_workers_forward[var.data_generation].name' terraform/main.tf ||
+  fail "runtime subscription configuration does not select the current generation"
+if [ -e terraform/pubsub_generation_moved.tf ]; then
+  fail "the cutover moves canonical-v1 away from addresses understood by the rollback source"
+fi
+
+while IFS='|' read -r resource_type resource_name expected_reference; do
+  resource_block="$(sed -n "/^resource \"${resource_type}\" \"${resource_name}\" {$/,/^}/p" terraform/main.tf)"
+  [ -n "$resource_block" ] || fail "missing retained ${resource_type}.${resource_name}"
+  if rg -q '^[[:space:]]*(count|for_each)[[:space:]]*=' <<<"$resource_block"; then
+    fail "${resource_type}.${resource_name} changed its deployed singleton address"
+  fi
+  rg -Fq "$expected_reference" <<<"$resource_block" ||
+    fail "${resource_type}.${resource_name} no longer targets canonical-v1"
+done <<'EOF'
+google_pubsub_topic|transcription_jobs|canonical-v1-transcription-jobs
+google_pubsub_topic|transcription_jobs_dead_letter|canonical-v1-transcription-jobs-dlq
+google_pubsub_subscription|transcription_workers|canonical-v1-transcription-workers
+google_pubsub_subscription|transcription_dead_letter_monitor|canonical-v1-transcription-jobs-dlq-monitor
+google_pubsub_topic_iam_member|transcription_jobs_publisher|google_pubsub_topic.transcription_jobs.name
+google_pubsub_subscription_iam_member|transcription_workers_subscriber|google_pubsub_subscription.transcription_workers.name
+google_pubsub_topic_iam_member|transcription_dead_letter_publisher|google_pubsub_topic.transcription_jobs_dead_letter.name
+google_pubsub_subscription_iam_member|transcription_dead_letter_source_subscriber|google_pubsub_subscription.transcription_workers.name
+EOF
+
+while IFS='|' read -r terraform_file resource_name expected_reference; do
+  resource_block="$(sed -n "/^resource \"google_monitoring_alert_policy\" \"${resource_name}\" {$/,/^}/p" "$terraform_file")"
+  rg -Fq 'count = local.is_prod_workspace ? 1 : 0' <<<"$resource_block" ||
+    fail "google_monitoring_alert_policy.${resource_name} changed its deployed count address"
+  rg -Fq "$expected_reference" <<<"$resource_block" ||
+    fail "google_monitoring_alert_policy.${resource_name} no longer monitors canonical-v1"
+done <<'EOF'
+terraform/main.tf|transcription_dead_letter_depth|google_pubsub_subscription.transcription_dead_letter_monitor.name
+terraform/monitoring.tf|transcription_queue_age|google_pubsub_subscription.transcription_workers.name
+EOF
+
+while IFS='|' read -r terraform_file resource_type resource_name; do
+  resource_block="$(sed -n "/^resource \"${resource_type}\" \"${resource_name}\" {$/,/^}/p" "$terraform_file")"
+  rg -Fq 'for_each = local.forward_transcription_data_generations' <<<"$resource_block" ||
+    rg -Fq 'for_each = local.forward_production_transcription_data_generations' <<<"$resource_block" ||
+    fail "${resource_type}.${resource_name} is not part of the forward generation graph"
+done <<'EOF'
+terraform/main.tf|google_pubsub_topic|transcription_jobs_forward
+terraform/main.tf|google_pubsub_topic|transcription_jobs_dead_letter_forward
+terraform/main.tf|google_pubsub_subscription|transcription_workers_forward
+terraform/main.tf|google_pubsub_subscription|transcription_dead_letter_monitor_forward
+terraform/main.tf|google_pubsub_topic_iam_member|transcription_jobs_publisher_forward
+terraform/main.tf|google_pubsub_subscription_iam_member|transcription_workers_subscriber_forward
+terraform/main.tf|google_pubsub_topic_iam_member|transcription_dead_letter_publisher_forward
+terraform/main.tf|google_pubsub_subscription_iam_member|transcription_dead_letter_source_subscriber_forward
+terraform/main.tf|google_monitoring_alert_policy|transcription_dead_letter_depth_forward
+terraform/monitoring.tf|google_monitoring_alert_policy|transcription_queue_age_forward
+EOF
+
 # The cloud-compose checkout, its local secrets, and the Compose namespace must
 # remain stable across immutable application revisions. MariaDB's existing
 # named volume and ignored root-password file form one persistence generation,
@@ -178,18 +276,25 @@ volume_names() {
     | jq -r '.volumes | to_entries | sort_by(.key) | map(.value.name) | .[]'
 }
 
-first_ref="$(volume_names scribe prod canonical-v1 1111111111111111111111111111111111111111)"
-second_ref="$(volume_names scribe prod canonical-v1 2222222222222222222222222222222222222222)"
+first_ref="$(volume_names scribe prod "$current_generation" 1111111111111111111111111111111111111111)"
+second_ref="$(volume_names scribe prod "$current_generation" 2222222222222222222222222222222222222222)"
 [[ "$first_ref" == "$second_ref" ]] || fail "volume names changed across immutable source refs"
 
-changed_workspace="$(volume_names scribe pr-75 canonical-v1 1111111111111111111111111111111111111111)"
+default_ref="$(volume_names scribe prod "" 1111111111111111111111111111111111111111)"
+[[ "$first_ref" == "$default_ref" ]] || fail "Compose does not default to the current persistence generation"
+
+changed_workspace="$(volume_names scribe pr-75 "$current_generation" 1111111111111111111111111111111111111111)"
 [[ "$first_ref" != "$changed_workspace" ]] || fail "production and preview workspaces share volume names"
 
-changed_generation="$(volume_names scribe prod canonical-v2 1111111111111111111111111111111111111111)"
+changed_generation="$(volume_names scribe prod "$prior_generation" 1111111111111111111111111111111111111111)"
 [[ "$first_ref" != "$changed_generation" ]] || fail "persistence generations share volume names"
 
 while IFS= read -r volume; do
-  [[ "$volume" == scribe-prod-canonical-v1-* ]] || fail "unexpected production volume name: $volume"
+  [[ "$volume" == scribe-prod-canonical-v2-* ]] || fail "unexpected production volume name: $volume"
 done <<<"$first_ref"
+
+while IFS= read -r volume; do
+  [[ "$volume" == scribe-prod-canonical-v1-* ]] || fail "unexpected prior-generation volume name: $volume"
+done <<<"$changed_generation"
 
 echo "Persistence generation namespace contracts passed."

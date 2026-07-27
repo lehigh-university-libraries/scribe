@@ -47,6 +47,10 @@ locals {
     }
   } : {}
 
+  # Ollama is owned only by the prod workspace and non-prod workspaces attach
+  # their runtime identities to those shared prod services. Do not append the
+  # dev external OCR identity here: that would turn a dev credential into a
+  # production-service invoker and violate its workspace boundary.
   ollama_preview_invoker_gsas = local.ollama_preview_iam_enabled ? [
     local.scribe_vm_gsa_email,
     local.scribe_app_gsa_email,

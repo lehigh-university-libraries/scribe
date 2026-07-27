@@ -39,6 +39,33 @@ resource "google_monitoring_alert_policy" "transcription_queue_age" {
   }
 }
 
+resource "google_monitoring_alert_policy" "transcription_queue_age_forward" {
+  for_each = local.forward_production_transcription_data_generations
+
+  display_name          = "${var.name} ${local.workspace_slug} ${each.key} transcription queue is stalled"
+  combiner              = "OR"
+  notification_channels = var.monitoring_notification_channels
+
+  documentation {
+    content   = "The oldest unacked ${each.key} transcription message exceeded 15 minutes. Inspect worker readiness, leases, provider errors, and the dead-letter subscription."
+    mime_type = "text/markdown"
+  }
+
+  conditions {
+    display_name = "${each.key} oldest transcription message exceeds 15 minutes"
+    condition_threshold {
+      filter          = "resource.type = \"pubsub_subscription\" AND resource.labels.subscription_id = \"${google_pubsub_subscription.transcription_workers_forward[each.key].name}\" AND metric.type = \"pubsub.googleapis.com/subscription/oldest_unacked_message_age\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 900
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+    }
+  }
+}
+
 resource "google_monitoring_alert_policy" "frontend_server_errors" {
   count = local.is_prod_workspace ? 1 : 0
 

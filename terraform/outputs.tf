@@ -19,6 +19,7 @@ locals {
         allowed_ssh_ipv6                            = var.allowed_ssh_ipv6
         backup_restore_service_account_email        = var.backup_restore_service_account_email
         compose_network_cidr                        = var.compose_network_cidr
+        dev_external_ocr_impersonators              = var.dev_external_ocr_impersonators
         iiif_max_manifest_canvases                  = var.iiif_max_manifest_canvases
         iiif_max_manifest_import_bytes              = var.iiif_max_manifest_import_bytes
         monitoring_notification_channels            = var.monitoring_notification_channels
@@ -165,7 +166,7 @@ output "deployment_inputs" {
   precondition {
     condition = !local.is_prod_workspace && !startswith(terraform.workspace, "pr-") || (
       can(regex("^[0-9a-f]{40}$", var.docker_compose_branch)) &&
-      can(regex("^[a-z][a-z0-9-]{0,31}$", var.data_generation)) &&
+      contains(["canonical-v1", "canonical-v2"], var.data_generation) &&
       var.docker_compose_branch != "0000000000000000000000000000000000000000" &&
       can(regex("^ghcr\\.io/lehigh-university-libraries/scribe@sha256:[0-9a-f]{64}$", var.api_image)) &&
       !endswith(var.api_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000") &&

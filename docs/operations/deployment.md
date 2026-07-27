@@ -48,8 +48,11 @@ The API and worker require that exact service-account namespace and, in preview
 mode, read only its database bootstrap path; they do not request OAuth or
 provider credentials that the preview Vault policy intentionally withholds.
 Pull-request code receives no dev or production
-OAuth, database, or provider credential. Reapply preserves the password, and a
-successful preview destroy recursively removes its Vault namespace.
+OAuth, database, or provider credential. Reapply preserves the password. A
+preview destroy is successful only after it recursively removes its Vault
+namespace; transient Vault HTTP 5xx and transport failures receive four bounded
+attempts, while authorization and other non-transient responses fail
+immediately without exposing response bodies.
 
 Kraken model declarations in `config/ocr.yaml` include the immutable DOI,
 expected filename, and SHA-256 digest. The image build refuses a download whose
@@ -70,7 +73,49 @@ Destroy reads the exact Compose SHA and image digests recorded in that
 workspace's `deployment_inputs`; it never resolves a tag, pulls an image, or
 builds PR code with deployment credentials. Missing or malformed state fails
 closed with an operator recovery instruction, because guessing replacement
-inputs could mutate the plan before teardown.
+inputs could mutate the plan before teardown. The sole schema-transition
+exception is state recorded before the dev-only external OCR IAM input existed:
+an absent `dev_external_ocr_impersonators` key is normalized to its historical
+empty default. Explicit null, malformed, or non-empty preview/production values
+still fail closed. Terraform destroy makes at most three bounded attempts with
+the same validated state-derived inputs so short-lived cloud dependency cleanup
+can converge without rereading partially changed state. After that bound, a
+later protected run or operator recovery is required. The workspace is deleted
+only after a successful destroy.
+
+A preview that uses Cloud Run Direct VPC can fail after its services are gone
+with `resourceInUseByAnotherResource` and an
+`/addresses/serverless-ipv4-...` reservation still holding the preview subnet.
+This is a Google-managed cleanup delay, not permission to edit Terraform state
+or delete the reservation: Google documents a **one-to-two-hour wait** after
+removing the Cloud Run resources before deleting the subnet. Let the protected
+run fail closed, wait that interval, and rerun **Terraform Preview** from
+protected `main`. Use ordinary `destroy` while the current state still has a
+readable `deployment_inputs` output. If ordinary destroy instead reports that
+the output is absent, use `recover-destroy` as described below. Never manually
+delete a `serverless-ipv4-*` reservation. See Google's
+[Direct VPC subnet deletion guidance](https://cloud.google.com/run/docs/configuring/vpc-direct-vpc#cannot-delete-subnet).
+
+An interrupted or older teardown can remove `deployment_inputs` while leaving
+other resources in the current state. In that narrow case, dispatch **Terraform
+Preview** from protected `main` with the PR number and action
+`recover-destroy`. The job reads, but never restores, the exact
+`scribe/pr-<number>.tfstate` object history. It accepts only the newest lower
+state serial with the same non-empty lineage and a fully valid
+`deployment_inputs` value, then destroys the resources still present in the
+current state. Ambiguous history, a current output, a different lineage, or no
+valid prior value fails closed without writing state. Use ordinary `destroy`
+for every normal teardown; `recover-destroy` exists only for this partial-state
+condition.
+
+If Terraform already deleted the exact `pr-<number>` workspace but a later
+Vault request failed, rerun `recover-destroy`. Only this protected recovery mode
+may treat that workspace as already destroyed, and only after a successful
+workspace inventory proves the exact name is absent. An inventory failure or a
+workspace that is listed but cannot be selected still fails closed. The rerun
+then idempotently removes the preview Vault namespace and repairs deployment
+evidence. Success requires all three outcomes: Terraform workspace absent,
+Vault namespace removed, and GitHub preview-deployment evidence inactive.
 
 When a Terraform upgrade adds `moved` blocks, normalize the selected
 workspace's resource addresses before any targeted maintenance:
@@ -80,11 +125,13 @@ make tf-prod ACTION=refresh
 # or: make tf-preview PR=75 ACTION=refresh
 ```
 
-Refresh validates and replays every field in the exact `deployment_inputs`
-schema recorded by that workspace, including its Compose SHA, data generation,
-runtime image digests, network/admission settings, monitoring channels, and
-Vault identities. Caller values for those recorded fields are ignored. The
-wrapper saves a full-graph `terraform plan -refresh-only`, permits only no-op
+Refresh validates and replays every field in the `deployment_inputs` schema
+recorded by that workspace, including its Compose SHA, data generation, runtime
+image digests, network/admission settings, monitoring channels, and Vault
+identities. The same missing legacy external-OCR impersonator key is normalized
+to `[]`; every other field must match the complete schema, and caller values for
+recorded fields are ignored. The wrapper saves a full-graph
+`terraform plan -refresh-only`, permits only no-op
 address moves, rejects non-move drift or non-no-op resource/output actions,
 prints the accepted plan, and auto-applies that exact saved plan. Target sets
 and non-empty `TF_CLI_ARGS*` variables are rejected; refresh and destroy also
@@ -518,20 +565,48 @@ this credential.
 ## Persistence generations
 
 `data_generation` is an immutable reviewed deployment input. The current
-greenfield generation is `canonical-v1`. One value scopes all Compose volumes
+application generation is `canonical-v2`. One value scopes all Compose volumes
 (MariaDB, uploads, cache, and both Triplet stores), the GCS upload prefix, and
 the transcription Pub/Sub topics and subscriptions. A process therefore cannot
 combine a new canonical schema with blobs, publications, or queued work from an
 older generation.
 
 Changing the value is an explicit cutover, not a routine configuration edit.
+The `canonical-v2` cutover isolates the released `0002` schema from the
+`canonical-v1` database used by the previously deployed binary; it does not
+copy application data between generations. The protected workflow captures the
+complete `canonical-v1` deployment record before applying `canonical-v2`. If
+that first apply or its readiness checks fail, automatic rollback exports the
+recorded `data_generation` and therefore restarts the prior binary against its
+unchanged `canonical-v1` volumes. After a successful cutover, subsequent
+deployments record and roll back within `canonical-v2`.
+
 Compose shutdown does not delete prior named volumes, and GCS retains the prior
 prefix, so operators can inspect or recover them before separately approved
-disposal. Terraform records the generation beside every image digest, Compose
-SHA, and non-secret deployment configuration. Destroy, drift detection, and
-rollback reload those exact values from state. Drift checks and rollback run
-the recorded source commit after proving it is reviewed `main` history; they do
-not interpret an old deployment through newer Terraform or repository scripts.
+disposal. Terraform also leaves the `canonical-v1` Pub/Sub topics,
+subscriptions, IAM grants, and alert-policy addresses intact while creating the
+`canonical-v2` queue graph alongside them. Messages on the retained
+`canonical-v1` worker subscription keep their seven-day service lifetime, and
+its dead-letter monitor messages keep their fourteen-day lifetime; rollback
+does not reset either clock. A rollback removes the failed forward graph, so
+messages created only in `canonical-v2` are not retained. The application and
+Pub/Sub service agents retain grants on both graphs while both are retained so
+the prior graph remains immediately runnable; runtime configuration names only
+the selected generation. Later canonical cutovers must append their generation
+to Terraform's explicit ordered review list. The forward graph is sliced from
+v2 through the selected entry, which guarantees that the immediately prior
+graph remains available and prevents an unreviewed generation value from
+causing resource fan-out.
+
+Terraform records the generation beside every image digest, Compose SHA, and
+non-secret deployment configuration. Destroy, drift detection, and rollback
+reload those exact values from state. Drift checks run the recorded source
+commit. Rollback first proves that source is reviewed `main` history, then uses
+the current infrastructure safety code to replay its recorded application
+artifacts, generation, and configuration. Returning to `canonical-v1` removes
+the parallel forward queue graph and leaves the original unindexed Terraform
+addresses intact, so the recorded prior source can still evaluate drift. It
+never executes retired infrastructure scripts from the prior checkout.
 The first rollout from state that predates the complete record deliberately has
 no automatic rollback target and fails closed instead of guessing which source,
 configuration, or data belongs to the old application.

@@ -124,13 +124,28 @@ without mutation. Shared Vault bootstrap and authorized root-token recovery are
 documented in the
 [deployment guide](../docs/operations/deployment.md#shared-vault-owner-bootstrap-and-recovery).
 `ACTION=refresh` cannot be combined with a targeted maintenance entry point.
-It validates and replays every field in the exact recorded `deployment_inputs`
-schema, creates a full-graph saved `terraform plan -refresh-only`, and rejects
+It validates and replays every field in the recorded `deployment_inputs`
+schema. State created before the dev-only external OCR identity input is the
+one schema-transition exception: a missing
+`dev_external_ocr_impersonators` key is normalized to `[]`, while explicit
+null, malformed, and non-empty production/preview values still fail closed.
+Refresh creates a full-graph saved `terraform plan -refresh-only` and rejects
 non-move drift or any non-no-op resource/output action. The wrapper prints the
 verified plan before auto-applying that exact saved plan. It does not invoke
 image resolution, pull, or build tooling; remote-state, provider, backup-policy,
 and Vault authentication prerequisites may still be required. Refresh and
-destroy require an existing selected workspace and never create one.
+ordinary destroy require an existing selected workspace and never create one.
+Destroy retains its one validated input snapshot across at most three attempts
+so short-lived provider dependency cleanup can converge; it deletes a preview
+workspace only after success. If an interrupted teardown already removed the
+current output, the protected preview workflow's explicit `recover-destroy`
+action can read the newest valid lower-serial, same-lineage output from the
+versioned state object's history. It does not restore or overwrite state and is
+not available for production. When a prior protected destroy already deleted
+the exact preview workspace, the same recovery action accepts that outcome only
+after a successful workspace inventory proves the name is absent, then allows
+the workflow to finish its idempotent Vault/evidence cleanup. Ordinary destroy,
+failed inventory, and a listed-but-unselectable workspace remain fail closed.
 For a pre-`deployment_inputs` workspace, `ACTION=normalize-moves` verifies the
 remote-state backup policy and applies only the reviewed transitive Scribe and
 pinned cloud-compose address changes with `terraform state mv`. It does not
@@ -162,13 +177,42 @@ examples are in [variables.tf](variables.tf) and
 - `SCRIBE_OCR_IMAGE_TAG`
 - `SCRIBE_REGION` and `SCRIBE_ZONE`
 - `ALLOWED_IPS`, `ALLOWED_SSH_IPV4`, and `ALLOWED_SSH_IPV6`
+- `DEV_EXTERNAL_OCR_IMPERSONATORS`, a JSON array of explicit `user:` or
+  `group:` IAM members accepted only by the `dev` workspace
 - `VAULT_ADMIN_EMAILS` and `VAULT_CI_SERVICE_ACCOUNT_EMAILS`
 - the explicitly authorized `VAULT_BOOTSTRAP_MODE` and stored-root recovery
   location overrides described in the deployment guide
 
-Keep `data_generation = "canonical-v1"` unless an intentional greenfield
-cutover is isolating MariaDB, blobs, Triplet, cache, and queued work together.
-Production and preview source refs and runtime images must be immutable.
+The current forward default is `data_generation = "canonical-v2"`. It is the
+intentional cutover boundary for the released `0002` database schema and
+isolates MariaDB, blobs, Triplet, cache, and queued work together. Do not reuse
+`canonical-v1` for a forward rollout. Deployment state records the reviewed
+value; rollback, refresh, and teardown reuse that recorded value rather than
+the current caller default. Production and preview source refs and runtime
+images must be immutable.
+
+The deployed `canonical-v1` Pub/Sub resources keep their original Terraform
+addresses. Forward generations use a parallel keyed graph selected from an
+explicit ordered review list, and Terraform keeps every graph from v2 through
+the selected entry. This makes a v2 apply create-only for the queue boundary,
+preserves v1 messages and monitoring for rollback, and lets a rollback return
+state to the exact address shape understood by the recorded v1 source. A future
+cutover must append its generation to that list and its input allowlists in the
+same reviewed change.
+
+### Dev external OCR identity
+
+Only workspace `dev` creates `scribe-dev-external`. Populate
+`dev_external_ocr_impersonators` with reviewed `user:` or `group:` members;
+Terraform grants those principals only `roles/iam.serviceAccountTokenCreator`
+on that one service account. The account itself receives Cloud Run invoker on
+the dev-owned Kraken and segmentor services, with no project-wide role and no
+downloadable key.
+
+Ollama is deliberately excluded. This repository's Ollama services are owned
+by workspace `prod`, even when dev consumes them, so granting this identity
+there would cross its dev-only boundary. Review the dev IAM plan explicitly
+before applying any impersonator change.
 
 ### Image contract
 
@@ -187,8 +231,9 @@ resolved GAR digest to Terraform. Terraform does not expose a parallel
 
 The `deployment_inputs` output records the Compose SHA, persistence generation,
 actual runtime image digests, and non-secret configuration needed by refresh,
-destroy, drift detection, and rollback. Replay validates the exact schema and
-fails closed rather than resolving a tag or guessing a missing value.
+destroy, drift detection, and rollback. Replay validates the recorded schema
+and fails closed rather than resolving a tag or guessing a missing value, apart
+from the documented missing legacy external-OCR key normalization.
 
 ## GitHub delivery
 

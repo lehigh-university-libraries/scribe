@@ -1,0 +1,79 @@
+services:
+  # The local frontend is the browser-facing edge and proxies API/IIIF paths.
+  # The base file keeps Traefik's port for VM deployments, so reset it here to
+  # avoid two services claiming host port 80.
+  traefik:
+    ports: !reset []
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      GCLOUD_PROJECT: ${GCLOUD_PROJECT:?set GCLOUD_PROJECT to the dev project that owns the OCR caller identity}
+      OLLAMA_URL: ${OLLAMA_URL:?set OLLAMA_URL to the private HTTPS Cloud Run origin}
+      OLLAMA_AUDIENCE: ${OLLAMA_AUDIENCE:?set OLLAMA_AUDIENCE to the same HTTPS origin}
+      OLLAMA_MODEL_ENDPOINTS_JSON: ${OLLAMA_MODEL_ENDPOINTS_JSON:?set the server-owned Ollama endpoint map}
+      SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:?set SEGMENTATION_SERVICE_URL to the private HTTPS Cloud Run origin}
+      SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:?set SEGMENTATION_SERVICE_AUDIENCE to the same HTTPS origin}
+      SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:?set the server-owned segmentation endpoint map}
+      KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:?set the server-owned Kraken endpoint map}
+      IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
+      IIIF_SOURCE_BASE: http://api:8080/static/uploads
+      TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
+      VAULT_TOKEN: ${VAULT_TOKEN:-}
+    depends_on:
+      triplet:
+        condition: service_healthy
+
+  worker:
+    environment:
+      GCLOUD_PROJECT: ${GCLOUD_PROJECT:?set GCLOUD_PROJECT to the dev project that owns the OCR caller identity}
+      OLLAMA_URL: ${OLLAMA_URL:?set OLLAMA_URL to the private HTTPS Cloud Run origin}
+      OLLAMA_AUDIENCE: ${OLLAMA_AUDIENCE:?set OLLAMA_AUDIENCE to the same HTTPS origin}
+      OLLAMA_MODEL_ENDPOINTS_JSON: ${OLLAMA_MODEL_ENDPOINTS_JSON:?set the server-owned Ollama endpoint map}
+      SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:?set SEGMENTATION_SERVICE_URL to the private HTTPS Cloud Run origin}
+      SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:?set SEGMENTATION_SERVICE_AUDIENCE to the same HTTPS origin}
+      SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:?set the server-owned segmentation endpoint map}
+      KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:?set the server-owned Kraken endpoint map}
+      IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
+      IIIF_SOURCE_BASE: http://api:8080/static/uploads
+      TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
+      VAULT_TOKEN: ${VAULT_TOKEN:-}
+    depends_on:
+      triplet:
+        condition: service_healthy
+
+  frontend:
+    image: ${SCRIBE_FRONTEND_IMAGE:-scribe-frontend:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "80:8888"
+    environment:
+      SCRIBE_FRONTEND_BACKEND_ORIGIN: http://api:8080
+      SCRIBE_FRONTEND_PRESENTATION_ORIGIN: http://triplet:8080
+    depends_on:
+      api:
+        condition: service_healthy
+      triplet:
+        condition: service_healthy
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8888/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+  triplet:
+    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:v1.2.0@sha256:6f7ce5374a4517456ae0b8ba410f0abd2e6a717675e8f4e3e18ddf6ab2227ace}

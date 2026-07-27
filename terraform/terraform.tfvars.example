@@ -30,6 +30,13 @@ vault_ci_service_account_emails = [
   "github@example-project.iam.gserviceaccount.com",
 ]
 
+# Dev workspace only. These human identities may impersonate the keyless,
+# dev-only scribe-dev-external service account. Leave empty in prod/preview.
+dev_external_ocr_impersonators = [
+  "user:developer@example.edu",
+  "group:scribe-developers@example.edu",
+]
+
 # Production requires at least one full notification-channel resource name.
 monitoring_notification_channels = [
   "projects/your-gcp-project-id/notificationChannels/1234567890",
@@ -40,7 +47,7 @@ monitoring_notification_channels = [
 # values for you. The reviewed frontend GHCR source digest is promoted outside
 # Terraform; only the deployed GAR digest is an infrastructure input.
 docker_compose_branch = "0123456789abcdef0123456789abcdef01234567"
-data_generation       = "canonical-v1"
+data_generation       = "canonical-v2"
 api_image              = "ghcr.io/lehigh-university-libraries/scribe@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 frontend_gar_image     = "us-docker.pkg.dev/your-gcp-project-id/internal/scribe-frontend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 

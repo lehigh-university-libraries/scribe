@@ -56,7 +56,7 @@ require_inputs() {
     fail "production data-disk self link is not exact" || exit 2
   [[ "$PRODUCTION_VOLUMES_DISK_SELF_LINK" == */projects/"$GCLOUD_PROJECT"/zones/"$PRODUCTION_ZONE"/disks/"$PRODUCTION_VOLUMES_DISK" ]] ||
     fail "production volumes-disk self link is not exact" || exit 2
-  [[ "$SCRIBE_DATA_GENERATION" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || fail "invalid data generation" || exit 2
+  [[ "$SCRIBE_DATA_GENERATION" =~ ^canonical-v(1|2)$ ]] || fail "data generation is not reviewed" || exit 2
 }
 
 run_id="${GITHUB_RUN_ID:-$(date -u +%s)}"

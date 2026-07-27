@@ -17,6 +17,8 @@ trusted_main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha'
   exit 1
 }
 
+recover_destroy_inputs="false"
+
 if [ -n "${EVENT_PR:-}" ]; then
   pr_number="${EVENT_PR}"
   head_sha="${EVENT_HEAD_SHA:-}"
@@ -52,16 +54,27 @@ else
     echo "Fork pull requests cannot be deployed with repository credentials." >&2
     exit 1
   fi
-  if [ "${DISPATCH_ACTION:-}" = "deploy" ] && [ "$(jq -r '.base.ref' <<<"${pr_json}")" != "main" ]; then
-    echo "Only pull requests targeting main can create previews." >&2
-    exit 1
-  fi
+  case "${DISPATCH_ACTION:-}" in
+    deploy)
+      if [ "$(jq -r '.base.ref' <<<"${pr_json}")" != "main" ]; then
+        echo "Only pull requests targeting main can create previews." >&2
+        exit 1
+      fi
+      mode="apply"
+      ;;
+    destroy)
+      mode="destroy"
+      ;;
+    recover-destroy)
+      mode="destroy"
+      recover_destroy_inputs="true"
+      ;;
+    *)
+      echo "action must be deploy, destroy, or recover-destroy" >&2
+      exit 1
+      ;;
+  esac
   head_sha="$(jq -r '.head.sha' <<<"${pr_json}")"
-  if [ "${DISPATCH_ACTION:-}" = "deploy" ]; then
-    mode="apply"
-  else
-    mode="destroy"
-  fi
 fi
 
 [[ "${head_sha}" =~ ^[0-9a-f]{40}$ ]] || {
@@ -80,6 +93,7 @@ gar_repo="us-docker.pkg.dev/${GCLOUD_PROJECT}/internal"
   echo "head_sha=${head_sha}"
   echo "base_sha=${trusted_main_sha}"
   echo "mode=${mode}"
+  echo "recover_destroy_inputs=${recover_destroy_inputs}"
   echo "region=${SCRIBE_REGION}"
   echo "tag=${tag}"
   echo "zone=${SCRIBE_ZONE}"

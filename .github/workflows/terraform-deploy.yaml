@@ -25,6 +25,11 @@ on:
         required: false
         type: string
         default: ""
+      recover_preview_destroy_inputs:
+        description: Recover immutable preview destroy inputs from same-lineage versioned state after an interrupted teardown.
+        required: false
+        type: boolean
+        default: false
       image_tag:
         required: false
         type: string
@@ -85,12 +90,13 @@ jobs:
       ALLOWED_SSH_IPV4: ${{ vars.ALLOWED_SSH_IPV4 }}
       ALLOWED_SSH_IPV6: ${{ vars.ALLOWED_SSH_IPV6 != '' && vars.ALLOWED_SSH_IPV6 || '[]' }}
       SCRIBE_API_IMAGE: ${{ inputs.image_tag }}
-      SCRIBE_DATA_GENERATION: canonical-v1
+      SCRIBE_DATA_GENERATION: canonical-v2
       SCRIBE_FRONTEND_IMAGE: ${{ inputs.frontend_image_tag }}
       SCRIBE_FRONTEND_GAR_IMAGE: ${{ inputs.frontend_gar_image_tag }}
       SCRIBE_OCR_IMAGES_JSON: ${{ inputs.ocr_images_json }}
       SCRIBE_REGION: ${{ inputs.region }}
       SCRIBE_ZONE: ${{ inputs.zone }}
+      DEV_EXTERNAL_OCR_IMPERSONATORS: '[]'
       VAULT_ADMIN_EMAILS: ${{ vars.VAULT_ADMIN_EMAILS }}
       VAULT_CI_SERVICE_ACCOUNT_EMAILS: '["${{ secrets.GSA }}"]'
       TF_VAR_transcription_max_active_jobs_per_workspace: ${{ vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE != '' && vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE || '1000' }}
@@ -125,6 +131,7 @@ jobs:
           DEPLOY_MODE: ${{ inputs.mode }}
           ENVIRONMENT_NAME: ${{ inputs.environment_name }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          RECOVER_PREVIEW_DESTROY_INPUTS: ${{ inputs.recover_preview_destroy_inputs }}
           SITE_NAME: ${{ inputs.site_name }}
           TF_WORKSPACE: ${{ inputs.tf_workspace }}
         run: |
@@ -168,7 +175,7 @@ jobs:
           [[ "$SITE_NAME" =~ ^scribe(-pr-[0-9]+)?$ ]] || { echo "invalid site name" >&2; exit 1; }
           [[ "$SCRIBE_REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || { echo "invalid GCP region" >&2; exit 1; }
           [[ "$SCRIBE_ZONE" =~ ^${SCRIBE_REGION}-[a-z]$ ]] || { echo "GCP zone must belong to the configured region" >&2; exit 1; }
-          [[ "$SCRIBE_DATA_GENERATION" =~ ^[a-z][a-z0-9-]{0,31}$ ]] || { echo "invalid persistence data generation" >&2; exit 1; }
+          [[ "$SCRIBE_DATA_GENERATION" =~ ^canonical-v(1|2)$ ]] || { echo "persistence data generation is not reviewed" >&2; exit 1; }
           if [ "$DEPLOY_MODE" != "destroy" ]; then
             [[ "$SCRIBE_API_IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] || { echo "backend image must be digest-pinned" >&2; exit 1; }
             jq -e 'type == "object" and length > 0 and all(.[]; test("^[^[:space:]@]+@sha256:[0-9a-f]{64}$"))' <<<"$SCRIBE_OCR_IMAGES_JSON" >/dev/null || {
@@ -181,6 +188,12 @@ jobs:
           fi
           if [ -n "$PR_NUMBER" ]; then
             [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be numeric" >&2; exit 1; }
+          fi
+          if [ "$RECOVER_PREVIEW_DESTROY_INPUTS" = "true" ] && {
+            [ "$DEPLOY_MODE" != "destroy" ] || [ "$ENVIRONMENT_NAME" != "preview" ] || [ -z "$PR_NUMBER" ];
+          }; then
+            echo "Historical destroy-input recovery is restricted to an explicit protected preview destroy." >&2
+            exit 1
           fi
           if [ "$ENVIRONMENT_NAME" = "production" ]; then
             [ "$TF_WORKSPACE" = "prod" ] && [ "$SITE_NAME" = "scribe" ] && [ -z "$PR_NUMBER" ] || {
@@ -591,6 +604,7 @@ jobs:
           ALLOWED_IPS="$(jq -c '.configuration.allowed_ips' <<<"$previous")"
           ALLOWED_SSH_IPV4="$(jq -c '.configuration.allowed_ssh_ipv4' <<<"$previous")"
           ALLOWED_SSH_IPV6="$(jq -c '.configuration.allowed_ssh_ipv6' <<<"$previous")"
+          DEV_EXTERNAL_OCR_IMPERSONATORS="$(jq -c '.configuration.dev_external_ocr_impersonators' <<<"$previous")"
           VAULT_ADMIN_EMAILS="$(jq -c '.configuration.vault_admin_emails' <<<"$previous")"
           VAULT_CI_SERVICE_ACCOUNT_EMAILS="$(jq -c '.configuration.vault_ci_service_account_emails' <<<"$previous")"
           TF_VAR_monitoring_notification_channels="$(jq -c '.configuration.monitoring_notification_channels' <<<"$previous")"
@@ -611,6 +625,7 @@ jobs:
           TF_VAR_iiif_max_manifest_import_bytes="$(jq -r '.configuration.iiif_max_manifest_import_bytes' <<<"$previous")"
           export DEPLOY_BRANCH SCRIBE_API_IMAGE SCRIBE_DATA_GENERATION SCRIBE_FRONTEND_GAR_IMAGE
           export SCRIBE_OCR_IMAGES_JSON SCRIBE_REGION SCRIBE_ZONE ALLOWED_IPS ALLOWED_SSH_IPV4 ALLOWED_SSH_IPV6
+          export DEV_EXTERNAL_OCR_IMPERSONATORS
           export VAULT_ADMIN_EMAILS VAULT_CI_SERVICE_ACCOUNT_EMAILS TF_VAR_monitoring_notification_channels
           export TF_VAR_backup_restore_service_account_email TF_VAR_network_ip_cidr_range TF_VAR_compose_network_cidr
           export TF_VAR_transcription_max_active_jobs_per_workspace TF_VAR_storage_max_bytes_per_workspace
@@ -683,10 +698,12 @@ jobs:
         env:
           DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          SCRIBE_RECOVER_PREVIEW_DESTROY_INPUTS: ${{ inputs.recover_preview_destroy_inputs }}
         run: |
           ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log" make tf-preview PR="$PR_NUMBER" BRANCH="$DEPLOY_BRANCH" ACTION=destroy
 
       - name: Remove preview Vault namespace
+        id: destroy_preview_vault
         if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
         shell: bash
         env:
@@ -724,6 +741,7 @@ jobs:
             BACKUP_OUTCOME='${{ steps.backup_verify.outcome }}' \
             DESTROY_OUTCOME='${{ steps.destroy.outcome }}' \
             DESTROY_PREVIEW_OUTCOME='${{ steps.destroy_preview.outcome }}' \
+            DESTROY_PREVIEW_VAULT_OUTCOME='${{ steps.destroy_preview_vault.outcome }}' \
               ./ci/deployment-status.sh
           )"
           echo "status=$status" >> "$GITHUB_OUTPUT"

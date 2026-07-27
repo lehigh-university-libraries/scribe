@@ -152,6 +152,87 @@ func TestCredentialFileBindsAndCachesProvidersPerAudience(t *testing.T) {
 	}
 }
 
+func TestImpersonatedCredentialBindsAndCachesProvidersPerAudience(t *testing.T) {
+	const target = "scribe-dev-external@test-project.iam.gserviceaccount.com"
+	var oauthCalls atomic.Int32
+	var iamCalls atomic.Int32
+	seenAudiences := make(chan string, 2)
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var response *http.Response
+		switch request.URL.String() {
+		case googleTokenEndpoint:
+			oauthCalls.Add(1)
+			response = jsonResponse(http.StatusOK, map[string]any{
+				"access_token": "source-access-token",
+				"expires_in":   3600,
+				"token_type":   "Bearer",
+			})
+		case "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/" + target + ":generateIdToken":
+			iamCalls.Add(1)
+			if got := request.Header.Get("Authorization"); got != "Bearer source-access-token" {
+				return nil, fmt.Errorf("unexpected IAM authorization")
+			}
+			var body struct {
+				Audience     string `json:"audience"`
+				IncludeEmail bool   `json:"includeEmail"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				return nil, err
+			}
+			if !body.IncludeEmail {
+				return nil, fmt.Errorf("IAM token must include the target email")
+			}
+			seenAudiences <- body.Audience
+			response = jsonResponse(http.StatusOK, map[string]any{
+				"token": testJWT(map[string]any{
+					"aud": body.Audience,
+					"exp": time.Now().Add(time.Hour).Unix(),
+				}),
+			})
+		default:
+			return nil, fmt.Errorf("unexpected identity endpoint")
+		}
+		response.Request = request
+		return response, nil
+	})}
+	source, err := New(Options{
+		CredentialsFile: writeImpersonatedServiceAccount(t, target),
+		HTTPClient:      client,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := source.Token(context.Background(), "https://one.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached, err := source.Token(context.Background(), "https://one.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := source.Token(context.Background(), "https://two.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != cached || first == second {
+		t.Fatalf("unexpected cached tokens: first=%q cached=%q second=%q", first, cached, second)
+	}
+	if got := oauthCalls.Load(); got != 1 {
+		t.Fatalf("OAuth refresh calls = %d, want 1", got)
+	}
+	if got := iamCalls.Load(); got != 2 {
+		t.Fatalf("IAM ID-token calls = %d, want 2", got)
+	}
+	close(seenAudiences)
+	var got []string
+	for audience := range seenAudiences {
+		got = append(got, audience)
+	}
+	if len(got) != 2 || got[0] != "https://one.example" || got[1] != "https://two.example" {
+		t.Fatalf("bound audiences = %#v", got)
+	}
+}
+
 func TestCredentialFileRejectsRedirectAndRedactsProviderFailure(t *testing.T) {
 	var destinationCalls atomic.Int32
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -268,6 +349,46 @@ func TestNewRejectsInvalidCredentialConfiguration(t *testing.T) {
 			"type":      "service_account",
 			"token_uri": "https://attacker.example/" + secret,
 		}),
+		"untrusted impersonation endpoint": write("impersonation-endpoint.json", map[string]any{
+			"type":                              "impersonated_service_account",
+			"service_account_impersonation_url": "https://attacker.example/" + secret,
+			"source_credentials": map[string]any{
+				"type":          "authorized_user",
+				"client_id":     "client",
+				"client_secret": "client-secret",
+				"refresh_token": "refresh-token",
+			},
+		}),
+		"nested service account source": write("impersonation-source.json", map[string]any{
+			"type":                              "impersonated_service_account",
+			"service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/scribe-dev-external@test-project.iam.gserviceaccount.com:generateAccessToken",
+			"source_credentials": map[string]any{
+				"type":        "service_account",
+				"private_key": secret,
+			},
+		}),
+		"impersonation delegate": write("impersonation-delegate.json", map[string]any{
+			"type":                              "impersonated_service_account",
+			"service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/scribe-dev-external@test-project.iam.gserviceaccount.com:generateAccessToken",
+			"delegates":                         []string{"delegate@test-project.iam.gserviceaccount.com"},
+			"source_credentials": map[string]any{
+				"type":          "authorized_user",
+				"client_id":     "client",
+				"client_secret": "client-secret",
+				"refresh_token": "refresh-token",
+			},
+		}),
+		"source endpoint injection": write("impersonation-source-endpoint.json", map[string]any{
+			"type":                              "impersonated_service_account",
+			"service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/scribe-dev-external@test-project.iam.gserviceaccount.com:generateAccessToken",
+			"source_credentials": map[string]any{
+				"type":          "authorized_user",
+				"client_id":     "client",
+				"client_secret": "client-secret",
+				"refresh_token": "refresh-token",
+				"token_url":     "https://attacker.example/" + secret,
+			},
+		}),
 	}
 	for name, path := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -368,6 +489,30 @@ func writeServiceAccount(t *testing.T, tokenURI string) string {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "service-account.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeImpersonatedServiceAccount(t *testing.T, target string) string {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{
+		"type": "impersonated_service_account",
+		"service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/" +
+			target + ":generateAccessToken",
+		"source_credentials": map[string]any{
+			"type":             "authorized_user",
+			"client_id":        "test-client-id",
+			"client_secret":    "test-client-secret",
+			"refresh_token":    "test-refresh-token",
+			"quota_project_id": "test-project",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "impersonated-service-account.json")
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}

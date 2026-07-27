@@ -39,6 +39,14 @@ locals {
   vault_secret_prefix        = local.is_preview_workspace ? "scribe/previews/${local.preview_app_gsa_email}" : "scribe/${local.workspace_slug}"
   pubsub_service_agent       = "service-${local.project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
   uploads_bucket_name        = trimsuffix(substr(replace(lower("${var.project_id}-${var.name}-${local.workspace_slug}-uploads"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
+  # canonical-v1 keeps its original singleton addresses so rollback restores a
+  # state shape the previously deployed source understands. Append an approved
+  # generation to this ordered list only during its explicit cutover. Slicing
+  # through the selected generation retains every reviewed predecessor.
+  reviewed_data_generations                         = ["canonical-v1", "canonical-v2"]
+  data_generation_index                             = try(index(local.reviewed_data_generations, var.data_generation), 0)
+  forward_transcription_data_generations            = toset(slice(local.reviewed_data_generations, 1, local.data_generation_index + 1))
+  forward_production_transcription_data_generations = local.is_prod_workspace ? local.forward_transcription_data_generations : toset([])
 }
 
 check "immutable_reviewed_deployment_inputs" {
@@ -271,11 +279,11 @@ locals {
     },
     {
       name  = "PUBSUB_TRANSCRIPTION_TOPIC_ID"
-      value = google_pubsub_topic.transcription_jobs.name
+      value = var.data_generation == "canonical-v1" ? google_pubsub_topic.transcription_jobs.name : google_pubsub_topic.transcription_jobs_forward[var.data_generation].name
     },
     {
       name  = "PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID"
-      value = google_pubsub_subscription.transcription_workers.name
+      value = var.data_generation == "canonical-v1" ? google_pubsub_subscription.transcription_workers.name : google_pubsub_subscription.transcription_workers_forward[var.data_generation].name
     },
     {
       name  = "SCRIBE_UPLOADS_BUCKET"
@@ -428,15 +436,15 @@ locals {
 }
 
 resource "google_pubsub_topic" "transcription_jobs" {
-  name = "${var.name}-${local.workspace_slug}-${var.data_generation}-transcription-jobs"
+  name = "${var.name}-${local.workspace_slug}-canonical-v1-transcription-jobs"
 }
 
 resource "google_pubsub_topic" "transcription_jobs_dead_letter" {
-  name = "${var.name}-${local.workspace_slug}-${var.data_generation}-transcription-jobs-dlq"
+  name = "${var.name}-${local.workspace_slug}-canonical-v1-transcription-jobs-dlq"
 }
 
 resource "google_pubsub_subscription" "transcription_workers" {
-  name  = "${var.name}-${local.workspace_slug}-${var.data_generation}-transcription-workers"
+  name  = "${var.name}-${local.workspace_slug}-canonical-v1-transcription-workers"
   topic = google_pubsub_topic.transcription_jobs.id
 
   ack_deadline_seconds       = 60
@@ -454,8 +462,54 @@ resource "google_pubsub_subscription" "transcription_workers" {
 }
 
 resource "google_pubsub_subscription" "transcription_dead_letter_monitor" {
-  name  = "${var.name}-${local.workspace_slug}-${var.data_generation}-transcription-jobs-dlq-monitor"
+  name  = "${var.name}-${local.workspace_slug}-canonical-v1-transcription-jobs-dlq-monitor"
   topic = google_pubsub_topic.transcription_jobs_dead_letter.id
+
+  ack_deadline_seconds       = 60
+  message_retention_duration = "1209600s"
+
+  expiration_policy {
+    ttl = ""
+  }
+}
+
+resource "google_pubsub_topic" "transcription_jobs_forward" {
+  for_each = local.forward_transcription_data_generations
+
+  name = "${var.name}-${local.workspace_slug}-${each.key}-transcription-jobs"
+}
+
+resource "google_pubsub_topic" "transcription_jobs_dead_letter_forward" {
+  for_each = local.forward_transcription_data_generations
+
+  name = "${var.name}-${local.workspace_slug}-${each.key}-transcription-jobs-dlq"
+}
+
+resource "google_pubsub_subscription" "transcription_workers_forward" {
+  for_each = local.forward_transcription_data_generations
+
+  name  = "${var.name}-${local.workspace_slug}-${each.key}-transcription-workers"
+  topic = google_pubsub_topic.transcription_jobs_forward[each.key].id
+
+  ack_deadline_seconds       = 60
+  message_retention_duration = "604800s"
+
+  dead_letter_policy {
+    dead_letter_topic     = google_pubsub_topic.transcription_jobs_dead_letter_forward[each.key].id
+    max_delivery_attempts = 5
+  }
+
+  retry_policy {
+    minimum_backoff = "10s"
+    maximum_backoff = "600s"
+  }
+}
+
+resource "google_pubsub_subscription" "transcription_dead_letter_monitor_forward" {
+  for_each = local.forward_transcription_data_generations
+
+  name  = "${var.name}-${local.workspace_slug}-${each.key}-transcription-jobs-dlq-monitor"
+  topic = google_pubsub_topic.transcription_jobs_dead_letter_forward[each.key].id
 
   ack_deadline_seconds       = 60
   message_retention_duration = "1209600s"
@@ -494,6 +548,35 @@ resource "google_monitoring_alert_policy" "transcription_dead_letter_depth" {
   }
 }
 
+resource "google_monitoring_alert_policy" "transcription_dead_letter_depth_forward" {
+  for_each = local.forward_production_transcription_data_generations
+
+  display_name          = "${var.name} ${local.workspace_slug} ${each.key} transcription DLQ has messages"
+  combiner              = "OR"
+  notification_channels = var.monitoring_notification_channels
+
+  documentation {
+    content   = "The Scribe ${each.key} transcription Pub/Sub dead-letter subscription has unacked messages. Inspect ${google_pubsub_subscription.transcription_dead_letter_monitor_forward[each.key].name}; each message represents a job that exceeded Pub/Sub delivery attempts."
+    mime_type = "text/markdown"
+  }
+
+  conditions {
+    display_name = "${each.key} DLQ monitor subscription has undelivered messages"
+
+    condition_threshold {
+      filter          = "resource.type = \"pubsub_subscription\" AND resource.labels.subscription_id = \"${google_pubsub_subscription.transcription_dead_letter_monitor_forward[each.key].name}\" AND metric.type = \"pubsub.googleapis.com/subscription/num_undelivered_messages\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "300s"
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+    }
+  }
+}
+
 resource "google_pubsub_topic_iam_member" "transcription_jobs_publisher" {
   topic  = google_pubsub_topic.transcription_jobs.name
   role   = "roles/pubsub.publisher"
@@ -514,6 +597,38 @@ resource "google_pubsub_topic_iam_member" "transcription_dead_letter_publisher" 
 
 resource "google_pubsub_subscription_iam_member" "transcription_dead_letter_source_subscriber" {
   subscription = google_pubsub_subscription.transcription_workers.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${local.pubsub_service_agent}"
+}
+
+resource "google_pubsub_topic_iam_member" "transcription_jobs_publisher_forward" {
+  for_each = local.forward_transcription_data_generations
+
+  topic  = google_pubsub_topic.transcription_jobs_forward[each.key].name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${module.scribe.appGsa.email}"
+}
+
+resource "google_pubsub_subscription_iam_member" "transcription_workers_subscriber_forward" {
+  for_each = local.forward_transcription_data_generations
+
+  subscription = google_pubsub_subscription.transcription_workers_forward[each.key].name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${module.scribe.appGsa.email}"
+}
+
+resource "google_pubsub_topic_iam_member" "transcription_dead_letter_publisher_forward" {
+  for_each = local.forward_transcription_data_generations
+
+  topic  = google_pubsub_topic.transcription_jobs_dead_letter_forward[each.key].name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${local.pubsub_service_agent}"
+}
+
+resource "google_pubsub_subscription_iam_member" "transcription_dead_letter_source_subscriber_forward" {
+  for_each = local.forward_transcription_data_generations
+
+  subscription = google_pubsub_subscription.transcription_workers_forward[each.key].name
   role         = "roles/pubsub.subscriber"
   member       = "serviceAccount:${local.pubsub_service_agent}"
 }

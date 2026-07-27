@@ -84,6 +84,10 @@ operations page, and the executable acceptance contract in the same review.
 - Protected `preview` and `production` environments are required. GCP Workload
   Identity Federation claims are restricted to the repository, workflow, ref,
   and environment.
+- Preview teardown evidence succeeds only after both Terraform and its exact
+  Vault namespace are absent. Ordinary destroy requires readable current state;
+  protected recovery may accept an already absent exact preview workspace only
+  after authoritative workspace inventory and remains fail closed otherwise.
 
 ## Developer experience and documentation
 

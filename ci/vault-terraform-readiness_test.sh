@@ -37,7 +37,15 @@ case "${1:-}" in
       echo "unexpected terraform state invocation: $*" >&2
       exit 2
     }
+    if [ "${TF_TEST_STATE_LIST_FAIL:-false}" = true ]; then
+      echo "simulated Terraform state read failure" >&2
+      exit 23
+    fi
     printf '%s\n' 'module.vault[0].google_cloud_run_v2_service.vault'
+    trailing_lines="${TF_TEST_STATE_LIST_TRAILING_LINES:-0}"
+    for ((index = 0; index < trailing_lines; index++)); do
+      printf 'terraform_data.trailing_state[%d]\n' "$index"
+    done
     exit 0
     ;;
   plan)
@@ -350,6 +358,8 @@ run_preview_runtime() {
     TF_TEST_ADMIN_TOKEN="$admin_token" \
     TF_TEST_PREVIEW_ROOT_TOKEN="$preview_root_token" \
     TF_TEST_PREVIEW_RUNTIME=true \
+    TF_TEST_STATE_LIST_FAIL="${TF_TEST_STATE_LIST_FAIL:-false}" \
+    TF_TEST_STATE_LIST_TRAILING_LINES=4096 \
     TF_TEST_PROJECT_ID="$project_id" \
     TF_TEST_PROJECT_NUMBER="$project_number" \
     TF_TEST_VAULT_GSA="$runtime_gsa" \
@@ -426,6 +436,29 @@ grep -Eq '^build -trimpath -o .+ \./cmd/vault-preview-runtime$' "$go_log" || {
 }
 if grep -F "$preview_root_token" "$TEST_DIR/preview-runtime.out" "$TEST_DIR/preview-runtime.err" >/dev/null; then
   echo "Preview Vault runtime reconciliation exposed its recovered root token" >&2
+  exit 1
+fi
+
+if TF_TEST_STATE_LIST_FAIL=true run_preview_runtime \
+  example-project \
+  123456789012 \
+  vault-server-dev@example-project.iam.gserviceaccount.com \
+  "$TEST_DIR/preview-runtime-state-failure.out" \
+  "$TEST_DIR/preview-runtime-state-failure.err"; then
+  echo "Preview Vault runtime reconciliation treated a failed state read as an empty owner workspace" >&2
+  exit 1
+fi
+grep -F 'Unable to inspect Terraform state for the shared Vault owner.' \
+  "$TEST_DIR/preview-runtime-state-failure.err" >/dev/null || {
+  echo "Preview Vault runtime reconciliation did not report a failed owner-state read" >&2
+  exit 1
+}
+[ ! -s "$reconciler_log" ] || {
+  echo "Preview Vault runtime reconciler ran after a failed owner-state read" >&2
+  exit 1
+}
+if grep -Eq '^(validate|plan|apply)([[:space:]]|$)|-target=' "$terraform_log"; then
+  echo "Preview Vault runtime state-read failure traversed an unrelated Terraform graph" >&2
   exit 1
 fi
 

@@ -59,7 +59,8 @@ factory in `providerregistry`, add its approved selection IDs to trusted runtime
 configuration, and let `Registry.NewSegmentor` resolve exact server-owned
 origins. Remote `/v1/segment` and `/v1/transcribe` calls use
 `htr/pkg/remoteocr`; all callers share Scribe's `internal/gcpidentity` token
-source. The source accepts only the managed service-account JSON named by
+source. The source accepts only a validated service-account JSON or the
+keyless, non-delegated impersonation ADC shape named by
 `GOOGLE_APPLICATION_CREDENTIALS`, binds and caches a provider per exact
 audience, and uses metadata only when no credential file is configured.
 Authenticated audiences are canonical HTTPS origins without a trailing slash

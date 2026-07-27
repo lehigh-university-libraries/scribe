@@ -82,6 +82,10 @@ require_pattern 'sha256: "77a638a83c9e535620827a09e410ed36391e9e8e8126d5796a0f15
 require_pattern 'https://download\.pytorch\.org/whl/cpu' config/segmentor-requirements.in
 forbid_pattern 'nvidia-cuda|whl/cu[0-9]' Dockerfile.segmentor
 bash ci/ocr-local-defaults-contract_test.sh
+bash ci/cloud-ocr-compose-preflight_test.sh
+bash ci/run-ci-network-contract_test.sh
+bash ci/configure-dev-cloud-ocr_test.sh
+bash ci/dev-external-ocr-iam-contract_test.sh
 bash ci/segmentor-lock-check.sh
 bash ci/tool-version-contract_test.sh
 bash ci/toolchain-check_test.sh
@@ -128,18 +132,20 @@ bash ci/traefik-v3-rules-contract_test.sh
 bash ci/deployment-replay-contract_test.sh
 bash ci/verify-production-persistent-disk-plan_test.sh
 for volume in mariadb-data uploads-data cache-data triplet-presentation-data triplet-cache-data; do
-  require_pattern "SCRIBE_DATA_GENERATION:-canonical-v1}-${volume}" docker-compose.yaml
+  require_pattern "SCRIBE_DATA_GENERATION:-canonical-v2}-${volume}" docker-compose.yaml
 done
 require_pattern 'name  = "SCRIBE_DATA_GENERATION"' terraform/main.tf
 require_pattern 'value = "uploads/\$\{var\.data_generation\}"' terraform/main.tf
 forbid_pattern 'SCRIBE_UPLOADS_BUCKET|SCRIBE_UPLOADS_PREFIX' terraform/kraken.tf
-require_pattern 'var\.data_generation.*transcription-jobs' terraform/main.tf
+require_pattern 'each\.key.*transcription-jobs' terraform/main.tf
+require_pattern 'transcription_jobs_forward\[var\.data_generation\]' terraform/main.tf
 require_pattern 'data_generation[[:space:]]*=[[:space:]]*var\.data_generation' terraform/outputs.tf
-require_pattern 'SCRIBE_DATA_GENERATION: canonical-v1' .github/workflows/terraform-deploy.yaml
+require_pattern 'SCRIBE_DATA_GENERATION: canonical-v2' .github/workflows/terraform-deploy.yaml
 # shellcheck disable=SC2016 # This is an rg pattern, not an expanding shell expression.
 require_pattern 'SCRIBE_DATA_GENERATION="\$\(jq -r '\''\.data_generation'\'' <<<"\$previous"\)"' .github/workflows/terraform-deploy.yaml
 require_pattern '^[[:space:]]*export[[:space:]].*SCRIBE_DATA_GENERATION([[:space:]]|$)' .github/workflows/terraform-deploy.yaml
 require_pattern 'SCRIBE_DATA_GENERATION=.*data_generation' .github/workflows/terraform-drift.yaml
+# The destroy fixture deliberately remains on the recorded prior generation.
 require_pattern 'data_generation.*canonical-v1' ci/deploy-local-destroy_test.sh
 require_pattern 'data_generation.*test' ci/resolve-destroy-inputs.sh
 
@@ -257,6 +263,10 @@ forbid_pattern 'artifacts docker images describe|containeranalysis' ci/resolve-g
 bash ci/resolve-gar-image_test.sh
 require_pattern 'terraform output -json deployment_inputs' terraform/deploy-local.sh
 require_pattern 'resolve-destroy-inputs\.sh' terraform/deploy-local.sh
+require_pattern 'recover-preview-destroy-inputs\.sh' terraform/deploy-local.sh
+require_pattern 'recover-destroy' .github/workflows/terraform-preview.yaml
+require_pattern 'recover_preview_destroy_inputs' .github/workflows/terraform-deploy.yaml
+forbid_pattern 'state push|storage cp[^\n]*gs://[^\n]*gs://' ci/recover-preview-destroy-inputs.sh
 require_pattern 'deployment-status\.sh' .github/workflows/terraform-deploy.yaml
 require_pattern 'VAULT_BOOTSTRAP_MODE: root-token' .github/workflows/terraform-drift.yaml
 forbid_pattern 'vault-login\.sh|Authenticate Google ID token for Vault' .github/workflows/terraform-drift.yaml

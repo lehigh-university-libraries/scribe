@@ -20,6 +20,13 @@ responses. A workspace may register at most 100 unique targets.
 Scribe does not follow delivery redirects; the registered target must accept
 the POST directly.
 
+The `0002_islandora_editor_review` upgrade does not convert queued deliveries
+from the removed process-global URL configuration. Those attempts were
+unsigned and have no receiver-known secret, so converting them would create a
+subscription that no receiver could authenticate. The migration retains their
+event-outbox records, removes the incompatible delivery attempts, and starts
+delivery only for explicit subscriptions created after the upgrade.
+
 Each event transaction expands deliveries only for subscriptions belonging to
 the event's workspace. Expansion and subscription creation or deletion
 serialize on that workspace, so a concurrent delete cannot leave a delivery

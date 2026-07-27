@@ -20,10 +20,12 @@ Optional environment:
   ALLOWED_IPS         Terraform list(string), e.g. ["203.0.113.10/32"]
   ALLOWED_SSH_IPV4    Terraform list(string), e.g. ["203.0.113.10/32"]
   ALLOWED_SSH_IPV6    Terraform list(string), e.g. ["2001:db8::/64"]
+  DEV_EXTERNAL_OCR_IMPERSONATORS  Dev-only JSON array of explicit user: or group: IAM members allowed to impersonate scribe-dev-external. Must be [] outside dev.
+  SCRIBE_RECOVER_PREVIEW_DESTROY_INPUTS  Set to true only for the protected recover-destroy workflow after an interrupted preview teardown removed deployment_inputs.
   SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar). When unset, local apply resolves the default tag and auto-builds it if missing.
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. For plan/apply only; refresh and destroy reload the recorded map from Terraform state.
-  SCRIBE_DATA_GENERATION  Reviewed persistence generation. Defaults to canonical-v1; refresh and destroy always reload the recorded value from Terraform state.
+  SCRIBE_DATA_GENERATION  Reviewed persistence generation. Defaults to canonical-v2; refresh and destroy always reload the recorded value from Terraform state.
   SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to the immutable --branch commit SHA for production and preview, and the branch slug for development.
   SCRIBE_ZONE            Optional zone override used when locally building the frontend GAR sidecar. Falls back to TF_VAR_zone, terraform/terraform.tfvars, then us-east5-c for previews or us-east5-b otherwise.
   SCRIBE_REGION          Optional region override. Falls back to TF_VAR_region, then us-east5.
@@ -147,9 +149,31 @@ resolve_frontend_gar_image() {
 select_workspace() {
   local workspace="$1"
   local action="$2"
+  local listed_workspace normalized_workspace workspace_inventory
 
   if terraform workspace select "$workspace"; then
     export TF_WORKSPACE="$workspace"
+    return 0
+  fi
+
+  if [ "$action" = "destroy" ] \
+    && [ "${environment:-}" = "preview" ] \
+    && [ "${recover_preview_destroy_inputs:-false}" = "true" ] \
+    && [[ "$workspace" =~ ^pr-[0-9]+$ ]]; then
+    if ! workspace_inventory="$(terraform workspace list -no-color)"; then
+      echo "Unable to inventory Terraform workspaces after selection failed; refusing to infer that ${workspace} was destroyed." >&2
+      return 1
+    fi
+    while IFS= read -r listed_workspace; do
+      normalized_workspace="$(sed -E 's/^[*[:space:]]+//; s/[[:space:]]+$//' <<<"$listed_workspace")"
+      if [ "$normalized_workspace" = "$workspace" ]; then
+        echo "Terraform workspace ${workspace} still exists but could not be selected; refusing recovery." >&2
+        return 1
+      fi
+    done <<<"$workspace_inventory"
+
+    selected_workspace_exists=false
+    echo "Terraform workspace ${workspace} is already absent; protected preview teardown recovery has no Terraform state left to destroy."
     return 0
   fi
 
@@ -160,6 +184,24 @@ select_workspace() {
 
   terraform workspace new "$workspace" || terraform workspace select "$workspace"
   export TF_WORKSPACE="$workspace"
+}
+
+resolve_vault_owner_state() {
+  local state_list
+
+  # Capture the complete listing before matching it. With pipefail, piping this
+  # command into grep -q can turn grep's early success into Terraform SIGPIPE
+  # and falsely classify an existing owner workspace as empty.
+  if ! state_list="$(terraform state list 2>/dev/null)"; then
+    echo "Unable to inspect Terraform state for the shared Vault owner." >&2
+    return 1
+  fi
+
+  if grep -Eq '^module\.vault\[0\]\.' <<<"$state_list"; then
+    printf 'present\n'
+  else
+    printf 'absent\n'
+  fi
 }
 
 reject_state_maintenance_cli_args() {
@@ -373,16 +415,18 @@ bootstrap_vault_token() {
   local target_workspace="$1"
   local action="$2"
   local shared_workspace="$3"
-  local bootstrap_mode
+  local bootstrap_mode vault_owner_state=""
   local first_owner_apply=false
 
   if [ "${target_set:-}" = "vault-preview-runtime" ] \
     && [ "$target_workspace" = "$shared_workspace" ] \
-    && [ "$action" = "apply" ] \
-    && ! terraform state list 2>/dev/null | grep -q '^module\.vault\[0\]\.'; then
-    echo "The shared dev Vault owner is absent; preview-runtime maintenance cannot bootstrap it outside its reviewed reconciliation boundary." >&2
-    echo "Apply and initialize the complete dev owner workspace before retrying." >&2
-    return 1
+    && [ "$action" = "apply" ]; then
+    vault_owner_state="$(resolve_vault_owner_state)" || return 1
+    if [ "$vault_owner_state" = "absent" ]; then
+      echo "The shared dev Vault owner is absent; preview-runtime maintenance cannot bootstrap it outside its reviewed reconciliation boundary." >&2
+      echo "Apply and initialize the complete dev owner workspace before retrying." >&2
+      return 1
+    fi
   fi
 
   bootstrap_mode="${VAULT_BOOTSTRAP_MODE:-jwt}"
@@ -405,7 +449,10 @@ bootstrap_vault_token() {
   # any Vault login or root-token recovery request. This targeted apply is only
   # a first-owner bootstrap; routine applies go directly to the full graph.
   if [ "$target_workspace" = "$shared_workspace" ] && [ "$action" = "apply" ]; then
-    if ! terraform state list 2>/dev/null | grep -q '^module\.vault\[0\]\.'; then
+    if [ -z "$vault_owner_state" ]; then
+      vault_owner_state="$(resolve_vault_owner_state)" || return 1
+    fi
+    if [ "$vault_owner_state" = "absent" ]; then
       first_owner_apply=true
       echo "Vault owner workspace ${shared_workspace} is empty; applying and initializing the Vault service shell first..."
       terraform apply -auto-approve -target=module.vault "${terraform_vars[@]}"
@@ -512,6 +559,15 @@ TF_STATE_BUCKET="${TF_STATE_BUCKET:-${GCLOUD_PROJECT}-terraform}"
 export TF_STATE_BUCKET
 export DOCKER_DEFAULT_PLATFORM="${DOCKER_DEFAULT_PLATFORM:-linux/amd64}"
 target_set="${TF_TARGET_SET:-}"
+recover_preview_destroy_inputs="${SCRIBE_RECOVER_PREVIEW_DESTROY_INPUTS:-false}"
+
+case "$recover_preview_destroy_inputs" in
+  true|false) ;;
+  *)
+    echo "SCRIBE_RECOVER_PREVIEW_DESTROY_INPUTS must be true or false." >&2
+    exit 1
+    ;;
+esac
 
 if [ "$action" = "refresh" ] || [ "$action" = "normalize-moves" ]; then
   reject_state_maintenance_cli_args
@@ -564,6 +620,9 @@ case "$target_set" in
   ocr)
     needs_frontend_gar_image=false
     terraform_targets+=(
+      "-target=terraform_data.dev_external_ocr_workspace_guard"
+      "-target=google_service_account.dev_external_ocr"
+      "-target=google_service_account_iam_member.dev_external_ocr_token_creator"
       "-target=module.kraken"
       "-target=module.ollama_services"
       "-target=google_artifact_registry_repository_iam_member.cloud_run_reader"
@@ -651,7 +710,8 @@ image_tag="${SCRIBE_API_IMAGE:-$fallback_image_tag}"
 if [ "$needs_api_image" != "true" ]; then
   image_tag="ghcr.io/lehigh-university-libraries/scribe@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 fi
-data_generation="${SCRIBE_DATA_GENERATION:-canonical-v1}"
+data_generation="${SCRIBE_DATA_GENERATION:-canonical-v2}"
+dev_external_ocr_impersonators="${DEV_EXTERNAL_OCR_IMPERSONATORS:-}"
 frontend_tag="$(sanitize_image_tag "$branch")"
 frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:${frontend_tag}}"
 if [ "$needs_frontend_gar_image" != "true" ]; then
@@ -666,6 +726,13 @@ case "$action" in
     exit 1
     ;;
 esac
+
+if [ "$recover_preview_destroy_inputs" = "true" ] && {
+  [ "$environment" != "preview" ] || [ "$action" != "destroy" ] || [ -n "$target_set" ];
+}; then
+  echo "Historical destroy-input recovery is restricted to an untargeted preview destroy." >&2
+  exit 1
+fi
 
 if [ "$action" != "destroy" ] && [ "$action" != "refresh" ] && [ "$action" != "normalize-moves" ] \
   && { [ "$needs_api_image" = "true" ] || [ "$needs_frontend_gar_image" = "true" ] || [ "$needs_ocr_images" = "true" ]; }; then
@@ -697,7 +764,11 @@ terraform init -lockfile=readonly \
   -backend-config="bucket=${TF_STATE_BUCKET}" \
   -backend-config="prefix=scribe"
 
+selected_workspace_exists=true
 select_workspace "$target_workspace" "$action"
+if [ "$selected_workspace_exists" = "false" ]; then
+  exit 0
+fi
 
 if [ "$action" = "normalize-moves" ]; then
   BACKUP_AUDIT_SCOPE=state "$repo_root/ci/verify-cloud-backups.sh"
@@ -708,9 +779,18 @@ fi
 ocr_images_json="${SCRIBE_OCR_IMAGES_JSON:-}"
 if [ "$action" = "destroy" ] || [ "$action" = "refresh" ]; then
   if ! stored_deployment_inputs="$(terraform output -json deployment_inputs 2>/dev/null)"; then
-    echo "The selected workspace has no readable deployment_inputs; refusing to ${action} without its prior immutable release inputs." >&2
-    echo "Inspect and recover the remote workspace state before retrying ${action}." >&2
-    exit 1
+    if [ "$action" = "destroy" ] && [ "$environment" = "preview" ] \
+      && [ "$recover_preview_destroy_inputs" = "true" ]; then
+      echo "Current preview state has no deployment_inputs; recovering the newest valid same-lineage value from versioned state history." >&2
+      if ! stored_deployment_inputs="$("$repo_root/ci/recover-preview-destroy-inputs.sh")"; then
+        echo "Historical preview destroy-input recovery failed; current state was not modified." >&2
+        exit 1
+      fi
+    else
+      echo "The selected workspace has no readable deployment_inputs; refusing to ${action} without its prior immutable release inputs." >&2
+      echo "Inspect and recover the remote workspace state before retrying ${action}." >&2
+      exit 1
+    fi
   fi
   deployment_inputs_resolver="$repo_root/ci/resolve-destroy-inputs.sh"
   if [ "$action" = "refresh" ]; then
@@ -729,6 +809,7 @@ if [ "$action" = "destroy" ] || [ "$action" = "refresh" ]; then
   frontend_gar_image_tag="$(jq -r '.frontend_gar_image' <<<"$stored_deployment_inputs")"
   ocr_images_json="$(jq -c '.ocr_service_images' <<<"$stored_deployment_inputs")"
   data_generation="$(jq -r '.data_generation' <<<"$stored_deployment_inputs")"
+  dev_external_ocr_impersonators="$(jq -c '.configuration.dev_external_ocr_impersonators' <<<"$stored_deployment_inputs")"
   TF_VAR_region="$(jq -r '.configuration.region' <<<"$stored_deployment_inputs")"
   TF_VAR_zone="$(jq -r '.configuration.zone' <<<"$stored_deployment_inputs")"
   SCRIBE_REGION="$TF_VAR_region"
@@ -793,9 +874,24 @@ if [ -z "$ocr_images_json" ]; then
   ocr_images_json='{}'
 fi
 
-if [[ ! "$data_generation" =~ ^[a-z][a-z0-9-]{0,31}$ ]]; then
-  echo "SCRIBE_DATA_GENERATION must start with a lowercase letter and contain at most 32 lowercase letters, digits, or hyphens." >&2
+if [[ ! "$data_generation" =~ ^canonical-v(1|2)$ ]]; then
+  echo "SCRIBE_DATA_GENERATION must be an explicitly reviewed canonical generation: canonical-v1 or canonical-v2." >&2
   exit 1
+fi
+
+if [ -n "$dev_external_ocr_impersonators" ]; then
+  if ! jq -e '
+    type == "array" and
+    length == (unique | length) and
+    all(.[]; type == "string" and test("^(user|group):[^@[:space:]]+@[^@[:space:]]+$"))
+  ' <<<"$dev_external_ocr_impersonators" >/dev/null; then
+    echo "DEV_EXTERNAL_OCR_IMPERSONATORS must be a JSON array of unique user: or group: email IAM members." >&2
+    exit 1
+  fi
+  if [ "$environment" != "dev" ] && [ "$(jq 'length' <<<"$dev_external_ocr_impersonators")" -ne 0 ]; then
+    echo "DEV_EXTERNAL_OCR_IMPERSONATORS must be empty outside the dev Terraform workspace." >&2
+    exit 1
+  fi
 fi
 
 terraform_vars=(
@@ -811,6 +907,10 @@ terraform_vars=(
   "-var=region=$(resolve_terraform_region)"
   "-var=zone=$(resolve_terraform_zone)"
 )
+
+if [ -n "$dev_external_ocr_impersonators" ]; then
+  terraform_vars+=("-var=dev_external_ocr_impersonators=${dev_external_ocr_impersonators}")
+fi
 
 if [ -n "${ALLOWED_IPS:-}" ]; then
   terraform_vars+=("-var=allowed_ips=${ALLOWED_IPS}")
@@ -879,7 +979,7 @@ case "$action" in
       terraform plan -out="$apply_plan_path" "${terraform_vars[@]}" "${terraform_targets[@]}"
       terraform show -json "$apply_plan_path" >"$apply_plan_json"
       if [ "$environment" = "prod" ]; then
-        "$repo_root/ci/verify-production-persistent-disk-plan.sh" <"$apply_plan_json"
+        "$repo_root/ci/verify-production-persistent-disk-plan.sh" "$data_generation" <"$apply_plan_json"
       fi
       if [ -n "$target_plan_verifier" ]; then
         "$target_plan_verifier" "$target_set" <"$apply_plan_json"
@@ -902,7 +1002,18 @@ case "$action" in
     trap - EXIT
     ;;
   destroy)
-    terraform destroy -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"
+    destroy_attempt=1
+    destroy_attempt_limit=3
+    until terraform destroy -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"; do
+      if [ "$destroy_attempt" -ge "$destroy_attempt_limit" ]; then
+        echo "Terraform destroy failed after ${destroy_attempt_limit} bounded attempts; leaving the workspace in place for operator recovery." >&2
+        exit 1
+      fi
+      retry_delay_seconds=$((destroy_attempt * 15))
+      echo "Terraform destroy attempt ${destroy_attempt}/${destroy_attempt_limit} failed; retrying in ${retry_delay_seconds}s with the same state-derived inputs." >&2
+      sleep "$retry_delay_seconds"
+      destroy_attempt=$((destroy_attempt + 1))
+    done
     if [ "$environment" = "preview" ]; then
       unset TF_WORKSPACE
       terraform workspace select default

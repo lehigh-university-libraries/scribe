@@ -14,5 +14,5 @@ mutations in the browser, or adding REST-only business routes.
 - [Change the web application](web-frontend.md)
 - [Run and write tests](testing.md)
 - [Regenerate contracts](code-generation.md)
-- [Change the greenfield database schema](database-migrations.md)
+- [Change the database schema](database-migrations.md)
 - [Write and publish documentation](documentation.md)

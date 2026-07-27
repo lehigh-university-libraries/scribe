@@ -294,15 +294,15 @@ services:
 
 volumes:
   mariadb-data:
-    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-mariadb-data"
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v2}-mariadb-data"
   uploads-data:
-    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-uploads-data"
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v2}-uploads-data"
   cache-data:
-    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-cache-data"
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v2}-cache-data"
   triplet-presentation-data:
-    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-triplet-presentation-data"
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v2}-triplet-presentation-data"
   triplet-cache-data:
-    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v1}-triplet-cache-data"
+    name: "${COMPOSE_PROJECT_NAME:-scribe}-${SCRIBE_DATA_GENERATION:-canonical-v2}-triplet-cache-data"
 
 networks:
   default:

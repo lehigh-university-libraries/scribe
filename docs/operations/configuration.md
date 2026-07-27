@@ -21,6 +21,32 @@ in `secrets/page_token_signing_key`. Compose mounts each file only into the
 services that consume it; none of these values is passed through Terraform,
 GitHub Actions, image layers, or `.env`.
 
+The local-to-dev-Cloud-Run OCR workflow uses keyless service-account
+impersonation, not a downloadable service-account key. A reviewed dev Terraform
+apply creates `scribe-dev-external`, grants explicit `user:` or `group:`
+principals `roles/iam.serviceAccountTokenCreator` on only that account, and
+grants the account `roles/run.invoker` on dev Kraken/segmentor services. The
+configuration is inert outside the `dev` workspace. Terraform source changes
+must be reviewed separately from an apply; this repository task does not grant
+live IAM by itself.
+
+After the IAM apply, contributors run:
+
+```bash
+GCLOUD_PROJECT=your-dev-project \
+  scripts/configure-dev-cloud-ocr.sh configure
+```
+
+The helper follows [Google's supported local ADC impersonation
+flow](https://cloud.google.com/docs/authentication/use-service-account-impersonation#auth-devel)
+and writes
+only the ignored `secrets/GOOGLE_APPLICATION_CREDENTIALS` file. Use `rotate` to
+replace and revoke an old ADC, and `revoke` when access is no longer needed. The
+file has no service-account private key, but its user refresh token remains
+secret: never commit it, print it, attach it to a ticket, or put it in `.env`.
+If it is lost, copied, or exposed, revoke it immediately. Removing the local
+file alone does not revoke the underlying credential.
+
 MariaDB's root bootstrap password is generated only into the ignored,
 workspace-stable `secrets/mariadb_root_password` file on the VM. It is never
 stored in Vault and is never readable by the application identity. Vault owns

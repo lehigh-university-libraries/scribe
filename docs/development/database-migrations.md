@@ -35,9 +35,20 @@ validation. CI also creates a fresh database for the end-to-end gates; a
 migration that works only against an existing developer database is not
 acceptable.
 
-This repository is currently greenfield. `0001_initial.sql` may change only
-until the first production deployment containing the migration ledger. From
-that point onward, use additive versioned files even for breaking schema work.
+The first production migration ledger has been deployed.
+`0001_initial.sql` is permanently immutable; use additive versioned files even
+for breaking schema work. The released initial migration is pinned by an
+executable checksum assertion; changing that assertion does not authorize
+rewriting production history.
+
+`0002_islandora_editor_review.sql` replaces the old process-configured,
+unsigned webhook delivery queue with workspace-owned signed subscriptions.
+Existing unsigned queue rows have no subscription identity or receiver-known
+signing secret, so the migration deliberately removes those attempts while
+retaining their durable `event_outbox` parents. Administrators must create an
+explicit subscription for future events after the upgrade. The backup/restore
+source phase applies the released `0001` ledger first and verifies this exact
+upgrade and data-retention boundary before producing its backup.
 
 The initial migration is accepted only for an empty database. A non-empty
 schema without completed migration history is rejected instead of being
@@ -45,12 +56,15 @@ stamped current through `CREATE TABLE IF NOT EXISTS`. Cloud cutovers use the
 reviewed persistence generation described in
 [deployment](../operations/deployment.md#persistence-generations), keeping the
 new schema, blobs, Triplet state, and queues together while retaining the prior
-generation for explicit recovery.
+generation for explicit recovery. The `0002` release deploys to
+`canonical-v2`; automatic rollback reads the pre-apply deployment record and
+therefore returns the prior binary to `canonical-v1` rather than opening the
+new migration ledger.
 
-While the baseline remains mutable, a checkout that changes
-`0001_initial.sql` will not start against a local volume containing its old
-checksum. Keep the fail-closed ledger invariant and reset only the development
-database instead:
+A local volume created by an unreleased checkout that rewrote
+`0001_initial.sql` will not start once the released checksum is restored. Keep
+the fail-closed ledger invariant and reset only that development database
+instead:
 
 ```bash
 SCRIBE_CONFIRM_RESET_DEV_DB=delete-local-mariadb-data make reset-dev-db
@@ -60,5 +74,5 @@ make up-db
 The helper validates the exact Compose MariaDB container and project-owned
 volume before deletion. It leaves uploads, cache, and Triplet volumes intact;
 it is not permitted in CI and is not for shared or production databases. See
-[local development](../getting-started/local-development.md#reset-a-greenfield-database)
+[local development](../getting-started/local-development.md#reset-an-obsolete-local-database)
 for the full workflow.

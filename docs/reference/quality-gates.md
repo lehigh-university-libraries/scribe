@@ -37,7 +37,9 @@ dependency and secret scan as the hosted workflow. Runtime image scanning is
 currently deferred and does not gate CI, deployment, or release. Individual
 component commands remain useful for iteration, but a manually checked box is
 not a substitute for a passing required job. The orchestrator creates a unique
-Compose project, waits
+Compose project from the reviewed base file (never a developer's local
+override), atomically reserves the first available private `/24` from its
+bounded CI address pools, waits
 for its MariaDB health check before backend tests, and removes its containers and
 volumes on success, failure, or interruption. It does not reuse or stop the
 normal development stack, so integration tests cannot silently skip on a clean
@@ -146,7 +148,16 @@ deploy an image with an omitted `COPY` input. `make readiness-fixture-test`,
 verify-cloud-backups-test` exercise deployment contracts without cloud access.
 The preview test proves teardown consumes the workspace's recorded immutable
 inputs, never calls a registry or build tool, and rejects missing or corrupt
-state without printing its contents.
+state without printing its contents. It also proves the explicit protected
+recovery path reads only the newest valid lower-serial, same-lineage input from
+versioned state history and never restores or pushes a historical state file.
+When a prior destroy already removed the exact workspace, the recovery fixture
+requires a successful authoritative inventory before accepting that state as
+complete; ordinary destroy, failed inventory, and failed selection of a listed
+workspace remain fail closed. The operations contracts exercise bounded,
+redacted retries for root Vault `GET ?list=true`, leaf `DELETE`, and curl transport
+failures, immediate failure for non-transient HTTP responses, and preview status
+gating on successful Vault namespace cleanup.
 
 Managed readiness exercises the exact deployed frontend/API path plus private
 image normalization, segmentation, Kraken transcription, and the production
