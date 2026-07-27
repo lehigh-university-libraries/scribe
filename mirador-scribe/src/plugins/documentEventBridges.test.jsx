@@ -88,7 +88,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('document editor event bridges', () => {
+describe('document event bridges', () => {
   it('registers once, routes through the latest callback, and removes the exact listener', () => {
     const addListener = vi.spyOn(document, 'addEventListener');
     const removeListener = vi.spyOn(document, 'removeEventListener');
