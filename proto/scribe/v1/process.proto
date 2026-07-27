@@ -33,6 +33,11 @@ message ProcessImageURLRequest {
       max_len: 256
     }
   ];
+  // Stable repository identifier used to correlate the created Scribe item.
+  string external_reference_id = 6 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_len: 512
+  }];
 }
 
 message ProcessHOCRRequest {
@@ -66,6 +71,17 @@ message ProcessHOCRRequest {
       max_len: 256
     }
   ];
+  // Optional metadata JSON retained on the created item and echoed by
+  // item-scoped completion, failure, and publication events.
+  string metadata = 7 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_bytes: 1048576
+  }];
+  // Stable repository identifier used to correlate the created Scribe item.
+  string external_reference_id = 8 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_len: 512
+  }];
 }
 
 // ProcessImageURLResponse returns item/image IDs along with run-scoped OCR data.
@@ -75,8 +91,12 @@ message ProcessImageURLResponse {
   string image_url = 3;
   string hocr = 4;
   string plain_text = 5;
-  // Session-scoped identifier for OCR run lookups and async processing.
+  // Stable OCR provenance-run identifier. This is not an authentication or
+  // browser editor session identifier.
   string session_id = 6;
+  // Durable asynchronous transcription job. Zero means the imported result is
+  // already complete and no asynchronous transcription was scheduled.
+  uint64 transcription_job_id = 7;
 }
 
 message ProcessHOCRResponse {
@@ -85,8 +105,12 @@ message ProcessHOCRResponse {
   string image_url = 3;
   string hocr = 4;
   string plain_text = 5;
-  // Session-scoped identifier for OCR run lookups and async processing.
+  // Stable OCR provenance-run identifier. This is not an authentication or
+  // browser editor session identifier.
   string session_id = 6;
+  // Durable asynchronous transcription job. ProcessHOCR is synchronous and
+  // normally returns zero because the supplied hOCR is the completed result.
+  uint64 transcription_job_id = 7;
 }
 
 message GetOCRRunRequest {

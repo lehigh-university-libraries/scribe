@@ -48,6 +48,8 @@ nav = [
     "api/contexts.md",
     "api/items.md",
     "api/ingest.md",
+    "api/islandora-integration.md",
+    "api/deep-links.md",
     "api/iiif.md",
     "api/exports.md",
     "api/events.md"

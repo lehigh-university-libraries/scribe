@@ -68,6 +68,17 @@ func (draft *annotationDraft) encode() (string, error) {
 	return string(raw), nil
 }
 
+func (draft *annotationDraft) reindex() {
+	draft.indexByID = make(map[string]int, len(draft.items))
+	for index, value := range draft.items {
+		annotation, _ := value.(map[string]any)
+		id := strings.TrimSpace(annStringValue(annotation, "id"))
+		if id != "" {
+			draft.indexByID[id] = index
+		}
+	}
+}
+
 func (draft *annotationDraft) annotation(id, granularity string) (locatedAnnotation, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -326,6 +337,145 @@ func splitDraftLineIntoWords(draft *annotationDraft, annotationID string, reques
 		remove[existing.index] = struct{}{}
 	}
 	draft.items = replaceDraftItems(draft.items, remove, line.index+1, generated)
+	return nil
+}
+
+func splitDraftPageIntoWords(draft *annotationDraft) error {
+	type splitPlan struct {
+		line      locatedAnnotation
+		lineID    string
+		words     []string
+		wordIDs   []string
+		generated []any
+	}
+
+	assignedWords := assignSpatialWordsToLines(draft.items, nil)
+	ownedWordIndices := make(map[int]struct{})
+	for _, words := range assignedWords {
+		for _, word := range words {
+			ownedWordIndices[word.index] = struct{}{}
+		}
+	}
+	plans := make([]splitPlan, 0)
+	remainingBytes := iiif.MaxAnnotationPageBytes - draft.rawBytes
+	generatedWordCount := 0
+	for index, value := range draft.items {
+		annotation, ok := value.(map[string]any)
+		if !ok || !strings.EqualFold(strings.TrimSpace(annStringValue(annotation, "textGranularity")), "line") {
+			continue
+		}
+		lineID := strings.TrimSpace(annStringValue(annotation, "id"))
+		words := strings.Fields(extractAnnotationText(annotation))
+		if len(words) == 0 {
+			return fmt.Errorf("line %q has no words", lineID)
+		}
+		x1, y1, x2, y2, err := parseXYWH(extractFragment(annotation))
+		if err != nil {
+			return fmt.Errorf("annotation %q has invalid geometry: %w", lineID, err)
+		}
+		if width := maxInt(1, x2-x1); width < len(words) {
+			return fmt.Errorf("line geometry is too narrow for %d distinct word boxes", len(words))
+		}
+		template, err := json.Marshal(annotation)
+		if err != nil {
+			return fmt.Errorf("encode line template: %w", err)
+		}
+		for _, word := range words {
+			if len(word) > maxStructuralWordBytes {
+				return fmt.Errorf("word exceeds %d encoded bytes", maxStructuralWordBytes)
+			}
+			cost := len(template) + 6*len(word) + 256
+			if cost > remainingBytes {
+				return fmt.Errorf("transformed page would exceed %d bytes", iiif.MaxAnnotationPageBytes)
+			}
+			remainingBytes -= cost
+		}
+		generatedWordCount += len(words)
+		plans = append(plans, splitPlan{
+			line:   locatedAnnotation{annotation: annotation, index: index, x1: x1, y1: y1, x2: x2, y2: y2},
+			lineID: lineID,
+			words:  words,
+		})
+	}
+	if len(plans) == 0 {
+		return fmt.Errorf("annotation page has no line annotations")
+	}
+	if len(draft.items)-len(ownedWordIndices)+generatedWordCount > iiif.MaxAnnotationsPerPage {
+		return fmt.Errorf("transformed page would exceed %d annotations", iiif.MaxAnnotationsPerPage)
+	}
+
+	existingByID := make(map[string]int, len(draft.items))
+	for index, value := range draft.items {
+		annotation, ok := value.(map[string]any)
+		if ok {
+			existingByID[strings.TrimSpace(annStringValue(annotation, "id"))] = index
+		}
+	}
+	generatedIDs := make(map[string]struct{}, generatedWordCount)
+	for planIndex := range plans {
+		plan := &plans[planIndex]
+		plan.wordIDs = make([]string, len(plan.words))
+		for wordIndex := range plan.words {
+			wordID, err := iiif.AnnotationID(draft.pageID, plan.lineID+"\x00word\x00"+fmt.Sprintf("%d", wordIndex+1))
+			if err != nil {
+				return err
+			}
+			if _, duplicate := generatedIDs[wordID]; duplicate {
+				return fmt.Errorf("generated word annotation id %q is not unique", wordID)
+			}
+			if existingIndex, exists := existingByID[wordID]; exists {
+				existing, _ := draft.items[existingIndex].(map[string]any)
+				_, replacing := ownedWordIndices[existingIndex]
+				if !replacing || !strings.EqualFold(strings.TrimSpace(annStringValue(existing, "textGranularity")), "word") {
+					return fmt.Errorf("generated word annotation id %q collides with an unrelated page item", wordID)
+				}
+			}
+			generatedIDs[wordID] = struct{}{}
+			plan.wordIDs[wordIndex] = wordID
+		}
+
+		setAnnotationText(plan.line.annotation, strings.Join(plan.words, " "))
+		width := maxInt(1, plan.line.x2-plan.line.x1)
+		wordWidth := maxInt(1, width/len(plan.words))
+		plan.generated = make([]any, 0, len(plan.words))
+		for wordIndex, word := range plan.words {
+			wordX1 := plan.line.x1 + wordIndex*wordWidth
+			wordX2 := wordX1 + wordWidth
+			if wordIndex == len(plan.words)-1 {
+				wordX2 = plan.line.x2
+			}
+			wordAnnotation, err := deriveTextAnnotation(
+				plan.line.annotation,
+				plan.wordIDs[wordIndex],
+				"word",
+				draft.identity.CanvasURI,
+				wordX1,
+				plan.line.y1,
+				wordX2,
+				plan.line.y2,
+				word,
+			)
+			if err != nil {
+				return err
+			}
+			plan.generated = append(plan.generated, wordAnnotation)
+		}
+	}
+
+	generatedByLineIndex := make(map[int][]any, len(plans))
+	for _, plan := range plans {
+		generatedByLineIndex[plan.line.index] = plan.generated
+	}
+	transformed := make([]any, 0, len(draft.items)-len(ownedWordIndices)+generatedWordCount)
+	for index, value := range draft.items {
+		if _, remove := ownedWordIndices[index]; remove {
+			continue
+		}
+		transformed = append(transformed, value)
+		transformed = append(transformed, generatedByLineIndex[index]...)
+	}
+	draft.items = transformed
+	draft.reindex()
 	return nil
 }
 

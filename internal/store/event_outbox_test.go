@@ -24,22 +24,22 @@ func TestEventSubjectResolutionFailsClosedAndGlobalEventsAreExplicit(t *testing.
 
 	nestedEventID := "nested-event-" + uuid.NewString()
 	nestedSubject := fmt.Sprintf("item-images/%d/annotations/line-1", imageID)
-	if err := events.EnqueueWebhookEvent(ctx, nestedEventID, "dev.scribe.annotation.updated", nestedSubject, `{}`, nil); err != nil {
+	if err := events.EnqueueWebhookEvent(ctx, nestedEventID, "dev.scribe.annotation.updated", nestedSubject, `{}`); err != nil {
 		t.Fatalf("enqueue nested event: %v", err)
 	}
 	malformedEventID := "malformed-event-" + uuid.NewString()
-	if err := events.EnqueueWebhookEvent(ctx, malformedEventID, "dev.scribe.system.poison", "system/poison", `{}`, nil); err == nil {
+	if err := events.EnqueueWebhookEvent(ctx, malformedEventID, "dev.scribe.system.poison", "system/poison", `{}`); err == nil {
 		t.Fatal("malformed tenant event subject was accepted")
 	}
 	missingEventID := "missing-event-" + uuid.NewString()
-	if err := events.EnqueueWebhookEvent(ctx, missingEventID, "dev.scribe.annotation.updated", "item-images/18446744073709551615", `{}`, nil); err == nil {
+	if err := events.EnqueueWebhookEvent(ctx, missingEventID, "dev.scribe.annotation.updated", "item-images/18446744073709551615", `{}`); err == nil {
 		t.Fatal("missing item image event subject was accepted")
 	}
 	globalEventID := "global-event-" + uuid.NewString()
-	if err := events.EnqueueSystemWebhookEvent(ctx, globalEventID, store.SystemWebhookEventMaintenance, `{}`, nil); err != nil {
+	if err := events.EnqueueSystemWebhookEvent(ctx, globalEventID, store.SystemWebhookEventMaintenance, `{}`); err != nil {
 		t.Fatalf("enqueue explicit global event: %v", err)
 	}
-	if err := events.EnqueueSystemWebhookEvent(ctx, "forbidden-"+uuid.NewString(), store.SystemWebhookEventType("dev.scribe.system.poison"), `{}`, nil); err == nil {
+	if err := events.EnqueueSystemWebhookEvent(ctx, "forbidden-"+uuid.NewString(), store.SystemWebhookEventType("dev.scribe.system.poison"), `{}`); err == nil {
 		t.Fatal("unallowlisted global event type was accepted")
 	}
 	t.Cleanup(func() {
@@ -73,6 +73,8 @@ func TestEventSubjectResolutionFailsClosedAndGlobalEventsAreExplicit(t *testing.
 func TestWebhookRetentionBatchesDeletesAndKeepsPendingUntilOverallCutoff(t *testing.T) {
 	database := annotationTestDB(t)
 	ctx := context.Background()
+	workspaceID, imageID := createAnnotationTestResource(t, database, uuid.NewString()+"-retention", "https://source.example/canvas/"+uuid.NewString())
+	subscription := createWebhookTestSubscription(t, database, workspaceID)
 	prefix := "retention-" + uuid.NewString()
 	t.Cleanup(func() {
 		_, _ = database.ExecContext(context.Background(), `DELETE FROM webhook_deliveries WHERE event_id LIKE ?`, prefix+"%")
@@ -86,12 +88,12 @@ func TestWebhookRetentionBatchesDeletesAndKeepsPendingUntilOverallCutoff(t *test
 		t.Fatalf("begin retention fixture: %v", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	insertEvent, err := tx.PrepareContext(ctx, `INSERT INTO event_outbox (event_id, event_type, subject, body_json, created_at) VALUES (?, 'dev.scribe.test', 'system/test', '{}', ?)`)
+	insertEvent, err := tx.PrepareContext(ctx, `INSERT INTO event_outbox (event_id, event_type, workspace_id, subject, body_json, created_at) VALUES (?, 'dev.scribe.test', ?, ?, '{}', ?)`)
 	if err != nil {
 		t.Fatalf("prepare event fixture: %v", err)
 	}
 	defer func() { _ = insertEvent.Close() }()
-	insertDelivery, err := tx.PrepareContext(ctx, `INSERT INTO webhook_deliveries (event_id, target_url, target_hash, status, updated_at) VALUES (?, 'https://webhook.example/scribe', ?, ?, ?)`)
+	insertDelivery, err := tx.PrepareContext(ctx, `INSERT INTO webhook_deliveries (event_id, subscription_id, status, updated_at) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		t.Fatalf("prepare delivery fixture: %v", err)
 	}
@@ -100,39 +102,39 @@ func TestWebhookRetentionBatchesDeletesAndKeepsPendingUntilOverallCutoff(t *test
 	const deliveredCount = 1001
 	for index := 0; index < deliveredCount; index++ {
 		eventID := fmt.Sprintf("%s-delivered-%04d", prefix, index)
-		if _, err := insertEvent.ExecContext(ctx, eventID, old); err != nil {
+		if _, err := insertEvent.ExecContext(ctx, eventID, workspaceID, fmt.Sprintf("item-images/%d", imageID), old); err != nil {
 			t.Fatalf("insert delivered event %d: %v", index, err)
 		}
-		if _, err := insertDelivery.ExecContext(ctx, eventID, fmt.Sprintf("%064d", index), "delivered", old); err != nil {
+		if _, err := insertDelivery.ExecContext(ctx, eventID, subscription.ID, "delivered", old); err != nil {
 			t.Fatalf("insert delivered delivery %d: %v", index, err)
 		}
 	}
 	pendingRecentID := prefix + "-pending-recent"
-	if _, err := insertEvent.ExecContext(ctx, pendingRecentID, recent); err != nil {
+	if _, err := insertEvent.ExecContext(ctx, pendingRecentID, workspaceID, fmt.Sprintf("item-images/%d", imageID), recent); err != nil {
 		t.Fatalf("insert recent pending event: %v", err)
 	}
-	if _, err := insertDelivery.ExecContext(ctx, pendingRecentID, fmt.Sprintf("%064d", deliveredCount+1), "pending", old); err != nil {
+	if _, err := insertDelivery.ExecContext(ctx, pendingRecentID, subscription.ID, "pending", old); err != nil {
 		t.Fatalf("insert recent pending delivery: %v", err)
 	}
 	pendingExpiredID := prefix + "-pending-expired"
-	if _, err := insertEvent.ExecContext(ctx, pendingExpiredID, old); err != nil {
+	if _, err := insertEvent.ExecContext(ctx, pendingExpiredID, workspaceID, fmt.Sprintf("item-images/%d", imageID), old); err != nil {
 		t.Fatalf("insert expired pending event: %v", err)
 	}
-	if _, err := insertDelivery.ExecContext(ctx, pendingExpiredID, fmt.Sprintf("%064d", deliveredCount+2), "pending", old); err != nil {
+	if _, err := insertDelivery.ExecContext(ctx, pendingExpiredID, subscription.ID, "pending", old); err != nil {
 		t.Fatalf("insert expired pending delivery: %v", err)
 	}
 	failedExpiredID := prefix + "-failed-expired"
-	if _, err := insertEvent.ExecContext(ctx, failedExpiredID, old); err != nil {
+	if _, err := insertEvent.ExecContext(ctx, failedExpiredID, workspaceID, fmt.Sprintf("item-images/%d", imageID), old); err != nil {
 		t.Fatalf("insert expired failed event: %v", err)
 	}
-	if _, err := insertDelivery.ExecContext(ctx, failedExpiredID, fmt.Sprintf("%064d", deliveredCount+3), "failed", old); err != nil {
+	if _, err := insertDelivery.ExecContext(ctx, failedExpiredID, subscription.ID, "failed", old); err != nil {
 		t.Fatalf("insert expired failed delivery: %v", err)
 	}
 	processingExpiredID := prefix + "-processing-expired"
-	if _, err := insertEvent.ExecContext(ctx, processingExpiredID, old); err != nil {
+	if _, err := insertEvent.ExecContext(ctx, processingExpiredID, workspaceID, fmt.Sprintf("item-images/%d", imageID), old); err != nil {
 		t.Fatalf("insert expired processing event: %v", err)
 	}
-	if _, err := insertDelivery.ExecContext(ctx, processingExpiredID, fmt.Sprintf("%064d", deliveredCount+4), "processing", old); err != nil {
+	if _, err := insertDelivery.ExecContext(ctx, processingExpiredID, subscription.ID, "processing", old); err != nil {
 		t.Fatalf("insert expired processing delivery: %v", err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -993,6 +993,106 @@ func (x *SplitLineIntoWordsResponse) GetAnnotationPageJson() string {
 	return ""
 }
 
+// Transform every line in a complete AnnotationPage into a synchronized word
+// view in one bounded server operation. Line annotations are retained; their
+// derived word annotations replace any words already owned by those lines.
+type SplitPageIntoWordsRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	ItemImageId        uint64                 `protobuf:"varint,1,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	AnnotationPageJson string                 `protobuf:"bytes,2,opt,name=annotation_page_json,json=annotationPageJson,proto3" json:"annotation_page_json,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *SplitPageIntoWordsRequest) Reset() {
+	*x = SplitPageIntoWordsRequest{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SplitPageIntoWordsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SplitPageIntoWordsRequest) ProtoMessage() {}
+
+func (x *SplitPageIntoWordsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SplitPageIntoWordsRequest.ProtoReflect.Descriptor instead.
+func (*SplitPageIntoWordsRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *SplitPageIntoWordsRequest) GetItemImageId() uint64 {
+	if x != nil {
+		return x.ItemImageId
+	}
+	return 0
+}
+
+func (x *SplitPageIntoWordsRequest) GetAnnotationPageJson() string {
+	if x != nil {
+		return x.AnnotationPageJson
+	}
+	return ""
+}
+
+type SplitPageIntoWordsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Complete transformed AnnotationPage JSON.
+	AnnotationPageJson string `protobuf:"bytes,1,opt,name=annotation_page_json,json=annotationPageJson,proto3" json:"annotation_page_json,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *SplitPageIntoWordsResponse) Reset() {
+	*x = SplitPageIntoWordsResponse{}
+	mi := &file_scribe_v1_annotation_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SplitPageIntoWordsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SplitPageIntoWordsResponse) ProtoMessage() {}
+
+func (x *SplitPageIntoWordsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_annotation_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SplitPageIntoWordsResponse.ProtoReflect.Descriptor instead.
+func (*SplitPageIntoWordsResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SplitPageIntoWordsResponse) GetAnnotationPageJson() string {
+	if x != nil {
+		return x.AnnotationPageJson
+	}
+	return ""
+}
+
 // Transform one selected line in a complete AnnotationPage into two lines at
 // a word boundary.
 type SplitLineIntoTwoLinesRequest struct {
@@ -1008,7 +1108,7 @@ type SplitLineIntoTwoLinesRequest struct {
 
 func (x *SplitLineIntoTwoLinesRequest) Reset() {
 	*x = SplitLineIntoTwoLinesRequest{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[14]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1020,7 +1120,7 @@ func (x *SplitLineIntoTwoLinesRequest) String() string {
 func (*SplitLineIntoTwoLinesRequest) ProtoMessage() {}
 
 func (x *SplitLineIntoTwoLinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[14]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1033,7 +1133,7 @@ func (x *SplitLineIntoTwoLinesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SplitLineIntoTwoLinesRequest.ProtoReflect.Descriptor instead.
 func (*SplitLineIntoTwoLinesRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{14}
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SplitLineIntoTwoLinesRequest) GetItemImageId() uint64 {
@@ -1074,7 +1174,7 @@ type SplitLineIntoTwoLinesResponse struct {
 
 func (x *SplitLineIntoTwoLinesResponse) Reset() {
 	*x = SplitLineIntoTwoLinesResponse{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[15]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1086,7 +1186,7 @@ func (x *SplitLineIntoTwoLinesResponse) String() string {
 func (*SplitLineIntoTwoLinesResponse) ProtoMessage() {}
 
 func (x *SplitLineIntoTwoLinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[15]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1099,7 +1199,7 @@ func (x *SplitLineIntoTwoLinesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SplitLineIntoTwoLinesResponse.ProtoReflect.Descriptor instead.
 func (*SplitLineIntoTwoLinesResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{15}
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *SplitLineIntoTwoLinesResponse) GetAnnotationPageJson() string {
@@ -1122,7 +1222,7 @@ type JoinLinesRequest struct {
 
 func (x *JoinLinesRequest) Reset() {
 	*x = JoinLinesRequest{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[16]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1134,7 +1234,7 @@ func (x *JoinLinesRequest) String() string {
 func (*JoinLinesRequest) ProtoMessage() {}
 
 func (x *JoinLinesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[16]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1147,7 +1247,7 @@ func (x *JoinLinesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinLinesRequest.ProtoReflect.Descriptor instead.
 func (*JoinLinesRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{16}
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *JoinLinesRequest) GetItemImageId() uint64 {
@@ -1181,7 +1281,7 @@ type JoinLinesResponse struct {
 
 func (x *JoinLinesResponse) Reset() {
 	*x = JoinLinesResponse{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[17]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1193,7 +1293,7 @@ func (x *JoinLinesResponse) String() string {
 func (*JoinLinesResponse) ProtoMessage() {}
 
 func (x *JoinLinesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[17]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1206,7 +1306,7 @@ func (x *JoinLinesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinLinesResponse.ProtoReflect.Descriptor instead.
 func (*JoinLinesResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{17}
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *JoinLinesResponse) GetAnnotationPageJson() string {
@@ -1229,7 +1329,7 @@ type JoinWordsIntoLineRequest struct {
 
 func (x *JoinWordsIntoLineRequest) Reset() {
 	*x = JoinWordsIntoLineRequest{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1241,7 +1341,7 @@ func (x *JoinWordsIntoLineRequest) String() string {
 func (*JoinWordsIntoLineRequest) ProtoMessage() {}
 
 func (x *JoinWordsIntoLineRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[18]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1254,7 +1354,7 @@ func (x *JoinWordsIntoLineRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinWordsIntoLineRequest.ProtoReflect.Descriptor instead.
 func (*JoinWordsIntoLineRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{18}
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *JoinWordsIntoLineRequest) GetItemImageId() uint64 {
@@ -1288,7 +1388,7 @@ type JoinWordsIntoLineResponse struct {
 
 func (x *JoinWordsIntoLineResponse) Reset() {
 	*x = JoinWordsIntoLineResponse{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1300,7 +1400,7 @@ func (x *JoinWordsIntoLineResponse) String() string {
 func (*JoinWordsIntoLineResponse) ProtoMessage() {}
 
 func (x *JoinWordsIntoLineResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[19]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1313,7 +1413,7 @@ func (x *JoinWordsIntoLineResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JoinWordsIntoLineResponse.ProtoReflect.Descriptor instead.
 func (*JoinWordsIntoLineResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{19}
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *JoinWordsIntoLineResponse) GetAnnotationPageJson() string {
@@ -1336,7 +1436,7 @@ type ExportAnnotationPageRequest struct {
 
 func (x *ExportAnnotationPageRequest) Reset() {
 	*x = ExportAnnotationPageRequest{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[20]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1348,7 +1448,7 @@ func (x *ExportAnnotationPageRequest) String() string {
 func (*ExportAnnotationPageRequest) ProtoMessage() {}
 
 func (x *ExportAnnotationPageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[20]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1361,7 +1461,7 @@ func (x *ExportAnnotationPageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportAnnotationPageRequest.ProtoReflect.Descriptor instead.
 func (*ExportAnnotationPageRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{20}
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ExportAnnotationPageRequest) GetItemImageId() uint64 {
@@ -1398,7 +1498,7 @@ type ExportAnnotationPageResponse struct {
 
 func (x *ExportAnnotationPageResponse) Reset() {
 	*x = ExportAnnotationPageResponse{}
-	mi := &file_scribe_v1_annotation_proto_msgTypes[21]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1410,7 +1510,7 @@ func (x *ExportAnnotationPageResponse) String() string {
 func (*ExportAnnotationPageResponse) ProtoMessage() {}
 
 func (x *ExportAnnotationPageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_annotation_proto_msgTypes[21]
+	mi := &file_scribe_v1_annotation_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1423,7 +1523,7 @@ func (x *ExportAnnotationPageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportAnnotationPageResponse.ProtoReflect.Descriptor instead.
 func (*ExportAnnotationPageResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{21}
+	return file_scribe_v1_annotation_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ExportAnnotationPageResponse) GetItemImageId() uint64 {
@@ -1539,6 +1639,13 @@ const file_scribe_v1_annotation_proto_rawDesc = "" +
 	"\x05words\x18\x04 \x03(\tB\x11\xbaH\x0e\x92\x01\v\x10\x90N\"\x06r\x04(\x80\x80\x01R\x05words:\xf1\x01\xbaH\xed\x01\x1a\xea\x01\n" +
 	"\x1fsplit_line_into_words.selection\x12Litem_image_id, annotation_page_json, and selected_annotation_id are required\x1aythis.item_image_id > 0u && this.annotation_page_json.matches('.*\\\\S.*') && this.selected_annotation_id.matches('.*\\\\S.*')\"N\n" +
 	"\x1aSplitLineIntoWordsResponse\x120\n" +
+	"\x14annotation_page_json\x18\x01 \x01(\tR\x12annotationPageJson\"\xb3\x02\n" +
+	"\x19SplitPageIntoWordsRequest\x12.\n" +
+	"\ritem_image_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vitemImageId\x12B\n" +
+	"\x14annotation_page_json\x18\x02 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x12annotationPageJson:\xa1\x01\xbaH\x9d\x01\x1a\x9a\x01\n" +
+	"\x1asplit_page_into_words.page\x123item_image_id and annotation_page_json are required\x1aGthis.item_image_id > 0u && this.annotation_page_json.matches('.*\\\\S.*')\"N\n" +
+	"\x1aSplitPageIntoWordsResponse\x120\n" +
 	"\x14annotation_page_json\x18\x01 \x01(\tR\x12annotationPageJson\"\xff\x03\n" +
 	"\x1cSplitLineIntoTwoLinesRequest\x12.\n" +
 	"\ritem_image_id\x18\x01 \x01(\x04B\n" +
@@ -1594,8 +1701,7 @@ const file_scribe_v1_annotation_proto_rawDesc = "" +
 	"#ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT\x10\x01\x12!\n" +
 	"\x1dANNOTATION_EXPORT_FORMAT_HOCR\x10\x02\x12%\n" +
 	"!ANNOTATION_EXPORT_FORMAT_PAGE_XML\x10\x03\x12%\n" +
-	"!ANNOTATION_EXPORT_FORMAT_ALTO_XML\x10\x042\xc9\n" +
-	"\n" +
+	"!ANNOTATION_EXPORT_FORMAT_ALTO_XML\x10\x042\xc5\v\n" +
 	"\x11AnnotationService\x12w\n" +
 	"\x11GetAnnotationPage\x12#.scribe.v1.GetAnnotationPageRequest\x1a$.scribe.v1.GetAnnotationPageResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12z\n" +
 	"\x12SaveAnnotationPage\x12$.scribe.v1.SaveAnnotationPageRequest\x1a%.scribe.v1.SaveAnnotationPageResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12w\n" +
@@ -1603,7 +1709,8 @@ const file_scribe_v1_annotation_proto_rawDesc = "" +
 	"\rGetAnnotation\x12\x1f.scribe.v1.GetAnnotationRequest\x1a .scribe.v1.GetAnnotationResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12\x83\x01\n" +
 	"\x15PublishItemImageEdits\x12'.scribe.v1.PublishItemImageEditsRequest\x1a(.scribe.v1.PublishItemImageEditsResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12t\n" +
 	"\x10EnrichAnnotation\x12\".scribe.v1.EnrichAnnotationRequest\x1a#.scribe.v1.EnrichAnnotationResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12z\n" +
-	"\x12SplitLineIntoWords\x12$.scribe.v1.SplitLineIntoWordsRequest\x1a%.scribe.v1.SplitLineIntoWordsResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12\x83\x01\n" +
+	"\x12SplitLineIntoWords\x12$.scribe.v1.SplitLineIntoWordsRequest\x1a%.scribe.v1.SplitLineIntoWordsResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12z\n" +
+	"\x12SplitPageIntoWords\x12$.scribe.v1.SplitPageIntoWordsRequest\x1a%.scribe.v1.SplitPageIntoWordsResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12\x83\x01\n" +
 	"\x15SplitLineIntoTwoLines\x12'.scribe.v1.SplitLineIntoTwoLinesRequest\x1a(.scribe.v1.SplitLineIntoTwoLinesResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12_\n" +
 	"\tJoinLines\x12\x1b.scribe.v1.JoinLinesRequest\x1a\x1c.scribe.v1.JoinLinesResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12w\n" +
 	"\x11JoinWordsIntoLine\x12#.scribe.v1.JoinWordsIntoLineRequest\x1a$.scribe.v1.JoinWordsIntoLineResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_id\x12\x80\x01\n" +
@@ -1624,7 +1731,7 @@ func file_scribe_v1_annotation_proto_rawDescGZIP() []byte {
 }
 
 var file_scribe_v1_annotation_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_scribe_v1_annotation_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_scribe_v1_annotation_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_scribe_v1_annotation_proto_goTypes = []any{
 	(AnnotationGranularity)(0),            // 0: scribe.v1.AnnotationGranularity
 	(AnnotationExportFormat)(0),           // 1: scribe.v1.AnnotationExportFormat
@@ -1642,14 +1749,16 @@ var file_scribe_v1_annotation_proto_goTypes = []any{
 	(*EnrichAnnotationResponse)(nil),      // 13: scribe.v1.EnrichAnnotationResponse
 	(*SplitLineIntoWordsRequest)(nil),     // 14: scribe.v1.SplitLineIntoWordsRequest
 	(*SplitLineIntoWordsResponse)(nil),    // 15: scribe.v1.SplitLineIntoWordsResponse
-	(*SplitLineIntoTwoLinesRequest)(nil),  // 16: scribe.v1.SplitLineIntoTwoLinesRequest
-	(*SplitLineIntoTwoLinesResponse)(nil), // 17: scribe.v1.SplitLineIntoTwoLinesResponse
-	(*JoinLinesRequest)(nil),              // 18: scribe.v1.JoinLinesRequest
-	(*JoinLinesResponse)(nil),             // 19: scribe.v1.JoinLinesResponse
-	(*JoinWordsIntoLineRequest)(nil),      // 20: scribe.v1.JoinWordsIntoLineRequest
-	(*JoinWordsIntoLineResponse)(nil),     // 21: scribe.v1.JoinWordsIntoLineResponse
-	(*ExportAnnotationPageRequest)(nil),   // 22: scribe.v1.ExportAnnotationPageRequest
-	(*ExportAnnotationPageResponse)(nil),  // 23: scribe.v1.ExportAnnotationPageResponse
+	(*SplitPageIntoWordsRequest)(nil),     // 16: scribe.v1.SplitPageIntoWordsRequest
+	(*SplitPageIntoWordsResponse)(nil),    // 17: scribe.v1.SplitPageIntoWordsResponse
+	(*SplitLineIntoTwoLinesRequest)(nil),  // 18: scribe.v1.SplitLineIntoTwoLinesRequest
+	(*SplitLineIntoTwoLinesResponse)(nil), // 19: scribe.v1.SplitLineIntoTwoLinesResponse
+	(*JoinLinesRequest)(nil),              // 20: scribe.v1.JoinLinesRequest
+	(*JoinLinesResponse)(nil),             // 21: scribe.v1.JoinLinesResponse
+	(*JoinWordsIntoLineRequest)(nil),      // 22: scribe.v1.JoinWordsIntoLineRequest
+	(*JoinWordsIntoLineResponse)(nil),     // 23: scribe.v1.JoinWordsIntoLineResponse
+	(*ExportAnnotationPageRequest)(nil),   // 24: scribe.v1.ExportAnnotationPageRequest
+	(*ExportAnnotationPageResponse)(nil),  // 25: scribe.v1.ExportAnnotationPageResponse
 }
 var file_scribe_v1_annotation_proto_depIdxs = []int32{
 	0,  // 0: scribe.v1.SearchAnnotationsRequest.granularity:type_name -> scribe.v1.AnnotationGranularity
@@ -1661,23 +1770,25 @@ var file_scribe_v1_annotation_proto_depIdxs = []int32{
 	10, // 6: scribe.v1.AnnotationService.PublishItemImageEdits:input_type -> scribe.v1.PublishItemImageEditsRequest
 	12, // 7: scribe.v1.AnnotationService.EnrichAnnotation:input_type -> scribe.v1.EnrichAnnotationRequest
 	14, // 8: scribe.v1.AnnotationService.SplitLineIntoWords:input_type -> scribe.v1.SplitLineIntoWordsRequest
-	16, // 9: scribe.v1.AnnotationService.SplitLineIntoTwoLines:input_type -> scribe.v1.SplitLineIntoTwoLinesRequest
-	18, // 10: scribe.v1.AnnotationService.JoinLines:input_type -> scribe.v1.JoinLinesRequest
-	20, // 11: scribe.v1.AnnotationService.JoinWordsIntoLine:input_type -> scribe.v1.JoinWordsIntoLineRequest
-	22, // 12: scribe.v1.AnnotationService.ExportAnnotationPage:input_type -> scribe.v1.ExportAnnotationPageRequest
-	5,  // 13: scribe.v1.AnnotationService.GetAnnotationPage:output_type -> scribe.v1.GetAnnotationPageResponse
-	7,  // 14: scribe.v1.AnnotationService.SaveAnnotationPage:output_type -> scribe.v1.SaveAnnotationPageResponse
-	3,  // 15: scribe.v1.AnnotationService.SearchAnnotations:output_type -> scribe.v1.SearchAnnotationsResponse
-	9,  // 16: scribe.v1.AnnotationService.GetAnnotation:output_type -> scribe.v1.GetAnnotationResponse
-	11, // 17: scribe.v1.AnnotationService.PublishItemImageEdits:output_type -> scribe.v1.PublishItemImageEditsResponse
-	13, // 18: scribe.v1.AnnotationService.EnrichAnnotation:output_type -> scribe.v1.EnrichAnnotationResponse
-	15, // 19: scribe.v1.AnnotationService.SplitLineIntoWords:output_type -> scribe.v1.SplitLineIntoWordsResponse
-	17, // 20: scribe.v1.AnnotationService.SplitLineIntoTwoLines:output_type -> scribe.v1.SplitLineIntoTwoLinesResponse
-	19, // 21: scribe.v1.AnnotationService.JoinLines:output_type -> scribe.v1.JoinLinesResponse
-	21, // 22: scribe.v1.AnnotationService.JoinWordsIntoLine:output_type -> scribe.v1.JoinWordsIntoLineResponse
-	23, // 23: scribe.v1.AnnotationService.ExportAnnotationPage:output_type -> scribe.v1.ExportAnnotationPageResponse
-	13, // [13:24] is the sub-list for method output_type
-	2,  // [2:13] is the sub-list for method input_type
+	16, // 9: scribe.v1.AnnotationService.SplitPageIntoWords:input_type -> scribe.v1.SplitPageIntoWordsRequest
+	18, // 10: scribe.v1.AnnotationService.SplitLineIntoTwoLines:input_type -> scribe.v1.SplitLineIntoTwoLinesRequest
+	20, // 11: scribe.v1.AnnotationService.JoinLines:input_type -> scribe.v1.JoinLinesRequest
+	22, // 12: scribe.v1.AnnotationService.JoinWordsIntoLine:input_type -> scribe.v1.JoinWordsIntoLineRequest
+	24, // 13: scribe.v1.AnnotationService.ExportAnnotationPage:input_type -> scribe.v1.ExportAnnotationPageRequest
+	5,  // 14: scribe.v1.AnnotationService.GetAnnotationPage:output_type -> scribe.v1.GetAnnotationPageResponse
+	7,  // 15: scribe.v1.AnnotationService.SaveAnnotationPage:output_type -> scribe.v1.SaveAnnotationPageResponse
+	3,  // 16: scribe.v1.AnnotationService.SearchAnnotations:output_type -> scribe.v1.SearchAnnotationsResponse
+	9,  // 17: scribe.v1.AnnotationService.GetAnnotation:output_type -> scribe.v1.GetAnnotationResponse
+	11, // 18: scribe.v1.AnnotationService.PublishItemImageEdits:output_type -> scribe.v1.PublishItemImageEditsResponse
+	13, // 19: scribe.v1.AnnotationService.EnrichAnnotation:output_type -> scribe.v1.EnrichAnnotationResponse
+	15, // 20: scribe.v1.AnnotationService.SplitLineIntoWords:output_type -> scribe.v1.SplitLineIntoWordsResponse
+	17, // 21: scribe.v1.AnnotationService.SplitPageIntoWords:output_type -> scribe.v1.SplitPageIntoWordsResponse
+	19, // 22: scribe.v1.AnnotationService.SplitLineIntoTwoLines:output_type -> scribe.v1.SplitLineIntoTwoLinesResponse
+	21, // 23: scribe.v1.AnnotationService.JoinLines:output_type -> scribe.v1.JoinLinesResponse
+	23, // 24: scribe.v1.AnnotationService.JoinWordsIntoLine:output_type -> scribe.v1.JoinWordsIntoLineResponse
+	25, // 25: scribe.v1.AnnotationService.ExportAnnotationPage:output_type -> scribe.v1.ExportAnnotationPageResponse
+	14, // [14:26] is the sub-list for method output_type
+	2,  // [2:14] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name
 	2,  // [2:2] is the sub-list for extension extendee
 	0,  // [0:2] is the sub-list for field type_name
@@ -1694,7 +1805,7 @@ func file_scribe_v1_annotation_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_annotation_proto_rawDesc), len(file_scribe_v1_annotation_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   22,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

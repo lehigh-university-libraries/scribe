@@ -158,6 +158,14 @@ func (h *Handler) SplitLineIntoWords(ctx context.Context, req *connect.Request[s
 	return connect.NewResponse(&scribev1.SplitLineIntoWordsResponse{AnnotationPageJson: transformed}), nil
 }
 
+func (h *Handler) SplitPageIntoWords(ctx context.Context, req *connect.Request[scribev1.SplitPageIntoWordsRequest]) (*connect.Response[scribev1.SplitPageIntoWordsResponse], error) {
+	transformed, err := h.transformAnnotationDraft(ctx, req.Msg.GetItemImageId(), req.Msg.GetAnnotationPageJson(), splitDraftPageIntoWords)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&scribev1.SplitPageIntoWordsResponse{AnnotationPageJson: transformed}), nil
+}
+
 func (h *Handler) SplitLineIntoTwoLines(ctx context.Context, req *connect.Request[scribev1.SplitLineIntoTwoLinesRequest]) (*connect.Response[scribev1.SplitLineIntoTwoLinesResponse], error) {
 	transformed, err := h.transformAnnotationDraft(ctx, req.Msg.GetItemImageId(), req.Msg.GetAnnotationPageJson(), func(draft *annotationDraft) error {
 		return splitDraftLineIntoTwo(draft, req.Msg.GetSelectedAnnotationId(), int(req.Msg.GetSplitAtWord()))

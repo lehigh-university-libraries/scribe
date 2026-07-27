@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useRef } from 'react';
+import { startTransition } from 'react';
 import PropTypes from 'prop-types';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import BackspaceOutlinedIcon from '@mui/icons-material/BackspaceOutlined';
@@ -34,6 +34,8 @@ import Typography from '@mui/material/Typography';
 import { useTranslation } from 'react-i18next';
 import { ConnectedCompanionWindow as CompanionWindow } from 'mirador';
 import { annotationGranularity, annotationText, isLineAnnotation } from '../utils/iiif';
+import { scribeTheme } from '../theme';
+import StructuralEditDialogs from './StructuralEditDialogs';
 
 /**
  * @typedef {import('react').ElementType<{ fontSize?: 'small' | 'inherit' | 'large' | 'medium' }>} ToolbarIcon
@@ -45,6 +47,7 @@ import { annotationGranularity, annotationText, isLineAnnotation } from '../util
  * @property {ToolbarColor} [color]
  * @property {boolean} disabled
  * @property {ToolbarIcon} icon
+ * @property {string} [keyShortcuts]
  * @property {string} label
  * @property {VoidAction} onClick
  * @property {boolean} [selected]
@@ -52,9 +55,6 @@ import { annotationGranularity, annotationText, isLineAnnotation } from '../util
  * @property {ToolbarVariant} [variant]
  * @typedef {Object} ScribeActionPanelProps
  * @property {IdentifiedAnnotation[]} annotations
- * @property {boolean} canJoinLines
- * @property {boolean} canJoinWords
- * @property {boolean} canSplitLine
  * @property {boolean} canSplitToWords
  * @property {boolean} drawMode
  * @property {string} id
@@ -65,13 +65,10 @@ import { annotationGranularity, annotationText, isLineAnnotation } from '../util
  * @property {VoidAction} onAddWord
  * @property {(annotationId: string) => void | Promise<void>} onDelete
  * @property {VoidAction} onExplode
- * @property {VoidAction} onJoinLines
- * @property {VoidAction} onJoinWords
  * @property {VoidAction} onRedo
  * @property {VoidAction} onPublish
  * @property {VoidAction} onReload
  * @property {VoidAction} onSave
- * @property {VoidAction} onSplit
  * @property {VoidAction} onCycleOverlayMode
  * @property {(options: { all: boolean, annotationIds?: string[] }) => void | Promise<void>} onTranscribe
  * @property {VoidAction} onTranscribeDialogClose
@@ -84,6 +81,24 @@ import { annotationGranularity, annotationText, isLineAnnotation } from '../util
  * @property {IdentifiedAnnotation | null} selectedAnnotation
  * @property {'line' | 'word' | null} selectedGranularity
  * @property {string | null | undefined} statusMessage
+ * @property {{
+ *   canChooseLines: boolean,
+ *   canChooseSplit: boolean,
+ *   canChooseWords: boolean,
+ *   closeDialog: VoidAction,
+ *   dialog: 'split' | 'join-lines' | 'join-words' | null,
+ *   joinLines: (ids: string[]) => void | Promise<unknown>,
+ *   joinWords: (ids: string[]) => void | Promise<unknown>,
+ *   lineCandidates: IdentifiedAnnotation[],
+ *   openJoinLines: VoidAction,
+ *   openJoinWords: VoidAction,
+ *   openSplit: VoidAction,
+ *   selectedLineId: string,
+ *   selectedWordId: string,
+ *   splitAtWord: (splitAtWord: number) => void | Promise<unknown>,
+ *   splitTokens: string[],
+ *   wordCandidates: IdentifiedAnnotation[],
+ * }} structuralEdits
  * @property {boolean} transcribeDialogOpen
  * @property {string[]} transcribeSelection
  * @property {string} windowId
@@ -94,6 +109,7 @@ function ToolbarAction({
   color = 'inherit',
   disabled,
   icon: Icon,
+  keyShortcuts,
   label,
   onClick,
   selected = false,
@@ -105,6 +121,7 @@ function ToolbarAction({
       <span>
         <Button
           aria-label={title}
+          aria-keyshortcuts={keyShortcuts}
           aria-pressed={selected || undefined}
           size="small"
           color={color}
@@ -115,21 +132,21 @@ function ToolbarAction({
           sx={{
             backdropFilter: 'blur(10px)',
             backgroundColor: disabled
-              ? 'rgba(226,232,240,0.38)'
+              ? scribeTheme.surfaceMuted
               : selected
-                ? 'rgba(254,243,199,0.96)'
-                : 'rgba(255,255,255,0.9)',
-            border: '1px solid rgba(148,163,184,0.18)',
+                ? scribeTheme.selected
+                : scribeTheme.surface,
+            border: `1px solid ${scribeTheme.border}`,
             borderRadius: 2,
-            boxShadow: disabled ? 'none' : (selected ? '0 12px 24px rgba(217,119,6,0.16)' : '0 8px 20px rgba(15,23,42,0.08)'),
-            color: selected ? 'warning.dark' : 'text.primary',
+            boxShadow: disabled ? 'none' : `0 8px 20px ${scribeTheme.shadowSoft}`,
+            color: selected ? scribeTheme.selectedForeground : scribeTheme.foreground,
             minHeight: 34,
             px: 1.25,
             textTransform: 'none',
             transition: 'transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease',
             '&:hover': {
-              backgroundColor: disabled ? 'rgba(226,232,240,0.38)' : (selected ? 'rgba(254,243,199,0.96)' : 'rgba(255,251,235,0.96)'),
-              boxShadow: disabled ? 'none' : '0 12px 24px rgba(15,23,42,0.12)',
+              backgroundColor: disabled ? scribeTheme.surfaceMuted : (selected ? scribeTheme.selected : scribeTheme.accent),
+              boxShadow: disabled ? 'none' : `0 12px 24px ${scribeTheme.shadow}`,
               transform: disabled ? 'none' : 'translateY(-1px)',
             },
           }}
@@ -152,6 +169,11 @@ function ShortcutLegend() {
     { key: 'Shift+Tab', label: 'Prev row' },
     { key: `${mod}+Z`, label: 'Undo' },
     { key: `${mod}+Shift+Z`, label: 'Redo' },
+    { key: 'Alt+S', label: 'Split line' },
+    { key: 'Alt+L', label: 'Join lines' },
+    { key: 'Alt+W', label: 'Join words' },
+    { key: 'Alt+R', label: 'Retranscribe' },
+    { key: 'Alt+P', label: 'Publish' },
   ];
 
   return (
@@ -184,8 +206,8 @@ function ShortcutLegend() {
             size="small"
             variant="outlined"
             sx={{
-              backgroundColor: 'rgba(255,255,255,0.78)',
-              borderColor: 'rgba(148,163,184,0.24)',
+              backgroundColor: scribeTheme.surface,
+              borderColor: scribeTheme.border,
               fontSize: 10,
               height: 18,
             }}
@@ -203,6 +225,7 @@ ToolbarAction.propTypes = {
   color: PropTypes.oneOf(['inherit', 'primary', 'secondary', 'error', 'info', 'success', 'warning']),
   disabled: PropTypes.bool.isRequired,
   icon: PropTypes.elementType.isRequired,
+  keyShortcuts: PropTypes.string,
   label: PropTypes.string.isRequired,
   onClick: PropTypes.func.isRequired,
   selected: PropTypes.bool,
@@ -213,9 +236,6 @@ ToolbarAction.propTypes = {
 /** @param {ScribeActionPanelProps} props */
 export default function ScribeActionPanel({
   annotations,
-  canJoinLines,
-  canJoinWords,
-  canSplitLine,
   canSplitToWords,
   drawMode,
   id,
@@ -226,13 +246,10 @@ export default function ScribeActionPanel({
   onAddWord,
   onDelete,
   onExplode,
-  onJoinLines,
-  onJoinWords,
   onRedo,
   onPublish,
   onReload,
   onSave,
-  onSplit,
   onCycleOverlayMode,
   onTranscribe,
   onTranscribeDialogClose,
@@ -245,6 +262,7 @@ export default function ScribeActionPanel({
   selectedAnnotation,
   selectedGranularity,
   statusMessage,
+  structuralEdits,
   transcribeDialogOpen,
   transcribeSelection,
   windowId,
@@ -253,62 +271,24 @@ export default function ScribeActionPanel({
   const orderedAnnotations = annotations;
   const hasSelection = Boolean(selectedAnnotation?.id);
 
-  const panelRef = useRef(/** @type {HTMLElement | null} */ (null));
   const overlayModeLabel = overlayMode === 'edit' ? 'Edit overlay'
     : overlayMode === 'read' ? 'Read overlay'
     : overlayMode === 'outline' ? 'Outline overlay'
     : 'Overlay off';
 
-  useEffect(() => {
-    const container = panelRef.current;
-    if (!(container instanceof HTMLElement)) return undefined;
-    const drawer = container.closest('.MuiDrawer-paper, .MuiPaper-root');
-    const drawerRoot = container.closest('.MuiDrawer-root');
-    const targets = [drawerRoot, drawer, drawer?.parentElement].filter((element) => element instanceof HTMLElement);
-    if (targets.length === 0) return undefined;
-
-    const previousStyles = targets.map((element) => ({
-      element,
-      flexBasis: element.style.flexBasis,
-      height: element.style.height,
-      maxWidth: element.style.maxWidth,
-      minWidth: element.style.minWidth,
-      width: element.style.width,
-    }));
-
-    for (const element of targets) {
-      element.style.setProperty('width', '100%', 'important');
-      element.style.setProperty('min-width', '100%', 'important');
-      element.style.setProperty('max-width', '100%', 'important');
-      element.style.setProperty('flex-basis', '100%', 'important');
-      element.style.setProperty('height', '176px', 'important');
-    }
-
-    return () => {
-      for (const previous of previousStyles) {
-        previous.element.style.width = previous.width;
-        previous.element.style.minWidth = previous.minWidth;
-        previous.element.style.maxWidth = previous.maxWidth;
-        previous.element.style.flexBasis = previous.flexBasis;
-        previous.element.style.height = previous.height;
-      }
-    };
-  }, []);
-
   return (
     <CompanionWindow title="" id={id} windowId={windowId}>
       <Box
-        ref={panelRef}
         sx={{
           alignItems: 'center',
-          background: 'linear-gradient(180deg, rgba(248,250,252,0.98) 0%, rgba(241,245,249,0.98) 100%)',
+          background: `linear-gradient(180deg, ${scribeTheme.background} 0%, ${scribeTheme.surfaceMuted} 100%)`,
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
-          height: '100%',
-          justifyContent: 'center',
-          minHeight: 0,
-          overflow: 'hidden',
+          height: 'auto',
+          justifyContent: 'flex-start',
+          minHeight: 'min-content',
+          overflow: 'auto',
           p: 1,
           width: '100%',
         }}
@@ -324,10 +304,10 @@ export default function ScribeActionPanel({
         >
           <Box
             sx={{
-              backgroundColor: 'rgba(255,255,255,0.68)',
-              border: '1px solid rgba(148,163,184,0.18)',
+              backgroundColor: scribeTheme.surface,
+              border: `1px solid ${scribeTheme.border}`,
               borderRadius: 3,
-              boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
+              boxShadow: `0 10px 30px ${scribeTheme.shadowSoft}`,
               display: 'flex',
               flexDirection: 'column',
               maxWidth: 680,
@@ -414,28 +394,32 @@ export default function ScribeActionPanel({
                     title={t('scribeEditorJoinWords')}
                     label="Join words"
                     icon={HorizontalSplitOutlinedIcon}
-                    disabled={isBusy || !canJoinWords}
-                    onClick={onJoinWords}
+                    keyShortcuts="Alt+W"
+                    disabled={isBusy || !structuralEdits.canChooseWords}
+                    onClick={structuralEdits.openJoinWords}
                   />
                   <ToolbarAction
                     title={t('scribeEditorSplitLine')}
                     label="Split line"
                     icon={SplitscreenOutlinedIcon}
-                    disabled={isBusy || !hasSelection || !canSplitLine}
-                    onClick={onSplit}
+                    keyShortcuts="Alt+S"
+                    disabled={isBusy || !hasSelection || !structuralEdits.canChooseSplit}
+                    onClick={structuralEdits.openSplit}
                   />
                   <ToolbarAction
                     title={t('scribeEditorJoinLines')}
                     label="Join lines"
                     icon={MergeTypeOutlinedIcon}
-                    disabled={isBusy || !canJoinLines}
-                    onClick={onJoinLines}
+                    keyShortcuts="Alt+L"
+                    disabled={isBusy || !structuralEdits.canChooseLines}
+                    onClick={structuralEdits.openJoinLines}
                   />
                   <ToolbarAction
                     title={t('scribeEditorTranscribe')}
                     label="Retranscribe"
                     icon={AutoFixHighIcon}
                     color="secondary"
+                    keyShortcuts="Alt+R"
                     disabled={isBusy || orderedAnnotations.length === 0}
                     onClick={onTranscribeDialogOpen}
                   />
@@ -470,6 +454,7 @@ export default function ScribeActionPanel({
                     label="Publish"
                     icon={PublishOutlinedIcon}
                     color="success"
+                    keyShortcuts="Alt+P"
                     disabled={isBusy}
                     onClick={() => {
                       startTransition(() => {
@@ -480,20 +465,39 @@ export default function ScribeActionPanel({
                 </Stack>
               </Box>
             </Stack>
-            {selectedAnnotation ? (
-              <Typography
-                variant="caption"
+            <Stack
+              aria-label="Text granularity legend"
+              direction="row"
+              role="group"
+              spacing={0.75}
+              sx={{ alignItems: 'center', justifyContent: 'center', mt: 0.75 }}
+            >
+              <Chip
+                aria-current={selectedGranularity === 'line' ? 'true' : undefined}
+                label="Line boundaries"
+                size="small"
                 sx={{
-                  color: 'text.secondary',
-                  display: 'block',
-                  lineHeight: 1.3,
-                  mt: 0.5,
-                  textAlign: 'center',
+                  backgroundColor: selectedGranularity === 'line' ? scribeTheme.lineSurface : 'transparent',
+                  borderColor: scribeTheme.line,
+                  color: scribeTheme.line,
                 }}
-              >
-                {`${selectedGranularity || 'line'} selected`}
+                variant="outlined"
+              />
+              <Chip
+                aria-current={selectedGranularity === 'word' ? 'true' : undefined}
+                label="Word boundaries"
+                size="small"
+                sx={{
+                  backgroundColor: selectedGranularity === 'word' ? scribeTheme.wordSurface : 'transparent',
+                  borderColor: scribeTheme.word,
+                  color: scribeTheme.word,
+                }}
+                variant="outlined"
+              />
+              <Typography sx={{ color: 'text.secondary' }} variant="caption">
+                {selectedAnnotation ? `${selectedGranularity || 'line'} selected` : 'No selection'}
               </Typography>
-            ) : null}
+            </Stack>
           </Box>
 
           {/* Keyboard shortcuts — bulleted list to the right */}
@@ -536,6 +540,8 @@ export default function ScribeActionPanel({
         ) : null}
       </Box>
 
+      <StructuralEditDialogs structuralEdits={structuralEdits} />
+
       <Dialog open={transcribeDialogOpen} onClose={onTranscribeDialogClose} fullWidth maxWidth="sm">
         <DialogTitle>{t('scribeEditorTranscribeDialogTitle')}</DialogTitle>
         <DialogContent dividers>
@@ -551,16 +557,16 @@ export default function ScribeActionPanel({
                 void onTranscribe({ all: true });
               }}
               sx={{
-                background: 'linear-gradient(135deg, #6d28d9 0%, #7c3aed 100%)',
+                background: `linear-gradient(135deg, ${scribeTheme.transcribeStrong} 0%, ${scribeTheme.transcribe} 100%)`,
                 borderRadius: 2,
-                boxShadow: '0 4px 14px rgba(109,40,217,0.4)',
+                boxShadow: `0 4px 14px ${scribeTheme.shadow}`,
                 fontWeight: 700,
                 letterSpacing: '0.02em',
                 py: 1.25,
                 textTransform: 'none',
                 '&:hover': {
-                  background: 'linear-gradient(135deg, #5b21b6 0%, #6d28d9 100%)',
-                  boxShadow: '0 6px 20px rgba(109,40,217,0.5)',
+                  background: `linear-gradient(135deg, ${scribeTheme.transcribeStrong} 0%, ${scribeTheme.transcribe} 100%)`,
+                  boxShadow: `0 6px 20px ${scribeTheme.shadow}`,
                 },
               }}
             >
@@ -656,9 +662,6 @@ ScribeActionPanel.propTypes = {
     target: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
     textGranularity: PropTypes.string,
   })).isRequired,
-  canJoinLines: PropTypes.bool.isRequired,
-  canJoinWords: PropTypes.bool.isRequired,
-  canSplitLine: PropTypes.bool.isRequired,
   canSplitToWords: PropTypes.bool.isRequired,
   drawMode: PropTypes.bool.isRequired,
   id: PropTypes.string.isRequired,
@@ -669,13 +672,10 @@ ScribeActionPanel.propTypes = {
   onAddWord: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
   onExplode: PropTypes.func.isRequired,
-  onJoinLines: PropTypes.func.isRequired,
-  onJoinWords: PropTypes.func.isRequired,
   onRedo: PropTypes.func.isRequired,
   onPublish: PropTypes.func.isRequired,
   onReload: PropTypes.func.isRequired,
   onSave: PropTypes.func.isRequired,
-  onSplit: PropTypes.func.isRequired,
   onCycleOverlayMode: PropTypes.func.isRequired,
   onTranscribe: PropTypes.func.isRequired,
   onTranscribeDialogClose: PropTypes.func.isRequired,
@@ -690,6 +690,24 @@ ScribeActionPanel.propTypes = {
   }),
   selectedGranularity: PropTypes.oneOf(['line', 'word', null]),
   statusMessage: PropTypes.string,
+  structuralEdits: PropTypes.shape({
+    canChooseLines: PropTypes.bool.isRequired,
+    canChooseSplit: PropTypes.bool.isRequired,
+    canChooseWords: PropTypes.bool.isRequired,
+    closeDialog: PropTypes.func.isRequired,
+    dialog: PropTypes.oneOf(['split', 'join-lines', 'join-words', null]),
+    joinLines: PropTypes.func.isRequired,
+    joinWords: PropTypes.func.isRequired,
+    lineCandidates: PropTypes.array.isRequired,
+    openJoinLines: PropTypes.func.isRequired,
+    openJoinWords: PropTypes.func.isRequired,
+    openSplit: PropTypes.func.isRequired,
+    selectedLineId: PropTypes.string.isRequired,
+    selectedWordId: PropTypes.string.isRequired,
+    splitAtWord: PropTypes.func.isRequired,
+    splitTokens: PropTypes.arrayOf(PropTypes.string).isRequired,
+    wordCandidates: PropTypes.array.isRequired,
+  }).isRequired,
   transcribeDialogOpen: PropTypes.bool.isRequired,
   transcribeSelection: PropTypes.arrayOf(PropTypes.string).isRequired,
   windowId: PropTypes.string.isRequired,

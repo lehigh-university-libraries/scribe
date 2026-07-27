@@ -42,10 +42,11 @@ func TestItemListPageUsesStableWorkspaceScopedKeysets(t *testing.T) {
 	}
 	createdAt := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
 	itemIDs := []string{"page-c-" + suffix, "page-b-" + suffix, "page-a-" + suffix}
+	externalReferenceIDs := []string{"islandora:PID-C-" + suffix, "islandora:PID-B-" + suffix, "islandora:PID-A-" + suffix}
 	for index, itemID := range itemIDs {
 		if _, err := database.Exec(`INSERT INTO items
-  (id, user_id, workspace_id, name, source_type, created_at, updated_at)
-VALUES (?, ?, ?, ?, 'upload', ?, ?)`, itemID, userID, workspaceID, itemID, createdAt, createdAt); err != nil {
+  (id, user_id, workspace_id, name, source_type, external_reference_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, 'upload', ?, ?, ?)`, itemID, userID, workspaceID, itemID, externalReferenceIDs[index], createdAt, createdAt); err != nil {
 			t.Fatalf("insert item %s: %v", itemID, err)
 		}
 		imageCount := 1
@@ -61,8 +62,8 @@ VALUES (?, ?, ?, ?, ?)`, workspaceID, itemID, sequence, fmt.Sprintf("https://ima
 		}
 	}
 	if _, err := database.Exec(`INSERT INTO items
-  (id, user_id, workspace_id, name, source_type, created_at, updated_at)
-VALUES (?, ?, ?, 'other workspace', 'upload', ?, ?)`, "page-z-"+suffix, otherUserID, otherWorkspaceID, createdAt, createdAt); err != nil {
+  (id, user_id, workspace_id, name, source_type, external_reference_id, created_at, updated_at)
+VALUES (?, ?, ?, 'other workspace', 'upload', ?, ?, ?)`, "page-z-"+suffix, otherUserID, otherWorkspaceID, externalReferenceIDs[1], createdAt, createdAt); err != nil {
 		t.Fatalf("insert other workspace item: %v", err)
 	}
 
@@ -100,6 +101,10 @@ VALUES (?, ?, ?, 'other workspace', 'upload', ?, ?)`, "page-z-"+suffix, otherUse
 	filtered, err := itemStore.ListPage(ctx, workspaceID, 10, itemIDs[2], nil)
 	if err != nil || len(filtered.Items) != 1 || filtered.Items[0].ID != itemIDs[2] {
 		t.Fatalf("filtered page = %+v/%v, want only %s", filtered.Items, err, itemIDs[2])
+	}
+	correlated, err := itemStore.ListPage(ctx, workspaceID, 10, "pid-b-"+suffix, nil)
+	if err != nil || len(correlated.Items) != 1 || correlated.Items[0].ID != itemIDs[1] || correlated.Items[0].ExternalReferenceID != externalReferenceIDs[1] {
+		t.Fatalf("external-reference page = %+v/%v, want only %s", correlated.Items, err, itemIDs[1])
 	}
 	if _, err := database.Exec("UPDATE items SET name = 'literal 100%_ match' WHERE id = ?", itemIDs[0]); err != nil {
 		t.Fatalf("set literal wildcard name: %v", err)

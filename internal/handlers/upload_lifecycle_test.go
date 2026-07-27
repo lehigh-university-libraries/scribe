@@ -291,7 +291,7 @@ func TestPostWriteProcessingFailureCompensatesBothStores(t *testing.T) {
 	assertNoUploadTemps(t)
 }
 
-func TestProcessResultReportsFinalStoredByteCount(t *testing.T) {
+func TestLocalOwnedUploadReportsExactPositiveStoredByteCount(t *testing.T) {
 	withUploadWorkingDirectory(t)
 	payload := testPNG(t)
 	objects := newFakeUploadObjectStore()
@@ -306,6 +306,9 @@ func TestProcessResultReportsFinalStoredByteCount(t *testing.T) {
 	}
 	if result.StoredBytes != uint64(len(payload)) {
 		t.Fatalf("stored bytes = %d, want %d", result.StoredBytes, len(payload))
+	}
+	if result.StoredBytes == 0 {
+		t.Fatal("Scribe-owned upload reported zero stored bytes")
 	}
 	name, ok := uploadNameForTest(result.ImageURL)
 	if !ok || !objects.has(name) {

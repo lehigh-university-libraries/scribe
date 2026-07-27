@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import PropTypes from 'prop-types';
 import OpenSeadragon from 'openseadragon';
 import { clientPointToImage, normalizeImageBBox } from '../editor/geometry';
+import { scribeTheme } from '../theme';
 import {
   annotationBBox,
   annotationIntersectsImageRect,
@@ -24,7 +25,7 @@ if (typeof document !== 'undefined' && !document.getElementById('scribe-transcri
   const kfStyle = document.createElement('style');
   kfStyle.id = 'scribe-transcription-kf';
   kfStyle.textContent = [
-    '@keyframes scribeSegmentPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(139,92,246,.35)}50%{opacity:.75;box-shadow:0 0 0 5px rgba(139,92,246,0)}}',
+    '@keyframes scribeSegmentPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 var(--scribe-plugin-transcribe)}50%{opacity:.75;box-shadow:0 0 0 5px transparent}}',
     '@keyframes scribeResultDissolve{0%{opacity:0;transform:scaleY(.92)}12%{opacity:1;transform:scaleY(1)}72%{opacity:1}100%{opacity:0}}',
     '@keyframes scribeSpinner{to{transform:rotate(360deg)}}',
     '@media (prefers-reduced-motion: reduce){.scribe-text-overlay *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}',
@@ -52,6 +53,7 @@ const INLINE_EDITOR_CONTENT_INSET_PX = 10;
 /** @typedef {{ annotation: IIIFAnnotation, done: number, total: number, text: string | null }} TranscriptionResult */
 /** @typedef {{ annotation?: IIIFAnnotation | null, canvasId?: string, done?: number, total?: number, windowId?: string }} TranscriptionEventDetail */
 /** @typedef {{ id: string, isWord: boolean, rect: Rect, text: string }} OverlayLabel */
+/** @typedef {{ granularity: 'line' | 'word', id: string, rect: Rect, selected: boolean }} GranularityMarker */
 /** @typedef {{ annotationId: string | null, fallbackIndex?: number, rect: Rect, text: string }} WordEditor */
 /** @typedef {Object} ScribeTextOverlayProps
  * @property {IIIFAnnotationPage | null} annotationPage
@@ -403,6 +405,20 @@ function ScribeTextOverlayPlugin({
       }))
       .filter((item) => item.id && item.text && item.rect && item.rect.w > 4 && item.rect.h > 4);
   }, [activePage, textOverlayVisible, viewer, version]));
+  const granularityMarkers = /** @type {GranularityMarker[]} */ (useMemo(() => {
+    const visibleBounds = visibleImageBounds(viewer);
+    return (Array.isArray(activePage?.items) ? activePage.items : [])
+      .filter((annotation) => isLineAnnotation(annotation) || isWordAnnotation(annotation))
+      .filter((annotation) => annotationIntersectsImageRect(annotation, visibleBounds))
+      .map((annotation) => ({
+        granularity: isWordAnnotation(annotation) ? 'word' : 'line',
+        id: annotation.id,
+        rect: annotationRect(viewer, annotation),
+        selected: annotation.id === activeSelectedAnnotationId
+          || annotation.id === activeFocusedWordAnnotationId,
+      }))
+      .filter((marker) => marker.id && marker.rect && marker.rect.w > 4 && marker.rect.h > 4);
+  }, [activeFocusedWordAnnotationId, activePage, activeSelectedAnnotationId, viewer, version]));
   const selectedDecoration = useMemo(() => {
     const items = Array.isArray(activePage?.items) ? activePage.items : [];
     const selected = items.find((annotation) => annotation?.id === activeSelectedAnnotationId) || null;
@@ -538,7 +554,10 @@ function ScribeTextOverlayPlugin({
   }, [inlineEditorVisible, selectedDecoration.lineRect, viewer]);
 
   if (!viewer) return null;
-  if (overlayMode === 'none' && !transcriptionRect && !transcriptionResultRect) return null;
+  if (overlayMode === 'none'
+    && granularityMarkers.length === 0
+    && !transcriptionRect
+    && !transcriptionResultRect) return null;
 
   const currentVisibleImageBounds = visibleImageBounds(viewer);
   const outlineRects = /** @type {Array<{ id: string, rect: Rect }>} */ (outlineVisible
@@ -562,11 +581,54 @@ function ScribeTextOverlayPlugin({
         zIndex: 1200,
       }}
     >
+      {granularityMarkers.map(({ granularity, id: markerId, rect, selected }) => {
+        const isWord = granularity === 'word';
+        const boundaryColor = isWord ? scribeTheme.word : scribeTheme.line;
+        return (
+          <div
+            aria-hidden="true"
+            data-scribe-granularity={granularity}
+            key={`granularity-${markerId}`}
+            style={{
+              border: `${selected ? 2 : 1}px ${isWord ? 'solid' : 'dashed'} ${boundaryColor}`,
+              borderRadius: isWord ? 3 : 5,
+              boxSizing: 'border-box',
+              height: `${rect.h}px`,
+              left: rect.x,
+              opacity: selected || outlineVisible ? 1 : 0.62,
+              pointerEvents: 'none',
+              position: 'absolute',
+              top: rect.y,
+              width: `${rect.w}px`,
+              zIndex: selected ? 14 : (isWord ? 12 : 10),
+            }}
+          >
+            {rect.w >= 24 && rect.h >= 12 ? (
+              <span
+                style={{
+                  background: isWord ? scribeTheme.wordSurface : scribeTheme.lineSurface,
+                  borderRadius: '0 0 0 3px',
+                  color: boundaryColor,
+                  fontSize: 9,
+                  fontWeight: 800,
+                  lineHeight: 1,
+                  padding: '2px 3px',
+                  position: 'absolute',
+                  right: 0,
+                  top: 0,
+                }}
+              >
+                {isWord ? 'W' : 'L'}
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
       {focusBounds ? (
         <>
           <div
             style={{
-              background: 'rgba(15,23,42,0.35)',
+              background: scribeTheme.overlay,
               left: 0,
               pointerEvents: 'none',
               position: 'absolute',
@@ -577,7 +639,7 @@ function ScribeTextOverlayPlugin({
           />
           <div
             style={{
-              background: 'rgba(15,23,42,0.35)',
+              background: scribeTheme.overlay,
               left: 0,
               pointerEvents: 'none',
               position: 'absolute',
@@ -588,7 +650,7 @@ function ScribeTextOverlayPlugin({
           />
           <div
             style={{
-              background: 'rgba(15,23,42,0.35)',
+              background: scribeTheme.overlay,
               left: `${focusBounds.right}px`,
               pointerEvents: 'none',
               position: 'absolute',
@@ -599,7 +661,7 @@ function ScribeTextOverlayPlugin({
           />
           <div
             style={{
-              background: 'rgba(15,23,42,0.35)',
+              background: scribeTheme.overlay,
               left: 0,
               pointerEvents: 'none',
               position: 'absolute',
@@ -633,7 +695,7 @@ function ScribeTextOverlayPlugin({
           <>
             <div
               style={{
-                border: '1px dashed rgba(217,119,6,0.65)',
+                border: `1px dashed ${scribeTheme.word}`,
                 boxSizing: 'border-box',
                 height: `${Math.max(8, previewRect.h)}px`,
                 left: previewRect.x,
@@ -656,7 +718,7 @@ function ScribeTextOverlayPlugin({
                   else resizeHandleRefs.current.delete(handle);
                 }}
                 style={{
-                  background: 'radial-gradient(circle, rgba(255,255,255,0.98) 0 3px, rgba(217,119,6,0.95) 4px 5px, transparent 6px)',
+                  background: `radial-gradient(circle, ${scribeTheme.surface} 0 3px, ${scribeTheme.word} 4px 5px, transparent 6px)`,
                   border: 0,
                   borderRadius: '50%',
                   boxSizing: 'border-box',
@@ -743,11 +805,13 @@ function ScribeTextOverlayPlugin({
             dispatchOverlaySelection(label, windowId, canvasId);
           }}
           style={{
-            background: label.id === activeFocusedWordAnnotationId || label.id === activeSelectedAnnotationId ? 'rgba(251, 191, 36, 0.88)' : 'rgba(15, 23, 42, 0.78)',
-            border: label.id === activeFocusedWordAnnotationId || label.id === activeSelectedAnnotationId ? '1px solid rgba(245, 158, 11, 0.95)' : '1px solid rgba(148, 163, 184, 0.45)',
+            background: label.id === activeFocusedWordAnnotationId || label.id === activeSelectedAnnotationId ? scribeTheme.selected : scribeTheme.overlaySurface,
+            border: `1px solid ${label.isWord ? scribeTheme.word : scribeTheme.line}`,
             borderRadius: 4,
             boxSizing: 'border-box',
-            color: '#f8fafc',
+            color: label.id === activeFocusedWordAnnotationId || label.id === activeSelectedAnnotationId
+              ? scribeTheme.selectedForeground
+              : scribeTheme.overlayForeground,
             cursor: 'text',
             display: 'flex',
             fontSize: Math.max(11, Math.min(label.isWord ? 17 : 18, label.rect.h * 0.72)),
@@ -821,8 +885,8 @@ function ScribeTextOverlayPlugin({
           >
             <div
               style={{
-                background: 'rgba(255,255,255,0.9)',
-                border: '1px solid rgba(148,163,184,0.35)',
+                background: scribeTheme.surface,
+                border: `1px solid ${scribeTheme.border}`,
                 borderRadius: 999,
                 height: '6px',
                 width: '72px',
@@ -831,9 +895,9 @@ function ScribeTextOverlayPlugin({
           </div>
           <div
             style={{
-              background: 'rgba(255,255,255,0.98)',
+              background: scribeTheme.surface,
               borderRadius: 10,
-              boxShadow: '0 14px 24px rgba(15,23,42,0.14)',
+              boxShadow: `0 14px 24px ${scribeTheme.shadow}`,
               height: `${INLINE_EDITOR_HEIGHT_PX}px`,
               left: 0,
               pointerEvents: 'none',
@@ -919,11 +983,11 @@ function ScribeTextOverlayPlugin({
                   }
                 }}
                 style={{
-                  background: 'rgba(255,255,255,0.96)',
-                  border: '2px solid rgba(245, 158, 11, 0.86)',
+                  background: scribeTheme.surface,
+                  border: `2px solid ${scribeTheme.word}`,
                   borderRadius: 8,
-                  boxShadow: '0 8px 16px rgba(15,23,42,0.08)',
-                  color: '#0f172a',
+                  boxShadow: `0 8px 16px ${scribeTheme.shadowSoft}`,
+                  color: scribeTheme.foreground,
                   fontFamily: '"IBM Plex Sans", "Helvetica Neue", sans-serif',
                   fontSize: `${Math.max(14, Math.min(20, rect.h * 0.75))}px`,
                   fontWeight: 600,
@@ -1016,11 +1080,11 @@ function ScribeTextOverlayPlugin({
                     }
                   }}
                   style={{
-                    background: 'rgba(255,255,255,0.96)',
-                    border: '2px solid rgba(245, 158, 11, 0.86)',
+                    background: scribeTheme.surface,
+                    border: `2px solid ${scribeTheme.word}`,
                     borderRadius: 8,
-                    boxShadow: '0 8px 16px rgba(15,23,42,0.08)',
-                    color: '#0f172a',
+                    boxShadow: `0 8px 16px ${scribeTheme.shadowSoft}`,
+                    color: scribeTheme.foreground,
                     flex: `${Math.max(1, word.rect.w)} 1 0`,
                     fontFamily: '"IBM Plex Sans", "Helvetica Neue", sans-serif',
                     fontSize: '16px',
@@ -1042,7 +1106,7 @@ function ScribeTextOverlayPlugin({
         <div
           key={id}
           style={{
-            border: '1px solid rgba(148,163,184,0.55)',
+            border: `1px solid ${scribeTheme.line}`,
             borderRadius: 2,
             boxSizing: 'border-box',
             height: `${rect.h}px`,
@@ -1064,10 +1128,10 @@ function ScribeTextOverlayPlugin({
             style={{
               alignItems: 'center',
               animation: 'scribeResultDissolve 1.2s ease-out forwards',
-              background: 'rgba(15,23,42,0.82)',
+              background: scribeTheme.overlaySurface,
               borderRadius: 3,
               boxSizing: 'border-box',
-              color: '#f1f5f9',
+              color: scribeTheme.overlayForeground,
               display: 'flex',
               fontFamily: '"IBM Plex Sans","Helvetica Neue",sans-serif',
               fontSize,
@@ -1100,7 +1164,7 @@ function ScribeTextOverlayPlugin({
             <div
               style={{
                 animation: 'scribeSegmentPulse 1.4s ease-in-out infinite',
-                border: '2px solid rgba(139,92,246,0.9)',
+                border: `2px solid ${scribeTheme.transcribe}`,
                 borderRadius: 4,
                 boxSizing: 'border-box',
                 height: `${Math.max(8, tr.h + 6)}px`,
@@ -1116,11 +1180,11 @@ function ScribeTextOverlayPlugin({
             <div
               style={{
                 alignItems: 'center',
-                background: 'rgba(109,40,217,0.93)',
+                background: scribeTheme.transcribe,
                 backdropFilter: 'blur(6px)',
                 borderRadius: 20,
-                boxShadow: '0 2px 10px rgba(109,40,217,0.5)',
-                color: '#fff',
+                boxShadow: `0 2px 10px ${scribeTheme.shadow}`,
+                color: scribeTheme.overlayForeground,
                 display: 'flex',
                 fontSize: 11,
                 fontWeight: 700,
@@ -1135,15 +1199,15 @@ function ScribeTextOverlayPlugin({
                 zIndex: 1401,
               }}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="white" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M7.5 5.6L10 7 8.6 4.5 10 2 7.5 3.4 5 2l1.4 2.5L5 7zm12 9.8L17 14l1.4 2.5L17 19l2.5-1.4L22 19l-1.4-2.5L22 14zM22 2l-2.5 1.4L17 2l1.4 2.5L17 7l2.5-1.4L22 7l-1.4-2.5zm-7.63 5.29a1 1 0 00-1.41 0L1.29 18.96a1 1 0 000 1.41l2.34 2.34c.39.39 1.02.39 1.41 0L16.7 11.05a1 1 0 000-1.41zM14.21 7L17 9.79 9.79 17 7 14.21z" />
               </svg>
               <div
                 style={{
                   animation: 'scribeSpinner 0.75s linear infinite',
-                  border: '1.5px solid rgba(255,255,255,0.3)',
+                  border: `1.5px solid ${scribeTheme.overlayForeground}`,
                   borderRadius: '50%',
-                  borderTopColor: '#fff',
+                  borderTopColor: scribeTheme.surface,
                   flexShrink: 0,
                   height: 10,
                   width: 10,

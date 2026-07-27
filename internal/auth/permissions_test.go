@@ -265,6 +265,10 @@ func TestRequiredPermissionForAuthProcedures(t *testing.T) {
 		{procedure: "/scribe.v1.ItemService/GetEditorManifest", want: "items:read"},
 		{procedure: "/scribe.v1.ItemService/ListItemProviderCallAudits", want: "items:read"},
 		{procedure: "/scribe.v1.ItemService/PrepareItemExport", want: "annotations:read"},
+		{procedure: "/scribe.v1.AnnotationService/SplitPageIntoWords", want: "annotations:write"},
+		{procedure: "/scribe.v1.WebhookService/CreateWebhook", want: "admin:webhooks"},
+		{procedure: "/scribe.v1.WebhookService/ListWebhooks", want: "admin:webhooks"},
+		{procedure: "/scribe.v1.WebhookService/DeleteWebhook", want: "admin:webhooks"},
 		{procedure: "/scribe.v1.UnknownService/Unknown", want: unmappedProcedurePermission},
 	}
 

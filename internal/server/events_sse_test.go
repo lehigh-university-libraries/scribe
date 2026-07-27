@@ -115,7 +115,7 @@ func TestEventStreamNestedSubjectsRemainWorkspaceScoped(t *testing.T) {
 	subject := fmt.Sprintf("item-images/%d/annotations/line-1", imageA.ID)
 	body := fmt.Sprintf(`{"specversion":"1.0","id":%q,"type":"dev.scribe.annotation.updated","subject":%q,"data":{}}`, eventID, subject)
 	events := store.NewTranscriptionJobStore(database)
-	if err := events.EnqueueWebhookEvent(ctx, eventID, "dev.scribe.annotation.updated", subject, body, nil); err != nil {
+	if err := events.EnqueueWebhookEvent(ctx, eventID, "dev.scribe.annotation.updated", subject, body); err != nil {
 		t.Fatalf("enqueue workspace event: %v", err)
 	}
 	t.Cleanup(func() {

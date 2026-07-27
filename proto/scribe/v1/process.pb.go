@@ -33,8 +33,10 @@ type ProcessImageURLRequest struct {
 	// Optional metadata JSON passed to the selection engine.
 	Metadata       string `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	IdempotencyKey string `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Stable repository identifier used to correlate the created Scribe item.
+	ExternalReferenceId string `protobuf:"bytes,6,opt,name=external_reference_id,json=externalReferenceId,proto3" json:"external_reference_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ProcessImageURLRequest) Reset() {
@@ -95,6 +97,13 @@ func (x *ProcessImageURLRequest) GetIdempotencyKey() string {
 	return ""
 }
 
+func (x *ProcessImageURLRequest) GetExternalReferenceId() string {
+	if x != nil {
+		return x.ExternalReferenceId
+	}
+	return ""
+}
+
 type ProcessHOCRRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Hocr           string                 `protobuf:"bytes,1,opt,name=hocr,proto3" json:"hocr,omitempty"`
@@ -102,8 +111,13 @@ type ProcessHOCRRequest struct {
 	ImageData      []byte                 `protobuf:"bytes,4,opt,name=image_data,json=imageData,proto3" json:"image_data,omitempty"`
 	Filename       string                 `protobuf:"bytes,5,opt,name=filename,proto3" json:"filename,omitempty"`
 	IdempotencyKey string                 `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Optional metadata JSON retained on the created item and echoed by
+	// item-scoped completion, failure, and publication events.
+	Metadata string `protobuf:"bytes,7,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	// Stable repository identifier used to correlate the created Scribe item.
+	ExternalReferenceId string `protobuf:"bytes,8,opt,name=external_reference_id,json=externalReferenceId,proto3" json:"external_reference_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ProcessHOCRRequest) Reset() {
@@ -171,6 +185,20 @@ func (x *ProcessHOCRRequest) GetIdempotencyKey() string {
 	return ""
 }
 
+func (x *ProcessHOCRRequest) GetMetadata() string {
+	if x != nil {
+		return x.Metadata
+	}
+	return ""
+}
+
+func (x *ProcessHOCRRequest) GetExternalReferenceId() string {
+	if x != nil {
+		return x.ExternalReferenceId
+	}
+	return ""
+}
+
 // ProcessImageURLResponse returns item/image IDs along with run-scoped OCR data.
 type ProcessImageURLResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
@@ -179,10 +207,14 @@ type ProcessImageURLResponse struct {
 	ImageUrl    string                 `protobuf:"bytes,3,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
 	Hocr        string                 `protobuf:"bytes,4,opt,name=hocr,proto3" json:"hocr,omitempty"`
 	PlainText   string                 `protobuf:"bytes,5,opt,name=plain_text,json=plainText,proto3" json:"plain_text,omitempty"`
-	// Session-scoped identifier for OCR run lookups and async processing.
-	SessionId     string `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Stable OCR provenance-run identifier. This is not an authentication or
+	// browser editor session identifier.
+	SessionId string `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Durable asynchronous transcription job. Zero means the imported result is
+	// already complete and no asynchronous transcription was scheduled.
+	TranscriptionJobId uint64 `protobuf:"varint,7,opt,name=transcription_job_id,json=transcriptionJobId,proto3" json:"transcription_job_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ProcessImageURLResponse) Reset() {
@@ -257,6 +289,13 @@ func (x *ProcessImageURLResponse) GetSessionId() string {
 	return ""
 }
 
+func (x *ProcessImageURLResponse) GetTranscriptionJobId() uint64 {
+	if x != nil {
+		return x.TranscriptionJobId
+	}
+	return 0
+}
+
 type ProcessHOCRResponse struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	ItemId      string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
@@ -264,10 +303,14 @@ type ProcessHOCRResponse struct {
 	ImageUrl    string                 `protobuf:"bytes,3,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
 	Hocr        string                 `protobuf:"bytes,4,opt,name=hocr,proto3" json:"hocr,omitempty"`
 	PlainText   string                 `protobuf:"bytes,5,opt,name=plain_text,json=plainText,proto3" json:"plain_text,omitempty"`
-	// Session-scoped identifier for OCR run lookups and async processing.
-	SessionId     string `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Stable OCR provenance-run identifier. This is not an authentication or
+	// browser editor session identifier.
+	SessionId string `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// Durable asynchronous transcription job. ProcessHOCR is synchronous and
+	// normally returns zero because the supplied hOCR is the completed result.
+	TranscriptionJobId uint64 `protobuf:"varint,7,opt,name=transcription_job_id,json=transcriptionJobId,proto3" json:"transcription_job_id,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ProcessHOCRResponse) Reset() {
@@ -340,6 +383,13 @@ func (x *ProcessHOCRResponse) GetSessionId() string {
 		return x.SessionId
 	}
 	return ""
+}
+
+func (x *ProcessHOCRResponse) GetTranscriptionJobId() uint64 {
+	if x != nil {
+		return x.TranscriptionJobId
+	}
+	return 0
 }
 
 type GetOCRRunRequest struct {
@@ -683,14 +733,15 @@ var File_scribe_v1_process_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
-	"\x17scribe/v1/process.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xe8\x01\n" +
+	"\x17scribe/v1/process.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xb1\x02\n" +
 	"\x16ProcessImageURLRequest\x120\n" +
 	"\timage_url\x18\x01 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\x80\x102\x06.*\\S.*R\bimageUrl\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x03 \x01(\x04R\tcontextId\x120\n" +
 	"\bmetadata\x18\x04 \x01(\tB\x14\xbaH\x11r\x0f(\x80\x80@2\t^$|.*\\S.*R\bmetadata\x126\n" +
 	"\x0fidempotency_key\x18\x05 \x01(\tB\r\xbaH\n" +
-	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKeyJ\x04\b\x02\x10\x03R\routput_format\"\xb5\x03\n" +
+	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKey\x12G\n" +
+	"\x15external_reference_id\x18\x06 \x01(\tB\x13\xbaH\x10r\x0e\x18\x80\x042\t^$|.*\\S.*R\x13externalReferenceIdJ\x04\b\x02\x10\x03R\routput_format\"\xb0\x04\n" +
 	"\x12ProcessHOCRRequest\x12)\n" +
 	"\x04hocr\x18\x01 \x01(\tB\x15\xbaH\x12\xc8\x01\x01r\r(\x80\x80\x80\x052\x06.*\\S.*R\x04hocr\x120\n" +
 	"\timage_url\x18\x02 \x01(\tB\x13\xbaH\x10r\x0e\x18\x80\x102\t^$|.*\\S.*R\bimageUrl\x12)\n" +
@@ -699,8 +750,10 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\xbaH\az\x05\x18\x80\x80\x802R\timageData\x12/\n" +
 	"\bfilename\x18\x05 \x01(\tB\x13\xbaH\x10r\x0e\x18\xff\x012\t^$|.*\\S.*R\bfilename\x126\n" +
 	"\x0fidempotency_key\x18\x06 \x01(\tB\r\xbaH\n" +
-	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKey:\x98\x01\xbaH\x94\x01\x1a\x91\x01\n" +
-	"\x19process_hocr.image_source\x122exactly one of image_url or image_data is required\x1a@this.image_url.matches('.*\\\\S.*') != (size(this.image_data) > 0)J\x04\b\x03\x10\x04R\routput_format\"\xc5\x01\n" +
+	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKey\x120\n" +
+	"\bmetadata\x18\a \x01(\tB\x14\xbaH\x11r\x0f(\x80\x80@2\t^$|.*\\S.*R\bmetadata\x12G\n" +
+	"\x15external_reference_id\x18\b \x01(\tB\x13\xbaH\x10r\x0e\x18\x80\x042\t^$|.*\\S.*R\x13externalReferenceId:\x98\x01\xbaH\x94\x01\x1a\x91\x01\n" +
+	"\x19process_hocr.image_source\x122exactly one of image_url or image_data is required\x1a@this.image_url.matches('.*\\\\S.*') != (size(this.image_data) > 0)J\x04\b\x03\x10\x04R\routput_format\"\xf7\x01\n" +
 	"\x17ProcessImageURLResponse\x12\x17\n" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +
@@ -709,7 +762,8 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
 	"plain_text\x18\x05 \x01(\tR\tplainText\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x06 \x01(\tR\tsessionId\"\xc1\x01\n" +
+	"session_id\x18\x06 \x01(\tR\tsessionId\x120\n" +
+	"\x14transcription_job_id\x18\a \x01(\x04R\x12transcriptionJobId\"\xf3\x01\n" +
 	"\x13ProcessHOCRResponse\x12\x17\n" +
 	"\aitem_id\x18\x01 \x01(\tR\x06itemId\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +
@@ -718,7 +772,8 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\n" +
 	"plain_text\x18\x05 \x01(\tR\tplainText\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x06 \x01(\tR\tsessionId\"\x88\x01\n" +
+	"session_id\x18\x06 \x01(\tR\tsessionId\x120\n" +
+	"\x14transcription_job_id\x18\a \x01(\x04R\x12transcriptionJobId\"\x88\x01\n" +
 	"\x10GetOCRRunRequest\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId:P\xbaHM\x1aK\n" +
 	"\x16get_ocr_run.identifier\x12\x19item_image_id is required\x1a\x16this.item_image_id > 0\"\x92\x03\n" +

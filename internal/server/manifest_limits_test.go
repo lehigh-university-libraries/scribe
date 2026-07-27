@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -80,9 +81,10 @@ func TestSourceManifestBudgetRejectsBeforeTenantContentWrite(t *testing.T) {
 		store.NewAnnotationStore(database), store.NewTranscriptionJobStore(database), nil, nil, nil,
 	)
 	handler.maxManifestImportBytes = uint64(len(payload) - 1)
-	const idempotencyKey = "source-manifest-byte-budget"
+	idempotencyKey := "source-manifest-byte-budget-" + uuid.NewString()
 	digest := sha256.Sum256([]byte(idempotencyKey))
 	storedKey := fmt.Sprintf("%x", digest[:])
+	registerManifestImportFixtureCleanup(t, database, source.URL+"/manifest", storedKey)
 
 	_, err := handler.ImportManifest(context.Background(), connect.NewRequest(&scribev1.ImportManifestRequest{
 		Name: "Source budget", ManifestUrl: source.URL + "/manifest", IdempotencyKey: idempotencyKey,
@@ -127,10 +129,10 @@ func TestOversizedManifestIsRejectedBeforeTenantContentWrite(t *testing.T) {
 	)
 	handler.maxManifestCanvases = 2
 
-	const idempotencyKey = "manifest-limit-atomic-rejection"
+	idempotencyKey := "manifest-limit-atomic-rejection-" + uuid.NewString()
 	idempotencyDigest := sha256.Sum256([]byte(idempotencyKey))
 	storedKey := fmt.Sprintf("%x", idempotencyDigest[:])
-	cleanupManifestImportFixture(t, database, manifestSource.URL+"/manifest", storedKey)
+	registerManifestImportFixtureCleanup(t, database, manifestSource.URL+"/manifest", storedKey)
 
 	_, err := handler.ImportManifest(ctx, connect.NewRequest(&scribev1.ImportManifestRequest{
 		Name:           "Oversized manifest",
@@ -178,10 +180,10 @@ func TestManifestHOCRAggregateBudgetRejectsBeforeTenantContentWrite(t *testing.T
 	)
 	handler.maxManifestImportBytes = 12
 
-	const idempotencyKey = "manifest-byte-limit-atomic-rejection"
+	idempotencyKey := "manifest-byte-limit-atomic-rejection-" + uuid.NewString()
 	idempotencyDigest := sha256.Sum256([]byte(idempotencyKey))
 	storedKey := fmt.Sprintf("%x", idempotencyDigest[:])
-	cleanupManifestImportFixture(t, database, manifestSource.URL+"/manifest", storedKey)
+	registerManifestImportFixtureCleanup(t, database, manifestSource.URL+"/manifest", storedKey)
 
 	_, err := handler.ImportManifest(ctx, connect.NewRequest(&scribev1.ImportManifestRequest{
 		Name:           "Oversized hOCR aggregate",
@@ -223,9 +225,10 @@ func TestManifestImportDeadlineBoundsWholeHOCRFanout(t *testing.T) {
 		store.NewAnnotationStore(database), store.NewTranscriptionJobStore(database), nil, nil, nil,
 	)
 	handler.manifestImportTimeout = 500 * time.Millisecond
-	const idempotencyKey = "manifest-aggregate-deadline"
+	idempotencyKey := "manifest-aggregate-deadline-" + uuid.NewString()
 	digest := sha256.Sum256([]byte(idempotencyKey))
 	storedKey := fmt.Sprintf("%x", digest[:])
+	registerManifestImportFixtureCleanup(t, database, manifestSource.URL+"/manifest", storedKey)
 	_, err := handler.ImportManifest(context.Background(), connect.NewRequest(&scribev1.ImportManifestRequest{
 		Name: "Timed manifest", ManifestUrl: manifestSource.URL + "/manifest", IdempotencyKey: idempotencyKey,
 	}))
@@ -270,9 +273,10 @@ func TestOversizedManifestLabelIsRejectedBeforeHOCRFetchOrTenantContentWrite(t *
 		nil,
 		nil,
 	)
-	const idempotencyKey = "manifest-label-atomic-rejection"
+	idempotencyKey := "manifest-label-atomic-rejection-" + uuid.NewString()
 	digest := sha256.Sum256([]byte(idempotencyKey))
 	storedKey := fmt.Sprintf("%x", digest[:])
+	registerManifestImportFixtureCleanup(t, database, manifestSource.URL+"/manifest", storedKey)
 	_, err := handler.ImportManifest(ctx, connect.NewRequest(&scribev1.ImportManifestRequest{
 		ManifestUrl:    manifestSource.URL + "/manifest",
 		IdempotencyKey: idempotencyKey,
@@ -378,6 +382,12 @@ func TestParallelManifestFetchesShareBoundedWorkspaceImportSlot(t *testing.T) {
 	handler.processingLimiter = limiter
 
 	results := make(chan error, 2)
+	firstKey := "manifest-import-slot-a-" + uuid.NewString()
+	secondKey := "manifest-import-slot-b-" + uuid.NewString()
+	for _, key := range []string{firstKey, secondKey} {
+		digest := sha256.Sum256([]byte(key))
+		registerManifestImportFixtureCleanup(t, database, manifestSource.URL, fmt.Sprintf("%x", digest[:]))
+	}
 	request := func(key string) {
 		_, requestErr := handler.ImportManifest(context.Background(), connect.NewRequest(&scribev1.ImportManifestRequest{
 			Name:           "Import slot",
@@ -386,13 +396,13 @@ func TestParallelManifestFetchesShareBoundedWorkspaceImportSlot(t *testing.T) {
 		}))
 		results <- requestErr
 	}
-	go request("manifest-import-slot-a")
+	go request(firstKey)
 	select {
 	case <-firstFetch:
 	case <-time.After(2 * time.Second):
 		t.Fatal("first manifest fetch did not start")
 	}
-	go request("manifest-import-slot-b")
+	go request(secondKey)
 	select {
 	case <-time.After(100 * time.Millisecond):
 		if got := fetches.Load(); got != 1 {
@@ -434,7 +444,7 @@ func TestImportManifestRejectsForeignContextBeforeReservationOrFetch(t *testing.
 		store.NewOCRRunStore(database), store.NewItemStore(database), contexts,
 		store.NewAnnotationStore(database), jobs, &auth.Manager{}, nil, nil,
 	)
-	const key = "foreign-context-before-manifest-fetch"
+	key := "foreign-context-before-manifest-fetch-" + uuid.NewString()
 	requestCtx := auth.WithPrincipal(context.Background(), auth.Principal{
 		UserID: userID, Authenticated: true, WorkspaceID: workspaceID, WorkspaceRole: "editor",
 	})
@@ -481,11 +491,11 @@ func TestImportManifestCompletedReplayDoesNotRefetchSource(t *testing.T) {
 		store.NewOCRRunStore(database), store.NewItemStore(database), store.NewContextStore(database),
 		store.NewAnnotationStore(database), jobs, nil, nil, nil,
 	)
-	const key = "manifest-replay-with-unavailable-source"
+	key := "manifest-replay-with-unavailable-source-" + uuid.NewString()
 	manifestURL := source.URL + "/manifest"
 	digest := sha256.Sum256([]byte(key))
 	storedKey := fmt.Sprintf("%x", digest[:])
-	cleanupManifestImportFixture(t, database, manifestURL, storedKey)
+	registerManifestImportFixtureCleanup(t, database, manifestURL, storedKey)
 	request := &scribev1.ImportManifestRequest{
 		Name: "Replay without source", ManifestUrl: manifestURL, IdempotencyKey: key,
 	}
@@ -553,7 +563,7 @@ func testPresentation2Manifest(baseURL string, canvasCount int) map[string]any {
 	}
 }
 
-func cleanupManifestImportFixture(t *testing.T, database *sql.DB, manifestURL, idempotencyKey string) {
+func registerManifestImportFixtureCleanup(t *testing.T, database *sql.DB, manifestURL, idempotencyKey string) {
 	t.Helper()
 	t.Cleanup(func() {
 		ctx := context.Background()

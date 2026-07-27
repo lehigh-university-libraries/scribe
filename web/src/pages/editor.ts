@@ -22,6 +22,7 @@ import { html, setHTML, uint64ToString } from "../lib/util";
 import { renderEditorLayout } from "./editor/layout";
 import { createLeaveDialogController } from "./editor/leave-dialog";
 import { commonViewerOptions, hiddenPanels } from "./editor/mirador";
+import { renderEditorRecovery } from "./editor/recovery";
 import {
   type CanvasImageRegistry,
   createCanvasImageRegistry,
@@ -831,7 +832,9 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   // annotation loading must never create backend resources as a side effect.
   if (itemImageID === "") {
     reprocessNav.classList.add("hidden");
-    meta.textContent = "Select or import an item before opening the editor.";
+    renderEditorRecovery(meta, document.getElementById("mirador-viewer"), {
+      message: "This editor link is missing the required itemImageId. Select or import an item, then open its editor again.",
+    });
     return;
   }
 
@@ -842,7 +845,10 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     runResp = null;
   }
   if (runResp == null) {
-    meta.textContent = "Failed to load OCR run";
+    renderEditorRecovery(meta, document.getElementById("mirador-viewer"), {
+      message: "Failed to load the OCR run. The link may be stale, or the service may be temporarily unavailable.",
+      retry: () => window.location.reload(),
+    });
     return;
   }
 

@@ -22,6 +22,7 @@ func TestAnnotationPublicationIsRevisionCheckedTenantScopedAndDurable(t *testing
 	canvasURI := "https://source.example/canvas/publication-" + suffix
 	workspaceA, imageA := createAnnotationTestResource(t, database, suffix+"-publish-a", canvasURI)
 	workspaceB, _ := createAnnotationTestResource(t, database, suffix+"-publish-b", canvasURI)
+	createWebhookTestSubscription(t, database, workspaceA)
 	t.Cleanup(func() {
 		_, _ = database.Exec(`DELETE FROM resource_cleanup_outbox WHERE kind = 'triplet_presentation_image' AND resource_key = ?`, fmt.Sprint(imageA))
 	})
@@ -30,6 +31,14 @@ func TestAnnotationPublicationIsRevisionCheckedTenantScopedAndDurable(t *testing
 	imageRecord, err := itemStore.GetImageForWorkspace(ctx, imageA, workspaceA)
 	if err != nil {
 		t.Fatalf("load publication image: %v", err)
+	}
+	const externalReferenceID = "islandora:publication-123"
+	const callerIdempotencyKey = "publication-caller-request"
+	if _, err := database.ExecContext(ctx, `
+UPDATE items
+SET metadata = ?, external_reference_id = ?, caller_idempotency_key = ?
+WHERE id = ? AND workspace_id = ?`, `{"repository":"islandora","collection":"newspapers"}`, externalReferenceID, callerIdempotencyKey, imageRecord.ItemID, workspaceA); err != nil {
+		t.Fatalf("set publication event correlation data: %v", err)
 	}
 	if public, err := annotationStore.ImageURLIsPublished(ctx, imageRecord.ImageURL); err != nil || public {
 		t.Fatalf("ImageURLIsPublished before publication = %t, %v; want false", public, err)
@@ -59,7 +68,6 @@ func TestAnnotationPublicationIsRevisionCheckedTenantScopedAndDurable(t *testing
 		EventID:          eventID,
 		EventType:        "dev.scribe.annotations.published",
 		Subject:          fmt.Sprintf("/item-images/%d", imageA),
-		WebhookURLs:      []string{"https://webhook.example/scribe"},
 	})
 	if err != nil {
 		t.Fatalf("PublishPage: %v", err)
@@ -161,11 +169,19 @@ WHERE event_id = ?`, eventID).Scan(&eventWorkspaceID, &eventType, &eventBody); e
 	var eventDocument struct {
 		Time string `json:"time"`
 		Data struct {
-			AnnotationPageJSON string `json:"annotationPageJson"`
-			AnnotationPageID   string `json:"annotationPageId"`
-			PublishedAt        string `json:"publishedAt"`
-			PublishedRevision  uint64 `json:"publishedRevision"`
-			PublicURL          string `json:"publicUrl"`
+			AnnotationPageJSON  string         `json:"annotationPageJson"`
+			AnnotationPageID    string         `json:"annotationPageId"`
+			WorkspaceID         uint64         `json:"workspaceId"`
+			ItemID              string         `json:"itemId"`
+			ItemImageID         uint64         `json:"itemImageId"`
+			CanvasURI           string         `json:"canvasUri"`
+			Revision            uint64         `json:"revision"`
+			Metadata            map[string]any `json:"metadata"`
+			IdempotencyKey      string         `json:"idempotencyKey"`
+			ExternalReferenceID string         `json:"externalReferenceId"`
+			PublishedAt         string         `json:"publishedAt"`
+			PublishedRevision   uint64         `json:"publishedRevision"`
+			PublicURL           string         `json:"publicUrl"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(eventBody), &eventDocument); err != nil {
@@ -173,6 +189,12 @@ WHERE event_id = ?`, eventID).Scan(&eventWorkspaceID, &eventType, &eventBody); e
 	}
 	if eventDocument.Data.PublishedRevision != draft.Revision || eventDocument.Data.PublicURL != draft.PageID || eventDocument.Data.AnnotationPageID != draft.PageID || eventDocument.Data.AnnotationPageJSON != "" {
 		t.Fatalf("publication event data = %+v", eventDocument.Data)
+	}
+	if eventDocument.Data.WorkspaceID != workspaceA || eventDocument.Data.ItemID != imageRecord.ItemID || eventDocument.Data.ItemImageID != imageA || eventDocument.Data.CanvasURI != canvasURI || eventDocument.Data.Revision != draft.Revision {
+		t.Fatalf("publication event resource data = %+v", eventDocument.Data)
+	}
+	if eventDocument.Data.Metadata["repository"] != "islandora" || eventDocument.Data.Metadata["collection"] != "newspapers" || eventDocument.Data.IdempotencyKey != callerIdempotencyKey || eventDocument.Data.ExternalReferenceID != externalReferenceID {
+		t.Fatalf("publication event correlation data = %+v", eventDocument.Data)
 	}
 	if len(eventBody) >= 4096 {
 		t.Fatalf("publication event body is %d bytes; payload must remain independent of canonical page size", len(eventBody))

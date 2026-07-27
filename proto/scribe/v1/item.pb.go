@@ -244,12 +244,15 @@ type Item struct {
 	SourceType string `protobuf:"bytes,4,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
 	SourceUrl  string `protobuf:"bytes,5,opt,name=source_url,json=sourceUrl,proto3" json:"source_url,omitempty"`
 	// Arbitrary metadata bag (JSON object serialised as string)
-	Metadata      string       `protobuf:"bytes,6,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	Images        []*ItemImage `protobuf:"bytes,7,rep,name=images,proto3" json:"images,omitempty"`
-	CreatedAt     string       `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     string       `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Metadata  string       `protobuf:"bytes,6,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Images    []*ItemImage `protobuf:"bytes,7,rep,name=images,proto3" json:"images,omitempty"`
+	CreatedAt string       `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt string       `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// Stable identifier assigned by an external repository (for example, an
+	// Islandora PID). It is indexed and searchable within the workspace.
+	ExternalReferenceId string `protobuf:"bytes,10,opt,name=external_reference_id,json=externalReferenceId,proto3" json:"external_reference_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Item) Reset() {
@@ -345,20 +348,28 @@ func (x *Item) GetUpdatedAt() string {
 	return ""
 }
 
+func (x *Item) GetExternalReferenceId() string {
+	if x != nil {
+		return x.ExternalReferenceId
+	}
+	return ""
+}
+
 // ItemSummary is the bounded library representation of an item. The complete
 // image list is available from GetItem; list responses include only the first
 // image needed to open the editor and the total image count.
 type ItemSummary struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	SourceType    string                 `protobuf:"bytes,3,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
-	ImageCount    uint64                 `protobuf:"varint,4,opt,name=image_count,json=imageCount,proto3" json:"image_count,omitempty"`
-	PreviewImage  *ItemImage             `protobuf:"bytes,5,opt,name=preview_image,json=previewImage,proto3" json:"preview_image,omitempty"`
-	CreatedAt     string                 `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     string                 `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Id                  string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	SourceType          string                 `protobuf:"bytes,3,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
+	ImageCount          uint64                 `protobuf:"varint,4,opt,name=image_count,json=imageCount,proto3" json:"image_count,omitempty"`
+	PreviewImage        *ItemImage             `protobuf:"bytes,5,opt,name=preview_image,json=previewImage,proto3" json:"preview_image,omitempty"`
+	CreatedAt           string                 `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt           string                 `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	ExternalReferenceId string                 `protobuf:"bytes,8,opt,name=external_reference_id,json=externalReferenceId,proto3" json:"external_reference_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ItemSummary) Reset() {
@@ -440,13 +451,21 @@ func (x *ItemSummary) GetUpdatedAt() string {
 	return ""
 }
 
+func (x *ItemSummary) GetExternalReferenceId() string {
+	if x != nil {
+		return x.ExternalReferenceId
+	}
+	return ""
+}
+
 type ListItemsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Number of items to return. Zero uses the server default of 50.
 	PageSize uint32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// Opaque continuation token returned by the previous response.
 	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	// Case-insensitive literal substring match over item name, ID, and source type.
+	// Case-insensitive literal substring match over item name, Scribe ID,
+	// external reference ID, and source type.
 	// Continuation tokens are bound to the normalized query.
 	Query         string `protobuf:"bytes,3,opt,name=query,proto3" json:"query,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -968,9 +987,10 @@ type ImportManifestRequest struct {
 	// Optional metadata JSON to seed the item (for integrations like Islandora).
 	Metadata string `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	// Stable client-generated key used to resume an interrupted import.
-	IdempotencyKey string `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	IdempotencyKey      string `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	ExternalReferenceId string `protobuf:"bytes,6,opt,name=external_reference_id,json=externalReferenceId,proto3" json:"external_reference_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ImportManifestRequest) Reset() {
@@ -1034,6 +1054,13 @@ func (x *ImportManifestRequest) GetMetadata() string {
 func (x *ImportManifestRequest) GetIdempotencyKey() string {
 	if x != nil {
 		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *ImportManifestRequest) GetExternalReferenceId() string {
+	if x != nil {
+		return x.ExternalReferenceId
 	}
 	return ""
 }
@@ -1369,13 +1396,17 @@ func (x *UploadBatch) GetUpdatedAt() string {
 }
 
 type StartUploadBatchRequest struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	BatchId       string                  `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
-	Name          string                  `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	ContextId     uint64                  `protobuf:"varint,3,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
-	Files         []*UploadBatchFileInput `protobuf:"bytes,4,rep,name=files,proto3" json:"files,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState  `protogen:"open.v1"`
+	BatchId   string                  `protobuf:"bytes,1,opt,name=batch_id,json=batchId,proto3" json:"batch_id,omitempty"`
+	Name      string                  `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	ContextId uint64                  `protobuf:"varint,3,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	Files     []*UploadBatchFileInput `protobuf:"bytes,4,rep,name=files,proto3" json:"files,omitempty"`
+	// Optional metadata JSON retained on the created item and echoed by
+	// item-scoped completion, failure, and publication events.
+	Metadata            string `protobuf:"bytes,5,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	ExternalReferenceId string `protobuf:"bytes,6,opt,name=external_reference_id,json=externalReferenceId,proto3" json:"external_reference_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *StartUploadBatchRequest) Reset() {
@@ -1434,6 +1465,20 @@ func (x *StartUploadBatchRequest) GetFiles() []*UploadBatchFileInput {
 		return x.Files
 	}
 	return nil
+}
+
+func (x *StartUploadBatchRequest) GetMetadata() string {
+	if x != nil {
+		return x.Metadata
+	}
+	return ""
+}
+
+func (x *StartUploadBatchRequest) GetExternalReferenceId() string {
+	if x != nil {
+		return x.ExternalReferenceId
+	}
+	return ""
 }
 
 type StartUploadBatchResponse struct {
@@ -2139,7 +2184,7 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"canvas_uri\x18\x05 \x01(\tR\tcanvasUri\x12\x14\n" +
 	"\x05label\x18\x06 \x01(\tR\x05label\x12\x14\n" +
 	"\x05width\x18\a \x01(\rR\x05width\x12\x16\n" +
-	"\x06height\x18\b \x01(\rR\x06height\"\x8b\x02\n" +
+	"\x06height\x18\b \x01(\rR\x06height\"\xbf\x02\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x12\n" +
@@ -2153,7 +2198,9 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\tR\tupdatedAt\"\xec\x01\n" +
+	"updated_at\x18\t \x01(\tR\tupdatedAt\x122\n" +
+	"\x15external_reference_id\x18\n" +
+	" \x01(\tR\x13externalReferenceId\"\xa0\x02\n" +
 	"\vItemSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
@@ -2165,7 +2212,8 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\tR\tupdatedAt\"\x81\x01\n" +
+	"updated_at\x18\a \x01(\tR\tupdatedAt\x122\n" +
+	"\x15external_reference_id\x18\b \x01(\tR\x13externalReferenceId\"\x81\x01\n" +
 	"\x10ListItemsRequest\x12$\n" +
 	"\tpage_size\x18\x01 \x01(\rB\a\xbaH\x04*\x02\x18dR\bpageSize\x12'\n" +
 	"\n" +
@@ -2204,7 +2252,7 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"media_type\x18\x03 \x01(\tR\tmediaType\x12:\n" +
 	"\trevisions\x18\x04 \x03(\v2\x1c.scribe.v1.ItemImageRevisionR\trevisions\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\tR\texpiresAt\"\xf6\x01\n" +
+	"expires_at\x18\x05 \x01(\tR\texpiresAt\"\xbf\x02\n" +
 	"\x15ImportManifestRequest\x126\n" +
 	"\fmanifest_url\x18\x01 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\x80\x102\x06.*\\S.*R\vmanifestUrl\x12\x1c\n" +
 	"\x04name\x18\x02 \x01(\tB\b\xbaH\x05r\x03\x18\xff\x01R\x04name\x12\x1d\n" +
@@ -2212,7 +2260,8 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"context_id\x18\x03 \x01(\x04R\tcontextId\x120\n" +
 	"\bmetadata\x18\x04 \x01(\tB\x14\xbaH\x11r\x0f(\x80\x80@2\t^$|.*\\S.*R\bmetadata\x126\n" +
 	"\x0fidempotency_key\x18\x05 \x01(\tB\r\xbaH\n" +
-	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKey\"=\n" +
+	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKey\x12G\n" +
+	"\x15external_reference_id\x18\x06 \x01(\tB\x13\xbaH\x10r\x0e\x18\x80\x042\t^$|.*\\S.*R\x13externalReferenceId\"=\n" +
 	"\x16ImportManifestResponse\x12#\n" +
 	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\x9f\x01\n" +
 	"\x14UploadBatchFileInput\x12)\n" +
@@ -2244,13 +2293,15 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\t \x01(\tR\tupdatedAt\"\xd6\x01\n" +
+	"updated_at\x18\t \x01(\tR\tupdatedAt\"\xd1\x02\n" +
 	"\x17StartUploadBatchRequest\x12:\n" +
 	"\bbatch_id\x18\x01 \x01(\tB\x1f\xbaH\x1c\xc8\x01\x01r\x172\x15^[A-Za-z0-9_-]{1,64}$R\abatchId\x12\x1c\n" +
 	"\x04name\x18\x02 \x01(\tB\b\xbaH\x05r\x03\x18\xff\x01R\x04name\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x03 \x01(\x04R\tcontextId\x12B\n" +
-	"\x05files\x18\x04 \x03(\v2\x1f.scribe.v1.UploadBatchFileInputB\v\xbaH\b\x92\x01\x05\b\x01\x10\xe8\aR\x05files\"m\n" +
+	"\x05files\x18\x04 \x03(\v2\x1f.scribe.v1.UploadBatchFileInputB\v\xbaH\b\x92\x01\x05\b\x01\x10\xe8\aR\x05files\x120\n" +
+	"\bmetadata\x18\x05 \x01(\tB\x14\xbaH\x11r\x0f(\x80\x80@2\t^$|.*\\S.*R\bmetadata\x12G\n" +
+	"\x15external_reference_id\x18\x06 \x01(\tB\x13\xbaH\x10r\x0e\x18\x80\x042\t^$|.*\\S.*R\x13externalReferenceId\"m\n" +
 	"\x18StartUploadBatchResponse\x12#\n" +
 	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\x12,\n" +
 	"\x05batch\x18\x02 \x01(\v2\x16.scribe.v1.UploadBatchR\x05batch\"S\n" +

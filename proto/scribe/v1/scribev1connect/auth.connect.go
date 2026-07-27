@@ -52,6 +52,9 @@ const (
 	// AuthServiceDeleteProviderSecretProcedure is the fully-qualified name of the AuthService's
 	// DeleteProviderSecret RPC.
 	AuthServiceDeleteProviderSecretProcedure = "/scribe.v1.AuthService/DeleteProviderSecret"
+	// AuthServiceCreateEditorReviewTokenProcedure is the fully-qualified name of the AuthService's
+	// CreateEditorReviewToken RPC.
+	AuthServiceCreateEditorReviewTokenProcedure = "/scribe.v1.AuthService/CreateEditorReviewToken"
 )
 
 // AuthServiceClient is a client for the scribe.v1.AuthService service.
@@ -63,6 +66,7 @@ type AuthServiceClient interface {
 	ListProviderSecrets(context.Context, *connect.Request[v1.ListProviderSecretsRequest]) (*connect.Response[v1.ListProviderSecretsResponse], error)
 	CreateProviderSecret(context.Context, *connect.Request[v1.CreateProviderSecretRequest]) (*connect.Response[v1.CreateProviderSecretResponse], error)
 	DeleteProviderSecret(context.Context, *connect.Request[v1.DeleteProviderSecretRequest]) (*connect.Response[v1.DeleteProviderSecretResponse], error)
+	CreateEditorReviewToken(context.Context, *connect.Request[v1.CreateEditorReviewTokenRequest]) (*connect.Response[v1.CreateEditorReviewTokenResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the scribe.v1.AuthService service. By default, it
@@ -118,18 +122,25 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("DeleteProviderSecret")),
 			connect.WithClientOptions(opts...),
 		),
+		createEditorReviewToken: connect.NewClient[v1.CreateEditorReviewTokenRequest, v1.CreateEditorReviewTokenResponse](
+			httpClient,
+			baseURL+AuthServiceCreateEditorReviewTokenProcedure,
+			connect.WithSchema(authServiceMethods.ByName("CreateEditorReviewToken")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // authServiceClient implements AuthServiceClient.
 type authServiceClient struct {
-	getAuthMe            *connect.Client[v1.GetAuthMeRequest, v1.GetAuthMeResponse]
-	listAPIKeys          *connect.Client[v1.ListAPIKeysRequest, v1.ListAPIKeysResponse]
-	createAPIKey         *connect.Client[v1.CreateAPIKeyRequest, v1.CreateAPIKeyResponse]
-	deleteAPIKey         *connect.Client[v1.DeleteAPIKeyRequest, v1.DeleteAPIKeyResponse]
-	listProviderSecrets  *connect.Client[v1.ListProviderSecretsRequest, v1.ListProviderSecretsResponse]
-	createProviderSecret *connect.Client[v1.CreateProviderSecretRequest, v1.CreateProviderSecretResponse]
-	deleteProviderSecret *connect.Client[v1.DeleteProviderSecretRequest, v1.DeleteProviderSecretResponse]
+	getAuthMe               *connect.Client[v1.GetAuthMeRequest, v1.GetAuthMeResponse]
+	listAPIKeys             *connect.Client[v1.ListAPIKeysRequest, v1.ListAPIKeysResponse]
+	createAPIKey            *connect.Client[v1.CreateAPIKeyRequest, v1.CreateAPIKeyResponse]
+	deleteAPIKey            *connect.Client[v1.DeleteAPIKeyRequest, v1.DeleteAPIKeyResponse]
+	listProviderSecrets     *connect.Client[v1.ListProviderSecretsRequest, v1.ListProviderSecretsResponse]
+	createProviderSecret    *connect.Client[v1.CreateProviderSecretRequest, v1.CreateProviderSecretResponse]
+	deleteProviderSecret    *connect.Client[v1.DeleteProviderSecretRequest, v1.DeleteProviderSecretResponse]
+	createEditorReviewToken *connect.Client[v1.CreateEditorReviewTokenRequest, v1.CreateEditorReviewTokenResponse]
 }
 
 // GetAuthMe calls scribe.v1.AuthService.GetAuthMe.
@@ -167,6 +178,11 @@ func (c *authServiceClient) DeleteProviderSecret(ctx context.Context, req *conne
 	return c.deleteProviderSecret.CallUnary(ctx, req)
 }
 
+// CreateEditorReviewToken calls scribe.v1.AuthService.CreateEditorReviewToken.
+func (c *authServiceClient) CreateEditorReviewToken(ctx context.Context, req *connect.Request[v1.CreateEditorReviewTokenRequest]) (*connect.Response[v1.CreateEditorReviewTokenResponse], error) {
+	return c.createEditorReviewToken.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the scribe.v1.AuthService service.
 type AuthServiceHandler interface {
 	GetAuthMe(context.Context, *connect.Request[v1.GetAuthMeRequest]) (*connect.Response[v1.GetAuthMeResponse], error)
@@ -176,6 +192,7 @@ type AuthServiceHandler interface {
 	ListProviderSecrets(context.Context, *connect.Request[v1.ListProviderSecretsRequest]) (*connect.Response[v1.ListProviderSecretsResponse], error)
 	CreateProviderSecret(context.Context, *connect.Request[v1.CreateProviderSecretRequest]) (*connect.Response[v1.CreateProviderSecretResponse], error)
 	DeleteProviderSecret(context.Context, *connect.Request[v1.DeleteProviderSecretRequest]) (*connect.Response[v1.DeleteProviderSecretResponse], error)
+	CreateEditorReviewToken(context.Context, *connect.Request[v1.CreateEditorReviewTokenRequest]) (*connect.Response[v1.CreateEditorReviewTokenResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -227,6 +244,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("DeleteProviderSecret")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceCreateEditorReviewTokenHandler := connect.NewUnaryHandler(
+		AuthServiceCreateEditorReviewTokenProcedure,
+		svc.CreateEditorReviewToken,
+		connect.WithSchema(authServiceMethods.ByName("CreateEditorReviewToken")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/scribe.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceGetAuthMeProcedure:
@@ -243,6 +266,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceCreateProviderSecretHandler.ServeHTTP(w, r)
 		case AuthServiceDeleteProviderSecretProcedure:
 			authServiceDeleteProviderSecretHandler.ServeHTTP(w, r)
+		case AuthServiceCreateEditorReviewTokenProcedure:
+			authServiceCreateEditorReviewTokenHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -278,4 +303,8 @@ func (UnimplementedAuthServiceHandler) CreateProviderSecret(context.Context, *co
 
 func (UnimplementedAuthServiceHandler) DeleteProviderSecret(context.Context, *connect.Request[v1.DeleteProviderSecretRequest]) (*connect.Response[v1.DeleteProviderSecretResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.DeleteProviderSecret is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) CreateEditorReviewToken(context.Context, *connect.Request[v1.CreateEditorReviewTokenRequest]) (*connect.Response[v1.CreateEditorReviewTokenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.CreateEditorReviewToken is not implemented"))
 }

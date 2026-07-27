@@ -186,7 +186,33 @@ func reconcileEditedLineWords(
 		}
 	}
 
+	// Structural word-split RPCs derive stable word IDs from the owning line ID
+	// and ordinal. Recover that explicit ownership before the spatial fallback:
+	// overlapping line boxes are valid, and geometry alone would otherwise
+	// attach every new word to the first line and rewrite its text on save.
 	newWordsByExistingLine := make(map[string][]locatedAnnotation)
+	deterministicNewWordIDs := make(map[string]struct{})
+	for lineID := range existingLineIDs {
+		line := proposedLines[lineID]
+		for wordIndex := range strings.Fields(extractAnnotationText(line.annotation)) {
+			wordID, idErr := iiif.AnnotationID(pageID, lineID+"\x00word\x00"+fmt.Sprintf("%d", wordIndex+1))
+			if idErr != nil {
+				return nil, fmt.Errorf("derive structural word ownership for line %q: %w", lineID, idErr)
+			}
+			word, proposed := proposedWords[wordID]
+			if !proposed {
+				continue
+			}
+			if _, existed := baseWords[wordID]; existed {
+				continue
+			}
+			if _, claimed := newWordsClaimedByNewLine[wordID]; claimed {
+				continue
+			}
+			deterministicNewWordIDs[wordID] = struct{}{}
+			newWordsByExistingLine[lineID] = append(newWordsByExistingLine[lineID], word)
+		}
+	}
 	for lineID, positioned := range assignSpatialWordsToLines(proposedItems, existingLineIDs) {
 		for _, word := range locatedWords(positioned) {
 			wordID := annStringValue(word.annotation, "id")
@@ -194,6 +220,9 @@ func reconcileEditedLineWords(
 				continue
 			}
 			if _, claimed := newWordsClaimedByNewLine[wordID]; claimed {
+				continue
+			}
+			if _, claimed := deterministicNewWordIDs[wordID]; claimed {
 				continue
 			}
 			newWordsByExistingLine[lineID] = append(newWordsByExistingLine[lineID], word)

@@ -11,7 +11,9 @@ resolution, [ingest images and manifests](ingest.md) for the durable multi-file
 protocol, [list workspace items](items.md) for bounded library pagination, and
 [IIIF resources](iiif.md) for canonical Presentation 3 behavior. Prepared
 [exports](exports.md) and the workspace-scoped [event stream](events.md) are
-also generated from committed canonical revisions.
+also generated from committed canonical revisions. Repository automation can
+follow the complete [Islandora integration contract](islandora-integration.md),
+including the supported [editor deep-link surface](deep-links.md).
 
 External IIIF editors should:
 

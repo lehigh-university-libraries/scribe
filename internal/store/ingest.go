@@ -334,7 +334,6 @@ func (s *AnnotationStore) CommitSingleFileIngest(ctx context.Context, commit Sin
 		return SingleFileIngestResult{}, fmt.Errorf("commit single-file ingest: create annotation index: %w", err)
 	}
 
-	commit.OCRRun.SessionID = commit.Item.ID
 	commit.OCRRun.ItemImageID = &imageID
 	commit.OCRRun.ImageURL = commit.Image.ImageURL
 	if err := insertCurrentOCRRun(ctx, queries, commit.OCRRun); err != nil {
@@ -377,7 +376,7 @@ func (s *AnnotationStore) CommitSingleFileIngest(ctx context.Context, commit Sin
 			ItemID:             nullableString(commit.Item.ID),
 			ItemImageID:        nullableUint64(imageID),
 			TranscriptionJobID: nullableUint64(jobID),
-			SessionID:          nullableString(commit.Item.ID),
+			SessionID:          nullableString(commit.OCRRun.SessionID),
 		}); err != nil {
 			return SingleFileIngestResult{}, fmt.Errorf("commit single-file ingest: complete external request: %w", err)
 		}
@@ -428,8 +427,8 @@ func validateSingleFileIngestCommit(commit SingleFileIngestCommit) error {
 	if err := validateImageStorageReference(commit.Image.ImageURL, commit.Image.StorageBytes); err != nil {
 		return fmt.Errorf("commit single-file ingest: %w", err)
 	}
-	if strings.TrimSpace(commit.OCRRun.OriginalHOCR) == "" {
-		return fmt.Errorf("commit single-file ingest: OCR baseline is required")
+	if strings.TrimSpace(commit.OCRRun.SessionID) == "" || strings.TrimSpace(commit.OCRRun.OriginalHOCR) == "" {
+		return fmt.Errorf("commit single-file ingest: OCR run identity and baseline are required")
 	}
 	if commit.TranscriptionContext != nil && commit.TranscriptionContext.ID == 0 {
 		return fmt.Errorf("commit single-file ingest: persisted transcription context is required")

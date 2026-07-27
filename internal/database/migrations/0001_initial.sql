@@ -83,10 +83,13 @@ CREATE TABLE items (
   source_url TEXT NULL,
   source_manifest LONGTEXT NULL,
   metadata JSON NOT NULL DEFAULT ('{}'),
+  external_reference_id VARCHAR(512) NOT NULL DEFAULT '',
+  caller_idempotency_key VARCHAR(256) NOT NULL DEFAULT '',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_items_user (user_id),
   INDEX idx_items_workspace_created (workspace_id, created_at, id),
+  INDEX idx_items_workspace_external_reference (workspace_id, external_reference_id),
   UNIQUE KEY uq_items_workspace_id (workspace_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -96,6 +99,8 @@ CREATE TABLE item_images (
   item_id VARCHAR(64) NOT NULL,
   sequence INT UNSIGNED NOT NULL DEFAULT 0,
   image_url TEXT NOT NULL,
+  -- Exact physical bytes for Scribe-owned immutable uploads; external image
+  -- URLs are zero because Scribe does not own their blob lifecycle.
   storage_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0,
   canvas_uri VARCHAR(1024) NULL,
   width INT UNSIGNED NULL,
@@ -109,6 +114,54 @@ CREATE TABLE item_images (
   INDEX idx_item_images_canvas (canvas_uri(255)),
   INDEX idx_item_images_item (item_id),
   INDEX idx_item_images_image_url (image_url(255))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- One-time editor handoff grants are minted by a delegated integration only
+-- after normal item-image authorization. The URL token is HMAC authenticated;
+-- only its digest is persisted so a database read cannot recover a live link.
+CREATE TABLE editor_review_tokens (
+  id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  workspace_id BIGINT UNSIGNED NOT NULL,
+  item_id VARCHAR(64) NOT NULL,
+  item_image_id BIGINT UNSIGNED NOT NULL,
+  issued_by_user_id BIGINT UNSIGNED NOT NULL,
+  reviewer_subject_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  reviewer_name VARCHAR(255) NOT NULL,
+  reviewer_email VARCHAR(320) NULL,
+  session_ttl_seconds INT UNSIGNED NOT NULL,
+  expires_at DATETIME(6) NOT NULL,
+  redeemed_at DATETIME(6) NULL,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  INDEX idx_editor_review_tokens_workspace_active (workspace_id, expires_at, redeemed_at),
+  INDEX idx_editor_review_tokens_image (workspace_id, item_image_id),
+  INDEX idx_editor_review_tokens_retention (expires_at, id),
+  CONSTRAINT chk_editor_review_tokens_session_ttl
+    CHECK (session_ttl_seconds BETWEEN 300 AND 28800),
+  CONSTRAINT chk_editor_review_tokens_reviewer_name
+    CHECK (CHAR_LENGTH(TRIM(reviewer_name)) > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Redeeming a grant creates an independently revocable, item-image-scoped
+-- browser session. It never becomes an ordinary workspace-wide OAuth session.
+CREATE TABLE editor_review_sessions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  review_token_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE,
+  workspace_id BIGINT UNSIGNED NOT NULL,
+  item_id VARCHAR(64) NOT NULL,
+  item_image_id BIGINT UNSIGNED NOT NULL,
+  issued_by_user_id BIGINT UNSIGNED NOT NULL,
+  reviewer_subject_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  reviewer_name VARCHAR(255) NOT NULL,
+  reviewer_email VARCHAR(320) NULL,
+  expires_at DATETIME(6) NOT NULL,
+  user_agent VARCHAR(1024) NULL,
+  ip_address VARCHAR(255) NULL,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  INDEX idx_editor_review_sessions_workspace_image (workspace_id, item_image_id),
+  INDEX idx_editor_review_sessions_issuer (issued_by_user_id),
+  INDEX idx_editor_review_sessions_expires_at (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE workspace_storage_reservations (
@@ -589,11 +642,29 @@ CREATE TABLE event_outbox (
   INDEX idx_event_outbox_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE webhook_subscriptions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  workspace_id BIGINT UNSIGNED NOT NULL,
+  target_url TEXT NOT NULL,
+  target_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  signing_secret VARBINARY(1024) NOT NULL,
+  created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_webhook_subscriptions_workspace_target (workspace_id, target_hash),
+  INDEX idx_webhook_subscriptions_workspace (workspace_id, id),
+  CONSTRAINT chk_webhook_subscriptions_secret_length
+    CHECK (OCTET_LENGTH(signing_secret) BETWEEN 32 AND 1024)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Delivery parentage follows the repository-wide application-owned relationship
+-- model: event expansion is serialized with subscription lifecycle on the
+-- workspace row, both parent identities are audited after recovery, and every
+-- delete path removes deliveries before its event or subscription parent.
 CREATE TABLE webhook_deliveries (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   event_id VARCHAR(128) NOT NULL,
-  target_url TEXT NOT NULL,
-  target_hash CHAR(64) NOT NULL,
+  subscription_id BIGINT UNSIGNED NOT NULL,
   status ENUM('pending','processing','delivered','failed') NOT NULL DEFAULT 'pending',
   attempt_count INT NOT NULL DEFAULT 0,
   max_attempts INT NOT NULL DEFAULT 10,
@@ -604,10 +675,11 @@ CREATE TABLE webhook_deliveries (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_webhook_deliveries_event_target (event_id, target_hash),
+  UNIQUE KEY uq_webhook_deliveries_event_subscription (event_id, subscription_id),
   INDEX idx_webhook_deliveries_status_next (status, next_attempt_at),
   INDEX idx_webhook_deliveries_processing_lease (status, lease_until, attempt_count, max_attempts),
   INDEX idx_webhook_deliveries_owner (id, locked_by, status),
   INDEX idx_webhook_deliveries_event_id (event_id),
+  INDEX idx_webhook_deliveries_subscription (subscription_id, id),
   INDEX idx_webhook_deliveries_retention (status, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -216,15 +215,17 @@ func (s *TranscriptionJobStore) GetExternalRequest(ctx context.Context, workspac
 }
 
 type WebhookDelivery struct {
-	ID           uint64
-	EventID      string
-	EventType    string
-	Subject      string
-	BodyJSON     string
-	TargetURL    string
-	LeaseOwner   string
-	AttemptCount int
-	MaxAttempts  int
+	ID             uint64
+	EventID        string
+	EventType      string
+	Subject        string
+	BodyJSON       string
+	SubscriptionID uint64
+	TargetURL      string
+	SigningSecret  []byte
+	LeaseOwner     string
+	AttemptCount   int
+	MaxAttempts    int
 }
 
 type EventOutboxRecord struct {
@@ -739,16 +740,16 @@ func (s *TranscriptionJobStore) ExtendLease(ctx context.Context, fence Transcrip
 	return requireFenceAffected(result, err)
 }
 
-func (s *TranscriptionJobStore) FailWithWebhookEvent(ctx context.Context, fence TranscriptionAttemptFence, errMsg, eventID, eventType, subject, bodyJSON string, targets []string) (bool, error) {
-	return s.failWithWebhookEvent(ctx, fence, errMsg, eventID, eventType, subject, bodyJSON, targets, false, time.Time{})
+func (s *TranscriptionJobStore) FailWithWebhookEvent(ctx context.Context, fence TranscriptionAttemptFence, errMsg, eventID, eventType, subject, bodyJSON string) (bool, error) {
+	return s.failWithWebhookEvent(ctx, fence, errMsg, eventID, eventType, subject, bodyJSON, false, time.Time{})
 }
 
-func (s *TranscriptionJobStore) PermanentlyFailWithWebhookEvent(ctx context.Context, fence TranscriptionAttemptFence, errMsg, eventID, eventType, subject, bodyJSON string, targets []string) error {
-	_, err := s.failWithWebhookEvent(ctx, fence, errMsg, eventID, eventType, subject, bodyJSON, targets, true, time.Time{})
+func (s *TranscriptionJobStore) PermanentlyFailWithWebhookEvent(ctx context.Context, fence TranscriptionAttemptFence, errMsg, eventID, eventType, subject, bodyJSON string) error {
+	_, err := s.failWithWebhookEvent(ctx, fence, errMsg, eventID, eventType, subject, bodyJSON, true, time.Time{})
 	return err
 }
 
-func (s *TranscriptionJobStore) failWithWebhookEvent(ctx context.Context, fence TranscriptionAttemptFence, errMsg, eventID, eventType, subject, bodyJSON string, targets []string, permanent bool, retryAfter time.Time) (bool, error) {
+func (s *TranscriptionJobStore) failWithWebhookEvent(ctx context.Context, fence TranscriptionAttemptFence, errMsg, eventID, eventType, subject, bodyJSON string, permanent bool, retryAfter time.Time) (bool, error) {
 	attemptNumber, err := transcriptionAttemptNumberToDB(fence)
 	if err != nil {
 		return false, err
@@ -822,14 +823,8 @@ func (s *TranscriptionJobStore) failWithWebhookEvent(ctx context.Context, fence 
 		if err := qtx.InsertEventOutbox(ctx, eventID, eventType, workspaceID, nullableString(subject), bodyJSON); err != nil {
 			return false, err
 		}
-		for _, target := range targets {
-			target = strings.TrimSpace(target)
-			if target == "" {
-				continue
-			}
-			if err := qtx.InsertWebhookDeliveryIfMissing(ctx, eventID, target, webhookTargetHash(target)); err != nil {
-				return false, err
-			}
+		if err := qtx.InsertWorkspaceWebhookDeliveries(ctx, eventID); err != nil {
+			return false, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -840,12 +835,12 @@ func (s *TranscriptionJobStore) failWithWebhookEvent(ctx context.Context, fence 
 
 // Fail records an error and either schedules a retry or marks the job failed.
 func (s *TranscriptionJobStore) Fail(ctx context.Context, fence TranscriptionAttemptFence, errMsg string) error {
-	_, err := s.failWithWebhookEvent(ctx, fence, errMsg, "", "", "", "", nil, false, time.Time{})
+	_, err := s.failWithWebhookEvent(ctx, fence, errMsg, "", "", "", "", false, time.Time{})
 	return err
 }
 
 func (s *TranscriptionJobStore) Defer(ctx context.Context, fence TranscriptionAttemptFence, errMsg string, retryAfter time.Time) error {
-	_, err := s.failWithWebhookEvent(ctx, fence, errMsg, "", "", "", "", nil, false, retryAfter)
+	_, err := s.failWithWebhookEvent(ctx, fence, errMsg, "", "", "", "", false, retryAfter)
 	return err
 }
 
@@ -1074,7 +1069,7 @@ func safeExternalRequestErrorMessage(message string) string {
 	return safeDurableFailureMessage(durableFailureExternalRequest, message)
 }
 
-func (s *TranscriptionJobStore) EnqueueWebhookEvent(ctx context.Context, eventID, eventType, subject, bodyJSON string, targets []string) error {
+func (s *TranscriptionJobStore) EnqueueWebhookEvent(ctx context.Context, eventID, eventType, subject, bodyJSON string) error {
 	if strings.TrimSpace(eventID) == "" || strings.TrimSpace(bodyJSON) == "" {
 		return nil
 	}
@@ -1092,14 +1087,8 @@ func (s *TranscriptionJobStore) EnqueueWebhookEvent(ctx context.Context, eventID
 	if err := qtx.InsertEventOutbox(ctx, eventID, eventType, workspaceID, nullableString(subject), bodyJSON); err != nil {
 		return err
 	}
-	for _, target := range targets {
-		target = strings.TrimSpace(target)
-		if target == "" {
-			continue
-		}
-		if err := qtx.InsertWebhookDeliveryIfMissing(ctx, eventID, target, webhookTargetHash(target)); err != nil {
-			return err
-		}
+	if err := qtx.InsertWorkspaceWebhookDeliveries(ctx, eventID); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -1111,7 +1100,7 @@ type SystemWebhookEventType string
 
 const SystemWebhookEventMaintenance SystemWebhookEventType = "dev.scribe.system.maintenance"
 
-func (s *TranscriptionJobStore) EnqueueSystemWebhookEvent(ctx context.Context, eventID string, eventType SystemWebhookEventType, bodyJSON string, targets []string) error {
+func (s *TranscriptionJobStore) EnqueueSystemWebhookEvent(ctx context.Context, eventID string, eventType SystemWebhookEventType, bodyJSON string) error {
 	if eventType != SystemWebhookEventMaintenance {
 		return fmt.Errorf("system webhook event type is not allowed")
 	}
@@ -1126,15 +1115,6 @@ func (s *TranscriptionJobStore) EnqueueSystemWebhookEvent(ctx context.Context, e
 	qtx := s.q.WithTx(tx)
 	if err := qtx.InsertEventOutbox(ctx, eventID, string(eventType), sql.NullInt64{}, sql.NullString{}, bodyJSON); err != nil {
 		return err
-	}
-	for _, target := range targets {
-		target = strings.TrimSpace(target)
-		if target == "" {
-			continue
-		}
-		if err := qtx.InsertWebhookDeliveryIfMissing(ctx, eventID, target, webhookTargetHash(target)); err != nil {
-			return err
-		}
 	}
 	return tx.Commit()
 }
@@ -1683,13 +1663,15 @@ func dbExternalRequestModelToStore(req db.ExternalRequest) ExternalRequest {
 
 func dbWebhookDeliveryToStore(row db.ClaimWebhookDeliveriesManualRow) WebhookDelivery {
 	out := WebhookDelivery{
-		ID:           row.ID,
-		EventID:      row.EventID,
-		EventType:    row.EventType,
-		BodyJSON:     row.BodyJson,
-		TargetURL:    row.TargetUrl,
-		AttemptCount: int(row.AttemptCount),
-		MaxAttempts:  int(row.MaxAttempts),
+		ID:             row.ID,
+		EventID:        row.EventID,
+		EventType:      row.EventType,
+		BodyJSON:       row.BodyJson,
+		SubscriptionID: row.SubscriptionID,
+		TargetURL:      row.TargetUrl,
+		SigningSecret:  append([]byte(nil), row.SigningSecret...),
+		AttemptCount:   int(row.AttemptCount),
+		MaxAttempts:    int(row.MaxAttempts),
 	}
 	if row.Subject.Valid {
 		out.Subject = row.Subject.String
@@ -1713,11 +1695,6 @@ func nullableUint64(v uint64) sql.NullInt64 {
 		return sql.NullInt64{}
 	}
 	return sql.NullInt64{Int64: int64(v), Valid: true}
-}
-
-func webhookTargetHash(target string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(target)))
-	return hex.EncodeToString(sum[:])
 }
 
 func newLeaseOwner(prefix string) string {

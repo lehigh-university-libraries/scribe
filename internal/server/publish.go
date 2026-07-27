@@ -30,7 +30,6 @@ func (h *Handler) PublishItemImageEdits(ctx context.Context, req *connect.Reques
 		EventID:           uuid.NewString(),
 		EventType:         "dev.scribe.annotations.published",
 		Subject:           subjectForItemImage(itemImageID),
-		WebhookURLs:       h.webhookURLs,
 	})
 	if err != nil {
 		return nil, annotationConnectError(err)

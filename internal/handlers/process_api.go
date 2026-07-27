@@ -11,10 +11,14 @@ import (
 )
 
 type ProcessResult struct {
-	SessionID   string         `json:"session_id"`
-	HOCR        string         `json:"hocr"`
-	PlainText   string         `json:"plain_text"`
-	ImageURL    string         `json:"image_url"`
+	SessionID string `json:"session_id"`
+	HOCR      string `json:"hocr"`
+	PlainText string `json:"plain_text"`
+	ImageURL  string `json:"image_url"`
+	// StoredBytes is the exact physical size when ImageURL identifies an
+	// immutable Scribe-owned upload. It is zero when the result deliberately
+	// retains an externally owned image reference; it is never an estimate of
+	// bytes fetched from that remote URL.
 	StoredBytes uint64         `json:"stored_bytes"`
 	Provider    string         `json:"provider,omitempty"`
 	Model       string         `json:"model,omitempty"`

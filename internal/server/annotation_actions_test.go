@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
+	"github.com/lehigh-university-libraries/scribe/internal/models"
 )
 
 // lineAnno builds a minimal IIIF line annotation JSON string.
@@ -176,6 +177,81 @@ func TestSplitDraftLineIntoWordsRetainsLine(t *testing.T) {
 			t.Errorf("word %d = %q (%d,%d,%d,%d) on %q", index, text, x1, y1, x2, y2, canvas)
 		}
 	}
+}
+
+func TestSplitDraftPageIntoWordsIsStableAcrossEveryLine(t *testing.T) {
+	t.Parallel()
+	pageID, err := iiif.CanonicalPageID(testPageIdentity.PublicBaseURL, testPageIdentity.ItemImageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineAID, err := iiif.AnnotationID(pageID, "page-split-line-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineBID, err := iiif.AnnotationID(pageID, "page-split-line-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineA := transcriptionAnnotation(lineAID, "line", "alpha beta", testPageIdentity.CanvasURI, models.BBox{X1: 0, Y1: 0, X2: 300, Y2: 40})
+	lineB := transcriptionAnnotation(lineBID, "line", "gamma delta epsilon", testPageIdentity.CanvasURI, models.BBox{X1: 0, Y1: 50, X2: 450, Y2: 90})
+	wordLifecycleAddExtensions(lineA)
+	wordLifecycleAddExtensions(lineB)
+	seed, err := iiif.NewAnnotationPage(testPageIdentity, []any{lineA, lineB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDraft, err := decodeAnnotationDraft(string(seed), testPageIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := decodeAnnotationDraft(string(seed), testPageIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := splitDraftPageIntoWords(draft); err != nil {
+		t.Fatalf("first page split: %v", err)
+	}
+	firstWords := draftAnnotationsByGranularity(draft, "word")
+	if len(firstWords) != 5 {
+		t.Fatalf("first page split word count = %d, want 5", len(firstWords))
+	}
+	firstIDs := make(map[string]struct{}, len(firstWords))
+	for _, word := range firstWords {
+		firstIDs[annStringValue(word, "id")] = struct{}{}
+	}
+	reconciled, err := reconcileEditedLineWords(baseDraft.items, draft.items, testPageIdentity, 1)
+	if err != nil {
+		t.Fatalf("reconcile first page split: %v", err)
+	}
+	draft.items = reconciled
+	draft.reindex()
+	if got := extractAnnotationText(draftAnnotationByID(t, draft, lineAID)); got != "alpha beta" {
+		t.Fatalf("reconciled first line text = %q, want alpha beta", got)
+	}
+	if got := extractAnnotationText(draftAnnotationByID(t, draft, lineBID)); got != "gamma delta epsilon" {
+		t.Fatalf("reconciled second line text = %q, want gamma delta epsilon", got)
+	}
+	encoded := assertCanonicalDraft(t, draft)
+	draft, err = decodeAnnotationDraft(encoded, testPageIdentity)
+	if err != nil {
+		t.Fatalf("reload first page split: %v", err)
+	}
+
+	if err := splitDraftPageIntoWords(draft); err != nil {
+		t.Fatalf("repeated page split: %v", err)
+	}
+	repeatedWords := draftAnnotationsByGranularity(draft, "word")
+	if len(repeatedWords) != len(firstWords) {
+		t.Fatalf("repeated page split word count = %d, want %d", len(repeatedWords), len(firstWords))
+	}
+	for _, word := range repeatedWords {
+		if _, ok := firstIDs[annStringValue(word, "id")]; !ok {
+			t.Fatalf("repeated page split generated unstable word ID %q", annStringValue(word, "id"))
+		}
+	}
+	assertCanonicalDraft(t, draft)
 }
 
 func TestSplitDraftLineIntoWordsTokenizesAndRejectsInvalidFanout(t *testing.T) {

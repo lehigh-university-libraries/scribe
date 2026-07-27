@@ -205,8 +205,20 @@ function safeDecodePathname(pathname) {
 
 function responseHeaders(headers = {}) {
   // Upstreams may add content headers, but they cannot weaken the frontend's
-  // browser security policy.
-  return { ...headers, ...securityHeaders };
+  // browser security policy. Preserve the backend's stricter no-referrer
+  // response on one-time credential redemption so a same-origin redirect
+  // cannot copy a bearer token from the source URL into Referer.
+  const merged = { ...headers, ...securityHeaders };
+  const upstreamReferrerPolicy = headers["referrer-policy"];
+  const upstreamPolicies = Array.isArray(upstreamReferrerPolicy)
+    ? upstreamReferrerPolicy
+    : [upstreamReferrerPolicy];
+  if (upstreamPolicies.some((value) => (
+    typeof value === "string" && value.trim().toLowerCase() === "no-referrer"
+  ))) {
+    merged["referrer-policy"] = "no-referrer";
+  }
+  return merged;
 }
 
 function targetOriginForPath(pathname) {

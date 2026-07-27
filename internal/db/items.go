@@ -13,26 +13,30 @@ import (
 )
 
 type CreateItemParams struct {
-	ID             string
-	UserID         uint64
-	WorkspaceID    uint64
-	Name           string
-	SourceType     string
-	SourceURL      string
-	SourceManifest string
-	Metadata       string
+	ID                   string
+	UserID               uint64
+	WorkspaceID          uint64
+	Name                 string
+	SourceType           string
+	SourceURL            string
+	SourceManifest       string
+	Metadata             string
+	ExternalReferenceID  string
+	CallerIdempotencyKey string
 }
 
 func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) error {
 	return q.CreateItemManual(ctx, CreateItemManualParams{
-		ID:             arg.ID,
-		UserID:         arg.UserID,
-		WorkspaceID:    arg.WorkspaceID,
-		Name:           arg.Name,
-		SourceType:     ItemsSourceType(arg.SourceType),
-		SourceUrl:      nullableString(arg.SourceURL),
-		SourceManifest: nullableString(arg.SourceManifest),
-		Metadata:       rawJSON(arg.Metadata),
+		ID:                   arg.ID,
+		UserID:               arg.UserID,
+		WorkspaceID:          arg.WorkspaceID,
+		Name:                 arg.Name,
+		SourceType:           ItemsSourceType(arg.SourceType),
+		SourceUrl:            nullableString(arg.SourceURL),
+		SourceManifest:       nullableString(arg.SourceManifest),
+		Metadata:             rawJSON(arg.Metadata),
+		ExternalReferenceID:  arg.ExternalReferenceID,
+		CallerIdempotencyKey: arg.CallerIdempotencyKey,
 	})
 }
 
@@ -42,16 +46,18 @@ func (q *Queries) GetItem(ctx context.Context, id string) (Item, error) {
 		return Item{}, err
 	}
 	return Item{
-		ID:             row.ID,
-		UserID:         row.UserID,
-		WorkspaceID:    row.WorkspaceID,
-		Name:           row.Name,
-		SourceType:     row.SourceType,
-		SourceUrl:      row.SourceUrl,
-		SourceManifest: row.SourceManifest,
-		Metadata:       row.Metadata,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
+		ID:                   row.ID,
+		UserID:               row.UserID,
+		WorkspaceID:          row.WorkspaceID,
+		Name:                 row.Name,
+		SourceType:           row.SourceType,
+		SourceUrl:            row.SourceUrl,
+		SourceManifest:       row.SourceManifest,
+		Metadata:             row.Metadata,
+		ExternalReferenceID:  row.ExternalReferenceID,
+		CallerIdempotencyKey: row.CallerIdempotencyKey,
+		CreatedAt:            row.CreatedAt,
+		UpdatedAt:            row.UpdatedAt,
 	}, nil
 }
 
@@ -67,11 +73,12 @@ type ListItemsPageParams struct {
 
 // ItemSummary contains only the bounded scalar fields needed by ListItems.
 type ItemSummary struct {
-	ID         string
-	Name       string
-	SourceType ItemsSourceType
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID                  string
+	Name                string
+	SourceType          ItemsSourceType
+	ExternalReferenceID string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // ListItemsPage returns bounded item summaries in descending creation/id order.

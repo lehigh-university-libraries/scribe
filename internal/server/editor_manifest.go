@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
+	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -25,6 +26,22 @@ func (h *Handler) GetEditorManifest(ctx context.Context, req *connect.Request[sc
 	item, err := h.itemForRequest(ctx, image.ItemID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
+	}
+	if principal, ok := auth.PrincipalFromContext(ctx); ok && principal.ScopedItemImageID > 0 {
+		// A review handoff is image-scoped even when its image belongs to a
+		// multi-canvas item. The ordinary editor manifest intentionally contains
+		// every canvas, so narrow both the returned item and generated Manifest
+		// before any sibling image URL or annotation identity can cross this
+		// delegated boundary.
+		if principal.ScopedItemImageID != image.ID {
+			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("editor review session is scoped to another item image"))
+		}
+		item.Images = []store.ItemImage{image}
+		// Imported Manifest top-level structures, start values, and extension
+		// properties may still point at sibling Canvases even after items is
+		// narrowed. Build the delegated projection without source provenance so
+		// no hidden sibling identity crosses the image-scoped boundary.
+		item.SourceManifest = ""
 	}
 	manifest, selectedCanvasID, err := h.buildEditorManifest(ctx, item, itemImageID)
 	if err != nil {

@@ -82,6 +82,14 @@ type BrowserHarness = {
     selectedDraftTarget: unknown;
     statusMessage: string;
     splitPending: boolean;
+    structural: {
+      calls: {
+        joinLineIds: string[];
+        joinWordIds: string[];
+        splitAtWord: number;
+      };
+      draft: Array<{ granularity: string; id: string; text: string }>;
+    };
     sessionStatus: string;
     pageA: { count: number; revision: string; target: unknown; text: string };
     pageB: {
@@ -113,6 +121,17 @@ async function waitForHarness(page: import("@playwright/test").Page, timeout = 6
   expect(state.error, `browser harness failed to initialize: ${state.error}`).toBe("");
   expect(state.ready).toBe(true);
 }
+
+test("a raw editor deep link opens the requested item without prior navigation", async ({ page }) => {
+  const itemImageId = process.env.VITE_SCRIBE_BROWSER_ITEM_IMAGE_ID ?? "";
+  test.skip(!/^[1-9][0-9]*$/.test(itemImageId), "requires the browser Connect fixture");
+
+  await page.goto(`/editor?itemImageId=${itemImageId}`);
+
+  await expect(page).toHaveURL(new RegExp(`/editor\\?itemImageId=${itemImageId}(?:&|$)`));
+  await expect(page.locator("#editor-meta")).toContainText(`image ${itemImageId}`);
+  await expect(page.locator("#mirador-viewer")).toContainText("View and modes", { timeout: 60_000 });
+});
 
 test("dirty-editor leave dialog traps keyboard focus and restores its trigger", async ({ page }) => {
   await page.goto("/e2e/harness.html?mode=dialog");
@@ -393,9 +412,12 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
     ],
   });
 
-  await page.getByRole("button", { name: /Split line/i }).click();
+  await page.keyboard.press("Alt+s");
+  await expect(page.getByRole("dialog", { name: "Choose a split boundary" })).toBeVisible();
+  await page.getByRole("button", { name: "Split after B, word 2" }).click();
+  await page.getByRole("button", { name: "Split at boundary" }).click();
   await expect.poll(async () => page.evaluate(() => window.__scribeBrowserHarness.pluginSnapshot()), pluginPollOptions)
-    .toMatchObject({ isBusy: true, saveItemImageIds: [], splitPending: true });
+    .toMatchObject({ isBusy: true, saveItemImageIds: [], splitPending: true, structural: { calls: { splitAtWord: 2 } } });
   await page.keyboard.press("Control+s");
   await expect.poll(async () => page.evaluate(() => window.__scribeBrowserHarness.pluginSnapshot()), pluginPollOptions)
     .toMatchObject({ isBusy: true, saveItemImageIds: [], splitPending: true });
@@ -486,5 +508,73 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
     canvasId: canvasB,
     itemImageId: "2002",
     windowId: "plugin-window",
+  });
+});
+
+test("structural edit pickers split at the chosen boundary and join explicit subsets", async ({ page }) => {
+  test.setTimeout(300_000);
+  const pluginPollOptions = { timeout: 60_000 };
+  await page.goto("/e2e/harness.html?mode=structural");
+  await waitForHarness(page, 120_000);
+
+  const canvasB = "http://127.0.0.1:4173/e2e/canvas/b";
+  await page.evaluate((canvasId) => window.__scribeBrowserHarness.turnPluginCanvas(canvasId), canvasB);
+  await expect.poll(async () => page.evaluate(() => (
+    window.__scribeBrowserHarness.pluginSnapshot().activeCanvasId
+  )), pluginPollOptions).toBe(canvasB);
+
+  await expect(page.locator('[data-scribe-granularity="line"]')).not.toHaveCount(0);
+  await expect(page.locator('[data-scribe-granularity="word"]')).not.toHaveCount(0);
+
+  await page.keyboard.press("Alt+s");
+  await expect(page.getByRole("dialog", { name: "Choose a split boundary" })).toBeVisible();
+  await page.getByRole("button", { name: "Split after gamma, word 3" }).click();
+  await page.getByRole("button", { name: "Split at boundary" }).click();
+  await expect.poll(async () => page.evaluate(() => {
+    const { structural } = window.__scribeBrowserHarness.pluginSnapshot();
+    return {
+      splitAtWord: structural.calls.splitAtWord,
+      texts: structural.draft.map(({ text }) => text),
+    };
+  }), pluginPollOptions).toEqual({
+    splitAtWord: 3,
+    texts: expect.arrayContaining(["alpha beta gamma", "delta"]),
+  });
+
+  await page.getByRole("button", { name: /Overlay off/i }).click();
+  await page.getByRole("button", { name: /Edit overlay/i }).click();
+  await page.getByRole("button", { name: "Edit line: second line" }).click();
+  await page.getByRole("button", { name: /Join lines/i }).focus();
+  await page.keyboard.press("Alt+l");
+  await expect(page.getByRole("dialog", { name: "Choose lines to join" })).toBeVisible();
+  await page.getByRole("button", { name: /Line [0-9]+: fifth line/ }).click();
+  await page.getByRole("button", { name: "Join selected lines" }).click();
+  await expect.poll(async () => page.evaluate(() => {
+    const { structural } = window.__scribeBrowserHarness.pluginSnapshot();
+    return {
+      joined: structural.calls.joinLineIds.length,
+      texts: structural.draft.map(({ text }) => text),
+    };
+  }), pluginPollOptions).toEqual({
+    joined: 2,
+    texts: expect.arrayContaining(["second line fifth line", "fourth line"]),
+  });
+
+  await page.getByRole("button", { name: /Edit overlay/i }).click();
+  await page.getByRole("button", { name: "Edit word: red" }).click();
+  await page.getByRole("button", { name: /Join words/i }).focus();
+  await page.keyboard.press("Alt+w");
+  await expect(page.getByRole("dialog", { name: "Choose words to join" })).toBeVisible();
+  await page.getByRole("button", { name: "Word 3: blue" }).click();
+  await page.getByRole("button", { name: "Join selected words" }).click();
+  await expect.poll(async () => page.evaluate(() => {
+    const { structural } = window.__scribeBrowserHarness.pluginSnapshot();
+    return {
+      joined: structural.calls.joinWordIds.length,
+      rows: structural.draft.map(({ granularity, text }) => `${granularity}:${text}`),
+    };
+  }), pluginPollOptions).toEqual({
+    joined: 2,
+    rows: expect.arrayContaining(["line:red blue", "word:green", "word:gold"]),
   });
 });

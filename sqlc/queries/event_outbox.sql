@@ -17,19 +17,30 @@ JOIN items i ON i.id = ii.item_id
 WHERE ii.id = sqlc.arg(item_image_id)
 LIMIT 1;
 
--- name: InsertWebhookDeliveryIfMissingManual :exec
+-- name: InsertWorkspaceWebhookDeliveriesManual :exec
 INSERT IGNORE INTO webhook_deliveries (
   event_id,
-  target_url,
-  target_hash,
+  subscription_id,
   status
 ) SELECT
   eo.event_id,
-  sqlc.arg(target_url),
-  sqlc.arg(target_hash),
+  subscription.id,
   'pending'
 FROM event_outbox eo
+JOIN webhook_subscriptions subscription
+  ON subscription.workspace_id = eo.workspace_id
 WHERE eo.event_id = sqlc.arg(event_id);
+
+-- name: LockWebhookDeliveryExpansionWorkspaceManual :one
+-- Subscription create/delete and event expansion all lock this workspace row.
+-- That makes the repository-owned parent/child lifecycle deterministic even
+-- when a subscription is deleted while an event transaction is committing.
+SELECT workspace.id
+FROM event_outbox event
+JOIN workspaces workspace ON workspace.id = event.workspace_id
+WHERE event.event_id = sqlc.arg(event_id)
+LIMIT 1
+FOR UPDATE;
 
 -- name: ClaimWebhookDeliveriesManual :many
 SELECT
@@ -38,12 +49,17 @@ SELECT
   eo.event_type,
   eo.subject,
   eo.body_json,
-  wd.target_url,
+  wd.subscription_id,
+  subscription.target_url,
+  subscription.signing_secret,
   wd.locked_by,
   wd.attempt_count,
   wd.max_attempts
 FROM webhook_deliveries wd
 JOIN event_outbox eo ON eo.event_id = wd.event_id
+JOIN webhook_subscriptions subscription
+  ON subscription.id = wd.subscription_id
+ AND subscription.workspace_id = eo.workspace_id
 WHERE (
     wd.status = 'pending'
     AND (wd.next_attempt_at IS NULL OR wd.next_attempt_at <= NOW())

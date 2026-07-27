@@ -174,13 +174,21 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 	if h.transcriptionJobs == nil || h.ocrRuns == nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("processing idempotency repository is not configured"))
 	}
+	metadata, err := normalizeItemMetadata(req.Msg.GetMetadata())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	externalReferenceID, err := normalizeExternalReferenceID(req.Msg.GetExternalReferenceId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	externalReq := externalRequestFromHeaders(
 		req.Header(),
 		idempotencyKey,
 		"image-url",
-		stableRequestHash(imageURL, strconv.FormatUint(req.Msg.GetContextId(), 10), strings.TrimSpace(req.Msg.GetMetadata())),
+		stableRequestHash(imageURL, strconv.FormatUint(req.Msg.GetContextId(), 10), metadata, externalReferenceID),
 	)
-	resolvedCtx, err := h.resolveContext(ctx, req.Msg.GetContextId(), req.Msg.GetMetadata())
+	resolvedCtx, err := h.resolveContext(ctx, req.Msg.GetContextId(), metadata)
 	if err != nil {
 		return nil, resolveContextConnectError(err)
 	}
@@ -207,12 +215,13 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload completed image URL import"))
 			}
 			return connect.NewResponse(&scribev1.ProcessImageURLResponse{
-				ItemId:      reservation.ItemID,
-				ItemImageId: reservation.ItemImageID,
-				SessionId:   run.SessionID,
-				ImageUrl:    run.ImageURL,
-				Hocr:        run.OriginalHOCR,
-				PlainText:   run.OriginalText,
+				ItemId:             reservation.ItemID,
+				ItemImageId:        reservation.ItemImageID,
+				SessionId:          run.SessionID,
+				ImageUrl:           run.ImageURL,
+				Hocr:               run.OriginalHOCR,
+				PlainText:          run.OriginalText,
+				TranscriptionJobId: reservation.TranscriptionJobID,
 			}), nil
 		case store.ExternalRequestStatusInProgress:
 			return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("external request is already in progress"))
@@ -262,10 +271,16 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 		failExternal(err)
 		return nil, imageProcessingConnectError("process image URL", err)
 	}
-	storedBytes := result.StoredBytes
-	if storedBytes == 0 {
-		storedBytes = uint64(maxDeclaredImageBytes)
+	if strings.TrimSpace(result.SessionID) == "" {
+		result.SessionID = "processing_" + uuid.NewString()
 	}
+	// Blob quota follows ownership, not the number of bytes fetched for OCR.
+	// Results that retain an external image reference therefore carry zero;
+	// immutable local uploads carry their exact positive StoredBytes from the
+	// staging boundary. The conservative pre-processing reservation above bounds
+	// either outcome, then this resize and the ingest-store URL/byte validation
+	// make the committed accounting exact.
+	storedBytes := result.StoredBytes
 	storageReservation, err = h.resizeStorageQuota(ctx, storageReservation, store.StorageQuotaRequest{Bytes: storedBytes, Items: 1, Images: 1})
 	if err != nil {
 		h.queueUnreferencedUploads(ctx, h.currentWorkspaceID(ctx), []store.ItemImage{{ImageURL: result.ImageURL, StorageBytes: storedBytes}})
@@ -279,9 +294,13 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 	}
 	committedIngest, err := h.commitSingleFileOCRIngest(ctx, singleFileOCRIngestRequest{
 		SourceType:           "url",
+		SessionID:            result.SessionID,
 		ImageURL:             result.ImageURL,
 		SourceURL:            imageURL,
 		SourceLabel:          imageURL,
+		Metadata:             metadata,
+		ExternalReferenceID:  externalReferenceID,
+		CallerIdempotencyKey: idempotencyKey,
 		StorageBytes:         storedBytes,
 		ResolvedContext:      resolvedCtx,
 		ContextID:            contextID,
@@ -303,15 +322,14 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	item, itemImage := committedIngest.Item, committedIngest.Image
-	sessionID := item.ID
-
 	return connect.NewResponse(&scribev1.ProcessImageURLResponse{
-		ItemId:      item.ID,
-		ItemImageId: itemImage.ID,
-		SessionId:   sessionID,
-		ImageUrl:    result.ImageURL,
-		Hocr:        result.HOCR,
-		PlainText:   result.PlainText,
+		ItemId:             item.ID,
+		ItemImageId:        itemImage.ID,
+		SessionId:          result.SessionID,
+		ImageUrl:           result.ImageURL,
+		Hocr:               result.HOCR,
+		PlainText:          result.PlainText,
+		TranscriptionJobId: committedIngest.TranscriptionJobID,
 	}), nil
 }
 
@@ -326,6 +344,14 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1
 	idempotencyKey := strings.TrimSpace(req.Msg.GetIdempotencyKey())
 	if idempotencyKey == "" {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("idempotency_key is required"))
+	}
+	metadata, err := normalizeItemMetadata(req.Msg.GetMetadata())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	externalReferenceID, err := normalizeExternalReferenceID(req.Msg.GetExternalReferenceId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	parsedHOCR, err := hocr.ParseDocument(hocrXML)
 	if err != nil {
@@ -373,7 +399,7 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1
 		req.Header(),
 		idempotencyKey,
 		"hocr-import",
-		stableRequestHash(hex.EncodeToString(hocrDigest[:]), imageIdentity, filename),
+		stableRequestHash(hex.EncodeToString(hocrDigest[:]), imageIdentity, filename, metadata, externalReferenceID),
 	)
 	workspaceID := h.currentWorkspaceID(ctx)
 	reservation, created, err := h.transcriptionJobs.ReserveExternalRequest(
@@ -399,12 +425,13 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload completed hOCR import"))
 		}
 		return connect.NewResponse(&scribev1.ProcessHOCRResponse{
-			ItemId:      reservation.ItemID,
-			ItemImageId: reservation.ItemImageID,
-			ImageUrl:    run.ImageURL,
-			Hocr:        run.OriginalHOCR,
-			PlainText:   run.OriginalText,
-			SessionId:   run.SessionID,
+			ItemId:             reservation.ItemID,
+			ItemImageId:        reservation.ItemImageID,
+			ImageUrl:           run.ImageURL,
+			Hocr:               run.OriginalHOCR,
+			PlainText:          run.OriginalText,
+			SessionId:          run.SessionID,
+			TranscriptionJobId: reservation.TranscriptionJobID,
 		}), nil
 	}
 	externalReq.leaseOwner = reservation.LeaseOwner
@@ -451,17 +478,21 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1
 		TranscriptionModel:    "custom",
 	}
 	committedIngest, err := h.commitSingleFileOCRIngest(ctx, singleFileOCRIngestRequest{
-		SourceType:      "hocr",
-		ImageURL:        imageURL,
-		SourceLabel:     sourceLabel,
-		StorageBytes:    storageBytes,
-		ResolvedContext: importedContext,
-		Provider:        "custom",
-		Model:           "custom",
-		HOCR:            hocrXML,
-		PlainText:       plainText,
-		ParsedHOCR:      &parsedHOCR,
-		Reservation:     storageReservation,
+		SourceType:           "hocr",
+		SessionID:            "processing_" + uuid.NewString(),
+		ImageURL:             imageURL,
+		SourceLabel:          sourceLabel,
+		Metadata:             metadata,
+		ExternalReferenceID:  externalReferenceID,
+		CallerIdempotencyKey: idempotencyKey,
+		StorageBytes:         storageBytes,
+		ResolvedContext:      importedContext,
+		Provider:             "custom",
+		Model:                "custom",
+		HOCR:                 hocrXML,
+		PlainText:            plainText,
+		ParsedHOCR:           &parsedHOCR,
+		Reservation:          storageReservation,
 		ExternalRequest: &store.SingleFileIngestExternalRequest{
 			Source:         externalReq.source,
 			IdempotencyKey: externalReq.key,
@@ -477,14 +508,18 @@ func (h *Handler) ProcessHOCR(ctx context.Context, req *connect.Request[scribev1
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	item, itemImage := committedIngest.Item, committedIngest.Image
-	sessionID := item.ID
+	run, err := h.ocrRuns.GetByItemImageID(ctx, itemImage.ID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload committed hOCR run"))
+	}
 	return connect.NewResponse(&scribev1.ProcessHOCRResponse{
-		ItemId:      item.ID,
-		ItemImageId: itemImage.ID,
-		SessionId:   sessionID,
-		ImageUrl:    imageURL,
-		Hocr:        hocrXML,
-		PlainText:   plainText,
+		ItemId:             item.ID,
+		ItemImageId:        itemImage.ID,
+		SessionId:          run.SessionID,
+		ImageUrl:           imageURL,
+		Hocr:               hocrXML,
+		PlainText:          plainText,
+		TranscriptionJobId: committedIngest.TranscriptionJobID,
 	}), nil
 }
 
@@ -708,12 +743,11 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[s
 			OriginalHOCR: result.HOCR,
 			OriginalText: result.PlainText,
 		},
-		Context:     resolvedCtx,
-		EventID:     event.ID,
-		EventType:   event.Type,
-		Subject:     event.Subject,
-		BodyJSON:    string(eventBody),
-		WebhookURLs: h.webhookURLs,
+		Context:   resolvedCtx,
+		EventID:   event.ID,
+		EventType: event.Type,
+		Subject:   event.Subject,
+		BodyJSON:  string(eventBody),
 		ExternalRequest: &store.AnnotationReprocessExternalRequest{
 			Source:         "image-reprocess",
 			IdempotencyKey: operationKey,
@@ -822,9 +856,13 @@ func itemContextLabel(resolvedCtx store.Context) string {
 
 type singleFileOCRIngestRequest struct {
 	SourceType           string
+	SessionID            string
 	ImageURL             string
 	SourceURL            string
 	SourceLabel          string
+	Metadata             string
+	ExternalReferenceID  string
+	CallerIdempotencyKey string
 	StorageBytes         uint64
 	ResolvedContext      store.Context
 	ContextID            *uint64
@@ -861,12 +899,15 @@ func (h *Handler) commitSingleFileOCRIngest(ctx context.Context, request singleF
 	}
 	result, err := h.annotations.CommitSingleFileIngest(ctx, store.SingleFileIngestCommit{
 		Item: db.CreateItemParams{
-			ID:          itemID,
-			UserID:      userID,
-			WorkspaceID: workspaceID,
-			Name:        itemName,
-			SourceType:  request.SourceType,
-			SourceURL:   request.SourceURL,
+			ID:                   itemID,
+			UserID:               userID,
+			WorkspaceID:          workspaceID,
+			Name:                 itemName,
+			SourceType:           request.SourceType,
+			SourceURL:            request.SourceURL,
+			Metadata:             request.Metadata,
+			ExternalReferenceID:  request.ExternalReferenceID,
+			CallerIdempotencyKey: request.CallerIdempotencyKey,
 		},
 		Image: db.CreateItemImageParams{
 			ItemID:       itemID,
@@ -877,7 +918,7 @@ func (h *Handler) commitSingleFileOCRIngest(ctx context.Context, request singleF
 			Height:       imageHeight,
 		},
 		OCRRun: store.OCRRun{
-			SessionID:    itemID,
+			SessionID:    request.SessionID,
 			ContextID:    request.ContextID,
 			ImageURL:     request.ImageURL,
 			Provider:     request.Provider,

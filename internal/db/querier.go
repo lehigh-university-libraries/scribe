@@ -45,12 +45,15 @@ type Querier interface {
 	CompleteUploadBatchFileManual(ctx context.Context, arg CompleteUploadBatchFileManualParams) (int64, error)
 	CompleteUploadBatchIfReadyManual(ctx context.Context, arg CompleteUploadBatchIfReadyManualParams) (int64, error)
 	CountAPIKeysByWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
+	CountActiveEditorReviewSessionsForWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
+	CountActiveEditorReviewTokensForWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
 	CountActiveTranscriptionJobsByWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
 	CountAuthSessionsForUserManual(ctx context.Context, userID uint64) (int64, error)
 	CountItemImagesByURLManual(ctx context.Context, imageUrl string) (int64, error)
 	CountProviderSecretsByWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
 	CountSelectionRulesForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (int64, error)
 	CountTerminalTranscriptionJobsForWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
+	CountWebhookSubscriptionsForWorkspaceManual(ctx context.Context, workspaceID uint64) (int64, error)
 	CountWorkspaceAccessByUserManual(ctx context.Context, userID uint64) (int64, error)
 	CountWorkspaceAdminsManual(ctx context.Context, workspaceID uint64) (int64, error)
 	CountWorkspaceMembersManual(ctx context.Context, workspaceID uint64) (int64, error)
@@ -59,6 +62,8 @@ type Querier interface {
 	CreateAnnotationPageManual(ctx context.Context, arg CreateAnnotationPageManualParams) (sql.Result, error)
 	CreateAuthSessionManual(ctx context.Context, arg CreateAuthSessionManualParams) error
 	CreateContextManual(ctx context.Context, arg CreateContextManualParams) (sql.Result, error)
+	CreateEditorReviewSessionManual(ctx context.Context, arg CreateEditorReviewSessionManualParams) error
+	CreateEditorReviewTokenManual(ctx context.Context, arg CreateEditorReviewTokenManualParams) error
 	CreateItemImageManual(ctx context.Context, arg CreateItemImageManualParams) (sql.Result, error)
 	CreateItemManual(ctx context.Context, arg CreateItemManualParams) error
 	CreateProviderSecretManual(ctx context.Context, arg CreateProviderSecretManualParams) (sql.Result, error)
@@ -66,6 +71,7 @@ type Querier interface {
 	CreateTranscriptionJobManual(ctx context.Context, arg CreateTranscriptionJobManualParams) (sql.Result, error)
 	CreateUploadBatchTranscriptionJobManual(ctx context.Context, arg CreateUploadBatchTranscriptionJobManualParams) (sql.Result, error)
 	CreateUserManual(ctx context.Context, arg CreateUserManualParams) (sql.Result, error)
+	CreateWebhookSubscriptionManual(ctx context.Context, arg CreateWebhookSubscriptionManualParams) (sql.Result, error)
 	CreateWorkspaceManual(ctx context.Context, arg CreateWorkspaceManualParams) (sql.Result, error)
 	CreateWorkspaceMemberManual(ctx context.Context, arg CreateWorkspaceMemberManualParams) error
 	DeferTranscriptionJobLeaseManual(ctx context.Context, arg DeferTranscriptionJobLeaseManualParams) (sql.Result, error)
@@ -82,9 +88,14 @@ type Querier interface {
 	DeleteContextManual(ctx context.Context, id uint64) (sql.Result, error)
 	DeleteCurrentOCRRunsForItemResourceGraph(ctx context.Context, arg DeleteCurrentOCRRunsForItemResourceGraphParams) error
 	DeleteDeliveredWebhookDeliveriesBeforeManual(ctx context.Context, cutoff time.Time) (sql.Result, error)
+	DeleteEditorReviewSessionByTokenHashManual(ctx context.Context, tokenHash string) error
+	DeleteEditorReviewSessionsForItemResourceGraph(ctx context.Context, arg DeleteEditorReviewSessionsForItemResourceGraphParams) error
+	DeleteEditorReviewTokensForItemResourceGraph(ctx context.Context, arg DeleteEditorReviewTokensForItemResourceGraphParams) error
 	DeleteEventOutboxForIDsManual(ctx context.Context, eventIds []string) (sql.Result, error)
 	DeleteExpiredAuthSessionsBatchManual(ctx context.Context, cutoff time.Time) (sql.Result, error)
 	DeleteExpiredAuthSessionsForUserManual(ctx context.Context, userID uint64) error
+	DeleteExpiredEditorReviewSessionsBatchManual(ctx context.Context, cutoff time.Time) (sql.Result, error)
+	DeleteExpiredEditorReviewSessionsForWorkspaceManual(ctx context.Context, workspaceID uint64) error
 	DeleteExpiredProviderAuditBatch(ctx context.Context, arg DeleteExpiredProviderAuditBatchParams) (sql.Result, error)
 	// The application owns relational lifecycle semantics. Every query below is
 	// scoped by the authoritative workspace/item pair and optionally one image.
@@ -96,12 +107,14 @@ type Querier interface {
 	DeleteItemImagesForItemResourceGraph(ctx context.Context, arg DeleteItemImagesForItemResourceGraphParams) error
 	DeleteOCRRunsForItemResourceGraph(ctx context.Context, arg DeleteOCRRunsForItemResourceGraphParams) error
 	DeleteOldestAuthSessionForUserManual(ctx context.Context, userID uint64) (sql.Result, error)
+	DeleteOldestEditorReviewSessionForWorkspaceManual(ctx context.Context, workspaceID uint64) (sql.Result, error)
 	DeleteOrphanStorageQuotaUsage(ctx context.Context) error
 	DeleteOrphanedEventOutboxBeforeManual(ctx context.Context, cutoff time.Time) error
 	DeleteProviderAuditsForItemResourceGraph(ctx context.Context, arg DeleteProviderAuditsForItemResourceGraphParams) error
 	DeletePublishedPagesForItemResourceGraph(ctx context.Context, arg DeletePublishedPagesForItemResourceGraphParams) error
 	DeleteResourceCleanupByKindKey(ctx context.Context, arg DeleteResourceCleanupByKindKeyParams) (sql.Result, error)
 	DeleteRetainableExternalRequestsManual(ctx context.Context, cutoff time.Time) (sql.Result, error)
+	DeleteRetainedEditorReviewTokensBatchManual(ctx context.Context, cutoff time.Time) (sql.Result, error)
 	DeleteRetainedTerminalTranscriptionJobManual(ctx context.Context, arg DeleteRetainedTerminalTranscriptionJobManualParams) (sql.Result, error)
 	DeleteRetainedTranscriptionJobAttemptsManual(ctx context.Context, jobID uint64) error
 	DeleteSelectionRuleForWorkspaceManual(ctx context.Context, arg DeleteSelectionRuleForWorkspaceManualParams) (sql.Result, error)
@@ -113,6 +126,8 @@ type Querier interface {
 	DeleteUploadBatchFilesForItemResourceGraph(ctx context.Context, arg DeleteUploadBatchFilesForItemResourceGraphParams) error
 	DeleteUploadBatchesForItemResourceGraph(ctx context.Context, arg DeleteUploadBatchesForItemResourceGraphParams) error
 	DeleteWebhookDeliveriesForEventIDsManual(ctx context.Context, eventIds []string) error
+	DeleteWebhookDeliveriesForSubscriptionManual(ctx context.Context, subscriptionID uint64) error
+	DeleteWebhookSubscriptionManual(ctx context.Context, arg DeleteWebhookSubscriptionManualParams) (sql.Result, error)
 	DeleteWorkspaceMemberManual(ctx context.Context, arg DeleteWorkspaceMemberManualParams) (sql.Result, error)
 	DetachExternalRequestsFromRetainedJobManual(ctx context.Context, arg DetachExternalRequestsFromRetainedJobManualParams) error
 	DetachUploadBatchFilesForItemImageResourceGraph(ctx context.Context, arg DetachUploadBatchFilesForItemImageResourceGraphParams) error
@@ -142,6 +157,7 @@ type Querier interface {
 	GetContextOCRRunMetricsManual(ctx context.Context, arg GetContextOCRRunMetricsManualParams) (GetContextOCRRunMetricsManualRow, error)
 	GetDefaultContextForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (Context, error)
 	GetDefaultContextManual(ctx context.Context) (Context, error)
+	GetEditorReviewSessionByTokenHashManual(ctx context.Context, tokenHash string) (EditorReviewSession, error)
 	GetEventOutboxHighWaterForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (interface{}, error)
 	GetEventOutboxHighWaterManual(ctx context.Context) (interface{}, error)
 	GetExternalRequestManual(ctx context.Context, arg GetExternalRequestManualParams) (ExternalRequest, error)
@@ -168,6 +184,7 @@ type Querier interface {
 	GetUserByEmailManual(ctx context.Context, email sql.NullString) (GetUserByEmailManualRow, error)
 	GetUserByGoogleSubjectManual(ctx context.Context, googleSubject sql.NullString) (GetUserByGoogleSubjectManualRow, error)
 	GetUserManual(ctx context.Context, id uint64) (GetUserManualRow, error)
+	GetWebhookSubscriptionManual(ctx context.Context, arg GetWebhookSubscriptionManualParams) (GetWebhookSubscriptionManualRow, error)
 	GetWorkspaceAccessManual(ctx context.Context, arg GetWorkspaceAccessManualParams) (GetWorkspaceAccessManualRow, error)
 	GetWorkspaceIDForItemImageManual(ctx context.Context, itemImageID uint64) (uint64, error)
 	GetWorkspaceManual(ctx context.Context, id uint64) (Workspace, error)
@@ -182,7 +199,7 @@ type Querier interface {
 	InsertTranscriptionJobAttemptManual(ctx context.Context, arg InsertTranscriptionJobAttemptManualParams) (sql.Result, error)
 	InsertUploadBatchFileManual(ctx context.Context, arg InsertUploadBatchFileManualParams) (int64, error)
 	InsertUploadBatchManual(ctx context.Context, arg InsertUploadBatchManualParams) error
-	InsertWebhookDeliveryIfMissingManual(ctx context.Context, arg InsertWebhookDeliveryIfMissingManualParams) error
+	InsertWorkspaceWebhookDeliveriesManual(ctx context.Context, eventID string) error
 	ListAPIKeysByWorkspaceManual(ctx context.Context, workspaceID uint64) ([]ApiKey, error)
 	ListContextsPageForWorkspaceManual(ctx context.Context, arg ListContextsPageForWorkspaceManualParams) ([]Context, error)
 	ListEventOutboxAfterIDForWorkspaceManual(ctx context.Context, arg ListEventOutboxAfterIDForWorkspaceManualParams) ([]EventOutbox, error)
@@ -208,6 +225,7 @@ type Querier interface {
 	ListTranscriptionJobsByItemImagePageManual(ctx context.Context, arg ListTranscriptionJobsByItemImagePageManualParams) ([]ListTranscriptionJobsByItemImagePageManualRow, error)
 	ListTranscriptionJobsByWorkspacePageManual(ctx context.Context, arg ListTranscriptionJobsByWorkspacePageManualParams) ([]ListTranscriptionJobsByWorkspacePageManualRow, error)
 	ListUploadBatchFilesManual(ctx context.Context, arg ListUploadBatchFilesManualParams) ([]UploadBatchFile, error)
+	ListWebhookSubscriptionsManual(ctx context.Context, workspaceID uint64) ([]ListWebhookSubscriptionsManualRow, error)
 	ListWorkspaceAccessByUserManual(ctx context.Context, userID uint64) ([]ListWorkspaceAccessByUserManualRow, error)
 	ListWorkspaceMembersManual(ctx context.Context, workspaceID uint64) ([]ListWorkspaceMembersManualRow, error)
 	LockActiveTranscriptionJobForUpdateManual(ctx context.Context, itemImageID sql.NullInt64) (TranscriptionJob, error)
@@ -222,6 +240,7 @@ type Querier interface {
 	LockContextForDeleteManual(ctx context.Context, id uint64) (LockContextForDeleteManualRow, error)
 	LockContextForUseManual(ctx context.Context, arg LockContextForUseManualParams) (Context, error)
 	LockContextForWorkspaceDeleteManual(ctx context.Context, arg LockContextForWorkspaceDeleteManualParams) (uint64, error)
+	LockEditorReviewTokenByHashManual(ctx context.Context, tokenHash string) (EditorReviewToken, error)
 	LockEventOutboxRetentionBatchManual(ctx context.Context, cutoff time.Time) ([]string, error)
 	LockExpiredProviderAuditBatch(ctx context.Context, arg LockExpiredProviderAuditBatchParams) ([]LockExpiredProviderAuditBatchRow, error)
 	LockExpiredStorageQuotaReservations(ctx context.Context, arg LockExpiredStorageQuotaReservationsParams) ([]WorkspaceStorageReservation, error)
@@ -254,12 +273,18 @@ type Querier interface {
 	LockUserByEmailForIdentityManual(ctx context.Context, email sql.NullString) (LockUserByEmailForIdentityManualRow, error)
 	LockUserByGoogleSubjectForIdentityManual(ctx context.Context, googleSubject sql.NullString) (LockUserByGoogleSubjectForIdentityManualRow, error)
 	LockUserForIdentityAdmissionManual(ctx context.Context, userID uint64) (uint64, error)
+	// Subscription create/delete and event expansion all lock this workspace row.
+	// That makes the repository-owned parent/child lifecycle deterministic even
+	// when a subscription is deleted while an event transaction is committing.
+	LockWebhookDeliveryExpansionWorkspaceManual(ctx context.Context, eventID string) (uint64, error)
+	LockWebhookSubscriptionManual(ctx context.Context, arg LockWebhookSubscriptionManualParams) (uint64, error)
 	LockWorkspaceForSelectionRuleAdmissionManual(ctx context.Context, workspaceID uint64) (uint64, error)
 	LockWorkspaceForUseManual(ctx context.Context, id uint64) (uint64, error)
 	LockWorkspaceManual(ctx context.Context, id uint64) (Workspace, error)
 	LockWorkspaceMemberRoleManual(ctx context.Context, arg LockWorkspaceMemberRoleManualParams) (WorkspaceMembersRole, error)
 	MarkActiveProviderSecretCleanupManual(ctx context.Context, arg MarkActiveProviderSecretCleanupManualParams) (sql.Result, error)
 	MarkAnnotationMirrorProcessing(ctx context.Context, arg MarkAnnotationMirrorProcessingParams) (sql.Result, error)
+	MarkEditorReviewTokenRedeemedManual(ctx context.Context, id string) (sql.Result, error)
 	MarkPendingProviderSecretCleanupManual(ctx context.Context, arg MarkPendingProviderSecretCleanupManualParams) (sql.Result, error)
 	MarkResourceCleanupProcessing(ctx context.Context, arg MarkResourceCleanupProcessingParams) (sql.Result, error)
 	MarkTranscriptionJobLeasedManual(ctx context.Context, arg MarkTranscriptionJobLeasedManualParams) (sql.Result, error)

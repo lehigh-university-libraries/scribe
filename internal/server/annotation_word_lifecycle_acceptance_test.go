@@ -21,6 +21,78 @@ import (
 	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
 )
 
+func TestSplitPageIntoWordsTransformsEveryLineInOnePersistedRPC(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+	workspaceID, userID := createServerTestWorkspace(t, database)
+	otherWorkspaceID, otherUserID := createServerTestWorkspace(t, database)
+	canvasURI := "https://source.example/canvas/page-word-split"
+	image := createServerTestItemImage(t, database, workspaceID, userID, canvasURI)
+	items := store.NewItemStore(database)
+	annotations := store.NewAnnotationStore(database)
+	handler := NewHandler(nil, items, nil, annotations, nil, nil, nil, nil)
+	identity := iiif.PageIdentity{PublicBaseURL: handler.publicAnnotationBaseURL(), ItemImageID: image.ID, CanvasURI: canvasURI}
+	pageID, err := iiif.CanonicalPageID(identity.PublicBaseURL, image.ID)
+	if err != nil {
+		t.Fatalf("canonical page ID: %v", err)
+	}
+	lineAID, err := iiif.AnnotationID(pageID, "page-split-line-a")
+	if err != nil {
+		t.Fatalf("line A ID: %v", err)
+	}
+	lineBID, err := iiif.AnnotationID(pageID, "page-split-line-b")
+	if err != nil {
+		t.Fatalf("line B ID: %v", err)
+	}
+	lineA := transcriptionAnnotation(lineAID, "line", "alpha beta", canvasURI, models.BBox{X1: 0, Y1: 0, X2: 300, Y2: 40})
+	lineB := transcriptionAnnotation(lineBID, "line", "gamma delta epsilon", canvasURI, models.BBox{X1: 0, Y1: 50, X2: 450, Y2: 90})
+	wordLifecycleAddExtensions(lineA)
+	wordLifecycleAddExtensions(lineB)
+	seedPayload, err := iiif.NewAnnotationPage(identity, []any{lineA, lineB})
+	if err != nil {
+		t.Fatalf("build page-split seed: %v", err)
+	}
+	seeded, err := annotations.SavePage(ctx, store.AnnotationPage{
+		WorkspaceID: workspaceID, ItemImageID: image.ID, PageID: pageID, CanvasURI: canvasURI, Payload: string(seedPayload),
+	}, 0)
+	if err != nil {
+		t.Fatalf("save page-split seed: %v", err)
+	}
+
+	appServer := newTenantScopedServer(t, handler, map[string]testTenantIdentity{
+		"owner": {workspaceID: workspaceID, userID: userID},
+		"other": {workspaceID: otherWorkspaceID, userID: otherUserID},
+	})
+	client := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
+	_, err = client.SplitPageIntoWords(ctx, tenantConnectRequest("other", &scribev1.SplitPageIntoWordsRequest{
+		ItemImageId: image.ID, AnnotationPageJson: seeded.Payload,
+	}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("cross-workspace page split error = %v, want not_found", err)
+	}
+	response, err := client.SplitPageIntoWords(ctx, tenantConnectRequest("owner", &scribev1.SplitPageIntoWordsRequest{
+		ItemImageId: image.ID, AnnotationPageJson: seeded.Payload,
+	}))
+	if err != nil {
+		t.Fatalf("SplitPageIntoWords: %v", err)
+	}
+	persisted := wordLifecycleSaveAndReload(t, ctx, client, image.ID, response.Msg.GetAnnotationPageJson(), seeded.Revision)
+	if got := wordLifecycleAnnotations(t, persisted.Msg.GetAnnotationPageJson(), "line"); len(got) != 2 {
+		t.Fatalf("persisted page-split line count = %d, want 2", len(got))
+	}
+	words := wordLifecycleWordSnapshot(t, persisted.Msg.GetAnnotationPageJson())
+	wordLifecycleAssertTexts(t, words, []string{"alpha", "beta", "gamma", "delta", "epsilon"})
+
+	repeated, err := client.SplitPageIntoWords(ctx, tenantConnectRequest("owner", &scribev1.SplitPageIntoWordsRequest{
+		ItemImageId: image.ID, AnnotationPageJson: persisted.Msg.GetAnnotationPageJson(),
+	}))
+	if err != nil {
+		t.Fatalf("repeat SplitPageIntoWords: %v", err)
+	}
+	repeatedWords := wordLifecycleWordSnapshot(t, repeated.Msg.GetAnnotationPageJson())
+	wordLifecycleAssertStableWords(t, words, repeatedWords)
+}
+
 // TestWordStructuralLifecyclePersistsAcrossCanonicalPublicAndExports proves
 // that structural transforms, local word CRUD, persistence, publication, and
 // every export consume one canonical revision. Every intermediate transform is

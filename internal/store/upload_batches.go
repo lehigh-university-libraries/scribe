@@ -139,14 +139,17 @@ type UploadBatchFileInput struct {
 
 // StartUploadBatchParams contains the immutable identity of a batch ingest.
 type StartUploadBatchParams struct {
-	WorkspaceID uint64
-	UserID      uint64
-	BatchID     string
-	ItemID      string
-	Name        string
-	Context     Context
-	RequestHash string
-	Files       []UploadBatchFileInput
+	WorkspaceID          uint64
+	UserID               uint64
+	BatchID              string
+	ItemID               string
+	Name                 string
+	Metadata             string
+	ExternalReferenceID  string
+	CallerIdempotencyKey string
+	Context              Context
+	RequestHash          string
+	Files                []UploadBatchFileInput
 }
 
 // StartUploadBatch creates an item and its complete file declaration atomically,
@@ -182,11 +185,14 @@ func (s *ItemStore) StartUploadBatch(ctx context.Context, params StartUploadBatc
 		return UploadBatch{}, fmt.Errorf("start upload batch: lock context: %w", err)
 	}
 	if err := queries.CreateItem(ctx, db.CreateItemParams{
-		ID:          params.ItemID,
-		UserID:      params.UserID,
-		WorkspaceID: params.WorkspaceID,
-		Name:        strings.TrimSpace(params.Name),
-		SourceType:  "upload",
+		ID:                   params.ItemID,
+		UserID:               params.UserID,
+		WorkspaceID:          params.WorkspaceID,
+		Name:                 strings.TrimSpace(params.Name),
+		SourceType:           "upload",
+		Metadata:             params.Metadata,
+		ExternalReferenceID:  params.ExternalReferenceID,
+		CallerIdempotencyKey: params.CallerIdempotencyKey,
 	}); err != nil {
 		return UploadBatch{}, fmt.Errorf("start upload batch: create item: %w", err)
 	}

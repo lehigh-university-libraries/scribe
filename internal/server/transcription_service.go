@@ -526,24 +526,34 @@ func (h *Handler) recordClaimedTranscriptionJobFailure(ctx context.Context, job 
 		defer cancel()
 		return h.transcriptionJobs.Defer(deferCtx, fence, safeMessage, time.Now().UTC().Add(5*time.Second))
 	}
-	evt := h.newCloudEvent("dev.scribe.transcription.failed", subjectForItemImage(job.ItemImageID), map[string]any{
+	eventData := map[string]any{
 		"jobId":       job.ID,
 		"itemImageId": job.ItemImageID,
 		"error":       safeMessage,
-	})
+		"workspaceId": job.WorkspaceID,
+		"revision":    job.InputRevision,
+	}
+	if h.items != nil {
+		if image, imageErr := h.items.GetImageForWorkspace(ctx, job.ItemImageID, job.WorkspaceID); imageErr == nil {
+			if item, itemErr := h.items.GetForWorkspace(ctx, image.ItemID, job.WorkspaceID); itemErr == nil {
+				eventData = mergeEventData(eventData, itemEventData(item, image, job.InputRevision))
+			}
+		}
+	}
+	evt := h.newCloudEvent("dev.scribe.transcription.failed", subjectForItemImage(job.ItemImageID), eventData)
 	body, marshalErr := json.Marshal(evt)
 	if marshalErr != nil {
 		return fmt.Errorf("marshal failure event: %w", marshalErr)
 	}
 	var permanent permanentTranscriptionError
 	if errors.As(err, &permanent) {
-		if failErr := h.transcriptionJobs.PermanentlyFailWithWebhookEvent(ctx, fence, safeMessage, evt.ID, evt.Type, evt.Subject, string(body), h.webhookURLs); failErr != nil {
+		if failErr := h.transcriptionJobs.PermanentlyFailWithWebhookEvent(ctx, fence, safeMessage, evt.ID, evt.Type, evt.Subject, string(body)); failErr != nil {
 			return failErr
 		}
 		h.publishCloudEvent(evt, false)
 		return nil
 	}
-	terminal, failErr := h.transcriptionJobs.FailWithWebhookEvent(ctx, fence, safeMessage, evt.ID, evt.Type, evt.Subject, string(body), h.webhookURLs)
+	terminal, failErr := h.transcriptionJobs.FailWithWebhookEvent(ctx, fence, safeMessage, evt.ID, evt.Type, evt.Subject, string(body))
 	if failErr != nil {
 		return failErr
 	}
@@ -849,13 +859,18 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	// who requested this job, and attributing the save to that creator would
 	// create a false audit record.
 	page.UpdatedByUserID = nil
-	evt := h.newCloudEvent("dev.scribe.transcription.completed", subjectForItemImage(job.ItemImageID), map[string]any{
+	item, err := h.items.GetForWorkspace(ctx, img.ItemID, workspaceID)
+	if err != nil {
+		return fmt.Errorf("load transcription event item: %w", err)
+	}
+	eventData := itemEventData(item, img, page.Revision+1)
+	eventData = mergeEventData(eventData, map[string]any{
 		"jobId":             job.ID,
-		"itemImageId":       job.ItemImageID,
 		"completedSegments": completed,
 		"failedSegments":    failed,
 		"totalSegments":     total,
 	})
+	evt := h.newCloudEvent("dev.scribe.transcription.completed", subjectForItemImage(job.ItemImageID), eventData)
 	body, err := json.Marshal(evt)
 	if err != nil {
 		return fmt.Errorf("marshal completion event: %w", err)
@@ -870,7 +885,6 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		EventType:                 evt.Type,
 		Subject:                   evt.Subject,
 		BodyJSON:                  string(body),
-		WebhookURLs:               h.webhookURLs,
 		OCRRun:                    provenance,
 	})
 	if errors.Is(err, store.ErrAnnotationJobFence) {

@@ -54,6 +54,9 @@ const (
 	// AnnotationServiceSplitLineIntoWordsProcedure is the fully-qualified name of the
 	// AnnotationService's SplitLineIntoWords RPC.
 	AnnotationServiceSplitLineIntoWordsProcedure = "/scribe.v1.AnnotationService/SplitLineIntoWords"
+	// AnnotationServiceSplitPageIntoWordsProcedure is the fully-qualified name of the
+	// AnnotationService's SplitPageIntoWords RPC.
+	AnnotationServiceSplitPageIntoWordsProcedure = "/scribe.v1.AnnotationService/SplitPageIntoWords"
 	// AnnotationServiceSplitLineIntoTwoLinesProcedure is the fully-qualified name of the
 	// AnnotationService's SplitLineIntoTwoLines RPC.
 	AnnotationServiceSplitLineIntoTwoLinesProcedure = "/scribe.v1.AnnotationService/SplitLineIntoTwoLines"
@@ -79,6 +82,7 @@ type AnnotationServiceClient interface {
 	EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error)
 	// Structural split/join operations.
 	SplitLineIntoWords(context.Context, *connect.Request[v1.SplitLineIntoWordsRequest]) (*connect.Response[v1.SplitLineIntoWordsResponse], error)
+	SplitPageIntoWords(context.Context, *connect.Request[v1.SplitPageIntoWordsRequest]) (*connect.Response[v1.SplitPageIntoWordsResponse], error)
 	SplitLineIntoTwoLines(context.Context, *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error)
 	JoinLines(context.Context, *connect.Request[v1.JoinLinesRequest]) (*connect.Response[v1.JoinLinesResponse], error)
 	JoinWordsIntoLine(context.Context, *connect.Request[v1.JoinWordsIntoLineRequest]) (*connect.Response[v1.JoinWordsIntoLineResponse], error)
@@ -139,6 +143,12 @@ func NewAnnotationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(annotationServiceMethods.ByName("SplitLineIntoWords")),
 			connect.WithClientOptions(opts...),
 		),
+		splitPageIntoWords: connect.NewClient[v1.SplitPageIntoWordsRequest, v1.SplitPageIntoWordsResponse](
+			httpClient,
+			baseURL+AnnotationServiceSplitPageIntoWordsProcedure,
+			connect.WithSchema(annotationServiceMethods.ByName("SplitPageIntoWords")),
+			connect.WithClientOptions(opts...),
+		),
 		splitLineIntoTwoLines: connect.NewClient[v1.SplitLineIntoTwoLinesRequest, v1.SplitLineIntoTwoLinesResponse](
 			httpClient,
 			baseURL+AnnotationServiceSplitLineIntoTwoLinesProcedure,
@@ -175,6 +185,7 @@ type annotationServiceClient struct {
 	publishItemImageEdits *connect.Client[v1.PublishItemImageEditsRequest, v1.PublishItemImageEditsResponse]
 	enrichAnnotation      *connect.Client[v1.EnrichAnnotationRequest, v1.EnrichAnnotationResponse]
 	splitLineIntoWords    *connect.Client[v1.SplitLineIntoWordsRequest, v1.SplitLineIntoWordsResponse]
+	splitPageIntoWords    *connect.Client[v1.SplitPageIntoWordsRequest, v1.SplitPageIntoWordsResponse]
 	splitLineIntoTwoLines *connect.Client[v1.SplitLineIntoTwoLinesRequest, v1.SplitLineIntoTwoLinesResponse]
 	joinLines             *connect.Client[v1.JoinLinesRequest, v1.JoinLinesResponse]
 	joinWordsIntoLine     *connect.Client[v1.JoinWordsIntoLineRequest, v1.JoinWordsIntoLineResponse]
@@ -216,6 +227,11 @@ func (c *annotationServiceClient) SplitLineIntoWords(ctx context.Context, req *c
 	return c.splitLineIntoWords.CallUnary(ctx, req)
 }
 
+// SplitPageIntoWords calls scribe.v1.AnnotationService.SplitPageIntoWords.
+func (c *annotationServiceClient) SplitPageIntoWords(ctx context.Context, req *connect.Request[v1.SplitPageIntoWordsRequest]) (*connect.Response[v1.SplitPageIntoWordsResponse], error) {
+	return c.splitPageIntoWords.CallUnary(ctx, req)
+}
+
 // SplitLineIntoTwoLines calls scribe.v1.AnnotationService.SplitLineIntoTwoLines.
 func (c *annotationServiceClient) SplitLineIntoTwoLines(ctx context.Context, req *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error) {
 	return c.splitLineIntoTwoLines.CallUnary(ctx, req)
@@ -247,6 +263,7 @@ type AnnotationServiceHandler interface {
 	EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error)
 	// Structural split/join operations.
 	SplitLineIntoWords(context.Context, *connect.Request[v1.SplitLineIntoWordsRequest]) (*connect.Response[v1.SplitLineIntoWordsResponse], error)
+	SplitPageIntoWords(context.Context, *connect.Request[v1.SplitPageIntoWordsRequest]) (*connect.Response[v1.SplitPageIntoWordsResponse], error)
 	SplitLineIntoTwoLines(context.Context, *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error)
 	JoinLines(context.Context, *connect.Request[v1.JoinLinesRequest]) (*connect.Response[v1.JoinLinesResponse], error)
 	JoinWordsIntoLine(context.Context, *connect.Request[v1.JoinWordsIntoLineRequest]) (*connect.Response[v1.JoinWordsIntoLineResponse], error)
@@ -303,6 +320,12 @@ func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.H
 		connect.WithSchema(annotationServiceMethods.ByName("SplitLineIntoWords")),
 		connect.WithHandlerOptions(opts...),
 	)
+	annotationServiceSplitPageIntoWordsHandler := connect.NewUnaryHandler(
+		AnnotationServiceSplitPageIntoWordsProcedure,
+		svc.SplitPageIntoWords,
+		connect.WithSchema(annotationServiceMethods.ByName("SplitPageIntoWords")),
+		connect.WithHandlerOptions(opts...),
+	)
 	annotationServiceSplitLineIntoTwoLinesHandler := connect.NewUnaryHandler(
 		AnnotationServiceSplitLineIntoTwoLinesProcedure,
 		svc.SplitLineIntoTwoLines,
@@ -343,6 +366,8 @@ func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.H
 			annotationServiceEnrichAnnotationHandler.ServeHTTP(w, r)
 		case AnnotationServiceSplitLineIntoWordsProcedure:
 			annotationServiceSplitLineIntoWordsHandler.ServeHTTP(w, r)
+		case AnnotationServiceSplitPageIntoWordsProcedure:
+			annotationServiceSplitPageIntoWordsHandler.ServeHTTP(w, r)
 		case AnnotationServiceSplitLineIntoTwoLinesProcedure:
 			annotationServiceSplitLineIntoTwoLinesHandler.ServeHTTP(w, r)
 		case AnnotationServiceJoinLinesProcedure:
@@ -386,6 +411,10 @@ func (UnimplementedAnnotationServiceHandler) EnrichAnnotation(context.Context, *
 
 func (UnimplementedAnnotationServiceHandler) SplitLineIntoWords(context.Context, *connect.Request[v1.SplitLineIntoWordsRequest]) (*connect.Response[v1.SplitLineIntoWordsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.SplitLineIntoWords is not implemented"))
+}
+
+func (UnimplementedAnnotationServiceHandler) SplitPageIntoWords(context.Context, *connect.Request[v1.SplitPageIntoWordsRequest]) (*connect.Response[v1.SplitPageIntoWordsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.SplitPageIntoWords is not implemented"))
 }
 
 func (UnimplementedAnnotationServiceHandler) SplitLineIntoTwoLines(context.Context, *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error) {

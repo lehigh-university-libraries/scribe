@@ -57,6 +57,9 @@ func registerConnectServices(mux *http.ServeMux, handler *Handler, authManager *
 		{register: func(h *Handler, opts ...connect.HandlerOption) (string, http.Handler) {
 			return scribev1connect.NewTranscriptionServiceHandler(h, opts...)
 		}},
+		{register: func(h *Handler, opts ...connect.HandlerOption) (string, http.Handler) {
+			return scribev1connect.NewWebhookServiceHandler(h, opts...)
+		}},
 	}
 	for _, service := range services {
 		path, svcHandler := service.register(handler, opts...)

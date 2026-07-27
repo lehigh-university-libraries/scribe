@@ -120,6 +120,10 @@ func TestTenantMutationDescriptorsUseExactResourceIDs(t *testing.T) {
 		{procedure: "/scribe.v1.AnnotationService/SearchAnnotations", resource: optionsv1.ResourceType_RESOURCE_TYPE_ITEM_IMAGE, field: "item_image_id"},
 		{procedure: "/scribe.v1.AnnotationService/GetAnnotation", resource: optionsv1.ResourceType_RESOURCE_TYPE_ITEM_IMAGE, field: "item_image_id"},
 		{procedure: "/scribe.v1.AnnotationService/EnrichAnnotation", resource: optionsv1.ResourceType_RESOURCE_TYPE_ITEM_IMAGE, field: "item_image_id"},
+		{procedure: "/scribe.v1.AnnotationService/SplitPageIntoWords", resource: optionsv1.ResourceType_RESOURCE_TYPE_ITEM_IMAGE, field: "item_image_id"},
+		{procedure: "/scribe.v1.WebhookService/CreateWebhook", resource: optionsv1.ResourceType_RESOURCE_TYPE_WORKSPACE, field: "workspace_id"},
+		{procedure: "/scribe.v1.WebhookService/ListWebhooks", resource: optionsv1.ResourceType_RESOURCE_TYPE_WORKSPACE, field: "workspace_id"},
+		{procedure: "/scribe.v1.WebhookService/DeleteWebhook", resource: optionsv1.ResourceType_RESOURCE_TYPE_WORKSPACE, field: "workspace_id"},
 	} {
 		rule, err := extractAuthzRule(test.procedure)
 		if err != nil {

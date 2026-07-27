@@ -106,9 +106,6 @@ annotation:
 audit:
   provider_call_retention: 720h
 
-webhooks:
-  urls: []
-
 vault:
   address: "${VAULT_ADDRESS:-}"
   gcp_auth_role: "${VAULT_GCP_AUTH_ROLE:-scribe-app}"

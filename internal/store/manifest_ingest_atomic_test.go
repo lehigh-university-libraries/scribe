@@ -437,7 +437,7 @@ func TestSingleFileIngestSnapshotsLockedAuthoritativeContext(t *testing.T) {
 	result, err := store.NewAnnotationStore(database).CommitSingleFileIngest(ctx, store.SingleFileIngestCommit{
 		Item:          dbstore.CreateItemParams{ID: itemID, UserID: userID, WorkspaceID: workspaceID, Name: "single context", SourceType: "url"},
 		Image:         dbstore.CreateItemImageParams{ImageURL: "https://images.example/single-context.jpg", CanvasURI: "https://source.example/canvas/single-context", Width: 40, Height: 20},
-		OCRRun:        store.OCRRun{OriginalHOCR: "<html></html>", OriginalText: "text", Provider: "test", Model: "test", ContextID: &authoritative.ID},
+		OCRRun:        store.OCRRun{SessionID: "single-context-run-" + uuid.NewString(), OriginalHOCR: "<html></html>", OriginalText: "text", Provider: "test", Model: "test", ContextID: &authoritative.ID},
 		PublicBaseURL: "https://scribe.example", TranscriptionContext: &forged,
 		Reservation: reservation, Limits: limits,
 		BuildPage: func(itemImageID uint64, canvasURI string) (store.AnnotationPage, error) {

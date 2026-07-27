@@ -29,6 +29,11 @@ const pluginSaveItemImageIds = [];
 const pluginActiveCanvasEvents = [];
 let pluginLastEditorState = null;
 let pluginPendingSplit = null;
+let pluginStructuralCalls = {
+  joinLineIds: [],
+  joinWordIds: [],
+  splitAtWord: 0,
+};
 let backgroundLastEditorState = null;
 const backgroundReloadEvents = [];
 
@@ -116,7 +121,7 @@ async function initializeGeometryModules() {
   } = geometryModule);
 }
 
-async function initializePlugin() {
+async function initializePlugin(structural = false) {
   const [miradorModule, pluginModule, adapterModule, registryModule] = await Promise.all([
     import("mirador"),
     import("../../mirador-scribe/src/index"),
@@ -132,6 +137,7 @@ async function initializePlugin() {
     { canvasUri: canvasA, id: 1001n },
     { canvasUri: canvasB, id: 2002n },
   ]);
+  pluginStructuralCalls = { joinLineIds: [], joinWordIds: [], splitAtWord: 0 };
   pluginState = new Map([
     ["1001", {
       page: page([{
@@ -140,7 +146,10 @@ async function initializePlugin() {
       }], "Page A"),
       revision: "11",
     }],
-    ["2002", {
+    ["2002", structural ? {
+      page: structuralPluginPage(canvasB),
+      revision: "21",
+    } : {
       page: {
         ...page([{
           ...annotation("https://scribe.test/presentation/v3/item-image-2002/canvas/page-1/annotations/items/00000000000000000000000000000002", "page B original"),
@@ -191,7 +200,11 @@ async function initializePlugin() {
       pluginState.set(key, next);
       return structuredClone(next);
     },
-    async splitLineIntoTwoLines(_itemImageId, annotationPageJson) {
+    async splitLineIntoTwoLines(_itemImageId, annotationPageJson, selectedAnnotationId, splitAtWord) {
+      pluginStructuralCalls.splitAtWord = Number(splitAtWord || 0);
+      if (structural) {
+        return splitPluginLine(parseIIIFJSON(annotationPageJson), selectedAnnotationId, splitAtWord);
+      }
       if (pluginPendingSplit) throw new Error("a split is already pending");
       const submittedPage = parseIIIFJSON(annotationPageJson);
       return new Promise((resolve) => {
@@ -200,6 +213,22 @@ async function initializePlugin() {
           resolve(structuredClone(submittedPage));
         };
       });
+    },
+    async joinLines(_itemImageId, annotationPageJson, selectedAnnotationIds) {
+      pluginStructuralCalls.joinLineIds = [...selectedAnnotationIds];
+      return joinPluginAnnotations(
+        parseIIIFJSON(annotationPageJson),
+        selectedAnnotationIds,
+        "line",
+      );
+    },
+    async joinWordsIntoLine(_itemImageId, annotationPageJson, selectedAnnotationIds) {
+      pluginStructuralCalls.joinWordIds = [...selectedAnnotationIds];
+      return joinPluginAnnotations(
+        parseIIIFJSON(annotationPageJson),
+        selectedAnnotationIds,
+        "line",
+      );
     },
   };
   const adapterFactory = (canvasId) => new PluginAdapter(
@@ -280,6 +309,109 @@ function page(items, label = "Base label") {
     label,
     items,
   };
+}
+
+function structuralPluginPage(canvasId) {
+  const pageId = "https://scribe.test/presentation/v3/item-image-2002/canvas/page-1/annotations";
+  const located = (hexId, value, granularity, x, y, width, height) => ({
+    ...annotation(`${pageId}/items/${hexId}`, value),
+    target: `${canvasId}#xywh=pixel:${x},${y},${width},${height}`,
+    textGranularity: granularity,
+  });
+  return {
+    ...page([
+      located("00000000000000000000000000000001", "alpha beta gamma delta", "line", 100, 80, 520, 80),
+      located("00000000000000000000000000000002", "second line", "line", 100, 210, 420, 50),
+      located("00000000000000000000000000000011", "red", "word", 100, 320, 90, 45),
+      located("00000000000000000000000000000012", "green", "word", 205, 320, 110, 45),
+      located("00000000000000000000000000000013", "blue", "word", 330, 320, 100, 45),
+      located("00000000000000000000000000000014", "gold", "word", 445, 320, 95, 45),
+      located("00000000000000000000000000000004", "fourth line", "line", 100, 420, 420, 50),
+      located("00000000000000000000000000000005", "fifth line", "line", 100, 520, 420, 50),
+    ], "Structural edits"),
+    id: pageId,
+  };
+}
+
+function annotationValue(annotationValue) {
+  const bodies = Array.isArray(annotationValue?.body) ? annotationValue.body : [annotationValue?.body];
+  return bodies.find((body) => body?.type === "TextualBody")?.value || "";
+}
+
+function withAnnotationValue(annotationValue, value) {
+  const next = structuredClone(annotationValue);
+  const bodies = Array.isArray(next.body) ? next.body : [next.body];
+  const body = bodies.find((candidate) => candidate?.type === "TextualBody");
+  if (!body) throw new Error(`annotation ${next.id} has no TextualBody`);
+  body.value = value;
+  next.body = bodies;
+  return next;
+}
+
+function annotationTargetBox(annotationValue) {
+  const target = String(annotationValue?.target || "");
+  const match = target.match(/xywh=(?:pixel:)?([0-9]+),([0-9]+),([0-9]+),([0-9]+)/);
+  if (!match) throw new Error(`annotation ${annotationValue?.id} has no fixture geometry`);
+  return {
+    h: Number(match[4]),
+    w: Number(match[3]),
+    x: Number(match[1]),
+    y: Number(match[2]),
+  };
+}
+
+function withAnnotationTargetBox(annotationValue, box) {
+  const next = structuredClone(annotationValue);
+  const canvasId = String(next.target).split("#", 1)[0];
+  next.target = `${canvasId}#xywh=pixel:${box.x},${box.y},${box.w},${box.h}`;
+  return next;
+}
+
+function splitPluginLine(pageValue, selectedAnnotationId, requestedSplit) {
+  const next = structuredClone(pageValue);
+  const index = next.items.findIndex(({ id }) => id === selectedAnnotationId);
+  if (index < 0) throw new Error("selected split line is missing");
+  const selected = next.items[index];
+  const tokens = annotationValue(selected).trim().split(/\s+/).filter(Boolean);
+  const splitAt = Number(requestedSplit);
+  if (!Number.isInteger(splitAt) || splitAt < 1 || splitAt >= tokens.length) {
+    throw new Error("invalid split boundary");
+  }
+  const box = annotationTargetBox(selected);
+  const firstHeight = Math.floor(box.h / 2);
+  const baseId = next.id;
+  const first = withAnnotationTargetBox(
+    withAnnotationValue(selected, tokens.slice(0, splitAt).join(" ")),
+    { ...box, h: firstHeight },
+  );
+  first.id = `${baseId}/items/00000000000000000000000000000091`;
+  const second = withAnnotationTargetBox(
+    withAnnotationValue(selected, tokens.slice(splitAt).join(" ")),
+    { ...box, h: box.h - firstHeight, y: box.y + firstHeight },
+  );
+  second.id = `${baseId}/items/00000000000000000000000000000092`;
+  next.items.splice(index, 1, first, second);
+  return next;
+}
+
+function joinPluginAnnotations(pageValue, selectedAnnotationIds, granularity) {
+  const next = structuredClone(pageValue);
+  const selectedIdSet = new Set(selectedAnnotationIds);
+  const selected = next.items.filter(({ id }) => selectedIdSet.has(id));
+  if (selected.length < 2) throw new Error("at least two annotations are required");
+  const selectedIndexes = selected.map(({ id }) => next.items.findIndex((item) => item.id === id));
+  const boxes = selected.map(annotationTargetBox);
+  const left = Math.min(...boxes.map(({ x }) => x));
+  const top = Math.min(...boxes.map(({ y }) => y));
+  const right = Math.max(...boxes.map(({ x, w }) => x + w));
+  const bottom = Math.max(...boxes.map(({ y, h }) => y + h));
+  let merged = withAnnotationValue(selected[0], selected.map(annotationValue).join(" "));
+  merged = withAnnotationTargetBox(merged, { h: bottom - top, w: right - left, x: left, y: top });
+  merged.textGranularity = granularity;
+  const insertAt = Math.min(...selectedIndexes);
+  next.items = next.items.filter(({ id }) => !selectedIdSet.has(id));
+  next.items.splice(insertAt, 0, merged);
+  return next;
 }
 
 function textFor(pageValue, id) {
@@ -671,6 +803,14 @@ function pluginSnapshot() {
     selectedDraftTarget: structuredClone(selectedDraft?.target || null),
     statusMessage: pluginLastEditorState?.statusMessage || "",
     splitPending: Boolean(pluginPendingSplit),
+    structural: {
+      calls: structuredClone(pluginStructuralCalls),
+      draft: draftItemsB.map((draftAnnotation) => ({
+        granularity: draftAnnotation.textGranularity || "line",
+        id: draftAnnotation.id || "",
+        text: annotationValue(draftAnnotation),
+      })),
+    },
     sessionStatus: pluginLastEditorState?.sessionStatus || "",
     pageA: fixture("1001"),
     pageB: {
@@ -746,6 +886,8 @@ try {
     await initializeSessionModules();
   } else if (mode === "plugin") {
     await initializePlugin();
+  } else if (mode === "structural") {
+    await initializePlugin(true);
   } else if (mode === "background") {
     await initializeBackgroundDelivery();
   } else {

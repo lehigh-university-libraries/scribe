@@ -392,6 +392,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/scribe.v1.SplitLineIntoWordsResponse'
+  /scribe.v1.AnnotationService/SplitPageIntoWords:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: SplitPageIntoWords
+      operationId: scribe.v1.AnnotationService.SplitPageIntoWords
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.SplitPageIntoWordsRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.SplitPageIntoWordsResponse'
   /scribe.v1.AuthService/CreateAPIKey:
     post:
       tags:
@@ -429,6 +464,41 @@ paths:
                 $ref: '#/components/schemas/scribe.v1.CreateAPIKeyResponse'
       security:
         - SessionCookie: []
+  /scribe.v1.AuthService/CreateEditorReviewToken:
+    post:
+      tags:
+        - scribe.v1.AuthService
+      summary: CreateEditorReviewToken
+      operationId: scribe.v1.AuthService.CreateEditorReviewToken
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CreateEditorReviewTokenRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CreateEditorReviewTokenResponse'
   /scribe.v1.AuthService/CreateProviderSecret:
     post:
       tags:
@@ -1807,6 +1877,111 @@ paths:
             application/grpc-web+json:
               schema:
                 $ref: '#/components/schemas/scribe.v1.StreamTranscriptionJobResponse'
+  /scribe.v1.WebhookService/CreateWebhook:
+    post:
+      tags:
+        - scribe.v1.WebhookService
+      summary: CreateWebhook
+      operationId: scribe.v1.WebhookService.CreateWebhook
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.CreateWebhookRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.CreateWebhookResponse'
+  /scribe.v1.WebhookService/DeleteWebhook:
+    post:
+      tags:
+        - scribe.v1.WebhookService
+      summary: DeleteWebhook
+      operationId: scribe.v1.WebhookService.DeleteWebhook
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.DeleteWebhookRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.DeleteWebhookResponse'
+  /scribe.v1.WebhookService/ListWebhooks:
+    post:
+      tags:
+        - scribe.v1.WebhookService
+      summary: ListWebhooks
+      operationId: scribe.v1.WebhookService.ListWebhooks
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ListWebhooksRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ListWebhooksResponse'
   /scribe.v1.WorkspaceService/AddWorkspaceMember:
     post:
       tags:
@@ -2526,6 +2701,76 @@ components:
           $ref: '#/components/schemas/scribe.v1.Context'
       title: CreateContextResponse
       additionalProperties: false
+    scribe.v1.CreateEditorReviewTokenRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        reviewerSubject:
+          type: string
+          title: reviewer_subject
+          maxLength: 255
+          pattern: .*\S.*
+          description: Stable, issuer-local identity. Scribe stores only its digest.
+        reviewerName:
+          type: string
+          title: reviewer_name
+          maxLength: 255
+          pattern: .*\S.*
+        reviewerEmail:
+          type: string
+          title: reviewer_email
+          maxLength: 320
+        tokenTtlSeconds:
+          type: integer
+          title: token_ttl_seconds
+          description: Defaults to five minutes; accepted range is one through ten minutes.
+        sessionTtlSeconds:
+          type: integer
+          title: session_ttl_seconds
+          description: Defaults to two hours; accepted range is five minutes through eight hours.
+      title: CreateEditorReviewTokenRequest
+      required:
+        - itemImageId
+        - reviewerSubject
+        - reviewerName
+      additionalProperties: false
+      description: |
+        CreateEditorReviewTokenRequest asks a registered machine integration to
+         vouch for one human reviewer and one exact item image. The returned link is
+         a one-time browser handoff, not a reusable API credential.
+        editor_review_token.lifetimes // item_image_id and reviewer identity are required; token/session lifetimes must stay within their bounded ranges
+    scribe.v1.CreateEditorReviewTokenResponse:
+      type: object
+      properties:
+        reviewUrl:
+          type: string
+          title: review_url
+        expiresAt:
+          type: string
+          title: expires_at
+        workspaceId:
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        itemId:
+          type: string
+          title: item_id
+        itemImageId:
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+      title: CreateEditorReviewTokenResponse
+      additionalProperties: false
     scribe.v1.CreateProviderSecretRequest:
       type: object
       properties:
@@ -2618,6 +2863,44 @@ components:
           title: job_id
           format: int64
       title: CreateTranscriptionJobResponse
+      additionalProperties: false
+    scribe.v1.CreateWebhookRequest:
+      type: object
+      properties:
+        workspaceId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        targetUrl:
+          type: string
+          title: target_url
+          maxLength: 2048
+          pattern: .*\S.*
+        secret:
+          type: string
+          title: secret
+          maxLength: 1024
+          minLength: 32
+          pattern: .*\S.*
+          description: |-
+            Shared HMAC-SHA256 secret. Store it before this call returns: Scribe never
+             exposes it through create or list responses.
+      title: CreateWebhookRequest
+      required:
+        - workspaceId
+        - targetUrl
+        - secret
+      additionalProperties: false
+    scribe.v1.CreateWebhookResponse:
+      type: object
+      properties:
+        webhook:
+          title: webhook
+          $ref: '#/components/schemas/scribe.v1.WebhookSubscription'
+      title: CreateWebhookResponse
       additionalProperties: false
     scribe.v1.CreateWorkspaceRequest:
       type: object
@@ -2725,6 +3008,32 @@ components:
     scribe.v1.DeleteSelectionRuleResponse:
       type: object
       title: DeleteSelectionRuleResponse
+      additionalProperties: false
+    scribe.v1.DeleteWebhookRequest:
+      type: object
+      properties:
+        workspaceId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        webhookId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: webhook_id
+          format: int64
+      title: DeleteWebhookRequest
+      required:
+        - workspaceId
+        - webhookId
+      additionalProperties: false
+    scribe.v1.DeleteWebhookResponse:
+      type: object
+      title: DeleteWebhookResponse
       additionalProperties: false
     scribe.v1.DeleteWorkspaceMemberRequest:
       type: object
@@ -3216,6 +3525,11 @@ components:
           maxLength: 256
           minLength: 1
           description: Stable client-generated key used to resume an interrupted import.
+        externalReferenceId:
+          type: string
+          title: external_reference_id
+          maxLength: 512
+          pattern: ^$|.*\S.*
       title: ImportManifestRequest
       required:
         - manifestUrl
@@ -3270,6 +3584,12 @@ components:
         updatedAt:
           type: string
           title: updated_at
+        externalReferenceId:
+          type: string
+          title: external_reference_id
+          description: |-
+            Stable identifier assigned by an external repository (for example, an
+             Islandora PID). It is indexed and searchable within the workspace.
       title: Item
       additionalProperties: false
       description: Item is the primary container for one or more images to be processed.
@@ -3359,6 +3679,9 @@ components:
         updatedAt:
           type: string
           title: updated_at
+        externalReferenceId:
+          type: string
+          title: external_reference_id
       title: ItemSummary
       additionalProperties: false
       description: |-
@@ -3543,7 +3866,8 @@ components:
           title: query
           maxLength: 200
           description: |-
-            Case-insensitive literal substring match over item name, ID, and source type.
+            Case-insensitive literal substring match over item name, Scribe ID,
+             external reference ID, and source type.
              Continuation tokens are bound to the normalized query.
       title: ListItemsRequest
       additionalProperties: false
@@ -3645,6 +3969,30 @@ components:
           type: string
           title: next_page_token
       title: ListTranscriptionJobsResponse
+      additionalProperties: false
+    scribe.v1.ListWebhooksRequest:
+      type: object
+      properties:
+        workspaceId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+      title: ListWebhooksRequest
+      required:
+        - workspaceId
+      additionalProperties: false
+    scribe.v1.ListWebhooksResponse:
+      type: object
+      properties:
+        webhooks:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.WebhookSubscription'
+          title: webhooks
+      title: ListWebhooksResponse
       additionalProperties: false
     scribe.v1.ListWorkspaceMembersRequest:
       type: object
@@ -3783,6 +4131,20 @@ components:
           title: idempotency_key
           maxLength: 256
           minLength: 1
+        metadata:
+          type: string
+          title: metadata
+          pattern: ^$|.*\S.*
+          description: |
+            Optional metadata JSON retained on the created item and echoed by
+             item-scoped completion, failure, and publication events.
+            string.max_bytes = 1048576
+        externalReferenceId:
+          type: string
+          title: external_reference_id
+          maxLength: 512
+          pattern: ^$|.*\S.*
+          description: Stable repository identifier used to correlate the created Scribe item.
       title: ProcessHOCRRequest
       required:
         - hocr
@@ -3814,7 +4176,18 @@ components:
         sessionId:
           type: string
           title: session_id
-          description: Session-scoped identifier for OCR run lookups and async processing.
+          description: |-
+            Stable OCR provenance-run identifier. This is not an authentication or
+             browser editor session identifier.
+        transcriptionJobId:
+          type:
+            - integer
+            - string
+          title: transcription_job_id
+          format: int64
+          description: |-
+            Durable asynchronous transcription job. ProcessHOCR is synchronous and
+             normally returns zero because the supplied hOCR is the completed result.
       title: ProcessHOCRResponse
       additionalProperties: false
     scribe.v1.ProcessImageURLRequest:
@@ -3844,6 +4217,12 @@ components:
           title: idempotency_key
           maxLength: 256
           minLength: 1
+        externalReferenceId:
+          type: string
+          title: external_reference_id
+          maxLength: 512
+          pattern: ^$|.*\S.*
+          description: Stable repository identifier used to correlate the created Scribe item.
       title: ProcessImageURLRequest
       required:
         - imageUrl
@@ -3876,7 +4255,18 @@ components:
         sessionId:
           type: string
           title: session_id
-          description: Session-scoped identifier for OCR run lookups and async processing.
+          description: |-
+            Stable OCR provenance-run identifier. This is not an authentication or
+             browser editor session identifier.
+        transcriptionJobId:
+          type:
+            - integer
+            - string
+          title: transcription_job_id
+          format: int64
+          description: |-
+            Durable asynchronous transcription job. Zero means the imported result is
+             already complete and no asynchronous transcription was scheduled.
       title: ProcessImageURLResponse
       additionalProperties: false
       description: ProcessImageURLResponse returns item/image IDs along with run-scoped OCR data.
@@ -4393,6 +4783,39 @@ components:
           description: Complete transformed AnnotationPage JSON.
       title: SplitLineIntoWordsResponse
       additionalProperties: false
+    scribe.v1.SplitPageIntoWordsRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          pattern: .*\S.*
+      title: SplitPageIntoWordsRequest
+      required:
+        - itemImageId
+        - annotationPageJson
+      additionalProperties: false
+      description: |
+        Transform every line in a complete AnnotationPage into a synchronized word
+         view in one bounded server operation. Line annotations are retained; their
+         derived word annotations replace any words already owned by those lines.
+        split_page_into_words.page // item_image_id and annotation_page_json are required
+    scribe.v1.SplitPageIntoWordsResponse:
+      type: object
+      properties:
+        annotationPageJson:
+          type: string
+          title: annotation_page_json
+          description: Complete transformed AnnotationPage JSON.
+      title: SplitPageIntoWordsResponse
+      additionalProperties: false
     scribe.v1.StartUploadBatchRequest:
       type: object
       properties:
@@ -4417,6 +4840,19 @@ components:
           title: files
           maxItems: 1000
           minItems: 1
+        metadata:
+          type: string
+          title: metadata
+          pattern: ^$|.*\S.*
+          description: |
+            Optional metadata JSON retained on the created item and echoed by
+             item-scoped completion, failure, and publication events.
+            string.max_bytes = 1048576
+        externalReferenceId:
+          type: string
+          title: external_reference_id
+          maxLength: 512
+          pattern: ^$|.*\S.*
       title: StartUploadBatchRequest
       required:
         - batchId
@@ -4962,6 +5398,35 @@ components:
           title: is_admin
       title: UserProfile
       additionalProperties: false
+    scribe.v1.WebhookSubscription:
+      type: object
+      properties:
+        id:
+          type:
+            - integer
+            - string
+          title: id
+          format: int64
+        workspaceId:
+          type:
+            - integer
+            - string
+          title: workspace_id
+          format: int64
+        targetUrl:
+          type: string
+          title: target_url
+        createdAt:
+          type: string
+          title: created_at
+        updatedAt:
+          type: string
+          title: updated_at
+      title: WebhookSubscription
+      additionalProperties: false
+      description: |-
+        WebhookSubscription is one workspace-owned outbound CloudEvent target. The
+         signing secret is write-only and is never returned by Scribe.
     scribe.v1.Workspace:
       type: object
       properties:
@@ -5051,4 +5516,5 @@ tags:
   - name: scribe.v1.ItemService
   - name: scribe.v1.ImageProcessingService
   - name: scribe.v1.TranscriptionService
+  - name: scribe.v1.WebhookService
   - name: scribe.v1.WorkspaceService

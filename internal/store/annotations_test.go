@@ -366,6 +366,7 @@ func TestTranscriptionCommitAtomicallyFencesAndCompletesJob(t *testing.T) {
 	canvasURI := "https://source.example/canvas/job-commit"
 	processingContext := createAnnotationTestContext(t, db, suffix+"-job-commit")
 	workspaceID, imageID := createAnnotationTestResource(t, db, suffix+"-job-commit", canvasURI)
+	createWebhookTestSubscription(t, db, workspaceID)
 	annotationStore := store.NewAnnotationStore(db)
 	jobStore := store.NewTranscriptionJobStore(db)
 
@@ -394,7 +395,6 @@ func TestTranscriptionCommitAtomicallyFencesAndCompletesJob(t *testing.T) {
 		EventType:                 "dev.scribe.transcription.completed",
 		Subject:                   fmt.Sprintf("/item-images/%d", imageID),
 		BodyJSON:                  fmt.Sprintf(`{"id":%q}`, eventID),
-		WebhookURLs:               []string{"https://webhook.example/scribe"},
 	})
 	if err != nil {
 		t.Fatalf("SavePageAndCompleteTranscriptionJob: %v", err)
@@ -562,12 +562,14 @@ func TestWebhookClaimsCountAttemptsAndExhaustCrashedLeases(t *testing.T) {
 	ctx := context.Background()
 	jobStore := store.NewTranscriptionJobStore(db)
 	eventID := "webhook-lease-" + uuid.NewString()
-	if err := jobStore.EnqueueSystemWebhookEvent(
+	workspaceID, imageID := createAnnotationTestResource(t, db, uuid.NewString()+"-webhook-lease", "https://source.example/canvas/"+uuid.NewString())
+	createWebhookTestSubscription(t, db, workspaceID)
+	if err := jobStore.EnqueueWebhookEvent(
 		ctx,
 		eventID,
-		store.SystemWebhookEventMaintenance,
+		"dev.scribe.annotation.updated",
+		fmt.Sprintf("item-images/%d", imageID),
 		fmt.Sprintf(`{"id":%q}`, eventID),
-		[]string{"https://webhook.example/scribe"},
 	); err != nil {
 		t.Fatalf("EnqueueWebhookEvent: %v", err)
 	}
@@ -621,12 +623,14 @@ func TestWebhookFailurePersistsOnlyBoundedCategory(t *testing.T) {
 	ctx := context.Background()
 	jobStore := store.NewTranscriptionJobStore(database)
 	eventID := "webhook-redaction-" + uuid.NewString()
-	if err := jobStore.EnqueueSystemWebhookEvent(
+	workspaceID, imageID := createAnnotationTestResource(t, database, uuid.NewString()+"-webhook-redaction", "https://source.example/canvas/"+uuid.NewString())
+	createWebhookTestSubscription(t, database, workspaceID)
+	if err := jobStore.EnqueueWebhookEvent(
 		ctx,
 		eventID,
-		store.SystemWebhookEventMaintenance,
+		"dev.scribe.annotation.updated",
+		fmt.Sprintf("item-images/%d", imageID),
 		fmt.Sprintf(`{"id":%q}`, eventID),
-		[]string{"https://webhook.example/scribe"},
 	); err != nil {
 		t.Fatalf("EnqueueWebhookEvent: %v", err)
 	}

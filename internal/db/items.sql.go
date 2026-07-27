@@ -88,8 +88,12 @@ INSERT INTO items (
   source_type,
   source_url,
   source_manifest,
-  metadata
+  metadata,
+  external_reference_id,
+  caller_idempotency_key
 ) VALUES (
+  ?,
+  ?,
   ?,
   ?,
   ?,
@@ -102,14 +106,16 @@ INSERT INTO items (
 `
 
 type CreateItemManualParams struct {
-	ID             string          `json:"id"`
-	UserID         uint64          `json:"user_id"`
-	WorkspaceID    uint64          `json:"workspace_id"`
-	Name           string          `json:"name"`
-	SourceType     ItemsSourceType `json:"source_type"`
-	SourceUrl      sql.NullString  `json:"source_url"`
-	SourceManifest sql.NullString  `json:"source_manifest"`
-	Metadata       json.RawMessage `json:"metadata"`
+	ID                   string          `json:"id"`
+	UserID               uint64          `json:"user_id"`
+	WorkspaceID          uint64          `json:"workspace_id"`
+	Name                 string          `json:"name"`
+	SourceType           ItemsSourceType `json:"source_type"`
+	SourceUrl            sql.NullString  `json:"source_url"`
+	SourceManifest       sql.NullString  `json:"source_manifest"`
+	Metadata             json.RawMessage `json:"metadata"`
+	ExternalReferenceID  string          `json:"external_reference_id"`
+	CallerIdempotencyKey string          `json:"caller_idempotency_key"`
 }
 
 func (q *Queries) CreateItemManual(ctx context.Context, arg CreateItemManualParams) error {
@@ -122,6 +128,8 @@ func (q *Queries) CreateItemManual(ctx context.Context, arg CreateItemManualPara
 		arg.SourceUrl,
 		arg.SourceManifest,
 		arg.Metadata,
+		arg.ExternalReferenceID,
+		arg.CallerIdempotencyKey,
 	)
 	return err
 }
@@ -176,6 +184,8 @@ SELECT
   source_url,
   source_manifest,
   COALESCE(metadata, JSON_OBJECT()) AS metadata,
+  external_reference_id,
+  caller_idempotency_key,
   created_at,
   updated_at
 FROM items
@@ -194,6 +204,8 @@ func (q *Queries) GetItemManual(ctx context.Context, id string) (Item, error) {
 		&i.SourceUrl,
 		&i.SourceManifest,
 		&i.Metadata,
+		&i.ExternalReferenceID,
+		&i.CallerIdempotencyKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -298,6 +310,7 @@ FROM (
       AND (
         i.name LIKE ? ESCAPE '!'
         OR i.id LIKE ? ESCAPE '!'
+        OR i.external_reference_id LIKE ? ESCAPE '!'
         OR CAST(i.source_type AS CHAR) LIKE CAST(? AS CHAR) ESCAPE '!'
       )
       AND (
@@ -344,6 +357,7 @@ type ListItemPreviewsForItemsPageManualRow struct {
 func (q *Queries) ListItemPreviewsForItemsPageManual(ctx context.Context, arg ListItemPreviewsForItemsPageManualParams) ([]ListItemPreviewsForItemsPageManualRow, error) {
 	rows, err := q.db.QueryContext(ctx, listItemPreviewsForItemsPageManual,
 		arg.WorkspaceID,
+		arg.FilterPattern,
 		arg.FilterPattern,
 		arg.FilterPattern,
 		arg.FilterPattern,
@@ -394,6 +408,7 @@ SELECT
   id,
   name,
   source_type,
+  external_reference_id,
   created_at,
   updated_at
 FROM items
@@ -401,6 +416,7 @@ WHERE workspace_id = ?
   AND (
     name LIKE ? ESCAPE '!'
     OR id LIKE ? ESCAPE '!'
+    OR external_reference_id LIKE ? ESCAPE '!'
     OR CAST(source_type AS CHAR) LIKE CAST(? AS CHAR) ESCAPE '!'
   )
   AND (
@@ -424,16 +440,18 @@ type ListItemSummariesPageManualParams struct {
 }
 
 type ListItemSummariesPageManualRow struct {
-	ID         string          `json:"id"`
-	Name       string          `json:"name"`
-	SourceType ItemsSourceType `json:"source_type"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
+	ID                  string          `json:"id"`
+	Name                string          `json:"name"`
+	SourceType          ItemsSourceType `json:"source_type"`
+	ExternalReferenceID string          `json:"external_reference_id"`
+	CreatedAt           time.Time       `json:"created_at"`
+	UpdatedAt           time.Time       `json:"updated_at"`
 }
 
 func (q *Queries) ListItemSummariesPageManual(ctx context.Context, arg ListItemSummariesPageManualParams) ([]ListItemSummariesPageManualRow, error) {
 	rows, err := q.db.QueryContext(ctx, listItemSummariesPageManual,
 		arg.WorkspaceID,
+		arg.FilterPattern,
 		arg.FilterPattern,
 		arg.FilterPattern,
 		arg.FilterPattern,
@@ -454,6 +472,7 @@ func (q *Queries) ListItemSummariesPageManual(ctx context.Context, arg ListItemS
 			&i.ID,
 			&i.Name,
 			&i.SourceType,
+			&i.ExternalReferenceID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

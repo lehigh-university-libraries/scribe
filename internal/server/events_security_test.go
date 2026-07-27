@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 func TestWebhookAuditFieldsAndFailuresRedactTargetSecrets(t *testing.T) {
@@ -53,11 +54,53 @@ func TestWebhookRedirectNeverReceivesCloudEventBody(t *testing.T) {
 	defer source.Close()
 
 	secretEvent := []byte(`{"specversion":"1.0","data":{"private":"manuscript text"}}`)
-	err := (&Handler{}).deliverWebhook(context.Background(), source.URL+"/hook", secretEvent)
+	secret := []byte(strings.Repeat("s", store.MinWebhookSigningSecretBytes))
+	err := (&Handler{}).deliverWebhook(context.Background(), source.URL+"/hook", secret, secretEvent)
 	if err == nil {
 		t.Fatal("redirecting webhook unexpectedly succeeded")
 	}
 	if targetCalls != 0 || targetBody != "" {
 		t.Fatalf("redirect target received calls/body = %d/%q", targetCalls, targetBody)
+	}
+}
+
+func TestWebhookSignatureVerificationDistinguishesGenuinePayload(t *testing.T) {
+	t.Setenv(safehttp.AllowPrivateFetchesEnv, "true")
+	secret := []byte(strings.Repeat("s", store.MinWebhookSigningSecretBytes))
+	body := []byte(`{"specversion":"1.0","data":{"itemId":"item-1"}}`)
+
+	receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedBody, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read body", http.StatusBadRequest)
+			return
+		}
+		if !verifyWebhookSignature(secret, r.Header.Get(webhookTimestampHeader), r.Header.Get(webhookSignatureHeader), receivedBody) {
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer receiver.Close()
+
+	if err := (&Handler{}).deliverWebhook(context.Background(), receiver.URL, secret, body); err != nil {
+		t.Fatalf("deliver signed webhook: %v", err)
+	}
+
+	timestamp := "1785123456"
+	signature := webhookSignature(secret, timestamp, body)
+	if !verifyWebhookSignature(secret, timestamp, signature, body) {
+		t.Fatal("genuine webhook signature was rejected")
+	}
+	for name, candidate := range map[string]bool{
+		"unsigned":          verifyWebhookSignature(secret, timestamp, "", body),
+		"different secret":  verifyWebhookSignature([]byte(strings.Repeat("x", store.MinWebhookSigningSecretBytes)), timestamp, signature, body),
+		"changed body":      verifyWebhookSignature(secret, timestamp, signature, append(body, '\n')),
+		"changed timestamp": verifyWebhookSignature(secret, timestamp+"0", signature, body),
+		"invalid timestamp": verifyWebhookSignature(secret, "not-a-timestamp", signature, body),
+	} {
+		if candidate {
+			t.Errorf("%s webhook was accepted", name)
+		}
 	}
 }

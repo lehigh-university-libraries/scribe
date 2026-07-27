@@ -22,6 +22,22 @@ browser clients derive keys from normalized request content. External clients
 should persist a random operation identifier until they receive a committed
 response.
 
+## Image storage quota ownership
+
+Upload-blob quota accounts bytes whose physical lifecycle Scribe owns; it is
+not a meter of bytes downloaded temporarily for OCR. An `item_images` row that
+retains an external HTTP(S) image reference therefore has `storage_bytes = 0`.
+An image whose URL identifies a Scribe-owned immutable upload has an exact,
+strictly positive `storage_bytes` value from the durable staging boundary.
+URL/byte combinations that violate this rule are rejected before commit.
+
+`ProcessImageURL` reserves a conservative maximum while processing because a
+provider may materialize a local immutable copy. Before commit, that reservation
+is resized to zero when the result retains the remote reference or to the
+copy's exact physical size when Scribe owns the result. Item, image, canonical
+annotation, and OCR database payloads remain covered by their separate durable
+database-byte accounting.
+
 All processing resolves a context before expensive work. The durable job stores
 an immutable context snapshot, so later context edits cannot change an ingest
 already in progress.

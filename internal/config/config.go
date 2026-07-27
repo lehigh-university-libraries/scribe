@@ -85,7 +85,6 @@ type Config struct {
 	Processing    ProcessingConfig      `yaml:"processing"`
 	Storage       StorageConfig         `yaml:"storage"`
 	Audit         AuditConfig           `yaml:"audit"`
-	Webhooks      WebhooksConfig        `yaml:"webhooks"`
 	Vault         VaultConfig           `yaml:"vault"`
 
 	// DatabaseDSN is resolved at load time from Vault + Database config.
@@ -281,10 +280,6 @@ type StorageConfig struct {
 
 type AuditConfig struct {
 	ProviderCallRetention time.Duration `yaml:"provider_call_retention"`
-}
-
-type WebhooksConfig struct {
-	URLs []string `yaml:"urls"`
 }
 
 type VaultConfig struct {
@@ -525,10 +520,6 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.Webhooks.URLs, err = normalizeWebhookURLs(cfg.Webhooks.URLs)
-	if err != nil {
-		return Config{}, err
-	}
 	if err := validateServiceEndpoints(cfg); err != nil {
 		return Config{}, err
 	}
@@ -689,32 +680,6 @@ func parseSecureIdentityURL(name, raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("%s must use HTTPS except for a loopback development endpoint", name)
 	}
 	return parsed, nil
-}
-
-func normalizeWebhookURLs(values []string) ([]string, error) {
-	normalized := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for index, raw := range values {
-		name := fmt.Sprintf("webhooks.urls[%d]", index)
-		parsed, err := url.Parse(strings.TrimSpace(raw))
-		if err != nil || parsed.Host == "" || parsed.Opaque != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || !strings.EqualFold(parsed.Scheme, "https") {
-			return nil, fmt.Errorf("%s must be an absolute HTTPS URL without credentials, query, or fragment", name)
-		}
-		host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
-		if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
-			return nil, fmt.Errorf("%s must use a public hostname", name)
-		}
-		if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()) {
-			return nil, fmt.Errorf("%s must use a public address", name)
-		}
-		canonical := parsed.String()
-		if _, duplicate := seen[canonical]; duplicate {
-			continue
-		}
-		seen[canonical] = struct{}{}
-		normalized = append(normalized, canonical)
-	}
-	return normalized, nil
 }
 
 func normalizeMaxManifestCanvases(value int) (int, error) {

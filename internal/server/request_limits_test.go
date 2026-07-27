@@ -27,6 +27,7 @@ func TestRequestBodyLimit(t *testing.T) {
 		"/scribe.v1.AnnotationService/SaveAnnotationPage",
 		"/scribe.v1.AnnotationService/EnrichAnnotation",
 		"/scribe.v1.AnnotationService/SplitLineIntoWords",
+		"/scribe.v1.AnnotationService/SplitPageIntoWords",
 		"/scribe.v1.AnnotationService/SplitLineIntoTwoLines",
 		"/scribe.v1.AnnotationService/JoinLines",
 		"/scribe.v1.AnnotationService/JoinWordsIntoLine",

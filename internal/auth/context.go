@@ -21,6 +21,10 @@ type Principal struct {
 	APIKeyID           uint64
 	APIKeyName         string
 	Scopes             []string
+	ExternalIssuer     string
+	ExternalSubject    string
+	ScopedItemID       string
+	ScopedItemImageID  uint64
 }
 
 func (p Principal) Anonymous() bool {

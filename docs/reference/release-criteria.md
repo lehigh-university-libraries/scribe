@@ -48,6 +48,7 @@ without copying a second test inventory into `AGENTS.md`.
 | IIIF v3 array context and image `Choice` import plus `libops/iiif-spec`-valid output | `TestPresentation3ArrayContextChoiceImportAndLibopsEmission` |
 | Administrator-owned provider origins/audiences and credential/response redaction | `TestProviderConfigUsesExactServerOwnedModelRoute`, `TestOllamaAudienceMustMatchRegisteredEndpointOrigin`, `TestProviderRedactionAcrossRegisteredAdapterLogsAndListedAudit` |
 | Real-browser focus, keyboard, geometry, zoom, rebase, save/reload, and conflict behavior | `web/e2e/editor.browser.ts` |
+| The minimum raw editor deep link opens its exact item image without prior Scribe navigation | Browser test `a raw editor deep link opens the requested item without prior navigation` in `web/e2e/editor.browser.ts`; workspace query propagation in `web/src/lib/workspace.test.ts` |
 | Isolated backup/restore and job recovery | `make backup-restore-smoke`, `make cloud-snapshot-restore-drill-test`, and the protected `recovery-smoke` job |
 
 The final blocker is runtime evidence, not another source checkbox: every job

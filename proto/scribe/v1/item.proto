@@ -33,6 +33,9 @@ message Item {
   repeated ItemImage images = 7;
   string created_at = 8;
   string updated_at = 9;
+  // Stable identifier assigned by an external repository (for example, an
+  // Islandora PID). It is indexed and searchable within the workspace.
+  string external_reference_id = 10;
 }
 
 // ItemSummary is the bounded library representation of an item. The complete
@@ -46,6 +49,7 @@ message ItemSummary {
   ItemImage preview_image = 5;
   string created_at = 6;
   string updated_at = 7;
+  string external_reference_id = 8;
 }
 
 // --- requests / responses ---
@@ -55,7 +59,8 @@ message ListItemsRequest {
   uint32 page_size = 1 [(buf.validate.field).uint32.lte = 100];
   // Opaque continuation token returned by the previous response.
   string page_token = 2 [(buf.validate.field).string.max_len = 512];
-  // Case-insensitive literal substring match over item name, ID, and source type.
+  // Case-insensitive literal substring match over item name, Scribe ID,
+  // external reference ID, and source type.
   // Continuation tokens are bound to the normalized query.
   string query = 3 [(buf.validate.field).string.max_len = 200];
 }
@@ -174,6 +179,10 @@ message ImportManifestRequest {
       max_len: 256
     }
   ];
+  string external_reference_id = 6 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_len: 512
+  }];
 }
 
 message ImportManifestResponse {
@@ -248,6 +257,16 @@ message StartUploadBatchRequest {
   repeated UploadBatchFileInput files = 4 [(buf.validate.field).repeated = {
     min_items: 1
     max_items: 1000
+  }];
+  // Optional metadata JSON retained on the created item and echoed by
+  // item-scoped completion, failure, and publication events.
+  string metadata = 5 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_bytes: 1048576
+  }];
+  string external_reference_id = 6 [(buf.validate.field).string = {
+    pattern: "^$|.*\\S.*"
+    max_len: 512
   }];
 }
 

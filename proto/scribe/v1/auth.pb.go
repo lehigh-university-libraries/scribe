@@ -1063,6 +1063,172 @@ func (*DeleteProviderSecretResponse) Descriptor() ([]byte, []int) {
 	return file_scribe_v1_auth_proto_rawDescGZIP(), []int{17}
 }
 
+// CreateEditorReviewTokenRequest asks a registered machine integration to
+// vouch for one human reviewer and one exact item image. The returned link is
+// a one-time browser handoff, not a reusable API credential.
+type CreateEditorReviewTokenRequest struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ItemImageId uint64                 `protobuf:"varint,1,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	// Stable, issuer-local identity. Scribe stores only its digest.
+	ReviewerSubject string `protobuf:"bytes,2,opt,name=reviewer_subject,json=reviewerSubject,proto3" json:"reviewer_subject,omitempty"`
+	ReviewerName    string `protobuf:"bytes,3,opt,name=reviewer_name,json=reviewerName,proto3" json:"reviewer_name,omitempty"`
+	ReviewerEmail   string `protobuf:"bytes,4,opt,name=reviewer_email,json=reviewerEmail,proto3" json:"reviewer_email,omitempty"`
+	// Defaults to five minutes; accepted range is one through ten minutes.
+	TokenTtlSeconds uint32 `protobuf:"varint,5,opt,name=token_ttl_seconds,json=tokenTtlSeconds,proto3" json:"token_ttl_seconds,omitempty"`
+	// Defaults to two hours; accepted range is five minutes through eight hours.
+	SessionTtlSeconds uint32 `protobuf:"varint,6,opt,name=session_ttl_seconds,json=sessionTtlSeconds,proto3" json:"session_ttl_seconds,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *CreateEditorReviewTokenRequest) Reset() {
+	*x = CreateEditorReviewTokenRequest{}
+	mi := &file_scribe_v1_auth_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateEditorReviewTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateEditorReviewTokenRequest) ProtoMessage() {}
+
+func (x *CreateEditorReviewTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_auth_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateEditorReviewTokenRequest.ProtoReflect.Descriptor instead.
+func (*CreateEditorReviewTokenRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_auth_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *CreateEditorReviewTokenRequest) GetItemImageId() uint64 {
+	if x != nil {
+		return x.ItemImageId
+	}
+	return 0
+}
+
+func (x *CreateEditorReviewTokenRequest) GetReviewerSubject() string {
+	if x != nil {
+		return x.ReviewerSubject
+	}
+	return ""
+}
+
+func (x *CreateEditorReviewTokenRequest) GetReviewerName() string {
+	if x != nil {
+		return x.ReviewerName
+	}
+	return ""
+}
+
+func (x *CreateEditorReviewTokenRequest) GetReviewerEmail() string {
+	if x != nil {
+		return x.ReviewerEmail
+	}
+	return ""
+}
+
+func (x *CreateEditorReviewTokenRequest) GetTokenTtlSeconds() uint32 {
+	if x != nil {
+		return x.TokenTtlSeconds
+	}
+	return 0
+}
+
+func (x *CreateEditorReviewTokenRequest) GetSessionTtlSeconds() uint32 {
+	if x != nil {
+		return x.SessionTtlSeconds
+	}
+	return 0
+}
+
+type CreateEditorReviewTokenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReviewUrl     string                 `protobuf:"bytes,1,opt,name=review_url,json=reviewUrl,proto3" json:"review_url,omitempty"`
+	ExpiresAt     string                 `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	WorkspaceId   uint64                 `protobuf:"varint,3,opt,name=workspace_id,json=workspaceId,proto3" json:"workspace_id,omitempty"`
+	ItemId        string                 `protobuf:"bytes,4,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	ItemImageId   uint64                 `protobuf:"varint,5,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateEditorReviewTokenResponse) Reset() {
+	*x = CreateEditorReviewTokenResponse{}
+	mi := &file_scribe_v1_auth_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateEditorReviewTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateEditorReviewTokenResponse) ProtoMessage() {}
+
+func (x *CreateEditorReviewTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_auth_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateEditorReviewTokenResponse.ProtoReflect.Descriptor instead.
+func (*CreateEditorReviewTokenResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_auth_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *CreateEditorReviewTokenResponse) GetReviewUrl() string {
+	if x != nil {
+		return x.ReviewUrl
+	}
+	return ""
+}
+
+func (x *CreateEditorReviewTokenResponse) GetExpiresAt() string {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return ""
+}
+
+func (x *CreateEditorReviewTokenResponse) GetWorkspaceId() uint64 {
+	if x != nil {
+		return x.WorkspaceId
+	}
+	return 0
+}
+
+func (x *CreateEditorReviewTokenResponse) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *CreateEditorReviewTokenResponse) GetItemImageId() uint64 {
+	if x != nil {
+		return x.ItemImageId
+	}
+	return 0
+}
+
 var File_scribe_v1_auth_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_auth_proto_rawDesc = "" +
@@ -1146,7 +1312,24 @@ const file_scribe_v1_auth_proto_rawDesc = "" +
 	"\x1bDeleteProviderSecretRequest\x12'\n" +
 	"\tsecret_id\x18\x01 \x01(\x04B\n" +
 	"\xbaH\a\xc8\x01\x012\x02 \x00R\bsecretId\"\x1e\n" +
-	"\x1cDeleteProviderSecretResponse2\xe4\x05\n" +
+	"\x1cDeleteProviderSecretResponse\"\xb7\x06\n" +
+	"\x1eCreateEditorReviewTokenRequest\x12.\n" +
+	"\ritem_image_id\x18\x01 \x01(\x04B\n" +
+	"\xbaH\a\xc8\x01\x012\x02 \x00R\vitemImageId\x12>\n" +
+	"\x10reviewer_subject\x18\x02 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\xff\x012\x06.*\\S.*R\x0freviewerSubject\x128\n" +
+	"\rreviewer_name\x18\x03 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\xff\x012\x06.*\\S.*R\freviewerName\x12/\n" +
+	"\x0ereviewer_email\x18\x04 \x01(\tB\b\xbaH\x05r\x03\x18\xc0\x02R\rreviewerEmail\x12*\n" +
+	"\x11token_ttl_seconds\x18\x05 \x01(\rR\x0ftokenTtlSeconds\x12.\n" +
+	"\x13session_ttl_seconds\x18\x06 \x01(\rR\x11sessionTtlSeconds:\xdd\x03\xbaH\xd9\x03\x1a\xd6\x03\n" +
+	"\x1deditor_review_token.lifetimes\x12oitem_image_id and reviewer identity are required; token/session lifetimes must stay within their bounded ranges\x1a\xc3\x02this.item_image_id > 0u && this.reviewer_subject.matches('.*\\\\S.*') && this.reviewer_name.matches('.*\\\\S.*') && (this.token_ttl_seconds == 0u || (this.token_ttl_seconds >= 60u && this.token_ttl_seconds <= 600u)) && (this.session_ttl_seconds == 0u || (this.session_ttl_seconds >= 300u && this.session_ttl_seconds <= 28800u))\"\xbf\x01\n" +
+	"\x1fCreateEditorReviewTokenResponse\x12\x1d\n" +
+	"\n" +
+	"review_url\x18\x01 \x01(\tR\treviewUrl\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x02 \x01(\tR\texpiresAt\x12!\n" +
+	"\fworkspace_id\x18\x03 \x01(\x04R\vworkspaceId\x12\x17\n" +
+	"\aitem_id\x18\x04 \x01(\tR\x06itemId\x12\"\n" +
+	"\ritem_image_id\x18\x05 \x01(\x04R\vitemImageId2\xf0\x06\n" +
 	"\vAuthService\x12R\n" +
 	"\tGetAuthMe\x12\x1b.scribe.v1.GetAuthMeRequest\x1a\x1c.scribe.v1.GetAuthMeResponse\"\n" +
 	"\x92\xb5\x18\x06\b\x01\x10\x02\x18\x01\x12X\n" +
@@ -1160,7 +1343,8 @@ const file_scribe_v1_auth_proto_rawDesc = "" +
 	"\x92\xb5\x18\x06\x10\x02\x18\x01(\x01\x12s\n" +
 	"\x14CreateProviderSecret\x12&.scribe.v1.CreateProviderSecretRequest\x1a'.scribe.v1.CreateProviderSecretResponse\"\n" +
 	"\x92\xb5\x18\x06\x10\x02\x18\x02(\x01\x12~\n" +
-	"\x14DeleteProviderSecret\x12&.scribe.v1.DeleteProviderSecretRequest\x1a'.scribe.v1.DeleteProviderSecretResponse\"\x15\x92\xb5\x18\x11\x10\v\x18\x02\"\tsecret_id(\x01B\xa7\x01\n" +
+	"\x14DeleteProviderSecret\x12&.scribe.v1.DeleteProviderSecretRequest\x1a'.scribe.v1.DeleteProviderSecretResponse\"\x15\x92\xb5\x18\x11\x10\v\x18\x02\"\tsecret_id(\x01\x12\x89\x01\n" +
+	"\x17CreateEditorReviewToken\x12).scribe.v1.CreateEditorReviewTokenRequest\x1a*.scribe.v1.CreateEditorReviewTokenResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x02\"\ritem_image_idB\xa7\x01\n" +
 	"\rcom.scribe.v1B\tAuthProtoP\x01ZFgithub.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1\xa2\x02\x03SXX\xaa\x02\tScribe.V1\xca\x02\tScribe\\V1\xe2\x02\x15Scribe\\V1\\GPBMetadata\xea\x02\n" +
 	"Scribe::V1b\x06proto3"
 
@@ -1176,26 +1360,28 @@ func file_scribe_v1_auth_proto_rawDescGZIP() []byte {
 	return file_scribe_v1_auth_proto_rawDescData
 }
 
-var file_scribe_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_scribe_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_scribe_v1_auth_proto_goTypes = []any{
-	(*AuthUser)(nil),                     // 0: scribe.v1.AuthUser
-	(*AuthWorkspace)(nil),                // 1: scribe.v1.AuthWorkspace
-	(*GetAuthMeRequest)(nil),             // 2: scribe.v1.GetAuthMeRequest
-	(*GetAuthMeResponse)(nil),            // 3: scribe.v1.GetAuthMeResponse
-	(*APIKeyRecord)(nil),                 // 4: scribe.v1.APIKeyRecord
-	(*ListAPIKeysRequest)(nil),           // 5: scribe.v1.ListAPIKeysRequest
-	(*ListAPIKeysResponse)(nil),          // 6: scribe.v1.ListAPIKeysResponse
-	(*CreateAPIKeyRequest)(nil),          // 7: scribe.v1.CreateAPIKeyRequest
-	(*CreateAPIKeyResponse)(nil),         // 8: scribe.v1.CreateAPIKeyResponse
-	(*DeleteAPIKeyRequest)(nil),          // 9: scribe.v1.DeleteAPIKeyRequest
-	(*DeleteAPIKeyResponse)(nil),         // 10: scribe.v1.DeleteAPIKeyResponse
-	(*ProviderSecretRecord)(nil),         // 11: scribe.v1.ProviderSecretRecord
-	(*ListProviderSecretsRequest)(nil),   // 12: scribe.v1.ListProviderSecretsRequest
-	(*ListProviderSecretsResponse)(nil),  // 13: scribe.v1.ListProviderSecretsResponse
-	(*CreateProviderSecretRequest)(nil),  // 14: scribe.v1.CreateProviderSecretRequest
-	(*CreateProviderSecretResponse)(nil), // 15: scribe.v1.CreateProviderSecretResponse
-	(*DeleteProviderSecretRequest)(nil),  // 16: scribe.v1.DeleteProviderSecretRequest
-	(*DeleteProviderSecretResponse)(nil), // 17: scribe.v1.DeleteProviderSecretResponse
+	(*AuthUser)(nil),                        // 0: scribe.v1.AuthUser
+	(*AuthWorkspace)(nil),                   // 1: scribe.v1.AuthWorkspace
+	(*GetAuthMeRequest)(nil),                // 2: scribe.v1.GetAuthMeRequest
+	(*GetAuthMeResponse)(nil),               // 3: scribe.v1.GetAuthMeResponse
+	(*APIKeyRecord)(nil),                    // 4: scribe.v1.APIKeyRecord
+	(*ListAPIKeysRequest)(nil),              // 5: scribe.v1.ListAPIKeysRequest
+	(*ListAPIKeysResponse)(nil),             // 6: scribe.v1.ListAPIKeysResponse
+	(*CreateAPIKeyRequest)(nil),             // 7: scribe.v1.CreateAPIKeyRequest
+	(*CreateAPIKeyResponse)(nil),            // 8: scribe.v1.CreateAPIKeyResponse
+	(*DeleteAPIKeyRequest)(nil),             // 9: scribe.v1.DeleteAPIKeyRequest
+	(*DeleteAPIKeyResponse)(nil),            // 10: scribe.v1.DeleteAPIKeyResponse
+	(*ProviderSecretRecord)(nil),            // 11: scribe.v1.ProviderSecretRecord
+	(*ListProviderSecretsRequest)(nil),      // 12: scribe.v1.ListProviderSecretsRequest
+	(*ListProviderSecretsResponse)(nil),     // 13: scribe.v1.ListProviderSecretsResponse
+	(*CreateProviderSecretRequest)(nil),     // 14: scribe.v1.CreateProviderSecretRequest
+	(*CreateProviderSecretResponse)(nil),    // 15: scribe.v1.CreateProviderSecretResponse
+	(*DeleteProviderSecretRequest)(nil),     // 16: scribe.v1.DeleteProviderSecretRequest
+	(*DeleteProviderSecretResponse)(nil),    // 17: scribe.v1.DeleteProviderSecretResponse
+	(*CreateEditorReviewTokenRequest)(nil),  // 18: scribe.v1.CreateEditorReviewTokenRequest
+	(*CreateEditorReviewTokenResponse)(nil), // 19: scribe.v1.CreateEditorReviewTokenResponse
 }
 var file_scribe_v1_auth_proto_depIdxs = []int32{
 	0,  // 0: scribe.v1.GetAuthMeResponse.user:type_name -> scribe.v1.AuthUser
@@ -1211,15 +1397,17 @@ var file_scribe_v1_auth_proto_depIdxs = []int32{
 	12, // 10: scribe.v1.AuthService.ListProviderSecrets:input_type -> scribe.v1.ListProviderSecretsRequest
 	14, // 11: scribe.v1.AuthService.CreateProviderSecret:input_type -> scribe.v1.CreateProviderSecretRequest
 	16, // 12: scribe.v1.AuthService.DeleteProviderSecret:input_type -> scribe.v1.DeleteProviderSecretRequest
-	3,  // 13: scribe.v1.AuthService.GetAuthMe:output_type -> scribe.v1.GetAuthMeResponse
-	6,  // 14: scribe.v1.AuthService.ListAPIKeys:output_type -> scribe.v1.ListAPIKeysResponse
-	8,  // 15: scribe.v1.AuthService.CreateAPIKey:output_type -> scribe.v1.CreateAPIKeyResponse
-	10, // 16: scribe.v1.AuthService.DeleteAPIKey:output_type -> scribe.v1.DeleteAPIKeyResponse
-	13, // 17: scribe.v1.AuthService.ListProviderSecrets:output_type -> scribe.v1.ListProviderSecretsResponse
-	15, // 18: scribe.v1.AuthService.CreateProviderSecret:output_type -> scribe.v1.CreateProviderSecretResponse
-	17, // 19: scribe.v1.AuthService.DeleteProviderSecret:output_type -> scribe.v1.DeleteProviderSecretResponse
-	13, // [13:20] is the sub-list for method output_type
-	6,  // [6:13] is the sub-list for method input_type
+	18, // 13: scribe.v1.AuthService.CreateEditorReviewToken:input_type -> scribe.v1.CreateEditorReviewTokenRequest
+	3,  // 14: scribe.v1.AuthService.GetAuthMe:output_type -> scribe.v1.GetAuthMeResponse
+	6,  // 15: scribe.v1.AuthService.ListAPIKeys:output_type -> scribe.v1.ListAPIKeysResponse
+	8,  // 16: scribe.v1.AuthService.CreateAPIKey:output_type -> scribe.v1.CreateAPIKeyResponse
+	10, // 17: scribe.v1.AuthService.DeleteAPIKey:output_type -> scribe.v1.DeleteAPIKeyResponse
+	13, // 18: scribe.v1.AuthService.ListProviderSecrets:output_type -> scribe.v1.ListProviderSecretsResponse
+	15, // 19: scribe.v1.AuthService.CreateProviderSecret:output_type -> scribe.v1.CreateProviderSecretResponse
+	17, // 20: scribe.v1.AuthService.DeleteProviderSecret:output_type -> scribe.v1.DeleteProviderSecretResponse
+	19, // 21: scribe.v1.AuthService.CreateEditorReviewToken:output_type -> scribe.v1.CreateEditorReviewTokenResponse
+	14, // [14:22] is the sub-list for method output_type
+	6,  // [6:14] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -1236,7 +1424,7 @@ func file_scribe_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_auth_proto_rawDesc), len(file_scribe_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   18,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

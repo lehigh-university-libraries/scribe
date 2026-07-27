@@ -4,7 +4,12 @@ export type EditorKeyboardCommand =
   | 'undo'
   | 'redo'
   | 'delete'
-  | 'edit-overlay';
+  | 'edit-overlay'
+  | 'split-line'
+  | 'join-lines'
+  | 'join-words'
+  | 'retranscribe'
+  | 'publish';
 
 export function isEditableEventTarget(target: EventTarget | null | undefined): boolean {
   return target instanceof HTMLElement
@@ -26,6 +31,11 @@ export function editorKeyboardCommand(
   if (editableTarget) return null;
   if (command && key.toLowerCase() === 'z') return event.shiftKey ? 'redo' : 'undo';
   if (command && (key === 'Backspace' || key === 'Delete')) return 'delete';
+  if (!command && event.altKey && key.toLowerCase() === 's') return 'split-line';
+  if (!command && event.altKey && key.toLowerCase() === 'l') return 'join-lines';
+  if (!command && event.altKey && key.toLowerCase() === 'w') return 'join-words';
+  if (!command && event.altKey && key.toLowerCase() === 'r') return 'retranscribe';
+  if (!command && event.altKey && key.toLowerCase() === 'p') return 'publish';
   if (!command && !event.altKey && key.toLowerCase() === 'e') return 'edit-overlay';
   return null;
 }

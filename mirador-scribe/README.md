@@ -52,6 +52,16 @@ ID has loaded. Their
 full shape is `<page-id>/items/<32-lowercase-hex>`, so a complete draft that
 contains them can be sent to authorized structural RPCs before the first save.
 
+## Theme tokens
+
+The plugin inherits the shell's standard `--background`, `--foreground`,
+`--card`, `--muted`, `--accent`, and `--border` variables. Standalone Mirador
+hosts receive a small fallback token set from `src/theme.js`; hosts may
+override the documented `--scribe-plugin-*` variables for line boundaries,
+word boundaries, transcription progress, selection, surfaces, and shadows.
+The defaults switch when `document.documentElement.dataset.theme` is `dark`,
+matching the bundled application's theme contract.
+
 Every editor event includes the exact `windowId` and `canvasId`; item-level
 background events also include `itemImageId`. New event handlers must reject
 events for other windows, Canvases, or item images. Missing identity is not a

@@ -45,12 +45,11 @@ func (q *Queries) InsertEventOutbox(ctx context.Context, eventID, eventType stri
 	})
 }
 
-func (q *Queries) InsertWebhookDeliveryIfMissing(ctx context.Context, eventID, targetURL, targetHash string) error {
-	return q.InsertWebhookDeliveryIfMissingManual(ctx, InsertWebhookDeliveryIfMissingManualParams{
-		EventID:    eventID,
-		TargetUrl:  targetURL,
-		TargetHash: targetHash,
-	})
+func (q *Queries) InsertWorkspaceWebhookDeliveries(ctx context.Context, eventID string) error {
+	if _, err := q.LockWebhookDeliveryExpansionWorkspaceManual(ctx, eventID); err != nil {
+		return err
+	}
+	return q.InsertWorkspaceWebhookDeliveriesManual(ctx, eventID)
 }
 
 func (q *Queries) ClaimWebhookDeliveries(ctx context.Context, limit int, leaseUntil time.Time, lockedBy string) ([]ClaimWebhookDeliveriesManualRow, error) {

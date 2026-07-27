@@ -14,16 +14,18 @@ func (q *Queries) GetItemForWorkspace(ctx context.Context, id string, workspaceI
 		return Item{}, err
 	}
 	return Item{
-		ID:             row.ID,
-		UserID:         row.UserID,
-		WorkspaceID:    row.WorkspaceID,
-		Name:           row.Name,
-		SourceType:     row.SourceType,
-		SourceUrl:      row.SourceUrl,
-		SourceManifest: row.SourceManifest,
-		Metadata:       row.Metadata,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
+		ID:                   row.ID,
+		UserID:               row.UserID,
+		WorkspaceID:          row.WorkspaceID,
+		Name:                 row.Name,
+		SourceType:           row.SourceType,
+		SourceUrl:            row.SourceUrl,
+		SourceManifest:       row.SourceManifest,
+		Metadata:             row.Metadata,
+		ExternalReferenceID:  row.ExternalReferenceID,
+		CallerIdempotencyKey: row.CallerIdempotencyKey,
+		CreatedAt:            row.CreatedAt,
+		UpdatedAt:            row.UpdatedAt,
 	}, nil
 }
 

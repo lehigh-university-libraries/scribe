@@ -43,6 +43,7 @@ type Manager struct {
 	contexts                   *store.ContextStore
 	jobs                       *store.TranscriptionJobStore
 	google                     *GoogleOAuthManager
+	reviewTokens               *editorReviewTokenSigner
 	vault                      vaultClient
 	jwksMu                     sync.Mutex
 	jwksCache                  map[string]cachedJWKS
@@ -99,6 +100,7 @@ func NewManager(
 		jobs:                       jobs,
 		vault:                      vault,
 		jwksCache:                  make(map[string]cachedJWKS),
+		reviewTokens:               newEditorReviewTokenSigner(cfg.Pagination.SigningKey),
 	}
 	clientID := strings.TrimSpace(secrets.GoogleOAuthClientID)
 	clientSecret := strings.TrimSpace(secrets.GoogleOAuthClientSecret)
@@ -135,12 +137,17 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 			http.Error(w, "permission denied", http.StatusForbidden)
 			return
 		}
+		if principal.ScopedItemImageID > 0 && !editorReviewSessionAllowsHTTP(principal, r) {
+			http.Error(w, "permission denied", http.StatusForbidden)
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(WithPrincipal(r.Context(), principal)))
 	})
 }
 
 func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /logout", m.handleLogout)
+	mux.HandleFunc("GET /auth/review", m.handleEditorReviewRedeem)
 	if m.auth.PreviewAnonymous {
 		unavailable := func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "OAuth is disabled for isolated previews", http.StatusNotFound)
@@ -257,6 +264,11 @@ func (m *Manager) authorizeConnectRule(ctx context.Context, principal Principal,
 	}
 	if rule.GetSessionOnly() && !strings.EqualFold(principal.AuthType, "session") {
 		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("session authentication required"))
+	}
+	if principal.ScopedItemImageID > 0 {
+		if err := m.authorizeEditorReviewSessionRequest(ctx, principal, procedure, rule, request); err != nil {
+			return err
+		}
 	}
 
 	resourceIDField := strings.TrimSpace(rule.GetResourceIdField())
@@ -390,6 +402,7 @@ func (m *Manager) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	if cookie, err := r.Cookie(m.auth.CookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
 		_ = m.identities.DeleteSession(r.Context(), cookie.Value)
+		_ = m.identities.DeleteEditorReviewSession(r.Context(), cookie.Value)
 	}
 	m.clearSessionCookie(w, r)
 	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "application/json") {
@@ -468,7 +481,7 @@ func (m *Manager) authenticateRequest(r *http.Request) (Principal, error) {
 	}
 	session, err := m.identities.GetSession(r.Context(), cookie.Value)
 	if errors.Is(err, sql.ErrNoRows) {
-		return m.anonymousPrincipal(), nil
+		return m.editorReviewSessionPrincipal(r.Context(), cookie.Value, requestedWorkspaceID)
 	}
 	if err != nil {
 		return Principal{}, err
@@ -626,10 +639,16 @@ func (m *Manager) authorizeResource(ctx context.Context, principal Principal, pr
 	case optionsv1.ResourceType_RESOURCE_TYPE_SYSTEM:
 		return principal.IsAdmin, nil
 	case optionsv1.ResourceType_RESOURCE_TYPE_ITEM:
+		if principal.ScopedItemImageID > 0 && resourceID != principal.ScopedItemID {
+			return false, nil
+		}
 		return m.items.WorkspaceOwnsItem(ctx, principal.WorkspaceID, resourceID)
 	case optionsv1.ResourceType_RESOURCE_TYPE_ITEM_IMAGE:
 		itemImageID, err := strconv.ParseUint(resourceID, 10, 64)
 		if err != nil {
+			return false, nil
+		}
+		if principal.ScopedItemImageID > 0 && itemImageID != principal.ScopedItemImageID {
 			return false, nil
 		}
 		return m.items.WorkspaceOwnsItemImage(ctx, principal.WorkspaceID, itemImageID)
@@ -646,6 +665,18 @@ func (m *Manager) authorizeResource(ctx context.Context, principal Principal, pr
 		jobID, err := strconv.ParseUint(resourceID, 10, 64)
 		if err != nil {
 			return false, nil
+		}
+		if principal.ScopedItemImageID > 0 {
+			job, loadErr := m.jobs.Get(ctx, jobID)
+			if errors.Is(loadErr, sql.ErrNoRows) {
+				return false, nil
+			}
+			if loadErr != nil {
+				return false, loadErr
+			}
+			if job.WorkspaceID != principal.WorkspaceID || job.ItemImageID != principal.ScopedItemImageID {
+				return false, nil
+			}
 		}
 		return m.jobs.WorkspaceOwnsJob(ctx, principal.WorkspaceID, jobID)
 	case optionsv1.ResourceType_RESOURCE_TYPE_WORKSPACE:
@@ -753,13 +784,17 @@ func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLeve
 		return "transcription:write"
 	case "/scribe.v1.AuthService/ListAPIKeys", "/scribe.v1.AuthService/CreateAPIKey", "/scribe.v1.AuthService/DeleteAPIKey":
 		return "admin:api_keys"
+	case "/scribe.v1.WebhookService/CreateWebhook", "/scribe.v1.WebhookService/ListWebhooks", "/scribe.v1.WebhookService/DeleteWebhook":
+		return "admin:webhooks"
 	case "/scribe.v1.AuthService/ListProviderSecrets":
 		return "contexts:read"
+	case "/scribe.v1.AuthService/CreateEditorReviewToken":
+		return "review_tokens:create"
 	case "/scribe.v1.AuthService/CreateProviderSecret", "/scribe.v1.AuthService/DeleteProviderSecret":
 		return "contexts:write"
 	case "/scribe.v1.AnnotationService/GetAnnotationPage", "/scribe.v1.AnnotationService/SearchAnnotations", "/scribe.v1.AnnotationService/GetAnnotation", "/scribe.v1.AnnotationService/ExportAnnotationPage", "/scribe.v1.ItemService/PrepareItemExport":
 		return "annotations:read"
-	case "/scribe.v1.AnnotationService/SaveAnnotationPage", "/scribe.v1.AnnotationService/PublishItemImageEdits", "/scribe.v1.AnnotationService/EnrichAnnotation", "/scribe.v1.AnnotationService/SplitLineIntoWords", "/scribe.v1.AnnotationService/SplitLineIntoTwoLines", "/scribe.v1.AnnotationService/JoinLines", "/scribe.v1.AnnotationService/JoinWordsIntoLine":
+	case "/scribe.v1.AnnotationService/SaveAnnotationPage", "/scribe.v1.AnnotationService/PublishItemImageEdits", "/scribe.v1.AnnotationService/EnrichAnnotation", "/scribe.v1.AnnotationService/SplitLineIntoWords", "/scribe.v1.AnnotationService/SplitPageIntoWords", "/scribe.v1.AnnotationService/SplitLineIntoTwoLines", "/scribe.v1.AnnotationService/JoinLines", "/scribe.v1.AnnotationService/JoinWordsIntoLine":
 		return "annotations:write"
 	default:
 		return unmappedProcedurePermission
@@ -812,7 +847,7 @@ func principalHasPermission(principal Principal, permission string) bool {
 	// API keys and mapped external JWTs are delegated credentials whose
 	// configured workspace role and scopes are always authoritative. They must
 	// never inherit broader session or system-administrator privileges.
-	if principal.AuthType == "api_key" || principal.AuthType == "external_jwt" {
+	if principal.AuthType == "api_key" || principal.AuthType == "external_jwt" || principal.AuthType == "review_session" {
 		return workspaceRoleAllowsPermission(principal.WorkspaceRole, permission) &&
 			scopeListAllows(principal.Scopes, permission)
 	}
@@ -896,12 +931,16 @@ func requestPublicBaseURL(r *http.Request, fallback string) string {
 }
 
 func (m *Manager) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	m.setSessionCookieTTL(w, token, m.auth.SessionTTL)
+}
+
+func (m *Manager) setSessionCookieTTL(w http.ResponseWriter, token string, ttl time.Duration) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.auth.CookieName,
 		Value:    token,
 		Path:     "/",
 		Domain:   m.auth.CookieDomain,
-		MaxAge:   maxAgeSeconds(m.auth.SessionTTL),
+		MaxAge:   maxAgeSeconds(ttl),
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteLaxMode,

@@ -2,7 +2,7 @@ package store
 
 import "testing"
 
-func TestValidateImageStorageReference(t *testing.T) {
+func TestValidateImageStorageReferenceEnforcesOwnedBlobQuotaPolicy(t *testing.T) {
 	for name, test := range map[string]struct {
 		imageURL     string
 		storageBytes uint64

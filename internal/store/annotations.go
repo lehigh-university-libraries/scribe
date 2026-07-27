@@ -83,7 +83,6 @@ type AnnotationPublicationOptions struct {
 	EventID           string
 	EventType         string
 	Subject           string
-	WebhookURLs       []string
 }
 
 // AnnotationIndexEntry is a non-canonical query projection of one annotation.
@@ -108,11 +107,10 @@ type AnnotationCorrectionMetric struct {
 // cannot leave a retryable job after its output page has already been saved.
 type AnnotationJobCompletion struct {
 	TranscriptionAttemptFence
-	EventID     string
-	EventType   string
-	Subject     string
-	BodyJSON    string
-	WebhookURLs []string
+	EventID   string
+	EventType string
+	Subject   string
+	BodyJSON  string
 	// OCRRun is the immutable baseline/provenance derived from this exact page
 	// revision. When present it is committed and quota-accounted in the same
 	// transaction as the page and terminal job state.
@@ -130,7 +128,6 @@ type AnnotationReprocessCommit struct {
 	EventType       string
 	Subject         string
 	BodyJSON        string
-	WebhookURLs     []string
 	ExternalRequest *AnnotationReprocessExternalRequest
 }
 
@@ -483,7 +480,11 @@ func (s *AnnotationStore) PublishPage(
 		return PublishedAnnotationPage{}, fmt.Errorf("queue published item Manifest projection: %w", err)
 	}
 	if strings.TrimSpace(options.EventID) != "" {
-		bodyJSON, err := publicationEventJSON(canonical, publishedAt, options)
+		item, err := queries.GetItemForWorkspace(ctx, itemID, workspaceID)
+		if err != nil {
+			return PublishedAnnotationPage{}, fmt.Errorf("load annotation publication item: %w", err)
+		}
+		bodyJSON, err := publicationEventJSON(canonical, publishedAt, options, item)
 		if err != nil {
 			return PublishedAnnotationPage{}, fmt.Errorf("encode annotation publication event: %w", err)
 		}
@@ -494,14 +495,8 @@ func (s *AnnotationStore) PublishPage(
 		if err := queries.InsertEventOutbox(ctx, options.EventID, eventType, nullableUint64(workspaceID), nullableString(options.Subject), bodyJSON); err != nil {
 			return PublishedAnnotationPage{}, fmt.Errorf("insert annotation publication event: %w", err)
 		}
-		for _, target := range options.WebhookURLs {
-			target = strings.TrimSpace(target)
-			if target == "" {
-				continue
-			}
-			if err := queries.InsertWebhookDeliveryIfMissing(ctx, options.EventID, target, webhookTargetHash(target)); err != nil {
-				return PublishedAnnotationPage{}, fmt.Errorf("insert annotation publication webhook: %w", err)
-			}
+		if err := queries.InsertWorkspaceWebhookDeliveries(ctx, options.EventID); err != nil {
+			return PublishedAnnotationPage{}, fmt.Errorf("insert annotation publication webhook: %w", err)
 		}
 	}
 	stored, err := queries.GetPublishedAnnotationPageForUpdate(ctx, db.GetPublishedAnnotationPageForUpdateParams{
@@ -823,14 +818,8 @@ func (s *AnnotationStore) savePage(
 			if eventErr := queries.InsertEventOutbox(ctx, completion.EventID, completion.EventType, nullableUint64(page.WorkspaceID), nullableString(completion.Subject), completion.BodyJSON); eventErr != nil {
 				return annotationPageSaveResult{}, fmt.Errorf("insert transcription completion event: %w", eventErr)
 			}
-			for _, target := range completion.WebhookURLs {
-				target = strings.TrimSpace(target)
-				if target == "" {
-					continue
-				}
-				if deliveryErr := queries.InsertWebhookDeliveryIfMissing(ctx, completion.EventID, target, webhookTargetHash(target)); deliveryErr != nil {
-					return annotationPageSaveResult{}, fmt.Errorf("insert transcription webhook delivery: %w", deliveryErr)
-				}
+			if deliveryErr := queries.InsertWorkspaceWebhookDeliveries(ctx, completion.EventID); deliveryErr != nil {
+				return annotationPageSaveResult{}, fmt.Errorf("insert transcription webhook delivery: %w", deliveryErr)
 			}
 		}
 	}
@@ -935,14 +924,8 @@ func commitAnnotationReprocess(
 		if err := queries.InsertEventOutbox(ctx, strings.TrimSpace(commit.EventID), eventType, nullableUint64(page.WorkspaceID), nullableString(commit.Subject), commit.BodyJSON); err != nil {
 			return 0, fmt.Errorf("commit annotation reprocess: insert event: %w", err)
 		}
-		for _, target := range commit.WebhookURLs {
-			target = strings.TrimSpace(target)
-			if target == "" {
-				continue
-			}
-			if err := queries.InsertWebhookDeliveryIfMissing(ctx, strings.TrimSpace(commit.EventID), target, webhookTargetHash(target)); err != nil {
-				return 0, fmt.Errorf("commit annotation reprocess: insert webhook delivery: %w", err)
-			}
+		if err := queries.InsertWorkspaceWebhookDeliveries(ctx, strings.TrimSpace(commit.EventID)); err != nil {
+			return 0, fmt.Errorf("commit annotation reprocess: insert webhook delivery: %w", err)
 		}
 	}
 	if stored.ItemImageID != page.ItemImageID || stored.WorkspaceID != page.WorkspaceID {
@@ -1044,7 +1027,7 @@ func nullablePublishedUserID(userID *uint64) (sql.NullInt64, error) {
 	return sql.NullInt64{Int64: int64(*userID), Valid: true}, nil
 }
 
-func publicationEventJSON(canonical db.AnnotationPage, publishedAt time.Time, options AnnotationPublicationOptions) (string, error) {
+func publicationEventJSON(canonical db.AnnotationPage, publishedAt time.Time, options AnnotationPublicationOptions, item db.Item) (string, error) {
 	annotationCount := 0
 	var document struct {
 		Items []json.RawMessage `json:"items"`
@@ -1057,6 +1040,31 @@ func publicationEventJSON(canonical db.AnnotationPage, publishedAt time.Time, op
 	if eventType == "" {
 		eventType = "dev.scribe.annotations.published"
 	}
+	metadata := map[string]any{}
+	if len(item.Metadata) > 0 {
+		if err := json.Unmarshal(item.Metadata, &metadata); err != nil {
+			return "", err
+		}
+	}
+	data := map[string]any{
+		"workspaceId":       item.WorkspaceID,
+		"itemId":            item.ID,
+		"itemImageId":       canonical.ItemImageID,
+		"canvasUri":         canonical.CanvasUri,
+		"revision":          canonical.Revision,
+		"metadata":          metadata,
+		"annotationCount":   annotationCount,
+		"annotationPageId":  canonical.PageID,
+		"publishedRevision": canonical.Revision,
+		"publicUrl":         canonical.PageID,
+		"publishedAt":       publishedAt.Format(time.RFC3339Nano),
+	}
+	if item.ExternalReferenceID != "" {
+		data["externalReferenceId"] = item.ExternalReferenceID
+	}
+	if item.CallerIdempotencyKey != "" {
+		data["idempotencyKey"] = item.CallerIdempotencyKey
+	}
 	body, err := json.Marshal(map[string]any{
 		"specversion":     "1.0",
 		"id":              strings.TrimSpace(options.EventID),
@@ -1065,15 +1073,7 @@ func publicationEventJSON(canonical db.AnnotationPage, publishedAt time.Time, op
 		"subject":         strings.TrimSpace(options.Subject),
 		"time":            publishedAt.Format(time.RFC3339Nano),
 		"datacontenttype": "application/json",
-		"data": map[string]any{
-			"itemImageId":       canonical.ItemImageID,
-			"canvasUri":         canonical.CanvasUri,
-			"annotationCount":   annotationCount,
-			"annotationPageId":  canonical.PageID,
-			"publishedRevision": canonical.Revision,
-			"publicUrl":         canonical.PageID,
-			"publishedAt":       publishedAt.Format(time.RFC3339Nano),
-		},
+		"data":            data,
 	})
 	if err != nil {
 		return "", err

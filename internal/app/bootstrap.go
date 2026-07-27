@@ -28,22 +28,23 @@ type BootstrapOptions struct {
 // Dependencies collects the long-lived stores and shared resources used by the
 // API and worker entrypoints.
 type Dependencies struct {
-	AppContext             context.Context
-	Config                 config.Config
-	Secrets                config.Secrets
-	DBPool                 *sql.DB
-	OCRRunStore            *store.OCRRunStore
-	ItemStore              *store.ItemStore
-	ContextStore           *store.ContextStore
-	AnnotationStore        *store.AnnotationStore
-	TranscriptionJobStore  *store.TranscriptionJobStore
-	ProviderCallAuditStore *store.ProviderCallAuditStore
-	IdentityStore          *store.IdentityStore
-	APIKeyStore            *store.APIKeyStore
-	ProviderSecretStore    *store.ProviderSecretStore
-	VaultClient            *vaultkv.Client
-	AuthManager            *auth.Manager
-	TranscriptionQueue     *jobqueue.PubSubTranscriptionQueue
+	AppContext               context.Context
+	Config                   config.Config
+	Secrets                  config.Secrets
+	DBPool                   *sql.DB
+	OCRRunStore              *store.OCRRunStore
+	ItemStore                *store.ItemStore
+	ContextStore             *store.ContextStore
+	AnnotationStore          *store.AnnotationStore
+	TranscriptionJobStore    *store.TranscriptionJobStore
+	WebhookSubscriptionStore *store.WebhookSubscriptionStore
+	ProviderCallAuditStore   *store.ProviderCallAuditStore
+	IdentityStore            *store.IdentityStore
+	APIKeyStore              *store.APIKeyStore
+	ProviderSecretStore      *store.ProviderSecretStore
+	VaultClient              *vaultkv.Client
+	AuthManager              *auth.Manager
+	TranscriptionQueue       *jobqueue.PubSubTranscriptionQueue
 }
 
 // NewDependencies loads config + secrets, opens the DB, runs migrations, and
@@ -83,20 +84,21 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 	}
 
 	deps := &Dependencies{
-		AppContext:             ctx,
-		Config:                 cfg,
-		Secrets:                secrets,
-		DBPool:                 dbPool,
-		OCRRunStore:            store.NewOCRRunStore(dbPool),
-		ItemStore:              store.NewItemStore(dbPool),
-		ContextStore:           store.NewContextStore(dbPool),
-		AnnotationStore:        store.NewAnnotationStoreWithTranscriptionAdmission(dbPool, jobAdmission),
-		TranscriptionJobStore:  store.NewTranscriptionJobStoreWithAdmission(dbPool, jobAdmission),
-		ProviderCallAuditStore: store.NewProviderCallAuditStore(dbPool),
-		IdentityStore:          store.NewIdentityStore(dbPool),
-		APIKeyStore:            store.NewAPIKeyStore(dbPool),
-		ProviderSecretStore:    store.NewProviderSecretStore(dbPool),
-		VaultClient:            vaultkv.New(cfg.Vault.Address, cfg.Vault.Token, cfg.Vault.KVMount, cfg.Vault.GCPAuthRole),
+		AppContext:               ctx,
+		Config:                   cfg,
+		Secrets:                  secrets,
+		DBPool:                   dbPool,
+		OCRRunStore:              store.NewOCRRunStore(dbPool),
+		ItemStore:                store.NewItemStore(dbPool),
+		ContextStore:             store.NewContextStore(dbPool),
+		AnnotationStore:          store.NewAnnotationStoreWithTranscriptionAdmission(dbPool, jobAdmission),
+		TranscriptionJobStore:    store.NewTranscriptionJobStoreWithAdmission(dbPool, jobAdmission),
+		WebhookSubscriptionStore: store.NewWebhookSubscriptionStore(dbPool),
+		ProviderCallAuditStore:   store.NewProviderCallAuditStore(dbPool),
+		IdentityStore:            store.NewIdentityStore(dbPool),
+		APIKeyStore:              store.NewAPIKeyStore(dbPool),
+		ProviderSecretStore:      store.NewProviderSecretStore(dbPool),
+		VaultClient:              vaultkv.New(cfg.Vault.Address, cfg.Vault.Token, cfg.Vault.KVMount, cfg.Vault.GCPAuthRole),
 	}
 	if jobqueue.Enabled(cfg.Transcription.Queue) {
 		q, err := jobqueue.NewPubSubTranscriptionQueue(ctx, cfg.Transcription.Queue, cfg.Transcription.JobWorkers)
@@ -188,6 +190,7 @@ func (d *Dependencies) NewHandler() *server.Handler {
 	if d.TranscriptionQueue != nil {
 		h.SetTranscriptionJobQueue(d.TranscriptionQueue)
 	}
+	h.SetWebhookSubscriptionStore(d.WebhookSubscriptionStore)
 	h.SetAppContext(d.AppContext)
 	return h
 }

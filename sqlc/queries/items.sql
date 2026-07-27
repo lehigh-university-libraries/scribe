@@ -7,7 +7,9 @@ INSERT INTO items (
   source_type,
   source_url,
   source_manifest,
-  metadata
+  metadata,
+  external_reference_id,
+  caller_idempotency_key
 ) VALUES (
   sqlc.arg(id),
   sqlc.arg(user_id),
@@ -16,7 +18,9 @@ INSERT INTO items (
   sqlc.arg(source_type),
   sqlc.narg(source_url),
   sqlc.narg(source_manifest),
-  sqlc.narg(metadata)
+  sqlc.narg(metadata),
+  sqlc.arg(external_reference_id),
+  sqlc.arg(caller_idempotency_key)
 );
 
 -- name: GetItemManual :one
@@ -29,6 +33,8 @@ SELECT
   source_url,
   source_manifest,
   COALESCE(metadata, JSON_OBJECT()) AS metadata,
+  external_reference_id,
+  caller_idempotency_key,
   created_at,
   updated_at
 FROM items
@@ -39,6 +45,7 @@ SELECT
   id,
   name,
   source_type,
+  external_reference_id,
   created_at,
   updated_at
 FROM items
@@ -46,6 +53,7 @@ WHERE workspace_id = sqlc.arg(workspace_id)
   AND (
     name LIKE sqlc.arg(filter_pattern) ESCAPE '!'
     OR id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
+    OR external_reference_id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
     OR CAST(source_type AS CHAR) LIKE CAST(sqlc.arg(filter_pattern) AS CHAR) ESCAPE '!'
   )
   AND (
@@ -100,6 +108,7 @@ FROM (
       AND (
         i.name LIKE sqlc.arg(filter_pattern) ESCAPE '!'
         OR i.id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
+        OR i.external_reference_id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
         OR CAST(i.source_type AS CHAR) LIKE CAST(sqlc.arg(filter_pattern) AS CHAR) ESCAPE '!'
       )
       AND (

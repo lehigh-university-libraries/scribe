@@ -93,6 +93,35 @@ describe("renderEditor", () => {
     window.dispatchEvent(new Event("pagehide"));
   });
 
+  it("announces a malformed deep link and offers a route back to the library", async () => {
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    await renderEditor(app);
+
+    const meta = document.getElementById("editor-meta");
+    expect(meta?.getAttribute("role")).toBe("alert");
+    expect(meta?.getAttribute("aria-live")).toBe("assertive");
+    expect(document.querySelector('#mirador-viewer [role="alert"]')?.textContent)
+      .toContain("missing the required itemImageId");
+    expect(document.querySelector('#mirador-viewer a')?.textContent).toContain("Back to library");
+  });
+
+  it("offers retry and library recovery when the OCR run cannot load", async () => {
+    window.history.replaceState({}, "", "/editor?itemImageId=42");
+    mocks.getOCRRun.mockRejectedValue(new Error("service unavailable"));
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    await renderEditor(app);
+
+    expect(document.getElementById("editor-meta")?.getAttribute("role")).toBe("alert");
+    expect(document.querySelector('#mirador-viewer [role="alert"]')?.textContent)
+      .toContain("Failed to load the OCR run");
+    expect(document.getElementById("editor-recovery-retry")?.textContent).toContain("Retry");
+    expect(document.querySelector('#mirador-viewer a')?.textContent).toContain("Back to library");
+  });
+
   it("requests a save before leaving a dirty editor", async () => {
     const app = document.createElement("div");
     document.body.appendChild(app);

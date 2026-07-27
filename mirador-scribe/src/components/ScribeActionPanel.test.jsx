@@ -1,0 +1,111 @@
+// @vitest-environment happy-dom
+
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import ScribeActionPanel from './ScribeActionPanel';
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock('mirador', () => ({
+  ConnectedCompanionWindow: ({ children }) => <section>{children}</section>,
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key) => key }),
+}));
+
+let root;
+let container;
+
+function line(id = 'line-1') {
+  return {
+    body: [{ purpose: 'supplementing', type: 'TextualBody', value: 'one two three' }],
+    id,
+    target: 'https://example.test/canvas/1#xywh=pixel:0,0,100,20',
+    textGranularity: 'line',
+    type: 'Annotation',
+  };
+}
+
+function props(overrides = {}) {
+  const annotation = line();
+  const noop = vi.fn();
+  return {
+    annotations: [annotation],
+    canSplitToWords: true,
+    drawMode: false,
+    id: 'companion-1',
+    isBusy: false,
+    onAddWord: noop,
+    onCreateCenteredLine: noop,
+    onCreateLine: noop,
+    onCycleOverlayMode: noop,
+    onDelete: noop,
+    onExplode: noop,
+    onPublish: noop,
+    onRedo: noop,
+    onReload: noop,
+    onSave: noop,
+    onTranscribe: noop,
+    onTranscribeDialogClose: noop,
+    onTranscribeDialogOpen: noop,
+    onTranscribeSelectionChange: noop,
+    onUndo: noop,
+    overlayMode: 'none',
+    pendingRemoteIds: [],
+    revisionConflict: false,
+    saveDisabled: false,
+    selectedAnnotation: annotation,
+    selectedGranularity: 'line',
+    statusMessage: '',
+    structuralEdits: {
+      canChooseLines: true,
+      canChooseSplit: true,
+      canChooseWords: true,
+      closeDialog: noop,
+      dialog: null,
+      joinLines: noop,
+      joinWords: noop,
+      lineCandidates: [annotation, line('line-2')],
+      openJoinLines: noop,
+      openJoinWords: noop,
+      openSplit: noop,
+      selectedLineId: annotation.id,
+      selectedWordId: '',
+      splitAtWord: noop,
+      splitTokens: ['one', 'two', 'three'],
+      wordCandidates: [],
+    },
+    transcribeDialogOpen: false,
+    transcribeSelection: [],
+    windowId: 'window-1',
+    ...overrides,
+  };
+}
+
+afterEach(async () => {
+  if (root) await act(async () => root.unmount());
+  container?.remove();
+  root = undefined;
+  container = undefined;
+  vi.restoreAllMocks();
+});
+
+describe('ScribeActionPanel', () => {
+  it('keeps granularity visible and exposes structural shortcuts on their controls', async () => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root.render(<ScribeActionPanel {...props()} />));
+
+    const granularityLegend = document.querySelector('[aria-label="Text granularity legend"]');
+    expect(granularityLegend?.textContent).toContain('Line boundaries');
+    expect(granularityLegend?.textContent).toContain('Word boundaries');
+    expect(document.querySelector('button[aria-label="scribeEditorSplitLine"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+S');
+    expect(document.querySelector('button[aria-label="scribeEditorJoinLines"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+L');
+    expect(document.querySelector('button[aria-label="scribeEditorJoinWords"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+W');
+    expect(document.querySelector('button[aria-label="scribeEditorTranscribe"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+R');
+    expect(document.querySelector('button[aria-label="Publish edits"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+P');
+  });
+});

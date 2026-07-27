@@ -687,6 +687,39 @@ type CurrentOcrRun struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type EditorReviewSession struct {
+	ID                  uint64         `json:"id"`
+	TokenHash           string         `json:"token_hash"`
+	ReviewTokenID       string         `json:"review_token_id"`
+	WorkspaceID         uint64         `json:"workspace_id"`
+	ItemID              string         `json:"item_id"`
+	ItemImageID         uint64         `json:"item_image_id"`
+	IssuedByUserID      uint64         `json:"issued_by_user_id"`
+	ReviewerSubjectHash string         `json:"reviewer_subject_hash"`
+	ReviewerName        string         `json:"reviewer_name"`
+	ReviewerEmail       sql.NullString `json:"reviewer_email"`
+	ExpiresAt           time.Time      `json:"expires_at"`
+	UserAgent           sql.NullString `json:"user_agent"`
+	IpAddress           sql.NullString `json:"ip_address"`
+	CreatedAt           time.Time      `json:"created_at"`
+}
+
+type EditorReviewToken struct {
+	ID                  string         `json:"id"`
+	TokenHash           string         `json:"token_hash"`
+	WorkspaceID         uint64         `json:"workspace_id"`
+	ItemID              string         `json:"item_id"`
+	ItemImageID         uint64         `json:"item_image_id"`
+	IssuedByUserID      uint64         `json:"issued_by_user_id"`
+	ReviewerSubjectHash string         `json:"reviewer_subject_hash"`
+	ReviewerName        string         `json:"reviewer_name"`
+	ReviewerEmail       sql.NullString `json:"reviewer_email"`
+	SessionTtlSeconds   uint32         `json:"session_ttl_seconds"`
+	ExpiresAt           time.Time      `json:"expires_at"`
+	RedeemedAt          sql.NullTime   `json:"redeemed_at"`
+	CreatedAt           time.Time      `json:"created_at"`
+}
+
 type EventOutbox struct {
 	ID          uint64         `json:"id"`
 	EventID     string         `json:"event_id"`
@@ -719,16 +752,18 @@ type ExternalRequest struct {
 }
 
 type Item struct {
-	ID             string          `json:"id"`
-	UserID         uint64          `json:"user_id"`
-	WorkspaceID    uint64          `json:"workspace_id"`
-	Name           string          `json:"name"`
-	SourceType     ItemsSourceType `json:"source_type"`
-	SourceUrl      sql.NullString  `json:"source_url"`
-	SourceManifest sql.NullString  `json:"source_manifest"`
-	Metadata       json.RawMessage `json:"metadata"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	ID                   string          `json:"id"`
+	UserID               uint64          `json:"user_id"`
+	WorkspaceID          uint64          `json:"workspace_id"`
+	Name                 string          `json:"name"`
+	SourceType           ItemsSourceType `json:"source_type"`
+	SourceUrl            sql.NullString  `json:"source_url"`
+	SourceManifest       sql.NullString  `json:"source_manifest"`
+	Metadata             json.RawMessage `json:"metadata"`
+	ExternalReferenceID  string          `json:"external_reference_id"`
+	CallerIdempotencyKey string          `json:"caller_idempotency_key"`
+	CreatedAt            time.Time       `json:"created_at"`
+	UpdatedAt            time.Time       `json:"updated_at"`
 }
 
 type ItemImage struct {
@@ -925,19 +960,28 @@ type User struct {
 }
 
 type WebhookDelivery struct {
-	ID            uint64                  `json:"id"`
-	EventID       string                  `json:"event_id"`
-	TargetUrl     string                  `json:"target_url"`
-	TargetHash    string                  `json:"target_hash"`
-	Status        WebhookDeliveriesStatus `json:"status"`
-	AttemptCount  int32                   `json:"attempt_count"`
-	MaxAttempts   int32                   `json:"max_attempts"`
-	NextAttemptAt sql.NullTime            `json:"next_attempt_at"`
-	LeaseUntil    sql.NullTime            `json:"lease_until"`
-	LockedBy      sql.NullString          `json:"locked_by"`
-	LastError     sql.NullString          `json:"last_error"`
-	CreatedAt     time.Time               `json:"created_at"`
-	UpdatedAt     time.Time               `json:"updated_at"`
+	ID             uint64                  `json:"id"`
+	EventID        string                  `json:"event_id"`
+	SubscriptionID uint64                  `json:"subscription_id"`
+	Status         WebhookDeliveriesStatus `json:"status"`
+	AttemptCount   int32                   `json:"attempt_count"`
+	MaxAttempts    int32                   `json:"max_attempts"`
+	NextAttemptAt  sql.NullTime            `json:"next_attempt_at"`
+	LeaseUntil     sql.NullTime            `json:"lease_until"`
+	LockedBy       sql.NullString          `json:"locked_by"`
+	LastError      sql.NullString          `json:"last_error"`
+	CreatedAt      time.Time               `json:"created_at"`
+	UpdatedAt      time.Time               `json:"updated_at"`
+}
+
+type WebhookSubscription struct {
+	ID            uint64    `json:"id"`
+	WorkspaceID   uint64    `json:"workspace_id"`
+	TargetUrl     string    `json:"target_url"`
+	TargetHash    string    `json:"target_hash"`
+	SigningSecret []byte    `json:"signing_secret"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Workspace struct {

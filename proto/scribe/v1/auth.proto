@@ -158,6 +158,49 @@ message DeleteProviderSecretRequest {
 
 message DeleteProviderSecretResponse {}
 
+// CreateEditorReviewTokenRequest asks a registered machine integration to
+// vouch for one human reviewer and one exact item image. The returned link is
+// a one-time browser handoff, not a reusable API credential.
+message CreateEditorReviewTokenRequest {
+  option (buf.validate.message).cel = {
+    id: "editor_review_token.lifetimes"
+    message: "item_image_id and reviewer identity are required; token/session lifetimes must stay within their bounded ranges"
+    expression: "this.item_image_id > 0u && this.reviewer_subject.matches('.*\\\\S.*') && this.reviewer_name.matches('.*\\\\S.*') && (this.token_ttl_seconds == 0u || (this.token_ttl_seconds >= 60u && this.token_ttl_seconds <= 600u)) && (this.session_ttl_seconds == 0u || (this.session_ttl_seconds >= 300u && this.session_ttl_seconds <= 28800u))"
+  };
+  uint64 item_image_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  // Stable, issuer-local identity. Scribe stores only its digest.
+  string reviewer_subject = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: ".*\\S.*"
+      max_len: 255
+    }
+  ];
+  string reviewer_name = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: ".*\\S.*"
+      max_len: 255
+    }
+  ];
+  string reviewer_email = 4 [(buf.validate.field).string.max_len = 320];
+  // Defaults to five minutes; accepted range is one through ten minutes.
+  uint32 token_ttl_seconds = 5;
+  // Defaults to two hours; accepted range is five minutes through eight hours.
+  uint32 session_ttl_seconds = 6;
+}
+
+message CreateEditorReviewTokenResponse {
+  string review_url = 1;
+  string expires_at = 2;
+  uint64 workspace_id = 3;
+  string item_id = 4;
+  uint64 item_image_id = 5;
+}
+
 service AuthService {
   rpc GetAuthMe(GetAuthMeRequest) returns (GetAuthMeResponse) {
     option (scribe.v1.options.v1.authz) = {
@@ -208,6 +251,13 @@ service AuthService {
       level: ACCESS_LEVEL_WRITE
       resource_id_field: "secret_id"
       session_only: true
+    };
+  }
+  rpc CreateEditorReviewToken(CreateEditorReviewTokenRequest) returns (CreateEditorReviewTokenResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_ITEM_IMAGE
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_image_id"
     };
   }
 }

@@ -32,24 +32,29 @@ const (
 var ErrInvalidItemPage = errors.New("invalid item page")
 
 type Item struct {
-	ID             string         `json:"id"`
-	UserID         uint64         `json:"user_id"`
-	WorkspaceID    uint64         `json:"workspace_id"`
-	Name           string         `json:"name"`
-	SourceType     string         `json:"source_type"`
-	SourceURL      string         `json:"source_url,omitempty"`
-	SourceManifest string         `json:"-"`
-	Metadata       map[string]any `json:"metadata,omitempty"`
-	Images         []ItemImage    `json:"images,omitempty"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
+	ID                   string         `json:"id"`
+	UserID               uint64         `json:"user_id"`
+	WorkspaceID          uint64         `json:"workspace_id"`
+	Name                 string         `json:"name"`
+	SourceType           string         `json:"source_type"`
+	SourceURL            string         `json:"source_url,omitempty"`
+	SourceManifest       string         `json:"-"`
+	Metadata             map[string]any `json:"metadata,omitempty"`
+	ExternalReferenceID  string         `json:"external_reference_id,omitempty"`
+	CallerIdempotencyKey string         `json:"-"`
+	Images               []ItemImage    `json:"images,omitempty"`
+	CreatedAt            time.Time      `json:"created_at"`
+	UpdatedAt            time.Time      `json:"updated_at"`
 }
 
 type ItemImage struct {
-	ID           uint64    `json:"id"`
-	ItemID       string    `json:"item_id"`
-	Sequence     uint32    `json:"sequence"`
-	ImageURL     string    `json:"image_url"`
+	ID       uint64 `json:"id"`
+	ItemID   string `json:"item_id"`
+	Sequence uint32 `json:"sequence"`
+	ImageURL string `json:"image_url"`
+	// StorageBytes accounts only immutable upload blobs owned by Scribe. Local
+	// upload URLs require their exact positive physical size; external URLs
+	// require zero because their bytes are not part of Scribe's blob lifecycle.
 	StorageBytes uint64    `json:"storage_bytes"`
 	CanvasURI    string    `json:"canvas_uri,omitempty"`
 	Width        uint32    `json:"width,omitempty"`
@@ -63,13 +68,14 @@ type ItemImage struct {
 // ItemSummary is the bounded library representation of an item. PreviewImage
 // contains at most the first ordered image; Get returns the complete image set.
 type ItemSummary struct {
-	ID           string
-	Name         string
-	SourceType   string
-	ImageCount   uint64
-	PreviewImage *ItemImage
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                  string
+	Name                string
+	SourceType          string
+	ExternalReferenceID string
+	ImageCount          uint64
+	PreviewImage        *ItemImage
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // ItemPageCursor is the exclusive keyset boundary for a ListItems page.
@@ -233,11 +239,12 @@ func (s *ItemStore) ListPage(ctx context.Context, workspaceID uint64, pageSize u
 	out := make([]ItemSummary, 0, len(rows))
 	for _, row := range rows {
 		summary := ItemSummary{
-			ID:         row.ID,
-			Name:       row.Name,
-			SourceType: string(row.SourceType),
-			CreatedAt:  row.CreatedAt,
-			UpdatedAt:  row.UpdatedAt,
+			ID:                  row.ID,
+			Name:                row.Name,
+			SourceType:          string(row.SourceType),
+			ExternalReferenceID: row.ExternalReferenceID,
+			CreatedAt:           row.CreatedAt,
+			UpdatedAt:           row.UpdatedAt,
 		}
 		if preview, ok := previewsByItemID[row.ID]; ok {
 			image := rowToItemImage(preview.Image)
@@ -362,6 +369,23 @@ func deleteItemResourceGraph(ctx context.Context, queries *db.Queries, workspace
 		return fmt.Errorf("delete item resource graph: workspace and item are required")
 	}
 	itemID = strings.TrimSpace(itemID)
+	// Revoke scoped browser credentials before removing their owning image.
+	// Sessions and grants are deliberately outside the ordinary OAuth session
+	// table, so item deletion must remove both halves of the handoff explicitly.
+	if err := queries.DeleteEditorReviewSessionsForItemResourceGraph(ctx, db.DeleteEditorReviewSessionsForItemResourceGraphParams{
+		WorkspaceID: workspaceID,
+		ItemID:      itemID,
+		ItemImageID: imageID,
+	}); err != nil {
+		return fmt.Errorf("delete editor review sessions: %w", err)
+	}
+	if err := queries.DeleteEditorReviewTokensForItemResourceGraph(ctx, db.DeleteEditorReviewTokensForItemResourceGraphParams{
+		WorkspaceID: workspaceID,
+		ItemID:      itemID,
+		ItemImageID: imageID,
+	}); err != nil {
+		return fmt.Errorf("delete editor review tokens: %w", err)
+	}
 	if err := queries.DeleteExternalRequestsForItemResourceGraph(ctx, db.DeleteExternalRequestsForItemResourceGraphParams{
 		WorkspaceID:    workspaceID,
 		ItemImageID:    imageID,
@@ -763,6 +787,8 @@ func rowToItem(row db.Item) Item {
 	if row.SourceManifest.Valid {
 		it.SourceManifest = row.SourceManifest.String
 	}
+	it.ExternalReferenceID = row.ExternalReferenceID
+	it.CallerIdempotencyKey = row.CallerIdempotencyKey
 	if len(row.Metadata) > 0 {
 		var m map[string]any
 		if err := json.Unmarshal(row.Metadata, &m); err == nil {

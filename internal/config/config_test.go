@@ -763,31 +763,3 @@ func TestNormalizeExternalJWTIssuersRequiresSecureCompleteConfig(t *testing.T) {
 		t.Fatalf("loopback development issuer rejected: %v", err)
 	}
 }
-
-func TestNormalizeWebhookURLsRequiresPublicHTTPSWithoutSecrets(t *testing.T) {
-	t.Parallel()
-
-	got, err := normalizeWebhookURLs([]string{
-		"https://hooks.example.edu/scribe",
-		"https://hooks.example.edu/scribe",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0] != "https://hooks.example.edu/scribe" {
-		t.Fatalf("normalized webhooks = %#v", got)
-	}
-
-	for _, raw := range []string{
-		"http://hooks.example.edu/scribe",
-		"https://hooks.example.edu/scribe?token=secret",
-		"https://user:secret@hooks.example.edu/scribe",
-		"https://127.0.0.1/scribe",
-		"https://10.0.0.1/scribe",
-		"https://hooks.internal/scribe",
-	} {
-		if _, err := normalizeWebhookURLs([]string{raw}); err == nil {
-			t.Fatalf("normalizeWebhookURLs(%q) accepted an unsafe target", raw)
-		}
-	}
-}

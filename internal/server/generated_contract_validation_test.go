@@ -118,6 +118,19 @@ func TestGeneratedMutationContractsRejectUnboundedAndInvalidInputs(t *testing.T)
 				ItemId: "item", ExpectedRevisions: []*scribev1.ItemImageRevision{{ItemImageId: 1, Revision: 1}},
 			},
 		},
+		{
+			name: "webhook signing secret minimum",
+			message: &scribev1.CreateWebhookRequest{
+				WorkspaceId: 1, TargetUrl: "https://hooks.example.com/events", Secret: "short",
+			},
+		},
+		{
+			name: "external reference length",
+			message: &scribev1.ProcessImageURLRequest{
+				ImageUrl: "https://images.example.com/page.jpg", IdempotencyKey: "request-1",
+				ExternalReferenceId: strings.Repeat("x", 513),
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -151,6 +164,12 @@ func TestGeneratedMutationContractsAcceptBoundedInputs(t *testing.T) {
 		&scribev1.PrepareItemExportRequest{
 			ItemId: "item", Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
 			ExpectedRevisions: []*scribev1.ItemImageRevision{{ItemImageId: 1, Revision: 1}},
+		},
+		&scribev1.CreateWebhookRequest{
+			WorkspaceId: 1, TargetUrl: "https://hooks.example.com/events", Secret: strings.Repeat("s", 32),
+		},
+		&scribev1.ProcessImageURLRequest{
+			ImageUrl: "https://images.example.com/page.jpg", IdempotencyKey: "request-1", ExternalReferenceId: strings.Repeat("x", 512),
 		},
 	}
 	for _, message := range valid {

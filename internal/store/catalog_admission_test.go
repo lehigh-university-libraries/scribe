@@ -2,9 +2,11 @@ package store_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -187,6 +189,158 @@ func TestAuthSessionAdmissionEvictsOldestAndRetentionDeletesExpired(t *testing.T
 		t.Fatalf("retain expired sessions: %v", err)
 	}
 	assertTableCount(t, database, "auth_sessions", "user_id", user.ID, store.MaxAuthSessionsPerUser)
+}
+
+func TestConcurrentEditorReviewTokenAdmissionEnforcesWorkspaceLimit(t *testing.T) {
+	database := annotationTestDB(t)
+	ctx := context.Background()
+	identities := store.NewIdentityStore(database)
+	userID, workspaceID := createUploadBatchIdentity(t, database)
+	cleanupEditorReviewAdmissionFixture(t, database, workspaceID)
+	suffix := uuid.NewString()
+	itemID := "review-token-limit-" + suffix
+	if _, err := database.ExecContext(ctx, `
+INSERT INTO items (id, user_id, workspace_id, name, source_type, metadata)
+VALUES (?, ?, ?, 'Review token admission', 'url', JSON_OBJECT())`, itemID, userID, workspaceID); err != nil {
+		t.Fatalf("create review-token item: %v", err)
+	}
+	result, err := database.ExecContext(ctx, `
+INSERT INTO item_images (workspace_id, item_id, sequence, image_url, canvas_uri, width, height)
+VALUES (?, ?, 0, ?, ?, 100, 100)`, workspaceID, itemID, "https://images.example/"+suffix+".jpg", "https://iiif.example/canvas/"+suffix)
+	if err != nil {
+		t.Fatalf("create review-token image: %v", err)
+	}
+	imageIDRaw, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageID := uint64(imageIDRaw) // #nosec G115 -- positive test fixture identifier.
+	createGrant := func(index int) error {
+		return identities.CreateEditorReviewGrant(ctx, store.EditorReviewGrant{
+			ID:                  uuid.NewString(),
+			TokenHash:           editorReviewAdmissionDigest(suffix, "grant", index),
+			WorkspaceID:         workspaceID,
+			ItemID:              itemID,
+			ItemImageID:         imageID,
+			IssuedByUserID:      userID,
+			ReviewerSubjectHash: editorReviewAdmissionDigest(suffix, "reviewer", index),
+			ReviewerName:        "Review token admission",
+			SessionTTL:          time.Hour,
+			ExpiresAt:           time.Now().UTC().Add(5 * time.Minute),
+		})
+	}
+	for index := 0; index < store.MaxActiveEditorReviewTokensPerWorkspace-1; index++ {
+		if err := createGrant(index); err != nil {
+			t.Fatalf("seed review grant %d: %v", index, err)
+		}
+	}
+	results := runConcurrentAdmissions(func(index int) error {
+		return createGrant(store.MaxActiveEditorReviewTokensPerWorkspace + index)
+	})
+	assertOneAdmissionAtLimit(t, results, store.ErrEditorReviewTokenLimit)
+	assertTableCount(t, database, "editor_review_tokens", "workspace_id", workspaceID, store.MaxActiveEditorReviewTokensPerWorkspace)
+}
+
+func TestEditorReviewSessionAdmissionEvictsOldestAndBoundsAuditMetadata(t *testing.T) {
+	database := annotationTestDB(t)
+	ctx := context.Background()
+	identities := store.NewIdentityStore(database)
+	userID, workspaceID := createUploadBatchIdentity(t, database)
+	cleanupEditorReviewAdmissionFixture(t, database, workspaceID)
+	suffix := uuid.NewString()
+	itemID := "review-admission-" + suffix
+	if _, err := database.ExecContext(ctx, `
+INSERT INTO items (id, user_id, workspace_id, name, source_type, metadata)
+VALUES (?, ?, ?, 'Review admission', 'url', JSON_OBJECT())`, itemID, userID, workspaceID); err != nil {
+		t.Fatalf("create review item: %v", err)
+	}
+	result, err := database.ExecContext(ctx, `
+INSERT INTO item_images (workspace_id, item_id, sequence, image_url, canvas_uri, width, height)
+VALUES (?, ?, 0, ?, ?, 100, 100)`, workspaceID, itemID, "https://images.example/"+suffix+".jpg", "https://iiif.example/canvas/"+suffix)
+	if err != nil {
+		t.Fatalf("create review image: %v", err)
+	}
+	imageIDRaw, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageID := uint64(imageIDRaw) // #nosec G115 -- positive test fixture identifier.
+
+	for index := 0; index < store.MaxActiveEditorReviewSessionsPerWorkspace+5; index++ {
+		grantToken := fmt.Sprintf("grant-%03d-%s", index, suffix)
+		grantHash := editorReviewAdmissionDigest(suffix, "grant", index)
+		grantID := uuid.NewString()
+		if err := identities.CreateEditorReviewGrant(ctx, store.EditorReviewGrant{
+			ID:                  grantID,
+			TokenHash:           grantHash,
+			WorkspaceID:         workspaceID,
+			ItemID:              itemID,
+			ItemImageID:         imageID,
+			IssuedByUserID:      userID,
+			ReviewerSubjectHash: editorReviewAdmissionDigest(suffix, "reviewer", index),
+			ReviewerName:        "Review admission",
+			SessionTTL:          time.Hour,
+			ExpiresAt:           time.Now().UTC().Add(5 * time.Minute),
+		}); err != nil {
+			t.Fatalf("create review grant %d: %v", index, err)
+		}
+		sessionToken := fmt.Sprintf("session-%03d-%s", index, suffix)
+		if _, err := identities.RedeemEditorReviewGrant(ctx, store.RedeemEditorReviewGrantParams{
+			TokenHash:       grantHash,
+			GrantID:         grantID,
+			WorkspaceID:     workspaceID,
+			ItemID:          itemID,
+			ItemImageID:     imageID,
+			RawSessionToken: sessionToken,
+			UserAgent:       strings.Repeat("browser", 300) + "\n",
+			IPAddress:       strings.Repeat("1", 300),
+		}); err != nil {
+			t.Fatalf("redeem review grant %d (%s): %v", index, grantToken, err)
+		}
+	}
+
+	assertTableCount(t, database, "editor_review_sessions", "workspace_id", workspaceID, store.MaxActiveEditorReviewSessionsPerWorkspace)
+	if _, err := identities.GetEditorReviewSession(ctx, fmt.Sprintf("session-%03d-%s", 0, suffix)); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("oldest review session error = %v, want sql.ErrNoRows", err)
+	}
+	newest := fmt.Sprintf("session-%03d-%s", store.MaxActiveEditorReviewSessionsPerWorkspace+4, suffix)
+	if _, err := identities.GetEditorReviewSession(ctx, newest); err != nil {
+		t.Fatalf("newest review session is unavailable: %v", err)
+	}
+	var userAgent, ipAddress string
+	if err := database.QueryRowContext(ctx, `
+SELECT user_agent, ip_address
+FROM editor_review_sessions
+WHERE workspace_id = ?
+ORDER BY id DESC
+LIMIT 1`, workspaceID).Scan(&userAgent, &ipAddress); err != nil {
+		t.Fatalf("load review audit metadata: %v", err)
+	}
+	if len([]rune(userAgent)) > 1024 || strings.ContainsAny(userAgent, "\r\n") || len([]rune(ipAddress)) > 255 {
+		t.Fatalf("unbounded review audit metadata: user_agent=%d runes ip=%d runes", len([]rune(userAgent)), len([]rune(ipAddress)))
+	}
+}
+
+func editorReviewAdmissionDigest(suffix, kind string, index int) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%d", suffix, kind, index))))
+}
+
+func cleanupEditorReviewAdmissionFixture(t *testing.T, database *sql.DB, workspaceID uint64) {
+	t.Helper()
+	t.Cleanup(func() {
+		if _, err := database.Exec(`DELETE FROM editor_review_sessions WHERE workspace_id = ?`, workspaceID); err != nil {
+			t.Errorf("clean up editor review admission sessions: %v", err)
+		}
+		if _, err := database.Exec(`DELETE FROM editor_review_tokens WHERE workspace_id = ?`, workspaceID); err != nil {
+			t.Errorf("clean up editor review admission tokens: %v", err)
+		}
+		// The admission fixtures insert their item tuple directly so the cap tests
+		// remain focused. Reconcile that tuple before the shared identity cleanup
+		// asks ItemStore to remove the quota-accounted resource graph.
+		if err := store.NewItemStore(database).RebuildStorageQuotaUsage(context.Background()); err != nil {
+			t.Errorf("rebuild quota before editor review admission cleanup: %v", err)
+		}
+	})
 }
 
 func runConcurrentAdmissions(admit func(index int) error) []error {

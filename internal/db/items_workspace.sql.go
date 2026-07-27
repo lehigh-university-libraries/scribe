@@ -53,6 +53,8 @@ SELECT
   source_url,
   source_manifest,
   COALESCE(metadata, JSON_OBJECT()) AS metadata,
+  external_reference_id,
+  caller_idempotency_key,
   created_at,
   updated_at
 FROM items
@@ -78,6 +80,8 @@ func (q *Queries) GetItemForWorkspaceManual(ctx context.Context, arg GetItemForW
 		&i.SourceUrl,
 		&i.SourceManifest,
 		&i.Metadata,
+		&i.ExternalReferenceID,
+		&i.CallerIdempotencyKey,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

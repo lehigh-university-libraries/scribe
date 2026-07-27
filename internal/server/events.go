@@ -3,7 +3,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,7 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -72,7 +75,7 @@ func (h *Handler) enqueueWebhooks(evt cloudEvent) {
 		slog.Warn("Failed to marshal webhook event", "event_type", evt.Type, "error_type", safeLogErrorType(err))
 		return
 	}
-	if err := h.transcriptionJobs.EnqueueWebhookEvent(h.backgroundContext(), evt.ID, evt.Type, evt.Subject, string(body), h.webhookURLs); err != nil {
+	if err := h.transcriptionJobs.EnqueueWebhookEvent(h.backgroundContext(), evt.ID, evt.Type, evt.Subject, string(body)); err != nil {
 		slog.Warn("Failed to enqueue webhook event", "event_type", evt.Type, "event_id", evt.ID, "error_type", safeLogErrorType(err))
 	}
 }
@@ -83,9 +86,6 @@ func (h *Handler) StartWebhookDispatcher(ctx context.Context) {
 		return
 	}
 	h.startWebhookEventRetention(ctx)
-	if len(h.webhookURLs) == 0 {
-		return
-	}
 	h.startBackgroundWorker(func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -196,7 +196,7 @@ func (h *Handler) dispatchWebhookBatch(ctx context.Context) {
 	for _, delivery := range deliveries {
 		delivery := delivery
 		g.Go(func() error {
-			if err := h.deliverWebhook(groupCtx, delivery.TargetURL, []byte(delivery.BodyJSON)); err != nil {
+			if err := h.deliverWebhook(groupCtx, delivery.TargetURL, delivery.SigningSecret, []byte(delivery.BodyJSON)); err != nil {
 				_, targetID := webhookTargetAuditFields(delivery.TargetURL)
 				failure := safeWebhookFailure(err)
 				slog.Warn("Webhook delivery failed", "target_id", targetID, "event_type", delivery.EventType, "event_id", delivery.EventID, "failure", failure)
@@ -220,12 +220,23 @@ func (h *Handler) dispatchWebhookBatch(ctx context.Context) {
 	}
 }
 
-func (h *Handler) deliverWebhook(ctx context.Context, targetURL string, body []byte) error {
+const (
+	webhookTimestampHeader = "X-Scribe-Timestamp"
+	webhookSignatureHeader = "X-Scribe-Signature"
+)
+
+func (h *Handler) deliverWebhook(ctx context.Context, targetURL string, signingSecret, body []byte) error {
+	if len(signingSecret) < store.MinWebhookSigningSecretBytes || len(signingSecret) > store.MaxWebhookSigningSecretBytes {
+		return fmt.Errorf("webhook signing secret is invalid")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/cloudevents+json")
+	timestamp := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	req.Header.Set(webhookTimestampHeader, timestamp)
+	req.Header.Set(webhookSignatureHeader, webhookSignature(signingSecret, timestamp, body))
 	resp, err := safehttp.DoNoRedirect(req)
 	if err != nil {
 		return err
@@ -235,6 +246,28 @@ func (h *Handler) deliverWebhook(ctx context.Context, targetURL string, body []b
 		return fmt.Errorf("status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// webhookSignature signs the exact timestamp header, one ASCII period, and
+// the exact request body. The version prefix permits future algorithm rotation
+// without accepting an ambiguous signature representation.
+func webhookSignature(secret []byte, timestamp string, body []byte) string {
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(timestamp))
+	_, _ = mac.Write([]byte("."))
+	_, _ = mac.Write(body)
+	return "v1=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func verifyWebhookSignature(secret []byte, timestamp, signature string, body []byte) bool {
+	if len(secret) < store.MinWebhookSigningSecretBytes || len(secret) > store.MaxWebhookSigningSecretBytes || strings.TrimSpace(timestamp) != timestamp {
+		return false
+	}
+	if _, err := strconv.ParseInt(timestamp, 10, 64); err != nil {
+		return false
+	}
+	expected := webhookSignature(secret, timestamp, body)
+	return hmac.Equal([]byte(expected), []byte(strings.TrimSpace(signature)))
 }
 
 func webhookTargetAuditFields(raw string) (string, string) {
@@ -285,16 +318,27 @@ func (h *Handler) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
+	var scopedItemImageID uint64
 	if h.auth != nil {
 		if principal, ok := auth.PrincipalFromContext(r.Context()); !ok || principal.Anonymous() {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return
+		} else {
+			scopedItemImageID = principal.ScopedItemImageID
 		}
 	}
 
 	query := r.URL.Query()
 	types := parseEventTypes(query["type"])
 	itemImageID := strings.TrimSpace(query.Get("item_image_id"))
+	if scopedItemImageID > 0 {
+		expected := strconv.FormatUint(scopedItemImageID, 10)
+		if itemImageID != "" && itemImageID != expected {
+			writeError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+		itemImageID = expected
+	}
 	subjectPrefix := ""
 	if itemImageID != "" {
 		if _, err := strconv.ParseUint(itemImageID, 10, 64); err != nil {

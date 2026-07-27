@@ -289,9 +289,10 @@ func (s *IdentityStore) RetainExpiredSessions(ctx context.Context, cutoff time.T
 			return fmt.Errorf("retain expired sessions: verify batch: %w", err)
 		}
 		if removed < 1000 {
-			return nil
+			break
 		}
 	}
+	return s.retainExpiredEditorReviewState(ctx, cutoff)
 }
 
 func (s *IdentityStore) GetSession(ctx context.Context, rawToken string) (IdentitySession, error) {

@@ -176,6 +176,41 @@ describe("frontend server lifecycle", () => {
     }
   }, 10_000);
 
+  it("preserves no-referrer on a one-time review-token redirect", async () => {
+    const upstream = http.createServer((request, response) => {
+      if (handleReadinessProbe(request, response)) return;
+      if (request.url?.startsWith("/auth/review?token=")) {
+        response.writeHead(303, {
+          location: "/editor?itemImageId=7&workspace_id=3",
+          "referrer-policy": "no-referrer",
+        });
+        response.end();
+        return;
+      }
+      response.writeHead(404);
+      response.end();
+    });
+    const upstreamPort = await listen(upstream);
+    const frontend = spawnFrontend({
+      SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+    });
+
+    try {
+      const boundFrontendPort = await frontendPort(frontend);
+      const response = await fetch(
+        `http://127.0.0.1:${boundFrontendPort}/auth/review?token=one-time-secret`,
+        { redirect: "manual" },
+      );
+      expect(response.status).toBe(303);
+      expect(response.headers.get("location")).toBe("/editor?itemImageId=7&workspace_id=3");
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(response.headers.get("content-security-policy")).toBe(expectedContentSecurityPolicy);
+    } finally {
+      await stopFrontend(frontend);
+      await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 10_000);
+
   it("strips credentials at the same-origin public Presentation boundary", async () => {
     const observed = [];
     const upstream = http.createServer((request, response) => {

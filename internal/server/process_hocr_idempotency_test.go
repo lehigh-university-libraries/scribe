@@ -31,9 +31,11 @@ func TestProcessHOCRCommitsAndReplaysOneIdempotentResult(t *testing.T) {
 	})
 	const idempotencyKey = "process-hocr-replay"
 	request := &scribev1.ProcessHOCRRequest{
-		Hocr:           minimalHOCR,
-		ImageUrl:       "https://images.example.test/page.jpg",
-		IdempotencyKey: idempotencyKey,
+		Hocr:                minimalHOCR,
+		ImageUrl:            "https://images.example.test/page.jpg",
+		IdempotencyKey:      idempotencyKey,
+		Metadata:            `{"repository":"islandora"}`,
+		ExternalReferenceId: "islandora:1234",
 	}
 
 	first, err := handler.ProcessHOCR(ctx, connect.NewRequest(request))
@@ -49,6 +51,19 @@ func TestProcessHOCRCommitsAndReplaysOneIdempotentResult(t *testing.T) {
 	}
 	if first.Msg.GetItemId() != second.Msg.GetItemId() || first.Msg.GetItemImageId() != second.Msg.GetItemImageId() {
 		t.Fatalf("replay result = %q/%d, want %q/%d", second.Msg.GetItemId(), second.Msg.GetItemImageId(), first.Msg.GetItemId(), first.Msg.GetItemImageId())
+	}
+	if first.Msg.GetSessionId() == "" || first.Msg.GetSessionId() == first.Msg.GetItemId() || first.Msg.GetSessionId() != second.Msg.GetSessionId() {
+		t.Fatalf("hOCR provenance session = first %q second %q item %q", first.Msg.GetSessionId(), second.Msg.GetSessionId(), first.Msg.GetItemId())
+	}
+	if first.Msg.GetTranscriptionJobId() != 0 || second.Msg.GetTranscriptionJobId() != 0 {
+		t.Fatalf("synchronous hOCR job ids = %d/%d, want zero", first.Msg.GetTranscriptionJobId(), second.Msg.GetTranscriptionJobId())
+	}
+	storedItem, err := items.GetForWorkspace(ctx, first.Msg.GetItemId(), workspaceID)
+	if err != nil {
+		t.Fatalf("load hOCR item: %v", err)
+	}
+	if storedItem.ExternalReferenceID != request.GetExternalReferenceId() || storedItem.CallerIdempotencyKey != idempotencyKey || storedItem.Metadata["repository"] != "islandora" {
+		t.Fatalf("hOCR item correlation data = %+v", storedItem)
 	}
 
 	mismatch := proto.Clone(request).(*scribev1.ProcessHOCRRequest)
@@ -77,7 +92,7 @@ func TestProcessHOCRCommitsAndReplaysOneIdempotentResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load hOCR idempotency result: %v", err)
 	}
-	if reservation.Status != store.ExternalRequestStatusCompleted || reservation.ItemID != first.Msg.GetItemId() || reservation.ItemImageID != first.Msg.GetItemImageId() {
+	if reservation.Status != store.ExternalRequestStatusCompleted || reservation.ItemID != first.Msg.GetItemId() || reservation.ItemImageID != first.Msg.GetItemImageId() || reservation.SessionID != first.Msg.GetSessionId() || reservation.TranscriptionJobID != 0 {
 		t.Fatalf("hOCR idempotency result = %#v", reservation)
 	}
 }

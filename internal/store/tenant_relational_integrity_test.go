@@ -18,6 +18,8 @@ func TestRepositoriesOwnRelationshipAdmissionAndIntegrityAudit(t *testing.T) {
 	suffix := uuid.NewString()
 	workspaceA, imageA := createAnnotationTestResource(t, database, suffix+"-graph-a", "https://source.example/canvas/"+suffix+"/a")
 	workspaceB, imageB := createAnnotationTestResource(t, database, suffix+"-graph-b", "https://source.example/canvas/"+suffix+"/b")
+	subscriptionA := createWebhookTestSubscription(t, database, workspaceA)
+	subscriptionB := createWebhookTestSubscription(t, database, workspaceB)
 
 	var foreignKeys, triggers int
 	if err := database.QueryRowContext(ctx, `
@@ -116,6 +118,52 @@ VALUES (?, ?, ?, ?, ?, 1)`, workspaceA, imageB, pageID,
 		t.Fatalf("audit repaired resource graph: %v", err)
 	} else if len(violations) != 0 {
 		t.Fatalf("repaired resource graph violations = %+v", violations)
+	}
+
+	eventID := "relationship-integrity-" + suffix
+	if err := store.NewTranscriptionJobStore(database).EnqueueWebhookEvent(
+		ctx,
+		eventID,
+		"dev.scribe.annotation.updated",
+		fmt.Sprintf("item-images/%d", imageA),
+		`{"id":"relationship-integrity"}`,
+	); err != nil {
+		t.Fatalf("enqueue webhook relationship fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = database.Exec(`DELETE FROM webhook_deliveries WHERE event_id = ?`, eventID)
+		_, _ = database.Exec(`DELETE FROM event_outbox WHERE event_id = ?`, eventID)
+	})
+	if _, err := database.ExecContext(ctx, `UPDATE webhook_deliveries SET subscription_id = ? WHERE event_id = ? AND subscription_id = ?`, subscriptionB.ID, eventID, subscriptionA.ID); err != nil {
+		t.Fatalf("inject cross-tenant webhook relationship: %v", err)
+	}
+	if violations, err := store.AuditRelationshipIntegrity(ctx, database); err != nil {
+		t.Fatalf("audit cross-tenant webhook relationship: %v", err)
+	} else if !relationshipViolationContains(violations, "webhook_deliveries.event_subscription_workspace", 1) {
+		t.Fatalf("cross-tenant webhook relationship violations = %+v", violations)
+	}
+	if _, err := database.ExecContext(ctx, `UPDATE webhook_deliveries SET subscription_id = ? WHERE event_id = ? AND subscription_id = ?`, subscriptionA.ID, eventID, subscriptionB.ID); err != nil {
+		t.Fatalf("repair cross-tenant webhook relationship: %v", err)
+	}
+	var missingSubscriptionID uint64
+	if err := database.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) + 1 FROM webhook_subscriptions`).Scan(&missingSubscriptionID); err != nil {
+		t.Fatalf("choose missing webhook subscription identity: %v", err)
+	}
+	if _, err := database.ExecContext(ctx, `UPDATE webhook_deliveries SET subscription_id = ? WHERE event_id = ? AND subscription_id = ?`, missingSubscriptionID, eventID, subscriptionA.ID); err != nil {
+		t.Fatalf("inject missing webhook subscription relationship: %v", err)
+	}
+	if violations, err := store.AuditRelationshipIntegrity(ctx, database); err != nil {
+		t.Fatalf("audit missing webhook subscription relationship: %v", err)
+	} else if !relationshipViolationContains(violations, "webhook_deliveries.subscription", 1) {
+		t.Fatalf("missing webhook subscription relationship violations = %+v", violations)
+	}
+	if _, err := database.ExecContext(ctx, `UPDATE webhook_deliveries SET subscription_id = ? WHERE event_id = ? AND subscription_id = ?`, subscriptionA.ID, eventID, missingSubscriptionID); err != nil {
+		t.Fatalf("repair missing webhook subscription relationship: %v", err)
+	}
+	if violations, err := store.AuditRelationshipIntegrity(ctx, database); err != nil {
+		t.Fatalf("audit repaired webhook relationship: %v", err)
+	} else if len(violations) != 0 {
+		t.Fatalf("repaired webhook graph violations = %+v", violations)
 	}
 
 	// Keep imageA live until fixture cleanup; this makes accidental graph-wide

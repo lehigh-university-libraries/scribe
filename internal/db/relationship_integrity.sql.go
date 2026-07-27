@@ -33,6 +33,37 @@ FROM (
   WHERE user_parent.id IS NULL
 
   UNION ALL
+  SELECT 'editor_review_tokens.resource_tuple', COUNT(*)
+  FROM editor_review_tokens child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  LEFT JOIN users issuer_parent ON issuer_parent.id = child.issued_by_user_id
+  LEFT JOIN item_images image_parent
+    ON image_parent.workspace_id = child.workspace_id
+   AND image_parent.id = child.item_image_id
+   AND image_parent.item_id = child.item_id
+  WHERE workspace_parent.id IS NULL
+     OR issuer_parent.id IS NULL
+     OR image_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'editor_review_sessions.resource_tuple', COUNT(*)
+  FROM editor_review_sessions child
+  LEFT JOIN editor_review_tokens token_parent ON token_parent.id = child.review_token_id
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  LEFT JOIN users issuer_parent ON issuer_parent.id = child.issued_by_user_id
+  LEFT JOIN item_images image_parent
+    ON image_parent.workspace_id = child.workspace_id
+   AND image_parent.id = child.item_image_id
+   AND image_parent.item_id = child.item_id
+  WHERE token_parent.id IS NULL
+     OR token_parent.workspace_id <> child.workspace_id
+     OR token_parent.item_id <> child.item_id
+     OR token_parent.item_image_id <> child.item_image_id
+     OR workspace_parent.id IS NULL
+     OR issuer_parent.id IS NULL
+     OR image_parent.id IS NULL
+
+  UNION ALL
   SELECT 'items.owner', COUNT(*)
   FROM items child
   LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
@@ -266,10 +297,31 @@ FROM (
   WHERE child.workspace_id IS NOT NULL AND workspace_parent.id IS NULL
 
   UNION ALL
+  SELECT 'webhook_subscriptions.workspace', COUNT(*)
+  FROM webhook_subscriptions child
+  LEFT JOIN workspaces workspace_parent ON workspace_parent.id = child.workspace_id
+  WHERE workspace_parent.id IS NULL
+
+  UNION ALL
   SELECT 'webhook_deliveries.event', COUNT(*)
   FROM webhook_deliveries child
   LEFT JOIN event_outbox event_parent ON event_parent.event_id = child.event_id
   WHERE event_parent.event_id IS NULL
+
+  UNION ALL
+  SELECT 'webhook_deliveries.subscription', COUNT(*)
+  FROM webhook_deliveries child
+  LEFT JOIN webhook_subscriptions subscription_parent
+    ON subscription_parent.id = child.subscription_id
+  WHERE subscription_parent.id IS NULL
+
+  UNION ALL
+  SELECT 'webhook_deliveries.event_subscription_workspace', COUNT(*)
+  FROM webhook_deliveries child
+  JOIN event_outbox event_parent ON event_parent.event_id = child.event_id
+  JOIN webhook_subscriptions subscription_parent ON subscription_parent.id = child.subscription_id
+  WHERE event_parent.workspace_id IS NULL
+     OR subscription_parent.workspace_id <> event_parent.workspace_id
 
   UNION ALL
   SELECT 'resource_cleanup_outbox.quota_owner', COUNT(*)

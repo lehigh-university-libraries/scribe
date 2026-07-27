@@ -41,6 +41,11 @@ operations page, and the executable acceptance contract in the same review.
   audit, and outbox state through explicit child-first application deletes.
   The schema has no foreign keys, so repository transactions own consistency
   and cleanup acceptance tests.
+- Webhook subscription creation, deletion, and event delivery expansion
+  serialize on the owning workspace row. Subscription and event deletion are
+  child-first, and the recovery audit independently detects missing delivery
+  parents or a parent workspace mismatch. Do not add a one-off database
+  relationship mechanism that bypasses this repository-wide lifecycle model.
 
 ## Editor
 

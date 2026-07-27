@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,11 +42,11 @@ type Handler struct {
 	providerCallAudits          *store.ProviderCallAuditStore
 	providerSecrets             providerSecretResolver
 	transcriptionJobs           *store.TranscriptionJobStore
+	webhookSubscriptions        *store.WebhookSubscriptionStore
 	transcriptionQueue          TranscriptionJobQueue
 	auth                        *auth.Manager
 	appCtx                      context.Context
 	vault                       providerSecretVault
-	webhookURLs                 []string
 	mux                         http.Handler
 	ocr                         OCRProcessor
 	requestLimiter              *requestLimiter
@@ -199,7 +200,6 @@ func NewHandler(
 		auth:                   authManager,
 		appCtx:                 context.Background(),
 		vault:                  vaultClient,
-		webhookURLs:            append([]string(nil), config.Get().Config.Webhooks.URLs...),
 		ocr:                    ocrhandlers.New(),
 		requestLimiter:         newRequestLimiter(),
 		edgeRequestLimiter:     newEdgeRequestLimiter(),
@@ -560,7 +560,14 @@ func (h *Handler) authorizeUploadSource(ctx context.Context, imageURL string) (o
 		return true, false, nil
 	}
 	if hasPrincipal && principal.HasPermission("annotations:read") && h.items != nil {
-		if strings.EqualFold(strings.TrimSpace(principal.AuthType), "session") && principal.UserID > 0 {
+		if principal.ScopedItemImageID > 0 {
+			image, loadErr := h.items.GetImageForWorkspace(ctx, principal.ScopedItemImageID, principal.WorkspaceID)
+			if loadErr == nil {
+				ownerAccess = strings.TrimSpace(image.ImageURL) == strings.TrimSpace(imageURL)
+			} else if !errors.Is(loadErr, sql.ErrNoRows) {
+				err = loadErr
+			}
+		} else if strings.EqualFold(strings.TrimSpace(principal.AuthType), "session") && principal.UserID > 0 {
 			ownerAccess, err = h.items.UserCanReadImageURL(ctx, principal.UserID, imageURL)
 		} else if principal.WorkspaceID > 0 {
 			// API keys, external JWTs, and any future delegated credential stay

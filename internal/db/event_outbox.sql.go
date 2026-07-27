@@ -19,12 +19,17 @@ SELECT
   eo.event_type,
   eo.subject,
   eo.body_json,
-  wd.target_url,
+  wd.subscription_id,
+  subscription.target_url,
+  subscription.signing_secret,
   wd.locked_by,
   wd.attempt_count,
   wd.max_attempts
 FROM webhook_deliveries wd
 JOIN event_outbox eo ON eo.event_id = wd.event_id
+JOIN webhook_subscriptions subscription
+  ON subscription.id = wd.subscription_id
+ AND subscription.workspace_id = eo.workspace_id
 WHERE (
     wd.status = 'pending'
     AND (wd.next_attempt_at IS NULL OR wd.next_attempt_at <= NOW())
@@ -40,15 +45,17 @@ FOR UPDATE SKIP LOCKED
 `
 
 type ClaimWebhookDeliveriesManualRow struct {
-	ID           uint64         `json:"id"`
-	EventID      string         `json:"event_id"`
-	EventType    string         `json:"event_type"`
-	Subject      sql.NullString `json:"subject"`
-	BodyJson     string         `json:"body_json"`
-	TargetUrl    string         `json:"target_url"`
-	LockedBy     sql.NullString `json:"locked_by"`
-	AttemptCount int32          `json:"attempt_count"`
-	MaxAttempts  int32          `json:"max_attempts"`
+	ID             uint64         `json:"id"`
+	EventID        string         `json:"event_id"`
+	EventType      string         `json:"event_type"`
+	Subject        sql.NullString `json:"subject"`
+	BodyJson       string         `json:"body_json"`
+	SubscriptionID uint64         `json:"subscription_id"`
+	TargetUrl      string         `json:"target_url"`
+	SigningSecret  []byte         `json:"signing_secret"`
+	LockedBy       sql.NullString `json:"locked_by"`
+	AttemptCount   int32          `json:"attempt_count"`
+	MaxAttempts    int32          `json:"max_attempts"`
 }
 
 func (q *Queries) ClaimWebhookDeliveriesManual(ctx context.Context, limit int32) ([]ClaimWebhookDeliveriesManualRow, error) {
@@ -66,7 +73,9 @@ func (q *Queries) ClaimWebhookDeliveriesManual(ctx context.Context, limit int32)
 			&i.EventType,
 			&i.Subject,
 			&i.BodyJson,
+			&i.SubscriptionID,
 			&i.TargetUrl,
+			&i.SigningSecret,
 			&i.LockedBy,
 			&i.AttemptCount,
 			&i.MaxAttempts,
@@ -241,29 +250,23 @@ func (q *Queries) InsertEventOutboxManual(ctx context.Context, arg InsertEventOu
 	return err
 }
 
-const insertWebhookDeliveryIfMissingManual = `-- name: InsertWebhookDeliveryIfMissingManual :exec
+const insertWorkspaceWebhookDeliveriesManual = `-- name: InsertWorkspaceWebhookDeliveriesManual :exec
 INSERT IGNORE INTO webhook_deliveries (
   event_id,
-  target_url,
-  target_hash,
+  subscription_id,
   status
 ) SELECT
   eo.event_id,
-  ?,
-  ?,
+  subscription.id,
   'pending'
 FROM event_outbox eo
+JOIN webhook_subscriptions subscription
+  ON subscription.workspace_id = eo.workspace_id
 WHERE eo.event_id = ?
 `
 
-type InsertWebhookDeliveryIfMissingManualParams struct {
-	TargetUrl  string `json:"target_url"`
-	TargetHash string `json:"target_hash"`
-	EventID    string `json:"event_id"`
-}
-
-func (q *Queries) InsertWebhookDeliveryIfMissingManual(ctx context.Context, arg InsertWebhookDeliveryIfMissingManualParams) error {
-	_, err := q.db.ExecContext(ctx, insertWebhookDeliveryIfMissingManual, arg.TargetUrl, arg.TargetHash, arg.EventID)
+func (q *Queries) InsertWorkspaceWebhookDeliveriesManual(ctx context.Context, eventID string) error {
+	_, err := q.db.ExecContext(ctx, insertWorkspaceWebhookDeliveriesManual, eventID)
 	return err
 }
 
@@ -401,6 +404,25 @@ func (q *Queries) LockEventOutboxRetentionBatchManual(ctx context.Context, cutof
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockWebhookDeliveryExpansionWorkspaceManual = `-- name: LockWebhookDeliveryExpansionWorkspaceManual :one
+SELECT workspace.id
+FROM event_outbox event
+JOIN workspaces workspace ON workspace.id = event.workspace_id
+WHERE event.event_id = ?
+LIMIT 1
+FOR UPDATE
+`
+
+// Subscription create/delete and event expansion all lock this workspace row.
+// That makes the repository-owned parent/child lifecycle deterministic even
+// when a subscription is deleted while an event transaction is committing.
+func (q *Queries) LockWebhookDeliveryExpansionWorkspaceManual(ctx context.Context, eventID string) (uint64, error) {
+	row := q.db.QueryRowContext(ctx, lockWebhookDeliveryExpansionWorkspaceManual, eventID)
+	var id uint64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const markWebhookDeliveryDeliveredManual = `-- name: MarkWebhookDeliveryDeliveredManual :execresult

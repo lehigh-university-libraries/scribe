@@ -175,6 +175,10 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	externalReferenceID, err := normalizeExternalReferenceID(req.Msg.GetExternalReferenceId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	if h.transcriptionJobs == nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("manifest idempotency repository is not configured"))
 	}
@@ -199,7 +203,7 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 		workspaceID,
 		"item-create",
 		fmt.Sprintf("%x", digest[:]),
-		stableRequestHash(requestedName, "manifest", manifestURL, metadata, strconv.FormatUint(req.Msg.GetContextId(), 10)),
+		stableRequestHash(requestedName, "manifest", manifestURL, metadata, externalReferenceID, strconv.FormatUint(req.Msg.GetContextId(), 10)),
 		"",
 	)
 	if err != nil {
@@ -308,15 +312,17 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 	}
 	defer h.releaseStorageQuota(storageReservation)
 	committed, commitErr := h.commitManifestItem(ctx, manifestItemCommitRequest{
-		ItemID:             "item_" + uuid.NewString(),
-		Name:               name,
-		ManifestURL:        manifestURL,
-		Metadata:           metadata,
-		SourceManifest:     string(sourceManifest),
-		Canvases:           prefetchedCanvases,
-		RequestedContextID: requestedContextID,
-		Reservation:        storageReservation,
-		ExternalRequest:    itemReservation,
+		ItemID:               "item_" + uuid.NewString(),
+		Name:                 name,
+		ManifestURL:          manifestURL,
+		Metadata:             metadata,
+		ExternalReferenceID:  externalReferenceID,
+		CallerIdempotencyKey: rawIdempotencyKey,
+		SourceManifest:       string(sourceManifest),
+		Canvases:             prefetchedCanvases,
+		RequestedContextID:   requestedContextID,
+		Reservation:          storageReservation,
+		ExternalRequest:      itemReservation,
 	})
 	if commitErr != nil {
 		failItemReservation(commitErr)
@@ -336,6 +342,14 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 
 func (h *Handler) StartUploadBatch(ctx context.Context, req *connect.Request[scribev1.StartUploadBatchRequest]) (*connect.Response[scribev1.StartUploadBatchResponse], error) {
 	batchID := strings.TrimSpace(req.Msg.GetBatchId())
+	metadata, err := normalizeItemMetadata(req.Msg.GetMetadata())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	externalReferenceID, err := normalizeExternalReferenceID(req.Msg.GetExternalReferenceId())
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	files, requestHash, err := normalizeUploadBatchRequest(req.Msg)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -354,7 +368,7 @@ func (h *Handler) StartUploadBatch(ctx context.Context, req *connect.Request[scr
 		return nil, connect.NewError(connect.CodeInternal, loadErr)
 	}
 
-	resolvedContext, err := h.resolveContext(ctx, req.Msg.GetContextId(), "")
+	resolvedContext, err := h.resolveContext(ctx, req.Msg.GetContextId(), metadata)
 	if err != nil {
 		return nil, resolveContextConnectError(err)
 	}
@@ -378,14 +392,17 @@ func (h *Handler) StartUploadBatch(ctx context.Context, req *connect.Request[scr
 	}
 	defer h.releaseStorageQuota(storageReservation)
 	batch, err := h.items.StartUploadBatch(ctx, store.StartUploadBatchParams{
-		WorkspaceID: workspaceID,
-		UserID:      h.currentUserID(ctx),
-		BatchID:     batchID,
-		ItemID:      "item_" + uuid.NewString(),
-		Name:        name,
-		Context:     resolvedContext,
-		RequestHash: requestHash,
-		Files:       files,
+		WorkspaceID:          workspaceID,
+		UserID:               h.currentUserID(ctx),
+		BatchID:              batchID,
+		ItemID:               "item_" + uuid.NewString(),
+		Name:                 name,
+		Metadata:             metadata,
+		ExternalReferenceID:  externalReferenceID,
+		CallerIdempotencyKey: batchID,
+		Context:              resolvedContext,
+		RequestHash:          requestHash,
+		Files:                files,
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrUploadBatchRequestMismatch) {
@@ -427,6 +444,14 @@ func normalizeItemMetadata(raw string) (string, error) {
 		return "", fmt.Errorf("metadata must be at most %d bytes", maxItemMetadataBytes)
 	}
 	return string(normalized), nil
+}
+
+func normalizeExternalReferenceID(raw string) (string, error) {
+	normalized := strings.TrimSpace(raw)
+	if !utf8.ValidString(normalized) || utf8.RuneCountInString(normalized) > 512 || strings.IndexFunc(normalized, unicode.IsControl) >= 0 {
+		return "", fmt.Errorf("external_reference_id must contain at most 512 characters without control characters")
+	}
+	return normalized, nil
 }
 
 func (h *Handler) GetUploadBatch(ctx context.Context, req *connect.Request[scribev1.GetUploadBatchRequest]) (*connect.Response[scribev1.GetUploadBatchResponse], error) {
@@ -643,7 +668,15 @@ func normalizeUploadBatchRequest(req *scribev1.StartUploadBatchRequest) ([]store
 	if len(req.GetFiles()) == 0 || len(req.GetFiles()) > maxUploadBatchFiles {
 		return nil, "", fmt.Errorf("files must contain between 1 and %d entries", maxUploadBatchFiles)
 	}
-	fields := []string{strings.TrimSpace(req.GetName()), strconv.FormatUint(req.GetContextId(), 10)}
+	metadata, err := normalizeItemMetadata(req.GetMetadata())
+	if err != nil {
+		return nil, "", err
+	}
+	externalReferenceID, err := normalizeExternalReferenceID(req.GetExternalReferenceId())
+	if err != nil {
+		return nil, "", err
+	}
+	fields := []string{strings.TrimSpace(req.GetName()), strconv.FormatUint(req.GetContextId(), 10), metadata, externalReferenceID}
 	files := make([]store.UploadBatchFileInput, 0, len(req.GetFiles()))
 	var totalBytes uint64
 	for index, input := range req.GetFiles() {
@@ -851,15 +884,17 @@ func (h *Handler) acquireManifestImportSlot(ctx context.Context, workspaceID uin
 }
 
 type manifestItemCommitRequest struct {
-	ItemID             string
-	Name               string
-	ManifestURL        string
-	Metadata           string
-	SourceManifest     string
-	Canvases           []canvasInfo
-	RequestedContextID *uint64
-	Reservation        store.StorageQuotaReservation
-	ExternalRequest    store.ExternalRequest
+	ItemID               string
+	Name                 string
+	ManifestURL          string
+	Metadata             string
+	ExternalReferenceID  string
+	CallerIdempotencyKey string
+	SourceManifest       string
+	Canvases             []canvasInfo
+	RequestedContextID   *uint64
+	Reservation          store.StorageQuotaReservation
+	ExternalRequest      store.ExternalRequest
 }
 
 func (h *Handler) commitManifestItem(ctx context.Context, request manifestItemCommitRequest) (store.ManifestIngestResult, error) {
@@ -941,6 +976,7 @@ func (h *Handler) commitManifestItem(ctx context.Context, request manifestItemCo
 		Item: db.CreateItemParams{
 			ID: request.ItemID, UserID: userID, WorkspaceID: workspaceID, Name: request.Name,
 			SourceType: "manifest", SourceURL: request.ManifestURL, Metadata: request.Metadata, SourceManifest: request.SourceManifest,
+			ExternalReferenceID: request.ExternalReferenceID, CallerIdempotencyKey: request.CallerIdempotencyKey,
 		},
 		Canvases: canvases, PublicBaseURL: h.publicAnnotationBaseURL(), TranscriptionContext: processingContext,
 		Reservation: request.Reservation, Limits: configuredStorageQuotaLimits(), ExternalRequest: external,
@@ -1111,12 +1147,13 @@ func fetchHOCRContent(ctx context.Context, hocrURL string, maxBytes int64, aggre
 
 func storeItemSummaryToProto(item store.ItemSummary) *scribev1.ItemSummary {
 	summary := &scribev1.ItemSummary{
-		Id:         item.ID,
-		Name:       item.Name,
-		SourceType: item.SourceType,
-		ImageCount: item.ImageCount,
-		CreatedAt:  item.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:  item.UpdatedAt.UTC().Format(time.RFC3339),
+		Id:                  item.ID,
+		Name:                item.Name,
+		SourceType:          item.SourceType,
+		ImageCount:          item.ImageCount,
+		CreatedAt:           item.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:           item.UpdatedAt.UTC().Format(time.RFC3339),
+		ExternalReferenceId: item.ExternalReferenceID,
 	}
 	if item.PreviewImage != nil {
 		summary.PreviewImage = storeItemImageToProto(*item.PreviewImage)
@@ -1132,15 +1169,16 @@ func storeItemToProto(it store.Item) *scribev1.Item {
 		}
 	}
 	proto := &scribev1.Item{
-		Id:         it.ID,
-		UserId:     it.UserID,
-		Name:       it.Name,
-		SourceType: it.SourceType,
-		SourceUrl:  it.SourceURL,
-		Metadata:   metaJSON,
-		CreatedAt:  it.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:  it.UpdatedAt.UTC().Format(time.RFC3339),
-		Images:     make([]*scribev1.ItemImage, 0, len(it.Images)),
+		Id:                  it.ID,
+		UserId:              it.UserID,
+		Name:                it.Name,
+		SourceType:          it.SourceType,
+		SourceUrl:           it.SourceURL,
+		Metadata:            metaJSON,
+		CreatedAt:           it.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:           it.UpdatedAt.UTC().Format(time.RFC3339),
+		ExternalReferenceId: it.ExternalReferenceID,
+		Images:              make([]*scribev1.ItemImage, 0, len(it.Images)),
 	}
 	for _, img := range it.Images {
 		proto.Images = append(proto.Images, storeItemImageToProto(img))

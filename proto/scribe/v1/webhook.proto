@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package scribe.v1;
+
+import "buf/validate/validate.proto";
+import "scribe/v1/options/v1/auth.proto";
+
+option go_package = "github.com/lehigh-university-libraries/scribe/proto/scribe/v1;scribev1";
+
+// WebhookSubscription is one workspace-owned outbound CloudEvent target. The
+// signing secret is write-only and is never returned by Scribe.
+message WebhookSubscription {
+  uint64 id = 1;
+  uint64 workspace_id = 2;
+  string target_url = 3;
+  string created_at = 4;
+  string updated_at = 5;
+}
+
+message CreateWebhookRequest {
+  uint64 workspace_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  string target_url = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: ".*\\S.*"
+      max_len: 2048
+    }
+  ];
+  // Shared HMAC-SHA256 secret. Store it before this call returns: Scribe never
+  // exposes it through create or list responses.
+  string secret = 3 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: ".*\\S.*"
+      min_len: 32
+      max_len: 1024
+    }
+  ];
+}
+
+message CreateWebhookResponse {
+  WebhookSubscription webhook = 1;
+}
+
+message ListWebhooksRequest {
+  uint64 workspace_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+}
+
+message ListWebhooksResponse {
+  repeated WebhookSubscription webhooks = 1;
+}
+
+message DeleteWebhookRequest {
+  uint64 workspace_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+  uint64 webhook_id = 2 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).uint64.gt = 0
+  ];
+}
+
+message DeleteWebhookResponse {}
+
+service WebhookService {
+  rpc CreateWebhook(CreateWebhookRequest) returns (CreateWebhookResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_WORKSPACE
+      level: ACCESS_LEVEL_ADMIN
+      resource_id_field: "workspace_id"
+    };
+  }
+  rpc ListWebhooks(ListWebhooksRequest) returns (ListWebhooksResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_WORKSPACE
+      level: ACCESS_LEVEL_ADMIN
+      resource_id_field: "workspace_id"
+    };
+  }
+  rpc DeleteWebhook(DeleteWebhookRequest) returns (DeleteWebhookResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_WORKSPACE
+      level: ACCESS_LEVEL_ADMIN
+      resource_id_field: "workspace_id"
+    };
+  }
+}

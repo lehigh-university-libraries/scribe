@@ -113,6 +113,8 @@ func (m *Manager) externalJWTPrincipal(ctx context.Context, rawToken string) (Pr
 		WorkspaceRole:      leastPrivilegedWorkspaceRole(role, access.Role),
 		DefaultWorkspaceID: access.Workspace.ID,
 		Scopes:             scopes,
+		ExternalIssuer:     issuerCfg.Issuer,
+		ExternalSubject:    claims.Sub,
 	}, nil
 }
 

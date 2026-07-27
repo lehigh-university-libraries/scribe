@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -327,5 +328,108 @@ func TestItemsOnlyAPIKeyCannotReadPreparedCanonicalExports(t *testing.T) {
 	)
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("items-only PrepareItemExport authorization = %v, want permission denied", err)
+	}
+}
+
+func TestEditorReviewTokenIsOneTimeAndSessionIsImageScoped(t *testing.T) {
+	databasePool := openAuthTestDB(t)
+	ctx := context.Background()
+	identities := store.NewIdentityStore(databasePool)
+	issuer, workspace := ensureAuthTestUser(t, identities, uuid.NewString())
+	itemID := "review-" + uuid.NewString()
+	if _, err := databasePool.ExecContext(ctx, `
+INSERT INTO items (id, user_id, workspace_id, name, source_type, metadata)
+VALUES (?, ?, ?, 'Review token item', 'url', JSON_OBJECT())`, itemID, issuer.ID, workspace.ID); err != nil {
+		t.Fatalf("create review item: %v", err)
+	}
+	createImage := func(canvas string) uint64 {
+		t.Helper()
+		result, err := databasePool.ExecContext(ctx, `
+INSERT INTO item_images (workspace_id, item_id, sequence, image_url, canvas_uri, width, height)
+VALUES (?, ?, (SELECT COUNT(*) FROM item_images existing WHERE existing.item_id = ?), ?, ?, 100, 100)`,
+			workspace.ID, itemID, itemID, "https://images.example/"+uuid.NewString()+".jpg", canvas)
+		if err != nil {
+			t.Fatalf("create review item image: %v", err)
+		}
+		id, err := result.LastInsertId()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return uint64(id) // #nosec G115 -- positive test fixture identifier.
+	}
+	imageID := createImage("https://iiif.example/canvas/" + uuid.NewString())
+	otherImageID := createImage("https://iiif.example/canvas/" + uuid.NewString())
+	t.Cleanup(func() {
+		_, _ = databasePool.Exec(`DELETE FROM editor_review_sessions WHERE workspace_id = ?`, workspace.ID)
+		_, _ = databasePool.Exec(`DELETE FROM editor_review_tokens WHERE workspace_id = ?`, workspace.ID)
+		_, _ = databasePool.Exec(`DELETE FROM item_images WHERE item_id = ?`, itemID)
+		_, _ = databasePool.Exec(`DELETE FROM items WHERE id = ?`, itemID)
+	})
+
+	manager := &Manager{
+		auth:          config.AuthConfig{CookieName: "scribe_session", SessionTTL: 24 * time.Hour},
+		publicBaseURL: "https://scribe.example",
+		identities:    identities,
+		items:         store.NewItemStore(databasePool),
+		reviewTokens:  newEditorReviewTokenSigner(strings.Repeat("r", 32)),
+	}
+	principal := Principal{
+		UserID: issuer.ID, Authenticated: true, AuthType: "external_jwt",
+		WorkspaceID: workspace.ID, WorkspaceRole: "admin",
+		ExternalIssuer: "https://islandora.example", ExternalSubject: "service",
+	}
+	created, err := manager.CreateEditorReviewToken(WithPrincipal(ctx, principal), connect.NewRequest(&scribev1.CreateEditorReviewTokenRequest{
+		ItemImageId: imageID, ReviewerSubject: "islandora-user-7", ReviewerName: "Review User",
+		ReviewerEmail: "reviewer@example.org", TokenTtlSeconds: 300, SessionTtlSeconds: 3600,
+	}))
+	if err != nil {
+		t.Fatalf("CreateEditorReviewToken: %v", err)
+	}
+	reviewURL, err := url.Parse(created.Msg.GetReviewUrl())
+	if err != nil || reviewURL.Scheme != "https" || reviewURL.Host != "scribe.example" || reviewURL.Path != "/auth/review" || reviewURL.Query().Get("token") == "" {
+		t.Fatalf("review URL = %q/%v", created.Msg.GetReviewUrl(), err)
+	}
+	if strings.Contains(created.Msg.GetReviewUrl(), "islandora-user-7") {
+		t.Fatal("raw reviewer subject leaked into review URL")
+	}
+
+	redeemRequest := httptest.NewRequest(http.MethodGet, created.Msg.GetReviewUrl(), nil)
+	redeemResponse := httptest.NewRecorder()
+	manager.handleEditorReviewRedeem(redeemResponse, redeemRequest)
+	if redeemResponse.Code != http.StatusSeeOther {
+		t.Fatalf("redeem status = %d body=%q", redeemResponse.Code, redeemResponse.Body.String())
+	}
+	location, err := url.Parse(redeemResponse.Header().Get("Location"))
+	if err != nil || location.Path != "/editor" || location.Query().Get("itemImageId") != fmt.Sprint(imageID) || location.Query().Get("workspace_id") != fmt.Sprint(workspace.ID) || location.Query().Get("token") != "" {
+		t.Fatalf("clean redirect = %q/%v", redeemResponse.Header().Get("Location"), err)
+	}
+	cookies := redeemResponse.Result().Cookies()
+	if len(cookies) != 1 || !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteLaxMode {
+		t.Fatalf("review session cookie = %+v", cookies)
+	}
+
+	replayResponse := httptest.NewRecorder()
+	manager.handleEditorReviewRedeem(replayResponse, httptest.NewRequest(http.MethodGet, created.Msg.GetReviewUrl(), nil))
+	if replayResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("replayed review URL status = %d, want 401", replayResponse.Code)
+	}
+
+	authRequest := httptest.NewRequest(http.MethodGet, "https://scribe.example/readyz?workspace_id="+fmt.Sprint(workspace.ID), nil)
+	authRequest.AddCookie(cookies[0])
+	reviewPrincipal, err := manager.authenticateRequest(authRequest)
+	if err != nil || reviewPrincipal.AuthType != "review_session" || reviewPrincipal.ScopedItemImageID != imageID || reviewPrincipal.ScopedItemID != itemID {
+		t.Fatalf("review principal = %+v/%v", reviewPrincipal, err)
+	}
+	if err := manager.authorizeConnectRequest(ctx, reviewPrincipal, "/scribe.v1.AnnotationService/GetAnnotationPage", &scribev1.GetAnnotationPageRequest{ItemImageId: imageID}); err != nil {
+		t.Fatalf("authorize scoped image: %v", err)
+	}
+	if err := manager.authorizeConnectRequest(ctx, reviewPrincipal, "/scribe.v1.AnnotationService/GetAnnotationPage", &scribev1.GetAnnotationPageRequest{ItemImageId: otherImageID}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("authorize other image = %v, want permission denied", err)
+	}
+	if err := manager.authorizeConnectRequest(ctx, reviewPrincipal, "/scribe.v1.TranscriptionService/ListTranscriptionJobs", &scribev1.ListTranscriptionJobsRequest{}); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("workspace-wide job list = %v, want permission denied", err)
+	}
+	if err := manager.authorizeConnectRequest(ctx, reviewPrincipal, "/scribe.v1.TranscriptionService/ListTranscriptionJobs", &scribev1.ListTranscriptionJobsRequest{ItemImageId: imageID}); err != nil {
+		t.Fatalf("scoped job list: %v", err)
 	}
 }
