@@ -202,24 +202,94 @@ jobs:
           FRONTEND_TAG: ${{ needs.prepare.outputs.frontend_image_tag }}
           SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:c7d3c512612f52805023cd38351081dad7e2729fc13d14b701e47c7c8bdd6615
         run: ./ci/publish-preview-images.sh
-  build-ocr:
+  resolve-production-ocr-images:
     if: needs.prepare.outputs.mode == 'apply'
     needs: [prepare, lint-test]
-    uses: ./.github/workflows/build-ocr.yaml
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: preview
+    concurrency:
+      group: terraform-deploy-scribe
+      queue: max
+      cancel-in-progress: false
     permissions:
       id-token: write
       contents: read
-      packages: write
-    with:
-      checkout_ref: ${{ needs.prepare.outputs.base_sha }}
-      workspace_slug: pr-${{ needs.prepare.outputs.pr_number }}
-      image_tag: ${{ needs.prepare.outputs.base_sha }}
-      environment_name: preview
-      build_images: false
+    outputs:
+      images_json: ${{ steps.resolve.outputs.images_json }}
+    env:
+      GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+    steps:
+      - name: Checkout protected OCR selection logic
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ${{ vars.GCLOUD_PROJECT }}
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: 576.0.0
+      - name: Verify preview deploy WIF trust boundary
+        env:
+          WIF_EXPECTED_ENVIRONMENT: preview
+          WIF_IDENTITY_CLASS: deploy
+          WIF_PROVIDER: ${{ secrets.GCLOUD_OIDC_POOL }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.GSA }}
+        run: ./ci/verify-gcp-wif.sh
+      - id: resolve
+        name: Select the deployed production OCR digest map
+        shell: bash
+        env:
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          test -n "$GCLOUD_PROJECT"
+          test -n "$TF_STATE_BUCKET"
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+
+          terraform -chdir=terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="prefix=scribe" >/dev/null
+          terraform -chdir=terraform workspace select prod >/dev/null
+          deployment_inputs="$(terraform -chdir=terraform output -json deployment_inputs)"
+          deployed="$(
+            printf '%s\n' "$deployment_inputs" |
+              ./ci/resolve-rollback-inputs.sh -
+          )"
+          unset deployment_inputs
+
+          [ "$(jq -r '.configuration.project_id' <<<"$deployed")" = "$GCLOUD_PROJECT" ] || {
+            echo "The production deployment record belongs to another project." >&2
+            exit 1
+          }
+          [ "$(jq -r '.docker_compose_sha' <<<"$deployed")" = "$BASE_SHA" ] || {
+            echo "Production has not deployed the current protected main commit; retry the preview after production finishes." >&2
+            exit 1
+          }
+
+          recorded_ocr_images="$(jq -c '.ocr_service_images' <<<"$deployed")"
+          images_json="$(
+            GCLOUD_PROJECT="$GCLOUD_PROJECT" \
+              WORKSPACE_SLUG="pr-${PR_NUMBER}" \
+              INCLUDE_OLLAMA=false \
+              ./ci/select-current-ocr-images.sh <<<"$recorded_ocr_images"
+          )"
+          echo "images_json=${images_json}" >> "$GITHUB_OUTPUT"
 
   deploy:
     if: needs.prepare.outputs.mode == 'apply'
-    needs: [prepare, lint-test, build-backend, build-frontend, publish-images, build-ocr]
+    needs: [prepare, lint-test, build-backend, build-frontend, publish-images, resolve-production-ocr-images]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
@@ -237,7 +307,7 @@ jobs:
       image_tag: ${{ needs.publish-images.outputs.backend_image }}
       frontend_image_tag: ${{ needs.publish-images.outputs.frontend_image }}
       frontend_gar_image_tag: ${{ needs.prepare.outputs.frontend_gar_image_tag }}
-      ocr_images_json: ${{ needs.build-ocr.outputs.images_json }}
+      ocr_images_json: ${{ needs.resolve-production-ocr-images.outputs.images_json }}
       region: ${{ needs.prepare.outputs.region }}
       zone: ${{ needs.prepare.outputs.zone }}
 

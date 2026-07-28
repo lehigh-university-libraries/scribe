@@ -36,6 +36,14 @@ require_fixed './ci/verify-production-source-lineage.sh .rollback-source "$PREVI
 require_fixed 'DEPLOY_EVENT_FORCED: ${{ github.event.forced }}' .github/workflows/terraform-deploy.yaml
 require_fixed 'current infrastructure safety code' .github/workflows/terraform-deploy.yaml
 require_fixed 'ci/select-current-ocr-images.sh' .github/workflows/terraform-deploy.yaml
+require_fixed './ci/select-current-ocr-images.sh' .github/workflows/terraform-apply.yaml
+require_fixed './ci/select-current-ocr-images.sh' .github/workflows/terraform-preview.yaml
+require_fixed 'terraform -chdir=terraform output -json deployment_inputs' .github/workflows/terraform-apply.yaml
+require_fixed 'terraform -chdir=terraform output -json deployment_inputs' .github/workflows/terraform-preview.yaml
+require_fixed './ci/resolve-rollback-inputs.sh -' .github/workflows/terraform-preview.yaml
+# shellcheck disable=SC2016 # Match literal workflow shell variables.
+require_fixed '[ "$(jq -r '\''.docker_compose_sha'\'' <<<"$deployed")" = "$BASE_SHA" ]' .github/workflows/terraform-preview.yaml
+require_fixed 'INCLUDE_OLLAMA=false' .github/workflows/terraform-preview.yaml
 require_fixed 'name = "KRAKEN_TRANSCRIPTION_MODEL_ID"' terraform/kraken.tf
 require_fixed 'name = "KRAKEN_SEGMENTATION_MODEL_ID"' terraform/kraken.tf
 require_fixed "steps.apply.outcome != 'skipped'" .github/workflows/terraform-deploy.yaml

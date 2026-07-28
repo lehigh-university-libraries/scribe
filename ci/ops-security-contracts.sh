@@ -38,6 +38,56 @@ if rg -q 'id-token:[[:space:]]*write|packages:[[:space:]]*write' <<<"$matrix_job
   fail "OCR matrix job must not inherit publisher credentials"
 fi
 
+# Production may reuse OCR digests only after a protected, full-history state
+# reader proves that no image input changed and revalidates the recorded map.
+production_ocr_detector="$(sed -n '/^  ocr-change-detection:/,/^  [a-zA-Z0-9_-]*:/p' .github/workflows/terraform-apply.yaml)"
+rg -q '^    environment: production$' <<<"$production_ocr_detector" ||
+  fail "OCR change detection must be bound to the production environment"
+rg -q '^      id-token: write$' <<<"$production_ocr_detector" ||
+  fail "OCR change detection must use explicit deploy WIF credentials"
+rg -q '^      contents: read$' <<<"$production_ocr_detector" ||
+  fail "OCR change detection must receive only read access to repository contents"
+if rg -q 'packages:[[:space:]]*write' <<<"$production_ocr_detector"; then
+  fail "OCR change detection must not receive registry-write credentials"
+fi
+# shellcheck disable=SC2016 # Match literal workflow shell variables.
+for detector_contract in \
+  'fetch-depth: 0' \
+  'terraform_wrapper: false' \
+  'WIF_EXPECTED_ENVIRONMENT: production' \
+  'WIF_IDENTITY_CLASS: deploy' \
+  'terraform -chdir=terraform workspace select prod' \
+  'terraform -chdir=terraform output -json deployment_inputs' \
+  './ci/resolve-rollback-inputs.sh -' \
+  'git merge-base --is-ancestor "$previous_sha" "$CURRENT_SHA"' \
+  './ci/ocr-source-paths.sh' \
+  'git diff --name-only "$previous_sha" "$CURRENT_SHA" -- "${ocr_source_path_list[@]}"' \
+  './ci/select-current-ocr-images.sh' \
+  'rebuild_ocr "the production deployment record is unreadable"' \
+  'rebuild_ocr "the previous deployment commit is outside checkout history"' \
+  'rebuild_ocr "the deployment history could not be compared"' \
+  'rebuild_ocr "recorded OCR digests do not cover the current service matrix"'; do
+  rg -Fq -- "$detector_contract" <<<"$production_ocr_detector" ||
+    fail "OCR change detection omits protected reuse contract: $detector_contract"
+done
+production_ocr_build="$(sed -n '/^  build-ocr:/,/^  [a-zA-Z0-9_-]*:/p' .github/workflows/terraform-apply.yaml)"
+rg -Fq "needs.ocr-change-detection.outputs.ocr_changed == 'true'" <<<"$production_ocr_build" ||
+  fail "the production OCR publisher is not gated by source changes"
+rg -q '^    needs: \[[^]]*ocr-change-detection[^]]*\]$' <<<"$production_ocr_build" ||
+  fail "the production OCR publisher does not depend on change detection"
+production_apply_job="$(sed -n '/^  terraform-apply:/,/^  terraform-plan:/p' .github/workflows/terraform-apply.yaml)"
+for apply_contract in \
+  'always() &&' \
+  "needs.ocr-change-detection.result == 'success'" \
+  "needs.ocr-change-detection.outputs.ocr_changed == 'true'" \
+  "needs.build-ocr.result == 'success'" \
+  "needs.build-ocr.result == 'skipped'" \
+  "needs.ocr-change-detection.outputs.ocr_changed == 'false'" \
+  "ocr_images_json: \${{ needs.ocr-change-detection.outputs.ocr_changed == 'true' && needs.build-ocr.outputs.images_json || needs.ocr-change-detection.outputs.ocr_images_json }}"; do
+  rg -Fq -- "$apply_contract" <<<"$production_apply_job" ||
+    fail "production apply omits OCR skip/reuse contract: $apply_contract"
+done
+
 # Untrusted preview images may only run under a no-data identity that has no
 # OCR invoker grant. OCR deep probes and compute containers use separate
 # identities and must not share application permissions.
@@ -294,18 +344,51 @@ require_pattern 'replace_existing_artifacts: true' .goreleaser.yaml
 
 # Pull-request head code is built and smoked without a registry-write token.
 # The protected publisher consumes OCI archives without executing the head.
-# The reusable OCR workflow requires packages:write at call validation time,
-# but preview pins it to the protected base and disables image publication.
+# OCR images come only from the exact protected base revision already deployed
+# to production; the preview resolver can read state but cannot publish images.
 preview_build_permissions="$(sed -n '/^  build-backend:/,/^  publish-images:/p' .github/workflows/terraform-preview.yaml)"
 if rg -q 'packages: write|docker/login-action' <<<"$preview_build_permissions"; then
   fail "preview head build jobs must not receive registry-write credentials"
 fi
-preview_ocr_job="$(sed -n '/^  build-ocr:/,/^  deploy:/p' .github/workflows/terraform-preview.yaml)"
-rg -q '^      packages: write$' <<<"$preview_ocr_job" || fail "preview OCR caller must satisfy the reusable workflow permission contract"
-rg -q 'checkout_ref: \$\{\{ needs\.prepare\.outputs\.base_sha \}\}' <<<"$preview_ocr_job" || fail "preview OCR caller must execute only the protected base revision"
-rg -q '^      build_images: false$' <<<"$preview_ocr_job" || fail "preview OCR caller must not publish images"
+forbid_pattern '^  build-ocr:' .github/workflows/terraform-preview.yaml
+preview_ocr_resolver="$(sed -n '/^  resolve-production-ocr-images:/,/^  deploy:/p' .github/workflows/terraform-preview.yaml)"
+rg -q '^    needs: \[prepare, lint-test\]$' <<<"$preview_ocr_resolver" ||
+  fail "preview OCR resolution must wait for trusted input resolution and PR-head CI"
+rg -q '^    environment: preview$' <<<"$preview_ocr_resolver" ||
+  fail "preview OCR resolution must be protected by the preview environment"
+rg -q '^      id-token: write$' <<<"$preview_ocr_resolver" ||
+  fail "preview OCR resolution must use the preview deploy WIF identity"
+rg -q '^      contents: read$' <<<"$preview_ocr_resolver" ||
+  fail "preview OCR resolution must receive read-only repository access"
+if rg -q 'packages:[[:space:]]*write|OCR_GCLOUD_OIDC_POOL|OCR_GSA' <<<"$preview_ocr_resolver"; then
+  fail "preview OCR resolution must not receive OCR publisher credentials"
+fi
+# shellcheck disable=SC2016 # Match literal workflow expressions and shell variables.
+for preview_ocr_contract in \
+  'group: terraform-deploy-scribe' \
+  'queue: max' \
+  'ref: ${{ needs.prepare.outputs.base_sha }}' \
+  'WIF_EXPECTED_ENVIRONMENT: preview' \
+  'WIF_IDENTITY_CLASS: deploy' \
+  'terraform -chdir=terraform workspace select prod' \
+  'terraform -chdir=terraform output -json deployment_inputs' \
+  './ci/resolve-rollback-inputs.sh -' \
+  '[ "$(jq -r '\''.configuration.project_id'\'' <<<"$deployed")" = "$GCLOUD_PROJECT" ]' \
+  '[ "$(jq -r '\''.docker_compose_sha'\'' <<<"$deployed")" = "$BASE_SHA" ]' \
+  'WORKSPACE_SLUG="pr-${PR_NUMBER}"' \
+  'INCLUDE_OLLAMA=false' \
+  './ci/select-current-ocr-images.sh'; do
+  rg -Fq -- "$preview_ocr_contract" <<<"$preview_ocr_resolver" ||
+    fail "preview OCR resolution omits protected production replay contract: $preview_ocr_contract"
+done
+preview_deploy_job="$(sed -n '/^  deploy:/,/^  destroy:/p' .github/workflows/terraform-preview.yaml)"
+rg -q '^    needs: \[[^]]*resolve-production-ocr-images[^]]*\]$' <<<"$preview_deploy_job" ||
+  fail "preview deploy does not wait for protected OCR resolution"
+# shellcheck disable=SC2016 # Match the literal GitHub expression.
+rg -Fq 'ocr_images_json: ${{ needs.resolve-production-ocr-images.outputs.images_json }}' <<<"$preview_deploy_job" ||
+  fail "preview deploy does not consume the validated production OCR digest map"
 for preview_deploy_job in \
-  "$(sed -n '/^  deploy:/,/^  destroy:/p' .github/workflows/terraform-preview.yaml)" \
+  "$preview_deploy_job" \
   "$(sed -n '/^  destroy:/,/^  record-preview-deployment:/p' .github/workflows/terraform-preview.yaml)"; do
   rg -q '^      packages: read$' <<<"$preview_deploy_job" ||
     fail "preview deploy and destroy callers must satisfy the reusable workflow package-read contract"

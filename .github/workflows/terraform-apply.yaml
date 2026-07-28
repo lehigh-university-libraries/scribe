@@ -134,8 +134,8 @@ jobs:
         run: ./ci/frontend-image-smoke.sh "$FRONTEND_IMAGE"
 
   build-ocr:
-    if: github.event_name == 'push' || inputs.mode == 'apply'
-    needs: [prepare-backend-origin, lint-test, foundation]
+    if: (github.event_name == 'push' || inputs.mode == 'apply') && needs.ocr-change-detection.outputs.ocr_changed == 'true'
+    needs: [prepare-backend-origin, lint-test, foundation, ocr-change-detection]
     uses: ./.github/workflows/build-ocr.yaml
     permissions:
       id-token: write
@@ -230,6 +230,136 @@ jobs:
               ;;
           esac
 
+  ocr-change-detection:
+    if: github.event_name == 'push' || inputs.mode == 'apply'
+    needs: [foundation, lint-test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      ocr_changed: ${{ steps.detect.outputs.ocr_changed }}
+      ocr_images_json: ${{ steps.detect.outputs.ocr_images_json }}
+    env:
+      GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: .go-version
+          cache: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: ${{ vars.GCLOUD_PROJECT }}
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+        with:
+          version: 576.0.0
+      - name: Verify production deploy WIF trust boundary
+        env:
+          WIF_EXPECTED_ENVIRONMENT: production
+          WIF_IDENTITY_CLASS: deploy
+          WIF_PROVIDER: ${{ secrets.GCLOUD_OIDC_POOL }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.GSA }}
+        run: ./ci/verify-gcp-wif.sh
+      - id: detect
+        name: Detect reviewed OCR image source changes
+        shell: bash
+        env:
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          rebuild_ocr() {
+            local reason="$1"
+            echo "::warning::OCR image reuse is unavailable; rebuilding the reviewed matrix (${reason})."
+            {
+              echo "ocr_changed=true"
+              echo "ocr_images_json={}"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          test -n "$GCLOUD_PROJECT" || rebuild_ocr "the project is unavailable"
+          test -n "$TF_STATE_BUCKET" || rebuild_ocr "the state bucket is unavailable"
+          [[ "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]] || rebuild_ocr "the current commit is invalid"
+          git cat-file -e "${CURRENT_SHA}^{commit}" 2>/dev/null || rebuild_ocr "the current commit is absent"
+
+          terraform -chdir=terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="prefix=scribe" >/dev/null ||
+            rebuild_ocr "Terraform state initialization failed"
+          terraform -chdir=terraform workspace select prod >/dev/null ||
+            rebuild_ocr "the production workspace is unavailable"
+          deployment_inputs="$(terraform -chdir=terraform output -json deployment_inputs 2>/dev/null)" ||
+            rebuild_ocr "the production deployment record is unreadable"
+          deployed="$(
+            printf '%s\n' "$deployment_inputs" |
+              ./ci/resolve-rollback-inputs.sh - 2>/dev/null
+          )" || rebuild_ocr "the production deployment record is incomplete"
+          unset deployment_inputs
+
+          deployed_project="$(jq -r '.configuration.project_id' <<<"$deployed")" ||
+            rebuild_ocr "the production deployment project is unreadable"
+          [ "$deployed_project" = "$GCLOUD_PROJECT" ] ||
+            rebuild_ocr "the production deployment record belongs to another project"
+          previous_sha="$(jq -r '.docker_compose_sha' <<<"$deployed")" ||
+            rebuild_ocr "the previous deployment commit is unreadable"
+          [[ "$previous_sha" =~ ^[0-9a-f]{40}$ ]] ||
+            rebuild_ocr "the previous deployment commit is invalid"
+          git cat-file -e "${previous_sha}^{commit}" 2>/dev/null ||
+            rebuild_ocr "the previous deployment commit is outside checkout history"
+          git merge-base --is-ancestor "$previous_sha" "$CURRENT_SHA" ||
+            rebuild_ocr "the previous deployment is not an ancestor of this commit"
+
+          ocr_source_paths="$(./ci/ocr-source-paths.sh)" ||
+            rebuild_ocr "OCR source path discovery failed"
+          test -n "$ocr_source_paths" || rebuild_ocr "OCR source path discovery was empty"
+          mapfile -t ocr_source_path_list <<<"$ocr_source_paths"
+          for source_path in "${ocr_source_path_list[@]}"; do
+            test -n "$source_path" || rebuild_ocr "OCR source path discovery emitted an empty path"
+            [[ "$source_path" != /* && "$source_path" != -* ]] ||
+              rebuild_ocr "OCR source path discovery emitted an unsafe path"
+          done
+
+          changed_paths="$(
+            git diff --name-only "$previous_sha" "$CURRENT_SHA" -- "${ocr_source_path_list[@]}"
+          )" || rebuild_ocr "the deployment history could not be compared"
+          if [ -n "$changed_paths" ]; then
+            echo "OCR image inputs changed; rebuilding the reviewed matrix:"
+            printf '%s\n' "$changed_paths"
+            {
+              echo "ocr_changed=true"
+              echo "ocr_images_json={}"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          recorded_ocr_images="$(jq -c '.ocr_service_images' <<<"$deployed")" ||
+            rebuild_ocr "the recorded OCR digest map is unreadable"
+          selected_ocr_images="$(
+            GCLOUD_PROJECT="$GCLOUD_PROJECT" \
+              WORKSPACE_SLUG=prod \
+              ./ci/select-current-ocr-images.sh <<<"$recorded_ocr_images" 2>/dev/null
+          )" || rebuild_ocr "recorded OCR digests do not cover the current service matrix"
+          {
+            echo "ocr_changed=false"
+            echo "ocr_images_json=${selected_ocr_images}"
+          } >> "$GITHUB_OUTPUT"
+          echo "No OCR image inputs changed; reusing the reviewed production digest map."
+
   resolve-plan-inputs:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'plan'
     needs: [prepare-backend-origin, foundation, lint-test]
@@ -291,8 +421,26 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   terraform-apply:
-    if: github.event_name == 'push' || inputs.mode == 'apply'
-    needs: [prepare-backend-origin, build-backend, build-frontend, build-ocr, foundation, lint-test]
+    if: >-
+      always() &&
+      (github.event_name == 'push' || inputs.mode == 'apply') &&
+      needs.prepare-backend-origin.result == 'success' &&
+      needs.build-backend.result == 'success' &&
+      needs.build-frontend.result == 'success' &&
+      needs.foundation.result == 'success' &&
+      needs.lint-test.result == 'success' &&
+      needs.ocr-change-detection.result == 'success' &&
+      (
+        (
+          needs.ocr-change-detection.outputs.ocr_changed == 'true' &&
+          needs.build-ocr.result == 'success'
+        ) ||
+        (
+          needs.build-ocr.result == 'skipped' &&
+          needs.ocr-change-detection.outputs.ocr_changed == 'false'
+        )
+      )
+    needs: [prepare-backend-origin, build-backend, build-frontend, build-ocr, foundation, lint-test, ocr-change-detection]
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
       id-token: write
@@ -309,7 +457,7 @@ jobs:
       image_tag: ${{ needs.build-backend.outputs.image }}
       frontend_image_tag: ${{ needs.build-frontend.outputs.image }}
       frontend_gar_image_tag: ${{ needs.prepare-backend-origin.outputs.frontend_gar_image_tag }}
-      ocr_images_json: ${{ needs.build-ocr.outputs.images_json }}
+      ocr_images_json: ${{ needs.ocr-change-detection.outputs.ocr_changed == 'true' && needs.build-ocr.outputs.images_json || needs.ocr-change-detection.outputs.ocr_images_json }}
       region: ${{ needs.prepare-backend-origin.outputs.region }}
       zone: ${{ needs.prepare-backend-origin.outputs.zone }}
 

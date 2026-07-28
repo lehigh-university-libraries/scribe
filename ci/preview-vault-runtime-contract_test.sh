@@ -173,10 +173,12 @@ done
 rg -Fq "group: \${{ inputs.environment_name == 'preview' && 'terraform-preview-dev-shared' || format('terraform-deploy-{0}', inputs.site_name) }}" <<<"$trusted_deploy_job" ||
   fail "the entire shared preview reconciliation and deployment path is not serialized"
 
-[[ "$(rg -c '^[[:space:]]*- ' .github/actionlint.yaml)" -eq 1 ]] ||
-  fail "the actionlint compatibility exception is not limited to one error"
-rg -Fq '.github/workflows/terraform-deploy.yaml:' .github/actionlint.yaml ||
-  fail "the actionlint compatibility exception is not scoped to the trusted deploy workflow"
+[[ "$(rg -c '^[[:space:]]*- ' .github/actionlint.yaml)" -eq 2 ]] ||
+  fail "the actionlint compatibility exception is not limited to the two queue uses"
+for workflow in terraform-deploy.yaml terraform-preview.yaml; do
+  rg -Fq ".github/workflows/${workflow}:" .github/actionlint.yaml ||
+    fail "the actionlint queue exception is not scoped to ${workflow}"
+done
 rg -Fq 'unexpected key "queue" for "concurrency" section' .github/actionlint.yaml ||
   fail "the actionlint compatibility exception does not match only its unsupported queue syntax"
 

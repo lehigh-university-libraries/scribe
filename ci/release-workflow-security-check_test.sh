@@ -82,6 +82,25 @@ fixture="$(new_fixture release_without_ci_dependency)"
 sed -i '/^    needs: .*lint-test/s/, lint-test//' "$fixture/terraform-apply.yaml"
 expect_failure "$fixture" "production deployment must depend on repository CI"
 
+fixture="$(new_fixture release_without_status_aware_gate)"
+sed -i '/^      always() &&$/d' "$fixture/terraform-apply.yaml"
+expect_failure "$fixture" "production deployment is missing status-aware gate:       always() &&"
+
+fixture="$(new_fixture release_accepts_failed_ocr_detection)"
+sed -i "s/needs\.ocr-change-detection\.result == 'success'/needs.ocr-change-detection.result != 'cancelled'/" \
+  "$fixture/terraform-apply.yaml"
+expect_failure "$fixture" "production deployment is missing status-aware gate:       needs.ocr-change-detection.result == 'success' &&"
+
+fixture="$(new_fixture release_rebuild_skip_without_reuse_decision)"
+sed -i "/needs\.ocr-change-detection\.outputs\.ocr_changed == 'false'/d" \
+  "$fixture/terraform-apply.yaml"
+expect_failure "$fixture" "production deployment is missing status-aware gate:           needs.ocr-change-detection.outputs.ocr_changed == 'false'"
+
+fixture="$(new_fixture release_build_without_change_decision)"
+sed -i "/needs\.ocr-change-detection\.outputs\.ocr_changed == 'true' &&/d" \
+  "$fixture/terraform-apply.yaml"
+expect_failure "$fixture" "production deployment is missing status-aware gate:           needs.ocr-change-detection.outputs.ocr_changed == 'true' &&"
+
 fixture="$(new_fixture release_preview_environment)"
 sed -i '/^      environment_name: production$/s/production/preview/' "$fixture/terraform-apply.yaml"
 expect_failure "$fixture" "missing exact binding: environment_name: production"
@@ -120,10 +139,10 @@ expect_failure "$fixture" 'missing exact binding: image_tag: ${{ needs.build-bac
 
 fixture="$(new_fixture release_wrong_ocr_artifacts)"
 # shellcheck disable=SC2016 # Match a literal GitHub expression in the workflow fixture.
-sed -i 's#ocr_images_json: \${{ needs.build-ocr.outputs.images_json }}#ocr_images_json: {}#' \
+sed -i "s#ocr_images_json: \${{ needs.ocr-change-detection.outputs.ocr_changed == 'true' && needs.build-ocr.outputs.images_json || needs.ocr-change-detection.outputs.ocr_images_json }}#ocr_images_json: {}#" \
   "$fixture/terraform-apply.yaml"
 # shellcheck disable=SC2016 # Match a literal GitHub expression in the expected diagnostic.
-expect_failure "$fixture" 'missing exact binding: ocr_images_json: ${{ needs.build-ocr.outputs.images_json }}'
+expect_failure "$fixture" "missing exact binding: ocr_images_json: \${{ needs.ocr-change-detection.outputs.ocr_changed == 'true' && needs.build-ocr.outputs.images_json || needs.ocr-change-detection.outputs.ocr_images_json }}"
 
 fixture="$(new_fixture descendant_release)"
 # shellcheck disable=SC2016 # Match a literal shell variable in the workflow fixture.

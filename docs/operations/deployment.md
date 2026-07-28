@@ -22,20 +22,51 @@
   deferred and is not a CI, deployment, or release gate.
 - Production apply requires the protected `production` environment.
 
-Terraform receives the exact reviewed Git commit as the Compose source ref,
-and deployable images come directly from build-produced immutable digests. PR code receives
-no CI credentials while it is tested and built. After environment approval, that
-image runs only as the preview ingress identity, whose sole workload permission
+Terraform receives the exact reviewed Git commit as the Compose source ref.
+Backend and frontend images come directly from build-produced immutable
+digests; OCR images are either built for that commit or carried forward by
+digest after the protected workflow proves that no image-content input changed.
+PR code receives no CI credentials while it is tested and built. After
+environment approval, that image runs only as the preview ingress identity,
+whose sole workload permission
 is power control over that preview VM. The job that executes a PR-built image
 for backend probing uses a dedicated no-data identity with no Vault, bucket,
 Pub/Sub, OCR-invoker, or project grants. The OCR deep probe has a separate
 no-data identity whose only workload grants invoke the exact segmentation and
 transcription services under test. Never grant preview identities production resources. Preview
 infrastructure and shared helpers run from a SHA resolved independently from
-protected `main`, including teardown after a PR is retargeted. Preview
-deploys reuse the
-digest-pinned OCR images keyed to the exact protected-base commit, so PRs do
-not rebuild or resolve mutable model-image tags.
+protected `main`, including teardown after a PR is retargeted. Preview deploys
+read the digest-pinned OCR map recorded by the production deployment of the
+exact protected-base commit, so PRs do not rebuild or resolve mutable
+model-image tags.
+
+Before a production apply publishes OCR images, the protected deploy identity
+reads the last successful production `deployment_inputs` record. The workflow
+requires that record to belong to the configured project and to name an
+ancestor of the new `main` commit, then compares the commits using the sorted
+pathspecs from `ci/ocr-source-paths.sh`. Those pathspecs cover the segmentor
+Docker context and build inputs, the OCR matrix and image-map generators, the
+complete Ollama image context, and the in-module transitive Go dependency
+closure of `cmd/segmentor` under the same Linux, amd64, CGO, and `localocr`
+build constraints used by the image.
+
+Any missing or malformed deployment record, state-read failure, history gap,
+non-ancestor commit, dependency-discovery failure, or diff ambiguity selects a
+full rebuild. When any watched input changed, the protected OCR publisher
+rebuilds and republishes the complete configured matrix under the new commit
+SHA. Only a certain no-change result may skip that job. In that case,
+`ci/select-current-ocr-images.sh` first proves the recorded digest map covers
+the current required service-key matrix, then Terraform receives that validated
+map directly. Reuse does not relax the build invariant that `image_tag` equals
+`checkout_ref`: no replacement tag is invented, and the prior reviewed image
+digests retain their original provenance.
+
+The preview resolver uses its protected deploy identity to read the same stable
+production record while serialized with production deployment. It requires the
+recorded Compose SHA to equal the current protected `main` SHA and projects out
+production-only Ollama services before applying a `pr-*` workspace. A preview
+therefore waits for production to finish deploying a new base commit instead
+of guessing an OCR tag or observing transient forward/rollback state.
 
 Preview ingress is already restricted by the protected `ALLOWED_IPS` policy,
 so preview application auth deliberately uses its isolated anonymous workspace

@@ -235,6 +235,16 @@ verifies it, promotes that exact digest to GAR, and then passes only the
 resolved GAR digest to Terraform. Terraform does not expose a parallel
 `frontend_image` variable or state field.
 
+Protected production delivery compares the last successfully deployed commit
+with the new `main` commit using the deterministic OCR source path set. A
+relevant change rebuilds the complete OCR matrix. A certain no-change result
+instead validates the recorded `ocr_service_images` map against the current
+required service keys and carries those reviewed digests forward. Missing
+state, history, dependency information, or any other ambiguous comparison
+rebuilds rather than reusing. The checkout-SHA image-tag invariant still
+applies to every build; carried digests keep the provenance of the prior
+reviewed build and are not assigned a replacement tag.
+
 The `deployment_inputs` output records the Compose SHA, persistence generation,
 actual runtime image digests, and non-secret configuration needed by refresh,
 destroy, drift detection, and rollback. Replay validates the recorded schema
@@ -245,9 +255,11 @@ from the documented missing legacy external-OCR key normalization.
 
 - [terraform-preview.yaml](../.github/workflows/terraform-preview.yaml) builds
   untrusted code without credentials, publishes reviewed artifacts after the
-  protected gate, and applies or destroys `pr-*` workspaces.
+  protected gate, reads the stable OCR digest map recorded by production for
+  the exact current `main` SHA, and applies or destroys `pr-*` workspaces.
 - [terraform-apply.yaml](../.github/workflows/terraform-apply.yaml) reconciles
-  the foundation, builds and scans immutable artifacts, and calls the protected
+  the foundation, builds and scans immutable artifacts, rebuilds OCR only when
+  its image inputs changed or reuse is ambiguous, and calls the protected
   production deployment workflow.
 - [terraform-deploy.yaml](../.github/workflows/terraform-deploy.yaml) plans,
   applies, attests the deployed frontend digest, runs backend/OCR readiness,

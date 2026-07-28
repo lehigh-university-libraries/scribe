@@ -24,6 +24,14 @@ assert_before() {
     fail "$file must run $before_pattern before $after_pattern"
 }
 
+assert_block_before() {
+  local block="$1" before_pattern="$2" after_pattern="$3" before_line after_line
+  before_line="$(rg -n -m 1 -- "$before_pattern" <<<"$block" | cut -d: -f1)"
+  after_line="$(rg -n -m 1 -- "$after_pattern" <<<"$block" | cut -d: -f1)"
+  [ -n "$before_line" ] && [ -n "$after_line" ] && [ "$before_line" -lt "$after_line" ] ||
+    fail "workflow job must run $before_pattern before $after_pattern"
+}
+
 assert_gcloud_auth_order() {
   local file="$1" setup_line auth_line checkout_line
   while IFS= read -r setup_line; do
@@ -37,13 +45,14 @@ assert_gcloud_auth_order() {
   done < <(rg -n -- 'uses: google-github-actions/setup-gcloud@' "$file" | cut -d: -f1)
 }
 
-assert_count 2 'run: ./ci/verify-gcp-wif\.sh' .github/workflows/terraform-apply.yaml
+assert_count 3 'run: ./ci/verify-gcp-wif\.sh' .github/workflows/terraform-apply.yaml
+assert_count 1 'run: ./ci/verify-gcp-wif\.sh' .github/workflows/terraform-preview.yaml
 assert_count 1 'run: ./ci/verify-gcp-wif\.sh' .github/workflows/terraform-deploy.yaml
 assert_count 1 'run: ./ci/verify-gcp-wif\.sh' .github/workflows/terraform-drift.yaml
 assert_count 2 'run: ./ci/verify-gcp-wif\.sh' .github/workflows/build-ocr.yaml
 assert_count 1 'run: ./ci/verify-gcp-wif\.sh' .github/workflows/backup-verification.yaml
 
-for file in terraform-apply.yaml terraform-deploy.yaml terraform-drift.yaml build-ocr.yaml backup-verification.yaml; do
+for file in terraform-apply.yaml terraform-preview.yaml terraform-deploy.yaml terraform-drift.yaml build-ocr.yaml backup-verification.yaml; do
   assert_gcloud_auth_order ".github/workflows/$file"
 done
 
@@ -60,12 +69,10 @@ assert_count 2 'secrets\.BACKUP_GCLOUD_OIDC_POOL' .github/workflows/backup-verif
 if rg -q 'secrets\.OCR_(GCLOUD_OIDC_POOL|GSA)' .github/workflows/build-ocr.yaml; then
   fail "OCR WIF identifiers are environment configuration, not inherited secrets"
 fi
-for caller in terraform-apply.yaml terraform-preview.yaml; do
-  caller_block="$(sed -n '/^  build-ocr:/,/^  [a-zA-Z0-9_-]*:/p' ".github/workflows/${caller}")"
-  if printf '%s\n' "$caller_block" | grep -Eq '^[[:space:]]+secrets:'; then
-    fail "${caller} passes caller secrets instead of using protected OCR environment configuration"
-  fi
-done
+caller_block="$(sed -n '/^  build-ocr:/,/^  [a-zA-Z0-9_-]*:/p' .github/workflows/terraform-apply.yaml)"
+if printf '%s\n' "$caller_block" | grep -Eq '^[[:space:]]+secrets:'; then
+  fail "terraform-apply.yaml passes caller secrets instead of using protected OCR environment configuration"
+fi
 for job in build aggregate; do
   job_block="$(sed -n "/^  ${job}:/,/^  [a-zA-Z0-9_-]*:/p" .github/workflows/build-ocr.yaml)"
   # shellcheck disable=SC2016 # Match the literal GitHub expression.
@@ -74,13 +81,17 @@ for job in build aggregate; do
 done
 
 assert_before .github/workflows/terraform-apply.yaml 'run: ./ci/verify-gcp-wif\.sh' 'Plan or apply singleton project foundation'
+ocr_change_detection_job="$(sed -n '/^  ocr-change-detection:/,/^  [a-zA-Z0-9_-]*:/p' .github/workflows/terraform-apply.yaml)"
+assert_block_before "$ocr_change_detection_job" 'run: ./ci/verify-gcp-wif\.sh' 'terraform -chdir=terraform output -json deployment_inputs'
+preview_ocr_resolver_job="$(sed -n '/^  resolve-production-ocr-images:/,/^  [a-zA-Z0-9_-]*:/p' .github/workflows/terraform-preview.yaml)"
+assert_block_before "$preview_ocr_resolver_job" 'run: ./ci/verify-gcp-wif\.sh' 'terraform -chdir=terraform output -json deployment_inputs'
 assert_before .github/workflows/terraform-deploy.yaml 'run: ./ci/verify-gcp-wif\.sh' 'Promote the reviewed frontend digest to GAR'
 assert_before .github/workflows/terraform-deploy.yaml 'run: ./ci/gcp-vm-bootstrap-diagnostics\.sh' 'Roll back failed production rollout'
 assert_before .github/workflows/build-ocr.yaml 'run: ./ci/verify-gcp-wif\.sh' 'Build and publish reviewed OCR image'
 assert_before .github/workflows/backup-verification.yaml 'run: ./ci/verify-gcp-wif\.sh' 'Verify state, Vault, upload, and transfer recovery points'
 assert_before .github/workflows/terraform-drift.yaml 'run: ./ci/verify-gcp-wif\.sh' 'terraform -chdir=terraform init'
 
-for file in terraform-apply.yaml terraform-deploy.yaml terraform-drift.yaml build-ocr.yaml backup-verification.yaml; do
+for file in terraform-apply.yaml terraform-preview.yaml terraform-deploy.yaml terraform-drift.yaml build-ocr.yaml backup-verification.yaml; do
   rg -q 'WIF_EXPECTED_ENVIRONMENT:' ".github/workflows/$file" || fail "$file omits the protected environment preflight"
   rg -q 'WIF_IDENTITY_CLASS:' ".github/workflows/$file" || fail "$file omits the identity-class preflight"
   rg -q 'WIF_SERVICE_ACCOUNT:' ".github/workflows/$file" || fail "$file omits the exact service-account preflight"

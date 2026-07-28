@@ -95,14 +95,33 @@ printf '%s\n' "$foundation_job" | grep -q "github.event_name == 'push'.*'apply'.
   fail "a plan-only dispatch can mutate the foundation"
 printf '%s\n' "$foundation_job" | grep -q -- '-lock-timeout=5m' ||
   fail "foundation operations do not use bounded state-lock waiting"
-grep -Eq '^  build-ocr:|needs: \[prepare-backend-origin, lint-test, foundation\]' .github/workflows/terraform-apply.yaml ||
-  fail "OCR builds are not ordered after the registry foundation"
+ocr_change_detection_job="$(sed -n '/^  ocr-change-detection:/,/^  [a-zA-Z0-9_-]*:/p' .github/workflows/terraform-apply.yaml)"
+printf '%s\n' "$ocr_change_detection_job" | grep -Fq "if: github.event_name == 'push' || inputs.mode == 'apply'" ||
+  fail "manual plan can read production OCR deployment inputs through change detection"
+printf '%s\n' "$ocr_change_detection_job" | grep -Fq 'needs: [foundation, lint-test]' ||
+  fail "OCR change detection is not ordered after CI and the registry foundation"
+printf '%s\n' "$ocr_change_detection_job" | grep -Fq 'fetch-depth: 0' ||
+  fail "OCR change detection cannot compare the deployed commit with the current commit"
+printf '%s\n' "$ocr_change_detection_job" | grep -Fq 'terraform -chdir=terraform output -json deployment_inputs' ||
+  fail "OCR change detection does not read the recorded production artifacts"
+printf '%s\n' "$ocr_change_detection_job" | grep -Fq './ci/ocr-source-paths.sh' ||
+  fail "OCR change detection does not use the computed image source set"
+# shellcheck disable=SC2016 # Match literal workflow shell variables.
+printf '%s\n' "$ocr_change_detection_job" | grep -Fq 'git diff --name-only "$previous_sha" "$CURRENT_SHA" -- "${ocr_source_path_list[@]}"' ||
+  fail "OCR change detection does not compare the exact deployed source range"
+printf '%s\n' "$ocr_change_detection_job" | grep -Fq './ci/select-current-ocr-images.sh' ||
+  fail "OCR change detection does not validate the recorded digest map before reuse"
 
-for job in build-backend build-frontend build-ocr; do
+for job in build-backend build-frontend; do
   job_block="$(sed -n "/^  ${job}:/,/^  [a-zA-Z0-9_-]*:/p" .github/workflows/terraform-apply.yaml)"
   printf '%s\n' "$job_block" | grep -Fq "if: github.event_name == 'push' || inputs.mode == 'apply'" ||
     fail "manual plan can execute the ${job} publisher"
 done
+build_ocr_job="$(sed -n '/^  build-ocr:/,/^  [a-zA-Z0-9_-]*:/p' .github/workflows/terraform-apply.yaml)"
+printf '%s\n' "$build_ocr_job" | grep -Fq "if: (github.event_name == 'push' || inputs.mode == 'apply') && needs.ocr-change-detection.outputs.ocr_changed == 'true'" ||
+  fail "the OCR publisher is not gated by the reviewed change decision"
+printf '%s\n' "$build_ocr_job" | grep -Fq 'needs: [prepare-backend-origin, lint-test, foundation, ocr-change-detection]' ||
+  fail "OCR builds are not ordered after change detection and the registry foundation"
 plan_job="$(sed -n '/^  terraform-plan:/,$p' .github/workflows/terraform-apply.yaml)"
 printf '%s\n' "$plan_job" | grep -Fq "if: github.event_name == 'workflow_dispatch' && inputs.mode == 'plan'" ||
   fail "manual plan is not isolated in its read-only caller job"

@@ -131,7 +131,11 @@ label/provenance-gated cleanup; stale resources; and partial-failure cleanup.
 alignment without starting a build container. It rejects missing artifacts,
 unknown defaults, route drift, model-file collisions, and disagreement between
 `config/ocr.yaml`, the segmentor Dockerfile defaults, and local Compose endpoint
-maps. `make ocr-build-tags` depends on that cheap contract, then runs the Kraken
+maps. It also proves the production change detector emits a stable, bounded
+source path set containing every fixed image input, the nested Ollama context,
+and the complete in-module `cmd/segmentor` dependency closure for the actual
+Linux `localocr` build constraints. `make ocr-build-tags` depends on that cheap
+contract, then runs the Kraken
 installer contract plus the default,
 `remoteocr`, and `localocr` Go build combinations. The installer proves that a
 matching model digest is accepted and a tampered artifact is rejected before

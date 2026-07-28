@@ -4,3 +4,6 @@ paths:
   .github/workflows/terraform-deploy.yaml:
     ignore:
       - 'unexpected key "queue" for "concurrency" section'
+  .github/workflows/terraform-preview.yaml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'

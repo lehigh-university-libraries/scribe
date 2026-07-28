@@ -122,8 +122,22 @@ require_pattern 'uses: \./\.github/workflows/lint-test\.yaml' "$TERRAFORM_APPLY_
 terraform_apply_job="$(
   sed -n '/^  terraform-apply:/,/^  terraform-plan:/p' "$TERRAFORM_APPLY_WORKFLOW"
 )"
-rg -Fq "if: github.event_name == 'push' || inputs.mode == 'apply'" <<<"$terraform_apply_job" ||
-  fail "terraform-apply.yaml must deploy every main push"
+for production_gate in \
+  '      always() &&' \
+  "      (github.event_name == 'push' || inputs.mode == 'apply') &&" \
+  "      needs.prepare-backend-origin.result == 'success' &&" \
+  "      needs.build-backend.result == 'success' &&" \
+  "      needs.build-frontend.result == 'success' &&" \
+  "      needs.foundation.result == 'success' &&" \
+  "      needs.lint-test.result == 'success' &&" \
+  "      needs.ocr-change-detection.result == 'success' &&" \
+  "          needs.ocr-change-detection.outputs.ocr_changed == 'true' &&" \
+  "          needs.build-ocr.result == 'success'" \
+  "          needs.build-ocr.result == 'skipped' &&" \
+  "          needs.ocr-change-detection.outputs.ocr_changed == 'false'"; do
+  grep -Fqx "$production_gate" <<<"$terraform_apply_job" ||
+    fail "terraform-apply.yaml production deployment is missing status-aware gate: ${production_gate}"
+done
 rg -q '^    needs: \[[^]]*lint-test[^]]*\]$' <<<"$terraform_apply_job" ||
   fail "terraform-apply.yaml production deployment must depend on repository CI"
 # shellcheck disable=SC2016 # Match literal GitHub expression syntax.
@@ -139,7 +153,7 @@ for production_binding in \
   'image_tag: ${{ needs.build-backend.outputs.image }}' \
   'frontend_image_tag: ${{ needs.build-frontend.outputs.image }}' \
   'frontend_gar_image_tag: ${{ needs.prepare-backend-origin.outputs.frontend_gar_image_tag }}' \
-  'ocr_images_json: ${{ needs.build-ocr.outputs.images_json }}' \
+  "ocr_images_json: \${{ needs.ocr-change-detection.outputs.ocr_changed == 'true' && needs.build-ocr.outputs.images_json || needs.ocr-change-detection.outputs.ocr_images_json }}" \
   'region: ${{ needs.prepare-backend-origin.outputs.region }}' \
   'zone: ${{ needs.prepare-backend-origin.outputs.zone }}'; do
   [ "$(grep -Fxc "      ${production_binding}" <<<"$terraform_apply_job")" -eq 1 ] ||
