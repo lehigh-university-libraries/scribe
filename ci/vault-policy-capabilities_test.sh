@@ -56,28 +56,54 @@ export VAULT_TOKEN_VALUE
 [ -n "$VAULT_TOKEN_VALUE" ] || fail "Vault did not create a CI-policy token"
 
 capabilities() {
-  vault_exec token capabilities "$1" | tr -d '\r\n'
+  local output=""
+
+  for _ in 1 2 3 4 5; do
+    if output="$(vault_exec token capabilities "$1" 2>/dev/null)"; then
+      output="${output//$'\r'/}"
+      output="${output//$'\n'/}"
+      if [ -n "$output" ]; then
+        printf '%s' "$output"
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
+require_denied() {
+  local path="$1"
+  local failure="$2"
+  local actual=""
+
+  actual="$(capabilities "$path")" ||
+    fail "Vault capability query remained unavailable while checking a denied path"
+  [ "$actual" = "deny" ] || fail "$failure"
 }
 
 preview_path="secret/data/scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com/database/app"
-preview_caps="$(capabilities "$preview_path")"
+preview_caps="$(capabilities "$preview_path")" ||
+  fail "Vault capability query remained unavailable while checking the preview database path"
 for capability in create read update; do
   [[ ",$preview_caps," == *", $capability,"* || ",$preview_caps," == *",$capability,"* ]] || fail "preview database capability $capability is missing: $preview_caps"
 done
-[ "$(capabilities secret/data/scribe/dev/database/app)" = "deny" ] || fail "CI token can access the dev database secret"
-[ "$(capabilities secret/data/scribe/prod/database/app)" = "deny" ] || fail "CI token can access the production database secret"
-[ "$(capabilities secret/data/scribe/staging/database/app)" = "deny" ] || fail "CI token can access a non-preview database secret"
-[ "$(capabilities secret/data/scribe/previews/scribe-dev@example-project.iam.gserviceaccount.com/database/app)" = "deny" ] || fail "CI token can access a non-pr service-account namespace"
+require_denied secret/data/scribe/dev/database/app "CI token can access the dev database secret"
+require_denied secret/data/scribe/prod/database/app "CI token can access the production database secret"
+require_denied secret/data/scribe/staging/database/app "CI token can access a non-preview database secret"
+require_denied secret/data/scribe/previews/scribe-dev@example-project.iam.gserviceaccount.com/database/app "CI token can access a non-pr service-account namespace"
 
-metadata_caps="$(capabilities secret/metadata/scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com/provider-secrets/workspaces/8/openai)"
+metadata_caps="$(capabilities secret/metadata/scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com/provider-secrets/workspaces/8/openai)" ||
+  fail "Vault capability query remained unavailable while checking the preview metadata path"
 for capability in delete list read; do
   [[ ",$metadata_caps," == *", $capability,"* || ",$metadata_caps," == *",$capability,"* ]] || fail "preview metadata capability $capability is missing: $metadata_caps"
 done
-[ "$(capabilities secret/metadata/scribe/dev/provider-secrets)" = "deny" ] || fail "CI token can access dev metadata"
-[ "$(capabilities sys/policies/acl/ci)" = "deny" ] || fail "CI token can rewrite its own policy"
-[ "$(capabilities sys/auth/google-jwt)" = "deny" ] || fail "CI token can administer auth backends"
-[ "$(capabilities auth/google-jwt/role/admin-example)" = "deny" ] || fail "CI token can mutate administrator roles"
-[ "$(capabilities sys/mounts/secret)" = "deny" ] || fail "CI token can administer secret mounts"
+require_denied secret/metadata/scribe/dev/provider-secrets "CI token can access dev metadata"
+require_denied sys/policies/acl/ci "CI token can rewrite its own policy"
+require_denied sys/auth/google-jwt "CI token can administer auth backends"
+require_denied auth/google-jwt/role/admin-example "CI token can mutate administrator roles"
+require_denied sys/mounts/secret "CI token can administer secret mounts"
 
 vault_exec kv put -mount=secret scribe/previews/scribe-pr-75@example-project.iam.gserviceaccount.com/database/app password=fixture >/dev/null
 if vault_exec kv put -mount=secret scribe/dev/database/app password=forbidden >/dev/null 2>&1; then
