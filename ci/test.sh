@@ -6,11 +6,21 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 # If mariadb is running via docker compose, join its network and set TEST_DSN
-# so integration tests run alongside unit tests. Otherwise they are skipped.
+# so integration tests run alongside unit tests. Standalone developer runs may
+# skip them; required CI sets SCRIBE_REQUIRE_TEST_DB=true and fails closed.
 NETWORK_ARGS=()
 DSN_ARGS=()
 DB_USER="${MARIADB_USER:-scribe}"
 DB_NAME="${MARIADB_DATABASE:-scribe}"
+REQUIRE_TEST_DB="${SCRIBE_REQUIRE_TEST_DB:-false}"
+
+case "$REQUIRE_TEST_DB" in
+  true|false) ;;
+  *)
+    echo "SCRIBE_REQUIRE_TEST_DB must be true or false." >&2
+    exit 2
+    ;;
+esac
 
 MARIADB_ID=$(docker compose ps -q mariadb 2>/dev/null | head -1)
 if [ -n "$MARIADB_ID" ]; then
@@ -27,6 +37,11 @@ if [ -n "$MARIADB_ID" ]; then
     fi
     DSN_ARGS=(-e "TEST_DSN=${DB_USER}:${DB_PASSWORD}@tcp(mariadb:3306)/${DB_NAME}?parseTime=true")
   fi
+fi
+
+if [ "$REQUIRE_TEST_DB" = "true" ] && [ "${#DSN_ARGS[@]}" -eq 0 ]; then
+  echo "Required MariaDB test service is unavailable or has no Compose network." >&2
+  exit 1
 fi
 
 GO_TEST_IMAGE="golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2"

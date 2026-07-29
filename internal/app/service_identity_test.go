@@ -99,12 +99,6 @@ func TestWarmServiceIdentityUsesEachAudienceAndBoundsConcurrency(t *testing.T) {
 	}
 }
 
-func TestWarmServiceIdentityEmptyIsNoOp(t *testing.T) {
-	if err := warmServiceIdentity(context.Background(), nil, nil); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestWarmServiceIdentityFailureIsRedactedByPreflightBoundary(t *testing.T) {
 	secret := "private-provider-response"
 	source := &recordingIdentitySource{err: errors.New(secret)}

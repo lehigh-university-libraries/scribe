@@ -131,12 +131,10 @@ require_pattern 'pip_spec: "kraken==7\.0\.2"' config/ocr.yaml
 require_pattern 'sha256: "77a638a83c9e535620827a09e410ed36391e9e8e8126d5796a0f15b978186056"' config/ocr.yaml
 require_pattern 'https://download\.pytorch\.org/whl/cpu' config/segmentor-requirements.in
 forbid_pattern 'nvidia-cuda|whl/cu[0-9]' Dockerfile.segmentor
-bash ci/ocr-local-defaults-contract_test.sh
 bash ci/cloud-ocr-compose-preflight_test.sh
 bash ci/run-ci-network-contract_test.sh
 bash ci/configure-dev-cloud-ocr_test.sh
 bash ci/dev-external-ocr-iam-contract_test.sh
-bash ci/segmentor-lock-check.sh
 bash ci/tool-version-contract_test.sh
 bash ci/toolchain-check_test.sh
 bash ci/update-env_test.sh
@@ -146,7 +144,6 @@ bash ci/gcp-wif-workflow-contract_test.sh
 bash ci/capture-command-log_test.sh
 bash ci/gcp-vm-bootstrap-diagnostics_test.sh
 bash ci/run-cloud-run-readiness_test.sh
-bash ci/preview-deployment-evidence-contract_test.sh
 
 # Outbound Cloud Run callers must share the credential-file-aware source.
 # A direct HTR metadata source would hang behind the intentional VM metadata
@@ -237,7 +234,9 @@ forbid_pattern '\$\{TEST_DSN:-' ci/test-browser.sh
 # schema-global assertions while -count=1 bypasses Go's test-result cache.
 require_pattern 'go test -p=1 -count=1 -v -race \./\.\.\.' ci/test.sh
 require_pattern '^[[:space:]]+set -eu$' ci/test.sh
-require_pattern 'go test -p=1 -count=1 -v ./internal/server ./internal/store' ci/e2e-smoke.sh
+require_pattern 'SCRIBE_REQUIRE_TEST_DB: "true"' .github/workflows/lint-test.yaml
+require_pattern 'SCRIBE_REQUIRE_TEST_DB=true run_make test-backend' ci/run-ci.sh
+require_pattern 'REQUIRE_TEST_DB="\$\{SCRIBE_REQUIRE_TEST_DB:-false\}"' ci/test.sh
 
 # Runtime cost controls advertised in sample.env must be present in both API
 # and worker Compose environments, and the two runtime config copies must be

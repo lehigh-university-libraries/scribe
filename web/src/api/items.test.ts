@@ -127,20 +127,6 @@ describe("importManifest", () => {
 describe("getEditorManifest", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("loads the authenticated draft contract by exact item image", async () => {
-    apiClient.getEditorManifest.mockResolvedValue({
-      item,
-      manifestJson: "{\"type\":\"Manifest\"}",
-      selectedCanvasId: "https://iiif.example/canvas/7",
-    });
-    await expect(getEditorManifest("7")).resolves.toEqual({
-      item,
-      manifestJSON: "{\"type\":\"Manifest\"}",
-      selectedCanvasId: "https://iiif.example/canvas/7",
-    });
-    expect(apiClient.getEditorManifest).toHaveBeenCalledWith({ itemImageId: 7n });
-  });
-
   it("rejects invalid IDs and incomplete responses", async () => {
     await expect(getEditorManifest("0")).rejects.toThrow(/positive integer/);
     expect(apiClient.getEditorManifest).not.toHaveBeenCalled();

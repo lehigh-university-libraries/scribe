@@ -26,7 +26,7 @@ cat >"$TEST_DIR/bin/trivy" <<'EOF'
 set -euo pipefail
 
 if [[ "${1:-}" == "--version" ]]; then
-  printf '%s\n' 'Version: 0.69.3'
+  printf 'Version: %s\n' "${TEST_TRIVY_VERSION:?}"
   exit 0
 fi
 scan_root="${!#}"
@@ -48,7 +48,9 @@ printf '%s\n' 'nested-local-token' >"$fixture/nested/.env/credential"
 printf '%s\n' '{}' >"$fixture/nested/gha-creds-directory.json/key"
 
 scan_files="$TEST_DIR/scanned-files"
-PATH="$TEST_DIR/bin:/usr/bin:/bin" TEST_TRIVY_FILES="$scan_files" \
+trivy_version="$(sed -n 's/^readonly EXPECTED_TRIVY_VERSION="\([^"]*\)"$/\1/p' "$fixture/ci/dependency-scan.sh")"
+[ -n "$trivy_version" ] || fail "the scanner does not declare its expected Trivy version"
+PATH="$TEST_DIR/bin:/usr/bin:/bin" TEST_TRIVY_FILES="$scan_files" TEST_TRIVY_VERSION="$trivy_version" \
   bash "$fixture/ci/dependency-scan.sh"
 grep -Fxq 'go.mod' "$scan_files" ||
   fail "the shared scan snapshot omitted a tracked source file"
@@ -70,7 +72,7 @@ for rejected in \
   nested/gha-creds-local.json \
   nested/gha-creds-directory.json/key; do
   git -C "$fixture" add -f "$rejected"
-  if PATH="$TEST_DIR/bin:/usr/bin:/bin" TEST_TRIVY_FILES="$scan_files" \
+  if PATH="$TEST_DIR/bin:/usr/bin:/bin" TEST_TRIVY_FILES="$scan_files" TEST_TRIVY_VERSION="$trivy_version" \
     bash "$fixture/ci/dependency-scan.sh" >"$TEST_DIR/rejected.out" 2>&1; then
     fail "the scan accepted tracked runtime secret $rejected"
   fi

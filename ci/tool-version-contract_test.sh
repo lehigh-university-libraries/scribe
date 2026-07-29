@@ -148,8 +148,17 @@ grep -F 'rhysd/actionlint:1.7.12@sha256:' "$ROOT_DIR/ci/lint.sh" >/dev/null
 grep -F 'command -v shellcheck >/dev/null 2>&1 && host_shellcheck_is_pinned; then' "$ROOT_DIR/ci/lint.sh" >/dev/null
 [ "$(grep -Fc -- "-config-file \"\${ACTIONLINT_CONFIG}\"" "$ROOT_DIR/ci/lint.sh")" -eq 2 ]
 grep -F 'golangci/golangci-lint:v2.12.2-alpine@sha256:' "$ROOT_DIR/Makefile" >/dev/null
-grep -F 'EXPECTED_TRIVY_VERSION="0.69.3"' "$ROOT_DIR/ci/dependency-scan.sh" >/dev/null
-grep -F 'aquasec/trivy:0.69.3@sha256:' "$ROOT_DIR/ci/dependency-scan.sh" >/dev/null
+dependency_trivy_version="$(sed -n 's/^readonly EXPECTED_TRIVY_VERSION="\([^"]*\)"$/\1/p' "$ROOT_DIR/ci/dependency-scan.sh")"
+dependency_trivy_image_version="$(sed -n 's#^TRIVY_IMAGE=.*aquasec/trivy:\([^@}]*\)@sha256:.*#\1#p' "$ROOT_DIR/ci/dependency-scan.sh")"
+image_scan_trivy_version="$(sed -n 's#^readonly TRIVY_CONTAINER_IMAGE="aquasec/trivy:\([^@]*\)@sha256:.*#\1#p' "$ROOT_DIR/ci/image-vulnerability-scan.sh")"
+workflow_trivy_version="$(sed -n 's/^[[:space:]]*version: v\([^[:space:]]*\)$/\1/p' "$ROOT_DIR/.github/workflows/lint-test.yaml")"
+if [ -z "$dependency_trivy_version" ] \
+  || [ "$dependency_trivy_version" != "$dependency_trivy_image_version" ] \
+  || [ "$dependency_trivy_version" != "$image_scan_trivy_version" ] \
+  || [ "$dependency_trivy_version" != "$workflow_trivy_version" ]; then
+  echo "hosted, dependency, and image Trivy scans do not use one reviewed version" >&2
+  exit 1
+fi
 grep -F 'RIPGREP_VERSION="15.2.0"' "$ROOT_DIR/ci/install-ripgrep.sh" >/dev/null
 grep -F '33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c' "$ROOT_DIR/ci/install-ripgrep.sh" >/dev/null
 grep -F 'YQ_VERSION="4.53.3"' "$ROOT_DIR/ci/install-yq.sh" >/dev/null
@@ -168,7 +177,6 @@ if rg -q 'ci/generate-ocr-images-map\.sh' "$ROOT_DIR/terraform/deploy-local.sh";
 fi
 grep -F 'ocr-build-tags: ocr-matrix-test ##' "$ROOT_DIR/Makefile" >/dev/null
 [ "$(rg -c '^[[:space:]]+run: make ocr-build-tags$' "$ROOT_DIR/.github/workflows/lint-test.yaml")" -eq 1 ]
-[ "$(grep -c 'version: v0.69.3' "$ROOT_DIR/.github/workflows/lint-test.yaml")" -eq 1 ]
 [ "$(grep -c '^[[:space:]]*run: make dependency-scan$' "$ROOT_DIR/.github/workflows/lint-test.yaml")" -eq 1 ]
 grep -F -- '--require-hashes' "$ROOT_DIR/Dockerfile.docs" >/dev/null
 [ "$(grep -Ec -- '--hash=sha256:[0-9a-f]{64}( \\)?$' "$ROOT_DIR/requirements-docs.txt")" -eq 14 ]

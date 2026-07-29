@@ -41,6 +41,8 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      SCRIBE_REQUIRE_TEST_DB: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -61,8 +63,6 @@ jobs:
         run: make up-db
       - name: Run backend, frontend, and plugin tests
         run: make test
-      - name: Run DB-backed ingest and revision smoke tests
-        run: make e2e-smoke
       - name: Check OCR model routes and build modes
         run: make ocr-build-tags
       - name: Tear down test services

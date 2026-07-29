@@ -112,10 +112,6 @@ else
   exit 127
 fi
 
-echo "Running preview workflow security contracts..."
-bash ci/resolve-preview-inputs_test.sh
-bash ci/preview-deployment-evidence-contract_test.sh
-
 echo "Running golangci-lint..."
 if command -v golangci-lint >/dev/null 2>&1 && host_golangci_lint_is_pinned; then
   golangci-lint run

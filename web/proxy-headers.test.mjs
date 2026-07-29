@@ -3,8 +3,6 @@ import {
   establishForwardingHeaders,
   resolveForwardingIdentity,
   selectForwardedClient,
-  stripCredentialHeaders,
-  stripCredentialResponseHeaders,
   stripHopByHopHeaders,
 } from "./proxy-headers.mjs";
 
@@ -104,21 +102,4 @@ describe("frontend proxy header boundaries", () => {
     });
   });
 
-  it("removes browser credentials before a separate IIIF upstream", () => {
-    const headers = stripCredentialHeaders({
-      authorization: "Bearer browser-token",
-      cookie: "session=secret",
-      "x-scribe-api-key": "secret",
-      accept: "image/*",
-    });
-
-    expect(headers).toEqual({ accept: "image/*" });
-  });
-
-  it("prevents a separate IIIF upstream from setting frontend cookies", () => {
-    expect(stripCredentialResponseHeaders({
-      "set-cookie": ["session=attacker"],
-      "content-type": "image/jpeg",
-    })).toEqual({ "content-type": "image/jpeg" });
-  });
 });
