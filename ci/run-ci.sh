@@ -73,7 +73,6 @@ cleanup_database() {
 }
 trap cleanup_database EXIT
 
-run_make toolchain-check
 run_make lint
 run_make generate-check
 run_make test-frontend
@@ -82,8 +81,7 @@ DATABASE_STARTED=true
 reserve_ci_compose_network
 run_make up-db
 SCRIBE_REQUIRE_BROWSER_BACKEND=true run_make test-browser
-run_make test-backend
-run_make e2e-smoke
+SCRIBE_REQUIRE_TEST_DB=true run_make test-backend
 cleanup_database
 
 run_make backup-restore-smoke

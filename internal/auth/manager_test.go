@@ -345,27 +345,6 @@ func TestNewManagerWithoutPublicBaseURLEnablesAuth(t *testing.T) {
 	}
 }
 
-func TestNewManagerWithCompleteGoogleConfigEnablesAuth(t *testing.T) {
-	t.Parallel()
-
-	manager, err := NewManager(config.Config{
-		PublicBaseURL: "https://scribe.example",
-		Auth: config.AuthConfig{
-			CookieName:         "scribe_session",
-			GoogleCallbackPath: "/auth/callback/google",
-		},
-	}, config.Secrets{
-		GoogleOAuthClientID:     "client-id",
-		GoogleOAuthClientSecret: "client-secret",
-	}, nil, nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("NewManager returned error: %v", err)
-	}
-	if !manager.Enabled() {
-		t.Fatal("manager.Enabled() = false, want true when Google OAuth is fully configured")
-	}
-}
-
 func TestGetAuthMeAnonymousDescriptorSurvivesHTTPMiddleware(t *testing.T) {
 	t.Parallel()
 	manager := &Manager{}

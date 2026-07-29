@@ -7,7 +7,7 @@ Required pull-request checks cover:
 - Go race tests, DB integration tests, release-target 32-bit cross-compilation,
   and web/plugin tests and builds;
 - real Chromium editor acceptance tests in a pinned Playwright container;
-- OCR build tags and DB-backed ingest/revision smoke tests;
+- OCR build tags and DB-backed ingest/revision acceptance tests;
 - isolated backup/restore integrity and expired-job recovery smoke tests;
 - gosec, reachable Go vulnerability analysis, npm audits, and Trivy dependency
   plus credential scanning with a synthetic detection regression;
@@ -84,6 +84,12 @@ before any image build or credentialed deployment. Preview head images are
 built and smoked as credential-free OCI artifacts; a protected publisher job
 is the first step allowed to authenticate to the registry and it never executes
 the pull-request checkout.
+
+The backend jobs likewise set `SCRIBE_REQUIRE_TEST_DB=true`; failure to resolve
+the isolated Compose database is a gate failure rather than a unit-only pass.
+The full Go suite owns required DB acceptance coverage, while `make e2e-smoke`
+is the focused subset for local ingest/revision iteration and is not rerun in
+the same required job.
 
 Because trusted `pull_request_target` orchestration is associated with the
 protected base revision, the preview workflow records separate deployment

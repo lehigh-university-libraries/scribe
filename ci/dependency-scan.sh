@@ -3,10 +3,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly EXPECTED_TRIVY_VERSION="0.69.3"
+readonly EXPECTED_TRIVY_VERSION="0.72.0"
 # Keep this version aligned with aquasecurity/trivy-action in lint-test.yaml.
 # renovate: datasource=docker depName=aquasec/trivy
-TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.69.3@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c}"
+TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f}"
 TRIVY_ARGS=(
   fs
   --scanners "vuln,secret"

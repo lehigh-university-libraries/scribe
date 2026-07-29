@@ -291,7 +291,7 @@ jobs:
 
       - name: "GAR login"
         if: inputs.mode == 'apply' || inputs.mode == 'plan'
-        uses: "docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c" # v4
+        uses: "docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c" # v4
         with:
           registry: "us-docker.pkg.dev"
           username: "oauth2accesstoken"
@@ -299,7 +299,7 @@ jobs:
 
       - name: "GHCR login"
         if: inputs.mode == 'apply' || inputs.mode == 'plan'
-        uses: "docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c" # v4
+        uses: "docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c" # v4
         with:
           registry: "ghcr.io"
           username: "${{ github.actor }}"

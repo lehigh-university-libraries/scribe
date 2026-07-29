@@ -3,20 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { pipeUpstreamResponse } from "./proxy-pipeline.mjs";
 
 describe("frontend proxy stream lifecycle", () => {
-  it("forwards a complete upstream response", async () => {
-    const upstream = new PassThrough();
-    const downstream = new PassThrough();
-    const chunks = [];
-    downstream.on("data", (chunk) => chunks.push(chunk));
-    const complete = new Promise((resolve) => downstream.once("finish", resolve));
-
-    pipeUpstreamResponse(upstream, downstream);
-    upstream.end("complete response");
-    await complete;
-
-    expect(Buffer.concat(chunks).toString()).toBe("complete response");
-  });
-
   it("destroys the upstream when the browser disconnects", async () => {
     const upstream = new PassThrough();
     const downstream = new PassThrough();

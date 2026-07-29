@@ -13,7 +13,7 @@
     "serve": "node server.mjs"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "2.12.1",
+    "@bufbuild/protobuf": "2.13.0",
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-web": "2.1.2",
     "@emotion/react": "11.14.0",
@@ -26,8 +26,8 @@
     "mirador": "4.1.0",
     "openseadragon": "6.0.2",
     "prop-types": "15.8.1",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "react-i18next": "15.7.4",
     "uuid": "14.0.1"
   },
@@ -37,12 +37,12 @@
     "uuid": "14.0.1"
   },
   "devDependencies": {
-    "@playwright/test": "1.61.1",
+    "@playwright/test": "1.62.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "24.13.3",
     "@vitejs/plugin-react": "5.2.0",
     "autoprefixer": "10.5.4",
-    "happy-dom": "20.11.0",
+    "happy-dom": "20.11.1",
     "postcss": "8.5.23",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",

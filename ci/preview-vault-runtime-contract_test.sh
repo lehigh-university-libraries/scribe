@@ -162,7 +162,7 @@ for required in \
   'WIF_IDENTITY_CLASS: deploy' \
   'run: \./ci/verify-gcp-wif\.sh' \
   "if: inputs.mode == 'apply' && inputs.pr_number != ''" \
-  'actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e' \
+  'actions/setup-go@[0-9a-f]{40}' \
   'go-version-file: \.go-version' \
   '\./ci/resolve-shared-vault\.sh "\$vault_workspace"' \
   'VAULT_BOOTSTRAP_MODE: root-token' \

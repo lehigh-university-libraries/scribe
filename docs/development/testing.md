@@ -7,7 +7,7 @@ behavior where data can drift.
 make test-backend       # Go unit/race and DB tests
 make test-frontend      # web + plugin tests and production builds
 make test-browser       # real Chromium editor/session/geometry acceptance
-make e2e-smoke          # DB-backed ingest/revision smoke path
+make e2e-smoke          # focused DB-backed ingest/revision subset
 make backup-restore-smoke # isolated DB/blob restore + job recovery
 make ocr-matrix-test    # OCR catalog, route, and baked-artifact invariants
 make ocr-build-tags     # default, remoteocr, and localocr builds
@@ -28,6 +28,12 @@ because they intentionally exercise schema-global quota and outbox
 materializations. This serializes package test binaries; it does not replace
 the unique Compose project that isolates the suite. Explicit goroutine and
 race tests inside each package still run concurrently.
+
+Required local and hosted CI set `SCRIBE_REQUIRE_TEST_DB=true`, so the backend
+gate fails if it cannot attach to the isolated MariaDB service. The focused
+`make e2e-smoke` target remains available for fast ingest/revision iteration;
+the required gate does not rerun that subset after `go test ./...` has already
+executed the same DB-backed tests.
 
 `make test-backend` installs the pinned `libxml2-utils=2.13.9-r2` package in
 the immutable Go test container and runs the export schema check before Go
@@ -73,4 +79,5 @@ Its harness imports production modules rather than copying editor behavior:
 than silently substituting a fake. A deterministic in-browser CAS implementation
 remains available for fast standalone `make test-browser` runs when MariaDB is
 not running. Authentication policy, a full live Mirador workspace, and worker
-delivery remain covered by Go integration tests and `make e2e-smoke`.
+delivery remain covered by the required Go integration suite; `make e2e-smoke`
+selects the core ingest/revision cases for focused iteration.
