@@ -127,9 +127,9 @@ jobs:
       - name: Verify synthetic credential detection
         id: secret_regression
         continue-on-error: true
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          version: v0.69.3
+          version: v0.72.0
           scan-type: fs
           scan-ref: .secret-scan-regression
           scanners: secret
