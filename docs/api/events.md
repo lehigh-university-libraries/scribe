@@ -113,6 +113,15 @@ their durable job snapshot after each ready event so completion cannot fall
 between a snapshot and subscription. They still load the canonical page
 revision rather than treating an event payload as a save.
 
+SSE delivery is replica-safe because it is not an in-process broadcast. Every
+API replica independently reads the shared, workspace-filtered event outbox. A
+reconnect may reach any replica and resumes from the same monotonic outbox ID.
+When filters hide every event in a polled batch, a
+`dev.scribe.stream.checkpoint` frame still advances the browser cursor past
+that batch. A new connection without `Last-Event-ID` starts at the current
+workspace high-water mark by design, so clients must use the ready-then-snapshot
+sequence above rather than expecting historical replay.
+
 The authenticated server-sent event stream and outbound webhooks are separate
 delivery contracts. SSE uses the stream cursor and the caller's existing Scribe
 credential; the HMAC headers above apply only to outbound webhook POSTs.

@@ -146,6 +146,18 @@ if [[ "$1 $2" == "logging read" ]]; then
     "labels": {
       "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
     },
+    "textPayload": "frontend readiness failed: HTTP 200 (public-origin-mismatch)\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "frontend backend startup gate failed [Error; readiness-contract; HTTP 200 (invalid-public-origin)]\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
     "textPayload": "frontend proxy request failed [Error/EHOSTUNREACH]\n"
   },
   {
@@ -315,10 +327,12 @@ for expected in \
   '[task] index=0 retried=0 exit_code=23 term_signal=0 status_code=9' \
   'frontend backend startup gate failed [Error; startup-deadline; transport-TypeError/ENOTFOUND]' \
   'frontend readiness failed: HTTP 503 (invalid-json)' \
+  'frontend readiness failed: HTTP 200 (public-origin-mismatch)' \
+  'frontend backend startup gate failed [Error; readiness-contract; HTTP 200 (invalid-public-origin)]' \
   'frontend proxy request failed [Error/EHOSTUNREACH]' \
   'frontend backend network probe [dns-mismatch; tcp-open; http-ready]' \
   'frontend backend network probe [dns-match; tcp-refused; http-transport-ECONNREFUSED]' \
-  '[status] log_query=ok markers=5'; do
+  '[status] log_query=ok markers=7'; do
   grep -Fq "$expected" "$diagnostics" ||
     fail "diagnostics omitted: $expected"
 done

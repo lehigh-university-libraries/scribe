@@ -58,6 +58,11 @@ jobs:
         with:
           ref: refs/heads/main
           persist-credentials: false
+      - name: Set up Go for typed preview input resolution
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: .go-version
+          cache: false
       - id: resolve
         name: Resolve immutable preview inputs
         env:

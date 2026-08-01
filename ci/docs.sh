@@ -70,11 +70,28 @@ elif command -v docker >/dev/null 2>&1; then
     docker_args+=("--dev-addr=0.0.0.0:8000")
   fi
   if docker run --rm \
+    --user "$(id -u):$(id -g)" \
+    -e HOME=/tmp \
     --mount "type=bind,src=${ROOT_DIR},dst=/workspace,readonly" \
     -w /workspace \
     --entrypoint sh \
     "${docker_image_ref}" \
-    -c 'test -f zensical.toml' >/dev/null 2>&1; then
+    -c 'test -f zensical.toml' >/dev/null 2>&1 \
+    && docker run --rm \
+      --user "$(id -u):$(id -g)" \
+      -e HOME=/tmp \
+      --mount "type=bind,src=${ROOT_DIR},dst=/workspace" \
+      -w /workspace \
+      --entrypoint sh \
+      "${docker_image_ref}" \
+      -c '
+        probe=".scribe-docs-bind-probe.$$"
+        mkdir "$probe" && rmdir "$probe" || exit 1
+        if test -d site; then
+          probe="site/.scribe-docs-bind-probe.$$"
+          mkdir "$probe" && rmdir "$probe" || exit 1
+        fi
+      ' >/dev/null 2>&1; then
     docker_run_args=(
       --rm
       --user "$(id -u):$(id -g)"

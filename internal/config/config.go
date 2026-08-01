@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -55,6 +56,14 @@ const (
 	DefaultNormalizationCacheMaxAge                      = 7 * 24 * time.Hour
 	DefaultMaxPageEnrichmentLines                        = 50
 	maxConfiguredPageEnrichmentLines                     = 500
+	DefaultTelemetryMetricExportInterval                 = 60 * time.Second
+	DefaultTelemetryQueuePollInterval                    = 30 * time.Second
+	DefaultTelemetryExportTimeout                        = 10 * time.Second
+	DefaultTelemetryTraceSampleRatio                     = 0.05
+	minTelemetryInterval                                 = 10 * time.Second
+	maxTelemetryInterval                                 = 5 * time.Minute
+	minTelemetryExportTimeout                            = time.Second
+	maxTelemetryExportTimeout                            = 30 * time.Second
 	maxConfiguredStorageBytes                     uint64 = 10 << 40
 	maxConfiguredStorageObjects                   uint64 = 10_000_000
 	tripletPresentationPath                              = "/presentation/v3"
@@ -66,6 +75,7 @@ const (
 var embeddedDefaults []byte
 
 var configEnvPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
+var proxyHostnameLabelPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
 
 // Config mirrors the YAML file shape.
 type Config struct {
@@ -85,6 +95,7 @@ type Config struct {
 	Processing    ProcessingConfig      `yaml:"processing"`
 	Storage       StorageConfig         `yaml:"storage"`
 	Audit         AuditConfig           `yaml:"audit"`
+	Observability ObservabilityConfig   `yaml:"observability"`
 	Vault         VaultConfig           `yaml:"vault"`
 
 	// DatabaseDSN is resolved at load time from Vault + Database config.
@@ -96,12 +107,18 @@ type Config struct {
 // empty list is intentionally fail-closed.
 type ServerConfig struct {
 	TrustedProxyCIDRs CIDRList `yaml:"trusted_proxy_cidrs"`
+	TrustedProxyHosts HostList `yaml:"trusted_proxy_hosts"`
 }
 
 // CIDRList accepts either a YAML sequence or a comma-separated scalar. The
 // scalar form keeps environment-variable expansion convenient in deployed
 // configuration without weakening validation.
 type CIDRList []string
+
+// HostList accepts a YAML sequence or comma-separated scalar. Hostnames are
+// resolved only for direct-peer proxy authentication; forwarded client values
+// are never resolved as names.
+type HostList []string
 
 func (values *CIDRList) UnmarshalYAML(node *yaml.Node) error {
 	if node == nil {
@@ -119,6 +136,28 @@ func (values *CIDRList) UnmarshalYAML(node *yaml.Node) error {
 		}
 	default:
 		return fmt.Errorf("trusted proxy CIDRs must be a sequence or comma-separated string")
+	}
+
+	*values = raw
+	return nil
+}
+
+func (values *HostList) UnmarshalYAML(node *yaml.Node) error {
+	if node == nil {
+		*values = nil
+		return nil
+	}
+
+	var raw []string
+	switch node.Kind {
+	case yaml.ScalarNode:
+		raw = strings.Split(node.Value, ",")
+	case yaml.SequenceNode:
+		if err := node.Decode(&raw); err != nil {
+			return fmt.Errorf("trusted proxy hosts must be strings: %w", err)
+		}
+	default:
+		return fmt.Errorf("trusted proxy hosts must be a sequence or comma-separated string")
 	}
 
 	*values = raw
@@ -282,6 +321,19 @@ type AuditConfig struct {
 	ProviderCallRetention time.Duration `yaml:"provider_call_retention"`
 }
 
+// ObservabilityConfig controls the bounded OpenTelemetry export pipeline.
+// It contains no credentials or arbitrary endpoints: the Google exporter uses
+// Application Default Credentials and fixed Google APIs.
+type ObservabilityConfig struct {
+	Exporter              string        `yaml:"exporter"`
+	GoogleProjectID       string        `yaml:"google_project_id"`
+	DeploymentEnvironment string        `yaml:"deployment_environment"`
+	MetricExportInterval  time.Duration `yaml:"metric_export_interval"`
+	QueuePollInterval     time.Duration `yaml:"queue_poll_interval"`
+	ExportTimeout         time.Duration `yaml:"export_timeout"`
+	TraceSampleRatio      float64       `yaml:"trace_sample_ratio"`
+}
+
 type VaultConfig struct {
 	Address     string     `yaml:"address"`
 	GCPAuthRole string     `yaml:"gcp_auth_role"`
@@ -396,6 +448,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	cfg.Server.TrustedProxyHosts, err = normalizeTrustedProxyHosts(cfg.Server.TrustedProxyHosts)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg.PublicBaseURL = strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
 	publicBase, err := url.Parse(cfg.PublicBaseURL)
 	if err != nil || publicBase.Host == "" || (publicBase.Scheme != "http" && publicBase.Scheme != "https") || publicBase.User != nil || publicBase.RawQuery != "" || publicBase.Fragment != "" {
@@ -434,6 +490,10 @@ func Load() (Config, error) {
 	}
 	if cfg.Audit.ProviderCallRetention <= 0 {
 		cfg.Audit.ProviderCallRetention = 30 * 24 * time.Hour
+	}
+	cfg.Observability, err = normalizeObservabilityConfig(cfg.Observability)
+	if err != nil {
+		return Config{}, err
 	}
 	if err := normalizeRuntimeConcurrency(&cfg); err != nil {
 		return Config{}, err
@@ -527,6 +587,54 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
+func normalizeObservabilityConfig(value ObservabilityConfig) (ObservabilityConfig, error) {
+	value.Exporter = strings.ToLower(strings.TrimSpace(value.Exporter))
+	if value.Exporter == "" {
+		value.Exporter = "none"
+	}
+	if value.Exporter != "none" && value.Exporter != "google" {
+		return ObservabilityConfig{}, fmt.Errorf("observability.exporter must be one of none or google")
+	}
+	value.GoogleProjectID = strings.TrimSpace(value.GoogleProjectID)
+	if value.GoogleProjectID != "" && !regexp.MustCompile(`^([a-z0-9][a-z0-9.-]*:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$`).MatchString(value.GoogleProjectID) {
+		return ObservabilityConfig{}, fmt.Errorf("observability.google_project_id must be empty or a valid Google Cloud project ID")
+	}
+	if value.Exporter == "google" && value.GoogleProjectID == "" {
+		return ObservabilityConfig{}, fmt.Errorf("observability.google_project_id is required for the Google exporter")
+	}
+	value.DeploymentEnvironment = strings.ToLower(strings.TrimSpace(value.DeploymentEnvironment))
+	if value.DeploymentEnvironment == "" {
+		value.DeploymentEnvironment = "local"
+	}
+	if value.DeploymentEnvironment != "local" && value.DeploymentEnvironment != "dev" &&
+		value.DeploymentEnvironment != "prod" && value.DeploymentEnvironment != "preview" {
+		return ObservabilityConfig{}, fmt.Errorf("observability.deployment_environment must be one of local, dev, prod, or preview")
+	}
+	if value.MetricExportInterval == 0 {
+		value.MetricExportInterval = DefaultTelemetryMetricExportInterval
+	}
+	if value.MetricExportInterval < minTelemetryInterval || value.MetricExportInterval > maxTelemetryInterval {
+		return ObservabilityConfig{}, fmt.Errorf("observability.metric_export_interval must be between %s and %s", minTelemetryInterval, maxTelemetryInterval)
+	}
+	if value.QueuePollInterval == 0 {
+		value.QueuePollInterval = DefaultTelemetryQueuePollInterval
+	}
+	if value.QueuePollInterval < minTelemetryInterval || value.QueuePollInterval > maxTelemetryInterval {
+		return ObservabilityConfig{}, fmt.Errorf("observability.queue_poll_interval must be between %s and %s", minTelemetryInterval, maxTelemetryInterval)
+	}
+	if value.ExportTimeout == 0 {
+		value.ExportTimeout = DefaultTelemetryExportTimeout
+	}
+	if value.ExportTimeout < minTelemetryExportTimeout || value.ExportTimeout > maxTelemetryExportTimeout {
+		return ObservabilityConfig{}, fmt.Errorf("observability.export_timeout must be between %s and %s", minTelemetryExportTimeout, maxTelemetryExportTimeout)
+	}
+	if math.IsNaN(value.TraceSampleRatio) || math.IsInf(value.TraceSampleRatio, 0) ||
+		value.TraceSampleRatio < 0 || value.TraceSampleRatio > 1 {
+		return ObservabilityConfig{}, fmt.Errorf("observability.trace_sample_ratio must be between 0 and 1")
+	}
+	return value, nil
+}
+
 func expectedVaultPathPrefix(cfg Config) (string, error) {
 	workspace := strings.Trim(strings.TrimSpace(cfg.Vault.Workspace), "/")
 	if !cfg.Auth.PreviewAnonymous {
@@ -598,6 +706,34 @@ func normalizeTrustedProxyCIDRs(values CIDRList) (CIDRList, error) {
 		}
 		seen[canonical] = struct{}{}
 		normalized = append(normalized, canonical)
+	}
+	return normalized, nil
+}
+
+func normalizeTrustedProxyHosts(values HostList) (HostList, error) {
+	if len(values) > 8 {
+		return nil, fmt.Errorf("server.trusted_proxy_hosts must contain at most 8 hostnames")
+	}
+	normalized := make(HostList, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		host := strings.ToLower(strings.TrimSpace(raw))
+		if host == "" {
+			continue
+		}
+		if len(host) > 253 || net.ParseIP(host) != nil {
+			return nil, fmt.Errorf("server.trusted_proxy_hosts contains invalid DNS hostname %q", raw)
+		}
+		for _, label := range strings.Split(host, ".") {
+			if len(label) == 0 || len(label) > 63 || !proxyHostnameLabelPattern.MatchString(label) {
+				return nil, fmt.Errorf("server.trusted_proxy_hosts contains invalid DNS hostname %q", raw)
+			}
+		}
+		if _, duplicate := seen[host]; duplicate {
+			continue
+		}
+		seen[host] = struct{}{}
+		normalized = append(normalized, host)
 	}
 	return normalized, nil
 }

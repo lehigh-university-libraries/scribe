@@ -374,6 +374,40 @@ func (q *Queries) FailExpiredTranscriptionJobManual(ctx context.Context, arg Fai
 	)
 }
 
+const getClaimableTranscriptionQueueSnapshot = `-- name: GetClaimableTranscriptionQueueSnapshot :one
+SELECT
+  COUNT(*) AS depth,
+  CAST(COALESCE(TIMESTAMPDIFF(MICROSECOND, MIN(created_at), CURRENT_TIMESTAMP(6)), 0) AS SIGNED) AS oldest_age_microseconds,
+  CAST(COALESCE(SUM(
+    status = 'running'
+    AND lease_until IS NOT NULL
+    AND lease_until < CURRENT_TIMESTAMP(6)
+  ), 0) AS SIGNED) AS expired_leases
+FROM transcription_jobs
+WHERE (
+    status = 'pending'
+    AND (retry_after IS NULL OR retry_after <= CURRENT_TIMESTAMP(6))
+    AND attempt_count < max_attempts
+  ) OR (
+    status = 'running'
+    AND lease_until IS NOT NULL
+    AND lease_until < CURRENT_TIMESTAMP(6)
+  )
+`
+
+type GetClaimableTranscriptionQueueSnapshotRow struct {
+	Depth                 int64 `json:"depth"`
+	OldestAgeMicroseconds int64 `json:"oldest_age_microseconds"`
+	ExpiredLeases         int64 `json:"expired_leases"`
+}
+
+func (q *Queries) GetClaimableTranscriptionQueueSnapshot(ctx context.Context) (GetClaimableTranscriptionQueueSnapshotRow, error) {
+	row := q.db.QueryRowContext(ctx, getClaimableTranscriptionQueueSnapshot)
+	var i GetClaimableTranscriptionQueueSnapshotRow
+	err := row.Scan(&i.Depth, &i.OldestAgeMicroseconds, &i.ExpiredLeases)
+	return i, err
+}
+
 const lockActiveTranscriptionJobLeaseManual = `-- name: LockActiveTranscriptionJobLeaseManual :one
 SELECT id
 FROM transcription_jobs

@@ -9,6 +9,26 @@ function positiveInteger(name, fallback) {
   return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
+function exactHTTPSOrigin(raw) {
+  try {
+    const parsed = new URL(raw);
+    if (
+      parsed.protocol !== "https:"
+      || parsed.username
+      || parsed.password
+      || parsed.pathname !== "/"
+      || parsed.search
+      || parsed.hash
+      || parsed.origin !== raw
+    ) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
 const attempts = positiveInteger("SCRIBE_READINESS_ATTEMPTS", 30);
 const fetchTimeoutMs = positiveInteger("SCRIBE_READINESS_FETCH_TIMEOUT_MS", 5_000);
 const retryMs = positiveInteger("SCRIBE_READINESS_RETRY_MS", 3_000);
@@ -18,11 +38,24 @@ const expectedAPIImage = (process.env.SCRIBE_EXPECTED_API_IMAGE || "").trim();
 if (!/^[^\s@]+@sha256:[0-9a-f]{64}$/.test(expectedAPIImage)) {
   throw new Error("SCRIBE_EXPECTED_API_IMAGE must be a digest-pinned image reference");
 }
+const expectedPublicOriginRaw = (process.env.SCRIBE_EXPECTED_PUBLIC_ORIGIN || "").trim();
+// Protected pull-request previews intentionally run their cloud orchestration
+// from main while testing the head image. During the one rollout that adds
+// this input, the trusted base cannot supply it yet. The response must still
+// contain an exact HTTPS origin below; upgraded orchestration also pins it to
+// the deterministic Terraform value.
+const expectedPublicOrigin = expectedPublicOriginRaw
+  ? exactHTTPSOrigin(expectedPublicOriginRaw)
+  : null;
+if (expectedPublicOriginRaw && !expectedPublicOrigin) {
+  throw new Error("SCRIBE_EXPECTED_PUBLIC_ORIGIN must be an exact HTTPS origin");
+}
 const expectedBackendIP = (process.env.SCRIBE_EXPECTED_BACKEND_IP || "").trim();
 if (isIP(expectedBackendIP) !== 4) {
   throw new Error("SCRIBE_EXPECTED_BACKEND_IP must be an IPv4 address");
 }
-const readinessURL = "http://127.0.0.1:8888/healthz";
+const frontendPort = positiveInteger("SCRIBE_FRONTEND_PORT", 8888);
+const readinessURL = `http://127.0.0.1:${frontendPort}/healthz`;
 const serverPath = fileURLToPath(new URL("./server.mjs", import.meta.url));
 const server = spawn(process.execPath, [serverPath], {
   env: process.env,
@@ -278,6 +311,7 @@ async function verifyFrontendProxy() {
             "x-forwarded-host": "readiness.invalid",
             "x-forwarded-proto": "https",
           },
+          redirect: "error",
           signal: controller.signal,
         });
         let readiness = null;
@@ -293,7 +327,17 @@ async function verifyFrontendProxy() {
           } else if (readiness.api_image !== expectedAPIImage) {
             readinessCategory = "api-image-mismatch";
           } else {
-            readinessCategory = "ready";
+            const reportedPublicOrigin = typeof readiness.public_origin === "string"
+              ? exactHTTPSOrigin(readiness.public_origin)
+              : null;
+            if (
+              !reportedPublicOrigin
+              || (expectedPublicOrigin && reportedPublicOrigin !== expectedPublicOrigin)
+            ) {
+              readinessCategory = "public-origin-mismatch";
+            } else {
+              readinessCategory = "ready";
+            }
           }
         } catch {
           // HTTP status plus a categorical payload result is sufficient. Do

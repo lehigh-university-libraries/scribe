@@ -37,7 +37,7 @@ async function unusedPort() {
 function handleReadinessProbe(request, response) {
   if (request.url !== "/readyz") return false;
   response.writeHead(200, { "content-type": "application/json" });
-  response.end('{"status":"ready"}');
+  response.end('{"status":"ready","public_origin":"https://scribe-123.us-east5.run.app"}');
   return true;
 }
 
@@ -431,6 +431,102 @@ describe("frontend server lifecycle", () => {
           forwardedProto: "https",
         },
       ]);
+    } finally {
+      await stopFrontend(frontend);
+      await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 10_000);
+
+  it("redirects a legacy Cloud Run hostname to the configured public origin", async () => {
+    const observed = [];
+    const upstream = http.createServer((request, response) => {
+      observed.push(request.url);
+      if (handleReadinessProbe(request, response)) return;
+      response.writeHead(500);
+      response.end();
+    });
+    const upstreamPort = await listen(upstream);
+    const frontend = spawnFrontend({
+      SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+      SCRIBE_FRONTEND_EDGE_MODE: "ppb",
+    });
+
+    try {
+      const boundFrontendPort = await frontendPort(frontend);
+      const response = await fetch(
+        `http://127.0.0.1:${boundFrontendPort}/editor?itemImageId=7&workspace_id=3`,
+        {
+          headers: {
+            "x-forwarded-for": "192.0.2.10",
+            "x-forwarded-host": "scribe-legacy-hash-ue.a.run.app",
+            "x-forwarded-proto": "https",
+          },
+          redirect: "manual",
+        },
+      );
+      expect(response.status).toBe(308);
+      expect(response.headers.get("location")).toBe(
+        "https://scribe-123.us-east5.run.app/editor?itemImageId=7&workspace_id=3",
+      );
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const mutation = await fetch(
+        `http://127.0.0.1:${boundFrontendPort}/scribe.v1.ItemService/UpdateItem`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": "192.0.2.10",
+            "x-forwarded-host": "scribe-legacy-hash-ue.a.run.app",
+            "x-forwarded-proto": "https",
+          },
+          body: "{}",
+          redirect: "manual",
+        },
+      );
+      expect(mutation.status).toBe(421);
+      expect(mutation.headers.get("location")).toBeNull();
+      expect(observed).toEqual(["/readyz"]);
+    } finally {
+      await stopFrontend(frontend);
+      await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 10_000);
+
+  it("keeps routes available while a previous API revision lacks public_origin", async () => {
+    const observed = [];
+    const upstream = http.createServer((request, response) => {
+      observed.push(request.url);
+      if (request.url === "/readyz") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end('{"status":"ready"}');
+        return;
+      }
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("legacy-compatible");
+    });
+    const upstreamPort = await listen(upstream);
+    const frontend = spawnFrontend({
+      SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+      SCRIBE_FRONTEND_EDGE_MODE: "ppb",
+    });
+
+    try {
+      const boundFrontendPort = await frontendPort(frontend);
+      const response = await fetch(
+        `http://127.0.0.1:${boundFrontendPort}/auth/session`,
+        {
+          headers: {
+            "x-forwarded-for": "192.0.2.10",
+            "x-forwarded-host": "scribe-legacy-hash-ue.a.run.app",
+            "x-forwarded-proto": "https",
+          },
+          redirect: "manual",
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("location")).toBeNull();
+      expect(await response.text()).toBe("legacy-compatible");
+      expect(observed).toEqual(["/readyz", "/auth/session"]);
     } finally {
       await stopFrontend(frontend);
       await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));

@@ -6,6 +6,19 @@ values. Secret material comes from Vault or Compose secret files and must not be
 placed in committed `.env` files, YAML, checked-in Terraform values, build
 arguments, or image layers.
 
+Runtime quota, storage, and IIIF-limit defaults are authored only in that
+application config. Local Compose passes empty overrides so the application
+selects them. Terraform decodes the same file, applies an explicitly supplied
+operator override when present, and records the effective value for rollback.
+The deployment workflow forwards non-empty repository variables without
+embedding another fallback value.
+
+The backend image copies `config.yaml` to `/etc/scribe/config.yaml`; local and
+hosted Compose both consume that image-baked file and do not bind-mount a second
+runtime copy. Rebuild the backend image after changing `config.yaml`. The
+embedded copy remains the application fallback, and the repository contract
+requires it to be byte-identical to the image source.
+
 The model list in `config/ocr.yaml` is deployment/build metadata used to
 construct and verify model images. It is not part of the embedded Go runtime
 configuration; runtime provider and segmentor capabilities come from their
@@ -94,6 +107,7 @@ Important groups include:
 - registered provider/segmentor endpoints and audiences;
 - IIIF public and internal origins;
 - queue backend, lease, retry, and retention settings;
+- OpenTelemetry exporter, sampling, export, and queue-poll bounds;
 - request, upload, image-pixel, rate, and stream limits;
 - metadata-only provider-call audit retention.
 
@@ -101,6 +115,27 @@ Important groups include:
 or fragment. Startup also verifies that the longest possible Scribe
 Annotation child ID fits the 512-byte persisted identity columns. An overlong
 base fails configuration loading rather than producing runtime ingest errors.
+
+The `observability` group is non-secret and deliberately does not accept an
+export endpoint. `exporter` (or `SCRIBE_OTEL_EXPORTER`) is either `none` or
+`google`; local defaults use `none`, while managed Terraform selects `google`
+for dev and production, sets `GOOGLE_CLOUD_PROJECT`, and leaves PR previews
+disabled. `deployment_environment` (`SCRIBE_DEPLOYMENT_ENVIRONMENT`) is a
+bounded `local`, `dev`, `prod`, or `preview` resource label supplied by the
+deployment rather than request data. The Google exporter uses the same mounted ADC
+as other application GCP clients and sends only to the fixed Cloud Monitoring
+and Cloud Trace APIs. Do not put credential JSON, authorization headers, or
+collector URLs in this group.
+
+`metric_export_interval` (`SCRIBE_OTEL_METRIC_EXPORT_INTERVAL`) and
+`queue_poll_interval` (`SCRIBE_OTEL_QUEUE_POLL_INTERVAL`) default to `60s` and
+`30s`; each accepts `10s` through `5m`. `export_timeout`
+(`SCRIBE_OTEL_EXPORT_TIMEOUT`) defaults to `10s` and accepts `1s` through
+`30s`. `trace_sample_ratio` (`SCRIBE_OTEL_TRACE_SAMPLE_RATIO`) defaults to
+`0.05` and accepts `0` through `1`; zero disables server-span sampling. The API
+identifies itself as
+`scribe-api`; only `scribe-worker` polls the claimable jobs table. Telemetry
+startup and runtime failures are non-fatal and are excluded from readiness.
 
 Each `auth.external_jwt_issuers` entry must pin `issuer`, `audience`,
 `workspace_id`, and `service_user_id`. The service user is a dedicated internal
@@ -128,15 +163,14 @@ bytes with no surrounding whitespace. Startup rejects an empty or partial
 group, so Scribe cannot accept a publication while silently fabricating an ID
 that no Presentation server owns.
 
-Forwarding headers are fail-closed. The application default for
-`SERVER_TRUSTED_PROXY_CIDRS` is empty; Compose explicitly assigns Traefik
-`172.30.0.2` on a dedicated bridge and trusts only `172.30.0.2/32`. The bridge
-gateway is fixed at `172.30.0.1`, while Docker allocates ordinary containers
-only from `172.30.0.128/25`. Keeping the fixed proxy address outside the
-dynamic pool prevents parallel startup from assigning `.2` to another
-service. Terraform derives the same partition for any canonical `/24` through
-`/28` Compose subnet. Traefik does not trust local direct callers to provide
-forwarding headers. Terraform
+Forwarding headers are fail-closed. The application defaults
+`SERVER_TRUSTED_PROXY_CIDRS` to empty, and Compose sets
+`SERVER_TRUSTED_PROXY_HOSTS=traefik`. Scribe resolves only that configured
+direct peer through Docker service discovery with a bounded five-second cache;
+an unresolvable or different peer cannot supply forwarding identity. Docker
+therefore owns local bridge allocation, avoiding collisions with other
+projects. Traefik does not trust local direct callers to provide forwarding
+headers. Terraform
 sets `TRAEFIK_FORWARDED_TRUSTED_IPS` to the exact Cloud Run/VM subnet so the
 hosted frontend proxy remains usable without trusting every private or
 link-local address. PPB validates the Cloud Run client at depth zero, replaces
@@ -144,12 +178,11 @@ the chain with one canonical address, and reaches the frontend only over
 loopback. The frontend requires that invariant and external HTTPS. Traefik
 preserves the canonical address without appending the frontend VPC hop, so the
 API can safely resolve distinct browser clients through its exact Traefik
-trust boundary. If `SCRIBE_COMPOSE_SUBNET` is overridden locally, also set
-`SCRIBE_COMPOSE_GATEWAY`, `SCRIBE_COMPOSE_IP_RANGE`, and
-`SCRIBE_TRAEFIK_IP` to the same partition, then update
-`SERVER_TRUSTED_PROXY_CIDRS` to the matching exact Traefik `/32`. The shared
-runtime preflight rejects an undersized, overlapping, or inconsistent range
-before startup.
+trust boundary. The cloud runtime retains its former fixed IPAM tuple only in
+a narrow overlay so an automatic rollback to the immediately previous source
+can still start with that source's `/32` trust contract. New source does not
+depend on the tuple; remove the compatibility overlay after that rollback
+generation expires.
 
 `SEGMENTOR_MAX_CONCURRENCY` (default `1`, maximum `8`) bounds model work per
 process while leaving health probes unqueued. Triplet owns its own transform

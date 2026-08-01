@@ -274,119 +274,163 @@ variable "ocr_service_images" {
 variable "transcription_max_active_jobs_per_workspace" {
   description = "Maximum active transcription jobs admitted per workspace."
   type        = number
-  default     = 1000
+  default     = null
   validation {
-    condition     = var.transcription_max_active_jobs_per_workspace >= 1
-    error_message = "transcription_max_active_jobs_per_workspace must be positive."
+    condition = var.transcription_max_active_jobs_per_workspace == null ? true : (
+      floor(var.transcription_max_active_jobs_per_workspace) == var.transcription_max_active_jobs_per_workspace &&
+      var.transcription_max_active_jobs_per_workspace >= 1 && var.transcription_max_active_jobs_per_workspace <= 100000
+    )
+    error_message = "transcription_max_active_jobs_per_workspace must be an integer from 1 through 100000."
   }
 }
 
 variable "storage_max_bytes_per_workspace" {
   type        = number
   description = "Maximum reserved and committed source bytes per workspace."
-  default     = 5368709120
+  default     = null
   validation {
-    condition     = var.storage_max_bytes_per_workspace >= 1
-    error_message = "storage_max_bytes_per_workspace must be positive."
+    condition = var.storage_max_bytes_per_workspace == null ? true : (
+      floor(var.storage_max_bytes_per_workspace) == var.storage_max_bytes_per_workspace &&
+      var.storage_max_bytes_per_workspace >= 104857600 && var.storage_max_bytes_per_workspace <= 10995116277760
+    )
+    error_message = "storage_max_bytes_per_workspace must be an integer from 100 MiB through 10 TiB."
   }
 }
 
 variable "storage_max_bytes_total" {
   type        = number
   description = "Maximum reserved and committed source bytes for the deployment."
-  default     = 32212254720
+  default     = null
   validation {
-    condition     = var.storage_max_bytes_total >= var.storage_max_bytes_per_workspace
-    error_message = "storage_max_bytes_total must be at least the per-workspace byte limit."
+    condition = var.storage_max_bytes_total == null ? true : (
+      floor(var.storage_max_bytes_total) == var.storage_max_bytes_total &&
+      var.storage_max_bytes_total >= 104857600 && var.storage_max_bytes_total <= 10995116277760
+    )
+    error_message = "storage_max_bytes_total must be an integer from 100 MiB through 10 TiB."
   }
 }
 
 variable "storage_max_items_per_workspace" {
   type        = number
   description = "Maximum items per workspace."
-  default     = 5000
+  default     = null
   validation {
-    condition     = var.storage_max_items_per_workspace >= 1
-    error_message = "storage_max_items_per_workspace must be positive."
+    condition = var.storage_max_items_per_workspace == null ? true : (
+      floor(var.storage_max_items_per_workspace) == var.storage_max_items_per_workspace &&
+      var.storage_max_items_per_workspace >= 1 && var.storage_max_items_per_workspace <= 10000000
+    )
+    error_message = "storage_max_items_per_workspace must be an integer from 1 through 10000000."
   }
 }
 
 variable "storage_max_items_total" {
   type        = number
   description = "Maximum items for the deployment."
-  default     = 50000
+  default     = null
   validation {
-    condition     = var.storage_max_items_total >= var.storage_max_items_per_workspace
-    error_message = "storage_max_items_total must be at least the per-workspace item limit."
+    condition = var.storage_max_items_total == null ? true : (
+      floor(var.storage_max_items_total) == var.storage_max_items_total &&
+      var.storage_max_items_total >= 1 && var.storage_max_items_total <= 10000000
+    )
+    error_message = "storage_max_items_total must be an integer from 1 through 10000000."
   }
 }
 
 variable "storage_max_images_per_workspace" {
   type        = number
   description = "Maximum item images per workspace."
-  default     = 10000
+  default     = null
   validation {
-    condition     = var.storage_max_images_per_workspace >= 1
-    error_message = "storage_max_images_per_workspace must be positive."
+    condition = var.storage_max_images_per_workspace == null ? true : (
+      floor(var.storage_max_images_per_workspace) == var.storage_max_images_per_workspace &&
+      var.storage_max_images_per_workspace >= 1 && var.storage_max_images_per_workspace <= 10000000
+    )
+    error_message = "storage_max_images_per_workspace must be an integer from 1 through 10000000."
   }
 }
 
 variable "storage_max_images_total" {
   type        = number
   description = "Maximum item images for the deployment."
-  default     = 100000
+  default     = null
   validation {
-    condition     = var.storage_max_images_total >= var.storage_max_images_per_workspace
-    error_message = "storage_max_images_total must be at least the per-workspace image limit."
+    condition = var.storage_max_images_total == null ? true : (
+      floor(var.storage_max_images_total) == var.storage_max_images_total &&
+      var.storage_max_images_total >= 1 && var.storage_max_images_total <= 10000000
+    )
+    error_message = "storage_max_images_total must be an integer from 1 through 10000000."
   }
 }
 
 variable "storage_reservation_ttl" {
   type        = string
   description = "TTL for abandoned storage reservations."
-  default     = "6h"
+  default     = null
   validation {
-    condition     = can(regex("^[1-9][0-9]*(s|m|h)$", var.storage_reservation_ttl))
-    error_message = "storage_reservation_ttl must be a positive Go duration using s, m, or h."
+    condition = var.storage_reservation_ttl == null ? true : (
+      can(regex("^([1-9][0-9]*)(s|m|h)$", var.storage_reservation_ttl)) ? (
+        tonumber(regex("^([1-9][0-9]*)(s|m|h)$", var.storage_reservation_ttl)[0]) *
+        lookup({ s = 1, m = 60, h = 3600 }, regex("^([1-9][0-9]*)(s|m|h)$", var.storage_reservation_ttl)[1], 0) >= 300 &&
+        tonumber(regex("^([1-9][0-9]*)(s|m|h)$", var.storage_reservation_ttl)[0]) *
+        lookup({ s = 1, m = 60, h = 3600 }, regex("^([1-9][0-9]*)(s|m|h)$", var.storage_reservation_ttl)[1], 0) <= 86400
+      ) : false
+    )
+    error_message = "storage_reservation_ttl must be a Go duration from 5m through 24h using s, m, or h."
   }
 }
 
 variable "storage_normalization_cache_max_bytes" {
   type        = number
   description = "Maximum normalized-image cache bytes."
-  default     = 2147483648
+  default     = null
   validation {
-    condition     = var.storage_normalization_cache_max_bytes >= 1
-    error_message = "storage_normalization_cache_max_bytes must be positive."
+    condition = var.storage_normalization_cache_max_bytes == null ? true : (
+      floor(var.storage_normalization_cache_max_bytes) == var.storage_normalization_cache_max_bytes &&
+      var.storage_normalization_cache_max_bytes >= 104857600 && var.storage_normalization_cache_max_bytes <= 10995116277760
+    )
+    error_message = "storage_normalization_cache_max_bytes must be an integer from 100 MiB through 10 TiB."
   }
 }
 
 variable "storage_normalization_cache_max_age" {
   type        = string
   description = "Maximum normalized-image cache age."
-  default     = "168h"
+  default     = null
   validation {
-    condition     = can(regex("^[1-9][0-9]*(s|m|h)$", var.storage_normalization_cache_max_age))
-    error_message = "storage_normalization_cache_max_age must be a positive Go duration using s, m, or h."
+    condition = var.storage_normalization_cache_max_age == null ? true : (
+      can(regex("^([1-9][0-9]*)(s|m|h)$", var.storage_normalization_cache_max_age)) ? (
+        tonumber(regex("^([1-9][0-9]*)(s|m|h)$", var.storage_normalization_cache_max_age)[0]) *
+        lookup({ s = 1, m = 60, h = 3600 }, regex("^([1-9][0-9]*)(s|m|h)$", var.storage_normalization_cache_max_age)[1], 0) >= 3600 &&
+        tonumber(regex("^([1-9][0-9]*)(s|m|h)$", var.storage_normalization_cache_max_age)[0]) *
+        lookup({ s = 1, m = 60, h = 3600 }, regex("^([1-9][0-9]*)(s|m|h)$", var.storage_normalization_cache_max_age)[1], 0) <= 31536000
+      ) : false
+    )
+    error_message = "storage_normalization_cache_max_age must be a Go duration from 1h through 8760h using s, m, or h."
   }
 }
 
 variable "iiif_max_manifest_canvases" {
   type        = number
   description = "Maximum canvases accepted from one imported IIIF manifest."
-  default     = 500
+  default     = null
   validation {
-    condition     = var.iiif_max_manifest_canvases >= 1
-    error_message = "iiif_max_manifest_canvases must be positive."
+    condition = var.iiif_max_manifest_canvases == null ? true : (
+      floor(var.iiif_max_manifest_canvases) == var.iiif_max_manifest_canvases &&
+      var.iiif_max_manifest_canvases >= 1 && var.iiif_max_manifest_canvases <= 5000
+    )
+    error_message = "iiif_max_manifest_canvases must be an integer from 1 through 5000."
   }
 }
 
 variable "iiif_max_manifest_import_bytes" {
   type        = number
   description = "Maximum bytes downloaded for one imported IIIF manifest."
-  default     = 67108864
+  default     = null
   validation {
-    condition     = var.iiif_max_manifest_import_bytes >= 1024
-    error_message = "iiif_max_manifest_import_bytes must be at least 1024."
+    condition = var.iiif_max_manifest_import_bytes == null ? true : (
+      floor(var.iiif_max_manifest_import_bytes) == var.iiif_max_manifest_import_bytes &&
+      var.iiif_max_manifest_import_bytes >= 1 && var.iiif_max_manifest_import_bytes <= 67108864
+    )
+    error_message = "iiif_max_manifest_import_bytes must be an integer from 1 through 67108864."
   }
 }

@@ -14,6 +14,13 @@ import (
 	"connectrpc.com/validate"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
 // The outer request-limit middleware applies the tighter per-procedure limit.
@@ -26,9 +33,20 @@ func connectHandlerOptions(authManager *auth.Manager) []connect.HandlerOption {
 	interceptors := []connect.Interceptor{
 		connectRecoveryInterceptor{},
 		connectErrorSanitizerInterceptor{},
+	}
+	telemetryInterceptor, err := newConnectTelemetryInterceptor(
+		otel.Meter("github.com/lehigh-university-libraries/scribe/internal/server"),
+		otel.Tracer("github.com/lehigh-university-libraries/scribe/internal/server"),
+	)
+	if err != nil {
+		slog.Warn("connect telemetry is unavailable", "error_type", fmt.Sprintf("%T", err))
+	} else {
+		interceptors = append(interceptors, telemetryInterceptor)
+	}
+	interceptors = append(interceptors,
 		connectLoggingInterceptor{},
 		validate.NewInterceptor(),
-	}
+	)
 	if authManager != nil {
 		interceptors = append(interceptors, authManager.Interceptor())
 	}
@@ -36,6 +54,143 @@ func connectHandlerOptions(authManager *auth.Manager) []connect.HandlerOption {
 		connect.WithInterceptors(interceptors...),
 		connect.WithReadMaxBytes(maxConnectReadBytes),
 	}
+}
+
+type connectTelemetryInterceptor struct {
+	tracer   trace.Tracer
+	requests metric.Int64Counter
+	duration metric.Float64Histogram
+}
+
+var connectDurationBoundaries = []float64{
+	0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 90, 120,
+}
+
+func newConnectTelemetryInterceptor(meter metric.Meter, tracer trace.Tracer) (connectTelemetryInterceptor, error) {
+	requests, err := meter.Int64Counter(
+		"scribe.connect.server.requests",
+		metric.WithDescription("Number of completed Connect RPC server requests."),
+		metric.WithUnit("{request}"),
+	)
+	if err != nil {
+		return connectTelemetryInterceptor{}, err
+	}
+	duration, err := meter.Float64Histogram(
+		"scribe.connect.server.duration",
+		metric.WithDescription("Connect RPC server request duration in seconds."),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(connectDurationBoundaries...),
+	)
+	if err != nil {
+		return connectTelemetryInterceptor{}, err
+	}
+	return connectTelemetryInterceptor{
+		tracer:   tracer,
+		requests: requests,
+		duration: duration,
+	}, nil
+}
+
+func (interceptor connectTelemetryInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (response connect.AnyResponse, err error) {
+		procedure := boundedConnectProcedure(req.Spec().Procedure)
+		ctx, span := interceptor.startSpan(ctx, procedure)
+		start := time.Now()
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				interceptor.finish(ctx, span, procedure, start, connect.NewError(connect.CodeInternal, fmt.Errorf("internal server error")))
+				panic(recovered)
+			}
+			interceptor.finish(ctx, span, procedure, start, err)
+		}()
+		return next(ctx, req)
+	}
+}
+
+func (interceptor connectTelemetryInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (interceptor connectTelemetryInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) (err error) {
+		procedure := boundedConnectProcedure(conn.Spec().Procedure)
+		ctx, span := interceptor.startSpan(ctx, procedure)
+		start := time.Now()
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				interceptor.finish(ctx, span, procedure, start, connect.NewError(connect.CodeInternal, fmt.Errorf("internal server error")))
+				panic(recovered)
+			}
+			interceptor.finish(ctx, span, procedure, start, err)
+		}()
+		return next(ctx, conn)
+	}
+}
+
+func (interceptor connectTelemetryInterceptor) startSpan(ctx context.Context, procedure connectProcedure) (context.Context, trace.Span) {
+	return interceptor.tracer.Start(
+		ctx,
+		procedure.name,
+		// The public caller controls both flags and trace ID in traceparent.
+		// Begin a new root so it cannot preselect IDs that defeat deterministic
+		// ratio sampling or force export volume.
+		trace.WithNewRoot(),
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithAttributes(
+			attribute.String("rpc.system", "connect_rpc"),
+			attribute.String("rpc.service", procedure.service),
+			attribute.String("rpc.method", procedure.method),
+		),
+	)
+}
+
+func (interceptor connectTelemetryInterceptor) finish(ctx context.Context, span trace.Span, procedure connectProcedure, start time.Time, err error) {
+	code := connectLogCode(err)
+	attrs := []attribute.KeyValue{
+		attribute.String("rpc.service", procedure.service),
+		attribute.String("rpc.method", procedure.method),
+		attribute.String("rpc.connect.status_code", code),
+	}
+	interceptor.requests.Add(ctx, 1, metric.WithAttributes(attrs...))
+	interceptor.duration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attrs...))
+	span.SetAttributes(attribute.String("rpc.connect.status_code", code))
+	if err != nil {
+		// Do not RecordError: OpenTelemetry error events include error strings,
+		// which can contain document content, credentials, or provider bodies.
+		span.SetStatus(codes.Error, code)
+	}
+	span.End()
+}
+
+type connectProcedure struct {
+	name    string
+	service string
+	method  string
+}
+
+// boundedConnectProcedure admits only methods present in Scribe's compiled
+// protobuf descriptors. An attacker cannot create a metric or span series by
+// varying an unknown URL below a generated service prefix.
+func boundedConnectProcedure(raw string) connectProcedure {
+	const unknown = "unknown"
+	parts := strings.Split(strings.TrimPrefix(raw, "/"), "/")
+	if len(parts) != 2 || !strings.HasPrefix(parts[0], "scribe.v1.") {
+		return connectProcedure{name: unknown, service: unknown, method: unknown}
+	}
+	serviceName := protoreflect.FullName(parts[0])
+	methodName := protoreflect.Name(parts[1])
+	if !serviceName.IsValid() || !methodName.IsValid() {
+		return connectProcedure{name: unknown, service: unknown, method: unknown}
+	}
+	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName(serviceName)
+	if err != nil {
+		return connectProcedure{name: unknown, service: unknown, method: unknown}
+	}
+	service, ok := descriptor.(protoreflect.ServiceDescriptor)
+	if !ok || service.Methods().ByName(methodName) == nil {
+		return connectProcedure{name: unknown, service: unknown, method: unknown}
+	}
+	return connectProcedure{name: raw, service: parts[0], method: parts[1]}
 }
 
 func registerConnectServices(mux *http.ServeMux, handler *Handler, authManager *auth.Manager, opts ...connect.HandlerOption) {

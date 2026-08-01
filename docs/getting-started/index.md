@@ -22,10 +22,16 @@ docker compose ps
 
 The first run creates `.env`, a local Compose override, and missing local
 secrets. Locally owned secrets are random; only the externally managed Google
-credential mount starts as an empty `{}` placeholder. It builds the API, worker
-image, image service, frontend, and local OCR segmentor from the current
-checkout, so it can take several minutes. Open <http://localhost/> after the
-services report healthy.
+credential mount starts as an empty `{}` placeholder. Compose builds any
+missing API, worker, frontend, and local OCR images, so the first start can take
+several minutes. Later starts reuse those images. After changing backend,
+frontend, OCR, or `config.yaml` image inputs, rebuild explicitly:
+
+```bash
+make up REBUILD=true
+```
+
+Open <http://localhost/> after the services report healthy.
 
 Stop the stack without deleting persistent volumes:
 

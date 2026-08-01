@@ -12,6 +12,9 @@ func TestReadinessResponseReportsDeployedAPIImage(t *testing.T) {
 	if got := response["api_image"]; got != "ghcr.io/example/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
 		t.Fatalf("api_image = %q", got)
 	}
+	if got := response["public_origin"]; got != "https://scribe.test" {
+		t.Fatalf("public_origin = %q, want https://scribe.test", got)
+	}
 }
 
 func TestReadinessResponseOmitsUnknownDeploymentImage(t *testing.T) {

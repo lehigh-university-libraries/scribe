@@ -55,7 +55,11 @@ GOFLAGS="${GOFLAGS:+${GOFLAGS} }-buildvcs=false" "${gosec_bin}" \
   -severity medium \
   -confidence medium \
   ./...
-GOFLAGS="${GOFLAGS:+${GOFLAGS} }-buildvcs=false" "${govulncheck_bin}" ./...
+# govulncheck loads the whole program graph. Bound its heap and package build
+# parallelism so the release gate also fits on resource-constrained runners.
+GOMEMLIMIT="${GOMEMLIMIT:-1024MiB}" \
+  GOFLAGS="${GOFLAGS:+${GOFLAGS} }-buildvcs=false -p=1" \
+  "${govulncheck_bin}" ./...
 
 npm --prefix web audit --audit-level=moderate
 npm --prefix mirador-scribe audit --audit-level=moderate

@@ -176,8 +176,10 @@ if rg -q 'ci/generate-ocr-images-map\.sh' "$ROOT_DIR/terraform/deploy-local.sh";
   exit 1
 fi
 grep -F 'ocr-build-tags: ocr-matrix-test ##' "$ROOT_DIR/Makefile" >/dev/null
-[ "$(rg -c '^[[:space:]]+run: make ocr-build-tags$' "$ROOT_DIR/.github/workflows/lint-test.yaml")" -eq 1 ]
-[ "$(grep -c '^[[:space:]]*run: make dependency-scan$' "$ROOT_DIR/.github/workflows/lint-test.yaml")" -eq 1 ]
+[ "$(rg -c '^[[:space:]]+run: \./ci/run-ci\.sh test$' "$ROOT_DIR/.github/workflows/lint-test.yaml")" -eq 1 ]
+[ "$(rg -c '^[[:space:]]+run: \./ci/run-ci\.sh security$' "$ROOT_DIR/.github/workflows/lint-test.yaml")" -eq 1 ]
+[ "$(grep -c '^[[:space:]]*run_make ocr-build-tags$' "$ROOT_DIR/ci/run-ci.sh")" -eq 2 ]
+[ "$(grep -c '^[[:space:]]*run_make dependency-scan$' "$ROOT_DIR/ci/run-ci.sh")" -eq 1 ]
 grep -F -- '--require-hashes' "$ROOT_DIR/Dockerfile.docs" >/dev/null
 [ "$(grep -Ec -- '--hash=sha256:[0-9a-f]{64}( \\)?$' "$ROOT_DIR/requirements-docs.txt")" -eq 14 ]
 if grep -Fq 'uvx --from' "$ROOT_DIR/ci/docs.sh"; then

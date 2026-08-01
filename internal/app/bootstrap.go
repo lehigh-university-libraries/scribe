@@ -15,14 +15,17 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/safelog"
 	"github.com/lehigh-university-libraries/scribe/internal/server"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/telemetry"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
 	"github.com/lehigh-university-libraries/scribe/internal/vaultkv"
 )
 
 // BootstrapOptions controls which startup actions run for a process.
 type BootstrapOptions struct {
-	RunMigrations      bool
-	SeedSystemContexts bool
+	RunMigrations             bool
+	SeedSystemContexts        bool
+	TelemetryServiceName      string
+	ObserveTranscriptionQueue bool
 }
 
 // Dependencies collects the long-lived stores and shared resources used by the
@@ -45,6 +48,7 @@ type Dependencies struct {
 	VaultClient              *vaultkv.Client
 	AuthManager              *auth.Manager
 	TranscriptionQueue       *jobqueue.PubSubTranscriptionQueue
+	Telemetry                *telemetry.Runtime
 }
 
 // NewDependencies loads config + secrets, opens the DB, runs migrations, and
@@ -123,6 +127,22 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 		}
 	}
 
+	telemetryOptions := telemetry.Options{ServiceName: opts.TelemetryServiceName}
+	if opts.ObserveTranscriptionQueue {
+		telemetryOptions.QueueSnapshot = func(snapshotCtx context.Context) (int64, time.Duration, int64, error) {
+			snapshot, snapshotErr := deps.TranscriptionJobStore.ClaimableQueueSnapshot(snapshotCtx)
+			return snapshot.Depth, snapshot.OldestAge, snapshot.ExpiredLeases, snapshotErr
+		}
+	}
+	deps.Telemetry, err = telemetry.Start(ctx, cfg.Observability, telemetryOptions)
+	if err != nil {
+		slog.Warn(
+			"telemetry initialization failed; continuing without affected exporters",
+			"error_type", safelog.ErrorType(err),
+			"category", safelog.ErrorCategory(err),
+		)
+	}
+
 	return deps, nil
 }
 
@@ -159,6 +179,18 @@ func (d *Dependencies) Close() error {
 		return nil
 	}
 	var closeErrors []error
+	if d.Telemetry != nil {
+		if err := d.Telemetry.Close(); err != nil {
+			// Telemetry is deliberately outside the process availability contract.
+			// A backend outage must not turn an otherwise graceful shutdown into an
+			// application failure, and error strings may include client topology.
+			slog.Warn(
+				"telemetry shutdown did not complete cleanly",
+				"error_type", safelog.ErrorType(err),
+				"category", safelog.ErrorCategory(err),
+			)
+		}
+	}
 	if d.TranscriptionQueue != nil {
 		if err := d.TranscriptionQueue.Close(); err != nil {
 			closeErrors = append(closeErrors, fmt.Errorf("close transcription queue: %w", err))

@@ -4,6 +4,19 @@ Production uses digest-pinned containers, versioned Terraform providers and
 modules, a protected deployment environment, Vault-managed secrets, private OCR
 helpers, and persistent database/blob storage.
 
+The current backend is one Cloud Compose VM in one zone and is not highly
+available. Its independent snapshot/upload artifacts have 36-hour freshness
+checks and its logical MariaDB fallback has a 48-hour freshness check. Those
+checks do not prove a mutually compatible recovery generation, so no bounded
+coordinated application recovery-point objective (RPO) is established. The
+protected workflow has 45 minutes to materialize and inspect the recovery
+artifacts, but no bounded service recovery-time objective (RTO) is established
+because that probe does not restore a serving application. This operator-driven
+risk requires explicit owner acceptance while the migration gates in
+[architecture decisions](../architecture/decisions.md#production-topology-and-availability)
+remain open. Treat a stale or failed recovery verification as an availability
+incident.
+
 Before deployment:
 
 ```bash

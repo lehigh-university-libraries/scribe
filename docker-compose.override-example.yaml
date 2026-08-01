@@ -1,3 +1,12 @@
+x-scribe-local-app-env: &scribe-local-app-env
+  SEGMENTATION_SERVICE_URL: http://segmentor:8080
+  SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
+  IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
+  IIIF_SOURCE_BASE: http://api:8080/static/uploads
+  TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
+  KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
+  VAULT_TOKEN: ${VAULT_TOKEN:-}
+
 services:
   # The local frontend is the browser-facing edge and proxies API/IIIF paths.
   # The base file keeps Traefik's port for VM deployments, so reset it here to
@@ -9,14 +18,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
-      SEGMENTATION_SERVICE_URL: http://segmentor:8080
-      SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
-      IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
-      IIIF_SOURCE_BASE: http://api:8080/static/uploads
-      TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
-      KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
-      VAULT_TOKEN: ${VAULT_TOKEN:-}
+    environment: *scribe-local-app-env
     depends_on:
       segmentor:
         condition: service_healthy
@@ -24,14 +26,7 @@ services:
         condition: service_healthy
 
   worker:
-    environment:
-      SEGMENTATION_SERVICE_URL: http://segmentor:8080
-      SEGMENTATION_MODEL_ENDPOINTS_JSON: '{"kraken":{"url":"http://segmentor:8080","audience":""}}'
-      IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
-      IIIF_SOURCE_BASE: http://api:8080/static/uploads
-      TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
-      KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
-      VAULT_TOKEN: ${VAULT_TOKEN:-}
+    environment: *scribe-local-app-env
     depends_on:
       segmentor:
         condition: service_healthy
@@ -47,6 +42,7 @@ services:
       - "80:8888"
     environment:
       SCRIBE_FRONTEND_BACKEND_ORIGIN: http://api:8080
+      SCRIBE_FRONTEND_EDGE_MODE: direct
       SCRIBE_FRONTEND_PRESENTATION_ORIGIN: http://triplet:8080
     depends_on:
       api:

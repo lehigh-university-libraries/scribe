@@ -15,6 +15,7 @@ command -v docker >/dev/null 2>&1 || {
 if ! container_id="$(docker create \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --env SCRIBE_FRONTEND_EDGE_MODE=direct \
   "$image")"; then
   echo "failed to create frontend image $image" >&2
   exit 1

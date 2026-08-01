@@ -1,6 +1,12 @@
-# Terraform owns this narrow compatibility overlay so an automatic rollback to
-# an older application SHA still uses collision-free IPAM. Keep these values in
-# lockstep with docker-compose.yaml; the contract renders and compares both.
+# Terraform owns this narrow cloud compatibility overlay so an automatic
+# rollback to the immediately previous application SHA still receives its
+# fixed-proxy IPAM contract. Local and CI Compose use automatic bridge IPAM.
+services:
+  traefik:
+    networks:
+      default:
+        ipv4_address: ${SCRIBE_TRAEFIK_IP:-172.30.0.2}
+
 networks:
   default:
     ipam:

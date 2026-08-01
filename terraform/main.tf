@@ -109,7 +109,41 @@ locals {
   # forwarding depth and canonical resource identity unambiguous.
   cloud_run_public_base_url = format("https://%s-%s.%s.run.app", var.name, local.project_number, var.region)
   public_base_url           = local.cloud_run_public_base_url
-  default_ollama_model      = local.ollama_default_model
+  # Runtime defaults are authored once in the same config baked into the Go
+  # image. Terraform accepts explicit operator overrides but records and
+  # deploys these extracted defaults when no override is supplied.
+  application_config = yamldecode(file("${path.module}/../config.yaml"))
+  runtime_limits = {
+    transcription_max_active_jobs_per_workspace = coalesce(var.transcription_max_active_jobs_per_workspace, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.transcription.max_active_jobs_per_workspace))[0]))
+    storage_max_bytes_per_workspace             = coalesce(var.storage_max_bytes_per_workspace, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.storage.max_bytes_per_workspace))[0]))
+    storage_max_bytes_total                     = coalesce(var.storage_max_bytes_total, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.storage.max_bytes_total))[0]))
+    storage_max_items_per_workspace             = coalesce(var.storage_max_items_per_workspace, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.storage.max_items_per_workspace))[0]))
+    storage_max_items_total                     = coalesce(var.storage_max_items_total, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.storage.max_items_total))[0]))
+    storage_max_images_per_workspace            = coalesce(var.storage_max_images_per_workspace, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.storage.max_images_per_workspace))[0]))
+    storage_max_images_total                    = coalesce(var.storage_max_images_total, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.storage.max_images_total))[0]))
+    storage_reservation_ttl                     = coalesce(var.storage_reservation_ttl, regex(":-([^}]+)\\}$", tostring(local.application_config.storage.reservation_ttl))[0])
+    storage_normalization_cache_max_bytes       = coalesce(var.storage_normalization_cache_max_bytes, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.storage.normalization_cache_max_bytes))[0]))
+    storage_normalization_cache_max_age         = coalesce(var.storage_normalization_cache_max_age, regex(":-([^}]+)\\}$", tostring(local.application_config.storage.normalization_cache_max_age))[0])
+    iiif_max_manifest_canvases                  = coalesce(var.iiif_max_manifest_canvases, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.iiif.max_manifest_canvases))[0]))
+    iiif_max_manifest_import_bytes              = coalesce(var.iiif_max_manifest_import_bytes, tonumber(regex(":-([^}]+)\\}$", tostring(local.application_config.iiif.max_manifest_import_bytes))[0]))
+  }
+  storage_reservation_ttl_parts = try(
+    regex("^([1-9][0-9]*)(s|m|h)$", local.runtime_limits.storage_reservation_ttl),
+    ["0", "s"],
+  )
+  storage_normalization_cache_max_age_parts = try(
+    regex("^([1-9][0-9]*)(s|m|h)$", local.runtime_limits.storage_normalization_cache_max_age),
+    ["0", "s"],
+  )
+  storage_reservation_ttl_seconds = (
+    tonumber(local.storage_reservation_ttl_parts[0]) *
+    lookup({ s = 1, m = 60, h = 3600 }, local.storage_reservation_ttl_parts[1], 0)
+  )
+  storage_normalization_cache_max_age_seconds = (
+    tonumber(local.storage_normalization_cache_max_age_parts[0]) *
+    lookup({ s = 1, m = 60, h = 3600 }, local.storage_normalization_cache_max_age_parts[1], 0)
+  )
+  default_ollama_model = local.ollama_default_model
   default_ollama_url = !contains(local.ollama_models, local.default_ollama_model) ? "" : (
     local.shared_ollama_services_enabled ? module.ollama_services[local.default_ollama_model].primary_url :
     try(data.terraform_remote_state.shared_ollama[0].outputs.ollama_services[local.default_ollama_model].primary_url, "")
@@ -194,6 +228,18 @@ locals {
       value = var.data_generation
     },
     {
+      name  = "SCRIBE_OTEL_EXPORTER"
+      value = local.is_preview_workspace ? "none" : "google"
+    },
+    {
+      name  = "GOOGLE_CLOUD_PROJECT"
+      value = var.project_id
+    },
+    {
+      name  = "SCRIBE_DEPLOYMENT_ENVIRONMENT"
+      value = local.is_preview_workspace ? "preview" : (local.is_prod_workspace ? "prod" : "dev")
+    },
+    {
       name  = "SCRIBE_COMPOSE_SUBNET"
       value = var.compose_network_cidr
     },
@@ -214,56 +260,63 @@ locals {
       value = "${local.compose_traefik_ip}/32"
     },
     {
+      # New application revisions trust Compose's service identity. Keep the
+      # fixed /32 above only for rollback to the immediately previous source,
+      # whose config does not yet understand trusted_proxy_hosts.
+      name  = "SERVER_TRUSTED_PROXY_HOSTS"
+      value = "traefik"
+    },
+    {
       name  = "TRAEFIK_FORWARDED_TRUSTED_IPS"
       value = var.network_ip_cidr_range
     },
     {
       name  = "TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE"
-      value = tostring(var.transcription_max_active_jobs_per_workspace)
+      value = tostring(local.runtime_limits.transcription_max_active_jobs_per_workspace)
     },
     {
       name  = "STORAGE_MAX_BYTES_PER_WORKSPACE"
-      value = tostring(var.storage_max_bytes_per_workspace)
+      value = tostring(local.runtime_limits.storage_max_bytes_per_workspace)
     },
     {
       name  = "STORAGE_MAX_BYTES_TOTAL"
-      value = tostring(var.storage_max_bytes_total)
+      value = tostring(local.runtime_limits.storage_max_bytes_total)
     },
     {
       name  = "STORAGE_MAX_ITEMS_PER_WORKSPACE"
-      value = tostring(var.storage_max_items_per_workspace)
+      value = tostring(local.runtime_limits.storage_max_items_per_workspace)
     },
     {
       name  = "STORAGE_MAX_ITEMS_TOTAL"
-      value = tostring(var.storage_max_items_total)
+      value = tostring(local.runtime_limits.storage_max_items_total)
     },
     {
       name  = "STORAGE_MAX_IMAGES_PER_WORKSPACE"
-      value = tostring(var.storage_max_images_per_workspace)
+      value = tostring(local.runtime_limits.storage_max_images_per_workspace)
     },
     {
       name  = "STORAGE_MAX_IMAGES_TOTAL"
-      value = tostring(var.storage_max_images_total)
+      value = tostring(local.runtime_limits.storage_max_images_total)
     },
     {
       name  = "STORAGE_RESERVATION_TTL"
-      value = var.storage_reservation_ttl
+      value = local.runtime_limits.storage_reservation_ttl
     },
     {
       name  = "STORAGE_NORMALIZATION_CACHE_MAX_BYTES"
-      value = tostring(var.storage_normalization_cache_max_bytes)
+      value = tostring(local.runtime_limits.storage_normalization_cache_max_bytes)
     },
     {
       name  = "STORAGE_NORMALIZATION_CACHE_MAX_AGE"
-      value = var.storage_normalization_cache_max_age
+      value = local.runtime_limits.storage_normalization_cache_max_age
     },
     {
       name  = "IIIF_MAX_MANIFEST_CANVASES"
-      value = tostring(var.iiif_max_manifest_canvases)
+      value = tostring(local.runtime_limits.iiif_max_manifest_canvases)
     },
     {
       name  = "IIIF_MAX_MANIFEST_IMPORT_BYTES"
-      value = tostring(var.iiif_max_manifest_import_bytes)
+      value = tostring(local.runtime_limits.iiif_max_manifest_import_bytes)
     },
     {
       name  = "IIIF_SOURCE_BASE"
@@ -680,6 +733,17 @@ resource "google_storage_bucket_iam_member" "uploads_app_object_admin" {
   bucket = google_storage_bucket.uploads.name
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${module.scribe.appGsa.email}"
+}
+
+resource "google_project_iam_member" "app_telemetry" {
+  for_each = local.is_preview_workspace ? toset([]) : toset([
+    "roles/cloudtrace.agent",
+    "roles/monitoring.metricWriter",
+  ])
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${module.scribe.appGsa.email}"
 }
 
 check "shared_vault_ready" {

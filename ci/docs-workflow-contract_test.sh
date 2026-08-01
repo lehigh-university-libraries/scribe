@@ -28,11 +28,10 @@ require_pattern '^docs-build: install-doc-tools ## ' Makefile
 require_pattern '^docs: docs-build ## ' Makefile
 require_pattern '^docs-serve: install-doc-tools ## ' Makefile
 require_pattern '^[[:space:]]*@SCRIBE_DOCS_FORCE_DOCKER=true \./ci/docs\.sh build$' Makefile
-require_pattern '^run_make docs-build$' ci/run-ci.sh
-forbid_pattern '^run_make docs$' ci/run-ci.sh
+require_pattern '^[[:space:]]+run_make docs-build$' ci/run-ci.sh
+forbid_pattern '^[[:space:]]+run_make docs$' ci/run-ci.sh
 
-[ "$(rg -c '^[[:space:]]*run: make docs-build$' .github/workflows/lint-test.yaml)" -eq 1 ] ||
-  fail "hosted CI must call make docs-build exactly once"
+require_pattern 'run: \./ci/run-ci\.sh infrastructure' .github/workflows/lint-test.yaml
 [ "$(rg -c '^[[:space:]]*run: make docs-build$' .github/workflows/docs.yml)" -eq 1 ] ||
   fail "Pages must call make docs-build exactly once"
 forbid_pattern 'make install-doc-tools docs' .github/workflows/lint-test.yaml
@@ -67,6 +66,7 @@ require_pattern 'find "\$\{site_dir\}" -mindepth 1 -depth -delete' ci/docs.sh
 require_pattern 'documentation output must be a real directory' ci/docs.sh
 require_pattern "docker image inspect --format '\\{\\{\\.Id\\}\\}'" ci/docs.sh
 require_pattern '^  for attempt in 1 2 3 4 5; do$' ci/docs.sh
+require_pattern 'site/\.scribe-docs-bind-probe' ci/docs.sh
 require_pattern '^FROM python:[^@[:space:]]+@sha256:[0-9a-f]{64}$' Dockerfile.docs
 require_pattern 'pip install .*--require-hashes' Dockerfile.docs
 require_pattern '^zensical==0\.0\.51' requirements-docs.txt

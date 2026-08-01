@@ -3,109 +3,40 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TEST_DIR="$(mktemp -d)"
-trap 'rm -rf "${TEST_DIR}"' EXIT
 
-main_sha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-head_sha="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-mkdir -p "${TEST_DIR}/bin"
-cat >"${TEST_DIR}/bin/gh" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-if [ "\${1:-}" = api ] && [ "\${2:-}" = repos/example/scribe/commits/main ]; then
-  printf '%s\\n' '${main_sha}'
-  exit 0
-fi
-if [ "\${1:-}" = api ] && [ "\${2:-}" = repos/example/scribe/pulls/75 ]; then
-  printf '%s\\n' '{"base":{"ref":"main"},"head":{"repo":{"full_name":"example/scribe"},"sha":"${head_sha}"}}'
-  exit 0
-fi
-echo "unexpected gh invocation: \$*" >&2
-exit 1
-EOF
-chmod +x "${TEST_DIR}/bin/gh"
-
-run_event_case() {
-  local action="$1"
-  local base_ref="$2"
-  local previous_base_ref="$3"
-  local expected_mode="$4"
-  local output_file="${TEST_DIR}/output-${expected_mode}"
-
-  PATH="${TEST_DIR}/bin:${PATH}" \
-    GITHUB_OUTPUT="${output_file}" \
-    GITHUB_REPOSITORY="example/scribe" \
-    GCLOUD_PROJECT="example-project" \
-    SCRIBE_REGION="us-east5" \
-    SCRIBE_ZONE="us-east5-c" \
-    EVENT_ACTION="${action}" \
-    EVENT_BASE_REF="${base_ref}" \
-    EVENT_PREVIOUS_BASE_REF="${previous_base_ref}" \
-    EVENT_HEAD_REPO="example/scribe" \
-    EVENT_HEAD_SHA="${head_sha}" \
-    EVENT_PR="75" \
-    "${ROOT_DIR}/ci/resolve-preview-inputs.sh"
-
-  grep -Fx "mode=${expected_mode}" "${output_file}" >/dev/null
-  grep -Fx "recover_destroy_inputs=false" "${output_file}" >/dev/null
-  grep -Fx "base_sha=${main_sha}" "${output_file}" >/dev/null
-  grep -Fx "zone=us-east5-c" "${output_file}" >/dev/null
-  grep -Fx "backend_origin=http://scribe-pr-75.us-east5-c.c.example-project.internal" "${output_file}" >/dev/null
-  grep -Fx "frontend_gar_image_tag=us-docker.pkg.dev/example-project/internal/scribe-frontend:pr-75" "${output_file}" >/dev/null
-  if grep -q '^frontend_gar_image=' "${output_file}"; then
-    echo "Preview resolver emitted an unused untagged frontend GAR repository" >&2
-    exit 1
+run_preview_unit_tests() {
+  if command -v go >/dev/null 2>&1 &&
+    [ "$(go env GOVERSION)" = "go$(tr -d '\n' <"$ROOT_DIR/.go-version")" ]; then
+    (cd "$ROOT_DIR" && go test ./internal/deployer -run '^TestResolvePreview|^TestPreviewInputs')
+    return
   fi
+
+  docker run --rm --network none --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+    -e GOCACHE=/tmp/go-build \
+    -e GOMODCACHE=/tmp/go-mod \
+    -v "$ROOT_DIR:/app:ro" \
+    -w /app \
+    golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 \
+    go test ./internal/deployer -run '^TestResolvePreview|^TestPreviewInputs'
 }
 
-run_event_case synchronize main "" apply
-run_event_case edited feature main destroy
-
-run_dispatch_case() {
-  local action="$1"
-  local expected_mode="$2"
-  local expected_recovery="$3"
-  local output_file="${TEST_DIR}/output-dispatch-${action}"
-
-  PATH="${TEST_DIR}/bin:${PATH}" \
-    GITHUB_OUTPUT="${output_file}" \
-    GITHUB_REPOSITORY="example/scribe" \
-    GCLOUD_PROJECT="example-project" \
-    SCRIBE_REGION="us-east5" \
-    SCRIBE_ZONE="us-east5-c" \
-    DISPATCH_ACTION="${action}" \
-    DISPATCH_PR="75" \
-    WORKFLOW_REF="refs/heads/main" \
-    "${ROOT_DIR}/ci/resolve-preview-inputs.sh"
-
-  grep -Fx "mode=${expected_mode}" "${output_file}" >/dev/null
-  grep -Fx "recover_destroy_inputs=${expected_recovery}" "${output_file}" >/dev/null
-  grep -Fx "base_sha=${main_sha}" "${output_file}" >/dev/null
-}
-
-run_dispatch_case deploy apply false
-run_dispatch_case destroy destroy false
-run_dispatch_case recover-destroy destroy true
-
-invalid_output="${TEST_DIR}/output-dispatch-invalid"
-if PATH="${TEST_DIR}/bin:${PATH}" \
-  GITHUB_OUTPUT="${invalid_output}" \
-  GITHUB_REPOSITORY="example/scribe" \
-  GCLOUD_PROJECT="example-project" \
-  SCRIBE_REGION="us-east5" \
-  SCRIBE_ZONE="us-east5-c" \
-  DISPATCH_ACTION="unknown" \
-  DISPATCH_PR="75" \
-  WORKFLOW_REF="refs/heads/main" \
-  "${ROOT_DIR}/ci/resolve-preview-inputs.sh" >"${TEST_DIR}/invalid.out" 2>"${TEST_DIR}/invalid.err"; then
-  echo "Preview resolver accepted an unknown dispatch action" >&2
-  exit 1
-fi
-grep -F 'action must be deploy, destroy, or recover-destroy' "${TEST_DIR}/invalid.err" >/dev/null
+run_preview_unit_tests
 
 workflow="${ROOT_DIR}/.github/workflows/terraform-preview.yaml"
 grep -F './ci/resolve-preview-inputs.sh' "${workflow}" >/dev/null || {
   echo "Terraform Preview must use the tested trusted-input resolver" >&2
+  exit 1
+}
+grep -F 'exec go run ./cmd/deployer preview-inputs' \
+  "${ROOT_DIR}/ci/resolve-preview-inputs.sh" >/dev/null || {
+  echo "Preview input shell entrypoint must remain a thin typed-deployer caller" >&2
+  exit 1
+}
+go_setup_line="$(rg -n 'name: Set up Go for typed preview input resolution' "$workflow" | cut -d: -f1)"
+resolve_line="$(rg -n 'name: Resolve immutable preview inputs' "$workflow" | cut -d: -f1)"
+[[ "$go_setup_line" =~ ^[0-9]+$ && "$resolve_line" =~ ^[0-9]+$ && "$go_setup_line" -lt "$resolve_line" ]] || {
+  echo "Terraform Preview must install the pinned Go toolchain before resolving inputs" >&2
   exit 1
 }
 grep -F "vars.SCRIBE_PREVIEW_ZONE != '' && vars.SCRIBE_PREVIEW_ZONE || 'us-east5-c'" "${workflow}" >/dev/null || {

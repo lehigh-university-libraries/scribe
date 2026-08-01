@@ -99,18 +99,6 @@ jobs:
       DEV_EXTERNAL_OCR_IMPERSONATORS: '[]'
       VAULT_ADMIN_EMAILS: ${{ vars.VAULT_ADMIN_EMAILS }}
       VAULT_CI_SERVICE_ACCOUNT_EMAILS: '["${{ secrets.GSA }}"]'
-      TF_VAR_transcription_max_active_jobs_per_workspace: ${{ vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE != '' && vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE || '1000' }}
-      TF_VAR_storage_max_bytes_per_workspace: ${{ vars.STORAGE_MAX_BYTES_PER_WORKSPACE != '' && vars.STORAGE_MAX_BYTES_PER_WORKSPACE || '5368709120' }}
-      TF_VAR_storage_max_bytes_total: ${{ vars.STORAGE_MAX_BYTES_TOTAL != '' && vars.STORAGE_MAX_BYTES_TOTAL || '32212254720' }}
-      TF_VAR_storage_max_items_per_workspace: ${{ vars.STORAGE_MAX_ITEMS_PER_WORKSPACE != '' && vars.STORAGE_MAX_ITEMS_PER_WORKSPACE || '5000' }}
-      TF_VAR_storage_max_items_total: ${{ vars.STORAGE_MAX_ITEMS_TOTAL != '' && vars.STORAGE_MAX_ITEMS_TOTAL || '50000' }}
-      TF_VAR_storage_max_images_per_workspace: ${{ vars.STORAGE_MAX_IMAGES_PER_WORKSPACE != '' && vars.STORAGE_MAX_IMAGES_PER_WORKSPACE || '10000' }}
-      TF_VAR_storage_max_images_total: ${{ vars.STORAGE_MAX_IMAGES_TOTAL != '' && vars.STORAGE_MAX_IMAGES_TOTAL || '100000' }}
-      TF_VAR_storage_reservation_ttl: ${{ vars.STORAGE_RESERVATION_TTL != '' && vars.STORAGE_RESERVATION_TTL || '6h' }}
-      TF_VAR_storage_normalization_cache_max_bytes: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_BYTES != '' && vars.STORAGE_NORMALIZATION_CACHE_MAX_BYTES || '2147483648' }}
-      TF_VAR_storage_normalization_cache_max_age: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_AGE != '' && vars.STORAGE_NORMALIZATION_CACHE_MAX_AGE || '168h' }}
-      TF_VAR_iiif_max_manifest_canvases: ${{ vars.IIIF_MAX_MANIFEST_CANVASES != '' && vars.IIIF_MAX_MANIFEST_CANVASES || '500' }}
-      TF_VAR_iiif_max_manifest_import_bytes: ${{ vars.IIIF_MAX_MANIFEST_IMPORT_BYTES != '' && vars.IIIF_MAX_MANIFEST_IMPORT_BYTES || '67108864' }}
       TF_VAR_monitoring_notification_channels: ${{ vars.MONITORING_NOTIFICATION_CHANNELS != '' && vars.MONITORING_NOTIFICATION_CHANNELS || '[]' }}
       TF_VAR_network_ip_cidr_range: ${{ vars.NETWORK_IP_CIDR_RANGE != '' && vars.NETWORK_IP_CIDR_RANGE || '10.42.0.0/24' }}
       TF_VAR_compose_network_cidr: ${{ vars.COMPOSE_NETWORK_CIDR != '' && vars.COMPOSE_NETWORK_CIDR || '172.30.0.0/24' }}
@@ -224,6 +212,29 @@ jobs:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
 
+      - name: Set up Go for preview Vault reconciliation and typed deployment helpers
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: .go-version
+          cache: false
+
+      - name: Apply optional runtime-limit overrides
+        if: inputs.mode == 'apply' || inputs.mode == 'plan'
+        env:
+          IIIF_MAX_MANIFEST_CANVASES: ${{ vars.IIIF_MAX_MANIFEST_CANVASES }}
+          IIIF_MAX_MANIFEST_IMPORT_BYTES: ${{ vars.IIIF_MAX_MANIFEST_IMPORT_BYTES }}
+          STORAGE_MAX_BYTES_PER_WORKSPACE: ${{ vars.STORAGE_MAX_BYTES_PER_WORKSPACE }}
+          STORAGE_MAX_BYTES_TOTAL: ${{ vars.STORAGE_MAX_BYTES_TOTAL }}
+          STORAGE_MAX_IMAGES_PER_WORKSPACE: ${{ vars.STORAGE_MAX_IMAGES_PER_WORKSPACE }}
+          STORAGE_MAX_IMAGES_TOTAL: ${{ vars.STORAGE_MAX_IMAGES_TOTAL }}
+          STORAGE_MAX_ITEMS_PER_WORKSPACE: ${{ vars.STORAGE_MAX_ITEMS_PER_WORKSPACE }}
+          STORAGE_MAX_ITEMS_TOTAL: ${{ vars.STORAGE_MAX_ITEMS_TOTAL }}
+          STORAGE_NORMALIZATION_CACHE_MAX_AGE: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_AGE }}
+          STORAGE_NORMALIZATION_CACHE_MAX_BYTES: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_BYTES }}
+          STORAGE_RESERVATION_TTL: ${{ vars.STORAGE_RESERVATION_TTL }}
+          TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE: ${{ vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE }}
+        run: go run ./cmd/deployer runtime-overrides >> "$GITHUB_ENV"
+
       - name: Prepare Terraform artifact directory
         run: mkdir -p .github-artifacts/terraform
 
@@ -272,13 +283,6 @@ jobs:
         run: |
           ./ci/verify-cloud-backups.sh
           echo "TF_VAR_terraform_state_backup_audited=true" >> "$GITHUB_ENV"
-
-      - name: Set up Go for preview Vault reconciliation
-        if: inputs.mode == 'apply' && inputs.pr_number != ''
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: .go-version
-          cache: false
 
       - name: Reconcile shared preview Vault runtime access
         if: inputs.mode == 'apply' && inputs.pr_number != ''
@@ -761,22 +765,29 @@ jobs:
         if: always()
         run: |
           image_ref="$(printf '%s' "${SCRIBE_API_IMAGE}" | tr '[:upper:]' '[:lower:]')"
-          status="$(
-            DEPLOY_MODE='${{ inputs.mode }}' \
-            PR_NUMBER='${{ inputs.pr_number }}' \
-            PLAN_OUTCOME='${{ steps.plan.outcome }}' \
-            PLAN_PREVIEW_OUTCOME='${{ steps.plan_preview.outcome }}' \
-            APPLY_OUTCOME='${{ steps.apply.outcome }}' \
-            APPLY_PREVIEW_OUTCOME='${{ steps.apply_preview.outcome }}' \
-            REVISION_OUTCOME='${{ steps.revision_attestation.outcome }}' \
-            URL_OUTCOME='${{ steps.preview_url.outcome }}' \
-            READINESS_OUTCOME='${{ steps.readiness.outcome }}' \
-            ROLLBACK_OUTCOME='${{ steps.rollback.outcome }}' \
-            BACKUP_OUTCOME='${{ steps.backup_verify.outcome }}' \
-            DESTROY_OUTCOME='${{ steps.destroy.outcome }}' \
-            DESTROY_PREVIEW_OUTCOME='${{ steps.destroy_preview.outcome }}' \
-            DESTROY_PREVIEW_VAULT_OUTCOME='${{ steps.destroy_preview_vault.outcome }}' \
-              ./ci/deployment-status.sh
-          )"
+          if command -v go >/dev/null 2>&1 && status="$(
+              DEPLOY_MODE='${{ inputs.mode }}' \
+              PR_NUMBER='${{ inputs.pr_number }}' \
+              PLAN_OUTCOME='${{ steps.plan.outcome }}' \
+              PLAN_PREVIEW_OUTCOME='${{ steps.plan_preview.outcome }}' \
+              APPLY_OUTCOME='${{ steps.apply.outcome }}' \
+              APPLY_PREVIEW_OUTCOME='${{ steps.apply_preview.outcome }}' \
+              REVISION_OUTCOME='${{ steps.revision_attestation.outcome }}' \
+              URL_OUTCOME='${{ steps.preview_url.outcome }}' \
+              READINESS_OUTCOME='${{ steps.readiness.outcome }}' \
+              ROLLBACK_OUTCOME='${{ steps.rollback.outcome }}' \
+              BACKUP_OUTCOME='${{ steps.backup_verify.outcome }}' \
+              DESTROY_OUTCOME='${{ steps.destroy.outcome }}' \
+              DESTROY_PREVIEW_OUTCOME='${{ steps.destroy_preview.outcome }}' \
+              DESTROY_PREVIEW_VAULT_OUTCOME='${{ steps.destroy_preview_vault.outcome }}' \
+                ./ci/deployment-status.sh
+            )"; then
+            :
+          else
+            # Status publication must survive an earlier setup-go failure.
+            # A missing helper is conservatively a deployment failure; policy
+            # precedence remains exclusively in the typed helper.
+            status=failure
+          fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
           echo "image=$image_ref" >> "$GITHUB_OUTPUT"

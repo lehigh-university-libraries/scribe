@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -83,6 +84,34 @@ func TestTrustedProxyCIDRsAreExplicitNormalizedAndBounded(t *testing.T) {
 
 	if _, err := normalizeTrustedProxyCIDRs(CIDRList{"private-network"}); err == nil {
 		t.Fatal("normalizeTrustedProxyCIDRs(invalid) succeeded")
+	}
+}
+
+func TestTrustedProxyHostsAreNormalizedAndBounded(t *testing.T) {
+	var scalar struct {
+		Values HostList `yaml:"values"`
+	}
+	if err := yaml.Unmarshal([]byte("values: 'Traefik, edge.internal,traefik'\n"), &scalar); err != nil {
+		t.Fatalf("unmarshal host list: %v", err)
+	}
+	normalized, err := normalizeTrustedProxyHosts(scalar.Values)
+	if err != nil {
+		t.Fatalf("normalizeTrustedProxyHosts() error = %v", err)
+	}
+	want := HostList{"traefik", "edge.internal"}
+	if !reflect.DeepEqual(normalized, want) {
+		t.Fatalf("normalized hosts = %#v, want %#v", normalized, want)
+	}
+	for _, invalid := range []HostList{
+		{"127.0.0.1"},
+		{"bad_host"},
+		{"-edge"},
+		{"edge."},
+		{"a", "b", "c", "d", "e", "f", "g", "h", "i"},
+	} {
+		if _, err := normalizeTrustedProxyHosts(invalid); err == nil {
+			t.Fatalf("normalizeTrustedProxyHosts(%q) succeeded", invalid)
+		}
 	}
 }
 
@@ -336,6 +365,88 @@ func TestLoadAppliesBoundedProcessingDefaults(t *testing.T) {
 		cfg.Storage.ReservationTTL != DefaultStorageReservationTTL || cfg.Storage.NormalizationCacheMaxBytes != DefaultNormalizationCacheMaxBytes ||
 		cfg.Storage.NormalizationCacheMaxAge != DefaultNormalizationCacheMaxAge {
 		t.Fatalf("storage quota defaults = %+v", cfg.Storage)
+	}
+	if cfg.Observability.Exporter != "none" || cfg.Observability.GoogleProjectID != "" ||
+		cfg.Observability.DeploymentEnvironment != "local" ||
+		cfg.Observability.MetricExportInterval != DefaultTelemetryMetricExportInterval ||
+		cfg.Observability.QueuePollInterval != DefaultTelemetryQueuePollInterval ||
+		cfg.Observability.ExportTimeout != DefaultTelemetryExportTimeout ||
+		cfg.Observability.TraceSampleRatio != DefaultTelemetryTraceSampleRatio {
+		t.Fatalf("observability defaults = %+v", cfg.Observability)
+	}
+}
+
+func TestLoadNormalizesBoundedGoogleObservability(t *testing.T) {
+	t.Setenv("SCRIBE_OTEL_EXPORTER", " GOOGLE ")
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "scribe-observability-1")
+	t.Setenv("SCRIBE_OTEL_METRIC_EXPORT_INTERVAL", "45s")
+	t.Setenv("SCRIBE_OTEL_QUEUE_POLL_INTERVAL", "20s")
+	t.Setenv("SCRIBE_OTEL_EXPORT_TIMEOUT", "4s")
+	t.Setenv("SCRIBE_OTEL_TRACE_SAMPLE_RATIO", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := ObservabilityConfig{
+		Exporter:              "google",
+		GoogleProjectID:       "scribe-observability-1",
+		DeploymentEnvironment: "local",
+		MetricExportInterval:  45 * time.Second,
+		QueuePollInterval:     20 * time.Second,
+		ExportTimeout:         4 * time.Second,
+		TraceSampleRatio:      0,
+	}
+	if !reflect.DeepEqual(cfg.Observability, want) {
+		t.Fatalf("observability config = %+v, want %+v", cfg.Observability, want)
+	}
+}
+
+func TestNormalizeObservabilityConfigRejectsUnsafeValues(t *testing.T) {
+	t.Parallel()
+
+	valid := ObservabilityConfig{
+		Exporter:              "google",
+		GoogleProjectID:       "scribe-observability-1",
+		DeploymentEnvironment: "prod",
+		MetricExportInterval:  time.Minute,
+		QueuePollInterval:     30 * time.Second,
+		ExportTimeout:         5 * time.Second,
+		TraceSampleRatio:      0.1,
+	}
+	for name, mutate := range map[string]func(*ObservabilityConfig){
+		"unknown exporter":   func(cfg *ObservabilityConfig) { cfg.Exporter = "http" },
+		"invalid project":    func(cfg *ObservabilityConfig) { cfg.GoogleProjectID = "https://project.example/token" },
+		"missing project":    func(cfg *ObservabilityConfig) { cfg.GoogleProjectID = "" },
+		"invalid deployment": func(cfg *ObservabilityConfig) { cfg.DeploymentEnvironment = "pr-7" },
+		"rapid export":       func(cfg *ObservabilityConfig) { cfg.MetricExportInterval = time.Second },
+		"slow export":        func(cfg *ObservabilityConfig) { cfg.MetricExportInterval = 10 * time.Minute },
+		"rapid queue poll":   func(cfg *ObservabilityConfig) { cfg.QueuePollInterval = time.Second },
+		"slow queue poll":    func(cfg *ObservabilityConfig) { cfg.QueuePollInterval = 10 * time.Minute },
+		"long timeout":       func(cfg *ObservabilityConfig) { cfg.ExportTimeout = time.Minute },
+		"negative sample":    func(cfg *ObservabilityConfig) { cfg.TraceSampleRatio = -0.1 },
+		"large sample":       func(cfg *ObservabilityConfig) { cfg.TraceSampleRatio = 1.1 },
+		"NaN sample":         func(cfg *ObservabilityConfig) { cfg.TraceSampleRatio = math.NaN() },
+		"infinite sample":    func(cfg *ObservabilityConfig) { cfg.TraceSampleRatio = math.Inf(1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := valid
+			mutate(&candidate)
+			if _, err := normalizeObservabilityConfig(candidate); err == nil {
+				t.Fatal("expected bounded observability validation error")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsNonFiniteTraceSampleRatio(t *testing.T) {
+	for _, value := range []string{".nan", ".inf", "-.inf"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("SCRIBE_OTEL_TRACE_SAMPLE_RATIO", value)
+			if _, err := Load(); err == nil {
+				t.Fatalf("Load accepted non-finite trace sample ratio %q", value)
+			}
+		})
 	}
 }
 

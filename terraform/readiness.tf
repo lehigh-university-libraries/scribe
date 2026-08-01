@@ -80,6 +80,11 @@ resource "google_cloud_run_v2_job" "backend_readiness" {
         }
 
         env {
+          name  = "SCRIBE_EXPECTED_PUBLIC_ORIGIN"
+          value = local.public_base_url
+        }
+
+        env {
           name  = "SCRIBE_EXPECTED_BACKEND_IP"
           value = module.scribe.internal_ip
         }

@@ -4,6 +4,8 @@ Use the smallest test that proves the invariant, then cover cross-boundary
 behavior where data can drift.
 
 ```bash
+make check              # fast lint/generated/unit pre-push loop
+make test-backend-fast  # cached, parallel Go unit/race tests without MariaDB
 make test-backend       # Go unit/race and DB tests
 make test-frontend      # web + plugin tests and production builds
 make test-browser       # real Chromium editor/session/geometry acceptance
@@ -15,12 +17,30 @@ make export-schema-check # PAGE 2019-07-15 + ALTO 4.4 XSD validation
 make ci                 # complete local CI contract
 ```
 
-Containerized Go gates keep module, build, and golangci-lint caches in named
-Docker volumes so repeated local runs do not redownload or recompile the entire
-dependency graph. The test source and MariaDB data remain isolated: `make ci`
-still creates and removes a unique database project on every run, while Go
-validates cached modules and build artifacts against `go.sum` and source build
-IDs. Go's build cache can also hold successful test results, so the backend and
+`ci/run-ci.sh` defines the hosted/local group boundary once. Run a focused
+group directly (`./ci/run-ci.sh contracts`, `test`, `browser`, `recovery`,
+`security`, or `infrastructure`) when reproducing one required GitHub job;
+`make ci` runs the complete set.
+
+For focused deployment-orchestration iteration, run `go test
+./internal/deployer ./cmd/deployer`. The corresponding workflow shell files are
+thin launchers; preview selection and deployment-status precedence belong in
+these Go tests.
+
+`make test-backend-fast` is the shortest backend loop. It unsets `TEST_DSN`,
+uses the exact host Go toolchain plus C race-detector compiler when available,
+runs packages in parallel, and retains Go's test-result cache so source or
+dependency changes rerun the affected packages. If that host toolchain is not
+available, it uses the same prepared container as the full backend gate. This
+fast target omits export-schema validation and DB-backed acceptance tests.
+
+Containerized Go gates keep module and build caches in named Docker volumes.
+The Dockerfile's `test-runner` stage pins `build-base` and `xmllint`, so repeated
+test invocations reuse a prepared image instead of installing Alpine packages
+on every run. The test source and MariaDB data remain isolated: `make ci` still
+creates and removes a unique database project on every run, while Go validates
+cached modules and build artifacts against `go.sum` and source build IDs. Go's
+build cache can also hold successful test results, so the full backend and
 smoke harnesses use `-count=1` to execute every acceptance test against the
 current database.
 DB-backed Go packages share that one suite-local schema and run with `-p=1`
@@ -35,12 +55,12 @@ gate fails if it cannot attach to the isolated MariaDB service. The focused
 the required gate does not rerun that subset after `go test ./...` has already
 executed the same DB-backed tests.
 
-`make test-backend` installs the pinned `libxml2-utils=2.13.9-r2` package in
-the immutable Go test container and runs the export schema check before Go
-tests. The gate is offline: official PAGE, ALTO, and XLink schemas are vendored
-with checksums under `internal/server/testdata/crosswalk/schemas/`. Running the
-focused target directly requires `xmllint` plus `sha256sum`; the script reports
-installation guidance when either tool is missing.
+`make test-backend` runs the export schema check before Go tests. With an exact
+host Go toolchain it can run locally when `xmllint` and `sha256sum` are also
+installed; otherwise it selects the prepared test-runner image automatically.
+Schema validation is offline: official PAGE, ALTO, and XLink schemas are
+vendored with checksums under
+`internal/server/testdata/crosswalk/schemas/`.
 
 Release-blocking integration scenarios include:
 

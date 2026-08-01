@@ -58,17 +58,7 @@ frontend_gar_image     = "us-docker.pkg.dev/your-gcp-project-id/internal/scribe-
 network_ip_cidr_range = "10.42.0.0/24"
 compose_network_cidr  = "172.30.0.0/24"
 
-# Runtime admission limits are Terraform inputs so the same values reach API
-# and worker containers. Defaults are shown here for deliberate review.
-transcription_max_active_jobs_per_workspace = 1000
-storage_max_bytes_per_workspace             = 5368709120
-storage_max_bytes_total                     = 32212254720
-storage_max_items_per_workspace             = 5000
-storage_max_items_total                     = 50000
-storage_max_images_per_workspace            = 10000
-storage_max_images_total                    = 100000
-storage_reservation_ttl                      = "6h"
-storage_normalization_cache_max_bytes        = 2147483648
-storage_normalization_cache_max_age          = "168h"
-iiif_max_manifest_canvases                   = 500
-iiif_max_manifest_import_bytes               = 67108864
+# Runtime admission defaults come from ../config.yaml. Omit them here so a
+# copied tfvars file follows reviewed application-default changes. An operator
+# may set a bounded variable explicitly only when the deployment needs an
+# override; the workflow records the effective value for rollback.

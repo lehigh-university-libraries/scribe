@@ -150,6 +150,15 @@ type TranscriptionJobPage struct {
 	NextCursor *TranscriptionJobPageCursor
 }
 
+// TranscriptionQueueSnapshot is a deployment-wide, content-free view of work
+// that a worker can claim now. It deliberately has no workspace, job, provider,
+// or model dimensions so exported telemetry remains low-cardinality.
+type TranscriptionQueueSnapshot struct {
+	Depth         int64
+	OldestAge     time.Duration
+	ExpiredLeases int64
+}
+
 // Fence returns the complete identity required for a worker transition.
 func (j TranscriptionJob) Fence() (TranscriptionAttemptFence, error) {
 	attemptNumber, err := attemptNumberFromInt(j.AttemptCount)
@@ -245,6 +254,25 @@ func NewTranscriptionJobStore(pool *sql.DB) *TranscriptionJobStore {
 // explicit durable per-workspace admission policy.
 func NewTranscriptionJobStoreWithAdmission(pool *sql.DB, admission TranscriptionJobAdmissionPolicy) *TranscriptionJobStore {
 	return &TranscriptionJobStore{q: db.New(pool), pool: pool, admission: admission}
+}
+
+// ClaimableQueueSnapshot reports pending jobs whose retry delay has elapsed and
+// expired running leases. It uses the database clock for both eligibility and
+// age so process clock skew cannot produce a misleading backlog measurement.
+func (s *TranscriptionJobStore) ClaimableQueueSnapshot(ctx context.Context) (TranscriptionQueueSnapshot, error) {
+	if s == nil || s.pool == nil {
+		return TranscriptionQueueSnapshot{}, fmt.Errorf("transcription job store is not configured")
+	}
+	row, err := s.q.GetClaimableTranscriptionQueueSnapshot(ctx)
+	if err != nil {
+		return TranscriptionQueueSnapshot{}, fmt.Errorf("read claimable transcription queue: %w", err)
+	}
+	snapshot := TranscriptionQueueSnapshot{Depth: row.Depth, ExpiredLeases: row.ExpiredLeases}
+	oldestAgeMicroseconds := row.OldestAgeMicroseconds
+	if oldestAgeMicroseconds > 0 {
+		snapshot.OldestAge = time.Duration(oldestAgeMicroseconds) * time.Microsecond
+	}
+	return snapshot, nil
 }
 
 func (s *TranscriptionJobStore) Create(ctx context.Context, itemImageID uint64, processingContext Context) (uint64, error) {

@@ -153,6 +153,7 @@ type Querier interface {
 	GetAnnotationPageManual(ctx context.Context, arg GetAnnotationPageManualParams) (AnnotationPage, error)
 	GetAuthSessionByTokenHashManual(ctx context.Context, tokenHash string) (AuthSession, error)
 	GetCanonicalRevisionForItemImageManual(ctx context.Context, itemImageID uint64) (uint64, error)
+	GetClaimableTranscriptionQueueSnapshot(ctx context.Context) (GetClaimableTranscriptionQueueSnapshotRow, error)
 	GetContextManual(ctx context.Context, id uint64) (Context, error)
 	GetContextOCRRunMetricsManual(ctx context.Context, arg GetContextOCRRunMetricsManualParams) (GetContextOCRRunMetricsManualRow, error)
 	GetDefaultContextForWorkspaceManual(ctx context.Context, workspaceID sql.NullInt64) (Context, error)

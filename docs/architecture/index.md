@@ -19,6 +19,12 @@ private image helper is invoked. Vault owns provider and OAuth secrets. Cloud
 Run hosts private OCR/image helpers; authenticated server-side callers use
 registered exact audiences.
 
+The current production backend is explicitly a non-HA, single-zone Cloud
+Compose deployment. Its per-layer recovery-artifact evidence, lack of bounded
+coordinated RPO or service RTO, and the gates that must precede a Cloud
+SQL/Cloud Run migration are recorded in
+[architecture decisions](decisions.md#production-topology-and-availability).
+
 Prefer a new module and a narrow interface over another service. Split a
 service only when independent scaling, failure isolation, or ownership has been
 demonstrated and the operational cost is justified.

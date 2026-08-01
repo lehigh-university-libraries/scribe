@@ -3,6 +3,7 @@ public_base_url: "${PUBLIC_BASE_URL:-http://localhost:8080}"
 
 server:
   trusted_proxy_cidrs: "${SERVER_TRUSTED_PROXY_CIDRS:-}"
+  trusted_proxy_hosts: "${SERVER_TRUSTED_PROXY_HOSTS:-}"
 
 auth:
   cookie_name: scribe_session
@@ -105,6 +106,15 @@ annotation:
 
 audit:
   provider_call_retention: 720h
+
+observability:
+  exporter: "${SCRIBE_OTEL_EXPORTER:-none}"
+  google_project_id: "${GOOGLE_CLOUD_PROJECT:-}"
+  deployment_environment: "${SCRIBE_DEPLOYMENT_ENVIRONMENT:-local}"
+  metric_export_interval: "${SCRIBE_OTEL_METRIC_EXPORT_INTERVAL:-60s}"
+  queue_poll_interval: "${SCRIBE_OTEL_QUEUE_POLL_INTERVAL:-30s}"
+  export_timeout: "${SCRIBE_OTEL_EXPORT_TIMEOUT:-10s}"
+  trace_sample_ratio: ${SCRIBE_OTEL_TRACE_SAMPLE_RATIO:-0.05}
 
 vault:
   address: "${VAULT_ADDRESS:-}"

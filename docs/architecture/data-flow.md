@@ -28,6 +28,13 @@ presented as a successful save.
 Every external request has a bounded timeout and response size. Workspace input
 cannot choose a credential audience or authenticated origin directly.
 
+The browser event stream does not depend on process-local broadcast state.
+Each API replica polls the shared, workspace-scoped event outbox after the
+client's numeric cursor. An SSE reconnect can therefore land on a different
+replica and resume with `Last-Event-ID`; ready/checkpoint events advance the
+cursor across filtered records, and the client reconciles the durable job and
+canonical-page snapshots after connecting.
+
 Transcription provider and remote segmentation protocols are supplied by the
 general-purpose `github.com/lehigh-university-libraries/htr` packages. Scribe's
 provider registry selects installed models, exact origins/audiences, Vault

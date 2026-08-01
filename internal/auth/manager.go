@@ -22,6 +22,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
+	"github.com/lehigh-university-libraries/scribe/internal/proxytrust"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
 	optionsv1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1/options/v1"
@@ -995,15 +996,24 @@ func maxAgeSeconds(ttl time.Duration) int {
 // headers are ignored unless the direct peer belongs to an explicitly
 // configured trusted network, so private-address spoofing fails closed.
 func ClientIP(r *http.Request) string {
-	return clientIPFrom(r, config.Get().Config.Server.TrustedProxyCIDRs)
+	cfg := config.Get().Config.Server
+	return clientIPFromTrust(r, func(address string) bool {
+		return proxytrust.TrustedPeer(r.Context(), address, cfg.TrustedProxyCIDRs, cfg.TrustedProxyHosts)
+	})
 }
 
 func clientIPFrom(r *http.Request, trustedProxyCIDRs config.CIDRList) string {
+	return clientIPFromTrust(r, func(address string) bool {
+		return trustedProxyIP(address, trustedProxyCIDRs)
+	})
+}
+
+func clientIPFromTrust(r *http.Request, trustedProxy func(string) bool) string {
 	remote := strings.TrimSpace(r.RemoteAddr)
 	if host, _, err := net.SplitHostPort(remote); err == nil {
 		remote = host
 	}
-	if !trustedProxyIP(remote, trustedProxyCIDRs) {
+	if !trustedProxy(remote) {
 		return remote
 	}
 
@@ -1011,12 +1021,12 @@ func clientIPFrom(r *http.Request, trustedProxyCIDRs config.CIDRList) string {
 	for i := len(chain) - 1; i >= 0; i-- {
 		candidate := strings.Trim(strings.TrimSpace(chain[i]), "[]")
 		ip := net.ParseIP(candidate)
-		if ip == nil || trustedProxyIP(candidate, trustedProxyCIDRs) {
+		if ip == nil || trustedProxy(candidate) {
 			continue
 		}
 		return ip.String()
 	}
-	if realIP := strings.Trim(strings.TrimSpace(r.Header.Get("X-Real-Ip")), "[]"); net.ParseIP(realIP) != nil && !trustedProxyIP(realIP, trustedProxyCIDRs) {
+	if realIP := strings.Trim(strings.TrimSpace(r.Header.Get("X-Real-Ip")), "[]"); net.ParseIP(realIP) != nil && !trustedProxy(realIP) {
 		return net.ParseIP(realIP).String()
 	}
 	return remote

@@ -4,40 +4,29 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-assert_status() {
-  local expected="$1"
-  shift
-  local actual
-  actual="$(env -i PATH="$PATH" HOME="${HOME:-/tmp}" "$@" "$ROOT_DIR/ci/deployment-status.sh")"
-  [ "$actual" = "$expected" ] || {
-    echo "expected status $expected, got $actual for: $*" >&2
-    exit 1
-  }
+run_status_unit_tests() {
+  if command -v go >/dev/null 2>&1 &&
+    [ "$(go env GOVERSION)" = "go$(tr -d '\n' <"$ROOT_DIR/.go-version")" ]; then
+    (cd "$ROOT_DIR" && go test ./internal/deployer -run '^TestResolveStatus')
+    return
+  fi
+
+  docker run --rm --network none --read-only \
+    --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+    -e GOCACHE=/tmp/go-build \
+    -e GOMODCACHE=/tmp/go-mod \
+    -v "$ROOT_DIR:/app:ro" \
+    -w /app \
+    golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 \
+    go test ./internal/deployer -run '^TestResolveStatus'
 }
 
-assert_status failure DEPLOY_MODE=apply PLAN_OUTCOME=failure APPLY_OUTCOME=skipped READINESS_OUTCOME=skipped
-assert_status failure DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=failure READINESS_OUTCOME=skipped ROLLBACK_OUTCOME=skipped
-assert_status apply-failed-rolled-back DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=failure READINESS_OUTCOME=skipped ROLLBACK_OUTCOME=success
-assert_status rollback-failed DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=failure READINESS_OUTCOME=skipped ROLLBACK_OUTCOME=failure
-assert_status cancelled DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=cancelled READINESS_OUTCOME=skipped
-assert_status failure DEPLOY_MODE=apply PR_NUMBER=75 PLAN_PREVIEW_OUTCOME=success APPLY_PREVIEW_OUTCOME=failure READINESS_OUTCOME=skipped
-assert_status attestation-failure DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=success REVISION_OUTCOME=failure READINESS_OUTCOME=skipped ROLLBACK_OUTCOME=skipped
-assert_status attestation-failed-rolled-back DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=success REVISION_OUTCOME=failure READINESS_OUTCOME=skipped ROLLBACK_OUTCOME=success
-assert_status rollback-failed DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=success REVISION_OUTCOME=failure READINESS_OUTCOME=skipped ROLLBACK_OUTCOME=failure
-assert_status failure DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=success REVISION_OUTCOME=success READINESS_OUTCOME=failure ROLLBACK_OUTCOME=skipped
-assert_status readiness-failed-rolled-back DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=success REVISION_OUTCOME=success READINESS_OUTCOME=failure ROLLBACK_OUTCOME=success
-assert_status rollback-failed DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=success REVISION_OUTCOME=success READINESS_OUTCOME=failure ROLLBACK_OUTCOME=failure
-assert_status url-failure DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=success REVISION_OUTCOME=success READINESS_OUTCOME=success URL_OUTCOME=failure
-assert_status backup-verification-failure DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=success REVISION_OUTCOME=success URL_OUTCOME=success READINESS_OUTCOME=success BACKUP_OUTCOME=failure
-assert_status success DEPLOY_MODE=apply PLAN_OUTCOME=success APPLY_OUTCOME=success REVISION_OUTCOME=success URL_OUTCOME=success READINESS_OUTCOME=success BACKUP_OUTCOME=success ROLLBACK_OUTCOME=skipped
-assert_status success DEPLOY_MODE=apply PR_NUMBER=75 PLAN_PREVIEW_OUTCOME=success APPLY_PREVIEW_OUTCOME=success REVISION_OUTCOME=success URL_OUTCOME=success READINESS_OUTCOME=success
-assert_status failure DEPLOY_MODE=plan PLAN_OUTCOME=failure
-assert_status success DEPLOY_MODE=plan PR_NUMBER=75 PLAN_PREVIEW_OUTCOME=success
-assert_status failure DEPLOY_MODE=destroy DESTROY_OUTCOME=failure
-assert_status failure DEPLOY_MODE=destroy PR_NUMBER=75 DESTROY_PREVIEW_OUTCOME=failure DESTROY_PREVIEW_VAULT_OUTCOME=skipped
-assert_status vault-cleanup-skipped DEPLOY_MODE=destroy PR_NUMBER=75 DESTROY_PREVIEW_OUTCOME=success DESTROY_PREVIEW_VAULT_OUTCOME=skipped
-assert_status vault-cleanup-failure DEPLOY_MODE=destroy PR_NUMBER=75 DESTROY_PREVIEW_OUTCOME=success DESTROY_PREVIEW_VAULT_OUTCOME=failure
-assert_status success DEPLOY_MODE=destroy PR_NUMBER=75 DESTROY_PREVIEW_OUTCOME=success DESTROY_PREVIEW_VAULT_OUTCOME=success
+run_status_unit_tests
+
+grep -F 'exec go run ./cmd/deployer status' "$ROOT_DIR/ci/deployment-status.sh" >/dev/null || {
+  echo "Deployment status shell entrypoint must remain a thin typed-deployer caller" >&2
+  exit 1
+}
 
 attestation_dir="$(mktemp -d)"
 trap 'rm -rf "$attestation_dir"' EXIT

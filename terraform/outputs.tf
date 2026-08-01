@@ -1,9 +1,12 @@
 locals {
   recorded_root_outputs = {
-    instance              = module.scribe.instance
-    service_gsa           = module.scribe.serviceGsa
-    app_gsa               = module.scribe.appGsa
-    urls                  = module.scribe.urls
+    instance    = module.scribe.instance
+    service_gsa = module.scribe.serviceGsa
+    app_gsa     = module.scribe.appGsa
+    # Cloud Run exposes deterministic and legacy non-deterministic run.app
+    # hostnames. Persist and publish only the authority used by PUBLIC_BASE_URL
+    # so browser navigation, OAuth, IIIF IDs, and CORS cannot silently diverge.
+    urls                  = { (var.region) = local.public_base_url }
     backend               = module.scribe.backend
     backend_readiness_job = try(google_cloud_run_v2_job.backend_readiness[0].name, "")
     ocr_readiness_job     = try(google_cloud_run_v2_job.ocr_readiness[0].name, "")
@@ -20,22 +23,22 @@ locals {
         backup_restore_service_account_email        = var.backup_restore_service_account_email
         compose_network_cidr                        = var.compose_network_cidr
         dev_external_ocr_impersonators              = var.dev_external_ocr_impersonators
-        iiif_max_manifest_canvases                  = var.iiif_max_manifest_canvases
-        iiif_max_manifest_import_bytes              = var.iiif_max_manifest_import_bytes
+        iiif_max_manifest_canvases                  = local.runtime_limits.iiif_max_manifest_canvases
+        iiif_max_manifest_import_bytes              = local.runtime_limits.iiif_max_manifest_import_bytes
         monitoring_notification_channels            = var.monitoring_notification_channels
         network_ip_cidr_range                       = var.network_ip_cidr_range
         project_id                                  = var.project_id
         region                                      = var.region
-        storage_max_bytes_per_workspace             = var.storage_max_bytes_per_workspace
-        storage_max_bytes_total                     = var.storage_max_bytes_total
-        storage_max_images_per_workspace            = var.storage_max_images_per_workspace
-        storage_max_images_total                    = var.storage_max_images_total
-        storage_max_items_per_workspace             = var.storage_max_items_per_workspace
-        storage_max_items_total                     = var.storage_max_items_total
-        storage_normalization_cache_max_age         = var.storage_normalization_cache_max_age
-        storage_normalization_cache_max_bytes       = var.storage_normalization_cache_max_bytes
-        storage_reservation_ttl                     = var.storage_reservation_ttl
-        transcription_max_active_jobs_per_workspace = var.transcription_max_active_jobs_per_workspace
+        storage_max_bytes_per_workspace             = local.runtime_limits.storage_max_bytes_per_workspace
+        storage_max_bytes_total                     = local.runtime_limits.storage_max_bytes_total
+        storage_max_images_per_workspace            = local.runtime_limits.storage_max_images_per_workspace
+        storage_max_images_total                    = local.runtime_limits.storage_max_images_total
+        storage_max_items_per_workspace             = local.runtime_limits.storage_max_items_per_workspace
+        storage_max_items_total                     = local.runtime_limits.storage_max_items_total
+        storage_normalization_cache_max_age         = local.runtime_limits.storage_normalization_cache_max_age
+        storage_normalization_cache_max_bytes       = local.runtime_limits.storage_normalization_cache_max_bytes
+        storage_reservation_ttl                     = local.runtime_limits.storage_reservation_ttl
+        transcription_max_active_jobs_per_workspace = local.runtime_limits.transcription_max_active_jobs_per_workspace
         vault_admin_emails                          = var.vault_admin_emails
         vault_ci_service_account_emails             = var.vault_ci_service_account_emails
         zone                                        = var.zone
@@ -117,6 +120,52 @@ locals {
 # with values calculated from incomplete recovery inputs.
 resource "terraform_data" "recorded_root_outputs" {
   input = local.recorded_root_outputs
+
+  lifecycle {
+    precondition {
+      condition     = length("${var.name}-${local.project_number}") <= 63
+      error_message = "name plus project number must fit Cloud Run's 63-character deterministic URL segment; Scribe persists and enforces that canonical origin."
+    }
+    precondition {
+      condition = (
+        floor(local.runtime_limits.transcription_max_active_jobs_per_workspace) == local.runtime_limits.transcription_max_active_jobs_per_workspace &&
+        local.runtime_limits.transcription_max_active_jobs_per_workspace >= 1 &&
+        local.runtime_limits.transcription_max_active_jobs_per_workspace <= 100000 &&
+        floor(local.runtime_limits.storage_max_bytes_per_workspace) == local.runtime_limits.storage_max_bytes_per_workspace &&
+        local.runtime_limits.storage_max_bytes_per_workspace >= 104857600 &&
+        local.runtime_limits.storage_max_bytes_per_workspace <= 10995116277760 &&
+        floor(local.runtime_limits.storage_max_bytes_total) == local.runtime_limits.storage_max_bytes_total &&
+        local.runtime_limits.storage_max_bytes_total >= local.runtime_limits.storage_max_bytes_per_workspace &&
+        local.runtime_limits.storage_max_bytes_total <= 10995116277760 &&
+        floor(local.runtime_limits.storage_max_items_per_workspace) == local.runtime_limits.storage_max_items_per_workspace &&
+        local.runtime_limits.storage_max_items_per_workspace >= 1 &&
+        local.runtime_limits.storage_max_items_per_workspace <= 10000000 &&
+        floor(local.runtime_limits.storage_max_items_total) == local.runtime_limits.storage_max_items_total &&
+        local.runtime_limits.storage_max_items_total >= local.runtime_limits.storage_max_items_per_workspace &&
+        local.runtime_limits.storage_max_items_total <= 10000000 &&
+        floor(local.runtime_limits.storage_max_images_per_workspace) == local.runtime_limits.storage_max_images_per_workspace &&
+        local.runtime_limits.storage_max_images_per_workspace >= 1 &&
+        local.runtime_limits.storage_max_images_per_workspace <= 10000000 &&
+        floor(local.runtime_limits.storage_max_images_total) == local.runtime_limits.storage_max_images_total &&
+        local.runtime_limits.storage_max_images_total >= local.runtime_limits.storage_max_images_per_workspace &&
+        local.runtime_limits.storage_max_images_total <= 10000000 &&
+        floor(local.runtime_limits.storage_normalization_cache_max_bytes) == local.runtime_limits.storage_normalization_cache_max_bytes &&
+        local.runtime_limits.storage_normalization_cache_max_bytes >= 104857600 &&
+        local.runtime_limits.storage_normalization_cache_max_bytes <= 10995116277760 &&
+        local.storage_reservation_ttl_seconds >= 300 &&
+        local.storage_reservation_ttl_seconds <= 86400 &&
+        local.storage_normalization_cache_max_age_seconds >= 3600 &&
+        local.storage_normalization_cache_max_age_seconds <= 31536000 &&
+        floor(local.runtime_limits.iiif_max_manifest_canvases) == local.runtime_limits.iiif_max_manifest_canvases &&
+        local.runtime_limits.iiif_max_manifest_canvases >= 1 &&
+        local.runtime_limits.iiif_max_manifest_canvases <= 5000 &&
+        floor(local.runtime_limits.iiif_max_manifest_import_bytes) == local.runtime_limits.iiif_max_manifest_import_bytes &&
+        local.runtime_limits.iiif_max_manifest_import_bytes >= 1 &&
+        local.runtime_limits.iiif_max_manifest_import_bytes <= 67108864
+      )
+      error_message = "Effective runtime limits must satisfy the application's integer, duration, storage, transcription, and IIIF bounds."
+    }
+  }
 }
 
 output "instance" {
@@ -135,7 +184,7 @@ output "app_gsa" {
 }
 
 output "urls" {
-  description = "Cloud Run ingress URLs by region."
+  description = "Canonical deterministic Cloud Run ingress URLs by region."
   value       = terraform_data.recorded_root_outputs.output.urls
 }
 

@@ -65,8 +65,10 @@ func main() {
 
 func run(ctx context.Context) (returnErr error) {
 	deps, err := app.NewDependencies(ctx, app.BootstrapOptions{
-		RunMigrations:      false,
-		SeedSystemContexts: false,
+		RunMigrations:             false,
+		SeedSystemContexts:        false,
+		TelemetryServiceName:      "scribe-worker",
+		ObserveTranscriptionQueue: true,
 	})
 	if err != nil {
 		return fmt.Errorf("bootstrap worker dependencies: %w", err)

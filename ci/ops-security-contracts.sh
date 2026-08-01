@@ -31,6 +31,7 @@ while IFS= read -r workflow; do
   forbid_pattern '^permissions:[[:space:]]*write-all$' "$workflow"
 done < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yaml' -o -name '*.yml' \) -print)
 bash ci/docs-workflow-contract_test.sh
+bash ci/ensure-local-vault-init-image_test.sh
 matrix_job="$(sed -n '/^  matrix:/,/^  build:/p' .github/workflows/build-ocr.yaml)"
 rg -q '^    permissions:$' <<<"$matrix_job" || fail "OCR matrix job must have explicit permissions"
 rg -q '^      contents: read$' <<<"$matrix_job" || fail "OCR matrix job must be explicitly read-only"
@@ -154,10 +155,11 @@ test "$identity_source_imports" = "internal/gcpidentity/source.go" ||
 require_pattern 'preflightServiceIdentity\(ctx, cfg\)' internal/app/bootstrap.go
 
 # Proxy identity is a two-hop exact allowlist: Cloud Run's deployment subnet
-# into Traefik, then Traefik's fixed container /32 into the application.
-require_pattern 'SERVER_TRUSTED_PROXY_CIDRS:.*172\.30\.0\.2/32' docker-compose.yaml
+# into Traefik, then the resolved Traefik service identity into the application.
+require_pattern 'SERVER_TRUSTED_PROXY_HOSTS:.*traefik' docker-compose.yaml
 require_pattern 'trusted_proxy_cidrs:.*SERVER_TRUSTED_PROXY_CIDRS' config.yaml
-require_pattern 'ipv4_address:.*172\.30\.0\.2' docker-compose.yaml
+require_pattern 'trusted_proxy_hosts:.*SERVER_TRUSTED_PROXY_HOSTS' config.yaml
+forbid_pattern 'ipv4_address:|SCRIBE_COMPOSE_SUBNET|SCRIBE_TRAEFIK_IP' docker-compose.yaml
 require_pattern 'TRAEFIK_FORWARDED_TRUSTED_IPS' terraform/main.tf
 require_pattern 'forwardedHeaders\.notAppendXForwardedFor=true' docker-compose.yaml
 require_pattern 'ENV SCRIBE_FRONTEND_EDGE_MODE=ppb' Dockerfile.frontend
@@ -167,6 +169,28 @@ for terraform_file in terraform/main.tf terraform/variables.tf terraform/outputs
 done
 require_pattern 'TF_VAR_network_ip_cidr_range' .github/workflows/terraform-deploy.yaml
 require_pattern 'TF_VAR_network_ip_cidr_range' .github/workflows/terraform-drift.yaml
+for runtime_default_var in \
+  transcription_max_active_jobs_per_workspace \
+  storage_max_bytes_per_workspace storage_max_bytes_total \
+  storage_max_items_per_workspace storage_max_items_total \
+  storage_max_images_per_workspace storage_max_images_total \
+  storage_reservation_ttl storage_normalization_cache_max_bytes \
+  storage_normalization_cache_max_age iiif_max_manifest_canvases \
+  iiif_max_manifest_import_bytes; do
+  require_pattern "${runtime_default_var}[[:space:]]*=[[:space:]]*coalesce\\(var\\.${runtime_default_var}" terraform/main.tf
+done
+require_pattern 'application_config[[:space:]]*=[[:space:]]*yamldecode\(file\(' terraform/main.tf
+# shellcheck disable=SC2016 # Match the literal GitHub environment-file variable.
+require_pattern 'go run ./cmd/deployer runtime-overrides >> "\$GITHUB_ENV"' .github/workflows/terraform-deploy.yaml
+require_pattern "if: inputs.mode == 'apply' \\|\\| inputs.mode == 'plan'" .github/workflows/terraform-deploy.yaml
+forbid_pattern 'while IFS=: read -r source target' .github/workflows/terraform-deploy.yaml
+forbid_pattern 'vars\.(TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE|STORAGE_MAX_|IIIF_MAX_).*\|\|[[:space:]]*' .github/workflows/terraform-deploy.yaml
+forbid_pattern '(TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE|STORAGE_MAX_|IIIF_MAX_)[^:]*:[[:space:]]*\$\{[^}]+:-[1-9]' docker-compose.yaml
+forbid_pattern '^[[:space:]]*(transcription_max_active_jobs_per_workspace|storage_|iiif_max_manifest_)[a-z_]*[[:space:]]*=' terraform/terraform.tfvars.example
+require_pattern 'resource "terraform_data" "recorded_root_outputs"' terraform/outputs.tf
+require_pattern 'precondition \{' terraform/outputs.tf
+require_pattern 'Effective runtime limits must satisfy' terraform/outputs.tf
+forbid_pattern '^check "(deterministic_cloud_run_url_available|runtime_limit_relationships)"' terraform/main.tf
 forbid_pattern '10\.0\.0\.0/8|172\.16\.0\.0/12|192\.168\.0\.0/16|169\.254\.0\.0/16|fc00::/7' docker-compose.yaml
 
 # One reviewed generation must isolate every persistence surface. Deployment,
@@ -226,7 +250,8 @@ require_pattern 'const stripsCredentials = isSeparateOrigin \|\| isPublicPresent
 # the fixture mutates data and is authorized only for the Compose database it
 # resolves itself.
 require_pattern 'SCRIBE_REQUIRE_BROWSER_BACKEND: "true"' .github/workflows/lint-test.yaml
-require_pattern 'Start isolated browser-test database' .github/workflows/lint-test.yaml
+require_pattern '^run_browser_group\(\)' ci/run-ci.sh
+require_pattern 'SCRIBE_REQUIRE_BROWSER_BACKEND=true run_make test-browser' ci/run-ci.sh
 forbid_pattern '\$\{TEST_DSN:-' ci/test-browser.sh
 
 # Persistent dependency/build caches may not turn a prior successful database
@@ -238,9 +263,13 @@ require_pattern 'SCRIBE_REQUIRE_TEST_DB: "true"' .github/workflows/lint-test.yam
 require_pattern 'SCRIBE_REQUIRE_TEST_DB=true run_make test-backend' ci/run-ci.sh
 require_pattern 'REQUIRE_TEST_DB="\$\{SCRIBE_REQUIRE_TEST_DB:-false\}"' ci/test.sh
 
-# Runtime cost controls advertised in sample.env must be present in both API
-# and worker Compose environments, and the two runtime config copies must be
-# byte-identical.
+# Runtime cost controls advertised in sample.env must resolve identically for
+# API and worker. Assert the rendered Compose model so a shared YAML anchor is
+# checked at the service boundary instead of requiring duplicate source text.
+compose_app_config="$(docker compose -f docker-compose.yaml config --format json)"
+jq -e '.services.api.environment == .services.worker.environment' \
+  <<<"$compose_app_config" >/dev/null ||
+  fail "rendered API and worker environments differ"
 for variable in \
   TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE \
   STORAGE_MAX_BYTES_PER_WORKSPACE STORAGE_MAX_BYTES_TOTAL \
@@ -249,10 +278,39 @@ for variable in \
   STORAGE_RESERVATION_TTL STORAGE_NORMALIZATION_CACHE_MAX_BYTES \
   STORAGE_NORMALIZATION_CACHE_MAX_AGE IIIF_MAX_MANIFEST_CANVASES \
   IIIF_MAX_MANIFEST_IMPORT_BYTES; do
-  [ "$(rg -c "^[[:space:]]+${variable}:" docker-compose.yaml)" -eq 2 ] || fail "$variable must be wired to both API and worker"
+  jq -e --arg variable "$variable" '
+    .services.api.environment[$variable] != null and
+    .services.api.environment[$variable] == .services.worker.environment[$variable]
+  ' <<<"$compose_app_config" >/dev/null ||
+    fail "$variable must resolve identically for API and worker"
 done
+managed_observability_config="$(
+  SCRIBE_OTEL_EXPORTER=google \
+    GOOGLE_CLOUD_PROJECT=scribe-observability-1 \
+    SCRIBE_DEPLOYMENT_ENVIRONMENT=prod \
+    docker compose -f docker-compose.yaml config --format json
+)"
+for service in api worker; do
+  jq -e --arg service "$service" '
+    .services[$service].environment.SCRIBE_OTEL_EXPORTER == "google" and
+    .services[$service].environment.GOOGLE_CLOUD_PROJECT == "scribe-observability-1" and
+    .services[$service].environment.SCRIBE_DEPLOYMENT_ENVIRONMENT == "prod"
+  ' <<<"$managed_observability_config" >/dev/null ||
+    fail "managed observability settings do not reach $service"
+done
+require_pattern 'value = local\.is_preview_workspace \? "none" : "google"' terraform/main.tf
+require_pattern 'for_each = local\.is_preview_workspace \? toset\(\[\]\)' terraform/main.tf
 cmp -s config.yaml internal/config/defaults/config.yaml || fail "runtime config.yaml and its embedded copy differ"
 require_pattern 'x-scribe-runtime-hardening: &scribe-runtime-hardening' docker-compose.yaml
+require_pattern 'x-scribe-app-env: &scribe-app-env' docker-compose.yaml
+require_pattern 'SCRIBE_API_IMAGE:-scribe-api:local' docker-compose.yaml
+for override in docker-compose.override-example.yaml docker-compose.override.cloud-example.yaml; do
+  require_pattern 'SCRIBE_FRONTEND_EDGE_MODE:[[:space:]]+direct' "$override"
+done
+require_pattern 'COPY config.yaml /etc/scribe/config.yaml' Dockerfile
+jq -e '[.services.api.volumes[], .services.worker.volumes[]] |
+  all(.target != "/etc/scribe/config.yaml")' <<<"$compose_app_config" >/dev/null ||
+  fail "Compose overrides the image-baked application config"
 require_pattern 'no-new-privileges:true' docker-compose.yaml
 require_pattern 'http://localhost:8081/readyz' docker-compose.yaml
 require_pattern 'triplet-healthcheck.*http://127\.0\.0\.1:8080/healthz' docker-compose.yaml
@@ -260,7 +318,11 @@ for service in api worker triplet; do
   require_pattern "^  ${service}:" docker-compose.yaml
 done
 forbid_pattern '^  image-service:' docker-compose.yaml
-[ "$(rg -c 'TRIPLET_SOURCE_READ_TOKEN_FILE: /run/secrets/triplet_source_read_token' docker-compose.yaml)" -eq 2 ] || fail "Triplet source token must be mounted into both API and worker"
+jq -e '
+  .services.api.environment.TRIPLET_SOURCE_READ_TOKEN_FILE == "/run/secrets/triplet_source_read_token" and
+  .services.worker.environment.TRIPLET_SOURCE_READ_TOKEN_FILE == "/run/secrets/triplet_source_read_token"
+' <<<"$compose_app_config" >/dev/null ||
+  fail "Triplet source token must be configured for both API and worker"
 require_pattern '^  default: http$' triplet.config.yaml
 require_pattern 'prefix: http://api:8080/static/uploads' triplet.config.yaml
 require_pattern 'allowed_origins:' triplet.config.yaml
@@ -292,6 +354,8 @@ require_pattern 'attest-cloud-run-revision\.sh' .github/workflows/terraform-depl
 require_pattern 'resolve-oci-platform-image\.sh' ci/attest-cloud-run-revision.sh
 require_pattern 'reviewed frontend index or its exact linux/amd64 image' ci/attest-cloud-run-revision.sh
 require_pattern 'SCRIBE_EXPECTED_API_IMAGE' terraform/readiness.tf
+require_pattern 'SCRIBE_EXPECTED_PUBLIC_ORIGIN' terraform/readiness.tf
+require_pattern 'value = local\.public_base_url' terraform/readiness.tf
 require_pattern '/api/generate' scripts/ocr-readiness.sh
 require_pattern 'ollama_readiness_invoker' terraform/ollama.tf
 require_pattern 'readiness\.api_image !== expectedAPIImage' web/readiness-job.mjs
@@ -326,7 +390,16 @@ require_pattern 'Every ocr_service_images value must be a digest-pinned image re
 forbid_pattern 'secrets\.OCR_(GCLOUD_OIDC_POOL|GSA)' .github/workflows/build-ocr.yaml
 forbid_pattern '\$\{\{ (secrets|vars)\.GSA \}\}' .github/workflows/build-ocr.yaml
 require_pattern 'service_account: \$\{\{ vars\.OCR_GSA \}\}' .github/workflows/build-ocr.yaml
-require_pattern 'run: make dependency-scan' .github/workflows/lint-test.yaml
+require_pattern 'run: \./ci/run-ci\.sh security' .github/workflows/lint-test.yaml
+ci_group_count=0
+while IFS= read -r ci_group; do
+  [ -n "$ci_group" ] || continue
+  ci_group_count=$((ci_group_count + 1))
+  [ "$(grep -Fxc "        run: ./ci/run-ci.sh ${ci_group}" .github/workflows/lint-test.yaml)" -eq 1 ] ||
+    fail "hosted CI must invoke canonical group ${ci_group} exactly once"
+done < <(./ci/run-ci.sh --list)
+[ "$(rg -c '^[[:space:]]+run: \./ci/run-ci\.sh [a-z]+$' .github/workflows/lint-test.yaml)" -eq "$ci_group_count" ] ||
+  fail "hosted CI contains a group invocation outside ci/run-ci.sh --list"
 require_pattern '--scanners "vuln,secret"' ci/dependency-scan.sh
 require_pattern 'Create a synthetic credential scanner fixture' .github/workflows/lint-test.yaml
 bash ci/dependency-scan-path-parity_test.sh

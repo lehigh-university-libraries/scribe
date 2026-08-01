@@ -124,8 +124,13 @@ if rg -q 'secret/data/scribe/\+' terraform/policies/vault/ci.hcl; then
 fi
 
 make_target="$(sed -n '/^tf-dev-vault-preview-runtime:/,/^[^[:space:]].*:/p' Makefile)"
-rg -q 'TF_TARGET_SET="vault-preview-runtime".*deploy-local\.sh dev' <<<"$make_target" ||
+rg -Fq '$(call run_terraform_local,dev,vault-preview-runtime)' <<<"$make_target" ||
   fail "the local preview Vault runtime entry point does not select the exact shared-dev target set"
+terraform_make_wrapper="$(sed -n '/^define run_terraform_local$/,/^endef$/p' Makefile)"
+rg -Fq 'set -- "$$environment" "$$action"' <<<"$terraform_make_wrapper" ||
+  fail "the local Terraform wrapper does not pass its exact environment and action"
+rg -Fq 'TF_TARGET_SET="$(2)" ./terraform/deploy-local.sh "$$@"' <<<"$terraform_make_wrapper" ||
+  fail "the local Terraform wrapper does not pass its exact target set"
 
 target_case="$(sed -n '/^  vault-preview-runtime)/,/^  ocr)/p' terraform/deploy-local.sh)"
 if rg -q -- '-target=|verify-vault-target-plan' <<<"$target_case"; then

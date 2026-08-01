@@ -1,9 +1,10 @@
 .PHONY: help
-.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check test test-backend test-frontend test-browser e2e-smoke backup-restore-smoke verify-cloud-backups-test cloud-snapshot-restore-drill-test mariadb-backup-retention-test preview-deployment-test readiness-fixture-test deployment-status-test reset-dev-db-test ocr-build-tags ocr-matrix-test ocr-source-paths-test segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-security-contracts terraform-check terraform-state-normalizer-test terraform-targeted-output-test docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-cloud-ocr up-db reset-dev-db down logs sequelace ocr-matrix ocr-images bootstrap-gcp-identities bootstrap-gcp-identities-test tf-dev tf-dev-vault-ci-identities tf-dev-vault-preview-runtime tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
+.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check check test test-backend test-backend-fast test-frontend test-browser e2e-smoke backup-restore-smoke verify-cloud-backups-test cloud-snapshot-restore-drill-test mariadb-backup-retention-test preview-deployment-test readiness-fixture-test deployment-status-test reset-dev-db-test ocr-build-tags ocr-matrix-test ocr-source-paths-test segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-security-contracts terraform-check terraform-state-normalizer-test terraform-targeted-output-test docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-cloud-ocr up-db reset-dev-db down logs sequelace ocr-matrix ocr-images bootstrap-gcp-identities bootstrap-gcp-identities-test tf-dev tf-dev-vault-ci-identities tf-dev-vault-preview-runtime tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
-COMPOSE_UP_FLAGS ?= -d --build
+COMPOSE_UP_FLAGS ?= -d
+REBUILD ?= false
 # renovate: datasource=docker depName=golangci/golangci-lint
 GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.12.2-alpine@sha256:91b27804074a0bacea298707f016911e60cf0cdbc6c7bf5ccacb5f0606d18d60
 TOOLS_BIN ?= $(CURDIR)/.tools/bin
@@ -31,23 +32,26 @@ vault-init-image-smoke: ## Verify the packaged backend image contains the immuta
 doctor: ## Check the local Docker/Git toolchain and report optional host runtimes
 	@./ci/doctor.sh
 
-up: doctor ## Start services in detached mode
+up: doctor ## Start services in detached mode; set REBUILD=true to rebuild images
 	@test -f .env || cp sample.env .env
 	@test -f docker-compose.override.yaml || cp docker-compose.override-example.yaml docker-compose.override.yaml
+	@REBUILD="$(REBUILD)" ./ci/ensure-local-vault-init-image.sh
 	@SCRIBE_REPAIR_LOCAL_TOKENS=true bash generate-secrets.sh
-	@docker compose up $(COMPOSE_UP_FLAGS)
+	@docker compose up $(COMPOSE_UP_FLAGS) $(if $(filter true,$(REBUILD)),--build,)
 
-up-cloud-ocr: doctor ## Start local services against configured private Cloud Run OCR endpoints
+up-cloud-ocr: doctor ## Start local services against configured private Cloud Run OCR endpoints; set REBUILD=true to rebuild
 	@test -f .env || cp sample.env .env
 	@test -f docker-compose.override.yaml || cp docker-compose.override.cloud-example.yaml docker-compose.override.yaml
 	@cloud_ocr_project="$$(bash ./ci/cloud-ocr-compose-preflight.sh --print-project)" && \
 		bash ./ci/validate-dev-cloud-ocr-credential.sh \
 			secrets/GOOGLE_APPLICATION_CREDENTIALS "$$cloud_ocr_project"
+	@REBUILD="$(REBUILD)" ./ci/ensure-local-vault-init-image.sh
 	@SCRIBE_REPAIR_LOCAL_TOKENS=true bash generate-secrets.sh
-	@docker compose up $(COMPOSE_UP_FLAGS)
+	@docker compose up $(COMPOSE_UP_FLAGS) $(if $(filter true,$(REBUILD)),--build,)
 
 up-db: ## Start only MariaDB for DB-backed integration tests
 	@test -f .env || cp sample.env .env
+	@REBUILD="$(REBUILD)" ./ci/ensure-local-vault-init-image.sh
 	@bash generate-secrets.sh
 	@docker compose up -d --wait --wait-timeout 120 mariadb
 
@@ -167,12 +171,20 @@ terraform-targeted-output-test: ## Prove targeted maintenance cannot rewrite rec
 ci: ## Run every required CI gate with an isolated, automatically removed integration database
 	@SCRIBE_MAKE_COMMAND="$(MAKE)" bash ./ci/run-ci.sh
 
+check: ## Run the fast local pre-push checks serially; make ci remains the release contract
+	@$(MAKE) lint
+	@$(MAKE) generate-check
+	@$(MAKE) test-backend-fast
+
 test: ## Run frontend checks and Go tests (integration tests run automatically if MariaDB is active via make up-db or make up)
 	@$(MAKE) test-frontend
 	@$(MAKE) test-backend
 
 test-backend: ## Run Go tests (integration tests run automatically if MariaDB is active via make up-db or make up)
 	@./ci/test.sh
+
+test-backend-fast: ## Run cached, parallel Go unit tests with the pinned host toolchain when available
+	@./ci/test.sh --fast
 
 export-schema-check: ## Validate PAGE and ALTO export fixtures against pinned official schemas
 	@./ci/export-schema-check.sh
@@ -219,63 +231,42 @@ ocr-matrix-test: install-shell-tools ocr-source-paths-test ## Verify OCR model c
 ocr-source-paths-test: ## Verify OCR source discovery covers the transitive segmentor build graph
 	@bash ./ci/ocr-source-paths_test.sh
 
-tf-dev: ## Run local Terraform for the shared dev environment. Usage: make tf-dev [BRANCH=name] ACTION=plan|apply|refresh|normalize-moves|destroy
-	@set -eu; \
-	action="${ACTION}"; \
+define run_terraform_local
+@set -eu; \
+	environment="$(1)"; \
+	action="$(ACTION)"; \
 	if [ -z "$$action" ]; then action="plan"; fi; \
-	branch_arg=""; \
-	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
-	./terraform/deploy-local.sh dev "$$action" $$branch_arg
+	case "$$environment" in dev|prod|preview) ;; *) echo "invalid Terraform environment: $$environment" >&2; exit 2 ;; esac; \
+	set -- "$$environment" "$$action"; \
+	if [ -n "$(BRANCH)" ]; then set -- "$$@" --branch "$(BRANCH)"; fi; \
+	if [ "$$environment" = "preview" ]; then \
+		pr="$(PR)"; \
+		if [ -z "$$pr" ]; then echo "set PR=<number>" >&2; exit 1; fi; \
+		set -- "$$@" --pr-number "$$pr"; \
+	fi; \
+	TF_TARGET_SET="$(2)" ./terraform/deploy-local.sh "$$@"
+endef
+
+tf-dev: ## Run local Terraform for the shared dev environment. Usage: make tf-dev [BRANCH=name] ACTION=plan|apply|refresh|normalize-moves|destroy
+	$(call run_terraform_local,dev,)
 
 tf-dev-vault-ci-identities: ## Reconcile only shared dev Vault CI login identities. Usage: make tf-dev-vault-ci-identities [BRANCH=name] ACTION=plan|apply
-	@set -eu; \
-	action="${ACTION}"; \
-	if [ -z "$$action" ]; then action="plan"; fi; \
-	branch_arg=""; \
-	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
-	TF_TARGET_SET="vault-ci-identities" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
+	$(call run_terraform_local,dev,vault-ci-identities)
 
 tf-dev-vault-preview-runtime: ## Check or reconcile the shared dev preview runtime Vault policy and role. Usage: make tf-dev-vault-preview-runtime [BRANCH=name] ACTION=plan|apply
-	@set -eu; \
-	action="${ACTION}"; \
-	if [ -z "$$action" ]; then action="plan"; fi; \
-	branch_arg=""; \
-	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
-	TF_TARGET_SET="vault-preview-runtime" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
+	$(call run_terraform_local,dev,vault-preview-runtime)
 
 tf-dev-ocr: ## Reapply only the shared dev OCR helper services. Usage: make tf-dev-ocr [BRANCH=name] ACTION=plan|apply
-	@set -eu; \
-	action="${ACTION}"; \
-	if [ -z "$$action" ]; then action="plan"; fi; \
-	branch_arg=""; \
-	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
-	TF_TARGET_SET="ocr" ./terraform/deploy-local.sh dev "$$action" $$branch_arg
+	$(call run_terraform_local,dev,ocr)
 
 tf-prod: ## Run local Terraform for production. Usage: make tf-prod [BRANCH=<40-character-sha>] ACTION=plan|apply|refresh|normalize-moves|destroy
-	@set -eu; \
-	action="${ACTION}"; \
-	if [ -z "$$action" ]; then action="plan"; fi; \
-	branch_arg=""; \
-	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
-	./terraform/deploy-local.sh prod "$$action" $$branch_arg
+	$(call run_terraform_local,prod,)
 
 tf-prod-ocr: ## Reapply only production OCR helper services, including Ollama Cloud Run. Usage: make tf-prod-ocr BRANCH=<40-character-sha> ACTION=plan|apply
-	@set -eu; \
-	action="${ACTION}"; \
-	if [ -z "$$action" ]; then action="plan"; fi; \
-	branch_arg=""; \
-	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
-	TF_TARGET_SET="ocr" ./terraform/deploy-local.sh prod "$$action" $$branch_arg
+	$(call run_terraform_local,prod,ocr)
 
 tf-preview: ## Run local Terraform for a preview env. Usage: make tf-preview PR=23 [BRANCH=<40-character-base-sha>] ACTION=plan|apply|refresh|normalize-moves|destroy
-	@set -eu; \
-	action="${ACTION}"; \
-	if [ -z "$$action" ]; then action="plan"; fi; \
-	pr="${PR}"; \
-	if [ -z "$$pr" ]; then echo "set PR=<number>" >&2; exit 1; fi; \
-	branch_arg=""; \
-	if [ -n "${BRANCH}" ]; then branch_arg="--branch ${BRANCH}"; fi; \
-	./terraform/deploy-local.sh preview "$$action" $$branch_arg --pr-number "$$pr"
+	$(call run_terraform_local,preview,)
 
 vault-secrets: ## Interactively manage Vault secrets for dev or prod
 	@./ci/vault-secrets.sh

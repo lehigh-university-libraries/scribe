@@ -70,7 +70,15 @@ require_fixed 'working-directory: .deployed-source' .github/workflows/terraform-
 require_fixed 'merge-base --is-ancestor "$DEPLOYED_SHA" "$CURRENT_SHA"' .github/workflows/terraform-drift.yaml
 
 while IFS='|' read -r environment_name configuration_name terraform_variable; do
-  require_regex "${configuration_name}[[:space:]]*=[[:space:]]*var\\.${terraform_variable}" terraform/outputs.tf
+  case "$terraform_variable" in
+    transcription_max_active_jobs_per_workspace|storage_*|iiif_*)
+      replay_source="local\\.runtime_limits"
+      ;;
+    *)
+      replay_source="var"
+      ;;
+  esac
+  require_regex "${configuration_name}[[:space:]]*=[[:space:]]*${replay_source}\\.${terraform_variable}" terraform/outputs.tf
   require_fixed "${environment_name}=\"\$(jq" .github/workflows/terraform-deploy.yaml
   require_regex "^[[:space:]]*export[[:space:]]+([A-Za-z_][A-Za-z0-9_]*[[:space:]]+)*${environment_name}([[:space:]]|$)" .github/workflows/terraform-deploy.yaml
   require_fixed ".configuration.${configuration_name}" .github/workflows/terraform-deploy.yaml

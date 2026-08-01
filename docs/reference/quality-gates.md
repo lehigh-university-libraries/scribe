@@ -36,14 +36,15 @@ Required pull-request checks cover:
 dependency and secret scan as the hosted workflow. Runtime image scanning is
 currently deferred and does not gate CI, deployment, or release. Individual
 component commands remain useful for iteration, but a manually checked box is
-not a substitute for a passing required job. The orchestrator creates a unique
-Compose project from the reviewed base file (never a developer's local
-override), atomically reserves the first available private `/24` from its
-bounded CI address pools, waits
-for its MariaDB health check before backend tests, and removes its containers and
-volumes on success, failure, or interruption. It does not reuse or stop the
-normal development stack, so integration tests cannot silently skip on a clean
-checkout.
+not a substitute for a passing required job. `ci/run-ci.sh` owns the canonical
+`contracts`, `test`, `browser`, `recovery`, `security`, and `infrastructure`
+groups; hosted jobs call those same groups in parallel while `make ci` runs
+them locally. The orchestrator creates a unique Compose project from the
+reviewed base file (never a developer's local override), lets Docker allocate a
+collision-free bridge, waits for MariaDB health before integration tests, and
+removes its containers and volumes on success, failure, or interruption. It
+does not reuse or stop the normal development stack, so integration tests
+cannot silently skip on a clean checkout.
 
 `make ocr-build-tags` cross-compiles both GoReleaser binaries for `linux/386`
 with the release build tag in the same pinned Go container used for its native
@@ -151,11 +152,24 @@ the file can be copied into the runtime image.
 bases, test images, and workflow Terraform versions aligned. Its bootstrap
 path uses standard shell tools; contracts that use ripgrep first install the
 checksum-pinned release with `make install-shell-tools`. `make
-frontend-image-smoke` starts the packaged frontend read-only and fetches its
-static application, resolving the runtime module graph before Terraform can
-deploy an image with an omitted `COPY` input. `make readiness-fixture-test`,
+frontend-image-smoke` starts the packaged frontend read-only, overrides only
+the PPB edge mode so the undeployed image does not require a live backend, and
+fetches its static application. This resolves the runtime module graph before
+Terraform can deploy an image with an omitted `COPY` input; PPB forwarding and
+canonical-origin behavior remain covered by the frontend server tests. `make
+readiness-fixture-test`,
 `make deployment-status-test`, `make preview-deployment-test`, and `make
 verify-cloud-backups-test` exercise deployment contracts without cloud access.
+Protected previews deliberately execute cloud orchestration from `main` while
+testing the pull-request image. The frontend readiness probe therefore supports
+one mixed orchestrator/image rollout: a legacy orchestrator may omit its
+expected-origin input, but the backend must still report an exact HTTPS origin;
+once the input is present, the report must exactly match Terraform's
+deterministic origin.
+Deployment-status precedence and preview event/dispatch resolution are typed Go
+unit tests under `internal/deployer`; their shell entrypoints contain no policy
+logic. The preview tests prove the protected-main checkout, fork handling,
+retargeted teardown, recovery-mode selection, and validated output projection.
 The preview test proves teardown consumes the workspace's recorded immutable
 inputs, never calls a registry or build tool, and rejects missing or corrupt
 state without printing its contents. It also proves the explicit protected

@@ -26,6 +26,7 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
 	"github.com/lehigh-university-libraries/scribe/internal/providerregistry"
+	"github.com/lehigh-university-libraries/scribe/internal/proxytrust"
 	"github.com/lehigh-university-libraries/scribe/internal/safefile"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
@@ -421,7 +422,7 @@ func requestCORSOrigin(r *http.Request) string {
 		scheme = "https"
 	}
 	host := strings.TrimSpace(r.Host)
-	if isTrustedProxy(r.RemoteAddr) {
+	if isTrustedProxy(r.Context(), r.RemoteAddr) {
 		forwarded := forwardedParams(r.Header.Get("Forwarded"))
 		if forwardedProto := lastForwardedValue(r.Header.Get("X-Forwarded-Proto")); forwardedProto != "" {
 			scheme = forwardedProto
@@ -475,6 +476,9 @@ func (h *Handler) handleReadiness(w http.ResponseWriter, r *http.Request) {
 
 func readinessResponse(status string) map[string]string {
 	response := map[string]string{"status": status}
+	if origin, ok := canonicalOrigin(config.Get().Config.PublicBaseURL); ok {
+		response["public_origin"] = origin
+	}
 	if image := strings.TrimSpace(os.Getenv("SCRIBE_DEPLOYED_API_IMAGE")); image != "" {
 		response["api_image"] = image
 	}
@@ -1069,12 +1073,9 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func isTrustedProxy(remoteAddr string) bool {
-	return isTrustedProxyFrom(remoteAddr, config.Get().Config.Server.TrustedProxyCIDRs)
-}
-
-func isTrustedProxyFrom(remoteAddr string, cidrs config.CIDRList) bool {
-	return config.AddressInCIDRs(remoteAddr, cidrs)
+func isTrustedProxy(ctx context.Context, remoteAddr string) bool {
+	cfg := config.Get().Config.Server
+	return proxytrust.TrustedPeer(ctx, remoteAddr, cfg.TrustedProxyCIDRs, cfg.TrustedProxyHosts)
 }
 
 func lastForwardedValue(raw string) string {

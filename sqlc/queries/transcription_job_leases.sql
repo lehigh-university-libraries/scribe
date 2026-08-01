@@ -37,6 +37,26 @@ ORDER BY created_at ASC
 LIMIT 1
 FOR UPDATE SKIP LOCKED;
 
+-- name: GetClaimableTranscriptionQueueSnapshot :one
+SELECT
+  COUNT(*) AS depth,
+  CAST(COALESCE(TIMESTAMPDIFF(MICROSECOND, MIN(created_at), CURRENT_TIMESTAMP(6)), 0) AS SIGNED) AS oldest_age_microseconds,
+  CAST(COALESCE(SUM(
+    status = 'running'
+    AND lease_until IS NOT NULL
+    AND lease_until < CURRENT_TIMESTAMP(6)
+  ), 0) AS SIGNED) AS expired_leases
+FROM transcription_jobs
+WHERE (
+    status = 'pending'
+    AND (retry_after IS NULL OR retry_after <= CURRENT_TIMESTAMP(6))
+    AND attempt_count < max_attempts
+  ) OR (
+    status = 'running'
+    AND lease_until IS NOT NULL
+    AND lease_until < CURRENT_TIMESTAMP(6)
+  );
+
 -- name: FailExpiredTranscriptionJobManual :execresult
 UPDATE transcription_jobs
 SET status = 'failed',

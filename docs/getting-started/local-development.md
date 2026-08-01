@@ -27,7 +27,10 @@ For a narrower install, use `make install-shell-tools` (ripgrep and yq),
 Common loops:
 
 ```bash
-# Backend and contracts
+# Fast pre-push loop: lint, generated drift, cached Go unit tests
+make check
+
+# Complete component checks
 make generate
 make lint
 make test-backend
@@ -45,6 +48,30 @@ make dependency-scan
 make docs-build
 make docs-serve
 ```
+
+`make check` is an iteration aid, not the release contract. Its backend step
+uses the exact host Go version and race detector when they are available, runs
+packages in parallel, and lets Go's build/test cache rerun affected packages.
+It deliberately does not attach to MariaDB. Use `make test-backend` for the
+uncached full backend gate; when Compose MariaDB is active, that target includes
+the DB-backed tests. Both targets fall back to the prepared, pinned test-runner
+image when the host toolchain is unavailable.
+
+`make up` reuses existing service images and builds only missing ones. Set
+`REBUILD=true` after changing an image input:
+
+```bash
+make up REBUILD=true
+```
+
+When local development points at Vault, startup prepares the shared
+`scribe-api:local` image before the one-shot `vault-init` container runs. This
+also honors `REBUILD=true`; digest-pinned or operator-selected images remain
+pull-only.
+
+The application runtime reads the `config.yaml` baked into its backend image;
+Compose does not replace that file with a host bind mount. A `config.yaml`
+change therefore requires the explicit rebuild above.
 
 For Vite hot reload, start the Compose stack and run `npm --prefix web run dev`.
 The dev proxy uses the Compose edge at `http://localhost`; set
@@ -161,7 +188,7 @@ immediately rather than merely deleting or replacing the file.
 <http://localhost:8000/>. Both targets build and use the pinned local Zensical
 image without modifying the host Python environment.
 
-Run the full pre-push contract with `make ci`. The same component scripts are
+Run the full release contract with `make ci`. The same component scripts are
 used in GitHub Actions.
 
 If only a database is needed, use `make up-db`. Database-backed Go tests detect

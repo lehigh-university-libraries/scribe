@@ -18,7 +18,8 @@ async function unusedPort() {
   return port;
 }
 
-function runReadinessJob(env) {
+async function runReadinessJob(env) {
+  const frontendPort = await unusedPort();
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [jobPath], {
       env: {
@@ -31,6 +32,8 @@ function runReadinessJob(env) {
         SCRIBE_READINESS_RETRY_MS: "100",
         SCRIBE_EXPECTED_API_IMAGE: "ghcr.io/example/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         SCRIBE_EXPECTED_BACKEND_IP: "127.0.0.1",
+        SCRIBE_EXPECTED_PUBLIC_ORIGIN: "https://scribe-123.us-east5.run.app",
+        SCRIBE_FRONTEND_PORT: String(frontendPort),
         ...env,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -48,7 +51,7 @@ describe("deployed frontend readiness job", () => {
   it("passes only through the real frontend health proxy", async () => {
     const upstream = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "application/json" });
-      response.end('{"status":"ready","api_image":"ghcr.io/example/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}');
+      response.end('{"status":"ready","public_origin":"https://scribe-123.us-east5.run.app","api_image":"ghcr.io/example/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}');
     });
     await new Promise((resolve, reject) => {
       upstream.once("error", reject);
@@ -61,9 +64,56 @@ describe("deployed frontend readiness job", () => {
         SCRIBE_READINESS_ATTEMPTS: "20",
         SCRIBE_READINESS_RETRY_MS: "500",
         SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+        SCRIBE_FRONTEND_EDGE_MODE: "ppb",
       });
       expect(result, result.stderr).toMatchObject({ code: 0, signal: null });
       expect(result.stdout).toContain("frontend proxy and backend release");
+    } finally {
+      await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 30_000);
+
+  it("accepts a valid origin during one protected-orchestrator mixed rollout", async () => {
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"status":"ready","public_origin":"https://scribe-123.us-east5.run.app","api_image":"ghcr.io/example/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}');
+    });
+    await new Promise((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(0, "127.0.0.1", resolve);
+    });
+    const upstreamAddress = upstream.address();
+    const upstreamPort = typeof upstreamAddress === "object" && upstreamAddress ? upstreamAddress.port : 0;
+    try {
+      const result = await runReadinessJob({
+        SCRIBE_EXPECTED_PUBLIC_ORIGIN: "",
+        SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+        SCRIBE_FRONTEND_EDGE_MODE: "ppb",
+      });
+      expect(result, result.stderr).toMatchObject({ code: 0, signal: null });
+    } finally {
+      await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 30_000);
+
+  it("rejects a valid but unexpected canonical origin", async () => {
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"status":"ready","public_origin":"https://other-123.us-east5.run.app","api_image":"ghcr.io/example/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}');
+    });
+    await new Promise((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(0, "127.0.0.1", resolve);
+    });
+    const upstreamAddress = upstream.address();
+    const upstreamPort = typeof upstreamAddress === "object" && upstreamAddress ? upstreamAddress.port : 0;
+    try {
+      const result = await runReadinessJob({
+        SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+        SCRIBE_FRONTEND_EDGE_MODE: "ppb",
+      });
+      expect(result.code).not.toBe(0);
+      expect(result.stderr).toContain("public-origin-mismatch");
     } finally {
       await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
     }
@@ -136,6 +186,54 @@ describe("deployed frontend readiness job", () => {
       expect(result.code).not.toBe(0);
       expect(result.stderr).toContain("frontend readiness failed");
       expect(result.stderr).toContain("api-image-mismatch");
+    } finally {
+      await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 20_000);
+
+  it("requires a canonical origin during a protected-orchestrator mixed rollout", async () => {
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"status":"ready","api_image":"ghcr.io/example/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}');
+    });
+    await new Promise((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(0, "127.0.0.1", resolve);
+    });
+    const upstreamAddress = upstream.address();
+    const upstreamPort = typeof upstreamAddress === "object" && upstreamAddress ? upstreamAddress.port : 0;
+    try {
+      const result = await runReadinessJob({
+        SCRIBE_EXPECTED_PUBLIC_ORIGIN: "",
+        SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+        SCRIBE_FRONTEND_EDGE_MODE: "ppb",
+      });
+      expect(result.code).not.toBe(0);
+      expect(result.stderr).toContain("public-origin-mismatch");
+    } finally {
+      await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 20_000);
+
+  it("rejects a non-exact origin during a protected-orchestrator mixed rollout", async () => {
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"status":"ready","public_origin":"https://scribe-123.us-east5.run.app/","api_image":"ghcr.io/example/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}');
+    });
+    await new Promise((resolve, reject) => {
+      upstream.once("error", reject);
+      upstream.listen(0, "127.0.0.1", resolve);
+    });
+    const upstreamAddress = upstream.address();
+    const upstreamPort = typeof upstreamAddress === "object" && upstreamAddress ? upstreamAddress.port : 0;
+    try {
+      const result = await runReadinessJob({
+        SCRIBE_EXPECTED_PUBLIC_ORIGIN: "",
+        SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+        SCRIBE_FRONTEND_EDGE_MODE: "ppb",
+      });
+      expect(result.code).not.toBe(0);
+      expect(result.stderr).toContain("public-origin-mismatch");
     } finally {
       await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
     }

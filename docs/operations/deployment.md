@@ -68,6 +68,15 @@ production-only Ollama services before applying a `pr-*` workspace. A preview
 therefore waits for production to finish deploying a new base commit instead
 of guessing an OCR tag or observing transient forward/rollback state.
 
+Deterministic workflow decisions live in the typed `cmd/deployer` helper. Its
+preview resolver fetches the privileged checkout from protected `main`, treats
+event base data only as a lifecycle signal, validates every value written to
+`GITHUB_OUTPUT`, and rejects forked manual dispatches. The same helper owns the
+published plan/apply/readiness/rollback status precedence. The
+`ci/resolve-preview-inputs.sh` and `ci/deployment-status.sh` files are thin
+entrypoints so workflows and operators use the unit-tested Go contract rather
+than separate shell implementations.
+
 Preview ingress is already restricted by the protected `ALLOWED_IPS` policy,
 so preview application auth deliberately uses its isolated anonymous workspace
 instead of a reusable Google OAuth client. `AUTH_PREVIEW_ANONYMOUS` is accepted
@@ -511,6 +520,29 @@ Cloud deployments never use localhost as their public identity.
 ingress is the sole reviewed topology; adding a load balancer or custom domain
 requires a new forwarding-depth design and acceptance tests before it can be
 supported.
+
+Before first production use or any canonical-host cutover, register
+`https://<service>-<project-number>.<region>.run.app/auth/callback/google` as an
+authorized redirect URI on the external Google OAuth client stored in Vault.
+Keep the former callback URI registered during the rollback window, verify a
+complete sign-in on the deterministic hostname, and only then remove the old
+URI. Terraform cannot inspect that external client allowlist, so this is a
+required operator precondition rather than an inferred deployment success.
+
+During the one-time cutover, the new frontend accepts the immediately previous
+API readiness payload without canonical redirects so independently replaced
+Cloud Run and VM revisions do not create an outage. The protected post-apply
+readiness job always requires the reviewed API digest and an exact HTTPS
+`public_origin`. Protected pull-request previews run trusted orchestration from
+`main`, so the one preview that introduces the expected-origin input can only
+validate that shape; after the orchestration is merged, the job also requires
+exact equality with Terraform's deterministic origin. Deployment success
+cannot be reported while the backend is in the old no-origin compatibility
+state. Browser tabs already running JavaScript on the former hostname cannot
+be relocated by server-side redirects; announce a reload and, if needed,
+re-login on the deterministic hostname after the cutover. Fresh page
+navigations and bookmarks receive a non-cacheable permanent redirect
+automatically.
 
 ## Shared Vault owner bootstrap and recovery
 

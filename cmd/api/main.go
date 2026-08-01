@@ -28,8 +28,9 @@ func main() {
 
 func run(ctx context.Context) (returnErr error) {
 	deps, err := app.NewDependencies(ctx, app.BootstrapOptions{
-		RunMigrations:      true,
-		SeedSystemContexts: true,
+		RunMigrations:        true,
+		SeedSystemContexts:   true,
+		TelemetryServiceName: "scribe-api",
 	})
 	if err != nil {
 		return fmt.Errorf("bootstrap API dependencies: %w", err)

@@ -36,6 +36,10 @@ Before a local plan or apply:
 5. copy `terraform.tfvars.example` to the ignored `terraform.tfvars`, or supply
    equivalent `TF_VAR_*` and deploy-helper environment values.
 
+Runtime quota, storage, and IIIF defaults are intentionally absent from the
+example tfvars file. `../config.yaml` owns those defaults; use an explicit
+`TF_VAR_*` only for a reviewed deployment-specific override.
+
 ```bash
 export GCLOUD_PROJECT=your-gcp-project-id
 export TF_STATE_BUCKET="${GCLOUD_PROJECT}-terraform"

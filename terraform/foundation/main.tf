@@ -49,6 +49,15 @@ resource "google_project_service" "artifact_registry" {
   depends_on = [google_project_service.control_plane]
 }
 
+resource "google_project_service" "cloud_trace" {
+  project            = var.project_id
+  service            = "cloudtrace.googleapis.com"
+  disable_on_destroy = false
+  deletion_policy    = "ABANDON"
+
+  depends_on = [google_project_service.control_plane]
+}
+
 resource "google_artifact_registry_repository" "internal" {
   project       = var.project_id
   location      = local.artifact_registry_location

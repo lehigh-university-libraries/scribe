@@ -6,6 +6,7 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import {
   establishForwardingHeaders,
+  isLoopbackAddress,
   resolveForwardingIdentity,
   stripCredentialHeaders,
   stripCredentialResponseHeaders,
@@ -56,6 +57,7 @@ let shutdownPromise = null;
 let backendReadyUntil = 0;
 let backendProbePromise = null;
 let backendProbeController = null;
+let canonicalPublicOrigin = null;
 
 const safeErrorCodes = new Set([
   "EACCES",
@@ -77,6 +79,7 @@ const safeDiagnosticSymbol = Symbol("safeDiagnostic");
 const readinessContractFailures = new Set([
   "invalid-json",
   "invalid-payload",
+  "invalid-public-origin",
   "missing-status",
   "ready-payload-with-non-success-http",
 ]);
@@ -180,6 +183,7 @@ const mimeTypes = new Map([
 ]);
 
 const transparentBackendStatusPaths = new Set(["/livez", "/readyz"]);
+const canonicalOriginExemptPaths = new Set(["/healthz", ...transparentBackendStatusPaths]);
 const proxyMatchers = [
   (pathname) => pathname === "/healthz" || transparentBackendStatusPaths.has(pathname),
   (pathname) => pathname === "/logout" || pathname.startsWith("/logout/"),
@@ -274,14 +278,41 @@ async function probeBackendUntilReady(signal) {
       });
       let readiness = null;
       let readinessCategory = "invalid-json";
+      let reportedPublicOrigin = null;
       try {
         readiness = await response.json();
         if (!readiness || typeof readiness !== "object" || Array.isArray(readiness)) {
           readinessCategory = "invalid-payload";
         } else if (readiness.status === "ready") {
-          readinessCategory = response.ok
-            ? "ready"
-            : "ready-payload-with-non-success-http";
+          const hasPublicOrigin = Object.hasOwn(readiness, "public_origin");
+          if (hasPublicOrigin) {
+            const rawPublicOrigin = typeof readiness.public_origin === "string"
+              ? readiness.public_origin.trim()
+              : "";
+            try {
+              reportedPublicOrigin = parseConfiguredOrigin(
+                rawPublicOrigin,
+                "backend readiness public_origin",
+              );
+            } catch {
+              readinessCategory = "invalid-public-origin";
+            }
+            if (!reportedPublicOrigin) {
+              readinessCategory = "invalid-public-origin";
+            }
+          }
+          if (
+            readinessCategory !== "invalid-public-origin"
+            && reportedPublicOrigin
+            && edgeMode === "ppb"
+            && reportedPublicOrigin.protocol !== "https:"
+          ) {
+            readinessCategory = "invalid-public-origin";
+          } else if (readinessCategory !== "invalid-public-origin") {
+            readinessCategory = response.ok
+              ? "ready"
+              : "ready-payload-with-non-success-http";
+          }
         } else if (typeof readiness.status === "string") {
           readinessCategory = "non-ready-status";
         } else {
@@ -292,6 +323,12 @@ async function probeBackendUntilReady(signal) {
         // readiness response content may contain upstream implementation data.
       }
       if (response.ok && readinessCategory === "ready") {
+        // The immediately previous API revision did not report public_origin.
+        // Keep routes available while Terraform replaces the VM and Cloud Run
+        // revision independently, but disable redirects until the new API is
+        // observed. The post-apply readiness job requires the exact origin, so
+        // a deployment cannot pass while this compatibility state remains.
+        canonicalPublicOrigin = reportedPublicOrigin;
         backendReadyUntil = performance.now() + backendReadyCacheMs;
         return;
       }
@@ -350,7 +387,88 @@ function invalidateBackendReadiness() {
   backendReadyUntil = 0;
 }
 
-async function proxyRequest(req, res, pathname) {
+function requestForwardingIdentity(req, headers) {
+  const requestHost = Array.isArray(req.headers.host) ? req.headers.host.at(-1) : req.headers.host;
+  return resolveForwardingIdentity(headers, {
+    edgeMode,
+    encrypted: Boolean(req.socket.encrypted),
+    remoteAddress: req.socket.remoteAddress || "",
+    requestHost: requestHost || "",
+  });
+}
+
+async function waitForRequestBackend(req, res) {
+  const waitController = new AbortController();
+  const abortWait = () => waitController.abort(abortError("client disconnected during backend startup"));
+  req.once("aborted", abortWait);
+  res.once("close", abortWait);
+  try {
+    await waitForBackendReady(waitController.signal);
+    return true;
+  } catch (error) {
+    if (waitController.signal.aborted || req.destroyed || res.destroyed) return false;
+    logFailure("frontend backend startup gate failed", error);
+    res.writeHead(503, responseHeaders({
+      "content-type": "text/plain; charset=utf-8",
+      "retry-after": "2",
+    }));
+    res.end("backend is still starting");
+    return false;
+  } finally {
+    req.off("aborted", abortWait);
+    res.off("close", abortWait);
+  }
+}
+
+async function enforceCanonicalRequestOrigin(req, res, requestURL, pathname) {
+  if (
+    edgeMode !== "ppb"
+    || !backendOrigin
+    || canonicalOriginExemptPaths.has(pathname)
+  ) {
+    return { continueRequest: true, forwardingIdentity: null };
+  }
+
+  let forwardingIdentity;
+  try {
+    forwardingIdentity = requestForwardingIdentity(req, stripHopByHopHeaders(req.headers));
+  } catch (error) {
+    logFailure("frontend rejected invalid edge forwarding identity", error);
+    res.writeHead(502, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
+    res.end("frontend edge forwarding identity is invalid");
+    return { continueRequest: false, forwardingIdentity: null };
+  }
+
+  if (!await waitForRequestBackend(req, res)) {
+    return { continueRequest: false, forwardingIdentity: null };
+  }
+  if (!canonicalPublicOrigin) {
+    return { continueRequest: true, forwardingIdentity };
+  }
+
+  const requestOrigin = new URL(
+    `${forwardingIdentity.proto}://${forwardingIdentity.host}`,
+  ).origin;
+  if (requestOrigin === canonicalPublicOrigin.origin) {
+    return { continueRequest: true, forwardingIdentity };
+  }
+
+  if (req.method === "GET" || req.method === "HEAD") {
+    res.writeHead(308, responseHeaders({
+      "cache-control": "no-store",
+      location: `${canonicalPublicOrigin.origin}${requestURL.pathname}${requestURL.search}`,
+    }));
+    res.end();
+  } else {
+    // Redirecting a request with a body can replay a mutation against another
+    // authority. Make the browser navigate to the canonical app first.
+    res.writeHead(421, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
+    res.end("request must use the canonical application origin");
+  }
+  return { continueRequest: false, forwardingIdentity: null };
+}
+
+async function proxyRequest(req, res, pathname, establishedForwardingIdentity = null) {
   const targetOrigin = targetOriginForPath(pathname);
   if (!targetOrigin) {
     res.writeHead(502, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
@@ -360,25 +478,7 @@ async function proxyRequest(req, res, pathname) {
 
   const usesBackendOrigin = Boolean(backendOrigin && targetOrigin.origin === backendOrigin.origin);
   if (usesBackendOrigin && !transparentBackendStatusPaths.has(pathname)) {
-    const waitController = new AbortController();
-    const abortWait = () => waitController.abort(abortError("client disconnected during backend startup"));
-    req.once("aborted", abortWait);
-    res.once("close", abortWait);
-    try {
-      await waitForBackendReady(waitController.signal);
-    } catch (error) {
-      if (waitController.signal.aborted || req.destroyed || res.destroyed) return;
-      logFailure("frontend backend startup gate failed", error);
-      res.writeHead(503, responseHeaders({
-        "content-type": "text/plain; charset=utf-8",
-        "retry-after": "2",
-      }));
-      res.end("backend is still starting");
-      return;
-    } finally {
-      req.off("aborted", abortWait);
-      res.off("close", abortWait);
-    }
+    if (!await waitForRequestBackend(req, res)) return;
   }
 
   const targetURL = createUpstreamURL(targetOrigin, req.url || "/");
@@ -390,26 +490,29 @@ async function proxyRequest(req, res, pathname) {
   // status routes are also credential-free so liveness cannot trigger
   // authentication work or depend on browser identity.
   const isPublicPresentation = isPresentationPath(pathname);
-  const stripsCredentials = isSeparateOrigin || isPublicPresentation || transparentBackendStatusPaths.has(pathname);
+  const isStatusPath = canonicalOriginExemptPaths.has(pathname);
+  const stripsCredentials = isSeparateOrigin || isPublicPresentation || isStatusPath;
   const incomingHeaders = stripsCredentials
     ? stripCredentialHeaders(stripHopByHopHeaders(req.headers))
     : stripHopByHopHeaders(req.headers);
-  const requestHost = Array.isArray(req.headers.host) ? req.headers.host.at(-1) : req.headers.host;
-  let forwardingIdentity;
-  try {
-    forwardingIdentity = resolveForwardingIdentity(incomingHeaders, {
-      edgeMode,
-      encrypted: Boolean(req.socket.encrypted),
-      remoteAddress: req.socket.remoteAddress || "",
-      requestHost: requestHost || "",
-    });
-  } catch (error) {
-    logFailure("frontend rejected invalid edge forwarding identity", error);
-    res.writeHead(502, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
-    res.end("frontend edge forwarding identity is invalid");
-    return;
+  let forwardingIdentity = establishedForwardingIdentity;
+  const internalPPBStatusProbe = isStatusPath
+    && edgeMode === "ppb"
+    && isLoopbackAddress(req.socket.remoteAddress || "")
+    && incomingHeaders["x-forwarded-for"] === undefined
+    && incomingHeaders["x-forwarded-host"] === undefined
+    && incomingHeaders["x-forwarded-proto"] === undefined;
+  if (!internalPPBStatusProbe) {
+    try {
+      forwardingIdentity ||= requestForwardingIdentity(req, incomingHeaders);
+    } catch (error) {
+      logFailure("frontend rejected invalid edge forwarding identity", error);
+      res.writeHead(502, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
+      res.end("frontend edge forwarding identity is invalid");
+      return;
+    }
   }
-  const headers = establishForwardingHeaders(incomingHeaders, forwardingIdentity);
+  const headers = establishForwardingHeaders(incomingHeaders, forwardingIdentity || {});
 
   headers.host = targetURL.host;
   const upstream = client.request(
@@ -521,6 +624,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  const canonicalRequest = await enforceCanonicalRequestOrigin(req, res, url, pathname);
+  if (!canonicalRequest.continueRequest) return;
+
   if ((isIIIFPath(pathname) || isPresentationPath(pathname)) && !isAllowedIIIFMethod(method)) {
     res.writeHead(405, responseHeaders({ allow: "GET, HEAD, OPTIONS" }));
     res.end();
@@ -528,12 +634,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (method !== "GET" && method !== "HEAD" && isProxyPath(pathname)) {
-    await proxyRequest(req, res, pathname);
+    await proxyRequest(req, res, pathname, canonicalRequest.forwardingIdentity);
     return;
   }
 
   if (isProxyPath(pathname)) {
-    await proxyRequest(req, res, pathname);
+    await proxyRequest(req, res, pathname, canonicalRequest.forwardingIdentity);
     return;
   }
 
