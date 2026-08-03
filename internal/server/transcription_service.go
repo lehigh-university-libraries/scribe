@@ -18,6 +18,7 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
+	"github.com/lehigh-university-libraries/scribe/internal/providerregistry"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
@@ -511,6 +512,19 @@ func permanentTranscriptionFailure(message string) error {
 	return permanentTranscriptionError{message: message}
 }
 
+func transcriptionJobFailureForSegment(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return err
+	case errors.Is(err, hocr.ErrPermanentProviderRequest):
+		return permanentTranscriptionFailure("transcription provider request failed")
+	case errors.Is(err, hocr.ErrRetryableProviderRequest):
+		return fmt.Errorf("transcription provider request failed: %w", err)
+	default:
+		return nil
+	}
+}
+
 func (h *Handler) recordClaimedTranscriptionJobFailure(ctx context.Context, job *store.TranscriptionJob, err error) error {
 	if errors.Is(err, errTranscriptionJobLeaseLost) {
 		// Another worker owns the lease now. It alone may mutate job state.
@@ -751,7 +765,30 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 			maxSegments,
 		))
 	}
-	ctx = h.contextWithWorkspaceProviderSecret(ctx, workspaceID, pctx.TranscriptionProvider)
+	registry := providerregistry.New(config.Get().Config)
+	if err := registry.ValidateSelection(pctx.TranscriptionProvider, pctx.TranscriptionModel, pctx.SystemPrompt, pctx.Temperature); err != nil {
+		return permanentTranscriptionFailure("transcription context snapshot is invalid")
+	}
+	provider, ok := registry.Provider(pctx.TranscriptionProvider)
+	if !ok {
+		return permanentTranscriptionFailure("transcription context snapshot is invalid")
+	}
+	ctx, err = h.contextWithWorkspaceProviderSecret(ctx, workspaceID, pctx.TranscriptionProvider)
+	if err != nil {
+		switch {
+		case errors.Is(err, errWorkspaceProviderCredentialNotStored):
+			return permanentTranscriptionFailure("workspace provider credential is not configured")
+		case errors.Is(err, errWorkspaceProviderCredentialInvalid):
+			return permanentTranscriptionFailure("workspace provider credential is invalid")
+		default:
+			return fmt.Errorf("resolve workspace provider credential: %w", err)
+		}
+	}
+	for _, field := range provider.Credentials.Fields {
+		if field.Required && strings.TrimSpace(provider.Credential(ctx, field.ID)) == "" {
+			return permanentTranscriptionFailure("workspace provider credential is not configured")
+		}
+	}
 	releaseTranscription, err := h.processingLimiter.Acquire(ctx, workspaceID, processingLimitProvider(pctx))
 	if err != nil {
 		return fmt.Errorf("acquire transcription processing capacity: %w", err)
@@ -797,6 +834,9 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		enriched, err := h.enrichSingleAnnotationInWorkspace(ctx, job.ItemImageID, entry.payload, pctx, workspaceID, nil)
 		if err != nil {
 			slog.Warn("Segment transcription failed", "job_id", job.ID, "annotation_id", entry.id, "failure", store.SafeTranscriptionFailureMessage(err))
+			if jobFailure := transcriptionJobFailureForSegment(err); jobFailure != nil {
+				return jobFailure
+			}
 			failed++
 			if err := h.transcriptionJobs.UpdateProgress(ctx, fence,
 				completed, failed, "", "", ""); err != nil {

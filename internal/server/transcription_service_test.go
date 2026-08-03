@@ -82,6 +82,44 @@ func TestTranscriptionLeaseHeartbeatReportsFenceFailure(t *testing.T) {
 	}
 }
 
+func TestTranscriptionSegmentProviderFailureDisposition(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		err           error
+		wantNil       bool
+		wantCanceled  bool
+		wantPermanent bool
+		wantRetryable bool
+	}{
+		{name: "segment local", err: errors.New("line crop failed"), wantNil: true},
+		{name: "canceled", err: fmt.Errorf("provider canceled: %w", context.Canceled), wantCanceled: true},
+		{name: "permanent", err: fmt.Errorf("provider rejected: %w", hocr.ErrPermanentProviderRequest), wantPermanent: true},
+		{name: "retryable", err: fmt.Errorf("provider unavailable: %w", hocr.ErrRetryableProviderRequest), wantRetryable: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			got := transcriptionJobFailureForSegment(test.err)
+			if test.wantNil {
+				if got != nil {
+					t.Fatalf("segment failure = %v; want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("segment failure = nil")
+			}
+			var permanent permanentTranscriptionError
+			if errors.Is(got, context.Canceled) != test.wantCanceled ||
+				errors.As(got, &permanent) != test.wantPermanent ||
+				errors.Is(got, hocr.ErrRetryableProviderRequest) != test.wantRetryable {
+				t.Fatalf("segment failure disposition = %v", got)
+			}
+		})
+	}
+}
+
 func (*segmentCapOCR) SetProviderCallAuditLogger(hocr.ProviderCallAuditLogger) {}
 
 func (*segmentCapOCR) ProcessImageURLWithContext(context.Context, string, hocr.ProcessingContext) (*ocrhandlers.ProcessResult, error) {
@@ -190,7 +228,7 @@ func TestBackgroundTranscriptionUsesWorkspaceAndProviderLimiter(t *testing.T) {
 	contexts := store.NewContextStore(database)
 	processingContext, err := contexts.Create(ctx, store.Context{
 		UserID: &owner, WorkspaceID: &workspaceID, Name: "worker-limit-context",
-		SegmentationModel: "layout", TranscriptionProvider: "tesseract", TranscriptionModel: "eng",
+		SegmentationModel: "scribe", TranscriptionProvider: "tesseract", TranscriptionModel: "tesseract",
 	})
 	if err != nil {
 		t.Fatalf("create context: %v", err)
@@ -322,6 +360,94 @@ func TestTranscriptionJobSegmentLimitStopsBeforeCredentialsProgressAndProvider(t
 	}
 	if safe := store.SafeTranscriptionFailureMessage(err); safe != "transcription job exceeds configured segment limit" {
 		t.Fatalf("safe failure = %q", safe)
+	}
+}
+
+func TestTranscriptionJobMissingWorkspaceCredentialFailsBeforeRegionOrProviderWork(t *testing.T) {
+	previous := config.Get()
+	configured := previous
+	configured.Config.LLM.Gemini.Model = "gemini-test"
+	configured.Config.LLM.Gemini.Models = []string{"gemini-test"}
+	configured.Secrets.GeminiAPIKey = "deployment-wide-key-must-not-power-workspace-job"
+	config.Init(configured)
+	t.Cleanup(func() { config.Init(previous) })
+
+	database := openTestDB(t)
+	ctx := context.Background()
+	owner := createTestUser(t, database, uniqueName("missing-provider-key-owner"))
+	workspaceID := createTestWorkspace(t, database, owner, uniqueName("missing-provider-key-workspace"))
+	items := store.NewItemStore(database)
+	item, err := items.Create(ctx, dbstore.CreateItemParams{
+		ID: uniqueName("missing-provider-key-item"), UserID: owner, WorkspaceID: workspaceID,
+		Name: "missing provider key", SourceType: "manifest", SourceURL: "https://source.example/manifest",
+	})
+	if err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+	t.Cleanup(func() { _ = items.DeleteForWorkspace(context.Background(), item.ID, workspaceID) })
+	image, err := items.AddImage(ctx, dbstore.CreateItemImageParams{
+		ItemID: item.ID, ImageURL: "https://images.example/missing-provider-key.jpg", CanvasURI: "https://source.example/canvas/missing-provider-key",
+		Width: 100, Height: 100,
+	})
+	if err != nil {
+		t.Fatalf("create image: %v", err)
+	}
+
+	annotationStore := store.NewAnnotationStore(database)
+	pageJSON, err := iiif.NewAnnotationPage(iiif.PageIdentity{
+		PublicBaseURL: "https://scribe.example", ItemImageID: image.ID, CanvasURI: image.CanvasURI,
+	}, []any{transcriptionAnnotation("missing-key-line", "line", "", image.CanvasURI, models.BBox{X1: 0, Y1: 0, X2: 50, Y2: 20})})
+	if err != nil {
+		t.Fatalf("build annotation page: %v", err)
+	}
+	pageID, err := iiif.CanonicalPageID("https://scribe.example", image.ID)
+	if err != nil {
+		t.Fatalf("build page id: %v", err)
+	}
+	if _, err := annotationStore.SavePage(ctx, store.AnnotationPage{
+		WorkspaceID: workspaceID, ItemImageID: image.ID, PageID: pageID,
+		CanvasURI: image.CanvasURI, Payload: string(pageJSON),
+	}, 0); err != nil {
+		t.Fatalf("save annotation page: %v", err)
+	}
+
+	processingContext := store.Context{
+		ID: 78, WorkspaceID: &workspaceID, UserID: &owner, Name: "missing Gemini key",
+		SegmentationModel: "scribe", TranscriptionProvider: "gemini", TranscriptionModel: "gemini-test",
+	}
+	snapshot, err := json.Marshal(processingContext)
+	if err != nil {
+		t.Fatalf("marshal context: %v", err)
+	}
+	providerSecrets := &recordingProviderSecretResolver{err: sql.ErrNoRows}
+	vault := &countingProviderVault{}
+	ocr := &segmentCapOCR{}
+	regionFetches := 0
+	handler := &Handler{
+		items: items, annotations: annotationStore, ocr: ocr,
+		providerSecrets: providerSecrets, vault: vault,
+		imageRegionFetcher: func(context.Context, string, int, int, int, int) (string, func(), error) {
+			regionFetches++
+			return "", func() {}, fmt.Errorf("unexpected image region fetch")
+		},
+	}
+	err = handler.processTranscriptionJob(ctx, &store.TranscriptionJob{
+		ID: 100, ItemImageID: image.ID, ContextID: &processingContext.ID, ContextSnapshot: snapshot,
+		InputRevision: 1, AttemptCount: 1, LeaseToken: "missing-key-fence",
+	})
+	var permanent permanentTranscriptionError
+	const want = "workspace provider credential is not configured"
+	if !errors.As(err, &permanent) || err.Error() != want {
+		t.Fatalf("processTranscriptionJob error = %v, want permanent %q", err, want)
+	}
+	if providerSecrets.calls != 1 || vault.reads != 0 {
+		t.Fatalf("credential work = resolver:%d Vault:%d, want 1/0", providerSecrets.calls, vault.reads)
+	}
+	if regionFetches != 0 || ocr.transcriptionCalls != 0 {
+		t.Fatalf("provider work = region fetches:%d transcription:%d, want 0/0", regionFetches, ocr.transcriptionCalls)
+	}
+	if safe := store.SafeTranscriptionFailureMessage(err); safe != want {
+		t.Fatalf("safe failure = %q; want %q", safe, want)
 	}
 }
 

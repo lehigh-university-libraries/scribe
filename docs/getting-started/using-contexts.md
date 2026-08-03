@@ -55,11 +55,13 @@ results are poor.
 Useful starting points:
 
 - **Automatic** segmentation runs the built-in detectors and keeps the result
-  with more words. It is the general default, not a quality guarantee.
+  with more words. Use it as an experiment rather than assuming the larger
+  region count is the better layout.
 - **Tesseract** segmentation uses the local deterministic detector. Choose the
   Tesseract transcription provider separately when both stages should use it.
 - **Scribe** segmentation pairs the built-in detector with the chosen
-  transcription provider.
+  transcription provider. The built-in **Scribe Custom** preset is the system
+  default when a workspace has not selected its own default.
 - **Kraken** choices use administrator-built, digest-pinned model services.
 
 The context library displays run counts. Integrations can use
@@ -77,6 +79,10 @@ Provider secrets**.
   and requires workspace administration.
 - A **personal** key is limited to foreground editor enrichment and is not
   inherited by queued work.
+
+A queued job that selects a provider without its required workspace key fails
+immediately with an actionable job error; it does not fall back to a personal
+or deployment-wide credential.
 
 Scribe never copies a provider key into the context. Deleting or rotating a key
 therefore does not require recreating contexts.

@@ -178,6 +178,83 @@ func (s *ContextStore) EnsureSystemContext(ctx context.Context, desired Context)
 	})
 }
 
+// ReplaceSystemDefault atomically promotes one named system preset and retires
+// superseded system presets. Jobs and upload batches retain their immutable
+// snapshots; OCR runs and audits retain recorded processing fields while all
+// optional live context links are cleared.
+func (s *ContextStore) ReplaceSystemDefault(ctx context.Context, desired Context, retiredNames []string) error {
+	desired.UserID = nil
+	desired.WorkspaceID = nil
+	desired.Name = strings.TrimSpace(desired.Name)
+	desired.IsDefault = true
+	if desired.Name == "" {
+		return fmt.Errorf("replace system default: desired context name is required")
+	}
+	retired := make([]string, 0, len(retiredNames))
+	seen := make(map[string]struct{}, len(retiredNames))
+	for _, name := range retiredNames {
+		name = strings.TrimSpace(name)
+		if name == "" || name == desired.Name {
+			return fmt.Errorf("replace system default: retired context name is invalid")
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		retired = append(retired, name)
+	}
+
+	return s.withSystemContextCatalogLock(ctx, func(queries *db.Queries) error {
+		existing, err := queries.GetSystemContextByName(ctx, desired.Name)
+		switch {
+		case err == nil:
+			desired.ID = existing.ID
+		case errors.Is(err, sql.ErrNoRows):
+			desired.ID = 0
+		default:
+			return fmt.Errorf("get replacement system default: %w", err)
+		}
+		if err := queries.ClearDefaultContextsForScopeManual(ctx, db.ClearDefaultContextsForScopeManualParams{
+			WorkspaceID: sql.NullInt64{},
+			ExceptID:    desired.ID,
+		}); err != nil {
+			return fmt.Errorf("clear previous system default: %w", err)
+		}
+		if desired.ID == 0 {
+			id, createErr := queries.CreateContext(ctx, contextCreateParams(desired))
+			if createErr != nil {
+				return fmt.Errorf("create replacement system default: %w", createErr)
+			}
+			desired.ID = id
+		} else {
+			if _, updateErr := queries.UpdateContext(ctx, contextUpdateParams(desired)); updateErr != nil {
+				return fmt.Errorf("update replacement system default: %w", updateErr)
+			}
+		}
+
+		for _, name := range retired {
+			row, getErr := queries.GetSystemContextByName(ctx, name)
+			if errors.Is(getErr, sql.ErrNoRows) {
+				continue
+			}
+			if getErr != nil {
+				return fmt.Errorf("get retired system context %q: %w", name, getErr)
+			}
+			if _, lockErr := queries.LockContextForDeleteManual(ctx, row.ID); lockErr != nil {
+				return fmt.Errorf("lock retired system context %q: %w", name, lockErr)
+			}
+			if err := clearContextReferences(ctx, queries, row.ID); err != nil {
+				return fmt.Errorf("retire system context %q: %w", name, err)
+			}
+			result, deleteErr := queries.DeleteContextManual(ctx, row.ID)
+			if err := requireDeletedRow(result, deleteErr); err != nil {
+				return fmt.Errorf("retire system context %q: %w", name, err)
+			}
+		}
+		return nil
+	})
+}
+
 // withSystemContextCatalogLock makes startup catalog seeding convergent across
 // horizontally scaled API instances. A MySQL advisory lock is connection
 // scoped, so the transaction and release deliberately use that same reserved
@@ -460,21 +537,8 @@ func (s *ContextStore) deleteContext(ctx context.Context, id, workspaceID uint64
 	}); err != nil {
 		return err
 	}
-	if err := queries.DeleteSelectionRulesForContextManual(ctx, id); err != nil {
-		return fmt.Errorf("delete context selection rules: %w", err)
-	}
-	contextID := nullableUint64(id)
-	if err := queries.ClearOCRRunContextLinksManual(ctx, contextID); err != nil {
-		return fmt.Errorf("clear OCR run context links: %w", err)
-	}
-	if err := queries.ClearTranscriptionJobContextLinksManual(ctx, contextID); err != nil {
-		return fmt.Errorf("clear transcription job context links: %w", err)
-	}
-	if err := queries.ClearUploadBatchContextLinksManual(ctx, contextID); err != nil {
-		return fmt.Errorf("clear upload batch context links: %w", err)
-	}
-	if err := queries.ClearProviderAuditContextLinksManual(ctx, contextID); err != nil {
-		return fmt.Errorf("clear provider audit context links: %w", err)
+	if err := clearContextReferences(ctx, queries, id); err != nil {
+		return err
 	}
 	var result sql.Result
 	if workspaceID == 0 {
@@ -494,6 +558,26 @@ func (s *ContextStore) deleteContext(ctx context.Context, id, workspaceID uint64
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit context deletion: %w", err)
+	}
+	return nil
+}
+
+func clearContextReferences(ctx context.Context, queries *db.Queries, id uint64) error {
+	if err := queries.DeleteSelectionRulesForContextManual(ctx, id); err != nil {
+		return fmt.Errorf("delete context selection rules: %w", err)
+	}
+	contextID := nullableUint64(id)
+	if err := queries.ClearOCRRunContextLinksManual(ctx, contextID); err != nil {
+		return fmt.Errorf("clear OCR run context links: %w", err)
+	}
+	if err := queries.ClearTranscriptionJobContextLinksManual(ctx, contextID); err != nil {
+		return fmt.Errorf("clear transcription job context links: %w", err)
+	}
+	if err := queries.ClearUploadBatchContextLinksManual(ctx, contextID); err != nil {
+		return fmt.Errorf("clear upload batch context links: %w", err)
+	}
+	if err := queries.ClearProviderAuditContextLinksManual(ctx, contextID); err != nil {
+		return fmt.Errorf("clear provider audit context links: %w", err)
 	}
 	return nil
 }

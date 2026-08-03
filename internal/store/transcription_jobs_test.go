@@ -88,3 +88,11 @@ func TestSafeTranscriptionFailureMessageRedactsDetectorDiagnostics(t *testing.T)
 		})
 	}
 }
+
+func TestSafeTranscriptionFailureMessagePreservesMissingWorkspaceCredentialAction(t *testing.T) {
+	t.Parallel()
+	const want = "workspace provider credential is not configured"
+	if got := SafeTranscriptionFailureMessage(fmt.Errorf("prepare Gemini request: %s", want)); got != want {
+		t.Fatalf("SafeTranscriptionFailureMessage() = %q; want %q", got, want)
+	}
+}

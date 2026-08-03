@@ -70,6 +70,16 @@ const (
 	defaultTranscriptionPrompt = "Transcribe the handwritten text in this image. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
 )
 
+var (
+	// ErrPermanentProviderRequest classifies a redacted provider failure that
+	// cannot succeed when the same job input is retried, such as bad
+	// credentials or a rejected model request.
+	ErrPermanentProviderRequest = errors.New("permanent provider request failure")
+	// ErrRetryableProviderRequest classifies a redacted transient provider
+	// failure. It carries no remote response body, URL, or credential detail.
+	ErrRetryableProviderRequest = errors.New("retryable provider request failure")
+)
+
 // providerRequestError deliberately does not unwrap its cause. Provider
 // libraries may include response bodies, URLs, or credentials in error text;
 // allowing that error to escape would expose it through worker logs and audit
@@ -79,12 +89,22 @@ type providerRequestError struct {
 	cause     error
 	status    int
 	retryable bool
+	permanent bool
 }
 
 func (e *providerRequestError) Error() string { return e.message }
 
 func (e *providerRequestError) Is(target error) bool {
-	return e != nil && e.cause != nil && errors.Is(e.cause, target)
+	if e == nil {
+		return false
+	}
+	if target == ErrPermanentProviderRequest {
+		return e.permanent
+	}
+	if target == ErrRetryableProviderRequest {
+		return e.retryable
+	}
+	return e.cause != nil && errors.Is(e.cause, target)
 }
 
 type hocrFailureCategory string
@@ -739,46 +759,54 @@ func redactProviderError(err error, explicitStatus *int) error {
 		status = htrError.StatusCode
 		message := "provider request failed"
 		cause := error(nil)
+		retryable := htrError.Retryable
+		permanent := !retryable
 		switch htrError.Kind {
 		case providers.ErrorInvalidRequest:
 			message = "provider request was rejected"
+			permanent = true
+			retryable = false
 		case providers.ErrorAuthentication:
 			message = "provider authentication failed"
+			permanent = true
+			retryable = false
 		case providers.ErrorCanceled:
 			message, cause = "provider request canceled", context.Canceled
+			retryable = false
+			permanent = false
 		case providers.ErrorTimeout:
 			message, cause = "provider request timed out", context.DeadlineExceeded
+			retryable = true
+			permanent = false
 		case providers.ErrorResponseTooLarge:
 			message = "provider response exceeded configured limit"
 		case providers.ErrorRateLimited:
 			message = "provider request was rate limited"
+			retryable = true
+			permanent = false
 		case providers.ErrorInvalidResponse:
 			message = "provider returned an invalid response"
 		}
 		if status != 0 && (htrError.Kind == providers.ErrorUpstream || htrError.Kind == providers.ErrorRateLimited || htrError.Kind == providers.ErrorAuthentication || htrError.Kind == providers.ErrorInvalidRequest || htrError.Kind == providers.ErrorTimeout) {
 			message = fmt.Sprintf("provider request failed with HTTP status %d", status)
 		}
-		return &providerRequestError{message: message, cause: cause, status: status, retryable: htrError.Retryable}
+		return &providerRequestError{message: message, cause: cause, status: status, retryable: retryable, permanent: permanent}
 	}
 	if status != 0 {
+		retryable := status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
 		return &providerRequestError{
 			message:   fmt.Sprintf("provider request failed with HTTP status %d", status),
 			status:    status,
-			retryable: status == http.StatusTooManyRequests || status >= http.StatusInternalServerError,
+			retryable: retryable,
+			permanent: !retryable,
 		}
 	}
 
-	return &providerRequestError{message: "provider request failed"}
+	return &providerRequestError{message: "provider request failed", permanent: true}
 }
 
 func isRetriableProviderError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if providerErr, ok := err.(*providerRequestError); ok {
-		return providerErr.retryable
-	}
-	return false
+	return errors.Is(err, ErrRetryableProviderRequest)
 }
 
 func (s *Service) processImageToHOCR(ctx context.Context, imagePath, providerOverride, modelOverride string) (string, error) {

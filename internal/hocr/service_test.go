@@ -201,6 +201,42 @@ func TestProviderResponseContentIsRedactedFromErrorsAndAudit(t *testing.T) {
 	}
 }
 
+func TestRedactedProviderFailuresExposeOnlySafeRetryDisposition(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		provider  error
+		permanent bool
+		retryable bool
+	}{
+		{name: "authentication", provider: providers.NewError(providers.ErrorAuthentication, http.StatusUnauthorized, false, nil), permanent: true},
+		{name: "invalid request", provider: providers.NewError(providers.ErrorInvalidRequest, http.StatusBadRequest, false, nil), permanent: true},
+		{name: "timeout", provider: providers.NewError(providers.ErrorTimeout, http.StatusGatewayTimeout, true, nil), retryable: true},
+		{name: "rate limited", provider: providers.NewError(providers.ErrorRateLimited, http.StatusTooManyRequests, true, nil), retryable: true},
+		{name: "upstream retryable", provider: providers.NewError(providers.ErrorUpstream, http.StatusServiceUnavailable, true, nil), retryable: true},
+		{name: "upstream non-retryable", provider: providers.NewError(providers.ErrorUpstream, http.StatusBadGateway, false, nil), permanent: true},
+		{name: "invalid response", provider: providers.NewError(providers.ErrorInvalidResponse, http.StatusOK, false, nil), permanent: true},
+		{name: "response too large", provider: providers.NewError(providers.ErrorResponseTooLarge, http.StatusRequestEntityTooLarge, false, nil), permanent: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			const privateDiagnostic = "private-provider-response-body"
+			redacted := redactProviderError(fmt.Errorf("%s: %w", privateDiagnostic, test.provider), nil)
+			wrapped := fmt.Errorf("transcribe region: %w", redacted)
+			if got := errors.Is(wrapped, ErrPermanentProviderRequest); got != test.permanent {
+				t.Fatalf("permanent classification = %v; want %v", got, test.permanent)
+			}
+			if got := errors.Is(wrapped, ErrRetryableProviderRequest); got != test.retryable {
+				t.Fatalf("retryable classification = %v; want %v", got, test.retryable)
+			}
+			if strings.Contains(wrapped.Error(), privateDiagnostic) {
+				t.Fatalf("classified error exposed provider diagnostic: %q", wrapped)
+			}
+		})
+	}
+}
+
 func TestProviderAuditUsesOnlyTheRegisteredRequestedModel(t *testing.T) {
 	const (
 		registeredModel = "registered-model"
@@ -292,6 +328,13 @@ func TestProviderErrorRedactionPreservesCancellationWithoutUnwrapping(t *testing
 	}
 	if got := redacted.Error(); got != "provider request timed out" {
 		t.Fatalf("redacted deadline error = %q", got)
+	}
+	canceled := redactProviderError(providers.NewError(providers.ErrorCanceled, 0, false, nil), nil)
+	if !errors.Is(canceled, context.Canceled) {
+		t.Fatal("redacted provider cancellation no longer matches context cancellation")
+	}
+	if errors.Is(canceled, ErrPermanentProviderRequest) || errors.Is(canceled, ErrRetryableProviderRequest) {
+		t.Fatalf("provider cancellation was assigned a job retry disposition: %v", canceled)
 	}
 }
 

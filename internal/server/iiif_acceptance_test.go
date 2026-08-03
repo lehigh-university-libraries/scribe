@@ -612,7 +612,7 @@ func TestPresentation3ChoiceWithoutHOCRCreatesEmptyCanonicalPageAndIdempotentJob
 	contexts := store.NewContextStore(database)
 	processingContext, err := contexts.Create(context.Background(), store.Context{
 		UserID: &userID, WorkspaceID: &workspaceID, Name: "no-hocr-choice-context",
-		SegmentationModel: "layout", TranscriptionProvider: "tesseract", TranscriptionModel: "eng",
+		SegmentationModel: "scribe", TranscriptionProvider: "tesseract", TranscriptionModel: "tesseract",
 	})
 	if err != nil {
 		t.Fatalf("create no-hOCR context: %v", err)

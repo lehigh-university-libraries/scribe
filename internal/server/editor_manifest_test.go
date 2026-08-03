@@ -80,6 +80,8 @@ VALUES (?, ?, 2, 'https://images.example/sibling.jpg', ?, 640, 480)`, store.Anon
 	}, 0); err != nil {
 		t.Fatalf("save sibling canonical page: %v", err)
 	}
+	sourceAnnotationPageID := "https://repository.example/manifest/review-scope/canvas/source/annotations"
+	secondSourceAnnotationPageID := sourceAnnotationPageID + "-sibling"
 	sourceManifest, err := json.Marshal(map[string]any{
 		"@context": []any{
 			"https://example.org/iiif-extension/context.json",
@@ -93,8 +95,12 @@ VALUES (?, ?, 2, 'https://images.example/sibling.jpg', ?, 640, 480)`, store.Anon
 			map[string]any{
 				"id": canvasID, "type": "Canvas", "width": 640, "height": 480,
 				"ex:canvasSibling": secondCanvasID,
+				"annotations":      []any{map[string]any{"id": sourceAnnotationPageID, "type": "AnnotationPage"}},
 			},
-			map[string]any{"id": secondCanvasID, "type": "Canvas", "width": 640, "height": 480},
+			map[string]any{
+				"id": secondCanvasID, "type": "Canvas", "width": 640, "height": 480,
+				"annotations": []any{map[string]any{"id": secondSourceAnnotationPageID, "type": "AnnotationPage"}},
+			},
 		},
 		"start": map[string]any{"id": secondCanvasID, "type": "Canvas"},
 		"structures": []any{map[string]any{
@@ -139,6 +145,24 @@ WHERE workspace_id = ? AND id = ?`, string(sourceManifest), store.AnonymousWorks
 	}
 	if manifest["id"] != wantID {
 		t.Fatalf("Manifest id = %q, want Triplet identity %q", manifest["id"], wantID)
+	}
+	emittedCanvases, ok := manifest["items"].([]any)
+	if !ok || len(emittedCanvases) != 2 {
+		t.Fatalf("Manifest items = %#v, want two Canvases", manifest["items"])
+	}
+	for _, emitted := range emittedCanvases {
+		canvas, ok := emitted.(map[string]any)
+		if !ok {
+			t.Fatalf("Manifest Canvas = %#v, want object", emitted)
+		}
+		if _, ok := canvas["annotations"]; ok {
+			t.Fatalf("private editor Canvas advertised public annotations: %#v", canvas["annotations"])
+		}
+	}
+	for _, publicPageID := range []string{pageID, secondPageID, sourceAnnotationPageID, secondSourceAnnotationPageID} {
+		if strings.Contains(string(manifestBytes), publicPageID) {
+			t.Fatalf("private editor Manifest advertised AnnotationPage %q", publicPageID)
+		}
 	}
 	if !strings.Contains(string(manifestBytes), secondCanvasID) {
 		t.Fatal("ordinary full-item Manifest did not retain sibling source references")

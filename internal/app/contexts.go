@@ -9,8 +9,9 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
-// defaultContext returns the Default system context derived from the loaded
-// LLM config. It uses the configured provider's default model.
+// defaultContext returns the supported system preset used for automatic
+// context resolution. It keeps segmentation deterministic while using the
+// configured provider's default transcription model.
 func defaultContext(cfg config.Config) store.Context {
 	registry := providerregistry.New(cfg)
 	descriptor, _ := registry.ResolveProvider("") // built-in default is always installed
@@ -19,10 +20,10 @@ func defaultContext(cfg config.Config) store.Context {
 		systemPrompt = ""
 	}
 	return store.Context{
-		Name:                  "Default",
-		Description:           "System default context. Runs both Tesseract and the Scribe segmentor, then keeps whichever finds more words.",
+		Name:                  "Scribe Custom",
+		Description:           "Built-in system context that uses the Scribe custom segmentor and line-by-line LLM transcription.",
 		IsDefault:             true,
-		SegmentationModel:     registry.DefaultSegmentation(),
+		SegmentationModel:     "scribe",
 		TranscriptionProvider: descriptor.ID,
 		TranscriptionModel:    descriptor.DefaultModel(),
 		SystemPrompt:          systemPrompt,
@@ -35,7 +36,6 @@ func systemContexts(cfg config.Config) []store.Context {
 	geminiModel, _ := registry.EffectiveModel("gemini", "")
 	krakenModel, _ := registry.EffectiveModel("kraken", "")
 	return []store.Context{
-		defaultCtx,
 		{
 			Name:                  "Tesseract OCR",
 			Description:           "Built-in system context that uses Tesseract segmentation and Tesseract transcription directly.",
@@ -44,15 +44,7 @@ func systemContexts(cfg config.Config) []store.Context {
 			TranscriptionProvider: "tesseract",
 			TranscriptionModel:    "tesseract",
 		},
-		{
-			Name:                  "Scribe Custom",
-			Description:           "Built-in system context that uses the Scribe custom segmentor and line-by-line LLM transcription.",
-			IsDefault:             false,
-			SegmentationModel:     "scribe",
-			TranscriptionProvider: defaultCtx.TranscriptionProvider,
-			TranscriptionModel:    defaultCtx.TranscriptionModel,
-			SystemPrompt:          defaultCtx.SystemPrompt,
-		},
+		defaultCtx,
 		{
 			Name:                  "Kraken BLLA",
 			Description:           "Built-in system context that uses Kraken page segmentation with the default BLLA model and then transcribes each detected line with the configured LLM provider.",
@@ -82,7 +74,8 @@ func systemContexts(cfg config.Config) []store.Context {
 	}
 }
 
-// EnsureSystemContexts upserts the Default and built-in system contexts.
+// EnsureSystemContexts upserts the built-in catalog, promotes its sole default,
+// and explicitly retires superseded presets.
 func EnsureSystemContexts(ctx context.Context, cfg config.Config, contextStore *store.ContextStore) error {
 	catalog := systemContexts(cfg)
 	if err := validateSystemContextCatalog(cfg, catalog); err != nil {
@@ -91,20 +84,34 @@ func EnsureSystemContexts(ctx context.Context, cfg config.Config, contextStore *
 	if contextStore == nil {
 		return fmt.Errorf("seed system contexts: context store is not configured")
 	}
-	if err := contextStore.EnsureDefault(ctx, catalog[0]); err != nil {
-		return err
-	}
 	for _, systemCtx := range catalog {
 		if err := contextStore.EnsureSystemContext(ctx, systemCtx); err != nil {
 			return err
 		}
 	}
-	return nil
+	var desiredDefault store.Context
+	for _, systemCtx := range catalog {
+		if systemCtx.IsDefault {
+			desiredDefault = systemCtx
+			break
+		}
+	}
+	return contextStore.ReplaceSystemDefault(ctx, desiredDefault, []string{"Default"})
 }
 
 func validateSystemContextCatalog(cfg config.Config, catalog []store.Context) error {
 	registry := providerregistry.New(cfg)
+	defaultCount := 0
+	names := make(map[string]struct{}, len(catalog))
 	for _, systemCtx := range catalog {
+		name := systemCtx.Name
+		if _, exists := names[name]; exists {
+			return fmt.Errorf("system context %q is duplicated", name)
+		}
+		names[name] = struct{}{}
+		if systemCtx.IsDefault {
+			defaultCount++
+		}
 		if err := registry.ValidateSegmentation(systemCtx.SegmentationModel); err != nil {
 			return fmt.Errorf("system context %q: %w", systemCtx.Name, err)
 		}
@@ -116,6 +123,9 @@ func validateSystemContextCatalog(cfg config.Config, catalog []store.Context) er
 		); err != nil {
 			return fmt.Errorf("system context %q: %w", systemCtx.Name, err)
 		}
+	}
+	if defaultCount != 1 {
+		return fmt.Errorf("system context catalog must contain exactly one default")
 	}
 	return nil
 }

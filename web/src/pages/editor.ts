@@ -955,9 +955,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
 
   await activateItemImage(runItemImageID, runResp);
 
-  if (jobIdParam) {
-    publishBatchState("Preparing batch transcription...", true);
-  } else if (autoTranscribe) {
+  if (!jobIdParam && autoTranscribe) {
     // Legacy path: client-side segment-by-segment transcription via the magic wand.
     setTimeout(() => {
       document.dispatchEvent(

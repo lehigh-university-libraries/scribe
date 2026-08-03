@@ -1528,6 +1528,10 @@ func safeTranscriptionErrorMessage(message string) string {
 		return "transcription context snapshot is invalid"
 	case strings.Contains(normalized, "transcription job") && strings.Contains(normalized, "segments") && strings.Contains(normalized, "maximum"):
 		return "transcription job exceeds configured segment limit"
+	case strings.Contains(normalized, "workspace provider credential") && strings.Contains(normalized, "not configured"):
+		return "workspace provider credential is not configured"
+	case strings.Contains(normalized, "workspace provider credential") && strings.Contains(normalized, "invalid"):
+		return "workspace provider credential is invalid"
 	case strings.Contains(normalized, "worker shutting down"), strings.Contains(normalized, "context canceled"), strings.Contains(normalized, "deadline exceeded"):
 		return "transcription attempt was interrupted"
 	case strings.Contains(normalized, "provider"), strings.Contains(normalized, "transcription failed for"):

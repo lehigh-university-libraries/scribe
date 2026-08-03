@@ -144,6 +144,75 @@ func TestConcurrentEnsureDefaultPromotesExistingNamedContext(t *testing.T) {
 	}
 }
 
+func TestConcurrentReplaceSystemDefaultRetiresPreviousPreset(t *testing.T) {
+	database := annotationTestDB(t)
+	ctx := context.Background()
+	contexts := store.NewContextStore(database)
+
+	previousDefault, previousDefaultErr := contexts.GetDefault(ctx)
+	if previousDefaultErr != nil && !errors.Is(previousDefaultErr, sql.ErrNoRows) {
+		t.Fatalf("load previous default context: %v", previousDefaultErr)
+	}
+	retired, err := contexts.Create(ctx, store.Context{
+		Name:                  "Retired system default " + uuid.NewString(),
+		IsDefault:             true,
+		SegmentationModel:     "tesseract",
+		TranscriptionProvider: "tesseract",
+		TranscriptionModel:    "tesseract",
+	})
+	if err != nil {
+		t.Fatalf("create retired system default: %v", err)
+	}
+	replacement, err := contexts.Create(ctx, store.Context{
+		Name:                  "Replacement system default " + uuid.NewString(),
+		SegmentationModel:     "tesseract",
+		TranscriptionProvider: "tesseract",
+		TranscriptionModel:    "tesseract",
+	})
+	if err != nil {
+		t.Fatalf("create replacement system default: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = contexts.Delete(context.Background(), replacement.ID)
+		if previousDefaultErr == nil {
+			previousDefault.IsDefault = true
+			if _, err := contexts.Update(context.Background(), previousDefault); err != nil {
+				t.Errorf("restore previous default context: %v", err)
+			}
+		}
+	})
+
+	replacement.IsDefault = true
+	const callers = 8
+	start := make(chan struct{})
+	errorsSeen := make(chan error, callers)
+	var wait sync.WaitGroup
+	wait.Add(callers)
+	for range callers {
+		go func() {
+			defer wait.Done()
+			<-start
+			errorsSeen <- contexts.ReplaceSystemDefault(ctx, replacement, []string{retired.Name})
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(errorsSeen)
+	for err := range errorsSeen {
+		if err != nil {
+			t.Fatalf("concurrent ReplaceSystemDefault: %v", err)
+		}
+	}
+
+	if _, err := contexts.Get(ctx, retired.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("retired system context still exists: %v", err)
+	}
+	loaded, err := contexts.GetDefault(ctx)
+	if err != nil || loaded.ID != replacement.ID || !loaded.IsDefault {
+		t.Fatalf("replacement system default = %+v/%v; want id %d", loaded, err, replacement.ID)
+	}
+}
+
 func TestConcurrentContextUpdateAndDeleteCannotResurrectRow(t *testing.T) {
 	database := annotationTestDB(t)
 	ctx := context.Background()

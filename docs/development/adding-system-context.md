@@ -36,9 +36,14 @@ catalog lifecycle change with an acceptance test.
 
 There is exactly one system default. Change the recipe produced by
 `defaultContext`; do not add a second system context with `IsDefault: true`.
-The configured `llm.provider`, provider default model,
-`llm.segmentation_model`, and supported `llm.default_system_prompt` determine
-that recipe.
+The built-in default uses Scribe segmentation with the configured
+`llm.provider`, that provider's default model, and the supported
+`llm.default_system_prompt`.
+
+When replacing or removing a shipped default, list the replacement as the sole
+catalog default and use `ContextStore.ReplaceSystemDefault` at startup to
+promote it and explicitly retire the old stable name in one transaction.
+Removing a value from `systemContexts` alone does not remove its persisted row.
 
 Workspace defaults still take precedence. Changing the system default affects
 workspaces that have not selected their own default and future processing

@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/lehigh-university-libraries/scribe/internal/config"
@@ -21,6 +24,7 @@ func (r fixedProviderSecretResolver) ResolvePreferred(context.Context, uint64, *
 
 type recordingProviderSecretResolver struct {
 	secret          store.ProviderSecret
+	err             error
 	requestedUserID *uint64
 	calls           int
 }
@@ -31,16 +35,20 @@ func (r *recordingProviderSecretResolver) ResolvePreferred(_ context.Context, _ 
 		value := *userID
 		r.requestedUserID = &value
 	}
-	return r.secret, nil
+	return r.secret, r.err
 }
 
 type countingProviderVault struct {
 	reads int
 	value string
+	err   error
 }
 
 func (v *countingProviderVault) Read(context.Context, string) (map[string]string, error) {
 	v.reads++
+	if v.err != nil {
+		return nil, v.err
+	}
 	value := v.value
 	if value == "" {
 		value = "never-expose-this"
@@ -117,7 +125,10 @@ func TestBackgroundProviderCredentialResolutionIsWorkspaceOnly(t *testing.T) {
 	handler := &Handler{providerSecrets: resolver, vault: vault}
 
 	ambient := providerregistry.WithCredential(context.Background(), "openai", "api_key", "item-creator-key")
-	ctx := handler.contextWithWorkspaceProviderSecret(ambient, 7, "openai")
+	ctx, err := handler.contextWithWorkspaceProviderSecret(ambient, 7, "openai")
+	if err != nil {
+		t.Fatalf("resolve background provider credential: %v", err)
+	}
 	if resolver.calls != 1 {
 		t.Fatalf("provider secret resolver calls = %d, want 1", resolver.calls)
 	}
@@ -147,7 +158,10 @@ func TestBackgroundProviderCredentialNeverRetainsAmbientUserSecret(t *testing.T)
 		vault:           &countingProviderVault{},
 	}
 	ambient := providerregistry.WithCredential(context.Background(), "openai", "api_key", "item-creator-key")
-	ctx := handler.contextWithWorkspaceProviderSecret(ambient, 7, "openai")
+	ctx, err := handler.contextWithWorkspaceProviderSecret(ambient, 7, "openai")
+	if !errors.Is(err, errWorkspaceProviderCredentialNotStored) {
+		t.Fatalf("missing background provider credential error = %v", err)
+	}
 	if got := providerregistry.ContextCredential(ctx, "openai", "api_key"); got != "" {
 		t.Fatalf("background context retained ambient user credential %q", got)
 	}
@@ -157,5 +171,65 @@ func TestBackgroundProviderCredentialNeverRetainsAmbientUserSecret(t *testing.T)
 	}
 	if got := descriptor.Credential(ctx, "api_key"); got != "" {
 		t.Fatalf("background context fell back to administrator credential %q", got)
+	}
+}
+
+func TestBackgroundProviderCredentialInfrastructureFailuresRemainRetryable(t *testing.T) {
+	previous := config.Get()
+	config.Init(config.Runtime{Config: config.Config{Vault: config.VaultConfig{Paths: config.VaultPaths{
+		ProviderSecrets: "scribe/test/provider-secrets/workspaces",
+	}}}})
+	t.Cleanup(func() { config.Init(previous) })
+
+	const privateDiagnostic = "private secret backend path and topology"
+	temporaryFailure := errors.New(privateDiagnostic)
+	tests := []struct {
+		name     string
+		resolver providerSecretResolver
+		vault    providerSecretVault
+		want     error
+	}{
+		{
+			name:     "resolver",
+			resolver: fixedProviderSecretResolver{err: temporaryFailure},
+			vault:    &countingProviderVault{},
+			want:     errProviderSecretServiceUnavailable,
+		},
+		{
+			name: "vault",
+			resolver: fixedProviderSecretResolver{secret: store.ProviderSecret{
+				ID: 94, WorkspaceID: 7, Provider: "openai", Scope: "workspace",
+				VaultPath: "scribe/test/provider-secrets/workspaces/7/openai/key-1",
+			}},
+			vault: &countingProviderVault{err: temporaryFailure},
+			want:  errProviderSecretServiceUnavailable,
+		},
+		{
+			name:     "canceled",
+			resolver: fixedProviderSecretResolver{err: fmt.Errorf("%s: %w", privateDiagnostic, context.Canceled)},
+			vault:    &countingProviderVault{},
+			want:     context.Canceled,
+		},
+		{
+			name:     "deadline",
+			resolver: fixedProviderSecretResolver{err: fmt.Errorf("%s: %w", privateDiagnostic, context.DeadlineExceeded)},
+			vault:    &countingProviderVault{},
+			want:     context.DeadlineExceeded,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := &Handler{providerSecrets: test.resolver, vault: test.vault}
+			_, err := handler.contextWithWorkspaceProviderSecret(context.Background(), 7, "openai")
+			if !errors.Is(err, test.want) {
+				t.Fatalf("credential infrastructure error = %v; want %v", err, test.want)
+			}
+			if errors.Is(err, errWorkspaceProviderCredentialNotStored) || errors.Is(err, errWorkspaceProviderCredentialInvalid) {
+				t.Fatalf("credential infrastructure error was classified as permanent: %v", err)
+			}
+			if strings.Contains(err.Error(), privateDiagnostic) {
+				t.Fatalf("credential infrastructure error exposed backend diagnostic: %v", err)
+			}
+		})
 	}
 }

@@ -107,6 +107,11 @@ func (h *Handler) buildEditorManifest(ctx context.Context, item store.Item, sele
 		if err != nil {
 			return nil, "", fmt.Errorf("build Canvas for item image %d: %w", image.ID, err)
 		}
+		// Draft annotations are private and load through the authorized Connect
+		// adapter. Advertising either the canonical draft page or imported source
+		// pages here makes Mirador dereference them through the public Triplet
+		// surface, where unpublished resources correctly do not exist.
+		delete(resources.Canvas, "annotations")
 		canvases = append(canvases, iiif.EmbeddedResource(resources.Canvas))
 		if image.ID == selectedItemImageID {
 			selectedCanvasID = strings.TrimSpace(image.CanvasURI)

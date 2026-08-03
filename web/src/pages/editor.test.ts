@@ -680,6 +680,41 @@ describe("renderEditor", () => {
     expect(reloads).toBe(1);
   });
 
+  it("preserves a reconciled terminal job status on a job deep link", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/editor?itemImageId=7&jobId=91",
+    );
+    mocks.getOCRRun.mockResolvedValue({
+      contextId: 0n,
+      itemImageId: 7n,
+      model: "test-model",
+      imageUrl: "https://example.test/page.jpg",
+    });
+    mocks.listTranscriptionJobs.mockResolvedValue([
+      {
+        id: 91n,
+        status: "failed",
+        completedSegments: 0,
+        failedSegments: 0,
+        totalSegments: 3,
+        errorMessage: "workspace provider credential is not configured",
+      },
+    ]);
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    await renderEditor(app);
+
+    expect(
+      document.getElementById("editor-transcription-status")?.textContent,
+    ).toContain("workspace provider credential is not configured");
+    expect(
+      document.getElementById("editor-transcription-status")?.textContent,
+    ).not.toContain("Preparing batch transcription");
+  });
+
   it("reconciles the durable job snapshot after the resumable stream is ready", async () => {
     window.history.replaceState({}, "", "/editor?itemImageId=7");
     mocks.getOCRRun.mockResolvedValue({

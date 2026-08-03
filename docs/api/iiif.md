@@ -79,8 +79,10 @@ The Scribe API intentionally does not register `/iiif/*`,
 `/v1/items/{id}/manifest`, `/v1/item-images/{id}/manifest`, Canvas/painting
 children, canonical AnnotationPage, or child Annotation HTTP routes. Reverse
 proxy rules send `/iiif` and `/presentation` directly to Triplet. Draft editors
-load a private Manifest with `ItemService.GetEditorManifest` and load/save the
-complete canonical page through `AnnotationService` Connect RPCs.
+load a private Manifest with `ItemService.GetEditorManifest`. Its Canvases omit
+public `annotations` references; the editor adapter injects and saves the
+complete canonical draft page through authorized `AnnotationService` Connect
+RPCs instead.
 
 Anonymous Manifests contain only Canvases with an explicit publication
 snapshot, and every AnnotationPage reference resolves to the most recently

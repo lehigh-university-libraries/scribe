@@ -80,7 +80,10 @@ export interface ItemExportActionState {
 }
 
 export function contextOptions(contexts: Context[]): TrustedHTML[] {
-  return contexts.filter((ctx) => ctx.id !== 0n).map((ctx) => html`<option value="${ctx.id.toString()}"${ctx.isDefault ? " selected" : ""}>${ctx.name || `Context ${ctx.id}`}</option>`);
+  // Value 0 is the resolver-backed "Default" choice rendered by the shell.
+  // Concrete presets remain explicit choices even when one of them currently
+  // backs the system or workspace default.
+  return contexts.filter((ctx) => ctx.id !== 0n).map((ctx) => html`<option value="${ctx.id.toString()}">${ctx.name || `Context ${ctx.id}`}</option>`);
 }
 
 export function renderItemActions(item: ItemSummary, exportState?: ItemExportActionState): TrustedHTML {

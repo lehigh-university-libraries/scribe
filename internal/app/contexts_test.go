@@ -29,14 +29,37 @@ func TestSystemContextsUseConfiguredModelsAndSupportedCapabilities(t *testing.T)
 	}
 
 	byName := make(map[string]struct {
-		model  string
-		prompt string
+		model        string
+		prompt       string
+		segmentation string
+		isDefault    bool
 	}, len(catalog))
+	defaultCount := 0
 	for _, contextValue := range catalog {
+		if contextValue.IsDefault {
+			defaultCount++
+		}
 		byName[contextValue.Name] = struct {
-			model  string
-			prompt string
-		}{model: contextValue.TranscriptionModel, prompt: contextValue.SystemPrompt}
+			model        string
+			prompt       string
+			segmentation string
+			isDefault    bool
+		}{
+			model:        contextValue.TranscriptionModel,
+			prompt:       contextValue.SystemPrompt,
+			segmentation: contextValue.SegmentationModel,
+			isDefault:    contextValue.IsDefault,
+		}
+	}
+	if defaultCount != 1 {
+		t.Fatalf("system default count = %d; want 1", defaultCount)
+	}
+	if _, exists := byName["Default"]; exists {
+		t.Fatal("retired Default preset remains in the system catalog")
+	}
+	scribe := byName["Scribe Custom"]
+	if !scribe.isDefault || scribe.segmentation != "scribe" || scribe.model != cfg.LLM.Ollama.Model {
+		t.Fatalf("Scribe Custom default = %+v; want scribe/%s default", scribe, cfg.LLM.Ollama.Model)
 	}
 	if got := byName["Gemini Pro"].model; got != cfg.LLM.Gemini.Model {
 		t.Fatalf("Gemini Pro model = %q; want configured %q", got, cfg.LLM.Gemini.Model)
@@ -61,9 +84,29 @@ func TestDefaultKrakenContextDropsUnsupportedPromptBeforeStartupValidation(t *te
 func TestSystemContextStartupValidationNamesInvalidSeed(t *testing.T) {
 	cfg := systemContextTestConfig()
 	catalog := systemContexts(cfg)
-	catalog[0].TranscriptionModel = "not-registered"
+	for index := range catalog {
+		if catalog[index].IsDefault {
+			catalog[index].TranscriptionModel = "not-registered"
+		}
+	}
 	err := validateSystemContextCatalog(cfg, catalog)
-	if err == nil || !strings.Contains(err.Error(), `system context "Default"`) {
+	if err == nil || !strings.Contains(err.Error(), `system context "Scribe Custom"`) {
 		t.Fatalf("validation error = %v; want named system context failure", err)
+	}
+}
+
+func TestSystemContextStartupValidationRequiresOneDefault(t *testing.T) {
+	cfg := systemContextTestConfig()
+	catalog := systemContexts(cfg)
+	for index := range catalog {
+		catalog[index].IsDefault = false
+	}
+	if err := validateSystemContextCatalog(cfg, catalog); err == nil || !strings.Contains(err.Error(), "exactly one default") {
+		t.Fatalf("zero-default validation error = %v", err)
+	}
+	catalog[0].IsDefault = true
+	catalog[1].IsDefault = true
+	if err := validateSystemContextCatalog(cfg, catalog); err == nil || !strings.Contains(err.Error(), "exactly one default") {
+		t.Fatalf("multiple-default validation error = %v", err)
 	}
 }
