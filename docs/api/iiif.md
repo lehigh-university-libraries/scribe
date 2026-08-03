@@ -39,12 +39,20 @@ The production browser policy permits OpenSeadragon to fetch `info.json` and
 tiles from HTTPS Image API services advertised by an imported manifest. Those
 cross-origin requests are anonymous and the remote service must return suitable
 CORS headers. Plain-HTTP external Image API services are intentionally not
-supported from an HTTPS deployment: the Content Security Policy allows only
-same-origin and HTTPS connections, and browsers also reject mixed content.
+supported from an HTTPS deployment: outbound network connections remain
+limited to same-origin and HTTPS destinations, and browsers also reject mixed
+content. The `connect-src` policy additionally permits browser-local `blob:`
+URLs so Mirador can fetch the authorized private Manifest that the editor
+constructs in memory; it does not authorize another network origin.
 Scribe-owned images use Triplet's same-origin Image API. Their Image API
 identifier is the escaped absolute URL of Scribe's immutable raw source at
 `/static/uploads/{content-hash}-{uuid}.{extension}`. Triplet authorizes every
-source read against Scribe and never exposes the internal source origin.
+source read against Scribe and never exposes the internal source origin. The
+raw source is a whole-object boundary: a byte-range request receives the
+complete authorized object with `200` and `Accept-Ranges: none`. Triplet owns
+Image API ranges and derivatives. Declining ranges at the raw source prevents
+Triplet's per-chunk range fan-out from becoming many complete object-store
+reads.
 
 ## Presentation resource identities
 

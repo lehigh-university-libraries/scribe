@@ -525,7 +525,7 @@ func (h *Handler) handleStaticUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", contentType)
-		http.ServeContent(w, r, name, attrs.Updated, bytes.NewReader(data))
+		serveWholeUploadContent(w, r, name, attrs.Updated, bytes.NewReader(data))
 		return
 	}
 	f, err := safefile.Open(filepath.Join("uploads", name))
@@ -555,7 +555,39 @@ func (h *Handler) handleStaticUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
-	http.ServeContent(w, r, name, info.ModTime(), f)
+	serveWholeUploadContent(w, r, name, info.ModTime(), f)
+}
+
+// serveWholeUploadContent deliberately declines byte ranges. Hosted uploads
+// are materialized from object storage before this route can serve them, so a
+// range-capable response would let Triplet turn one source read into many
+// complete object-store reads. Triplet owns the public Image API and its range
+// behavior; this protected origin is a whole-object source boundary.
+func serveWholeUploadContent(w http.ResponseWriter, r *http.Request, name string, modTime time.Time, content io.ReadSeeker) {
+	request := r.Clone(r.Context())
+	request.Header = r.Header.Clone()
+	request.Header.Del("Range")
+	request.Header.Del("If-Range")
+	http.ServeContent(&wholeObjectResponseWriter{ResponseWriter: w}, request, name, modTime, content)
+}
+
+type wholeObjectResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w *wholeObjectResponseWriter) WriteHeader(statusCode int) {
+	w.setRangeHeaders()
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *wholeObjectResponseWriter) Write(data []byte) (int, error) {
+	w.setRangeHeaders()
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *wholeObjectResponseWriter) setRangeHeaders() {
+	w.Header().Set("Accept-Ranges", "none")
+	w.Header().Del("Content-Range")
 }
 
 func (h *Handler) authorizeUploadSource(ctx context.Context, imageURL string) (ownerAccess, publishedAccess bool, err error) {

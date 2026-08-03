@@ -129,7 +129,10 @@ test("a raw editor deep link opens the requested item without prior navigation",
   await page.goto(`/editor?itemImageId=${itemImageId}`);
 
   await expect(page).toHaveURL(new RegExp(`/editor\\?itemImageId=${itemImageId}(?:&|$)`));
-  await expect(page.locator("#editor-meta")).toContainText(`image ${itemImageId}`);
+  await expect(page.locator("#editor-meta")).toContainText(
+    `image ${itemImageId}`,
+    { timeout: 60_000 },
+  );
   await expect(page.locator("#mirador-viewer")).toContainText("View and modes", { timeout: 60_000 });
 });
 

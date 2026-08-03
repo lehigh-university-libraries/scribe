@@ -66,6 +66,41 @@ func TestStaticUploadResponsesSetBrowserIsolationHeaders(t *testing.T) {
 	}
 }
 
+func TestStaticUploadSourceDeclinesByteRanges(t *testing.T) {
+	if uploadblob.Enabled() {
+		t.Skip("local source-byte test requires SCRIBE_UPLOADS_BUCKET to be unset")
+	}
+	payload := onePixelPNG(t)
+	name := strings.Repeat("b", 64) + "-" + uuid.NewString() + ".png"
+	if err := os.MkdirAll("uploads", 0o700); err != nil {
+		t.Fatalf("create upload fixture directory: %v", err)
+	}
+	localPath := filepath.Join("uploads", name)
+	if err := os.WriteFile(localPath, payload, 0o600); err != nil {
+		t.Fatalf("write upload fixture: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(localPath) })
+
+	ctx := auth.WithPrincipal(context.Background(), auth.Principal{
+		Authenticated: true,
+		AuthType:      "triplet_source",
+	})
+	request := httptest.NewRequest(http.MethodGet, staticUploadsPrefix+name, nil).WithContext(ctx)
+	request.Header.Set("Range", "bytes=0-0")
+	response := httptest.NewRecorder()
+	new(Handler).handleStaticUpload(response, request)
+
+	if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), payload) {
+		t.Fatalf("range source response = %d/%d bytes, want whole-object 200/%d", response.Code, response.Body.Len(), len(payload))
+	}
+	if got := response.Header().Get("Content-Range"); got != "" {
+		t.Fatalf("range source Content-Range = %q, want none", got)
+	}
+	if got := response.Header().Get("Accept-Ranges"); got != "none" {
+		t.Fatalf("range source Accept-Ranges = %q, want none", got)
+	}
+}
+
 func TestStaticUploadSourceSeparatesMemberDelegatedAndPublishedAccess(t *testing.T) {
 	if uploadblob.Enabled() {
 		t.Skip("local source-byte integration test requires SCRIBE_UPLOADS_BUCKET to be unset")
@@ -135,6 +170,25 @@ func TestStaticUploadSourceSeparatesMemberDelegatedAndPublishedAccess(t *testing
 		t.Fatalf("cross-workspace member response = %d/%d bytes, want 200/%d", member.Code, member.Body.Len(), len(payload))
 	}
 	assertPrivateUploadSourceHeaders(t, member)
+
+	// Triplet's HTTP source probes byte-range support before falling back to a
+	// whole-object read. Scribe intentionally declines the range here: hosted
+	// uploads are already materialized from object storage, so accepting the
+	// probe would turn one image read into a burst of complete object-store
+	// reads and eventually surface the admission 429 as a Triplet 500.
+	rangeRequest := httptest.NewRequest(http.MethodGet, imageURL, nil).WithContext(memberContext)
+	rangeRequest.Header.Set("Range", "bytes=0-0")
+	rangeResponse := httptest.NewRecorder()
+	handler.handleStaticUpload(rangeResponse, rangeRequest)
+	if rangeResponse.Code != http.StatusOK || !bytes.Equal(rangeResponse.Body.Bytes(), payload) {
+		t.Fatalf("range source response = %d/%d bytes, want whole-object 200/%d", rangeResponse.Code, rangeResponse.Body.Len(), len(payload))
+	}
+	if got := rangeResponse.Header().Get("Content-Range"); got != "" {
+		t.Fatalf("range source Content-Range = %q, want none", got)
+	}
+	if got := rangeResponse.Header().Get("Accept-Ranges"); got != "none" {
+		t.Fatalf("range source Accept-Ranges = %q, want none", got)
+	}
 
 	itemsOnly := auth.WithPrincipal(ctx, auth.Principal{
 		Authenticated: true,

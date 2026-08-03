@@ -63,9 +63,13 @@ without exposing a partially saved or newer private draft.
 Triplet is the only Image API server. Scribe exposes only the immutable source
 bytes under `/static/uploads/<sha256>-<uuid>.<ext>` that Triplet needs to derive
 Image API resources. That source route accepts `GET` and `HEAD`; it is not a
-second Image API implementation. Triplet forwards the browser's `Cookie` or
-`Authorization` header when it fetches a private source, but it does not
-forward `X-Scribe-Workspace-ID`. A session with `annotations:read` is therefore
+second Image API implementation. It deliberately answers a range request with
+the complete authorized object, `200`, and `Accept-Ranges: none`; Triplet owns
+Image API range and derivative behavior. This whole-object contract prevents a
+per-chunk range fan-out from amplifying into many complete object-store reads.
+Triplet forwards the browser's `Cookie` or `Authorization` header when it
+fetches a private source, but it does not forward
+`X-Scribe-Workspace-ID`. A session with `annotations:read` is therefore
 authorized against every workspace membership of its user. API keys, external
 JWTs, and other delegated principals remain restricted to the single workspace
 encoded in the principal and their annotation-read scope.

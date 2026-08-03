@@ -149,7 +149,9 @@ const securityHeaders = {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: http: https:",
     "font-src 'self' data:",
-    "connect-src 'self' https:",
+    // The editor gives Mirador an authorized private Manifest as an in-memory
+    // object URL; Mirador loads that document through fetch.
+    "connect-src 'self' blob: https:",
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",

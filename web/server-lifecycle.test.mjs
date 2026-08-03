@@ -11,7 +11,7 @@ const expectedContentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: http: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https:",
+  "connect-src 'self' blob: https:",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
