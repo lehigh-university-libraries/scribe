@@ -6,9 +6,8 @@ import { getAnnotationPage } from "../api/annotations";
 import { createAPIKey, createProviderSecret, deleteAPIKey, deleteProviderSecret, getAuthMe, listAPIKeys, listProviderSecrets, logout } from "../api/auth";
 import { createContext, getContextMetrics, getModelCatalog, listContexts } from "../api/context";
 import { subscribeToEvents } from "../api/events";
-import { getItemExportSnapshot, importManifest, listItems, listItemProviderCallAudits, prepareItemExport, uploadItemImages } from "../api/items";
+import { getItemExportSnapshot, importManifest, listItems, listItemProviderCallAudits, prepareItemExport, UploadBatchCancellationError, uploadItemImages, type UploadBatchProgress } from "../api/items";
 import { processImageURL, reprocessItemImage } from "../api/processing";
-import { listTranscriptionJobs } from "../api/transcription";
 import { addWorkspaceMember, deleteWorkspaceMember, listWorkspaceMembers, listWorkspaces, updateWorkspaceMember } from "../api/workspaces";
 import { AnnotationExportFormat } from "../proto/scribe/v1/annotation_pb";
 import { renderShell } from "./shell";
@@ -40,6 +39,12 @@ vi.mock("../api/events", () => ({
 }));
 
 vi.mock("../api/items", () => ({
+  UploadBatchCancellationError: class UploadBatchCancellationError extends Error {
+    constructor() {
+      super("Upload stopped locally, but server cancellation could not be confirmed. Select the same files to resume and verify the batch state.");
+      this.name = "UploadBatchCancellationError";
+    }
+  },
   importManifest: vi.fn(),
   deleteItem: vi.fn(),
   getItemExportSnapshot: vi.fn(),
@@ -52,10 +57,6 @@ vi.mock("../api/items", () => ({
 vi.mock("../api/processing", () => ({
   processImageURL: vi.fn(),
   reprocessItemImage: vi.fn(),
-}));
-
-vi.mock("../api/transcription", () => ({
-  listTranscriptionJobs: vi.fn(),
 }));
 
 vi.mock("../api/workspaces", () => ({
@@ -145,8 +146,6 @@ async function setupShell(
   vi.mocked(listItemProviderCallAudits).mockResolvedValue([]);
   vi.mocked(subscribeToEvents).mockReturnValue({ close: eventClose });
   vi.mocked(logout).mockResolvedValue();
-  vi.mocked(listTranscriptionJobs).mockResolvedValue([{ totalSegments: 1, completedSegments: 0 } as never]);
-
   const app = document.getElementById("app");
   if (!app) throw new Error("missing app root");
   await renderShell(app, view);
@@ -338,7 +337,7 @@ describe("annotation upload actions", () => {
 
   it("starts URL image processing from the library form and opens the editor", async () => {
     await setupShell();
-    vi.mocked(processImageURL).mockResolvedValue({ itemImageId: 101n } as never);
+    vi.mocked(processImageURL).mockResolvedValue({ itemId: "url-item", itemImageId: 101n, transcriptionJobId: 501n } as never);
 
     const input = document.getElementById("library-image-url") as HTMLInputElement | null;
     const form = document.getElementById("library-form-url") as HTMLFormElement | null;
@@ -351,75 +350,21 @@ describe("annotation upload actions", () => {
     await waitFor(() => {
       expect(processImageURL).toHaveBeenCalledWith("https://example.test/page.jpg", 0n);
       expect(window.location.href).toContain("/editor?itemImageId=101");
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("itemId")).toBe("url-item");
+      expect(params.get("jobId")).toBe("501");
     });
   });
 
-  it("reconciles the durable job snapshot after the event stream becomes ready", async () => {
-    await setupShell();
-    const close = vi.fn();
-    let onReady: (() => void) | undefined;
-    vi.mocked(processImageURL).mockResolvedValue({ itemImageId: 111n } as never);
-    vi.mocked(listTranscriptionJobs)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ totalSegments: 1, completedSegments: 0 } as never]);
-    vi.mocked(subscribeToEvents).mockImplementationOnce((options) => {
-      onReady = options.onReady;
-      return { close };
-    });
-
-    const input = document.getElementById("library-image-url") as HTMLInputElement;
-    const form = document.getElementById("library-form-url") as HTMLFormElement;
-    input.value = "https://example.test/late-job.jpg";
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-
-    await waitFor(() => {
-      expect(subscribeToEvents).toHaveBeenLastCalledWith(
-        expect.objectContaining({ itemImageId: "111", onReady: expect.any(Function) }),
-        expect.any(Function),
-      );
-      expect(listTranscriptionJobs).toHaveBeenCalledTimes(1);
-    });
-    expect(window.location.pathname).not.toBe("/editor");
-
-    onReady?.();
-    await waitFor(() => {
-      expect(listTranscriptionJobs).toHaveBeenCalledTimes(2);
-      expect(window.location.href).toContain("/editor?itemImageId=111");
-      expect(close).toHaveBeenCalledOnce();
-    });
-  });
-
-  it("closes a stream that reports a job synchronously during subscription", async () => {
-    await setupShell();
-    const close = vi.fn();
-    vi.mocked(processImageURL).mockResolvedValue({ itemImageId: 112n } as never);
-    vi.mocked(subscribeToEvents).mockImplementationOnce((_options, onEvent) => {
-      onEvent({
-        specversion: "1.0",
-        id: "event-1",
-        source: "https://scribe.test/events",
-        type: "dev.scribe.transcription.task.started",
-        time: "2026-07-21T00:00:00Z",
-      });
-      return { close };
-    });
-
-    const input = document.getElementById("library-image-url") as HTMLInputElement;
-    const form = document.getElementById("library-form-url") as HTMLFormElement;
-    input.value = "https://example.test/immediate-job.jpg";
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-
-    await waitFor(() => {
-      expect(window.location.href).toContain("/editor?itemImageId=112");
-      expect(close).toHaveBeenCalledOnce();
-    });
-    expect(listTranscriptionJobs).not.toHaveBeenCalled();
-  });
-
-  it("starts single image upload processing from the library form and opens the editor", async () => {
+  it("auto-submits a selected image, reports progress, and hands the exact job to the editor", async () => {
     await setupShell();
     const file = new File(["image-bytes"], "page-one.jpg", { type: "image/jpeg" });
-    vi.mocked(uploadItemImages).mockResolvedValue({ images: [{ id: 202n }] } as never);
+    let reportProgress: ((progress: UploadBatchProgress) => void) | undefined;
+    let resolveUpload: ((result: Awaited<ReturnType<typeof uploadItemImages>>) => void) | undefined;
+    vi.mocked(uploadItemImages).mockImplementation((_files, options) => {
+      reportProgress = options?.onProgress;
+      return new Promise((resolve) => { resolveUpload = resolve; });
+    });
 
     document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
     const input = document.getElementById("library-single-file") as HTMLInputElement | null;
@@ -428,11 +373,115 @@ describe("annotation upload actions", () => {
     expect(form).toBeTruthy();
 
     Object.defineProperty(input, "files", { configurable: true, value: [file] });
-    form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    input!.dispatchEvent(new Event("change", { bubbles: true }));
 
     await waitFor(() => {
-      expect(uploadItemImages).toHaveBeenCalledWith([file], { contextId: 0n });
-      expect(window.location.href).toContain("/editor?itemImageId=202");
+      expect(uploadItemImages).toHaveBeenCalledWith(
+        [file],
+        expect.objectContaining({ contextId: 0n, onProgress: expect.any(Function), signal: expect.any(AbortSignal) }),
+      );
+      expect(document.getElementById("shell-upload-dialog")?.getAttribute("aria-hidden")).toBe("false");
+      expect(document.getElementById("shell-content")?.inert).toBe(true);
+      expect(document.body.textContent).toContain("Preparing file");
+    });
+
+    reportProgress?.({ attempt: 1, completed: 1, filename: file.name, sequence: 1, status: "completed", total: 1 });
+    expect(document.body.textContent).toContain("Uploaded 1/1. Starting automatic transcription");
+
+    form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    input!.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(uploadItemImages).toHaveBeenCalledTimes(1);
+
+    resolveUpload?.({
+      item: { id: "upload-item" },
+      batch: { files: [{ sequence: 1, itemImageId: 202n, transcriptionJobId: 502n }] },
+    } as never);
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/editor");
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("itemImageId")).toBe("202");
+      expect(params.get("itemId")).toBe("upload-item");
+      expect(params.get("jobId")).toBe("502");
+    });
+  });
+
+  it("keeps single-upload failures visible until the user closes the dialog", async () => {
+    await setupShell();
+    const file = new File(["image-bytes"], "broken.jpg", { type: "image/jpeg" });
+    let rejectUpload: ((reason: Error) => void) | undefined;
+    vi.mocked(uploadItemImages).mockImplementation(() => new Promise((_resolve, reject) => {
+      rejectUpload = reject;
+    }));
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
+    const input = document.getElementById("library-single-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(rejectUpload).toBeDefined());
+
+    const subscriptionCall = vi.mocked(subscribeToEvents).mock.calls.at(-1);
+    subscriptionCall?.[1]({
+      specversion: "1.0",
+      id: "upload-rerender",
+      source: "/scribe",
+      type: "dev.scribe.annotations.created",
+      time: "2026-08-04T00:00:00Z",
+    });
+    await waitFor(() => expect(input.isConnected).toBe(false));
+    rejectUpload?.(new Error("upload gateway unavailable"));
+
+    await waitFor(() => {
+      expect(document.getElementById("shell-upload-status")?.textContent).toContain("upload gateway unavailable");
+      expect(document.getElementById("shell-upload-cancel")?.textContent).toBe("Close");
+    });
+    document.getElementById("shell-upload-cancel")?.click();
+    expect(document.getElementById("shell-upload-dialog")?.getAttribute("aria-hidden")).toBe("true");
+    expect(document.getElementById("shell-content")?.inert).toBe(false);
+    expect(document.activeElement).toBe(document.getElementById("library-single-file"));
+  });
+
+  it("cancels an active single upload from the progress dialog", async () => {
+    await setupShell();
+    const file = new File(["image-bytes"], "cancel-me.jpg", { type: "image/jpeg" });
+    let uploadSignal: AbortSignal | undefined;
+    vi.mocked(uploadItemImages).mockImplementation((_files, options) => new Promise((_resolve, reject) => {
+      uploadSignal = options?.signal;
+      uploadSignal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+    }));
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
+    const input = document.getElementById("library-single-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(uploadSignal).toBeDefined());
+
+    document.getElementById("shell-upload-cancel")?.click();
+    await waitFor(() => {
+      expect(uploadSignal?.aborted).toBe(true);
+      expect(document.getElementById("shell-upload-status")?.textContent).toBe("Upload canceled.");
+      expect(document.getElementById("shell-upload-cancel")?.textContent).toBe("Close");
+    });
+  });
+
+  it("reports when server-side cancellation cannot be confirmed", async () => {
+    await setupShell();
+    const file = new File(["image-bytes"], "cancel-uncertain.jpg", { type: "image/jpeg" });
+    let uploadSignal: AbortSignal | undefined;
+    vi.mocked(uploadItemImages).mockImplementation((_files, options) => new Promise((_resolve, reject) => {
+      uploadSignal = options?.signal;
+      uploadSignal?.addEventListener("abort", () => reject(new UploadBatchCancellationError()), { once: true });
+    }));
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
+    const input = document.getElementById("library-single-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(uploadSignal).toBeDefined());
+
+    document.getElementById("shell-upload-cancel")?.click();
+    await waitFor(() => {
+      expect(document.getElementById("shell-upload-status")?.textContent).toContain("server cancellation could not be confirmed");
+      expect(document.getElementById("shell-upload-status")?.textContent).not.toBe("Upload canceled.");
     });
   });
 

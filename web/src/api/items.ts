@@ -79,6 +79,18 @@ export interface UploadBatchOptions {
   retryDelayMs?: number;
 }
 
+export interface UploadBatchResult {
+  item: Item;
+  batch: UploadBatch;
+}
+
+export class UploadBatchCancellationError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("Upload stopped locally, but server cancellation could not be confirmed. Select the same files to resume and verify the batch state.", options);
+    this.name = "UploadBatchCancellationError";
+  }
+}
+
 export class UploadBatchError extends Error {
   readonly batch: UploadBatch;
   readonly completed: number;
@@ -198,7 +210,7 @@ function newBatchID(): string {
   return Array.from(bytes, (part) => part.toString(16).padStart(2, "0")).join("");
 }
 
-export async function uploadItemImages(files: File[], options: UploadBatchOptions = {}): Promise<Item> {
+export async function uploadItemImages(files: File[], options: UploadBatchOptions = {}): Promise<UploadBatchResult> {
   if (files.length === 0) throw new Error("no files provided");
   if (files.length > maxUploadBatchFiles) throw new Error(`a batch may contain at most ${maxUploadBatchFiles} files`);
   let totalBytes = 0;
@@ -237,7 +249,7 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
   let batch = startResponse.batch;
   if (batch.status === UploadBatchStatus.COMPLETED) {
     removeStoredBatchID(storage, storageKey);
-    return item;
+    return { item, batch };
   }
   if (batch.status === UploadBatchStatus.CANCELED) {
     removeStoredBatchID(storage, storageKey);
@@ -260,6 +272,7 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
           status: "completed",
           attempt: declared.attemptCount,
         });
+        throwIfAborted(options.signal);
         continue;
       }
       const imageData = await readFileBytes(prepared.files[i].file);
@@ -283,6 +296,11 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
             status: "completed",
             attempt,
           });
+          // A committed final response wins over an abort that arrives from a
+          // synchronous progress observer. Completed batches cannot be
+          // canceled server-side; returning their durable identities lets the
+          // caller continue the exact editor/job handoff.
+          if (batch.status !== UploadBatchStatus.COMPLETED) throwIfAborted(options.signal);
           lastError = undefined;
           break;
         } catch (error) {
@@ -316,8 +334,9 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
         throw new UploadBatchError(`upload failed for ${prepared.files[i].file.name}`, batch, i + 1, { cause: lastError });
       }
     }
+    if (batch.status !== UploadBatchStatus.COMPLETED) throwIfAborted(options.signal);
     removeStoredBatchID(storage, storageKey);
-    return item;
+    return { item, batch };
   } catch (error) {
     if (options.signal?.aborted) {
       reportProgress(options, {
@@ -341,7 +360,9 @@ async function cancelBatchAfterAbort(batchID: string, storage: Storage | undefin
   } catch (error) {
     if (ConnectError.from(error).code === Code.NotFound) {
       removeStoredBatchID(storage, storageKey);
+      return;
     }
+    throw new UploadBatchCancellationError({ cause: error });
   }
 }
 

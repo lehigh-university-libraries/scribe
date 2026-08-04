@@ -416,6 +416,12 @@ export interface ScribeReloadAnnotationsEventDetail {
   windowId: string;
 }
 
+export interface ScribeRemoteRebaseReadyEventDetail {
+  canvasId: string;
+  itemImageId: string;
+  windowId: string;
+}
+
 export interface ScribeTranscriptionEventDetail {
   annotation: IIIFAnnotation | null;
   canvasId: string;

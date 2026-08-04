@@ -11,7 +11,10 @@ import {
 } from "../api/annotations";
 import { getEditorManifest } from "../api/items";
 import { getOCRRun, reprocessItemImage } from "../api/processing";
-import { listTranscriptionJobs } from "../api/transcription";
+import {
+  getTranscriptionJob,
+  listTranscriptionJobs,
+} from "../api/transcription";
 import { subscribeToEvents } from "../api/events";
 import {
   syncWorkspaceSelectionFromLocation,
@@ -45,6 +48,16 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   const itemID = params.get("itemId") ?? "";
   const autoTranscribe = params.get("autoTranscribe") === "1";
   const jobIdParam = params.get("jobId");
+  const requestedJobID = (() => {
+    if (
+      jobIdParam === null
+      || jobIdParam.length > 20
+      || !/^[1-9][0-9]*$/u.test(jobIdParam)
+    ) return null;
+    const parsed = BigInt(jobIdParam);
+    return parsed <= 18446744073709551615n ? parsed : null;
+  })();
+  const invalidJobID = jobIdParam !== null && requestedJobID === null;
   const dirtyWindows = new Map<string, boolean>();
   let beforeUnloadRegistered = false;
   let processingContextID = params.get("contextId") ?? "0";
@@ -58,9 +71,12 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   let leaveAction: "home" | "history-back" = "home";
   let eventSubscription: { close: () => void } | null = null;
   let monitoredItemImageID = "";
+  let monitoredJobReconcile: (() => Promise<void>) | null = null;
   let activationSequence = 0;
   let canvasImageRegistry: CanvasImageRegistry | null = null;
   let editorManifestObjectURL = "";
+  const remoteRebaseReady = new Set<string>();
+  const pendingCompletedJobs = new Map<string, string>();
 
   const handleBeforeUnload = (event: BeforeUnloadEvent) => {
     event.preventDefault();
@@ -298,7 +314,45 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   };
   let lastSegmentKey = "";
   let lastResultKey = "";
-  let reloadedCompletedJobId = "";
+  const reloadedCompletedJobs = new Set<string>();
+
+  function remoteRebaseIdentity(
+    targetItemImageID: string,
+    targetCanvasID: string,
+    targetWindowID: string,
+  ): string {
+    return `${targetWindowID}\u0000${targetCanvasID}\u0000${targetItemImageID}`;
+  }
+
+  function reloadCompletedJob(
+    jobID: string,
+    targetItemImageID: string,
+    targetCanvasID: string,
+    targetWindowID: string,
+  ): void {
+    const identity = remoteRebaseIdentity(
+      targetItemImageID,
+      targetCanvasID,
+      targetWindowID,
+    );
+    const completionKey = `${identity}\u0000${jobID}`;
+    if (reloadedCompletedJobs.has(completionKey)) return;
+    if (!remoteRebaseReady.has(identity)) {
+      pendingCompletedJobs.set(identity, jobID);
+      return;
+    }
+    pendingCompletedJobs.delete(identity);
+    reloadedCompletedJobs.add(completionKey);
+    document.dispatchEvent(
+      new CustomEvent("scribe:reload-annotations", {
+        detail: {
+          canvasId: targetCanvasID,
+          itemImageId: targetItemImageID,
+          windowId: targetWindowID,
+        },
+      }),
+    );
+  }
 
   function setTranscriptionStatus(message = "") {
     transcriptionStatus.textContent = message;
@@ -469,18 +523,12 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
 
     if (isCompletedStatus(job.status)) {
       const jobID = job.id.toString();
-      if (reloadedCompletedJobId !== jobID) {
-        reloadedCompletedJobId = jobID;
-        document.dispatchEvent(
-          new CustomEvent("scribe:reload-annotations", {
-            detail: {
-              canvasId: activeCanvasID,
-              itemImageId: targetItemImageID,
-              windowId: activeWindowID,
-            },
-          }),
-        );
-      }
+      reloadCompletedJob(
+        jobID,
+        targetItemImageID,
+        activeCanvasID,
+        activeWindowID,
+      );
     }
   }
 
@@ -501,6 +549,14 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       },
       (event) => {
         const data = event.data ?? {};
+        const eventJobID = eventBigInt(data.jobId);
+        if (
+          requestedJobID !== null &&
+          targetItemImageID === itemImageID &&
+          eventJobID !== requestedJobID
+        ) {
+          return;
+        }
         switch (event.type) {
           case "dev.scribe.transcription.task.started":
             applyJobUpdate(
@@ -595,6 +651,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   async function activateItemImage(
     targetItemImageID: string,
     knownRun?: Awaited<ReturnType<typeof getOCRRun>>,
+    knownJob?: Awaited<ReturnType<typeof getTranscriptionJob>>,
   ): Promise<void> {
     if (!targetItemImageID) return;
     if (targetItemImageID === monitoredItemImageID && eventSubscription) return;
@@ -602,10 +659,10 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     activeItemImageID = targetItemImageID;
     lastSegmentKey = "";
     lastResultKey = "";
-    reloadedCompletedJobId = "";
     eventSubscription?.close();
     eventSubscription = null;
     monitoredItemImageID = "";
+    monitoredJobReconcile = null;
     publishBatchState(
       "Loading editor annotations and transcription status...",
       true,
@@ -625,13 +682,30 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
         : `item image ${targetItemImageID} | model ${run.model}`;
 
       let reconciliation = Promise.resolve();
+      let initialKnownJob:
+        | Awaited<ReturnType<typeof getTranscriptionJob>>
+        | Awaited<ReturnType<typeof listTranscriptionJobs>>[number]
+        | undefined = knownJob;
       const reconcile = () => {
         reconciliation = reconciliation
           .catch(() => undefined)
           .then(async () => {
-            const jobs = await listTranscriptionJobs(BigInt(targetItemImageID));
+            let latest = initialKnownJob;
+            initialKnownJob = undefined;
+            if (!latest && requestedJobID !== null && targetItemImageID === itemImageID) {
+              latest = await getTranscriptionJob(requestedJobID);
+              if (
+                latest.id !== requestedJobID ||
+                uint64ToString(latest.itemImageId) !== targetItemImageID
+              ) {
+                throw new Error("The transcription job belongs to a different item image.");
+              }
+            }
+            if (!latest) {
+              const jobs = await listTranscriptionJobs(BigInt(targetItemImageID));
+              latest = jobs[0];
+            }
             if (sequence !== activationSequence) return;
-            const latest = jobs[0];
             if (latest) {
               applyJobUpdate(latest, targetItemImageID);
             } else {
@@ -643,6 +717,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
           });
         return reconciliation;
       };
+      monitoredJobReconcile = reconcile;
       const reconcileAfterStreamSignal = () => {
         void reconcile().catch(() => {
           if (sequence === activationSequence) {
@@ -741,6 +816,59 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       );
     }
   };
+  const handleRemoteRebaseReady = (event: Event) => {
+    const detail = (
+      event as CustomEvent<{
+        canvasId: string;
+        itemImageId: string;
+        windowId: string;
+      }>
+    ).detail;
+    const canvasID = detail?.canvasId?.trim() ?? "";
+    const targetItemImageID = detail?.itemImageId?.trim() ?? "";
+    const windowID = detail?.windowId?.trim() ?? "";
+    if (!canvasID || !targetItemImageID || !windowID || !canvasImageRegistry) {
+      return;
+    }
+    try {
+      if (
+        canvasImageRegistry.itemImageIdForCanvas(canvasID) !==
+        targetItemImageID
+      ) {
+        return;
+      }
+    } catch {
+      return;
+    }
+    const identity = remoteRebaseIdentity(
+      targetItemImageID,
+      canvasID,
+      windowID,
+    );
+    const wasReady = remoteRebaseReady.has(identity);
+    remoteRebaseReady.add(identity);
+    const pendingJobID = pendingCompletedJobs.get(identity);
+    if (pendingJobID) {
+      reloadCompletedJob(
+        pendingJobID,
+        targetItemImageID,
+        canvasID,
+        windowID,
+      );
+    }
+    if (
+      !wasReady &&
+      targetItemImageID === monitoredItemImageID &&
+      monitoredJobReconcile
+    ) {
+      void monitoredJobReconcile().catch(() => {
+        publishBatchState(
+          "Failed to refresh transcription status; the event stream will retry.",
+          true,
+        );
+      });
+    }
+  };
   const handlePopState = () => {
     if (allowHistoryBack) {
       allowHistoryBack = false;
@@ -750,6 +878,10 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   };
   document.addEventListener("scribe:dirty-state", handleDirtyState);
   document.addEventListener("scribe:active-canvas", handleActiveCanvas);
+  document.addEventListener(
+    "scribe:remote-rebase-ready",
+    handleRemoteRebaseReady,
+  );
   window.addEventListener("popstate", handlePopState);
 
   const handlePublishRequest = async (event: Event) => {
@@ -809,6 +941,10 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       document.removeEventListener("scribe:dirty-state", handleDirtyState);
       document.removeEventListener("scribe:active-canvas", handleActiveCanvas);
       document.removeEventListener(
+        "scribe:remote-rebase-ready",
+        handleRemoteRebaseReady,
+      );
+      document.removeEventListener(
         "scribe:request-publish",
         handlePublishRequest,
       );
@@ -837,6 +973,13 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     });
     return;
   }
+  if (invalidJobID) {
+    reprocessNav.classList.add("hidden");
+    renderEditorRecovery(meta, document.getElementById("mirador-viewer"), {
+      message: "This editor link has an invalid jobId. Open the item from the library and try again.",
+    });
+    return;
+  }
 
   let runResp: Awaited<ReturnType<typeof getOCRRun>> | null = null;
   try {
@@ -853,6 +996,36 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   }
 
   const runItemImageID = uint64ToString(runResp.itemImageId);
+  if (runItemImageID !== itemImageID) {
+    reprocessNav.classList.add("hidden");
+    renderEditorRecovery(meta, document.getElementById("mirador-viewer"), {
+      message: "The OCR run belongs to a different item image.",
+    });
+    return;
+  }
+  let requestedJob: Awaited<ReturnType<typeof getTranscriptionJob>> | undefined;
+  if (requestedJobID !== null) {
+    try {
+      requestedJob = await getTranscriptionJob(requestedJobID);
+    } catch {
+      reprocessNav.classList.add("hidden");
+      renderEditorRecovery(meta, document.getElementById("mirador-viewer"), {
+        message: "Failed to load the transcription job. The link may be stale, or the service may be temporarily unavailable.",
+        retry: () => window.location.reload(),
+      });
+      return;
+    }
+    if (
+      requestedJob.id !== requestedJobID ||
+      uint64ToString(requestedJob.itemImageId) !== runItemImageID
+    ) {
+      reprocessNav.classList.add("hidden");
+      renderEditorRecovery(meta, document.getElementById("mirador-viewer"), {
+        message: "The transcription job belongs to a different item image.",
+      });
+      return;
+    }
+  }
   processingContextID = runResp.contextId.toString() || processingContextID;
   processingContexts.set(runItemImageID, processingContextID);
   meta.textContent = itemID
@@ -953,7 +1126,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     [...scribeMiradorPlugin],
   );
 
-  await activateItemImage(runItemImageID, runResp);
+  await activateItemImage(runItemImageID, runResp, requestedJob);
 
   if (!jobIdParam && autoTranscribe) {
     // Legacy path: client-side segment-by-segment transcription via the magic wand.

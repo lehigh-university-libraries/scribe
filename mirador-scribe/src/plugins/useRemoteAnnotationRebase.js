@@ -107,6 +107,13 @@ export function useRemoteAnnotationRebase({
     document.addEventListener('scribe:transcription-job-state', handleBatchState);
     document.addEventListener('scribe:transcription-result', handleBatchResult);
     document.addEventListener('scribe:reload-annotations', handleReload);
+    const adapter = adapterFactory?.(canvasId);
+    const itemImageId = String(adapter?.itemImageId || '');
+    if (canvasId && itemImageId && windowId) {
+      document.dispatchEvent(new CustomEvent('scribe:remote-rebase-ready', {
+        detail: { canvasId, itemImageId, windowId },
+      }));
+    }
     return () => {
       document.removeEventListener('scribe:transcription-job-state', handleBatchState);
       document.removeEventListener('scribe:transcription-result', handleBatchResult);

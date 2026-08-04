@@ -20,6 +20,12 @@ change and requires new browser acceptance evidence.
 | `autoTranscribe` | Optional | The exact value `1` requests the legacy foreground transcribe-all flow when no durable `jobId` is supplied. Omit it for normal durable jobs. |
 | `jobId` | Optional | Positive base-10 durable transcription-job correlation. Its presence tells the editor that batch work is already scheduled; the editor reconciles authorized job state for the selected item image instead of trusting the URL as status or authority. |
 
+When `jobId` identifies a failed durable job, the editor keeps that terminal
+state visible with the job's bounded, redacted failure reason. It does not
+replace the failure with a generic preparing state or start the legacy
+foreground flow. A reload reconciles the same authorized durable job rather
+than treating the query parameter itself as evidence that work is active.
+
 For example:
 
 ```text

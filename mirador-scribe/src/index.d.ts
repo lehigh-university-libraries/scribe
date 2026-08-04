@@ -10,6 +10,7 @@ import type {
   ScribePublishRequestEventDetail,
   ScribePublishResultEventDetail,
   ScribeReloadAnnotationsEventDetail,
+  ScribeRemoteRebaseReadyEventDetail,
   ScribeSaveRequestEventDetail,
   ScribeSaveResultEventDetail,
   ScribeTranscriptionEventDetail,
@@ -54,6 +55,7 @@ export type {
   ScribePublishRequestEventDetail,
   ScribePublishResultEventDetail,
   ScribeReloadAnnotationsEventDetail,
+  ScribeRemoteRebaseReadyEventDetail,
   ScribeSaveRequestEventDetail,
   ScribeSaveResultEventDetail,
   ScribeTranscriptionEventDetail,
@@ -70,6 +72,7 @@ declare global {
     'scribe:focus-resize-handle': CustomEvent<ScribeFocusResizeHandleEventDetail>;
     'scribe:publish-result': CustomEvent<ScribePublishResultEventDetail>;
     'scribe:reload-annotations': CustomEvent<ScribeReloadAnnotationsEventDetail>;
+    'scribe:remote-rebase-ready': CustomEvent<ScribeRemoteRebaseReadyEventDetail>;
     'scribe:request-publish': CustomEvent<ScribePublishRequestEventDetail>;
     'scribe:request-save': CustomEvent<ScribeSaveRequestEventDetail>;
     'scribe:request-transcribe-all': CustomEvent<{ canvasId: string; windowId: string }>;

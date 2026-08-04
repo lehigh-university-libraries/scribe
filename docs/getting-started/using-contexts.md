@@ -75,10 +75,17 @@ it the workspace default.
 Providers marked as requiring an API key need a credential under **Settings →
 Provider secrets**.
 
-- A **workspace** key can be used by uploads, reprocessing, and background jobs
-  and requires workspace administration.
+- A **workspace** key powers durable automatic transcription for image-URL
+  ingest, uploaded files, reprocessing, and other queued jobs, and requires
+  workspace administration.
 - A **personal** key is limited to foreground editor enrichment and is not
   inherited by queued work.
+
+This boundary follows the operation, not the browser location. When an upload
+or image-URL ingest opens the editor while automatic transcription continues,
+the work remains a durable workspace job and uses the workspace key. A personal
+key is considered only for an explicit foreground editor enrichment such as a
+manual line or page retranscription.
 
 Foreground editor enrichment prefers the newest active personal key for the
 selected provider over a workspace key. If the provider rejects that

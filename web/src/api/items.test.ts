@@ -28,7 +28,7 @@ vi.mock("../lib/util", async (importOriginal) => ({
   readFileBytes,
 }));
 
-import { getEditorManifest, getItemExportSnapshot, importManifest, listItems, prepareItemExport, UploadBatchError, uploadItemImages, type UploadBatchProgress } from "./items";
+import { getEditorManifest, getItemExportSnapshot, importManifest, listItems, prepareItemExport, UploadBatchCancellationError, UploadBatchError, uploadItemImages, type UploadBatchProgress } from "./items";
 
 const item = {
   id: "item-1",
@@ -245,18 +245,40 @@ describe("uploadItemImages", () => {
       UploadBatchFileStatus.FAILED,
     ]) });
     apiClient.uploadItemImage.mockReset();
+    const completedBatch = batch([UploadBatchFileStatus.COMPLETED, UploadBatchFileStatus.COMPLETED]);
     apiClient.uploadItemImage.mockResolvedValueOnce({
       item,
-      batch: batch([UploadBatchFileStatus.COMPLETED, UploadBatchFileStatus.COMPLETED]),
+      batch: completedBatch,
       transcriptionJobId: 202n,
     });
 
-    await expect(uploadItemImages(files(), { contextId: 7n, maxAttempts: 1, onProgress: progress })).resolves.toEqual(item);
+    await expect(uploadItemImages(files(), { contextId: 7n, maxAttempts: 1, onProgress: progress })).resolves.toEqual({
+      item,
+      batch: completedBatch,
+    });
 
     expect(apiClient.startUploadBatch.mock.calls[1][0].batchId).toBe(firstBatchID);
     expect(apiClient.uploadItemImage).toHaveBeenCalledOnce();
     expect(apiClient.uploadItemImage.mock.calls[0][0]).toMatchObject({ batchId: firstBatchID, sequence: 2 });
     expect(window.localStorage.length).toBe(0);
+  });
+
+  it("returns the final durable batch with every exact image and transcription job identity", async () => {
+    const completedBatch = batch([
+      UploadBatchFileStatus.COMPLETED,
+      UploadBatchFileStatus.COMPLETED,
+    ]);
+    apiClient.startUploadBatch.mockResolvedValueOnce({ item, batch: completedBatch });
+
+    await expect(uploadItemImages(files(), { contextId: 7n })).resolves.toEqual({
+      item,
+      batch: completedBatch,
+    });
+    expect(apiClient.uploadItemImage).not.toHaveBeenCalled();
+    expect(completedBatch.files).toEqual([
+      expect.objectContaining({ itemImageId: 100n, transcriptionJobId: 200n }),
+      expect.objectContaining({ itemImageId: 101n, transcriptionJobId: 201n }),
+    ]);
   });
 
   it("reports and honors cancellation while files are being hashed", async () => {
@@ -328,6 +350,54 @@ describe("uploadItemImages", () => {
     expect(apiClient.cancelUploadBatch).toHaveBeenCalledOnce();
     expect(apiClient.cancelUploadBatch).toHaveBeenCalledWith({ batchId: batchID });
     expect(window.localStorage.length).toBe(0);
+  });
+
+  it("lets committed single-file completion win over a late progress-callback abort", async () => {
+    const controller = new AbortController();
+    const singleFile = [files()[0]];
+    apiClient.startUploadBatch.mockResolvedValueOnce({
+      item,
+      batch: batch([UploadBatchFileStatus.PENDING]),
+    });
+    const completedBatch = batch([UploadBatchFileStatus.COMPLETED]);
+    apiClient.uploadItemImage.mockResolvedValueOnce({
+      item,
+      batch: completedBatch,
+      transcriptionJobId: 200n,
+    });
+
+    await expect(uploadItemImages(singleFile, {
+      contextId: 7n,
+      signal: controller.signal,
+      onProgress: ({ status }) => {
+        if (status === "completed") controller.abort();
+      },
+    })).resolves.toEqual({ item, batch: completedBatch });
+
+    expect(apiClient.uploadItemImage).toHaveBeenCalledOnce();
+    expect(apiClient.cancelUploadBatch).not.toHaveBeenCalled();
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it("reports when durable cancellation cannot be confirmed and preserves resume state", async () => {
+    const controller = new AbortController();
+    apiClient.uploadItemImage.mockResolvedValueOnce({
+      item,
+      batch: batch([UploadBatchFileStatus.COMPLETED, UploadBatchFileStatus.PENDING]),
+      transcriptionJobId: 201n,
+    });
+    apiClient.cancelUploadBatch.mockRejectedValueOnce(new ConnectError("temporarily unavailable", Code.Unavailable));
+
+    await expect(uploadItemImages(files(), {
+      contextId: 7n,
+      signal: controller.signal,
+      onProgress: ({ status }) => {
+        if (status === "completed") controller.abort();
+      },
+    })).rejects.toBeInstanceOf(UploadBatchCancellationError);
+
+    expect(apiClient.cancelUploadBatch).toHaveBeenCalledOnce();
+    expect(window.localStorage.length).toBe(1);
   });
 
   it("binds browser resume identity to file content and selected context", async () => {

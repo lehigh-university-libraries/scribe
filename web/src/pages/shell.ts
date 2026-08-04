@@ -3,7 +3,7 @@ import { getAnnotationPage } from "../api/annotations";
 import { createAPIKey, createProviderSecret, deleteAPIKey, deleteProviderSecret, getAuthMe, listAPIKeys, listProviderSecrets, logout, type APIKeyRecord, type GetAuthMeResponse, type ProviderSecretRecord } from "../api/auth";
 import { createContext, getContextMetrics, getModelCatalog, listContexts, type ContextMetrics } from "../api/context";
 import { subscribeToEvents } from "../api/events";
-import { deleteItem, getItemExportSnapshot, importManifest, listItemProviderCallAudits, listItems, prepareItemExport, uploadItemImages } from "../api/items";
+import { deleteItem, getItemExportSnapshot, importManifest, listItemProviderCallAudits, listItems, prepareItemExport, UploadBatchCancellationError, uploadItemImages } from "../api/items";
 import { processImageURL, reprocessItemImage } from "../api/processing";
 import { addWorkspaceMember, createWorkspace, deleteWorkspaceMember, listWorkspaceMembers, listWorkspaces, updateWorkspace, updateWorkspaceMember } from "../api/workspaces";
 import { applyWorkspaceToLocation, getCurrentWorkspaceId, setCurrentWorkspaceId, syncWorkspaceSelectionFromLocation, workspaceAwarePath } from "../lib/workspace";
@@ -13,7 +13,7 @@ import type { AnnotationExportFormat } from "../proto/scribe/v1/annotation_pb";
 import { ContextSchema, type Context, type GetModelCatalogResponse } from "../proto/scribe/v1/context_pb";
 import type { ItemSummary } from "../proto/scribe/v1/item_pb";
 import type { WorkspaceAccess, WorkspaceMember } from "../proto/scribe/v1/workspace_pb";
-import { avatar, buttons, canAdminWorkspace, canWriteWorkspace, card, contextOptions, currentWorkspace, currentWorkspaceRole, editorHrefForItem, formatDateTime, input, itemExportFormats, loginHref, primary, renderAPIKeys, renderItemActions, renderItemCard, renderProviderSecrets, waitForAutomaticTranscriptionStart, workspaceIdString, type ItemExportActionState } from "./shell_helpers";
+import { avatar, buttons, canAdminWorkspace, canWriteWorkspace, card, contextOptions, currentWorkspace, currentWorkspaceRole, editorHrefForItem, formatDateTime, input, itemExportFormats, loginHref, primary, renderAPIKeys, renderItemActions, renderItemCard, renderProviderSecrets, workspaceIdString, type ItemExportActionState } from "./shell_helpers";
 
 type ShellView = "library" | "contexts" | "settings";
 type ShellPanel = Exclude<ShellView, "library"> | null;
@@ -72,8 +72,10 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   // replace the form DOM while an upload is active; keeping it inside
   // bindLibraryActions would make the newly rendered Cancel button a no-op.
   let activeMultiUpload: AbortController | undefined;
+  let activeSingleUpload: AbortController | undefined;
   let drawerReturnFocus: HTMLElement | null = null;
   let modalReturnFocus: HTMLElement | null = null;
+  let uploadDialogReturnFocus: HTMLElement | null = null;
   let modalLoadGeneration = 0;
   let contextMetricsGeneration = 0;
   let settingsDataGeneration = 0;
@@ -102,6 +104,19 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           <div id="shell-modal-body" class="mt-5"></div>
         </div>
       </div>
+      <div id="shell-upload-dialog" aria-hidden="true" aria-labelledby="shell-upload-heading" aria-modal="true" role="dialog" class="fixed inset-0 z-[60] hidden items-center justify-center bg-foreground/20 p-4">
+        <div class="${card} w-full max-w-md" tabindex="-1">
+          <div class="flex items-start gap-3">
+            <span id="shell-upload-spinner" aria-hidden="true" class="mt-1 size-5 shrink-0 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary motion-reduce:animate-none"></span>
+            <div class="min-w-0 flex-1">
+              <h2 id="shell-upload-heading" class="text-lg font-semibold">Uploading and processing</h2>
+              <p id="shell-upload-filename" class="mt-1 truncate text-sm text-muted-foreground"></p>
+              <p id="shell-upload-status" role="status" aria-live="polite" class="mt-4 text-sm">Preparing file…</p>
+            </div>
+          </div>
+          <div class="mt-5 flex justify-end"><button id="shell-upload-cancel" class="${buttons}" type="button">Cancel upload</button></div>
+        </div>
+      </div>
     </div>
   `);
 
@@ -114,15 +129,55 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   const modal = document.getElementById("shell-modal") as HTMLDivElement;
   const modalTitle = document.getElementById("shell-modal-title") as HTMLParagraphElement;
   const modalBody = document.getElementById("shell-modal-body") as HTMLDivElement;
+  const uploadDialog = document.getElementById("shell-upload-dialog") as HTMLDivElement;
+  const uploadFilename = document.getElementById("shell-upload-filename") as HTMLParagraphElement;
+  const uploadStatus = document.getElementById("shell-upload-status") as HTMLParagraphElement;
+  const uploadSpinner = document.getElementById("shell-upload-spinner") as HTMLSpanElement;
+  const uploadCancel = document.getElementById("shell-upload-cancel") as HTMLButtonElement;
 
   function syncDialogInertness(): void {
     const modalOpen = !modal.classList.contains("hidden");
+    const uploadOpen = !uploadDialog.classList.contains("hidden");
     const drawerOpen = state.panel !== null;
     for (const element of [sidebar, topbar, content, accountFab]) {
-      element.inert = modalOpen || drawerOpen;
+      element.inert = uploadOpen || modalOpen || drawerOpen;
     }
-    drawer.inert = modalOpen;
-    modal.inert = !modalOpen;
+    drawer.inert = uploadOpen || modalOpen;
+    modal.inert = uploadOpen || !modalOpen;
+    uploadDialog.inert = !uploadOpen;
+  }
+
+  function openSingleUploadDialog(filename: string): void {
+    uploadDialogReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    uploadFilename.textContent = filename;
+    uploadStatus.textContent = "Preparing file…";
+    uploadSpinner.classList.remove("hidden");
+    uploadCancel.textContent = "Cancel upload";
+    uploadDialog.classList.remove("hidden");
+    uploadDialog.classList.add("flex");
+    uploadDialog.setAttribute("aria-hidden", "false");
+    syncDialogInertness();
+    uploadCancel.focus({ preventScroll: true });
+  }
+
+  function showSingleUploadResult(message: string): void {
+    uploadStatus.textContent = message;
+    uploadSpinner.classList.add("hidden");
+    uploadCancel.textContent = "Close";
+    uploadCancel.focus({ preventScroll: true });
+  }
+
+  function closeSingleUploadDialog(): void {
+    if (activeSingleUpload) return;
+    uploadDialog.classList.add("hidden");
+    uploadDialog.classList.remove("flex");
+    uploadDialog.setAttribute("aria-hidden", "true");
+    syncDialogInertness();
+    const focusTarget = uploadDialogReturnFocus?.isConnected
+      ? uploadDialogReturnFocus
+      : document.getElementById("library-single-file") ?? document.getElementById("library-refresh");
+    focusTarget?.focus({ preventScroll: true });
+    uploadDialogReturnFocus = null;
   }
 
   const selectedContextId = () => {
@@ -419,32 +474,71 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       const imageUrl = (document.getElementById("library-image-url") as HTMLInputElement).value.trim();
       if (!imageUrl) return;
       try {
+        status.textContent = "Processing image and starting automatic transcription…";
         const result = await processImageURL(imageUrl, selectedContextId());
         const itemImageId = uint64ToString(result.itemImageId);
         if (itemImageId && itemImageId !== "0") {
-          await waitForAutomaticTranscriptionStart(itemImageId);
-          window.location.href = workspaceAwarePath(`/editor?itemImageId=${encodeURIComponent(itemImageId)}`);
+          const params = new URLSearchParams({ itemImageId });
+          if (result.itemId) params.set("itemId", result.itemId);
+          const jobId = uint64ToString(result.transcriptionJobId);
+          if (jobId && jobId !== "0") params.set("jobId", jobId);
+          window.location.href = workspaceAwarePath(`/editor?${params.toString()}`);
           return;
         }
         await refreshWorkspaceScopedData();
         renderAll();
       } catch (error) { status.textContent = `Error: ${String(error)}`; }
     });
-    document.getElementById("library-form-single")?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const status = document.getElementById("library-single-status") as HTMLParagraphElement;
+    const submitSingleUpload = async () => {
+      if (activeSingleUpload) return;
+      const status = document.getElementById("library-single-status") as HTMLParagraphElement | null;
       const file = (document.getElementById("library-single-file") as HTMLInputElement).files?.[0];
       if (!file) return;
+      const controller = new AbortController();
+      activeSingleUpload = controller;
+      openSingleUploadDialog(file.name || "Selected image");
+      if (status) status.textContent = "Uploading and processing…";
       try {
-        const item = await uploadItemImages([file], { contextId: selectedContextId() });
-        const itemImageId = item.images[0] ? uint64ToString(item.images[0].id) : "";
-        if (itemImageId && itemImageId !== "0") {
-          await waitForAutomaticTranscriptionStart(itemImageId);
-          window.location.href = workspaceAwarePath(`/editor?itemImageId=${encodeURIComponent(itemImageId)}`);
-          return;
-        }
-      } catch (error) { status.textContent = `Error: ${String(error)}`; }
+        const result = await uploadItemImages([file], {
+          contextId: selectedContextId(),
+          signal: controller.signal,
+          onProgress: ({ completed, total, filename, status: progressStatus, attempt }) => {
+            if (activeSingleUpload !== controller) return;
+            if (progressStatus === "hashing") uploadStatus.textContent = `Preparing ${completed + 1}/${total}: ${filename}`;
+            else if (progressStatus === "retrying") uploadStatus.textContent = `Upload interrupted; retrying ${filename} (attempt ${attempt + 1})…`;
+            else if (progressStatus === "completed") uploadStatus.textContent = `Uploaded ${completed}/${total}. Starting automatic transcription…`;
+            else if (progressStatus === "failed") uploadStatus.textContent = `Upload failed for ${filename}.`;
+            else uploadStatus.textContent = "Canceling upload…";
+          },
+        });
+        const uploaded = result.batch.files.find((entry) => entry.sequence === 1);
+        const itemImageId = uint64ToString(uploaded?.itemImageId ?? 0n);
+        if (!itemImageId || itemImageId === "0") throw new Error("upload completed without an image identifier");
+        const params = new URLSearchParams({ itemImageId });
+        if (result.item.id) params.set("itemId", result.item.id);
+        const jobId = uint64ToString(uploaded?.transcriptionJobId ?? 0n);
+        if (jobId && jobId !== "0") params.set("jobId", jobId);
+        window.location.href = workspaceAwarePath(`/editor?${params.toString()}`);
+      } catch (error) {
+        if (activeSingleUpload !== controller) return;
+        const cancellationUnconfirmed = error instanceof UploadBatchCancellationError;
+        const canceled = controller.signal.aborted && !cancellationUnconfirmed;
+        const message = cancellationUnconfirmed
+          ? error.message
+          : canceled
+            ? "Upload canceled."
+            : `Upload failed: ${error instanceof Error ? error.message : String(error)}`;
+        if (status) status.textContent = message;
+        showSingleUploadResult(message);
+      } finally {
+        if (activeSingleUpload === controller) activeSingleUpload = undefined;
+      }
+    };
+    document.getElementById("library-form-single")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void submitSingleUpload();
     });
+    document.getElementById("library-single-file")?.addEventListener("change", () => void submitSingleUpload());
     document.getElementById("library-form-multi")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const status = document.getElementById("library-multi-status") as HTMLParagraphElement;
@@ -466,7 +560,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         await refreshWorkspaceScopedData();
         renderAll();
       } catch (error) {
-        status.textContent = controller.signal.aborted ? "Batch canceled; select the same files to resume." : `Error: ${String(error)}`;
+        status.textContent = error instanceof UploadBatchCancellationError
+          ? error.message
+          : controller.signal.aborted
+            ? "Batch canceled; select the same files to resume."
+            : `Error: ${String(error)}`;
       } finally {
         if (activeMultiUpload === controller) activeMultiUpload = undefined;
       }
@@ -764,6 +862,16 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   }
 
   const handleDialogKeyDown = (event: KeyboardEvent) => {
+    if (!uploadDialog.classList.contains("hidden")) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (activeSingleUpload) activeSingleUpload.abort();
+        else closeSingleUploadDialog();
+      } else {
+        trapDialogFocus(event, uploadDialog);
+      }
+      return;
+    }
     if (!modal.classList.contains("hidden")) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -784,6 +892,14 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   };
 
   document.getElementById("shell-modal-close")?.addEventListener("click", closeLogsModal);
+  uploadCancel.addEventListener("click", () => {
+    if (activeSingleUpload) {
+      uploadStatus.textContent = "Canceling upload…";
+      activeSingleUpload.abort();
+    } else {
+      closeSingleUploadDialog();
+    }
+  });
   modal.addEventListener("click", (event) => { if (event.target === modal) closeLogsModal(); });
   backdrop.addEventListener("click", () => void openPanel(null));
   document.addEventListener("keydown", handleDialogKeyDown);
@@ -802,6 +918,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     modalLoadGeneration++;
     if (itemSearchTimer !== undefined) window.clearTimeout(itemSearchTimer);
     itemListAbortController?.abort();
+    activeSingleUpload?.abort();
     activeMultiUpload?.abort();
     document.removeEventListener("keydown", handleDialogKeyDown);
     subscription?.close();

@@ -1,5 +1,3 @@
-import { subscribeToEvents } from "../api/events";
-import { listTranscriptionJobs } from "../api/transcription";
 import { workspaceAwarePath } from "../lib/workspace";
 import { html, uint64ToString, type TrustedHTML } from "../lib/util";
 import type { APIKeyRecord, GetAuthMeResponse, ProviderSecretRecord } from "../api/auth";
@@ -140,53 +138,4 @@ export function renderAPIKeys(keys: APIKeyRecord[]): TrustedHTML {
       <button data-api-key-delete="${String(key.id)}" class="${buttons}" type="button">Delete</button>
     </div>
   `)}</div>`;
-}
-
-export async function waitForAutomaticTranscriptionStart(itemImageId: string): Promise<void> {
-  await new Promise<void>((resolve) => {
-    let sub: { close: () => void } | null = null;
-    let settled = false;
-    let reconciliation = Promise.resolve();
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timeout);
-      sub?.close();
-      resolve();
-    };
-    const reconcile = () => {
-      // Queue every ready-edge reconciliation. If the stream becomes ready
-      // while the initial snapshot is still in flight, the second lookup must
-      // run afterward or a just-created job can remain invisible until timeout.
-      reconciliation = reconciliation
-        .then(async () => {
-          if (settled) return;
-          const jobs = await listTranscriptionJobs(BigInt(itemImageId));
-          if (jobs[0]) finish();
-        })
-        .catch(() => undefined);
-    };
-    const timeout = window.setTimeout(() => {
-      finish();
-    }, 120000);
-    // Subscribe before reading the durable snapshot. The stream's ready event
-    // establishes its high-water mark; reconciling at both edges closes the
-    // snapshot/subscription race without treating transient event data as state.
-    sub = subscribeToEvents({
-      itemImageId,
-      onReady: reconcile,
-      types: [
-        "dev.scribe.transcription.task.started",
-        "dev.scribe.transcription.completed",
-        "dev.scribe.transcription.failed",
-      ],
-    }, finish);
-    if (settled) {
-      // A test transport or an already-buffered in-process transport may
-      // deliver synchronously before subscribeToEvents returns its handle.
-      sub.close();
-      return;
-    }
-    reconcile();
-  });
 }

@@ -15,6 +15,12 @@ AnnotationPage, OCR provenance, quota accounting, and any durable job. A
 single uploaded file uses an upload batch containing one file, so upload retry,
 resume, cancellation, and progress have exactly one implementation.
 
+In the bundled library, choosing a file on the single-image tab starts hashing
+and upload immediately; no separate submit click is required. An upload dialog
+keeps preparation/upload progress and a Cancel action visible until the editor
+handoff. Canceling uses the same durable batch-cancellation boundary as a
+multi-file upload.
+
 `ProcessImageURL`, `ProcessHOCR`, and `ImportManifest` require a stable
 `idempotency_key`. Reusing a key with the same request replays the committed
 result; reusing it with different content returns `already_exists`. Generated
@@ -41,6 +47,14 @@ database-byte accounting.
 All processing resolves a context before expensive work. The durable job stores
 an immutable context snapshot, so later context edits cannot change an ingest
 already in progress.
+
+Image-URL and uploaded-file ingest schedule automatic transcription as a
+durable workspace job. That job resolves any required credential from the
+workspace provider-secret scope; opening its editor immediately does not turn
+the work into foreground enrichment or allow it to inherit a personal key. The
+bundled client carries the returned job ID into the supported
+[editor deep link](deep-links.md), where progress and terminal failure are
+reconciled from durable job state.
 
 `ProcessHOCR` requires exactly one image source: either at most 100 MiB of
 `image_data` or an absolute public HTTP(S) external image URL. Credentials,

@@ -6,6 +6,7 @@ import { renderEditor } from "./editor";
 const mocks = vi.hoisted(() => ({
   viewer: vi.fn(),
   getOCRRun: vi.fn(),
+  getTranscriptionJob: vi.fn(),
   reprocessItemImage: vi.fn(),
   listTranscriptionJobs: vi.fn(),
   subscribeToEvents: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("../api/processing", () => ({
 }));
 
 vi.mock("../api/transcription", () => ({
+  getTranscriptionJob: mocks.getTranscriptionJob,
   listTranscriptionJobs: mocks.listTranscriptionJobs,
 }));
 
@@ -55,6 +57,7 @@ describe("renderEditor", () => {
     window.history.replaceState({}, "", "/editor");
     mocks.viewer.mockReset();
     mocks.getOCRRun.mockReset();
+    mocks.getTranscriptionJob.mockReset();
     mocks.reprocessItemImage.mockReset();
     mocks.listTranscriptionJobs.mockReset();
     mocks.subscribeToEvents.mockReset();
@@ -120,6 +123,20 @@ describe("renderEditor", () => {
       .toContain("Failed to load the OCR run");
     expect(document.getElementById("editor-recovery-retry")?.textContent).toContain("Retry");
     expect(document.querySelector('#mirador-viewer a')?.textContent).toContain("Back to library");
+  });
+
+  it("rejects a malformed exact transcription job before loading editor state", async () => {
+    window.history.replaceState({}, "", "/editor?itemImageId=42&jobId=not-a-job");
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    await renderEditor(app);
+
+    expect(document.querySelector('#mirador-viewer [role="alert"]')?.textContent)
+      .toContain("invalid jobId");
+    expect(mocks.getOCRRun).not.toHaveBeenCalled();
+    expect(mocks.getTranscriptionJob).not.toHaveBeenCalled();
+    expect(mocks.viewer).not.toHaveBeenCalled();
   });
 
   it("requests a save before leaving a dirty editor", async () => {
@@ -677,6 +694,16 @@ describe("renderEditor", () => {
     await renderEditor(app);
 
     expect(mocks.viewer).toHaveBeenCalled();
+    expect(reloads).toBe(0);
+
+    document.dispatchEvent(new CustomEvent("scribe:remote-rebase-ready", {
+      detail: {
+        canvasId: "https://example.test/canvas/1",
+        itemImageId: "7",
+        windowId: "scribe-editor-window",
+      },
+    }));
+
     expect(reloads).toBe(1);
   });
 
@@ -692,16 +719,15 @@ describe("renderEditor", () => {
       model: "test-model",
       imageUrl: "https://example.test/page.jpg",
     });
-    mocks.listTranscriptionJobs.mockResolvedValue([
-      {
-        id: 91n,
-        status: "failed",
-        completedSegments: 0,
-        failedSegments: 0,
-        totalSegments: 3,
-        errorMessage: "workspace provider credential is not configured",
-      },
-    ]);
+    mocks.getTranscriptionJob.mockResolvedValue({
+      id: 91n,
+      itemImageId: 7n,
+      status: "failed",
+      completedSegments: 0,
+      failedSegments: 0,
+      totalSegments: 3,
+      errorMessage: "workspace provider credential is not configured",
+    });
     const app = document.createElement("div");
     document.body.appendChild(app);
 
@@ -713,6 +739,40 @@ describe("renderEditor", () => {
     expect(
       document.getElementById("editor-transcription-status")?.textContent,
     ).not.toContain("Preparing batch transcription");
+    expect(mocks.getTranscriptionJob).toHaveBeenCalledOnce();
+    expect(mocks.getTranscriptionJob).toHaveBeenCalledWith(91n);
+    expect(mocks.listTranscriptionJobs).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when an exact transcription job belongs to another item image", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/editor?itemImageId=7&jobId=91",
+    );
+    mocks.getOCRRun.mockResolvedValue({
+      contextId: 0n,
+      itemImageId: 7n,
+      model: "test-model",
+      imageUrl: "https://example.test/page.jpg",
+    });
+    mocks.getTranscriptionJob.mockResolvedValue({
+      id: 91n,
+      itemImageId: 8n,
+      status: "pending",
+      completedSegments: 0,
+      failedSegments: 0,
+      totalSegments: 0,
+    });
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    await renderEditor(app);
+
+    expect(document.querySelector('#mirador-viewer [role="alert"]')?.textContent)
+      .toContain("transcription job belongs to a different item image");
+    expect(mocks.viewer).not.toHaveBeenCalled();
+    expect(mocks.listTranscriptionJobs).not.toHaveBeenCalled();
   });
 
   it("reconciles the durable job snapshot after the resumable stream is ready", async () => {
@@ -724,6 +784,15 @@ describe("renderEditor", () => {
       imageUrl: "https://example.test/page.jpg",
     });
     mocks.listTranscriptionJobs
+      .mockResolvedValueOnce([
+        {
+          id: 91n,
+          status: "running",
+          completedSegments: 2,
+          failedSegments: 0,
+          totalSegments: 3,
+        },
+      ])
       .mockResolvedValueOnce([
         {
           id: 91n,
@@ -760,8 +829,17 @@ describe("renderEditor", () => {
       mocks.listTranscriptionJobs.mock.invocationCallOrder[0],
     );
     expect(reloads).toBe(0);
-    onReady?.();
+    document.dispatchEvent(new CustomEvent("scribe:remote-rebase-ready", {
+      detail: {
+        canvasId: "https://example.test/canvas/1",
+        itemImageId: "7",
+        windowId: "scribe-editor-window",
+      },
+    }));
     await vi.waitFor(() => expect(mocks.listTranscriptionJobs).toHaveBeenCalledTimes(2));
+    expect(reloads).toBe(0);
+    onReady?.();
+    await vi.waitFor(() => expect(mocks.listTranscriptionJobs).toHaveBeenCalledTimes(3));
     expect(reloads).toBe(1);
   });
 
@@ -793,6 +871,13 @@ describe("renderEditor", () => {
     });
 
     await renderEditor(app);
+    document.dispatchEvent(new CustomEvent("scribe:remote-rebase-ready", {
+      detail: {
+        canvasId: "https://example.test/canvas/1",
+        itemImageId: "8",
+        windowId: "scribe-editor-window",
+      },
+    }));
     onEvent?.({
       type: "dev.scribe.transcription.completed",
       time: "2026-06-01T00:00:00Z",

@@ -7,6 +7,7 @@ import scribeMiradorPlugin, {
   type ScribeAdapterRuntime,
   type ScribeAnnotationAdapterConstructor,
   type ScribeAnnotationClient,
+  type ScribeRemoteRebaseReadyEventDetail,
 } from 'mirador-scribe';
 
 const annotation: IdentifiedIIIFAnnotation = {
@@ -57,6 +58,15 @@ const runtime: ScribeAdapterRuntime = {
   itemImageId: '1',
   windowId: 'window-1',
 };
+const remoteRebaseReady: ScribeRemoteRebaseReadyEventDetail = {
+  canvasId: 'https://consumer.example/canvas/1',
+  itemImageId: '1',
+  windowId: 'window-1',
+};
+document.addEventListener('scribe:remote-rebase-ready', (event) => {
+  const detail: ScribeRemoteRebaseReadyEventDetail = event.detail;
+  void detail;
+});
 
 const adapter = new ScribeAnnotationAdapter(
   '/api',
@@ -95,6 +105,7 @@ void joinedLines;
 void joinedWords;
 void loadedAnnotation;
 void pagePromise;
+void remoteRebaseReady;
 void savedPage;
 void scribeMiradorPlugin;
 void splitLines;

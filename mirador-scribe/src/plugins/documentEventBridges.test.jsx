@@ -6,12 +6,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createEditorSessionCache,
   editorSessionCacheReducer,
+  editorSessionForCanvas,
 } from '../editor/sessionCache';
 import { useAnnotationCreationBridge } from './useAnnotationCreationBridge';
 import { useAnnotationMutationBridge } from './useAnnotationMutationBridge';
 import { useDocumentEvent } from './useDocumentEvent';
 import { useEditorRequestBridge, useViewportBridge } from './useEditorRequestBridge';
 import { useInlineEditorBridge } from './useInlineEditorBridge';
+import { useRemoteAnnotationRebase } from './useRemoteAnnotationRebase';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -75,6 +77,11 @@ function RequestBridgeHarness({ options }) {
   return null;
 }
 
+function RemoteRebaseHarness({ options }) {
+  useRemoteAnnotationRebase(options);
+  return null;
+}
+
 function ViewportBridgeHarness({ options }) {
   useViewportBridge(options);
   return null;
@@ -89,6 +96,39 @@ afterEach(() => {
 });
 
 describe('document event bridges', () => {
+  it('announces remote-rebase readiness only after its reload listener is mounted', () => {
+    const emptyPage = page([]);
+    const cache = createEditorSessionCache(canvasId, emptyPage);
+    const adapter = { itemImageId: '41', loadSnapshot: vi.fn() };
+    const reloadAnnotations = vi.fn(async () => {});
+    const ready = vi.fn((event) => {
+      document.dispatchEvent(new CustomEvent('scribe:reload-annotations', {
+        detail: event.detail,
+      }));
+    });
+    document.addEventListener('scribe:remote-rebase-ready', ready);
+
+    mount(<RemoteRebaseHarness options={{
+      adapterFactory: () => adapter,
+      canvasId,
+      dispatchSession: () => cache,
+      reloadAnnotations,
+      session: editorSessionForCanvas(cache, canvasId),
+      setStatusMessage: vi.fn(),
+      syncPage: vi.fn(async () => {}),
+      windowId,
+    }} />);
+
+    expect(ready).toHaveBeenCalledOnce();
+    expect(ready.mock.calls[0][0].detail).toEqual({
+      canvasId,
+      itemImageId: '41',
+      windowId,
+    });
+    expect(reloadAnnotations).toHaveBeenCalledWith(adapter, canvasId);
+    document.removeEventListener('scribe:remote-rebase-ready', ready);
+  });
+
   it('registers once, routes through the latest callback, and removes the exact listener', () => {
     const addListener = vi.spyOn(document, 'addEventListener');
     const removeListener = vi.spyOn(document, 'removeEventListener');
