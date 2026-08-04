@@ -80,6 +80,11 @@ Provider secrets**.
 - A **personal** key is limited to foreground editor enrichment and is not
   inherited by queued work.
 
+Foreground editor enrichment prefers the newest active personal key for the
+selected provider over a workspace key. If the provider rejects that
+credential, replace or delete the personal key; Scribe does not silently retry
+the request with a workspace credential.
+
 A queued job that selects a provider without its required workspace key fails
 immediately with an actionable job error; it does not fall back to a personal
 or deployment-wide credential.

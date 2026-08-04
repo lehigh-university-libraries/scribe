@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
@@ -359,6 +360,10 @@ func annotationEnrichmentConnectError(err error) error {
 		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("annotation enrichment deadline exceeded"))
 	case errors.Is(err, errInvalidAnnotationEnrichmentInput):
 		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, hocr.ErrPermanentProviderRequest):
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("transcription provider rejected the configured credential or context"))
+	case errors.Is(err, hocr.ErrRetryableProviderRequest):
+		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("transcription provider is temporarily unavailable"))
 	default:
 		return connect.NewError(connect.CodeInternal, fmt.Errorf("annotation enrichment failed"))
 	}

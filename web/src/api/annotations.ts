@@ -28,6 +28,15 @@ export class AnnotationRevisionConflictError extends Error {
   }
 }
 
+export class TerminalAnnotationEnrichmentError extends Error {
+  readonly scribeBatchDisposition = "stop" as const;
+
+  constructor(message: string, cause: ConnectError) {
+    super(message, { cause });
+    this.name = "TerminalAnnotationEnrichmentError";
+  }
+}
+
 function parseAnnotationPage(raw: string): AnnotationPage {
   const value = parseIIIFJSON(raw);
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -142,13 +151,30 @@ export async function enrichAnnotation(
   annotationJson: string,
   contextId: string | number | bigint = 0,
 ): Promise<unknown> {
-  const resp = await client().enrichAnnotation({
-    itemImageId: BigInt(itemImageId),
-    scope,
-    annotationJson,
-    contextId: BigInt(contextId),
-  });
-  return parseIIIFJSON(resp.annotationJson);
+  try {
+    const resp = await client().enrichAnnotation({
+      itemImageId: BigInt(itemImageId),
+      scope,
+      annotationJson,
+      contextId: BigInt(contextId),
+    });
+    return parseIIIFJSON(resp.annotationJson);
+  } catch (error) {
+    const connectError = ConnectError.from(error);
+    if (connectError.code === Code.FailedPrecondition) {
+      throw new TerminalAnnotationEnrichmentError(
+        "The transcription provider rejected the selected context. Check its model and provider key, then try again.",
+        connectError,
+      );
+    }
+    if (connectError.code === Code.Unavailable) {
+      throw new TerminalAnnotationEnrichmentError(
+        "The transcription provider is temporarily unavailable. Try again shortly.",
+        connectError,
+      );
+    }
+    throw error;
+  }
 }
 
 export async function splitLineIntoWords(

@@ -27,6 +27,21 @@ export function commonViewerOptions(
   return {
     id: "mirador-viewer",
     osdConfig,
+    theme: {
+      components: {
+        CompanionWindow: {
+          styleOverrides: {
+            contents: {
+              display: "flex",
+              flex: "1 1 auto",
+              flexDirection: "column",
+              minHeight: 0,
+              overflowY: "auto",
+            },
+          },
+        },
+      },
+    },
     annotation: {
       adapter: (canvasID: string) =>
         new Adapter(annotationBase, 3, canvasID, "Scribe User", {

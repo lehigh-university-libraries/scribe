@@ -24,6 +24,7 @@ vi.mock("./transport", () => ({
 }));
 
 import {
+  TerminalAnnotationEnrichmentError,
   enrichAnnotation,
   exportAnnotationPage,
   getAnnotation,
@@ -33,6 +34,7 @@ import {
   splitLineIntoTwoLines,
   splitLineIntoWords,
 } from "./annotations";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { AnnotationExportFormat } from "../proto/scribe/v1/annotation_pb";
 
 const page = {
@@ -80,6 +82,38 @@ describe("structural annotation API", () => {
       itemImageId: 91n,
       scope: "line",
     });
+  });
+
+  it.each<[Code, string]>([
+    [Code.FailedPrecondition, "rejected the selected context"],
+    [Code.Unavailable, "temporarily unavailable"],
+  ])("marks provider-level enrichment code %s as terminal for a foreground batch", async (code, message) => {
+    mocks.enrichAnnotation.mockRejectedValueOnce(new ConnectError("safe server failure", code));
+
+    const failure = await enrichAnnotation(
+      "91",
+      "line",
+      JSON.stringify(page.items[0]),
+      "23",
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(TerminalAnnotationEnrichmentError);
+    expect(failure).toMatchObject({
+      message: expect.stringContaining(message),
+      scribeBatchDisposition: "stop",
+    });
+  });
+
+  it("leaves non-provider enrichment failures available for per-line handling", async () => {
+    const failure = new ConnectError("annotation input is stale", Code.InvalidArgument);
+    mocks.enrichAnnotation.mockRejectedValueOnce(failure);
+
+    await expect(enrichAnnotation(
+      "91",
+      "line",
+      JSON.stringify(page.items[0]),
+      "23",
+    )).rejects.toBe(failure);
   });
 
   it("exports one exact committed item-image revision", async () => {

@@ -37,6 +37,21 @@ import { annotationGranularity, annotationText, isLineAnnotation } from '../util
 import { scribeTheme } from '../theme';
 import StructuralEditDialogs from './StructuralEditDialogs';
 
+export const actionPanelRootSx = {
+  alignItems: 'center',
+  background: `linear-gradient(180deg, ${scribeTheme.background} 0%, ${scribeTheme.surfaceMuted} 100%)`,
+  boxSizing: 'border-box',
+  display: 'flex',
+  flex: '1 1 auto',
+  flexDirection: 'column',
+  height: '100%',
+  justifyContent: 'flex-start',
+  minHeight: 0,
+  overflow: 'auto',
+  p: 1,
+  width: '100%',
+};
+
 /**
  * @typedef {import('react').ElementType<{ fontSize?: 'small' | 'inherit' | 'large' | 'medium' }>} ToolbarIcon
  * @typedef {import('../types/scribe').IdentifiedIIIFAnnotation} IdentifiedAnnotation
@@ -279,19 +294,7 @@ export default function ScribeActionPanel({
   return (
     <CompanionWindow title="" id={id} windowId={windowId}>
       <Box
-        sx={{
-          alignItems: 'center',
-          background: `linear-gradient(180deg, ${scribeTheme.background} 0%, ${scribeTheme.surfaceMuted} 100%)`,
-          boxSizing: 'border-box',
-          display: 'flex',
-          flexDirection: 'column',
-          height: 'auto',
-          justifyContent: 'flex-start',
-          minHeight: 'min-content',
-          overflow: 'auto',
-          p: 1,
-          width: '100%',
-        }}
+        sx={actionPanelRootSx}
       >
         <Box
           sx={{

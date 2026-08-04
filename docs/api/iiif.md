@@ -126,6 +126,11 @@ extension properties, and replaces its draft directly with the complete page
 returned by the backend. Clients must not reconstruct a result by removing or
 merging annotation fragments locally. Enrichment RPCs likewise accept and
 return IIIF JSON so Mirador and other editors reuse the server's semantics.
+An enrichment request that the configured transcription provider permanently
+rejects returns Connect `failed_precondition` with a fixed, redacted message;
+a retryable provider outage returns `unavailable`. Clients should stop a
+multi-line foreground batch on either code instead of repeating the same
+provider failure for every remaining line.
 Export and publish operations must read the committed page revision rather than browser state.
 `SaveAnnotationPage` is the only correction save path; hOCR is an import/export
 projection, not a second editable persistence API.

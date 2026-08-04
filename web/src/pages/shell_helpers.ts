@@ -10,6 +10,7 @@ import type { Workspace, WorkspaceAccess } from "../proto/scribe/v1/workspace_pb
 
 export const buttons = "inline-flex items-center gap-2 rounded-md border bg-background px-3.5 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50";
 export const primary = "inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50";
+export const destructive = "inline-flex items-center gap-2 rounded-md bg-destructive px-3.5 py-2 text-sm font-medium text-background shadow-xs transition hover:bg-destructive/90 focus-visible:ring-[3px] focus-visible:ring-destructive/30 disabled:pointer-events-none disabled:opacity-50";
 export const input = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
 export const card = "rounded-lg border bg-card p-5 text-card-foreground shadow-xs";
 
@@ -93,8 +94,13 @@ export function renderItemActions(item: ItemSummary, exportState?: ItemExportAct
     <div class="mt-4 flex flex-wrap items-center gap-2">
       ${openHref ? html`<a href="${openHref}" class="${primary}">Open editor</a>` : html`<span class="rounded-md border px-3 py-2 text-xs text-muted-foreground">No images</span>`}
       <button data-item-logs="${item.id}" class="${buttons}" type="button">Logs</button>
-      <button data-item-delete="${item.id}" class="${buttons} text-destructive" type="button">Delete</button>
       ${openHref ? itemExportFormats.map(({ format, label }) => html`<button data-item-export="${item.id}" data-item-export-format="${format}" class="${buttons}" type="button"${exportBusy ? " disabled" : ""}${exportState?.busyFormat === format ? ' aria-busy="true"' : ""}>${exportState?.busyFormat === format ? "Preparing…" : label}</button>`) : ""}
+      <button data-item-delete="${item.id}" aria-label="Delete item ${item.name?.trim() || item.id}" class="${destructive}" type="button">
+        <svg aria-hidden="true" focusable="false" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m4 4v6m6-6v6"></path>
+        </svg>
+        <span>Delete</span>
+      </button>
       ${exportState?.error ? html`<p class="basis-full text-xs text-destructive" role="alert">${exportState.error}</p>` : ""}
     </div>
   `;

@@ -9,6 +9,13 @@ import {
 /** @typedef {import('../types/scribe').ScribeAdapterFactory} ScribeAdapterFactory */
 /** @typedef {import('../types/scribe').ScribeAdapterLike} ScribeAdapterLike */
 
+/** @param {unknown} error @returns {boolean} */
+function stopsForegroundTranscriptionBatch(error) {
+  return Boolean(error
+    && typeof error === 'object'
+    && /** @type {{ scribeBatchDisposition?: unknown }} */ (error).scribeBatchDisposition === 'stop');
+}
+
 /**
  * @param {Object} options
  * @param {{ current: string }} options.activeCanvasRef
@@ -77,6 +84,9 @@ export function useEditorTranscription({
       setStatusMessage(`Transcribing… 0 / ${total}`);
       let nextPage = submittedPage;
       const failures = [];
+      const transformedIds = [];
+      let successful = 0;
+      let terminalFailure = null;
       const adapter = requireAdapter(targetCanvasId || annotationCanvasId(selectedAnnotation));
 
       for (let index = 0; index < targetAnnotations.length; index += 1) {
@@ -93,7 +103,11 @@ export function useEditorTranscription({
           // eslint-disable-next-line no-await-in-loop
           const transcribed = await adapter.transcribeAnnotation(annotation);
           if (!mountedRef.current || activeCanvasRef.current !== targetCanvasId) return;
-          if (transcribed) nextPage = upsertAnnotationInPage(nextPage, transcribed);
+          if (transcribed) {
+            nextPage = upsertAnnotationInPage(nextPage, transcribed);
+            if (annotation?.id) transformedIds.push(annotation.id);
+          }
+          successful += 1;
           document.dispatchEvent(new CustomEvent('scribe:transcription-result', {
             detail: {
               annotation: transcribed || annotation,
@@ -105,24 +119,35 @@ export function useEditorTranscription({
             },
           }));
         } catch (error) {
-          failures.push({
+          const failure = {
             id: annotation?.id || `segment ${done}`,
             message: error instanceof Error ? error.message : 'Retranscription failed',
-          });
+          };
+          failures.push(failure);
+          if (stopsForegroundTranscriptionBatch(error)) {
+            terminalFailure = failure;
+          }
         }
 
         if (!mountedRef.current || activeCanvasRef.current !== targetCanvasId) return;
+        if (terminalFailure) break;
       }
 
       if (activeCanvasRef.current !== targetCanvasId) return;
-      const selectedIds = targetAnnotations.flatMap((annotation) => (annotation.id ? [annotation.id] : []));
-      const { overlap } = applyTransformResult(targetCanvasId, submittedPage, nextPage, selectedIds);
+      const { overlap } = transformedIds.length > 0
+        ? applyTransformResult(targetCanvasId, submittedPage, nextPage, transformedIds)
+        : { overlap: false };
       setDialogOpen(false);
-      if (overlap) {
+      if (terminalFailure) {
+        const overlapMessage = overlap
+          ? ' Newer overlapping edits were preserved; review the pending conflict.'
+          : '';
+        setStatusMessage(`Retranscription stopped after ${successful}/${total}. ${terminalFailure.message}${overlapMessage}`);
+      } else if (overlap) {
         setStatusMessage('Retranscription finished, but newer overlapping edits were preserved. Review the pending conflict.');
       } else if (failures.length > 0) {
         const first = failures[0];
-        setStatusMessage(`Retranscribed ${total - failures.length}/${total}. ${first.id}: ${first.message}`);
+        setStatusMessage(`Retranscribed ${successful}/${total}. ${first.id}: ${first.message}`);
       } else {
         setStatusMessage(all ? 'Document transcribed.' : 'Selected text transcribed.');
       }

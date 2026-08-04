@@ -3,7 +3,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import ScribeActionPanel from './ScribeActionPanel';
+import ScribeActionPanel, { actionPanelRootSx } from './ScribeActionPanel';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -93,6 +93,15 @@ afterEach(async () => {
 });
 
 describe('ScribeActionPanel', () => {
+  it('fills the companion content allocation and scrolls inside it', () => {
+    expect(actionPanelRootSx).toMatchObject({
+      flex: '1 1 auto',
+      height: '100%',
+      minHeight: 0,
+      overflow: 'auto',
+    });
+  });
+
   it('keeps granularity visible and exposes structural shortcuts on their controls', async () => {
     container = document.createElement('div');
     document.body.appendChild(container);
