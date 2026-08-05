@@ -36,6 +36,63 @@ function annotationHasText(annotation) {
   ));
 }
 
+function assertTextualAnnotationPage(annotationPage) {
+  if (
+    annotationPage?.type !== "AnnotationPage"
+    || !Array.isArray(annotationPage.items)
+    || annotationPage.items.length === 0
+    || !annotationPage.items.some(annotationHasText)
+  ) {
+    throw new Error("missing annotations");
+  }
+}
+
+async function loadCanonicalAnnotationPage(itemImageID, workspaceID) {
+  const response = await browserContext.request.post(
+    new URL("/scribe.v1.AnnotationService/GetAnnotationPage", baseURL).href,
+    {
+      data: { itemImageId: itemImageID },
+      headers: {
+        "Connect-Protocol-Version": "1",
+        "Content-Type": "application/json",
+        "X-Scribe-Workspace-ID": workspaceID,
+      },
+    },
+  );
+  if (!response.ok()) throw new Error("canonical annotation request failed");
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error("invalid canonical annotation response");
+  }
+  if (typeof payload?.annotationPageJson !== "string") {
+    throw new Error("canonical annotation response omitted the page");
+  }
+  try {
+    return JSON.parse(payload.annotationPageJson);
+  } catch {
+    throw new Error("invalid canonical annotation page");
+  }
+}
+
+async function waitForPublishedAnnotationPage(annotationPath) {
+  const deadline = Date.now() + stageTimeoutMs;
+  while (Date.now() < deadline) {
+    const response = await browserContext.request.get(new URL(annotationPath, baseURL).href);
+    if (response.ok()) {
+      try {
+        return await response.json();
+      } catch {
+        throw new Error("invalid published annotation response");
+      }
+    }
+    if (response.status() !== 404) throw new Error("published annotation request failed");
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error("published annotation page did not become available");
+}
+
 async function findActionByValue(page, attribute, value) {
   const candidates = page.locator(`[${attribute}]`);
   const count = await candidates.count();
@@ -55,6 +112,14 @@ async function findAPIKeyDeleteByName(page, name) {
     if (parentText?.includes(name)) return candidate;
   }
   return undefined;
+}
+
+async function waitForActionToDisappear(attribute, value) {
+  if (!/^[a-z0-9-]+$/.test(attribute) || !value) throw new Error("invalid cleanup identity");
+  await page.waitForFunction(({ attributeName, expectedValue }) => (
+    Array.from(document.querySelectorAll(`[${attributeName}]`))
+      .every((element) => element.getAttribute(attributeName) !== expectedValue)
+  ), { attributeName: attribute, expectedValue: value });
 }
 
 let category = "home";
@@ -78,11 +143,13 @@ async function navigate(path, requireHealthy = true) {
   if (requireHealthy) assertBrowserHealthy();
 }
 
-async function deleteWithConfirmation(button) {
+async function deleteWithConfirmation(button, attribute) {
+  const value = (await button.getAttribute(attribute) ?? "").trim();
+  if (!value) throw new Error("missing cleanup identity");
   expectedConfirmation = true;
   try {
     await button.click();
-    await button.waitFor({ state: "detached" });
+    await waitForActionToDisappear(attribute, value);
   } finally {
     expectedConfirmation = false;
   }
@@ -115,7 +182,7 @@ async function deleteAPIKeyWithConfirmation(button, apiKeyID) {
     ) {
       throw new Error("token remained after cleanup");
     }
-    await button.waitFor({ state: "detached" });
+    await waitForActionToDisappear("data-api-key-delete", apiKeyID);
     if (await findActionByValue(page, "data-api-key-delete", apiKeyID)) {
       throw new Error("token cleanup rerender retained action");
     }
@@ -246,6 +313,7 @@ try {
 
   category = "upload";
   const fixture = Buffer.from((await readFile(fixturePath, "utf8")).trim(), "base64");
+  const fixtureName = `browser-readiness-${Date.now()}.png`;
   const startUploadResponsePromise = page.waitForResponse((response) => {
     const responseURL = new URL(response.url());
     return responseURL.origin === baseURL.origin
@@ -253,7 +321,7 @@ try {
       && response.request().method() === "POST";
   });
   await page.locator("#library-single-file").setInputFiles({
-    name: "browser-readiness.png",
+    name: fixtureName,
     mimeType: "image/png",
     buffer: fixture,
   });
@@ -272,8 +340,10 @@ try {
   ));
   const editorURL = new URL(page.url());
   const itemImageID = editorURL.searchParams.get("itemImageId");
+  const workspaceID = editorURL.searchParams.get("workspace_id");
   if (editorURL.searchParams.get("itemId") !== createdItemID) throw new Error("mismatched editor identity");
   if (!itemImageID) throw new Error("missing editor identity");
+  if (!workspaceID || !/^[1-9][0-9]*$/.test(workspaceID)) throw new Error("missing workspace identity");
   assertBrowserHealthy();
 
   category = "transcription";
@@ -288,26 +358,8 @@ try {
   assertBrowserHealthy();
 
   category = "annotations";
-  const annotationPath = `/presentation/v3/item-image-${itemImageID}/canvas/page-1/annotations`;
-  const annotationResponse = await browserContext.request.get(new URL(annotationPath, baseURL).href);
-  if (!annotationResponse.ok()) {
-    browserFaultCategory ??= "network";
-    throw new Error("annotation request failed");
-  }
-  let annotationPage;
-  try {
-    annotationPage = await annotationResponse.json();
-  } catch {
-    throw new Error("invalid annotation response");
-  }
-  if (
-    annotationPage?.type !== "AnnotationPage"
-    || !Array.isArray(annotationPage.items)
-    || annotationPage.items.length === 0
-    || !annotationPage.items.some(annotationHasText)
-  ) {
-    throw new Error("missing annotations");
-  }
+  const annotationPage = await loadCanonicalAnnotationPage(itemImageID, workspaceID);
+  assertTextualAnnotationPage(annotationPage);
   assertBrowserHealthy();
 
   category = "editor";
@@ -354,6 +406,9 @@ try {
   category = "publish";
   await page.getByRole("button", { name: "Publish edits", exact: true }).click();
   await page.getByText("Edits published.", { exact: true }).waitFor({ state: "visible" });
+  const publishedAnnotationPath = `/presentation/v3/item-image-${itemImageID}/canvas/page-1/annotations`;
+  const publishedAnnotationPage = await waitForPublishedAnnotationPage(publishedAnnotationPath);
+  assertTextualAnnotationPage(publishedAnnotationPage);
   assertBrowserHealthy();
 
   category = "responsive";
@@ -433,7 +488,7 @@ try {
           await navigate("/", false);
           const itemDelete = await findActionByValue(page, "data-item-delete", createdItemID);
           if (!itemDelete) throw new Error("missing item cleanup action");
-          await deleteWithConfirmation(itemDelete);
+          await deleteWithConfirmation(itemDelete, "data-item-delete");
           if (await findActionByValue(page, "data-item-delete", createdItemID)) {
             throw new Error("item remained after cleanup");
           }
