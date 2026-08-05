@@ -258,7 +258,12 @@ find "$scribe_artifact_dir" \
 Use [observability](observability.md) to interpret deployment status and
 readiness markers. A backend marker isolates frontend-to-VM startup, transport,
 or readiness-contract failures. An OCR marker identifies the failed image,
-segmentation, transcription, or Ollama stage.
+segmentation, transcription, or Ollama stage. A preview browser marker names
+only the failed home, context, upload, handoff, transcription, annotations,
+editor, overlay, retranscribe, save, publish, responsive, token,
+cleanup, network, or CSP stage. Inspect the named product boundary and the
+ordinary redacted service telemetry; browser state, DOM, URLs, tokens, console
+text, and provider responses are intentionally unavailable as artifacts.
 
 An authorized production deploy operator may rerun the same bounded probes from
 a trusted checkout of the deployed `main` commit. This creates new Cloud Run

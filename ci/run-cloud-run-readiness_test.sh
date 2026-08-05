@@ -276,6 +276,108 @@ if [[ "$1 $2" == "logging read" ]]; then
       "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
     },
     "textPayload": "ocr readiness failed: segment-request OCR_LOG_TRAILING_SECRET_SENTINEL\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: home\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: context\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: upload\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: handoff\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: transcription\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: annotations\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: editor\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: overlay\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: retranscribe\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: save\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: publish\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: responsive\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: token\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: cleanup\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: network\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: csp\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: token BROWSER_LOG_TRAILING_SECRET_SENTINEL\n"
   }
 ]
 JSON
@@ -340,7 +442,7 @@ done
 [[ "$(stat -c '%a' "$diagnostics")" == 600 ]] ||
   fail "diagnostics are not owner-only"
 
-secret_pattern='CONTROL_PLANE_ERROR_SECRET_SENTINEL|EXECUTION_(ANNOTATION|MESSAGE|ENV)_SECRET_SENTINEL|TASK_(ANNOTATION|MESSAGE|DETAIL|ENV)_SECRET_SENTINEL|LOG_(PAYLOAD|TRAILING)_SECRET_SENTINEL|NETWORK_LOG_TRAILING_SECRET_SENTINEL|OCR_LOG_TRAILING_SECRET_SENTINEL|JSON_LOG_SECRET_SENTINEL|hvs\.'
+secret_pattern='CONTROL_PLANE_ERROR_SECRET_SENTINEL|EXECUTION_(ANNOTATION|MESSAGE|ENV)_SECRET_SENTINEL|TASK_(ANNOTATION|MESSAGE|DETAIL|ENV)_SECRET_SENTINEL|LOG_(PAYLOAD|TRAILING)_SECRET_SENTINEL|NETWORK_LOG_TRAILING_SECRET_SENTINEL|OCR_LOG_TRAILING_SECRET_SENTINEL|BROWSER_LOG_TRAILING_SECRET_SENTINEL|JSON_LOG_SECRET_SENTINEL|hvs\.'
 if rg -n "$secret_pattern" "$diagnostics" "$TEST_DIR/console.out" "$TEST_DIR/console.err" >/dev/null; then
   fail "raw execution, task, log, or command diagnostics escaped the bounded renderer"
 fi
@@ -387,6 +489,52 @@ if rg -n \
 fi
 grep -Fq 'resource.labels.job_name=\"scribe-prod-ocr-readiness\"' "$MOCK_GCLOUD_LOG"
 grep -Fq 'labels.\"run.googleapis.com/execution_name\"=\"scribe-prod-ocr-readiness-def34\"' "$MOCK_GCLOUD_LOG"
+
+: >"$MOCK_GCLOUD_LOG"
+browser_diagnostics="$TEST_DIR/artifacts/browser-readiness.log"
+run_helper "$browser_diagnostics" \
+  env \
+  MOCK_GCLOUD_MODE=failure \
+  MOCK_EXECUTION=scribe-pr-42-browser-deadbeef-ghi56 \
+  "$ROOT_DIR/ci/run-cloud-run-readiness.sh" \
+  scribe-pr-42-browser-deadbeef browser "$browser_diagnostics"
+[[ "$HELPER_STATUS" -eq 19 ]] ||
+  fail "the browser helper did not preserve the Cloud Run execution status"
+for expected in \
+  '[readiness] kind=browser' \
+  '[readiness] job=scribe-pr-42-browser-deadbeef' \
+  '[readiness] execution=scribe-pr-42-browser-deadbeef-ghi56' \
+  'browser readiness failed: home' \
+  'browser readiness failed: context' \
+  'browser readiness failed: upload' \
+  'browser readiness failed: handoff' \
+  'browser readiness failed: transcription' \
+  'browser readiness failed: annotations' \
+  'browser readiness failed: editor' \
+  'browser readiness failed: overlay' \
+  'browser readiness failed: retranscribe' \
+  'browser readiness failed: save' \
+  'browser readiness failed: publish' \
+  'browser readiness failed: responsive' \
+  'browser readiness failed: token' \
+  'browser readiness failed: cleanup' \
+  'browser readiness failed: network' \
+  'browser readiness failed: csp' \
+  '[status] log_query=ok markers=16'; do
+  grep -Fq "$expected" "$browser_diagnostics" ||
+    fail "browser diagnostics omitted: $expected"
+done
+if rg -n \
+  'frontend readiness failed|frontend backend|frontend proxy|ocr readiness failed|BROWSER_LOG_TRAILING_SECRET_SENTINEL' \
+  "$browser_diagnostics" "$TEST_DIR/console.out" "$TEST_DIR/console.err" >/dev/null; then
+  fail "browser diagnostics accepted a marker from another readiness kind or trailing content"
+fi
+if rg -n "$secret_pattern" \
+  "$browser_diagnostics" "$TEST_DIR/console.out" "$TEST_DIR/console.err" >/dev/null; then
+  fail "browser diagnostics exposed raw execution, task, log, or command content"
+fi
+grep -Fq 'resource.labels.job_name=\"scribe-pr-42-browser-deadbeef\"' "$MOCK_GCLOUD_LOG"
+grep -Fq 'labels.\"run.googleapis.com/execution_name\"=\"scribe-pr-42-browser-deadbeef-ghi56\"' "$MOCK_GCLOUD_LOG"
 
 denied_diagnostics="$TEST_DIR/artifacts/backend-readiness-denied.log"
 run_helper "$denied_diagnostics" \

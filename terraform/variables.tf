@@ -83,6 +83,17 @@ variable "frontend_gar_image" {
   }
 }
 
+variable "browser_readiness_image" {
+  description = "Protected, digest-pinned Playwright image used only by preview readiness jobs. Leave empty outside protected preview apply workflows."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = trimspace(var.browser_readiness_image) == "" || can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/scribe-browser-readiness@sha256:[0-9a-f]{64}$", var.browser_readiness_image))
+    error_message = "browser_readiness_image must be empty or the project-owned digest-pinned readiness image."
+  }
+}
+
 variable "allowed_ips" {
   description = "CIDR ranges allowed to reach the Cloud Run ingress that powers on the VM."
   type        = list(string)
@@ -131,6 +142,23 @@ variable "network_ip_cidr_range" {
       !startswith(var.network_ip_cidr_range, "169.254.")
     )
     error_message = "network_ip_cidr_range must be a non-link-local IPv4 CIDR no broader than /24."
+  }
+}
+
+variable "browser_readiness_subnet_cidr" {
+  description = "Dedicated /26 subnet used only by the preview browser-readiness Cloud Run job and its static-egress Cloud NAT."
+  type        = string
+  default     = "10.43.0.0/26"
+
+  validation {
+    condition = (
+      can(cidrhost(var.browser_readiness_subnet_cidr, 63)) &&
+      try(cidrhost(var.browser_readiness_subnet_cidr, 0), "") == try(split("/", var.browser_readiness_subnet_cidr)[0], "") &&
+      length(regexall(":", var.browser_readiness_subnet_cidr)) == 0 &&
+      endswith(var.browser_readiness_subnet_cidr, "/26") &&
+      !startswith(var.browser_readiness_subnet_cidr, "169.254.")
+    )
+    error_message = "browser_readiness_subnet_cidr must be a canonical, non-link-local IPv4 /26."
   }
 }
 

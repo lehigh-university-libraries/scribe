@@ -14,6 +14,7 @@ if ! normalized="$({
       select(
         exact_keys([
           "api_image",
+          "browser_readiness_image",
           "configuration",
           "data_generation",
           "docker_compose_sha",
@@ -25,6 +26,7 @@ if ! normalized="$({
           "allowed_ssh_ipv4",
           "allowed_ssh_ipv6",
           "backup_restore_service_account_email",
+          "browser_readiness_subnet_cidr",
           "compose_network_cidr",
           "dev_external_ocr_impersonators",
           "iiif_max_manifest_canvases",
@@ -59,6 +61,8 @@ if ! normalized="$({
         (.configuration.vault_admin_emails | string_array) and
         (.configuration.vault_ci_service_account_emails | string_array) and
         (.configuration.backup_restore_service_account_email | type == "string") and
+        (.configuration.browser_readiness_subnet_cidr |
+          type == "string" and test("^[0-9]{1,3}([.][0-9]{1,3}){3}/26$") and startswith("169.254.") == false) and
         (.configuration.compose_network_cidr | type == "string" and length > 0) and
         (.configuration.network_ip_cidr_range | type == "string" and length > 0) and
         (.configuration.region | type == "string" and length > 0) and

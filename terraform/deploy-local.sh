@@ -24,6 +24,7 @@ Optional environment:
   SCRIBE_RECOVER_PREVIEW_DESTROY_INPUTS  Set to true only for the protected recover-destroy workflow after an interrupted preview teardown removed deployment_inputs.
   SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar). When unset, local apply resolves the default tag and auto-builds it if missing.
+  SCRIBE_BROWSER_READINESS_IMAGE  Protected digest-pinned preview browser readiness image. Empty outside managed preview applies.
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. For plan/apply only; refresh and destroy reload the recorded map from Terraform state.
   SCRIBE_DATA_GENERATION  Reviewed persistence generation. Defaults to canonical-v2; refresh and destroy always reload the recorded value from Terraform state.
   SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to the immutable --branch commit SHA for production and preview, and the branch slug for development.
@@ -58,6 +59,20 @@ require_cmd() {
 
 sanitize_image_tag() {
   printf '%s' "$1" | sed 's/[^a-zA-Z0-9._-]//g' | awk '{print substr($0, length($0)-120)}' | tr '[:upper:]' '[:lower:]'
+}
+
+sha256_text() {
+  local value="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$value" | sha256sum | awk '{print $1}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$value" | shasum -a 256 | awk '{print $1}'
+    return 0
+  fi
+  echo "sha256sum or shasum is required to identify the protected preview browser subnet." >&2
+  return 1
 }
 
 vault_jwt_role_slug() {
@@ -714,6 +729,8 @@ data_generation="${SCRIBE_DATA_GENERATION:-canonical-v2}"
 dev_external_ocr_impersonators="${DEV_EXTERNAL_OCR_IMPERSONATORS:-}"
 frontend_tag="$(sanitize_image_tag "$branch")"
 frontend_gar_image_tag="${SCRIBE_FRONTEND_GAR_IMAGE:-us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:${frontend_tag}}"
+browser_readiness_image="${SCRIBE_BROWSER_READINESS_IMAGE:-}"
+browser_readiness_subnet_cidr="${TF_VAR_browser_readiness_subnet_cidr:-10.43.0.0/26}"
 if [ "$needs_frontend_gar_image" != "true" ]; then
   frontend_gar_image_tag=""
 fi
@@ -806,6 +823,8 @@ if [ "$action" = "destroy" ] || [ "$action" = "refresh" ]; then
   TF_VAR_docker_compose_branch="$(jq -r '.docker_compose_sha' <<<"$stored_deployment_inputs")"
   export TF_VAR_docker_compose_branch
   image_tag="$(jq -r '.api_image' <<<"$stored_deployment_inputs")"
+  browser_readiness_image="$(jq -r '.browser_readiness_image' <<<"$stored_deployment_inputs")"
+  browser_readiness_subnet_cidr="$(jq -r '.configuration.browser_readiness_subnet_cidr' <<<"$stored_deployment_inputs")"
   frontend_gar_image_tag="$(jq -r '.frontend_gar_image' <<<"$stored_deployment_inputs")"
   ocr_images_json="$(jq -c '.ocr_service_images' <<<"$stored_deployment_inputs")"
   data_generation="$(jq -r '.data_generation' <<<"$stored_deployment_inputs")"
@@ -879,6 +898,14 @@ if [[ ! "$data_generation" =~ ^canonical-v(1|2)$ ]]; then
   exit 1
 fi
 
+browser_readiness_subnet_name=""
+if [ "$environment" = "preview" ] && [[ "$browser_readiness_image" =~ [^[:space:]] ]]; then
+  browser_readiness_name_hash="$(sha256_text "${TF_VAR_name}:${target_workspace}")"
+  browser_readiness_name_prefix="${TF_VAR_name:0:46}"
+  browser_readiness_name_prefix="${browser_readiness_name_prefix%-}"
+  browser_readiness_subnet_name="${browser_readiness_name_prefix}-browser-${browser_readiness_name_hash:0:8}"
+fi
+
 if [ -n "$dev_external_ocr_impersonators" ]; then
   if ! jq -e '
     type == "array" and
@@ -902,6 +929,8 @@ terraform_vars=(
   "-var=data_generation=${data_generation}"
   "-var=run_snapshots=${TF_VAR_run_snapshots}"
   "-var=api_image=${image_tag}"
+  "-var=browser_readiness_image=${browser_readiness_image}"
+  "-var=browser_readiness_subnet_cidr=${browser_readiness_subnet_cidr}"
   "-var=frontend_gar_image=${frontend_gar_image_tag}"
   "-var=ocr_service_images=${ocr_images_json}"
   "-var=region=$(resolve_terraform_region)"
@@ -1023,8 +1052,12 @@ case "$action" in
         while IFS= read -r destroy_diagnostic_line; do
           [[ "$destroy_diagnostic_line" == *'Error:'* ]] || continue
           serverless_error_seen=true
+          app_subnet_marker="/subnetworks/${TF_VAR_name}'"
+          browser_subnet_marker="/subnetworks/${browser_readiness_subnet_name}'"
           if [[ "$destroy_diagnostic_line" != *resourceInUseByAnotherResource* ]] \
-            || [[ "$destroy_diagnostic_line" != *"/subnetworks/${TF_VAR_name}"* ]] \
+            || { [[ "$destroy_diagnostic_line" != *"$app_subnet_marker"* ]] \
+              && { [ -z "$browser_readiness_subnet_name" ] \
+                || [[ "$destroy_diagnostic_line" != *"$browser_subnet_marker"* ]]; }; } \
             || [[ "$destroy_diagnostic_line" != *'/addresses/serverless-ipv4-'* ]]; then
             serverless_subnet_delay=false
             break

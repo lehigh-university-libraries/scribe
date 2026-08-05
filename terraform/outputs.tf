@@ -9,18 +9,22 @@ locals {
     urls                  = { (var.region) = local.public_base_url }
     backend               = module.scribe.backend
     backend_readiness_job = try(google_cloud_run_v2_job.backend_readiness[0].name, "")
+    browser_readiness_job = try(google_cloud_run_v2_job.browser_readiness[0].name, "")
     ocr_readiness_job     = try(google_cloud_run_v2_job.ocr_readiness[0].name, "")
     readiness_gsas = {
       backend = google_service_account.backend_readiness.email
+      browser = try(google_service_account.browser_readiness[0].email, "")
       ocr     = google_service_account.ocr_readiness.email
     }
     deployment_inputs = {
-      api_image = var.api_image
+      api_image               = var.api_image
+      browser_readiness_image = local.normalized_browser_readiness_image
       configuration = {
         allowed_ips                                 = var.allowed_ips
         allowed_ssh_ipv4                            = var.allowed_ssh_ipv4
         allowed_ssh_ipv6                            = var.allowed_ssh_ipv6
         backup_restore_service_account_email        = var.backup_restore_service_account_email
+        browser_readiness_subnet_cidr               = var.browser_readiness_subnet_cidr
         compose_network_cidr                        = var.compose_network_cidr
         dev_external_ocr_impersonators              = var.dev_external_ocr_impersonators
         iiif_max_manifest_canvases                  = local.runtime_limits.iiif_max_manifest_canvases
@@ -198,13 +202,18 @@ output "backend_readiness_job" {
   value       = terraform_data.recorded_root_outputs.output.backend_readiness_job
 }
 
+output "browser_readiness_job" {
+  description = "Preview-only Cloud Run job that exercises the canonical browser upload and editor handoff."
+  value       = terraform_data.recorded_root_outputs.output.browser_readiness_job
+}
+
 output "ocr_readiness_job" {
   description = "Cloud Run job that sends a synthetic image through private OCR endpoints."
   value       = terraform_data.recorded_root_outputs.output.ocr_readiness_job
 }
 
 output "readiness_gsas" {
-  description = "Separate no-data service accounts used by backend and OCR readiness jobs."
+  description = "Separate no-data service accounts used by browser, backend, and OCR readiness jobs."
   value       = terraform_data.recorded_root_outputs.output.readiness_gsas
 }
 
@@ -221,6 +230,16 @@ output "deployment_inputs" {
       !endswith(var.api_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000") &&
       can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/scribe-frontend@sha256:[0-9a-f]{64}$", var.frontend_gar_image)) &&
       !endswith(var.frontend_gar_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000") &&
+      (
+        local.is_preview_workspace
+        ? (
+          local.normalized_browser_readiness_image == "" || (
+            can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/scribe-browser-readiness@sha256:[0-9a-f]{64}$", local.normalized_browser_readiness_image)) &&
+            !endswith(local.normalized_browser_readiness_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
+          )
+        )
+        : local.normalized_browser_readiness_image == ""
+      ) &&
       length(setsubtract(
         toset(concat(
           keys(local.ocr_services),

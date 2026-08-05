@@ -101,3 +101,17 @@ remains available for fast standalone `make test-browser` runs when MariaDB is
 not running. Authentication policy, a full live Mirador workspace, and worker
 delivery remain covered by the required Go integration suite; `make e2e-smoke`
 selects the core ingest/revision cases for focused iteration.
+
+The managed preview scenario is separate from the local harness. Protected
+deployment source packages `web/e2e/deployed-readiness.mjs` into the locked
+Playwright image and runs it only after the preview apply. The scenario uses a
+browser-only `/26` and NAT to target the canonical `scribe-pr-*` Cloud Run
+origin, uses preview-anonymous auth and
+the built-in Tesseract context, and deletes the workspace token and uploaded
+item it creates. It deliberately produces no browser artifacts; on failure the
+Cloud Run helper retains only the exact allowlisted stage category. Run `bash
+ci/browser-readiness-contract_test.sh` and `bash
+ci/run-cloud-run-readiness_test.sh` for focused orchestration iteration. A
+feature PR cannot replace this trusted runner: `pull_request_target` supplies
+the protected base implementation while the runner exercises the PR-head
+frontend and backend images.

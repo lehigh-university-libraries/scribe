@@ -189,6 +189,21 @@ default Ollama OCR request. Fixture contracts require authenticated requests,
 real image bytes, JPEG validation, non-empty model output, and Ollama
 `done=true`; a health-only response is not deployment evidence.
 
+Preview readiness also runs a protected-base, digest-pinned Playwright image
+on a dedicated non-overlapping `/26`; Cloud NAT covers only that browser subnet,
+and its static address is the sole additional PPB `/32`. Its no-IAM service
+account uses preview-anonymous auth to exercise the
+PR-head frontend's complete upload-to-editor handoff with deterministic
+Tesseract processing, canonical annotations, overlay on/off semantics,
+retranscription, save, publish, narrow viewport layout, copy-once token modal,
+and cleanup. Same-origin 4xx/5xx responses, request failures, CSP console
+errors, unexpected native dialogs, missing annotations, and leaked cleanup
+state are failures. Cloud diagnostics admit only exact stage categories; raw
+browser output and credential-bearing state are neither generated nor
+uploaded. `ci/browser-readiness-contract_test.sh` locks the protected checkout,
+image digest, zero-IAM identity, isolated static egress, replay schema, and bounded
+diagnostic contract.
+
 `make generate` consumes the reviewed dependency commits in `proto/buf.lock`.
 To upgrade a Buf module deliberately, run `cd proto && ../.tools/bin/buf dep
 update .`, review the lock diff, then regenerate; CI never floats that lock on

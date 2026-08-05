@@ -15,6 +15,85 @@ locals {
     "projects/[^/]+/regions/[^/]+/subnetworks/[^/]+$",
     module.scribe.network.subnetwork,
   )
+  normalized_browser_readiness_image = trimspace(var.browser_readiness_image)
+  browser_readiness_enabled          = local.is_preview_workspace && local.normalized_browser_readiness_image != ""
+  browser_readiness_subnetwork_resource_name = try(regex(
+    "projects/[^/]+/regions/[^/]+/subnetworks/[^/]+$",
+    google_compute_subnetwork.browser_readiness[0].self_link,
+  ), "")
+  browser_readiness_name_hash     = substr(sha256("${var.name}:${local.workspace_slug}"), 0, 8)
+  browser_readiness_resource_name = "${trimsuffix(substr(var.name, 0, 46), "-")}-browser-${local.browser_readiness_name_hash}"
+  browser_readiness_job_name      = "${trimsuffix(substr(var.name, 0, 32), "-")}-browser-${local.browser_readiness_name_hash}"
+  browser_readiness_account_id    = "${trimsuffix(substr("probe-browser-${local.workspace_slug}", 0, 21), "-")}-${local.browser_readiness_name_hash}"
+  browser_readiness_allowed_ips   = local.browser_readiness_enabled ? ["${google_compute_address.browser_readiness[0].address}/32"] : []
+}
+
+# Direct VPC egress requires at least a /26. Keep the browser runner outside the
+# application subnet so its public NAT address cannot become an outbound path
+# for the VM, frontend-to-backend probe, or OCR probe.
+check "browser_readiness_subnet_isolated" {
+  assert {
+    condition = !local.browser_readiness_enabled || try(length(setintersection(
+      toset([for offset in range(64) : cidrhost(var.browser_readiness_subnet_cidr, offset)]),
+      toset([
+        for offset in range(pow(2, 32 - tonumber(split("/", var.network_ip_cidr_range)[1]))) :
+        cidrhost(var.network_ip_cidr_range, offset)
+      ]),
+    )) == 0, false)
+    error_message = "browser_readiness_subnet_cidr must not overlap network_ip_cidr_range when protected preview browser readiness is enabled."
+  }
+}
+
+resource "google_compute_subnetwork" "browser_readiness" {
+  count = local.browser_readiness_enabled ? 1 : 0
+
+  project       = var.project_id
+  region        = var.region
+  name          = local.browser_readiness_resource_name
+  network       = module.scribe.network.self_link
+  ip_cidr_range = var.browser_readiness_subnet_cidr
+  # Default run.app traffic must take the public route through the static NAT;
+  # Private Google Access can report a non-NAT source for Google API domains.
+  private_ip_google_access = false
+}
+
+# The public PPB service is source-IP restricted. Give the preview-only browser
+# job one stable egress address, then add only that derived /32 to this
+# preview's PPB allowlist. No shared or production ingress policy is widened.
+resource "google_compute_address" "browser_readiness" {
+  count = local.browser_readiness_enabled ? 1 : 0
+
+  project      = var.project_id
+  region       = var.region
+  name         = local.browser_readiness_resource_name
+  address_type = "EXTERNAL"
+  network_tier = "PREMIUM"
+}
+
+resource "google_compute_router" "browser_readiness" {
+  count = local.browser_readiness_enabled ? 1 : 0
+
+  project = var.project_id
+  region  = var.region
+  name    = local.browser_readiness_resource_name
+  network = module.scribe.network.self_link
+}
+
+resource "google_compute_router_nat" "browser_readiness" {
+  count = local.browser_readiness_enabled ? 1 : 0
+
+  project                            = var.project_id
+  region                             = var.region
+  name                               = local.browser_readiness_resource_name
+  router                             = google_compute_router.browser_readiness[0].name
+  nat_ip_allocate_option             = "MANUAL_ONLY"
+  nat_ips                            = [google_compute_address.browser_readiness[0].self_link]
+  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
+
+  subnetwork {
+    name                    = google_compute_subnetwork.browser_readiness[0].self_link
+    source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+  }
 }
 
 resource "google_service_account" "backend_readiness" {
@@ -31,17 +110,76 @@ resource "google_service_account" "ocr_readiness" {
   description  = "No-data runtime identity allowed to invoke only the OCR services exercised by the deep probe."
 }
 
+resource "google_service_account" "browser_readiness" {
+  count = local.browser_readiness_enabled ? 1 : 0
+
+  project      = var.project_id
+  account_id   = local.browser_readiness_account_id
+  display_name = substr("Scribe ${local.workspace_slug} browser readiness", 0, 100)
+  description  = substr("Preview-only, no-data identity for canonical browser ingress in ${local.workspace_slug}.", 0, 256)
+}
+
 check "readiness_identity_isolated" {
   assert {
-    condition = length(toset([
+    condition = length(toset(compact([
       google_service_account.backend_readiness.email,
       google_service_account.ocr_readiness.email,
+      try(google_service_account.browser_readiness[0].email, ""),
       module.scribe.appGsa.email,
       module.scribe.instance.gsa.email,
       google_service_account.ocr_compute.email,
-    ])) == 5
-    error_message = "Backend readiness, OCR readiness, app, VM, and OCR compute workloads must use distinct identities."
+    ]))) == (local.browser_readiness_enabled ? 6 : 5)
+    error_message = "Browser readiness, backend readiness, OCR readiness, app, VM, and OCR compute workloads must use distinct identities."
   }
+}
+
+resource "google_cloud_run_v2_job" "browser_readiness" {
+  count = local.browser_readiness_enabled ? 1 : 0
+
+  name                = local.browser_readiness_job_name
+  location            = var.region
+  deletion_protection = false
+
+  template {
+    parallelism = 1
+    task_count  = 1
+
+    template {
+      service_account = google_service_account.browser_readiness[0].email
+      max_retries     = 0
+      timeout         = "900s"
+
+      containers {
+        image = local.normalized_browser_readiness_image
+
+        resources {
+          limits = {
+            cpu    = "2"
+            memory = "2Gi"
+          }
+        }
+
+        env {
+          name  = "SCRIBE_BROWSER_BASE_URL"
+          value = local.public_base_url
+        }
+      }
+
+      vpc_access {
+        egress = "ALL_TRAFFIC"
+        network_interfaces {
+          network    = local.readiness_network_resource_name
+          subnetwork = local.browser_readiness_subnetwork_resource_name
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_compute_router_nat.browser_readiness,
+    google_service_account.browser_readiness,
+    module.scribe,
+  ]
 }
 
 resource "google_cloud_run_v2_job" "backend_readiness" {

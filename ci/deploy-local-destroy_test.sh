@@ -80,7 +80,7 @@ case "${1:-}" in
   destroy)
     case "${TF_TEST_DESTROY_MODE:-success}" in
       success) ;;
-      fail-once|always-fail|serverless-fail-once|serverless-always-fail|serverless-mixed|serverless-wrong-subnet)
+      fail-once|always-fail|serverless-fail-once|serverless-browser-fail-once|serverless-always-fail|serverless-mixed|serverless-wrong-subnet)
         attempts=0
         if [ -f "${TF_TEST_DESTROY_ATTEMPTS_FILE}" ]; then
           read -r attempts <"${TF_TEST_DESTROY_ATTEMPTS_FILE}" || true
@@ -95,6 +95,10 @@ case "${1:-}" in
         if [ "${TF_TEST_DESTROY_MODE}" = "serverless-mixed" ]; then
           echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-pr-75', resourceInUseByAnotherResource" >&2
           echo "Error: permission denied while deleting an unrelated resource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-fail-once" ] && [ "$attempts" -eq 1 ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-9aac94f3': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-pr-75-browser-9aac94f3', resourceInUseByAnotherResource" >&2
           exit 1
         fi
         if [ "${TF_TEST_DESTROY_MODE}" = "serverless-wrong-subnet" ]; then
@@ -146,7 +150,7 @@ chmod +x "${TEST_DIR}/bin/sleep"
 
 # Give teardown only the tools it actually uses. Docker is deliberately absent,
 # so reintroducing an unconditional Docker/registry dependency fails this test.
-for command in bash dirname jq sed awk tr cat mktemp rm; do
+for command in bash dirname jq sed awk tr cat mktemp rm sha256sum; do
   ln -s "$(command -v "${command}")" "${TEST_DIR}/bin/${command}"
 done
 
@@ -155,11 +159,13 @@ cat >"${state_file}" <<'EOF'
   "data_generation": "canonical-v1",
   "docker_compose_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "api_image": "ghcr.io/lehigh-university-libraries/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "browser_readiness_image": "us-docker.pkg.dev/example-project/internal/scribe-browser-readiness@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "configuration": {
     "allowed_ips": ["192.0.2.0/24"],
     "allowed_ssh_ipv4": ["198.51.100.1/32"],
     "allowed_ssh_ipv6": ["2001:db8::/64"],
     "backup_restore_service_account_email": "backup@example-project.iam.gserviceaccount.com",
+    "browser_readiness_subnet_cidr": "10.43.0.0/26",
     "compose_network_cidr": "172.30.0.0/24",
     "dev_external_ocr_impersonators": [],
     "iiif_max_manifest_canvases": 500,
@@ -249,6 +255,8 @@ grep -F 'destroy -auto-approve' "${terraform_log}" >/dev/null
 grep -F -- '-var=docker_compose_branch=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "${terraform_log}" >/dev/null
 grep -F -- '-var=data_generation=canonical-v1' "${terraform_log}" >/dev/null
 grep -F -- '-var=api_image=ghcr.io/lehigh-university-libraries/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' "${terraform_log}" >/dev/null
+grep -F -- '-var=browser_readiness_image=us-docker.pkg.dev/example-project/internal/scribe-browser-readiness@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' "${terraform_log}" >/dev/null
+grep -F -- '-var=browser_readiness_subnet_cidr=10.43.0.0/26' "${terraform_log}" >/dev/null
 grep -F -- '-var=frontend_gar_image=us-docker.pkg.dev/example-project/internal/scribe-frontend@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc' "${terraform_log}" >/dev/null
 grep -F -- '-var=dev_external_ocr_impersonators=[]' "${terraform_log}" >/dev/null
 grep -F -- '-var=region=us-east5' "${terraform_log}" >/dev/null
@@ -290,6 +298,22 @@ fi
 grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
 grep -F 'waiting for Google to release its serverless-ipv4 subnet reservation' \
   "${TEST_DIR}/destroy-serverless-retry.err" >/dev/null
+grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
+
+# The preview-only browser job has a second exact Direct VPC subnet. Its
+# deterministic hashed name receives the same bounded provider-cleanup path.
+rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+: >"${terraform_log}"
+if ! TF_TEST_DESTROY_MODE=serverless-browser-fail-once run_destroy valid \
+  "${TEST_DIR}/destroy-browser-serverless-retry.out" "${TEST_DIR}/destroy-browser-serverless-retry.err"; then
+  echo "Google-managed browser subnet cleanup delay was not retried" >&2
+  exit 1
+fi
+[ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
+[ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
+grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
+grep -F 'waiting for Google to release its serverless-ipv4 subnet reservation' \
+  "${TEST_DIR}/destroy-browser-serverless-retry.err" >/dev/null
 grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 
 rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
