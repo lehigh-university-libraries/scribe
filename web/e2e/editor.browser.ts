@@ -81,6 +81,12 @@ type BrowserHarness = {
     selectedAnnotationId: string;
     selectedDraftTarget: unknown;
     statusMessage: string;
+    transcriptionCalls: Array<{
+      annotationId: string;
+      contextId: string;
+      itemImageId: string;
+      scope: string;
+    }>;
     splitPending: boolean;
     structural: {
       calls: {
@@ -328,13 +334,147 @@ test("a multi-Canvas adapter saves and reprocesses only the active Canvas item i
   });
 });
 
+test("production Scribe viewer options keep the full bottom pane usable at every supported viewport", async ({ page }) => {
+  test.setTimeout(180_000);
+  for (const viewport of [
+    { width: 360, height: 640 },
+    { width: 768, height: 1024 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/e2e/harness.html?mode=plugin&responsive=1");
+    await waitForHarness(page, 120_000);
+
+    const editorMain = page.locator("#app > main");
+    const editorHeader = page.locator("#app > main > header");
+    const viewer = page.locator("#mirador-viewer");
+    await expect(editorHeader).toBeVisible();
+    await expect(viewer).toBeVisible();
+    const layoutMetrics = await page.evaluate(() => {
+      const main = document.querySelector("#app > main")?.getBoundingClientRect();
+      const header = document.querySelector("#app > main > header")?.getBoundingClientRect();
+      const viewerElement = document.getElementById("mirador-viewer")?.getBoundingClientRect();
+      const viewerNode = document.getElementById("mirador-viewer");
+      return {
+        bodyClientHeight: document.body.clientHeight,
+        bodyClientWidth: document.body.clientWidth,
+        bodyScrollHeight: document.body.scrollHeight,
+        bodyScrollWidth: document.body.scrollWidth,
+        headerBottom: header?.bottom ?? 0,
+        headerHeight: header?.height ?? 0,
+        mainHeight: main?.height ?? 0,
+        viewerBottom: viewerElement?.bottom ?? 0,
+        viewerClientWidth: viewerNode?.clientWidth ?? 0,
+        viewerHeight: viewerElement?.height ?? 0,
+        viewerScrollWidth: viewerNode?.scrollWidth ?? 0,
+        viewerTop: viewerElement?.top ?? 0,
+      };
+    });
+    expect(layoutMetrics.mainHeight).toBeCloseTo(viewport.height, 0);
+    expect(layoutMetrics.viewerTop).toBeCloseTo(layoutMetrics.headerBottom, 0);
+    expect(layoutMetrics.viewerHeight).toBeCloseTo(viewport.height - layoutMetrics.headerHeight, 0);
+    expect(layoutMetrics.viewerBottom).toBeLessThanOrEqual(viewport.height + 1);
+    expect(layoutMetrics.bodyScrollHeight).toBeLessThanOrEqual(layoutMetrics.bodyClientHeight + 1);
+    expect(layoutMetrics.bodyScrollWidth).toBeLessThanOrEqual(layoutMetrics.bodyClientWidth);
+    expect(layoutMetrics.viewerScrollWidth).toBeLessThanOrEqual(layoutMetrics.viewerClientWidth + 1);
+    await expect(editorMain).toHaveCSS("overflow", "hidden");
+
+    const panel = page.locator('[data-scribe-action-panel="true"]');
+    await expect(panel).toBeVisible();
+    const metrics = await panel.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const parentRect = element.parentElement?.getBoundingClientRect();
+      const companionRect = element.parentElement?.parentElement?.getBoundingClientRect();
+      const imageRect = document.querySelector(".openseadragon-container")?.getBoundingClientRect();
+      const panelStyle = getComputedStyle(element);
+      const parentStyle = element.parentElement ? getComputedStyle(element.parentElement) : null;
+      return {
+        bottom: rect.bottom,
+        clientHeight: element.clientHeight,
+        clientWidth: element.clientWidth,
+        companionBottom: companionRect?.bottom ?? 0,
+        companionHeight: companionRect?.height ?? 0,
+        companionTop: companionRect?.top ?? 0,
+        flex: panelStyle.flex,
+        height: rect.height,
+        imageBottom: imageRect?.bottom ?? 0,
+        imageHeight: imageRect?.height ?? 0,
+        imageTop: imageRect?.top ?? 0,
+        imageWidth: imageRect?.width ?? 0,
+        overflowY: panelStyle.overflowY,
+        parentBottom: parentRect?.bottom ?? 0,
+        parentDisplay: parentStyle?.display ?? "",
+        parentFlexDirection: parentStyle?.flexDirection ?? "",
+        parentHeight: parentRect?.height ?? 0,
+        parentMinHeight: parentStyle?.minHeight ?? "",
+        parentOverflowY: parentStyle?.overflowY ?? "",
+        parentTop: parentRect?.top ?? 0,
+        scrollWidth: element.scrollWidth,
+        top: rect.top,
+      };
+    });
+    expect(metrics.clientHeight).toBeGreaterThan(0);
+    expect(metrics.top).toBeGreaterThanOrEqual(0);
+    expect(metrics.bottom).toBeLessThanOrEqual(viewport.height + 1);
+    expect(metrics.top).toBeGreaterThanOrEqual(metrics.parentTop - 1);
+    expect(metrics.bottom).toBeLessThanOrEqual(metrics.parentBottom + 1);
+    expect(metrics.height).toBeGreaterThanOrEqual(metrics.parentHeight - 1);
+    expect(metrics.height).toBeGreaterThanOrEqual(150);
+    expect(metrics.companionHeight).toBeGreaterThanOrEqual(199);
+    expect(metrics.companionHeight).toBeLessThanOrEqual(203);
+    expect(metrics.companionBottom).toBeLessThanOrEqual(layoutMetrics.viewerBottom);
+    expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+    expect(metrics.flex).toContain("1 1 auto");
+    expect(metrics.overflowY).toBe("auto");
+    expect(metrics.parentDisplay).toBe("flex");
+    expect(metrics.parentFlexDirection).toBe("column");
+    expect(metrics.parentMinHeight).toBe("0px");
+    expect(metrics.parentOverflowY).toBe("auto");
+    expect(metrics.imageTop).toBeGreaterThanOrEqual(layoutMetrics.viewerTop);
+    expect(metrics.imageBottom).toBeLessThanOrEqual(metrics.companionTop + 1);
+    expect(metrics.imageHeight).toBeGreaterThanOrEqual(Math.min(300, layoutMetrics.viewerHeight * 0.5));
+    expect(metrics.imageWidth).toBeGreaterThanOrEqual(viewport.width * 0.8);
+
+    for (const name of ["Overlay off", "Retranscribe", "Save", "Publish edits"]) {
+      const action = page.getByRole("button", { name, exact: true });
+      await action.scrollIntoViewIfNeeded();
+      await expect(action).toBeVisible();
+      if (await action.isEnabled()) {
+        await action.focus();
+        await expect(action).toBeFocused();
+      }
+      const actionMetrics = await action.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const panelRect = element.closest('[data-scribe-action-panel="true"]')?.getBoundingClientRect();
+        return {
+          bottom: rect.bottom,
+          left: rect.left,
+          panelBottom: panelRect?.bottom ?? 0,
+          panelTop: panelRect?.top ?? 0,
+          right: rect.right,
+          top: rect.top,
+        };
+      });
+      expect(actionMetrics.left).toBeGreaterThanOrEqual(-1);
+      expect(actionMetrics.right).toBeLessThanOrEqual(viewport.width + 1);
+      expect(actionMetrics.top).toBeGreaterThanOrEqual(Math.max(0, actionMetrics.panelTop) - 1);
+      expect(actionMetrics.bottom).toBeLessThanOrEqual(Math.min(viewport.height, actionMetrics.panelBottom) + 1);
+    }
+  }
+});
+
 test("mounted Mirador/Scribe keeps edits and events scoped across two real Canvases", async ({ page }) => {
   test.setTimeout(300_000);
   const pluginPollOptions = { timeout: 60_000 };
   await page.goto("/e2e/harness.html?mode=plugin");
   await waitForHarness(page, 120_000);
 
-  await expect(page.getByText("View and modes", { exact: true })).toBeVisible();
+  const actionPanel = page.getByText("View and modes", { exact: true });
+  const granularityMarkers = page.locator(
+    '.scribe-text-overlay [data-scribe-granularity]',
+  );
+  await expect(actionPanel).toBeVisible();
+  await expect(granularityMarkers).toHaveCount(0);
   const canvasB = "http://127.0.0.1:4173/e2e/canvas/b";
   await page.evaluate((canvasId) => window.__scribeBrowserHarness.turnPluginCanvas(canvasId), canvasB);
   await expect.poll(async () => page.evaluate(() => {
@@ -343,6 +483,31 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
       && snapshot.loadItemImageIds.includes("1001")
       && snapshot.loadItemImageIds.includes("2002");
   }), pluginPollOptions).toBe(true);
+
+  await page.keyboard.press("Alt+r");
+  await expect(page.getByRole("dialog", { name: "Retranscribe Text" })).toBeVisible();
+  await page.getByRole("button", { name: "Retranscribe selected" }).click();
+  await expect.poll(async () => page.evaluate(() => {
+    const snapshot = window.__scribeBrowserHarness.pluginSnapshot();
+    return {
+      calls: snapshot.transcriptionCalls,
+      statusMessage: snapshot.statusMessage,
+      text: snapshot.structural.draft[0]?.text,
+    };
+  }), pluginPollOptions).toEqual({
+    calls: [{
+      annotationId: "https://scribe.test/presentation/v3/item-image-2002/canvas/page-1/annotations/items/00000000000000000000000000000002",
+      contextId: "1",
+      itemImageId: "2002",
+      scope: "line",
+    }],
+    statusMessage: "Selected text retranscribed. Save to persist this draft.",
+    text: "retranscribed page B original",
+  });
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => page.evaluate(() => (
+    window.__scribeBrowserHarness.pluginSnapshot().structural.draft[0]?.text
+  )), pluginPollOptions).toBe("page B original");
 
   const addCenteredLine = page.getByRole("button", {
     name: "Add a line at the viewport center and focus its keyboard resize handle",
@@ -390,6 +555,7 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
   await page.getByRole("button", { name: "Overlay off" }).click();
   const inputs = page.getByRole("textbox", { name: /Edit line token/ });
   await expect(inputs).toHaveCount(3);
+  await expect(granularityMarkers).not.toHaveCount(0);
   await expect(inputs.nth(0)).toHaveValue("page");
   await expect(inputs.nth(1)).toHaveValue("B");
   await expect(inputs.nth(2)).toHaveValue("original");
@@ -421,6 +587,8 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
   await page.getByRole("button", { name: "Split at boundary" }).click();
   await expect.poll(async () => page.evaluate(() => window.__scribeBrowserHarness.pluginSnapshot()), pluginPollOptions)
     .toMatchObject({ isBusy: true, saveItemImageIds: [], splitPending: true, structural: { calls: { splitAtWord: 2 } } });
+  await page.keyboard.press("Alt+r");
+  await expect(page.getByRole("dialog", { name: "Retranscribe Text" })).toBeHidden();
   await page.keyboard.press("Control+s");
   await expect.poll(async () => page.evaluate(() => window.__scribeBrowserHarness.pluginSnapshot()), pluginPollOptions)
     .toMatchObject({ isBusy: true, saveItemImageIds: [], splitPending: true });
@@ -435,6 +603,7 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
   await expect(inputs.nth(0)).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(inputs).toHaveCount(0);
+  await expect(granularityMarkers).toHaveCount(0);
   await page.getByRole("button", { name: "Overlay off" }).click();
   await expect(inputs).toHaveCount(3);
   await inputs.nth(1).focus();
@@ -526,9 +695,13 @@ test("structural edit pickers split at the chosen boundary and join explicit sub
     window.__scribeBrowserHarness.pluginSnapshot().activeCanvasId
   )), pluginPollOptions).toBe(canvasB);
 
+  await expect(page.locator('[data-scribe-granularity="line"]')).toHaveCount(0);
+  await expect(page.locator('[data-scribe-granularity="word"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Overlay off" }).click();
   await expect(page.locator('[data-scribe-granularity="line"]')).not.toHaveCount(0);
   await expect(page.locator('[data-scribe-granularity="word"]')).not.toHaveCount(0);
 
+  await page.getByRole("button", { name: "Split line" }).focus();
   await page.keyboard.press("Alt+s");
   await expect(page.getByRole("dialog", { name: "Choose a split boundary" })).toBeVisible();
   await page.getByRole("button", { name: "Split after gamma, word 3" }).click();
@@ -544,6 +717,7 @@ test("structural edit pickers split at the chosen boundary and join explicit sub
     texts: expect.arrayContaining(["alpha beta gamma", "delta"]),
   });
 
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: /Overlay off/i }).click();
   await page.getByRole("button", { name: /Edit overlay/i }).click();
   await page.getByRole("button", { name: "Edit line: second line" }).click();

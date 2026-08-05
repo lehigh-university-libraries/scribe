@@ -5,7 +5,7 @@ import type {
   GetAuthMeResponse,
   ProviderSecretRecord,
 } from "../proto/scribe/v1/auth_pb";
-import { getTransport } from "./transport";
+import { createScribeTransport, getTransport } from "./transport";
 import { scribeFetch } from "./http";
 
 export type { APIKeyRecord, GetAuthMeResponse, ProviderSecretRecord };
@@ -24,8 +24,18 @@ export interface CreateProviderSecretRequest {
   scope?: "user" | "workspace";
 }
 
+export interface DeleteAPIKeyOptions {
+  workspaceId?: string | number | bigint;
+}
+
 function client() {
   return createClient(AuthService, getTransport());
+}
+
+function clientForWorkspace(workspaceId: string | number | bigint) {
+  const normalizedWorkspaceId = BigInt(workspaceId);
+  if (normalizedWorkspaceId <= 0n) throw new RangeError("workspaceId must be a positive integer");
+  return createClient(AuthService, createScribeTransport({ workspaceId: normalizedWorkspaceId }));
 }
 
 export async function getAuthMe(): Promise<GetAuthMeResponse> {
@@ -63,8 +73,14 @@ export async function createAPIKey(input: CreateAPIKeyRequest): Promise<{ apiKey
   };
 }
 
-export async function deleteAPIKey(keyID: number | string | bigint): Promise<void> {
-  await client().deleteAPIKey({ keyId: BigInt(keyID) });
+export async function deleteAPIKey(
+  keyID: number | string | bigint,
+  options: DeleteAPIKeyOptions = {},
+): Promise<void> {
+  const authClient = options.workspaceId === undefined
+    ? client()
+    : clientForWorkspace(options.workspaceId);
+  await authClient.deleteAPIKey({ keyId: BigInt(keyID) });
 }
 
 export async function listProviderSecrets(): Promise<ProviderSecretRecord[]> {

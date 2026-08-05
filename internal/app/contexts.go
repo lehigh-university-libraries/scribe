@@ -9,21 +9,29 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
-// defaultContext returns the supported system preset used for automatic
-// context resolution. It keeps segmentation deterministic while using the
-// configured provider's default transcription model.
-func defaultContext(cfg config.Config) store.Context {
+var retiredSystemContextNames = [...]string{"Default", "Scribe Custom"}
+
+// defaultContext returns the deterministic, credential-free preset used for
+// automatic context resolution.
+func defaultContext(config.Config) store.Context {
+	return store.Context{
+		Name:                  "Tesseract OCR",
+		Description:           "Built-in system context that uses Tesseract segmentation and Tesseract transcription directly.",
+		IsDefault:             true,
+		SegmentationModel:     "tesseract",
+		TranscriptionProvider: "tesseract",
+		TranscriptionModel:    "tesseract",
+	}
+}
+
+func configuredLLMSelection(cfg config.Config) store.Context {
 	registry := providerregistry.New(cfg)
-	descriptor, _ := registry.ResolveProvider("") // built-in default is always installed
+	descriptor, _ := registry.ResolveProvider("") // configured provider is startup-validated
 	systemPrompt := cfg.LLM.DefaultSystemPrompt
 	if !descriptor.Capabilities.SystemPrompt {
 		systemPrompt = ""
 	}
 	return store.Context{
-		Name:                  "Scribe Custom",
-		Description:           "Built-in system context that uses the Scribe custom segmentor and line-by-line LLM transcription.",
-		IsDefault:             true,
-		SegmentationModel:     "scribe",
 		TranscriptionProvider: descriptor.ID,
 		TranscriptionModel:    descriptor.DefaultModel(),
 		SystemPrompt:          systemPrompt,
@@ -32,36 +40,34 @@ func defaultContext(cfg config.Config) store.Context {
 
 func systemContexts(cfg config.Config) []store.Context {
 	defaultCtx := defaultContext(cfg)
+	configuredLLM := configuredLLMSelection(cfg)
 	registry := providerregistry.New(cfg)
-	geminiModel, _ := registry.EffectiveModel("gemini", "")
+	geminiDescriptor, _ := registry.ResolveProvider("gemini") // built-in provider is always installed
+	geminiModel, _ := registry.EffectiveModel(geminiDescriptor.ID, "")
+	geminiPrompt := cfg.LLM.DefaultSystemPrompt
+	if !geminiDescriptor.Capabilities.SystemPrompt {
+		geminiPrompt = ""
+	}
 	krakenModel, _ := registry.EffectiveModel("kraken", "")
 	return []store.Context{
-		{
-			Name:                  "Tesseract OCR",
-			Description:           "Built-in system context that uses Tesseract segmentation and Tesseract transcription directly.",
-			IsDefault:             false,
-			SegmentationModel:     "tesseract",
-			TranscriptionProvider: "tesseract",
-			TranscriptionModel:    "tesseract",
-		},
 		defaultCtx,
 		{
 			Name:                  "Kraken BLLA",
 			Description:           "Built-in system context that uses Kraken page segmentation with the default BLLA model and then transcribes each detected line with the configured LLM provider.",
 			IsDefault:             false,
 			SegmentationModel:     "kraken",
-			TranscriptionProvider: defaultCtx.TranscriptionProvider,
-			TranscriptionModel:    defaultCtx.TranscriptionModel,
-			SystemPrompt:          defaultCtx.SystemPrompt,
+			TranscriptionProvider: configuredLLM.TranscriptionProvider,
+			TranscriptionModel:    configuredLLM.TranscriptionModel,
+			SystemPrompt:          configuredLLM.SystemPrompt,
 		},
 		{
 			Name:                  "Gemini Pro",
-			Description:           "Uses the configured Gemini model for transcription with Scribe segmentation.",
+			Description:           "Uses Scribe segmentation and the configured Gemini model with model-default sampling.",
 			IsDefault:             false,
 			SegmentationModel:     "scribe",
-			TranscriptionProvider: "gemini",
+			TranscriptionProvider: geminiDescriptor.ID,
 			TranscriptionModel:    geminiModel,
-			SystemPrompt:          defaultCtx.SystemPrompt,
+			SystemPrompt:          geminiPrompt,
 		},
 		{
 			Name:                  "Kraken CATMuS",
@@ -96,7 +102,7 @@ func EnsureSystemContexts(ctx context.Context, cfg config.Config, contextStore *
 			break
 		}
 	}
-	return contextStore.ReplaceSystemDefault(ctx, desiredDefault, []string{"Default"})
+	return contextStore.ReplaceSystemDefault(ctx, desiredDefault, retiredSystemContextNames[:])
 }
 
 func validateSystemContextCatalog(cfg config.Config, catalog []store.Context) error {

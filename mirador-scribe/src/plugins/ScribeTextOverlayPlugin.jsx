@@ -406,6 +406,7 @@ function ScribeTextOverlayPlugin({
       .filter((item) => item.id && item.text && item.rect && item.rect.w > 4 && item.rect.h > 4);
   }, [activePage, textOverlayVisible, viewer, version]));
   const granularityMarkers = /** @type {GranularityMarker[]} */ (useMemo(() => {
+    if (overlayMode === 'none') return [];
     const visibleBounds = visibleImageBounds(viewer);
     return (Array.isArray(activePage?.items) ? activePage.items : [])
       .filter((annotation) => isLineAnnotation(annotation) || isWordAnnotation(annotation))
@@ -418,7 +419,7 @@ function ScribeTextOverlayPlugin({
           || annotation.id === activeFocusedWordAnnotationId,
       }))
       .filter((marker) => marker.id && marker.rect && marker.rect.w > 4 && marker.rect.h > 4);
-  }, [activeFocusedWordAnnotationId, activePage, activeSelectedAnnotationId, viewer, version]));
+  }, [activeFocusedWordAnnotationId, activePage, activeSelectedAnnotationId, overlayMode, viewer, version]));
   const selectedDecoration = useMemo(() => {
     const items = Array.isArray(activePage?.items) ? activePage.items : [];
     const selected = items.find((annotation) => annotation?.id === activeSelectedAnnotationId) || null;

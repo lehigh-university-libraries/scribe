@@ -36,8 +36,10 @@ catalog lifecycle change with an acceptance test.
 
 There is exactly one system default. Change the recipe produced by
 `defaultContext`; do not add a second system context with `IsDefault: true`.
-The built-in default uses Scribe segmentation with the configured
-`llm.provider`, that provider's default model, and the supported
+The built-in **Tesseract OCR** default is deterministic and credential-free.
+Provider-specific presets such as **Gemini Pro** remain explicit selections,
+while **Kraken BLLA** continues to use the administrator-configured
+`llm.provider`, that provider's default model, and its supported
 `llm.default_system_prompt`.
 
 When replacing or removing a shipped default, list the replacement as the sole

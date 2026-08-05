@@ -220,6 +220,14 @@ export function ScribeCompanionWindow({
     if (!viewportBounds) return annotations;
     return annotations.filter((annotation) => annotationIntersectsImageRect(annotation, viewportBounds));
   }, [annotations, viewportBounds]);
+  const visibleLineAnnotations = useMemo(
+    () => visibleAnnotations.filter(isLineAnnotation),
+    [visibleAnnotations],
+  );
+  const hasPageLines = useMemo(
+    () => annotations.some(isLineAnnotation),
+    [annotations],
+  );
   const visibleRows = useMemo(() => groupAnnotationsForEditor({ items: visibleAnnotations }), [visibleAnnotations]);
   const selectedAnnotation = useMemo(
     () => editorSelectedAnnotation(
@@ -314,14 +322,15 @@ export function ScribeCompanionWindow({
   }, [effectiveSelectedAnnotationId, focusedWordAnnotationId, localPage]);
 
   useEffect(() => {
-    const validIds = new Set(visibleAnnotations.map((annotation) => annotation.id));
-    const preferred = selectedAnnotation?.id || visibleAnnotations[0]?.id || '';
+    const validIds = new Set(visibleLineAnnotations.map((annotation) => annotation.id));
+    const selectedLineId = selectedLineAnnotation?.id || '';
+    const preferred = validIds.has(selectedLineId) ? selectedLineId : visibleLineAnnotations[0]?.id || '';
     setTranscribeSelection((current) => {
       const retained = current.filter((id) => validIds.has(id));
       if (retained.length > 0) return retained;
       return preferred ? [preferred] : [];
     });
-  }, [selectedAnnotation?.id, visibleAnnotations]);
+  }, [selectedLineAnnotation?.id, visibleLineAnnotations]);
 
   useViewportBridge({ canvasId, setViewportBounds, windowId });
 
@@ -356,7 +365,9 @@ export function ScribeCompanionWindow({
       } else if (command === 'join-words') {
         structuralEdits.openJoinWords();
       } else if (command === 'retranscribe') {
-        setTranscribeDialogOpen(true);
+        if (!isBusy && hasPageLines) {
+          setTranscribeDialogOpen(true);
+        }
       } else if (command === 'publish') {
         void handlePublish();
       }
@@ -364,7 +375,7 @@ export function ScribeCompanionWindow({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [adapterFactory, canvasId, focusedWordAnnotationId, isFocusedWindow, localPage, selectedAnnotation, structuralEdits]);
+  }, [adapterFactory, canvasId, focusedWordAnnotationId, hasPageLines, isBusy, isFocusedWindow, localPage, selectedAnnotation, structuralEdits]);
 
   useEffect(() => {
     document.dispatchEvent(new CustomEvent('scribe:set-draw-mode', {
@@ -693,7 +704,7 @@ export function ScribeCompanionWindow({
 
   return (
     <ScribeActionPanel
-      annotations={visibleAnnotations}
+      annotations={annotations}
       canSplitToWords={canSplitToWords}
       drawMode={drawMode}
       id={id}
@@ -723,6 +734,7 @@ export function ScribeCompanionWindow({
       structuralEdits={structuralEdits}
       transcribeDialogOpen={transcribeDialogOpen}
       transcribeSelection={transcribeSelection}
+      visibleAnnotations={visibleAnnotations}
       windowId={windowId}
     />
   );

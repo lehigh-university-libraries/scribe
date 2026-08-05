@@ -10,6 +10,7 @@ import { getItemExportSnapshot, importManifest, listItems, listItemProviderCallA
 import { processImageURL, reprocessItemImage } from "../api/processing";
 import { addWorkspaceMember, deleteWorkspaceMember, listWorkspaceMembers, listWorkspaces, updateWorkspaceMember } from "../api/workspaces";
 import { AnnotationExportFormat } from "../proto/scribe/v1/annotation_pb";
+import { UploadBatchFileStatus } from "../proto/scribe/v1/item_pb";
 import { renderShell } from "./shell";
 
 vi.mock("../api/annotations", () => ({
@@ -394,7 +395,7 @@ describe("annotation upload actions", () => {
 
     resolveUpload?.({
       item: { id: "upload-item" },
-      batch: { files: [{ sequence: 1, itemImageId: 202n, transcriptionJobId: 502n }] },
+      batch: { files: [{ sequence: 1, status: UploadBatchFileStatus.COMPLETED, itemImageId: 202n, transcriptionJobId: 502n }] },
     } as never);
     await waitFor(() => {
       expect(window.location.pathname).toBe("/editor");
@@ -403,6 +404,67 @@ describe("annotation upload actions", () => {
       expect(params.get("itemId")).toBe("upload-item");
       expect(params.get("jobId")).toBe("502");
     });
+  });
+
+  it.each([
+    {
+      label: "is not completed",
+      uploaded: { sequence: 1, status: UploadBatchFileStatus.PROCESSING, itemImageId: 202n, transcriptionJobId: 502n },
+      message: "selected file did not complete",
+    },
+    {
+      label: "has no image identity",
+      uploaded: { sequence: 1, status: UploadBatchFileStatus.COMPLETED, itemImageId: 0n, transcriptionJobId: 502n },
+      message: "without an image identifier",
+    },
+    {
+      label: "has no transcription job identity",
+      uploaded: { sequence: 1, status: UploadBatchFileStatus.COMPLETED, itemImageId: 202n, transcriptionJobId: 0n },
+      message: "without a transcription job identifier",
+    },
+  ])("does not hand an upload to the editor when the selected file $label", async ({ uploaded, message }) => {
+    await setupShell();
+    const file = new File(["image-bytes"], "incomplete.jpg", { type: "image/jpeg" });
+    vi.mocked(uploadItemImages).mockResolvedValue({
+      item: { id: "upload-item" },
+      batch: { files: [uploaded] },
+    } as never);
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
+    const input = document.getElementById("library-single-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await waitFor(() => {
+      expect(document.getElementById("shell-upload-status")?.textContent).toContain(message);
+      expect(document.getElementById("shell-upload-cancel")?.textContent).toBe("Close");
+    });
+    expect(window.location.pathname).toBe("/library");
+  });
+
+  it("does not navigate when a completed single upload resolves after pagehide", async () => {
+    await setupShell();
+    const file = new File(["image-bytes"], "late.jpg", { type: "image/jpeg" });
+    let resolveUpload: ((result: Awaited<ReturnType<typeof uploadItemImages>>) => void) | undefined;
+    vi.mocked(uploadItemImages).mockImplementation(() => new Promise((resolve) => {
+      resolveUpload = resolve;
+    }));
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
+    const input = document.getElementById("library-single-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(resolveUpload).toBeDefined());
+
+    window.dispatchEvent(new Event("pagehide"));
+    resolveUpload?.({
+      item: { id: "late-upload" },
+      batch: { files: [{ sequence: 1, status: UploadBatchFileStatus.COMPLETED, itemImageId: 203n, transcriptionJobId: 503n }] },
+    } as never);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).not.toContain("itemImageId=203");
   });
 
   it("keeps single-upload failures visible until the user closes the dialog", async () => {
@@ -683,14 +745,20 @@ describe("annotation upload actions", () => {
     });
   });
 
-  it("creates and deletes API keys from settings", async () => {
+  it("shows a copyable one-time workspace token in an accessible modal and clears it on close", async () => {
+    const oneTimeKey = "scribe_secret_once";
+    const writeText = vi.fn().mockResolvedValue(undefined);
     vi.mocked(createAPIKey).mockResolvedValue({
-      key: "scribe_secret_once",
+      key: oneTimeKey,
       apiKey: { id: 56n, name: "New key", role: "write", scopes: [], keyPrefix: "sk_new", createdAt: "2026-06-01T00:00:00Z" },
     } as never);
     vi.mocked(deleteAPIKey).mockResolvedValue({} as never);
     Object.defineProperty(window, "alert", { configurable: true, value: vi.fn() });
     Object.defineProperty(window, "confirm", { configurable: true, value: vi.fn(() => true) });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
 
     await setupShell("settings");
     vi.mocked(listAPIKeys).mockResolvedValue([
@@ -706,12 +774,33 @@ describe("annotation upload actions", () => {
 
     name!.value = "New key";
     role!.value = "write";
+    form!.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus();
     form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
     await waitFor(() => {
       expect(createAPIKey).toHaveBeenCalledWith({ name: "New key", role: "write" });
-      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("scribe_secret_once"));
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("false");
+      expect(document.getElementById("shell-api-key-heading")?.textContent).toBe("Copy workspace token");
+      const token = document.getElementById("shell-api-key-value") as HTMLTextAreaElement | null;
+      expect(token?.readOnly).toBe(true);
+      expect(token?.value).toBe(oneTimeKey);
+      expect(document.activeElement).toBe(token);
+      expect(token?.selectionStart).toBe(0);
+      expect(token?.selectionEnd).toBe(oneTimeKey.length);
     });
+
+    document.getElementById("shell-api-key-copy")?.click();
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(oneTimeKey);
+      expect(document.getElementById("shell-api-key-copy-status")?.textContent).toBe("Copied to clipboard.");
+    });
+
+    document.getElementById("shell-api-key-done")?.click();
+    expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("true");
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement | null)?.value).toBe("");
+    expect(document.body.textContent).not.toContain(oneTimeKey);
+    expect(document.activeElement).toBe(document.getElementById("settings-api-key-name"));
 
     let deleteButton: HTMLButtonElement | null = null;
     await waitFor(() => {
@@ -723,6 +812,157 @@ describe("annotation upload actions", () => {
     await waitFor(() => {
       expect(deleteAPIKey).toHaveBeenCalledWith("55");
     });
+  });
+
+  it("fences delayed workspace token creation and reveals the token before the key list refresh", async () => {
+    let resolveCreate: ((value: Awaited<ReturnType<typeof createAPIKey>>) => void) | undefined;
+    let resolveKeyRefresh: ((value: Awaited<ReturnType<typeof listAPIKeys>>) => void) | undefined;
+    const createResponse = new Promise<Awaited<ReturnType<typeof createAPIKey>>>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const keyRefresh = new Promise<Awaited<ReturnType<typeof listAPIKeys>>>((resolve) => {
+      resolveKeyRefresh = resolve;
+    });
+    vi.mocked(createAPIKey).mockReturnValue(createResponse);
+
+    await setupShell("settings");
+    vi.mocked(listAPIKeys).mockReturnValueOnce(keyRefresh);
+
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    const name = document.getElementById("settings-api-key-name") as HTMLInputElement;
+    const role = document.getElementById("settings-api-key-role") as HTMLSelectElement;
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]') as HTMLButtonElement;
+    name.value = "Race-proof key";
+    role.value = "write";
+
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    expect(createAPIKey).toHaveBeenCalledTimes(1);
+    expect(createAPIKey).toHaveBeenCalledWith({ name: "Race-proof key", role: "write" });
+    expect(name.disabled).toBe(true);
+    expect(role.disabled).toBe(true);
+    expect(submit.disabled).toBe(true);
+    expect(form.getAttribute("aria-busy")).toBe("true");
+
+    resolveCreate?.({
+      key: "scribe_first_response",
+      apiKey: { id: 91n, name: "Race-proof key", role: "write", scopes: [], keyPrefix: "sk_race", createdAt: "2026-06-01T00:00:00Z" },
+    } as never);
+
+    await waitFor(() => {
+      expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("false");
+      expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("scribe_first_response");
+      expect(listAPIKeys).toHaveBeenCalledTimes(2);
+      expect(name.disabled).toBe(true);
+      expect(role.disabled).toBe(true);
+      expect(submit.disabled).toBe(true);
+      expect(form.getAttribute("aria-busy")).toBe("false");
+    });
+
+    const rerenderedForm = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    rerenderedForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(createAPIKey).toHaveBeenCalledTimes(1);
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("scribe_first_response");
+
+    resolveKeyRefresh?.([
+      { id: 91n, name: "Race-proof key", role: "write", scopes: [], keyPrefix: "sk_race", createdAt: "2026-06-01T00:00:00Z" },
+    ] as never);
+    await waitFor(() => {
+      const refreshedName = document.getElementById("settings-api-key-name") as HTMLInputElement;
+      const refreshedRole = document.getElementById("settings-api-key-role") as HTMLSelectElement;
+      const refreshedSubmit = document.querySelector<HTMLButtonElement>('#settings-api-key-form button[type="submit"]');
+      expect(refreshedName.disabled).toBe(true);
+      expect(refreshedRole.disabled).toBe(true);
+      expect(refreshedSubmit?.disabled).toBe(true);
+      expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("scribe_first_response");
+    });
+
+    document.getElementById("shell-api-key-done")?.click();
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("");
+    expect(document.querySelector<HTMLButtonElement>('#settings-api-key-form button[type="submit"]')?.disabled).toBe(false);
+  });
+
+  it("keeps a created token visible and distinguishes a subsequent key-list refresh failure", async () => {
+    vi.mocked(createAPIKey).mockResolvedValue({
+      key: "scribe_created_before_refresh_failure",
+      apiKey: { id: 94n, name: "Created key", role: "read", scopes: [], keyPrefix: "sk_created", createdAt: "2026-06-01T00:00:00Z" },
+    } as never);
+
+    await setupShell("settings");
+    vi.mocked(listAPIKeys).mockRejectedValueOnce(new Error("list unavailable"));
+
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    (document.getElementById("settings-api-key-name") as HTMLInputElement).value = "Created key";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await waitFor(() => {
+      expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("false");
+      expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("scribe_created_before_refresh_failure");
+      expect(document.getElementById("settings-api-key-status")?.textContent).toContain("created, but the workspace token list could not be refreshed");
+      expect(document.getElementById("settings-api-key-status")?.textContent).not.toContain("Create failed");
+    });
+  });
+
+  it("revokes a workspace token that resolves after the page is hidden without exposing it", async () => {
+    let resolveCreate: ((value: Awaited<ReturnType<typeof createAPIKey>>) => void) | undefined;
+    vi.mocked(createAPIKey).mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    vi.mocked(deleteAPIKey).mockResolvedValue();
+
+    await setupShell("settings");
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    (document.getElementById("settings-api-key-name") as HTMLInputElement).value = "Abandoned key";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    window.dispatchEvent(new Event("pagehide"));
+
+    resolveCreate?.({
+      key: "scribe_never_expose_after_pagehide",
+      apiKey: { id: 92n, name: "Abandoned key", role: "read", scopes: [], keyPrefix: "sk_gone", createdAt: "2026-06-01T00:00:00Z" },
+    } as never);
+
+    await waitFor(() => {
+      expect(deleteAPIKey).toHaveBeenCalledWith(92n, { workspaceId: "7" });
+    });
+    expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("true");
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("");
+    expect(document.body.textContent).not.toContain("scribe_never_expose_after_pagehide");
+  });
+
+  it("revokes a stale workspace token even when the user switches away and back before creation resolves", async () => {
+    let resolveCreate: ((value: Awaited<ReturnType<typeof createAPIKey>>) => void) | undefined;
+    vi.mocked(createAPIKey).mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    vi.mocked(deleteAPIKey).mockResolvedValue();
+
+    await setupShell("settings");
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    (document.getElementById("settings-api-key-name") as HTMLInputElement).value = "Stale key";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    const workspaceSelect = document.getElementById("sidebar-workspace-select") as HTMLSelectElement;
+    const otherWorkspace = document.createElement("option");
+    otherWorkspace.textContent = "Other workspace";
+    otherWorkspace.value = "8";
+    workspaceSelect.add(otherWorkspace);
+    workspaceSelect.value = "8";
+    workspaceSelect.dispatchEvent(new Event("change"));
+    workspaceSelect.value = "7";
+    workspaceSelect.dispatchEvent(new Event("change"));
+
+    resolveCreate?.({
+      key: "scribe_never_expose_after_workspace_switch",
+      apiKey: { id: 93n, name: "Stale key", role: "read", scopes: [], keyPrefix: "sk_stale", createdAt: "2026-06-01T00:00:00Z" },
+    } as never);
+
+    await waitFor(() => {
+      expect(deleteAPIKey).toHaveBeenCalledWith(93n, { workspaceId: "7" });
+    });
+    expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("true");
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("");
+    expect(document.body.textContent).not.toContain("scribe_never_expose_after_workspace_switch");
   });
 
   it("creates provider secrets and removes stored provider secrets from settings", async () => {

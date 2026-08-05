@@ -94,6 +94,7 @@ describe("renderEditor", () => {
 
   afterEach(() => {
     window.dispatchEvent(new Event("pagehide"));
+    vi.useRealTimers();
   });
 
   it("announces a malformed deep link and offers a route back to the library", async () => {
@@ -496,6 +497,196 @@ describe("renderEditor", () => {
         id: "scribe-editor-window",
       })],
     }));
+  });
+
+  it("consumes a legacy no-job auto-transcription request once for its original Canvas", async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(
+      {},
+      "",
+      "/editor?itemId=5&itemImageId=202&autoTranscribe=1",
+    );
+    mocks.getOCRRun.mockResolvedValue({
+      contextId: 33n,
+      itemImageId: 202n,
+      model: "test-model",
+      imageUrl: "https://example.test/page-b.jpg",
+    });
+    mocks.getEditorManifest.mockResolvedValue({
+      item: {
+        id: "5",
+        images: [
+          { id: 101n, canvasUri: "https://iiif.example/canvas/a" },
+          { id: 202n, canvasUri: "https://iiif.example/canvas/b" },
+        ],
+      },
+      manifestJSON: "{}",
+      selectedCanvasId: "https://iiif.example/canvas/b",
+    });
+    mocks.listTranscriptionJobs.mockResolvedValue([]);
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    const requests: Array<{ canvasId: string; windowId: string }> = [];
+    const onRequest = (event: Event) => {
+      requests.push((event as CustomEvent).detail);
+    };
+    document.addEventListener("scribe:request-transcribe-all", onRequest);
+
+    await renderEditor(app);
+
+    expect(mocks.getTranscriptionJob).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(requests).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(requests).toEqual([{
+      canvasId: "https://iiif.example/canvas/b",
+      windowId: "scribe-editor-window",
+    }]);
+    expect(new URL(window.location.href).searchParams.has("autoTranscribe"))
+      .toBe(false);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(requests).toHaveLength(1);
+    document.removeEventListener("scribe:request-transcribe-all", onRequest);
+  });
+
+  it("cancels a legacy no-job auto-transcription when the user turns away and back before its timer fires", async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(
+      {},
+      "",
+      "/editor?itemId=5&itemImageId=202&workspace_id=17&autoTranscribe=1",
+    );
+    mocks.getOCRRun.mockImplementation(async (itemImageId: string) => ({
+      contextId: 33n,
+      itemImageId: BigInt(itemImageId),
+      model: "test-model",
+      imageUrl: `https://example.test/page-${itemImageId}.jpg`,
+    }));
+    mocks.getEditorManifest.mockResolvedValue({
+      item: {
+        id: "5",
+        images: [
+          { id: 101n, canvasUri: "https://iiif.example/canvas/a" },
+          { id: 202n, canvasUri: "https://iiif.example/canvas/b" },
+        ],
+      },
+      manifestJSON: "{}",
+      selectedCanvasId: "https://iiif.example/canvas/b",
+    });
+    mocks.listTranscriptionJobs.mockResolvedValue([]);
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    const requests: unknown[] = [];
+    const onRequest = (event: Event) => {
+      requests.push((event as CustomEvent).detail);
+    };
+    document.addEventListener("scribe:request-transcribe-all", onRequest);
+
+    await renderEditor(app);
+    await vi.advanceTimersByTimeAsync(2_999);
+    document.dispatchEvent(new CustomEvent("scribe:active-canvas", {
+      detail: {
+        canvasId: "https://iiif.example/canvas/a",
+        itemImageId: "101",
+        windowId: "scribe-editor-window",
+      },
+    }));
+    document.dispatchEvent(new CustomEvent("scribe:active-canvas", {
+      detail: {
+        canvasId: "https://iiif.example/canvas/b",
+        itemImageId: "202",
+        windowId: "scribe-editor-window",
+      },
+    }));
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(requests).toEqual([]);
+    const params = new URL(window.location.href).searchParams;
+    expect(params.get("itemImageId")).toBe("202");
+    expect(params.get("workspace_id")).toBe("17");
+    expect(params.has("autoTranscribe")).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(requests).toEqual([]);
+    document.removeEventListener("scribe:request-transcribe-all", onRequest);
+  });
+
+  it("clears image-bound transcription state permanently after the active Canvas changes", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/editor?itemId=5&itemImageId=202&workspace_id=17&jobId=91&autoTranscribe=1",
+    );
+    mocks.getOCRRun.mockImplementation(async (itemImageId: string) => ({
+      contextId: 33n,
+      itemImageId: BigInt(itemImageId),
+      model: "test-model",
+      imageUrl: `https://example.test/page-${itemImageId}.jpg`,
+    }));
+    mocks.getTranscriptionJob.mockResolvedValue({
+      id: 91n,
+      itemImageId: 202n,
+      status: "running",
+      completedSegments: 1,
+      failedSegments: 0,
+      totalSegments: 2,
+    });
+    mocks.getEditorManifest.mockResolvedValue({
+      item: {
+        id: "5",
+        images: [
+          { id: 101n, canvasUri: "https://iiif.example/canvas/a" },
+          { id: 202n, canvasUri: "https://iiif.example/canvas/b" },
+        ],
+      },
+      manifestJSON: "{}",
+      selectedCanvasId: "https://iiif.example/canvas/b",
+    });
+    mocks.listTranscriptionJobs.mockResolvedValue([]);
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    await renderEditor(app);
+    expect(mocks.getTranscriptionJob).toHaveBeenCalledOnce();
+    expect(mocks.getTranscriptionJob).toHaveBeenCalledWith(91n);
+    mocks.getTranscriptionJob.mockClear();
+    mocks.listTranscriptionJobs.mockClear();
+    document.dispatchEvent(new CustomEvent("scribe:active-canvas", {
+      detail: {
+        canvasId: "https://iiif.example/canvas/a",
+        itemImageId: "101",
+        windowId: "scribe-editor-window",
+      },
+    }));
+
+    await vi.waitFor(() => {
+      expect(mocks.listTranscriptionJobs).toHaveBeenCalledWith(101n);
+    });
+    let params = new URL(window.location.href).searchParams;
+    expect(params.get("itemImageId")).toBe("101");
+    expect(params.get("workspace_id")).toBe("17");
+    expect(params.has("jobId")).toBe(false);
+    expect(params.has("autoTranscribe")).toBe(false);
+
+    mocks.listTranscriptionJobs.mockClear();
+    document.dispatchEvent(new CustomEvent("scribe:active-canvas", {
+      detail: {
+        canvasId: "https://iiif.example/canvas/b",
+        itemImageId: "202",
+        windowId: "scribe-editor-window",
+      },
+    }));
+
+    await vi.waitFor(() => {
+      expect(mocks.listTranscriptionJobs).toHaveBeenCalledWith(202n);
+    });
+    params = new URL(window.location.href).searchParams;
+    expect(params.get("itemImageId")).toBe("202");
+    expect(params.get("workspace_id")).toBe("17");
+    expect(params.has("jobId")).toBe(false);
+    expect(params.has("autoTranscribe")).toBe(false);
+    expect(mocks.getTranscriptionJob).not.toHaveBeenCalled();
   });
 
   it("scopes asynchronous transcription events to the active Mirador window and Canvas", async () => {

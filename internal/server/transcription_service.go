@@ -766,7 +766,8 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		))
 	}
 	registry := providerregistry.New(config.Get().Config)
-	if err := registry.ValidateSelection(pctx.TranscriptionProvider, pctx.TranscriptionModel, pctx.SystemPrompt, pctx.Temperature); err != nil {
+	pctx, err = normalizeContextForExecution(pctx, registry)
+	if err != nil {
 		return permanentTranscriptionFailure("transcription context snapshot is invalid")
 	}
 	provider, ok := registry.Provider(pctx.TranscriptionProvider)

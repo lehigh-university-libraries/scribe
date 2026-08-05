@@ -52,6 +52,16 @@ export const actionPanelRootSx = {
   width: '100%',
 };
 
+export const actionPanelToolbarLayoutSx = {
+  alignItems: 'stretch',
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 1.5,
+  justifyContent: 'center',
+  minWidth: 0,
+  width: '100%',
+};
+
 /**
  * @typedef {import('react').ElementType<{ fontSize?: 'small' | 'inherit' | 'large' | 'medium' }>} ToolbarIcon
  * @typedef {import('../types/scribe').IdentifiedIIIFAnnotation} IdentifiedAnnotation
@@ -116,6 +126,7 @@ export const actionPanelRootSx = {
  * }} structuralEdits
  * @property {boolean} transcribeDialogOpen
  * @property {string[]} transcribeSelection
+ * @property {IdentifiedAnnotation[]} visibleAnnotations
  * @property {string} windowId
  */
 
@@ -280,10 +291,16 @@ export default function ScribeActionPanel({
   structuralEdits,
   transcribeDialogOpen,
   transcribeSelection,
+  visibleAnnotations,
   windowId,
 }) {
   const { t } = useTranslation();
   const orderedAnnotations = annotations;
+  const pageLineAnnotations = orderedAnnotations.filter(isLineAnnotation);
+  const visibleLineAnnotations = visibleAnnotations.filter(isLineAnnotation);
+  const validTranscribeSelection = transcribeSelection.filter((id) => (
+    visibleLineAnnotations.some((annotation) => annotation.id === id)
+  ));
   const hasSelection = Boolean(selectedAnnotation?.id);
 
   const overlayModeLabel = overlayMode === 'edit' ? 'Edit overlay'
@@ -294,16 +311,11 @@ export default function ScribeActionPanel({
   return (
     <CompanionWindow title="" id={id} windowId={windowId}>
       <Box
+        data-scribe-action-panel="true"
         sx={actionPanelRootSx}
       >
         <Box
-          sx={{
-            alignItems: 'stretch',
-            display: 'flex',
-            gap: 1.5,
-            justifyContent: 'center',
-            width: '100%',
-          }}
+          sx={actionPanelToolbarLayoutSx}
         >
           <Box
             sx={{
@@ -312,9 +324,12 @@ export default function ScribeActionPanel({
               borderRadius: 3,
               boxShadow: `0 10px 30px ${scribeTheme.shadowSoft}`,
               display: 'flex',
+              flex: '1 1 480px',
               flexDirection: 'column',
               maxWidth: 680,
+              minWidth: 0,
               p: 1,
+              width: '100%',
             }}
           >
             <Stack spacing={1}>
@@ -423,7 +438,7 @@ export default function ScribeActionPanel({
                     icon={AutoFixHighIcon}
                     color="secondary"
                     keyShortcuts="Alt+R"
-                    disabled={isBusy || orderedAnnotations.length === 0}
+                    disabled={isBusy || pageLineAnnotations.length === 0}
                     onClick={onTranscribeDialogOpen}
                   />
                   <ToolbarAction
@@ -553,7 +568,7 @@ export default function ScribeActionPanel({
               fullWidth
               size="large"
               variant="contained"
-              disabled={isBusy || orderedAnnotations.length === 0}
+              disabled={isBusy || pageLineAnnotations.length === 0}
               startIcon={<AutoFixHighIcon />}
               onClick={() => {
                 onTranscribeDialogClose();
@@ -573,7 +588,7 @@ export default function ScribeActionPanel({
                 },
               }}
             >
-            &nbsp; entire page
+              Retranscribe entire page
             </Button>
 
             <Divider>
@@ -584,7 +599,7 @@ export default function ScribeActionPanel({
 
             <List dense disablePadding sx={{ maxHeight: 280, overflowY: 'auto' }}>
               {(() => {
-                const lineAnnotations = orderedAnnotations.filter(isLineAnnotation);
+                const lineAnnotations = visibleLineAnnotations;
                 const allLinesSelected = lineAnnotations.length > 0
                   && lineAnnotations.every((a) => transcribeSelection.includes(a.id));
                 return (
@@ -634,6 +649,13 @@ export default function ScribeActionPanel({
           </Stack>
         </DialogContent>
         <DialogActions>
+          <Button
+            disabled={isBusy}
+            onClick={onTranscribeDialogClose}
+            size="small"
+          >
+            Cancel
+          </Button>
           <Tooltip title={t('scribeEditorTranscribeSelected')}>
             <span>
               <Button
@@ -641,14 +663,14 @@ export default function ScribeActionPanel({
                 color="secondary"
                 size="small"
                 startIcon={<AutoFixHighIcon />}
-                disabled={isBusy || transcribeSelection.length === 0}
+                disabled={isBusy || validTranscribeSelection.length === 0}
                 onClick={() => {
                   onTranscribeDialogClose();
-                  void onTranscribe({ all: false, annotationIds: transcribeSelection });
+                  void onTranscribe({ all: false, annotationIds: validTranscribeSelection });
                 }}
                 sx={{ textTransform: 'none' }}
               >
-                Transcribe selected
+                Retranscribe selected
               </Button>
             </span>
           </Tooltip>
@@ -713,5 +735,11 @@ ScribeActionPanel.propTypes = {
   }).isRequired,
   transcribeDialogOpen: PropTypes.bool.isRequired,
   transcribeSelection: PropTypes.arrayOf(PropTypes.string).isRequired,
+  visibleAnnotations: PropTypes.arrayOf(PropTypes.shape({
+    body: PropTypes.oneOfType([PropTypes.array, PropTypes.object, PropTypes.string]),
+    id: PropTypes.string,
+    target: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
+    textGranularity: PropTypes.string,
+  })).isRequired,
   windowId: PropTypes.string.isRequired,
 };

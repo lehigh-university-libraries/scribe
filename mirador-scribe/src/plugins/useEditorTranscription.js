@@ -1,6 +1,6 @@
 import {
   annotationCanvasId,
-  isWordAnnotation,
+  isLineAnnotation,
   upsertAnnotationInPage,
 } from '../utils/iiif';
 
@@ -78,9 +78,14 @@ export function useEditorTranscription({
         : (annotationIds.length > 0 ? annotationIds : transcribeSelection)
             .map((id) => (submittedPage.items || []).find((annotation) => annotation?.id === id))
             .filter(Boolean))
-        .filter((annotation) => !isWordAnnotation(annotation)));
+        .filter(isLineAnnotation));
 
       const total = targetAnnotations.length;
+      if (total === 0) {
+        setDialogOpen(false);
+        setStatusMessage('Select at least one line to retranscribe.');
+        return;
+      }
       setStatusMessage(`Transcribing… 0 / ${total}`);
       let nextPage = submittedPage;
       const failures = [];
@@ -149,7 +154,9 @@ export function useEditorTranscription({
         const first = failures[0];
         setStatusMessage(`Retranscribed ${successful}/${total}. ${first.id}: ${first.message}`);
       } else {
-        setStatusMessage(all ? 'Document transcribed.' : 'Selected text transcribed.');
+        setStatusMessage(all
+          ? 'Document retranscribed. Save to persist this draft.'
+          : 'Selected text retranscribed. Save to persist this draft.');
       }
     } catch (error) {
       if (mountedRef.current && activeCanvasRef.current === targetCanvasId) {

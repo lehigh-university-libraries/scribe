@@ -46,9 +46,10 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   const params = new URLSearchParams(window.location.search);
   const itemImageID = params.get("itemImageId") ?? "";
   const itemID = params.get("itemId") ?? "";
-  const autoTranscribe = params.get("autoTranscribe") === "1";
   const jobIdParam = params.get("jobId");
-  const requestedJobID = (() => {
+  let legacyAutoTranscribePending =
+    jobIdParam === null && params.get("autoTranscribe") === "1";
+  let requestedJobID = (() => {
     if (
       jobIdParam === null
       || jobIdParam.length > 20
@@ -75,8 +76,29 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   let activationSequence = 0;
   let canvasImageRegistry: CanvasImageRegistry | null = null;
   let editorManifestObjectURL = "";
+  let legacyAutoTranscribeTimer: number | null = null;
+  let legacyAutoTranscribeIdentity: {
+    canvasId: string;
+    itemImageId: string;
+    windowId: string;
+  } | null = null;
   const remoteRebaseReady = new Set<string>();
   const pendingCompletedJobs = new Map<string, string>();
+
+  function consumeLegacyAutoTranscribe(route?: URL): void {
+    if (legacyAutoTranscribeTimer !== null) {
+      window.clearTimeout(legacyAutoTranscribeTimer);
+      legacyAutoTranscribeTimer = null;
+    }
+    legacyAutoTranscribePending = false;
+    legacyAutoTranscribeIdentity = null;
+    const nextRoute = route ?? new URL(window.location.href);
+    if (!nextRoute.searchParams.has("autoTranscribe")) return;
+    nextRoute.searchParams.delete("autoTranscribe");
+    if (!route) {
+      window.history.replaceState(window.history.state, "", nextRoute);
+    }
+  }
 
   const handleBeforeUnload = (event: BeforeUnloadEvent) => {
     event.preventDefault();
@@ -801,9 +823,25 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       if (detail.itemImageId?.trim() !== targetItemImageID) {
         throw new Error("The focused Canvas item-image identity does not match this item.");
       }
+      const route = new URL(window.location.href);
+      if (
+        legacyAutoTranscribePending &&
+        legacyAutoTranscribeIdentity &&
+        (
+          targetItemImageID !== legacyAutoTranscribeIdentity.itemImageId ||
+          canvasID !== legacyAutoTranscribeIdentity.canvasId ||
+          windowID !== legacyAutoTranscribeIdentity.windowId
+        )
+      ) {
+        consumeLegacyAutoTranscribe(route);
+      }
       activeCanvasID = canvasID;
       activeWindowID = windowID;
-      const route = new URL(window.location.href);
+      if (targetItemImageID !== activeItemImageID) {
+        requestedJobID = null;
+        route.searchParams.delete("jobId");
+        route.searchParams.delete("autoTranscribe");
+      }
       route.searchParams.set("itemImageId", targetItemImageID);
       window.history.replaceState(window.history.state, "", route);
       void activateItemImage(targetItemImageID);
@@ -956,6 +994,12 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       beforeUnloadRegistered = false;
       eventSubscription?.close();
+      if (legacyAutoTranscribeTimer !== null) {
+        window.clearTimeout(legacyAutoTranscribeTimer);
+        legacyAutoTranscribeTimer = null;
+      }
+      legacyAutoTranscribePending = false;
+      legacyAutoTranscribeIdentity = null;
       if (editorManifestObjectURL) {
         URL.revokeObjectURL(editorManifestObjectURL);
         editorManifestObjectURL = "";
@@ -1068,6 +1112,13 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     if (activeCanvasID !== editorManifest.selectedCanvasId) {
       throw new Error("The editor manifest selected a different Canvas.");
     }
+    if (legacyAutoTranscribePending) {
+      legacyAutoTranscribeIdentity = {
+        canvasId: activeCanvasID,
+        itemImageId: runItemImageID,
+        windowId: EDITOR_WINDOW_ID,
+      };
+    }
     editorManifestObjectURL = URL.createObjectURL(new Blob(
       [editorManifest.manifestJSON],
       { type: "application/ld+json" },
@@ -1128,12 +1179,20 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
 
   await activateItemImage(runItemImageID, runResp, requestedJob);
 
-  if (!jobIdParam && autoTranscribe) {
+  if (legacyAutoTranscribePending && legacyAutoTranscribeIdentity) {
     // Legacy path: client-side segment-by-segment transcription via the magic wand.
-    setTimeout(() => {
+    const identity = legacyAutoTranscribeIdentity;
+    legacyAutoTranscribeTimer = window.setTimeout(() => {
+      legacyAutoTranscribeTimer = null;
+      const identityStillActive = legacyAutoTranscribePending &&
+        activeItemImageID === identity.itemImageId &&
+        activeCanvasID === identity.canvasId &&
+        activeWindowID === identity.windowId;
+      consumeLegacyAutoTranscribe();
+      if (!identityStillActive) return;
       document.dispatchEvent(
         new CustomEvent("scribe:request-transcribe-all", {
-          detail: { canvasId: activeCanvasID, windowId: activeWindowID },
+          detail: { canvasId: identity.canvasId, windowId: identity.windowId },
         }),
       );
     }, 3000);

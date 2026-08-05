@@ -1,6 +1,8 @@
 import "../src/styles.css";
 import { annotationClient } from "../src/api/annotations";
 import { parseIIIFJSON } from "../src/lib/iiif-json";
+import { commonViewerOptions } from "../src/pages/editor/mirador";
+import { renderEditorLayout } from "../src/pages/editor/layout";
 
 const status = document.getElementById("harness-status");
 const app = document.getElementById("app");
@@ -27,6 +29,7 @@ let pluginState = null;
 const pluginLoadItemImageIds = [];
 const pluginSaveItemImageIds = [];
 const pluginActiveCanvasEvents = [];
+const pluginTranscriptionCalls = [];
 let pluginLastEditorState = null;
 let pluginPendingSplit = null;
 let pluginStructuralCalls = {
@@ -138,6 +141,7 @@ async function initializePlugin(structural = false) {
     { canvasUri: canvasB, id: 2002n },
   ]);
   pluginStructuralCalls = { joinLineIds: [], joinWordIds: [], splitAtWord: 0 };
+  pluginTranscriptionCalls.length = 0;
   pluginState = new Map([
     ["1001", {
       page: page([{
@@ -178,6 +182,17 @@ async function initializePlugin(structural = false) {
   ]);
   pluginState.get("1001").page.id = "https://scribe.test/presentation/v3/item-image-1001/canvas/page-1/annotations";
   const client = {
+    async enrichAnnotation(itemImageId, scope, annotationJson, contextId) {
+      const submitted = parseIIIFJSON(annotationJson);
+      pluginTranscriptionCalls.push({
+        annotationId: submitted?.id || "",
+        contextId: String(contextId),
+        itemImageId: String(itemImageId),
+        scope,
+      });
+      if (scope !== "line") throw new Error(`unexpected browser transcription scope ${scope}`);
+      return withAnnotationValue(submitted, `retranscribed ${annotationValue(submitted)}`);
+    },
     async getAnnotationPage(itemImageId) {
       pluginLoadItemImageIds.push(String(itemImageId));
       const snapshot = pluginState.get(String(itemImageId));
@@ -231,16 +246,20 @@ async function initializePlugin(structural = false) {
       );
     },
   };
-  const adapterFactory = (canvasId) => new PluginAdapter(
+  const viewerOptions = commonViewerOptions(
     window.location.origin,
-    3,
-    canvasId,
-    "Browser plugin test",
-    {
-      client,
+    PluginAdapter,
+    client,
+    (canvasId) => ({
       contextId: "1",
       itemImageId: registry.itemImageIdForCanvas(canvasId),
       windowId: "plugin-window",
+    }),
+    {
+      ajaxWithCredentials: false,
+      animationTime: 0,
+      blendTime: 0,
+      crossOriginPolicy: "Anonymous",
     },
   );
   document.addEventListener("scribe:active-canvas", (event) => {
@@ -262,13 +281,19 @@ async function initializePlugin(structural = false) {
       },
     }));
   });
-  app.style.height = "900px";
-  app.style.width = "1200px";
-  app.id = "plugin-mirador";
+  const responsive = new URLSearchParams(window.location.search).get("responsive") === "1";
+  const viewerId = responsive ? "mirador-viewer" : "plugin-mirador";
+  if (responsive) {
+    status.hidden = true;
+    renderEditorLayout(app);
+  } else {
+    app.style.height = "900px";
+    app.style.width = "1200px";
+    app.id = viewerId;
+  }
   pluginStore = Mirador.viewer({
-    id: "plugin-mirador",
-    annotation: { adapter: adapterFactory, readonly: false },
-    osdConfig: { animationTime: 0, blendTime: 0, crossOriginPolicy: "Anonymous" },
+    ...viewerOptions,
+    id: viewerId,
     windows: [{
       canvasId: canvasA,
       id: "plugin-window",
@@ -802,6 +827,7 @@ function pluginSnapshot() {
     selectedAnnotationId: pluginLastEditorState?.selectedAnnotationId || "",
     selectedDraftTarget: structuredClone(selectedDraft?.target || null),
     statusMessage: pluginLastEditorState?.statusMessage || "",
+    transcriptionCalls: structuredClone(pluginTranscriptionCalls),
     splitPending: Boolean(pluginPendingSplit),
     structural: {
       calls: structuredClone(pluginStructuralCalls),

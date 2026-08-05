@@ -22,6 +22,20 @@ function annotation(id, value) {
   };
 }
 
+function wordAnnotation(id, value) {
+  return {
+    ...annotation(id, value),
+    textGranularity: 'word',
+  };
+}
+
+function granularAnnotation(id, value, textGranularity) {
+  return {
+    ...annotation(id, value),
+    textGranularity,
+  };
+}
+
 function page(items) {
   return {
     id: 'https://scribe.test/presentation/v3/item-image-1/canvas/page-1/annotations',
@@ -82,6 +96,101 @@ afterEach(() => {
 });
 
 describe('foreground editor transcription', () => {
+  it('retranscribes only line annotations across the whole page', async () => {
+    const explicitLine = annotation('line-explicit', 'line');
+    const implicitLine = annotation('line-implicit', 'legacy line');
+    delete implicitLine.textGranularity;
+    const nonLines = [
+      wordAnnotation('word-1', 'word'),
+      granularAnnotation('page-1', 'page', 'page'),
+      granularAnnotation('paragraph-1', 'paragraph', 'paragraph'),
+      granularAnnotation('custom-1', 'custom', 'heading'),
+    ];
+    const adapter = {
+      transcribeAnnotation: vi.fn(async (entry) => annotation(entry.id, `updated ${entry.id}`)),
+    };
+    const { applyTransformResult } = mount(adapter, {
+      localPage: page([explicitLine, implicitLine, ...nonLines]),
+    });
+
+    await act(async () => handleTranscribe({ all: true }));
+
+    expect(adapter.transcribeAnnotation.mock.calls.map(([entry]) => entry.id))
+      .toEqual(['line-explicit', 'line-implicit']);
+    expect(applyTransformResult).toHaveBeenCalledWith(
+      canvasId,
+      expect.any(Object),
+      expect.objectContaining({
+        items: expect.arrayContaining(nonLines),
+      }),
+      ['line-explicit', 'line-implicit'],
+    );
+  });
+
+  it('leaves selected page, paragraph, custom, and word annotations untouched', async () => {
+    const implicitLine = annotation('line-implicit', 'legacy line');
+    delete implicitLine.textGranularity;
+    const nonLines = [
+      wordAnnotation('word-1', 'word'),
+      granularAnnotation('page-1', 'page', 'page'),
+      granularAnnotation('paragraph-1', 'paragraph', 'paragraph'),
+      granularAnnotation('custom-1', 'custom', 'heading'),
+    ];
+    const adapter = {
+      transcribeAnnotation: vi.fn(async (entry) => annotation(entry.id, `updated ${entry.id}`)),
+    };
+    const { applyTransformResult } = mount(adapter, {
+      localPage: page([implicitLine, ...nonLines]),
+      selectedAnnotation: nonLines[0],
+      transcribeSelection: [implicitLine.id, ...nonLines.map(({ id }) => id)],
+    });
+
+    await act(async () => handleTranscribe({
+      all: false,
+      annotationIds: [implicitLine.id, ...nonLines.map(({ id }) => id)],
+    }));
+
+    expect(adapter.transcribeAnnotation).toHaveBeenCalledOnce();
+    expect(adapter.transcribeAnnotation).toHaveBeenCalledWith(implicitLine);
+    expect(applyTransformResult).toHaveBeenCalledWith(
+      canvasId,
+      expect.any(Object),
+      expect.objectContaining({
+        items: expect.arrayContaining(nonLines),
+      }),
+      ['line-implicit'],
+    );
+  });
+
+  it('rejects a word-only selection instead of reporting a zero-segment success', async () => {
+    const adapter = { transcribeAnnotation: vi.fn() };
+    const selectedWord = wordAnnotation('word-1', 'one');
+    const { applyTransformResult, setStatusMessage } = mount(adapter, {
+      localPage: page([selectedWord]),
+      selectedAnnotation: selectedWord,
+      transcribeSelection: ['word-1'],
+    });
+
+    await act(async () => handleTranscribe({ all: false, annotationIds: ['word-1'] }));
+
+    expect(adapter.transcribeAnnotation).not.toHaveBeenCalled();
+    expect(applyTransformResult).not.toHaveBeenCalled();
+    expect(setStatusMessage).toHaveBeenLastCalledWith('Select at least one line to retranscribe.');
+  });
+
+  it('marks successful transcription results as unsaved editor drafts', async () => {
+    const adapter = {
+      transcribeAnnotation: vi.fn(async (entry) => annotation(entry.id, `updated ${entry.id}`)),
+    };
+    const { setStatusMessage } = mount(adapter);
+
+    await act(async () => handleTranscribe({ all: false, annotationIds: ['line-1'] }));
+
+    expect(setStatusMessage).toHaveBeenLastCalledWith(
+      'Selected text retranscribed. Save to persist this draft.',
+    );
+  });
+
   it('stops after the first terminal provider failure and reports the attempted result count', async () => {
     const failure = Object.assign(new Error('The transcription provider rejected the selected context.'), {
       scribeBatchDisposition: 'stop',

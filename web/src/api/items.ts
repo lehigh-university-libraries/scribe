@@ -8,6 +8,7 @@ import {
   type PrepareItemExportResponse,
   type ProviderCallAudit,
   type UploadBatch,
+  type UploadItemImageResponse,
   UploadBatchFileStatus,
   UploadBatchStatus,
 } from "../proto/scribe/v1/item_pb";
@@ -102,6 +103,13 @@ export class UploadBatchError extends Error {
     this.batch = batch;
     this.completed = batch.completedFiles;
     this.failedSequence = failedSequence;
+  }
+}
+
+class UploadBatchResponseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UploadBatchResponseError";
   }
 }
 
@@ -210,6 +218,78 @@ function newBatchID(): string {
   return Array.from(bytes, (part) => part.toString(16).padStart(2, "0")).join("");
 }
 
+function assertCompletedBatchFileIdentities(batch: UploadBatch, expectedFileCount: number): void {
+  if (batch.files.length !== expectedFileCount) {
+    throw new UploadBatchResponseError("completed upload batch did not return the exact declared file set");
+  }
+  if (batch.completedFiles !== expectedFileCount || batch.failedFiles !== 0) {
+    throw new UploadBatchResponseError("completed upload batch returned inconsistent completion counters");
+  }
+  const sequences = new Set<number>();
+  const imageIDs = new Set<bigint>();
+  const jobIDs = new Set<bigint>();
+  for (const file of batch.files) {
+    if (file.sequence < 1 || file.sequence > expectedFileCount || sequences.has(file.sequence)) {
+      throw new UploadBatchResponseError("completed upload batch returned an invalid file sequence");
+    }
+    sequences.add(file.sequence);
+    if (file.status !== UploadBatchFileStatus.COMPLETED) {
+      throw new UploadBatchResponseError(`completed upload batch file ${file.sequence} is not completed`);
+    }
+    if (file.itemImageId === 0n) {
+      throw new UploadBatchResponseError(`completed upload file ${file.sequence} omitted its image identity`);
+    }
+    if (imageIDs.has(file.itemImageId)) {
+      throw new UploadBatchResponseError("completed upload batch returned a duplicate image identity");
+    }
+    imageIDs.add(file.itemImageId);
+    if (file.transcriptionJobId === 0n) {
+      throw new UploadBatchResponseError(`completed upload file ${file.sequence} omitted its transcription job identity`);
+    }
+    if (jobIDs.has(file.transcriptionJobId)) {
+      throw new UploadBatchResponseError("completed upload batch returned a duplicate transcription job identity");
+    }
+    jobIDs.add(file.transcriptionJobId);
+  }
+}
+
+function assertBatchIdentity(item: Item, batch: UploadBatch, expectedBatchID: string, expectedItemID?: string): void {
+  if (batch.id !== expectedBatchID) {
+    throw new UploadBatchResponseError("upload response returned an inconsistent batch identity");
+  }
+  if (!item.id.trim() || batch.itemId !== item.id || (expectedItemID !== undefined && item.id !== expectedItemID)) {
+    throw new UploadBatchResponseError("upload response returned an inconsistent item identity");
+  }
+}
+
+function assertCompletedFileResponse(
+  response: UploadItemImageResponse,
+  expectedBatchID: string,
+  expectedItemID: string,
+  expectedSequence: number,
+): { item: Item; batch: UploadBatch } {
+  if (!response.item || !response.image || !response.batch) {
+    throw new UploadBatchResponseError("incomplete upload response");
+  }
+  assertBatchIdentity(response.item, response.batch, expectedBatchID, expectedItemID);
+  const batchFile = response.batch.files.find((candidate) => candidate.sequence === expectedSequence);
+  if (!batchFile || batchFile.status !== UploadBatchFileStatus.COMPLETED) {
+    throw new UploadBatchResponseError(`upload response did not complete file ${expectedSequence}`);
+  }
+  if (
+    response.image.id === 0n
+    || response.image.id !== batchFile.itemImageId
+    || response.image.itemId !== response.item.id
+    || response.image.sequence !== expectedSequence
+  ) {
+    throw new UploadBatchResponseError(`upload response did not return the exact image identity for file ${expectedSequence}`);
+  }
+  if (response.transcriptionJobId === 0n || response.transcriptionJobId !== batchFile.transcriptionJobId) {
+    throw new UploadBatchResponseError(`upload response did not return the exact transcription job identity for file ${expectedSequence}`);
+  }
+  return { item: response.item, batch: response.batch };
+}
+
 export async function uploadItemImages(files: File[], options: UploadBatchOptions = {}): Promise<UploadBatchResult> {
   if (files.length === 0) throw new Error("no files provided");
   if (files.length > maxUploadBatchFiles) throw new Error(`a batch may contain at most ${maxUploadBatchFiles} files`);
@@ -247,7 +327,10 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
   if (!startResponse.item || !startResponse.batch) throw new Error("incomplete upload batch response");
   let item = startResponse.item;
   let batch = startResponse.batch;
+  assertBatchIdentity(item, batch, batchID);
+  const itemID = item.id;
   if (batch.status === UploadBatchStatus.COMPLETED) {
+    assertCompletedBatchFileIdentities(batch, prepared.files.length);
     removeStoredBatchID(storage, storageKey);
     return { item, batch };
   }
@@ -285,9 +368,12 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
             sequence: i + 1,
             imageData,
           }, { signal: options.signal });
-          if (!response.item || !response.batch) throw new Error("incomplete upload response");
-          item = response.item;
-          batch = response.batch;
+          const completed = assertCompletedFileResponse(response, batchID, itemID, i + 1);
+          item = completed.item;
+          batch = completed.batch;
+          if (batch.status === UploadBatchStatus.COMPLETED) {
+            assertCompletedBatchFileIdentities(batch, prepared.files.length);
+          }
           reportProgress(options, {
             completed: batch.completedFiles,
             total: prepared.files.length,
@@ -334,7 +420,11 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
         throw new UploadBatchError(`upload failed for ${prepared.files[i].file.name}`, batch, i + 1, { cause: lastError });
       }
     }
-    if (batch.status !== UploadBatchStatus.COMPLETED) throwIfAborted(options.signal);
+    if (batch.status !== UploadBatchStatus.COMPLETED) {
+      throwIfAborted(options.signal);
+      throw new UploadBatchResponseError("upload did not return a completed upload batch");
+    }
+    assertCompletedBatchFileIdentities(batch, prepared.files.length);
     removeStoredBatchID(storage, storageKey);
     return { item, batch };
   } catch (error) {
@@ -379,6 +469,7 @@ function throwIfAborted(signal?: AbortSignal): void {
 }
 
 function isRetryableUploadError(error: unknown): boolean {
+  if (error instanceof UploadBatchResponseError) return false;
   const code = ConnectError.from(error).code;
   return code === Code.Aborted
     || code === Code.AlreadyExists

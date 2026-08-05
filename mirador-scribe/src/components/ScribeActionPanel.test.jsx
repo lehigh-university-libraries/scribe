@@ -3,7 +3,10 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import ScribeActionPanel, { actionPanelRootSx } from './ScribeActionPanel';
+import ScribeActionPanel, {
+  actionPanelRootSx,
+  actionPanelToolbarLayoutSx,
+} from './ScribeActionPanel';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -12,7 +15,12 @@ vi.mock('mirador', () => ({
 }));
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key) => key }),
+  useTranslation: () => ({
+    t: (key) => ({
+      scribeEditorTranscribe: 'Retranscribe',
+      scribeEditorTranscribeSelected: 'Retranscribe selected',
+    })[key] || key,
+  }),
 }));
 
 let root;
@@ -28,11 +36,19 @@ function line(id = 'line-1') {
   };
 }
 
+function word(id = 'word-1') {
+  return {
+    ...line(id),
+    textGranularity: 'word',
+  };
+}
+
 function props(overrides = {}) {
   const annotation = line();
   const noop = vi.fn();
   return {
     annotations: [annotation],
+    visibleAnnotations: [annotation],
     canSplitToWords: true,
     drawMode: false,
     id: 'companion-1',
@@ -100,6 +116,11 @@ describe('ScribeActionPanel', () => {
       minHeight: 0,
       overflow: 'auto',
     });
+    expect(actionPanelToolbarLayoutSx).toMatchObject({
+      flexWrap: 'wrap',
+      minWidth: 0,
+      width: '100%',
+    });
   });
 
   it('keeps granularity visible and exposes structural shortcuts on their controls', async () => {
@@ -114,7 +135,46 @@ describe('ScribeActionPanel', () => {
     expect(document.querySelector('button[aria-label="scribeEditorSplitLine"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+S');
     expect(document.querySelector('button[aria-label="scribeEditorJoinLines"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+L');
     expect(document.querySelector('button[aria-label="scribeEditorJoinWords"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+W');
-    expect(document.querySelector('button[aria-label="scribeEditorTranscribe"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+R');
+    expect(document.querySelector('button[aria-label="Retranscribe"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+R');
     expect(document.querySelector('button[aria-label="Publish edits"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+P');
+  });
+
+  it('offers an explicit cancel action and never enables a word-only retranscription selection', async () => {
+    const onTranscribeDialogClose = vi.fn();
+    const selectedWord = word();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root.render(<ScribeActionPanel {...props({
+      annotations: [line(), selectedWord],
+      onTranscribeDialogClose,
+      transcribeDialogOpen: true,
+      transcribeSelection: [selectedWord.id],
+      visibleAnnotations: [line(), selectedWord],
+    })} />));
+
+    const buttons = [...document.querySelectorAll('button')];
+    const transcribeSelected = buttons.find((button) => button.textContent?.includes('Retranscribe selected'));
+    expect(transcribeSelected?.disabled).toBe(true);
+
+    const cancel = buttons.find((button) => button.textContent === 'Cancel');
+    expect(cancel).toBeDefined();
+    await act(async () => cancel?.click());
+    expect(onTranscribeDialogClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps whole-page retranscription available when no line is inside the viewport', async () => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root.render(<ScribeActionPanel {...props({
+      transcribeDialogOpen: true,
+      visibleAnnotations: [],
+    })} />));
+
+    const buttons = [...document.querySelectorAll('button')];
+    expect(buttons.find((button) => button.getAttribute('aria-label') === 'Retranscribe')?.disabled).toBe(false);
+    expect(buttons.find((button) => button.textContent?.includes('Retranscribe entire page'))?.disabled).toBe(false);
+    expect(buttons.find((button) => button.textContent?.includes('Retranscribe selected'))?.disabled).toBe(true);
   });
 });

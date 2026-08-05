@@ -39,6 +39,13 @@ job, and returned editor Manifest must all agree. A stale or cross-workspace
 combination fails closed and offers a return to the library; it must never fall
 back to a similarly named Canvas or item in another workspace.
 
+When a page turn selects another Canvas in a multi-image item, the editor
+updates `itemImageId` in place and removes the image-bound `jobId` and
+`autoTranscribe` hints. It preserves `workspace_id` so a reload remains in the
+selected workspace without trying to reconcile the prior image's job. The
+exact-job binding is one-shot: returning to the original Canvas uses normal
+latest-job discovery and cannot revive the discarded route hint.
+
 ## Authentication handoff
 
 A deep link carries location, not authority. Never put an API key, external JWT,
