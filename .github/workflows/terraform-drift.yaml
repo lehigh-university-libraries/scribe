@@ -113,6 +113,7 @@ jobs:
             echo "VAULT_CI_SERVICE_ACCOUNT_EMAILS=$(jq -c '.configuration.vault_ci_service_account_emails' <<<"$deployed")"
             echo "TF_VAR_monitoring_notification_channels=$(jq -c '.configuration.monitoring_notification_channels' <<<"$deployed")"
             echo "TF_VAR_backup_restore_service_account_email=$(jq -r '.configuration.backup_restore_service_account_email' <<<"$deployed")"
+            echo "TF_VAR_browser_readiness_subnet_cidr=$(jq -r '.configuration.browser_readiness_subnet_cidr' <<<"$deployed")"
             echo "TF_VAR_network_ip_cidr_range=$(jq -r '.configuration.network_ip_cidr_range' <<<"$deployed")"
             echo "TF_VAR_compose_network_cidr=$(jq -r '.configuration.compose_network_cidr' <<<"$deployed")"
             echo "TF_VAR_transcription_max_active_jobs_per_workspace=$(jq -r '.configuration.transcription_max_active_jobs_per_workspace' <<<"$deployed")"

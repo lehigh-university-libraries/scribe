@@ -24,7 +24,8 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
     --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     CGO_ENABLED=0 GOOS=linux go build -tags remoteocr -o /out/scribe-api ./cmd/api \
-    && CGO_ENABLED=0 GOOS=linux go build -tags remoteocr -o /out/scribe-worker ./cmd/worker
+    && CGO_ENABLED=0 GOOS=linux go build -tags remoteocr -o /out/scribe-worker ./cmd/worker \
+    && CGO_ENABLED=0 GOOS=linux go build -tags remoteocr -o /out/scribe-browser-session ./cmd/browser-session
 
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 WORKDIR /app
@@ -36,6 +37,7 @@ RUN apk add --no-cache \
 RUN adduser -D -u 10001 appuser
 COPY --from=builder /out/scribe-api /app/scribe-api
 COPY --from=builder /out/scribe-worker /app/scribe-worker
+COPY --from=builder /out/scribe-browser-session /app/scribe-browser-session
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 COPY scripts/vault-init.sh /usr/local/bin/vault-init.sh
 COPY scripts/vault-retry.sh /usr/local/lib/scribe/vault-retry.sh

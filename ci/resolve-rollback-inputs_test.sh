@@ -19,6 +19,17 @@ jq 'del(.configuration.dev_external_ocr_impersonators)' "$fixture" >"$legacy_fix
 legacy_normalized="$($resolver "$legacy_fixture")"
 jq -e '.configuration.dev_external_ocr_impersonators == []' <<<"$legacy_normalized" >/dev/null
 
+legacy_browser_fixture="$test_dir/deployment-inputs-before-browser-readiness.json"
+jq 'del(.browser_readiness_image)' "$fixture" >"$legacy_browser_fixture"
+legacy_browser_normalized="$($resolver "$legacy_browser_fixture")"
+jq -e '.browser_readiness_image == ""' <<<"$legacy_browser_normalized" >/dev/null
+
+legacy_browser_subnet_fixture="$test_dir/deployment-inputs-before-browser-subnet.json"
+jq 'del(.configuration.browser_readiness_subnet_cidr)' "$fixture" >"$legacy_browser_subnet_fixture"
+legacy_browser_subnet_normalized="$($resolver "$legacy_browser_subnet_fixture")"
+jq -e '.configuration.browser_readiness_subnet_cidr == "10.43.0.0/26"' \
+  <<<"$legacy_browser_subnet_normalized" >/dev/null
+
 assert_rejected() {
   local name="$1"
   local filter="$2"
@@ -59,6 +70,11 @@ assert_rejected extra-input '.unexpected = true'
 assert_rejected zero-compose-sha '.docker_compose_sha = "0000000000000000000000000000000000000000"'
 assert_rejected unsupported-generation '.data_generation = "canonical-v999"'
 assert_rejected mutable-image '.api_image = "ghcr.io/lehigh-university-libraries/scribe:main"'
+assert_rejected production-browser-image '.browser_readiness_image = "us-docker.pkg.dev/scribe-test1/internal/scribe-browser-readiness@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+assert_rejected null-browser-image '.browser_readiness_image = null'
+assert_rejected zero-browser-image '.browser_readiness_image = "us-docker.pkg.dev/scribe-test1/internal/scribe-browser-readiness@sha256:0000000000000000000000000000000000000000000000000000000000000000"'
+assert_rejected null-browser-subnet '.configuration.browser_readiness_subnet_cidr = null'
+assert_rejected broad-browser-subnet '.configuration.browser_readiness_subnet_cidr = "10.43.0.0/24"'
 assert_rejected unsafe-ocr-service-key '.ocr_service_images["ollama/glm-ocr:bf16\nINJECTED"] = .ocr_service_images["ollama/glm-ocr:bf16"]'
 assert_rejected unused-frontend-source-image '.frontend_image = "ghcr.io/lehigh-university-libraries/scribe-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'
 assert_rejected cross-project-image '.frontend_gar_image = "us-docker.pkg.dev/other-project/internal/scribe-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'

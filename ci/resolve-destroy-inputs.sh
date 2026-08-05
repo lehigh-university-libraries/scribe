@@ -13,7 +13,10 @@ zero_digest="sha256:000000000000000000000000000000000000000000000000000000000000
 # State recorded before the dev-only external OCR IAM feature has no
 # dev_external_ocr_impersonators key. Its only valid preview/production value
 # is the Terraform default ([]), so normalize that missing key alone. An
-# explicit null or malformed value must still fail validation below.
+# explicit null or malformed value must still fail validation below. The
+# browser-only /26 was introduced later and likewise has one reviewed legacy
+# default; normalize absence alone so historical preview state remains
+# destroyable without accepting an explicit null or malformed range.
 if ! jq -ceS \
   --arg project "$GCLOUD_PROJECT" \
   --arg zero_sha "$zero_sha" \
@@ -27,6 +30,16 @@ if ! jq -ceS \
     else
       .
     end
+    | if type == "object" and (has("browser_readiness_image") | not) then
+        .browser_readiness_image = ""
+      else
+        .
+      end
+    | if (.configuration | type) == "object" and (.configuration | has("browser_readiness_subnet_cidr") | not) then
+        .configuration.browser_readiness_subnet_cidr = "10.43.0.0/26"
+      else
+        .
+      end
     | select(
     type == "object" and
     (.configuration as $configuration |
@@ -35,6 +48,10 @@ if ! jq -ceS \
       (.region | type == "string" and test("^[a-z]+-[a-z]+[0-9]+$")) and
       (.zone | type == "string" and test("^[a-z]+-[a-z]+[0-9]+-[a-z]$")) and
       (.zone | startswith($configuration.region + "-")) and
+      (.browser_readiness_subnet_cidr |
+        type == "string" and
+        test("^[0-9]{1,3}([.][0-9]{1,3}){3}/26$") and
+        startswith("169.254.") == false) and
       (.dev_external_ocr_impersonators |
         type == "array" and
         all(.[]; type == "string" and test("^(user|group):[^@[:space:]]+@[^@[:space:]]+$")))) and
@@ -44,6 +61,12 @@ if ! jq -ceS \
       type == "string" and
       test("^ghcr\\.io/lehigh-university-libraries/scribe@sha256:[0-9a-f]{64}$") and
       endswith($zero_digest) == false) and
+    (.browser_readiness_image |
+      type == "string" and
+      (. == "" or (
+        startswith("us-docker.pkg.dev/" + $project + "/internal/scribe-browser-readiness@sha256:") and
+        test("@sha256:[0-9a-f]{64}$") and
+        endswith($zero_digest) == false))) and
     (.frontend_gar_image |
       type == "string" and
       startswith("us-docker.pkg.dev/" + $project + "/internal/scribe-frontend@sha256:") and

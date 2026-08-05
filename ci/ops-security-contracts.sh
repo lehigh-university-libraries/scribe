@@ -32,6 +32,7 @@ while IFS= read -r workflow; do
 done < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yaml' -o -name '*.yml' \) -print)
 bash ci/docs-workflow-contract_test.sh
 bash ci/ensure-local-vault-init-image_test.sh
+bash ci/browser-readiness-contract_test.sh
 matrix_job="$(sed -n '/^  matrix:/,/^  build:/p' .github/workflows/build-ocr.yaml)"
 rg -q '^    permissions:$' <<<"$matrix_job" || fail "OCR matrix job must have explicit permissions"
 rg -q '^      contents: read$' <<<"$matrix_job" || fail "OCR matrix job must be explicitly read-only"
@@ -101,10 +102,12 @@ require_pattern 'readiness_network_resource_name = regex\(' terraform/readiness.
 require_pattern 'projects/\[\^/\]\+/global/networks/\[\^/\]\+\$' terraform/readiness.tf
 require_pattern 'readiness_subnetwork_resource_name = regex\(' terraform/readiness.tf
 require_pattern 'projects/\[\^/\]\+/regions/\[\^/\]\+/subnetworks/\[\^/\]\+\$' terraform/readiness.tf
-test "$(rg -c 'network    = local\.readiness_network_resource_name' terraform/readiness.tf)" -eq 2 ||
-  fail "both readiness jobs must use the canonical Cloud Run network resource name"
+test "$(rg -c 'network    = local\.readiness_network_resource_name' terraform/readiness.tf)" -eq 3 ||
+  fail "all three readiness jobs must use the canonical Cloud Run network resource name"
 test "$(rg -c 'subnetwork = local\.readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 2 ||
-  fail "both readiness jobs must use the canonical Cloud Run subnetwork resource name"
+  fail "backend and OCR readiness jobs must use the canonical application subnetwork resource name"
+test "$(rg -c 'subnetwork = local\.browser_readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 1 ||
+  fail "browser readiness must use only its dedicated NATed subnetwork resource name"
 forbid_pattern 'network    = module\.scribe\.network\.self_link' terraform/readiness.tf
 forbid_pattern 'subnetwork = module\.scribe\.network\.subnetwork' terraform/readiness.tf
 require_pattern 'readiness_jobs = \{' terraform/monitoring.tf
@@ -169,6 +172,8 @@ for terraform_file in terraform/main.tf terraform/variables.tf terraform/outputs
 done
 require_pattern 'TF_VAR_network_ip_cidr_range' .github/workflows/terraform-deploy.yaml
 require_pattern 'TF_VAR_network_ip_cidr_range' .github/workflows/terraform-drift.yaml
+require_pattern 'TF_VAR_browser_readiness_subnet_cidr' .github/workflows/terraform-deploy.yaml
+require_pattern 'TF_VAR_browser_readiness_subnet_cidr' .github/workflows/terraform-drift.yaml
 for runtime_default_var in \
   transcription_max_active_jobs_per_workspace \
   storage_max_bytes_per_workspace storage_max_bytes_total \

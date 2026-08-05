@@ -129,10 +129,12 @@ documented in the
 [deployment guide](../docs/operations/deployment.md#shared-vault-owner-bootstrap-and-recovery).
 `ACTION=refresh` cannot be combined with a targeted maintenance entry point.
 It validates and replays every field in the recorded `deployment_inputs`
-schema. State created before the dev-only external OCR identity input is the
-one schema-transition exception: a missing
-`dev_external_ocr_impersonators` key is normalized to `[]`, while explicit
-null, malformed, and non-empty production/preview values still fail closed.
+schema. Additive legacy state has three unambiguous defaults: a missing
+`dev_external_ocr_impersonators` is `[]`, a missing
+`browser_readiness_image` is empty, and a missing
+`browser_readiness_subnet_cidr` is `10.43.0.0/26`. Explicit null or malformed
+values still fail closed, and non-empty browser images remain subject to the
+exact environment/image contract.
 Refresh creates a full-graph saved `terraform plan -refresh-only` and rejects
 non-move drift or any non-no-op resource/output action. The wrapper prints the
 verified plan before auto-applying that exact saved plan. It does not invoke
@@ -140,10 +142,11 @@ image resolution, pull, or build tooling; remote-state, provider, backup-policy,
 and Vault authentication prerequisites may still be required. Refresh and
 ordinary destroy require an existing selected workspace and never create one.
 Destroy retains its one validated input snapshot across at most three attempts
-for ordinary failures. An exact preview-only Google-managed
-`serverless-ipv4-*` subnet dependency receives up to 25 attempts, five minutes
-apart, because Cloud Run Direct VPC address release can take two hours; it does
-not authorize deletion of the provider-managed address. Only preview destroy
+for ordinary failures. A Google-managed `serverless-ipv4-*` dependency on
+either the exact preview application subnet or the exact deterministic browser
+subnet receives up to 25 attempts, five minutes apart, because Cloud Run Direct
+VPC address release can take two hours; it does not authorize deletion of the
+provider-managed address. Only preview destroy
 receives the extended workflow timeout; other deployment modes keep the
 ordinary bound. A preview workspace is deleted only after destroy succeeds. If
 an interrupted teardown already removed the current output, the protected
@@ -253,7 +256,7 @@ The `deployment_inputs` output records the Compose SHA, persistence generation,
 actual runtime image digests, and non-secret configuration needed by refresh,
 destroy, drift detection, and rollback. Replay validates the recorded schema
 and fails closed rather than resolving a tag or guessing a missing value, apart
-from the documented missing legacy external-OCR key normalization.
+from the three documented additive legacy defaults.
 
 ## GitHub delivery
 

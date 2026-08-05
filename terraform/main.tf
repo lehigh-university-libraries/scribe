@@ -829,7 +829,7 @@ module "scribe" {
 
     network = {
       ip_cidr_range            = var.network_ip_cidr_range
-      power_button_allowed_ips = var.allowed_ips
+      power_button_allowed_ips = distinct(concat(var.allowed_ips, local.browser_readiness_allowed_ips))
       power_button_ip_depth    = 0
       ssh_ipv4                 = var.allowed_ssh_ipv4
       ssh_ipv6                 = var.allowed_ssh_ipv6

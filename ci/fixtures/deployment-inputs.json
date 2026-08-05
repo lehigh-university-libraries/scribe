@@ -1,5 +1,6 @@
 {
   "api_image": "ghcr.io/lehigh-university-libraries/scribe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "browser_readiness_image": "",
   "configuration": {
     "allowed_ips": [
       "192.0.2.0/24",
@@ -12,6 +13,7 @@
       "2001:db8:1::/64"
     ],
     "backup_restore_service_account_email": "scribe-backup@scribe-test1.iam.gserviceaccount.com",
+    "browser_readiness_subnet_cidr": "10.43.0.0/26",
     "compose_network_cidr": "172.30.0.0/24",
     "dev_external_ocr_impersonators": [],
     "iiif_max_manifest_canvases": 500,

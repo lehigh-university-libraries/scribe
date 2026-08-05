@@ -294,6 +294,7 @@ export default function ScribeActionPanel({
   return (
     <CompanionWindow title="" id={id} windowId={windowId}>
       <Box
+        data-scribe-action-panel="true"
         sx={actionPanelRootSx}
       >
         <Box

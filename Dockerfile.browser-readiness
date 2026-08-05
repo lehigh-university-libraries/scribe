@@ -1,0 +1,21 @@
+# Keep this image version identical to web's @playwright/test dependency and
+# ci/test-browser.sh. The digest is part of the protected deployment source.
+# renovate: datasource=docker depName=mcr.microsoft.com/playwright
+FROM mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07 AS dependencies
+
+WORKDIR /app
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --ignore-scripts --prefer-offline --no-audit
+
+FROM mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07
+
+WORKDIR /app
+
+COPY --from=dependencies --chown=pwuser:pwuser /app/node_modules ./node_modules
+COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs
+COPY --chown=pwuser:pwuser config/readiness-smoke.png.base64 ./readiness-smoke.png.base64
+
+USER pwuser
+
+ENTRYPOINT ["node", "/app/deployed-readiness.mjs"]

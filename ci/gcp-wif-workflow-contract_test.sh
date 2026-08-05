@@ -99,12 +99,13 @@ done
 
 assert_count 1 'run: ./ci/gcp-vm-bootstrap-diagnostics\.sh' .github/workflows/terraform-deploy.yaml
 assert_count 1 'continue-on-error: true' .github/workflows/terraform-deploy.yaml
-assert_count 4 'run-cloud-run-readiness\.sh' .github/workflows/terraform-deploy.yaml
+assert_count 5 'run-cloud-run-readiness\.sh' .github/workflows/terraform-deploy.yaml
 if rg -q 'gcloud run jobs execute' .github/workflows/terraform-deploy.yaml; then
   fail "terraform-deploy.yaml bypasses the shared bounded Cloud Run readiness helper"
 fi
 assert_count 1 'inputs\.tf_workspace \}\}-backend-readiness-diagnostics\.log' .github/workflows/terraform-deploy.yaml
 assert_count 1 'inputs\.tf_workspace \}\}-ocr-readiness-diagnostics\.log' .github/workflows/terraform-deploy.yaml
+assert_count 1 'inputs\.tf_workspace \}\}-browser-readiness-diagnostics\.log' .github/workflows/terraform-deploy.yaml
 assert_count 1 'inputs\.tf_workspace \}\}-rollback-backend-readiness-diagnostics\.log' .github/workflows/terraform-deploy.yaml
 assert_count 1 'inputs\.tf_workspace \}\}-rollback-ocr-readiness-diagnostics\.log' .github/workflows/terraform-deploy.yaml
 diagnostics_block="$(sed -n '/name: Capture failed VM diagnostics/,/name: Roll back failed production rollout/p' .github/workflows/terraform-deploy.yaml)"

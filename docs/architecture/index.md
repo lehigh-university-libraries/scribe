@@ -5,6 +5,7 @@ packages:
 
 - `cmd/api`: Connect API, auth routes, and public IIIF representations
 - `cmd/worker`: leased background transcription and publication work
+- `cmd/browser-session`: trusted-host, five-minute browser smoke credentials
 - `internal/iiif`: IIIF IDs, parsing, validation, builders, and extensions
 - `internal/store`: transactional canonical pages, revisions, jobs, and outboxes
 - `internal/providerregistry`: provider and segmentor capability policy

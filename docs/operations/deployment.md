@@ -113,12 +113,15 @@ Destroy reads the exact Compose SHA and image digests recorded in that
 workspace's `deployment_inputs`; it never resolves a tag, pulls an image, or
 builds PR code with deployment credentials. Missing or malformed state fails
 closed with an operator recovery instruction, because guessing replacement
-inputs could mutate the plan before teardown. The sole schema-transition
-exception is state recorded before the dev-only external OCR IAM input existed:
-an absent `dev_external_ocr_impersonators` key is normalized to its historical
-empty default. Explicit null, malformed, or non-empty preview/production values
-still fail closed. Terraform destroy makes at most three bounded attempts with
-the same validated state-derived inputs for ordinary failures, so short-lived
+inputs could mutate the plan before teardown. Three additive schema transitions
+have unambiguous historical values: an absent
+`dev_external_ocr_impersonators` becomes `[]`, an absent
+`browser_readiness_image` becomes the pre-runner empty value, and an absent
+`browser_readiness_subnet_cidr` becomes the reviewed `10.43.0.0/26` default.
+Explicit null or malformed values still fail closed; non-empty browser images
+remain governed by the exact preview/production image contract. Terraform
+destroy makes at most three bounded attempts with the same validated
+state-derived inputs for ordinary failures, so short-lived
 cloud dependency cleanup can converge without rereading partially changed
 state. The exact preview-only Google-managed subnet delay described below gets
 a separate two-hour bound. After either bound, a later protected run or operator
@@ -133,8 +136,9 @@ removing the Cloud Run resources before deleting the subnet. When Terraform's
 preview-destroy diagnostic contains both the managed `serverless-ipv4-*`
 address and `resourceInUseByAnotherResource`, the protected job retries every
 five minutes for up to two hours using the same already-validated deployment
-inputs. Every Terraform error in that attempt must identify the current preview
-subnet and managed address; mixed or differently scoped failures retain the
+inputs. Every Terraform error in that attempt must identify either the exact
+current preview application subnet or its exact deterministic browser subnet,
+plus a managed address; mixed or differently scoped failures retain the
 ordinary bound. The wait retains the shared preview serialization lock and the
 job-scoped deploy identity so no other preview can replace shared runtime
 bindings during a partial teardown. Its preview-only timeout leaves a one-hour
@@ -428,6 +432,77 @@ Optional `ALLOWED_SSH_IPV4` and `ALLOWED_SSH_IPV6` variables are JSON arrays of
 the exact administrator CIDRs permitted to reach the VM; an empty array keeps
 that address family closed.
 
+### Managed preview browser readiness
+
+Every protected preview apply builds the browser-readiness image from the
+checked-out protected base SHA, never from the pull-request checkout. The
+Playwright runtime and browser are digest-pinned, run as `pwuser`, and receive
+only the preview's canonical HTTPS origin. A dedicated Cloud Run job uses a
+dedicated service account with no project, storage, Vault, Pub/Sub, or OCR IAM
+grants. Direct VPC egress attaches only this job to a dedicated, non-overlapping
+preview `/26`; Cloud NAT covers only that subnet and a reserved regional
+address. The VM, backend probe, OCR probe, and application subnet cannot use
+that NAT path. Terraform derives one `/32` from the address and appends it only
+to that preview's PPB ingress allowlist. Production and other previews are not
+widened.
+
+The job authenticates through the existing isolated
+`AUTH_PREVIEW_ANONYMOUS` workspace. It selects the built-in Tesseract context,
+uploads the reviewed image fixture, waits for completed background
+transcription and a non-empty canonical AnnotationPage, exercises overlay,
+retranscription, save, publish, narrow-display layout, and the copy-once
+workspace-token modal, then deletes the token and item. Same-origin HTTP
+failures, failed requests, CSP console violations, unexpected native dialogs,
+or failed cleanup make readiness fail. The runner emits only an allowlisted
+stage name; it never stores browser state or uploads browser output. Terraform
+records the exact runner digest and dedicated subnet in `deployment_inputs`, so
+refresh and destroy replay the same graph. The protected apply workflow always
+supplies a non-empty digest and requires the resulting browser job to pass
+before preview success. Terraform permits an empty runner value only so
+non-preview and pre-runner lifecycle state can be planned or destroyed;
+historical absence normalizes to that empty value. Explicit null, mutable,
+cross-project, or placeholder values fail closed.
+
+### Trusted browser smoke session
+
+Production browser readiness must not depend on an operator's Google OAuth
+session. The reviewed backend image includes `/app/scribe-browser-session` for
+an operator or protected deploy job with administrator SSH access to the Cloud
+Compose VM. Run it inside the API container with one new, direct child of
+`/tmp`; the basename must start with `scribe-browser-session-` and end with
+`.json`:
+
+```bash
+docker compose exec -T api /app/scribe-browser-session \
+  --output "/tmp/scribe-browser-session-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+```
+
+The command emits no credential or success message. It verifies that reserved
+user 1 is not a system administrator or OAuth identity, owns only reserved
+personal workspace 1, and is that workspace's administrator. It then creates
+an ordinary session with a fixed five-minute lifetime and writes a
+Playwright-compatible storage-state document to a new mode-`0600` file in the
+API container's private `/tmp` directory. There are no user, workspace, role, or
+lifetime override flags. Any drift in the reserved identity, an existing
+output file, a non-HTTPS public origin, or a cookie-domain mismatch fails
+closed.
+
+The protected SSH step must copy the file into a job-private mode-`0700`
+directory without printing its contents, remove the container copy
+immediately, load it directly through Playwright's `storageState` option, and
+remove the host copy as soon as the browser context is created. On successful
+readiness, POST `/logout` from that context to revoke the database session;
+abandoned sessions expire after five minutes. Never put the file contents in a
+shell command substitution, process argument, URL, GitHub output/environment
+file, log, trace, screenshot, video, or artifact.
+
+This helper deliberately relies on the existing host-administrator trust
+boundary: anyone able to execute commands in the API container can already
+reach its database and Vault bootstrap material. Do not expose the binary
+through an HTTP route or copy it into the public frontend image. Preview auth
+continues to use its isolated `AUTH_PREVIEW_ANONYMOUS` principal and does not
+need this credential.
+
 Set repository variables `SCRIBE_REGION` and `SCRIBE_ZONE` together (defaults
 `us-east5` and `us-east5-b`). The workflow passes that exact pair to the
 frontend build, Vault lookup, Terraform, and output lookup so the frontend
@@ -489,15 +564,16 @@ cannot administer mounts, policies, auth methods, or dev/production data.
 
 Every successful Terraform apply must first attest that the latest created
 Cloud Run revision is Ready, serves 100% of traffic, and contains the exact
-reviewed frontend digest, then pass two managed readiness jobs. The
+reviewed frontend digest, then pass two common managed readiness jobs. The
 first runs the real server from the exact deployed frontend image with direct
 VPC egress and polls its proxied `/healthz`. The second submits the deterministic
 `SCRIBE TEST` image to the private image normalizer, segmentation, and Kraken
 transcription endpoints, validates the JPEG and non-empty model outputs, and in
 production requires the default Ollama OCR model to finish a non-streaming
-image request. They use separate no-data probe identities so PR-built frontend
-code never inherits the OCR probe's invoker grants. If Terraform partially
-applies, or attestation/readiness fails after a production apply, the
+image request. Protected preview applies then pass the separate browser job
+described above. All three use separate no-data probe identities so PR-built
+frontend code never inherits the OCR probe's invoker grants. If Terraform
+partially applies, or attestation/readiness fails after a production apply, the
 workflow checks out the previously recorded reviewed commit, verifies that it
 is an ancestor of the deploying `main` commit, and reapplies its persistence
 generation, image digests, network/auth settings, and runtime limits. It then
