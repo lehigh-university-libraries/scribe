@@ -55,9 +55,13 @@ done
 # shellcheck disable=SC2016 # These are literal JavaScript source assertions.
 for required in \
   'selectOption({ label: "Tesseract OCR" })' \
+  'const fixtureName = `browser-readiness-${Date.now()}.png`' \
   'Batch transcription complete. Updated text is now available in the editor.' \
+  '/scribe.v1.AnnotationService/GetAnnotationPage' \
+  'payload?.annotationPageJson' \
   '/presentation/v3/item-image-${itemImageID}/canvas/page-1/annotations' \
-  'annotationPage.items.some(annotationHasText)' \
+  'assertTextualAnnotationPage(annotationPage)' \
+  'assertTextualAnnotationPage(publishedAnnotationPage)' \
   'Document retranscribed. Save to persist this draft.' \
   'Saved page.' \
   'Edits published.' \
@@ -81,7 +85,9 @@ require_fixed '/scribe.v1.AuthService/DeleteAPIKey' web/e2e/deployed-readiness.m
 require_fixed '/scribe.v1.AuthService/ListAPIKeys' web/e2e/deployed-readiness.mjs
 require_fixed 'listPayload.apiKeys.some' web/e2e/deployed-readiness.mjs
 require_fixed 'apiKeyDelete.getAttribute("data-api-key-delete")' web/e2e/deployed-readiness.mjs
+require_fixed 'waitForActionToDisappear("data-api-key-delete", apiKeyID)' web/e2e/deployed-readiness.mjs
 require_fixed 'findActionByValue(page, "data-item-delete", createdItemID)' web/e2e/deployed-readiness.mjs
+require_fixed 'deleteWithConfirmation(itemDelete, "data-item-delete")' web/e2e/deployed-readiness.mjs
 require_fixed 'Math.abs(geometry.panelClientHeight - geometry.parentClientHeight) > 2' web/e2e/deployed-readiness.mjs
 require_fixed 'geometry.panelScrollWidth > geometry.panelClientWidth + 1' web/e2e/deployed-readiness.mjs
 require_fixed 'const clientCancellation = /ERR_ABORTED|cancell?ed/i.test' web/e2e/deployed-readiness.mjs
@@ -89,6 +95,8 @@ require_fixed 'await navigate("/", false);' web/e2e/deployed-readiness.mjs
 require_fixed 'if (requireHealthy) assertBrowserHealthy();' web/e2e/deployed-readiness.mjs
 require_fixed 'page.locator("[data-scribe-granularity]").count() !== 0' web/e2e/deployed-readiness.mjs
 require_fixed 'if (await tokenField.inputValue() !== "")' web/e2e/deployed-readiness.mjs
+assert_before web/e2e/deployed-readiness.mjs '/scribe\.v1\.AnnotationService/GetAnnotationPage' 'category = "publish"'
+assert_before web/e2e/deployed-readiness.mjs 'category = "publish"' '/presentation/v3/item-image-\$\{itemImageID\}/canvas/page-1/annotations'
 forbid_pattern 'settings-api-key-form"\)\.count\(\) > 0' web/e2e/deployed-readiness.mjs
 require_pattern '\^scribe-pr-\[1-9\]\[0-9\]\*-' web/e2e/deployed-readiness.mjs
 [ "$(rg -c -F 'process.stderr.write(`browser readiness failed: ${failureCategory}\n`)' web/e2e/deployed-readiness.mjs)" -eq 1 ] ||

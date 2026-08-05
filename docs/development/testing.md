@@ -108,7 +108,10 @@ Playwright image and runs it only after the preview apply. The scenario uses a
 browser-only `/26` and NAT to target the canonical `scribe-pr-*` Cloud Run
 origin, uses preview-anonymous auth and
 the built-in Tesseract context, and deletes the workspace token and uploaded
-item it creates. It deliberately produces no browser artifacts; on failure the
+item it creates. It verifies the completed private draft through
+`AnnotationService.GetAnnotationPage`, then requires its public Triplet
+AnnotationPage only after the editor publishes that revision. It deliberately
+produces no browser artifacts; on failure the
 Cloud Run helper retains only the exact allowlisted stage category. Run `bash
 ci/browser-readiness-contract_test.sh` and `bash
 ci/run-cloud-run-readiness_test.sh` for focused orchestration iteration. A
