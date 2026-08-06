@@ -16,7 +16,10 @@ zero_digest="sha256:000000000000000000000000000000000000000000000000000000000000
 # explicit null or malformed value must still fail validation below. The
 # browser-only /26 was introduced later and likewise has one reviewed legacy
 # default; normalize absence alone so historical preview state remains
-# destroyable without accepting an explicit null or malformed range.
+# destroyable without accepting an explicit null or malformed range. The
+# preview-only machine profile is structurally ignored outside pr-* workspaces,
+# so its missing historical value unambiguously normalizes to the former
+# preview default, e2-medium.
 if ! jq -ceS \
   --arg project "$GCLOUD_PROJECT" \
   --arg zero_sha "$zero_sha" \
@@ -40,6 +43,11 @@ if ! jq -ceS \
       else
         .
       end
+    | if (.configuration | type) == "object" and (.configuration | has("preview_machine_type") | not) then
+        .configuration.preview_machine_type = "e2-medium"
+      else
+        .
+      end
     | select(
     type == "object" and
     (.configuration as $configuration |
@@ -48,6 +56,7 @@ if ! jq -ceS \
       (.region | type == "string" and test("^[a-z]+-[a-z]+[0-9]+$")) and
       (.zone | type == "string" and test("^[a-z]+-[a-z]+[0-9]+-[a-z]$")) and
       (.zone | startswith($configuration.region + "-")) and
+      (.preview_machine_type == "e2-medium" or .preview_machine_type == "n2d-standard-2") and
       (.browser_readiness_subnet_cidr |
         type == "string" and
         test("^[0-9]{1,3}([.][0-9]{1,3}){3}/26$") and

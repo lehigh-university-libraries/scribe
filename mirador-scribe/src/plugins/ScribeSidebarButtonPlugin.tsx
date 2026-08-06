@@ -48,7 +48,7 @@ const scribeSidebarButtonPlugin = {
         scribeEditorSplitLine: 'Split Line',
         scribeEditorSplitWords: 'Split Words',
         scribeEditorTextLabel: 'Transcription',
-        scribeEditorTranscribe: 'Transcribe',
+        scribeEditorTranscribe: 'Retranscribe',
         scribeEditorTranscribeDialogDescription: 'Choose visible annotations to retranscribe, or send the full document page.',
         scribeEditorTranscribeDialogTitle: 'Transcribe Text',
         scribeEditorTranscribeDocument: 'Transcribe Document',

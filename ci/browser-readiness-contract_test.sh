@@ -46,7 +46,20 @@ esac
   fail "the protected runner must pin both image stages to the reviewed Playwright digest"
 require_fixed "USER pwuser" Dockerfile.browser-readiness
 require_fixed 'ENTRYPOINT ["node", "/app/deployed-readiness.mjs"]' Dockerfile.browser-readiness
+require_fixed 'COPY web/package.json web/package-lock.json ./' Dockerfile.browser-readiness
+require_fixed 'RUN npm ci --ignore-scripts --prefer-offline --no-audit' Dockerfile.browser-readiness
+require_fixed 'COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs' Dockerfile.browser-readiness
+require_fixed 'gha-creds-*.json' .dockerignore
 forbid_pattern 'latest|curl|wget|apt-get' Dockerfile.browser-readiness
+[ "$(rg -c -F 'COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs' Dockerfile.browser-readiness)" -eq 1 ] ||
+  fail "the protected Dockerfile must copy the PR-head script exactly once"
+assert_before Dockerfile.browser-readiness '^RUN npm ci --ignore-scripts' '^COPY --chown=pwuser:pwuser web/e2e/deployed-readiness\.mjs'
+final_image_stage="$(awk '/^FROM / { stage += 1 } stage == 2 { print }' Dockerfile.browser-readiness)"
+if rg -q '^RUN[[:space:]]' <<<"$final_image_stage"; then
+  fail "the final browser image stage must never execute the PR-head script during its credentialed build"
+fi
+
+bash ci/prepare-browser-readiness-source_test.sh
 
 node --check web/e2e/deployed-readiness.mjs
 for forbidden in 'screenshot' 'tracing' 'recordVideo' 'storageState'; do
@@ -178,17 +191,70 @@ done
 require_fixed 'ref: refs/heads/main' .github/workflows/terraform-preview.yaml
 # shellcheck disable=SC2016 # This is a literal GitHub expression assertion.
 require_fixed 'checkout_ref: ${{ needs.prepare.outputs.base_sha }}' .github/workflows/terraform-preview.yaml
+# shellcheck disable=SC2016 # This is a literal GitHub expression assertion.
+require_fixed 'browser_readiness_source_sha: ${{ needs.prepare.outputs.head_sha }}' .github/workflows/terraform-preview.yaml
+require_fixed 'browser_readiness_source_sha:' .github/workflows/terraform-deploy.yaml
+require_fixed 'preview apply requires an immutable browser readiness source SHA' .github/workflows/terraform-deploy.yaml
+require_fixed 'browser readiness source is restricted to preview apply' .github/workflows/terraform-deploy.yaml
 require_fixed "if: inputs.mode == 'apply' && inputs.pr_number != ''" .github/workflows/terraform-deploy.yaml
 # shellcheck disable=SC2016 # This is a literal GitHub expression assertion.
 require_fixed 'PROTECTED_SOURCE_SHA: ${{ inputs.checkout_ref }}' .github/workflows/terraform-deploy.yaml
+# shellcheck disable=SC2016 # This is a literal GitHub expression assertion.
+require_fixed 'BROWSER_READINESS_SOURCE_SHA: ${{ inputs.browser_readiness_source_sha }}' .github/workflows/terraform-deploy.yaml
+require_fixed 'name: Stage exact PR-head browser readiness source' .github/workflows/terraform-deploy.yaml
+# shellcheck disable=SC2016 # This is a literal shell-source assertion.
+require_fixed 'run: bash ./ci/prepare-browser-readiness-source.sh "$BROWSER_READINESS_SOURCE_SHA"' .github/workflows/terraform-deploy.yaml
+# shellcheck disable=SC2016 # This is a literal GitHub expression assertion.
+require_fixed 'BROWSER_READINESS_CONTENTS_TOKEN: ${{ github.token }}' .github/workflows/terraform-deploy.yaml
+forbid_pattern '(node|npm|npx|bash|sh)[[:space:]].*(web/e2e/)?deployed-readiness\.mjs' .github/workflows/terraform-deploy.yaml
+require_fixed 'git hash-object --no-filters web/e2e/deployed-readiness.mjs' .github/workflows/terraform-deploy.yaml
+require_fixed 'SCRIBE_BROWSER_READINESS_SCRIPT_BLOB_SHA' .github/workflows/terraform-deploy.yaml
+# shellcheck disable=SC2016 # This is a literal shell-source assertion.
+require_fixed '[ "$SCRIBE_BROWSER_READINESS_SOURCE_SHA" = "$BROWSER_READINESS_SOURCE_SHA" ]' .github/workflows/terraform-deploy.yaml
 require_fixed '--file Dockerfile.browser-readiness' .github/workflows/terraform-deploy.yaml
 require_fixed '--provenance=true' .github/workflows/terraform-deploy.yaml
 require_fixed '--sbom=true' .github/workflows/terraform-deploy.yaml
 # shellcheck disable=SC2016 # This is a literal shell-source assertion.
+require_fixed 'scribe-browser-readiness:${BROWSER_READINESS_SOURCE_SHA}' .github/workflows/terraform-deploy.yaml
+# shellcheck disable=SC2016 # This is a literal shell-source assertion.
 require_fixed 'SCRIBE_BROWSER_READINESS_IMAGE=$readiness_image' .github/workflows/terraform-deploy.yaml
 require_fixed 'name: Verify frontend, backend, and OCR readiness' .github/workflows/terraform-deploy.yaml
 require_fixed 'inputs.tf_workspace }}-browser-readiness-diagnostics.log' .github/workflows/terraform-deploy.yaml
-assert_before .github/workflows/terraform-deploy.yaml 'run: ./ci/verify-gcp-wif\.sh' 'name: Build protected preview browser readiness image'
-assert_before .github/workflows/terraform-deploy.yaml 'name: Checkout repository' 'name: Build protected preview browser readiness image'
+assert_before .github/workflows/terraform-deploy.yaml 'name: Checkout repository' 'name: Stage exact PR-head browser readiness source'
+assert_before .github/workflows/terraform-deploy.yaml 'name: Stage exact PR-head browser readiness source' 'name: Authenticate to Google Cloud'
+assert_before .github/workflows/terraform-deploy.yaml 'run: ./ci/verify-gcp-wif\.sh' 'name: Build isolated preview browser readiness image'
 
-echo "Protected preview browser readiness is pinned, isolated, replayable, and categorical."
+stage_source_step="$(sed -n '/name: Stage exact PR-head browser readiness source/,/name: Set up Go for preview Vault reconciliation/p' .github/workflows/terraform-deploy.yaml)"
+if rg -qi '(^|[[:space:]])(node|npm|npx)[[:space:]]|deployed-readiness\.mjs[[:space:]]*$' <<<"$stage_source_step"; then
+  fail "the pre-cloud-auth staging step must not execute the PR-head script"
+fi
+# shellcheck disable=SC2016 # These are literal protected-helper source assertions.
+for required in \
+  'readonly SOURCE_PATH="web/e2e/deployed-readiness.mjs"' \
+  'readonly MAX_SOURCE_BYTES=262144' \
+  'readonly MAX_RESPONSE_BYTES=524288' \
+  'curl --disable' \
+  'commit_url="https://api.github.com/repos/${repository}/git/commits/${source_sha}"' \
+  'root_tree_url="https://api.github.com/repos/${repository}/git/trees/${root_tree_sha}"' \
+  'web_tree_url="https://api.github.com/repos/${repository}/git/trees/${web_tree_sha}"' \
+  'e2e_tree_url="https://api.github.com/repos/${repository}/git/trees/${e2e_tree_sha}"' \
+  'require_tree_entry "$root_tree_response_path" "$root_tree_sha" "web" "040000" "tree"' \
+  'require_tree_entry "$web_tree_response_path" "$web_tree_sha" "e2e" "040000" "tree"' \
+  'require_tree_entry "$e2e_tree_response_path" "$e2e_tree_sha" "deployed-readiness.mjs" "100644" "blob"' \
+  '.type == "file"' \
+  '.encoding == "base64"' \
+  '.path == $path' \
+  '.sha == $blob_sha' \
+  'git hash-object --no-filters "$candidate_path"' \
+  'install -m 0644 "$candidate_path" "$SOURCE_PATH"' \
+  'SCRIBE_BROWSER_READINESS_SOURCE_SHA=%s' \
+  'SCRIBE_BROWSER_READINESS_SCRIPT_BLOB_SHA=%s'; do
+  require_fixed "$required" ci/prepare-browser-readiness-source.sh
+done
+forbid_pattern 'recursive(=|%3[dD])' ci/prepare-browser-readiness-source.sh
+for tree_rejection in parent-symlink parent-gitlink source-symlink source-gitlink duplicate-source-entry truncated-tree; do
+  require_fixed "$tree_rejection" ci/prepare-browser-readiness-source_test.sh
+done
+require_fixed "structure|manifest" ci/run-cloud-run-readiness.sh
+
+echo "Exact-head preview browser readiness is protected, isolated, replayable, and categorical."

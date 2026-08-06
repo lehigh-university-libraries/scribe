@@ -1,9 +1,11 @@
 name: Terraform Preview
 
 # Preview deployment runs automatically for same-repository pull requests. The
-# workflow definition and every cloud-credentialed script come from the trusted
-# base commit; only credential-free tests and image builds use the PR head.
-# Forks are skipped, and closing a PR destroys its preview automatically.
+# workflow definition and every cloud-credentialed executable helper come from
+# the trusted base commit. The credentialed browser build may copy one bounded,
+# blob-verified PR-head readiness script, but only its isolated no-IAM preview
+# job executes that script. Forks are skipped, and closing a PR destroys its
+# preview automatically.
 on:
   workflow_dispatch:
     inputs:
@@ -43,12 +45,14 @@ jobs:
       image_tag: ${{ steps.resolve.outputs.image_tag }}
       mode: ${{ steps.resolve.outputs.mode }}
       pr_number: ${{ steps.resolve.outputs.pr_number }}
+      preview_machine_type: ${{ steps.resolve.outputs.preview_machine_type }}
       recover_destroy_inputs: ${{ steps.resolve.outputs.recover_destroy_inputs }}
       region: ${{ steps.resolve.outputs.region }}
       tag: ${{ steps.resolve.outputs.tag }}
       zone: ${{ steps.resolve.outputs.zone }}
     env:
       GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+      SCRIBE_PREVIEW_MACHINE_TYPE: ${{ vars.SCRIBE_PREVIEW_MACHINE_TYPE != '' && vars.SCRIBE_PREVIEW_MACHINE_TYPE || 'n2d-standard-2' }}
       SCRIBE_REGION: ${{ vars.SCRIBE_REGION != '' && vars.SCRIBE_REGION || 'us-east5' }}
       SCRIBE_ZONE: ${{ vars.SCRIBE_PREVIEW_ZONE != '' && vars.SCRIBE_PREVIEW_ZONE || 'us-east5-c' }}
       GH_TOKEN: ${{ github.token }}
@@ -309,10 +313,12 @@ jobs:
       docker_compose_branch: ${{ needs.prepare.outputs.base_sha }}
       checkout_ref: ${{ needs.prepare.outputs.base_sha }}
       pr_number: ${{ needs.prepare.outputs.pr_number }}
+      browser_readiness_source_sha: ${{ needs.prepare.outputs.head_sha }}
       image_tag: ${{ needs.publish-images.outputs.backend_image }}
       frontend_image_tag: ${{ needs.publish-images.outputs.frontend_image }}
       frontend_gar_image_tag: ${{ needs.prepare.outputs.frontend_gar_image_tag }}
       ocr_images_json: ${{ needs.resolve-production-ocr-images.outputs.images_json }}
+      preview_machine_type: ${{ needs.prepare.outputs.preview_machine_type }}
       region: ${{ needs.prepare.outputs.region }}
       zone: ${{ needs.prepare.outputs.zone }}
 
@@ -334,6 +340,7 @@ jobs:
       checkout_ref: ${{ needs.prepare.outputs.base_sha }}
       pr_number: ${{ needs.prepare.outputs.pr_number }}
       recover_preview_destroy_inputs: ${{ needs.prepare.outputs.recover_destroy_inputs == 'true' }}
+      preview_machine_type: ${{ needs.prepare.outputs.preview_machine_type }}
       region: ${{ needs.prepare.outputs.region }}
       zone: ${{ needs.prepare.outputs.zone }}
 

@@ -22,6 +22,7 @@
       "projects/scribe-test1/notificationChannels/release-alerts"
     ],
     "network_ip_cidr_range": "10.42.0.0/24",
+    "preview_machine_type": "n2d-standard-2",
     "project_id": "scribe-test1",
     "region": "us-east5",
     "storage_max_bytes_per_workspace": 5368709120,

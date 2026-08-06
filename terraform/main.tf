@@ -27,7 +27,7 @@ locals {
   terraform_state_bucket     = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
   is_prod_workspace          = terraform.workspace == "prod"
   is_preview_workspace       = startswith(terraform.workspace, "pr-")
-  cloud_compose_machine_type = local.is_preview_workspace ? "e2-medium" : var.machine_type
+  cloud_compose_machine_type = local.is_preview_workspace ? var.preview_machine_type : var.machine_type
   cloud_compose_disk_type    = local.is_preview_workspace ? "pd-standard" : "hyperdisk-balanced"
   foundation_state_prefix    = "scribe-foundation"
   shared_vault_workspace     = local.is_prod_workspace ? "prod" : "dev"
@@ -793,7 +793,7 @@ provider "vault" {
 }
 
 module "scribe" {
-  source = "https://github.com/libops/cloud-compose/archive/52fec3e92cabcdb69f7f9a1b31733ae1f159c102.tar.gz//cloud-compose-52fec3e92cabcdb69f7f9a1b31733ae1f159c102?archive=tar.gz"
+  source = "https://github.com/libops/cloud-compose/archive/889335d615fc3f32db2c66a604f14a3b1a3e8189.tar.gz//cloud-compose-889335d615fc3f32db2c66a604f14a3b1a3e8189?archive=tar.gz"
   providers = {
     google = google
   }

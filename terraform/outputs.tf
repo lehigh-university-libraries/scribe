@@ -31,6 +31,7 @@ locals {
         iiif_max_manifest_import_bytes              = local.runtime_limits.iiif_max_manifest_import_bytes
         monitoring_notification_channels            = var.monitoring_notification_channels
         network_ip_cidr_range                       = var.network_ip_cidr_range
+        preview_machine_type                        = var.preview_machine_type
         project_id                                  = var.project_id
         region                                      = var.region
         storage_max_bytes_per_workspace             = local.runtime_limits.storage_max_bytes_per_workspace

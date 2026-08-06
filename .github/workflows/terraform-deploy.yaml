@@ -25,6 +25,16 @@ on:
         required: false
         type: string
         default: ""
+      browser_readiness_source_sha:
+        description: Exact pull-request commit supplying only web/e2e/deployed-readiness.mjs to the isolated preview runner.
+        required: false
+        type: string
+        default: ""
+      preview_machine_type:
+        description: Reviewed preview-only Compute Engine profile frozen by protected orchestration.
+        required: false
+        type: string
+        default: ""
       recover_preview_destroy_inputs:
         description: Recover immutable preview destroy inputs from same-lineage versioned state after an interrupted teardown.
         required: false
@@ -94,6 +104,7 @@ jobs:
       SCRIBE_FRONTEND_IMAGE: ${{ inputs.frontend_image_tag }}
       SCRIBE_FRONTEND_GAR_IMAGE: ${{ inputs.frontend_gar_image_tag }}
       SCRIBE_OCR_IMAGES_JSON: ${{ inputs.ocr_images_json }}
+      SCRIBE_PREVIEW_MACHINE_TYPE: ${{ inputs.preview_machine_type }}
       SCRIBE_REGION: ${{ inputs.region }}
       SCRIBE_ZONE: ${{ inputs.zone }}
       DEV_EXTERNAL_OCR_IMPERSONATORS: '[]'
@@ -116,6 +127,7 @@ jobs:
         shell: bash
         env:
           CHECKOUT_REF: ${{ inputs.checkout_ref }}
+          BROWSER_READINESS_SOURCE_SHA: ${{ inputs.browser_readiness_source_sha }}
           COMPOSE_REF: ${{ inputs.docker_compose_branch }}
           DEPLOY_MODE: ${{ inputs.mode }}
           ENVIRONMENT_NAME: ${{ inputs.environment_name }}
@@ -185,17 +197,34 @@ jobs:
             exit 1
           fi
           if [ "$ENVIRONMENT_NAME" = "production" ]; then
+            if [ -n "$SCRIBE_PREVIEW_MACHINE_TYPE" ]; then
+              echo "preview_machine_type is restricted to the preview environment" >&2
+              exit 1
+            fi
             [ "$TF_WORKSPACE" = "prod" ] && [ "$SITE_NAME" = "scribe" ] && [ -z "$PR_NUMBER" ] || {
               echo "production environment requires workspace=prod, site=scribe, and no PR number" >&2
               exit 1
             }
           elif [ "$ENVIRONMENT_NAME" = "preview" ]; then
+            [[ "$SCRIBE_PREVIEW_MACHINE_TYPE" =~ ^(e2-medium|n2d-standard-2)$ ]] || {
+              echo "preview_machine_type must be an explicitly reviewed preview profile" >&2
+              exit 1
+            }
             [ -n "$PR_NUMBER" ] && [ "$TF_WORKSPACE" = "pr-${PR_NUMBER}" ] && [ "$SITE_NAME" = "scribe-pr-${PR_NUMBER}" ] || {
               echo "preview environment, workspace, site, and PR number must identify the same PR" >&2
               exit 1
             }
           else
             echo "environment_name must be production or preview" >&2
+            exit 1
+          fi
+          if [ "$DEPLOY_MODE" = "apply" ] && [ "$ENVIRONMENT_NAME" = "preview" ]; then
+            [[ "$BROWSER_READINESS_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "preview apply requires an immutable browser readiness source SHA" >&2
+              exit 1
+            }
+          elif [ -n "$BROWSER_READINESS_SOURCE_SHA" ]; then
+            echo "browser readiness source is restricted to preview apply" >&2
             exit 1
           fi
           if [ "$ENVIRONMENT_NAME" = "production" ] && ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and startswith("projects/"))' <<<"$TF_VAR_monitoring_notification_channels" >/dev/null; then
@@ -212,6 +241,15 @@ jobs:
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
+
+      - name: Stage exact PR-head browser readiness source
+        if: inputs.mode == 'apply' && inputs.environment_name == 'preview'
+        shell: bash
+        env:
+          BROWSER_READINESS_CONTENTS_TOKEN: ${{ github.token }}
+          BROWSER_READINESS_SOURCE_SHA: ${{ inputs.browser_readiness_source_sha }}
+          PROTECTED_SOURCE_SHA: ${{ inputs.checkout_ref }}
+        run: bash ./ci/prepare-browser-readiness-source.sh "$BROWSER_READINESS_SOURCE_SHA"
 
       - name: Set up Go for preview Vault reconciliation and typed deployment helpers
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -354,15 +392,24 @@ jobs:
           echo "resolved_image=$resolved_image" >> "$GITHUB_OUTPUT"
           echo "SCRIBE_FRONTEND_GAR_IMAGE=$resolved_image" >> "$GITHUB_ENV"
 
-      - name: Build protected preview browser readiness image
+      - name: Build isolated preview browser readiness image
         if: inputs.mode == 'apply' && inputs.pr_number != ''
         shell: bash
         env:
+          BROWSER_READINESS_SOURCE_SHA: ${{ inputs.browser_readiness_source_sha }}
           PROTECTED_SOURCE_SHA: ${{ inputs.checkout_ref }}
         run: |
           set -euo pipefail
           [[ "$PROTECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          readiness_tag="us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-browser-readiness:${PROTECTED_SOURCE_SHA}"
+          [[ "$BROWSER_READINESS_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SCRIBE_BROWSER_READINESS_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SCRIBE_BROWSER_READINESS_SCRIPT_BLOB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [ "$SCRIBE_BROWSER_READINESS_SOURCE_SHA" = "$BROWSER_READINESS_SOURCE_SHA" ]
+          [ "$(git rev-parse --verify 'HEAD^{commit}')" = "$PROTECTED_SOURCE_SHA" ]
+          [ "$(git hash-object --no-filters web/e2e/deployed-readiness.mjs)" = "$SCRIBE_BROWSER_READINESS_SCRIPT_BLOB_SHA" ]
+          changed_paths="$(git diff --name-only --)"
+          [ -z "$changed_paths" ] || [ "$changed_paths" = "web/e2e/deployed-readiness.mjs" ]
+          readiness_tag="us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-browser-readiness:${BROWSER_READINESS_SOURCE_SHA}"
           docker buildx build \
             --file Dockerfile.browser-readiness \
             --platform linux/amd64 \
@@ -649,6 +696,7 @@ jobs:
           TF_VAR_monitoring_notification_channels="$(jq -c '.configuration.monitoring_notification_channels' <<<"$previous")"
           TF_VAR_backup_restore_service_account_email="$(jq -r '.configuration.backup_restore_service_account_email' <<<"$previous")"
           TF_VAR_browser_readiness_subnet_cidr="$(jq -r '.configuration.browser_readiness_subnet_cidr' <<<"$previous")"
+          TF_VAR_preview_machine_type="$(jq -r '.configuration.preview_machine_type' <<<"$previous")"
           TF_VAR_network_ip_cidr_range="$(jq -r '.configuration.network_ip_cidr_range' <<<"$previous")"
           TF_VAR_compose_network_cidr="$(jq -r '.configuration.compose_network_cidr' <<<"$previous")"
           TF_VAR_transcription_max_active_jobs_per_workspace="$(jq -r '.configuration.transcription_max_active_jobs_per_workspace' <<<"$previous")"
@@ -667,7 +715,7 @@ jobs:
           export SCRIBE_OCR_IMAGES_JSON SCRIBE_REGION SCRIBE_ZONE ALLOWED_IPS ALLOWED_SSH_IPV4 ALLOWED_SSH_IPV6
           export DEV_EXTERNAL_OCR_IMPERSONATORS
           export VAULT_ADMIN_EMAILS VAULT_CI_SERVICE_ACCOUNT_EMAILS TF_VAR_monitoring_notification_channels
-          export TF_VAR_backup_restore_service_account_email TF_VAR_browser_readiness_subnet_cidr
+          export TF_VAR_backup_restore_service_account_email TF_VAR_browser_readiness_subnet_cidr TF_VAR_preview_machine_type
           export TF_VAR_network_ip_cidr_range TF_VAR_compose_network_cidr
           export TF_VAR_transcription_max_active_jobs_per_workspace TF_VAR_storage_max_bytes_per_workspace
           export TF_VAR_storage_max_bytes_total TF_VAR_storage_max_items_per_workspace TF_VAR_storage_max_items_total

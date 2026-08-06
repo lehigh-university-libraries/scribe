@@ -329,6 +329,18 @@ if [[ "$1 $2" == "logging read" ]]; then
     "labels": {
       "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
     },
+    "textPayload": "browser readiness failed: structure\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: manifest\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
     "textPayload": "browser readiness failed: retranscribe\n"
   },
   {
@@ -512,6 +524,8 @@ for expected in \
   'browser readiness failed: annotations' \
   'browser readiness failed: editor' \
   'browser readiness failed: overlay' \
+  'browser readiness failed: structure' \
+  'browser readiness failed: manifest' \
   'browser readiness failed: retranscribe' \
   'browser readiness failed: save' \
   'browser readiness failed: publish' \
@@ -520,7 +534,7 @@ for expected in \
   'browser readiness failed: cleanup' \
   'browser readiness failed: network' \
   'browser readiness failed: csp' \
-  '[status] log_query=ok markers=16'; do
+  '[status] log_query=ok markers=18'; do
   grep -Fq "$expected" "$browser_diagnostics" ||
     fail "browser diagnostics omitted: $expected"
 done

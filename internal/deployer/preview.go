@@ -18,6 +18,10 @@ var (
 	zonePattern       = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+-[a-z]$`)
 )
 
+func reviewedPreviewMachineType(value string) bool {
+	return value == "e2-medium" || value == "n2d-standard-2"
+}
+
 // PreviewMode is the action selected for one pull-request preview.
 type PreviewMode string
 
@@ -46,10 +50,11 @@ type GitHub interface {
 // pull_request_target path; an empty EventPR selects the protected manual
 // dispatch path.
 type PreviewRequest struct {
-	Repository string
-	ProjectID  string
-	Region     string
-	Zone       string
+	Repository         string
+	ProjectID          string
+	PreviewMachineType string
+	Region             string
+	Zone               string
 
 	WorkflowRef    string
 	DispatchAction string
@@ -70,6 +75,7 @@ type PreviewInputs struct {
 	BaseSHA             string
 	Mode                PreviewMode
 	RecoverDestroy      bool
+	PreviewMachineType  string
 	Region              string
 	Tag                 string
 	Zone                string
@@ -92,6 +98,9 @@ func ResolvePreviewInputs(ctx context.Context, request PreviewRequest, github Gi
 	}
 	if !projectPattern.MatchString(request.ProjectID) {
 		return PreviewInputs{}, errors.New("GCLOUD_PROJECT must be a valid Google Cloud project ID")
+	}
+	if !reviewedPreviewMachineType(request.PreviewMachineType) {
+		return PreviewInputs{}, errors.New("SCRIBE_PREVIEW_MACHINE_TYPE must be an explicitly reviewed preview machine type")
 	}
 	if !regionPattern.MatchString(request.Region) {
 		return PreviewInputs{}, errors.New("SCRIBE_REGION must be a valid Google Cloud region")
@@ -180,6 +189,7 @@ func ResolvePreviewInputs(ctx context.Context, request PreviewRequest, github Gi
 		BaseSHA:             mainSHA,
 		Mode:                mode,
 		RecoverDestroy:      recoverDestroy,
+		PreviewMachineType:  request.PreviewMachineType,
 		Region:              request.Region,
 		Tag:                 tag,
 		Zone:                request.Zone,
@@ -199,6 +209,7 @@ func (inputs PreviewInputs) WriteGitHubOutput(writer io.Writer) error {
 		inputs.HeadSHA,
 		inputs.BaseSHA,
 		string(inputs.Mode),
+		inputs.PreviewMachineType,
 		inputs.Region,
 		inputs.Tag,
 		inputs.Zone,
@@ -214,13 +225,17 @@ func (inputs PreviewInputs) WriteGitHubOutput(writer io.Writer) error {
 	if inputs.Mode != PreviewModeApply && inputs.Mode != PreviewModeDestroy && inputs.Mode != PreviewModeSkip {
 		return errors.New("GitHub output mode is invalid")
 	}
+	if !reviewedPreviewMachineType(inputs.PreviewMachineType) {
+		return errors.New("GitHub output preview machine type is invalid")
+	}
 	_, err := fmt.Fprintf(writer,
-		"pr_number=%s\nhead_sha=%s\nbase_sha=%s\nmode=%s\nrecover_destroy_inputs=%t\nregion=%s\ntag=%s\nzone=%s\nimage_tag=%s\nfrontend_image_tag=%s\nfrontend_gar_image_tag=%s\nbackend_origin=%s\n",
+		"pr_number=%s\nhead_sha=%s\nbase_sha=%s\nmode=%s\nrecover_destroy_inputs=%t\npreview_machine_type=%s\nregion=%s\ntag=%s\nzone=%s\nimage_tag=%s\nfrontend_image_tag=%s\nfrontend_gar_image_tag=%s\nbackend_origin=%s\n",
 		inputs.PRNumber,
 		inputs.HeadSHA,
 		inputs.BaseSHA,
 		inputs.Mode,
 		inputs.RecoverDestroy,
+		inputs.PreviewMachineType,
 		inputs.Region,
 		inputs.Tag,
 		inputs.Zone,

@@ -26,6 +26,7 @@ Optional environment:
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar). When unset, local apply resolves the default tag and auto-builds it if missing.
   SCRIBE_BROWSER_READINESS_IMAGE  Protected digest-pinned preview browser readiness image. Empty outside managed preview applies.
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. For plan/apply only; refresh and destroy reload the recorded map from Terraform state.
+  SCRIBE_PREVIEW_MACHINE_TYPE  Preview-only reviewed machine profile: n2d-standard-2 (default) or e2-medium. Refresh and destroy reload the recorded value from Terraform state.
   SCRIBE_DATA_GENERATION  Reviewed persistence generation. Defaults to canonical-v2; refresh and destroy always reload the recorded value from Terraform state.
   SCRIBE_OCR_IMAGE_TAG    Tag to resolve against when generating the OCR image map locally. Defaults to the immutable --branch commit SHA for production and preview, and the branch slug for development.
   SCRIBE_ZONE            Optional zone override used when locally building the frontend GAR sidecar. Falls back to TF_VAR_zone, terraform/terraform.tfvars, then us-east5-c for previews or us-east5-b otherwise.
@@ -703,6 +704,22 @@ case "$environment" in
     export TF_VAR_name="scribe-pr-${pr_number}"
     export TF_VAR_docker_compose_branch="$branch"
     export TF_VAR_run_snapshots="false"
+    case "$action" in
+      destroy|refresh|normalize-moves)
+        unset TF_VAR_preview_machine_type
+        ;;
+      *)
+        case "${SCRIBE_PREVIEW_MACHINE_TYPE:-n2d-standard-2}" in
+          e2-medium|n2d-standard-2)
+            export TF_VAR_preview_machine_type="${SCRIBE_PREVIEW_MACHINE_TYPE:-n2d-standard-2}"
+            ;;
+          *)
+            echo "SCRIBE_PREVIEW_MACHINE_TYPE must be an explicitly reviewed preview profile: e2-medium or n2d-standard-2." >&2
+            exit 1
+            ;;
+        esac
+        ;;
+    esac
     fallback_image_tag="ghcr.io/lehigh-university-libraries/scribe:$(sanitize_image_tag "$branch")"
     ocr_image_tag_default="$branch"
     ;;
@@ -831,9 +848,10 @@ if [ "$action" = "destroy" ] || [ "$action" = "refresh" ]; then
   dev_external_ocr_impersonators="$(jq -c '.configuration.dev_external_ocr_impersonators' <<<"$stored_deployment_inputs")"
   TF_VAR_region="$(jq -r '.configuration.region' <<<"$stored_deployment_inputs")"
   TF_VAR_zone="$(jq -r '.configuration.zone' <<<"$stored_deployment_inputs")"
+  TF_VAR_preview_machine_type="$(jq -r '.configuration.preview_machine_type' <<<"$stored_deployment_inputs")"
   SCRIBE_REGION="$TF_VAR_region"
   SCRIBE_ZONE="$TF_VAR_zone"
-  export SCRIBE_REGION SCRIBE_ZONE TF_VAR_region TF_VAR_zone
+  export SCRIBE_REGION SCRIBE_ZONE TF_VAR_region TF_VAR_zone TF_VAR_preview_machine_type
   if [ "$action" = "refresh" ]; then
     ALLOWED_IPS="$(jq -c '.configuration.allowed_ips' <<<"$stored_deployment_inputs")"
     ALLOWED_SSH_IPV4="$(jq -c '.configuration.allowed_ssh_ipv4' <<<"$stored_deployment_inputs")"
@@ -936,6 +954,10 @@ terraform_vars=(
   "-var=region=$(resolve_terraform_region)"
   "-var=zone=$(resolve_terraform_zone)"
 )
+
+if [ -n "${TF_VAR_preview_machine_type:-}" ]; then
+  terraform_vars+=("-var=preview_machine_type=${TF_VAR_preview_machine_type}")
+fi
 
 if [ -n "$dev_external_ocr_impersonators" ]; then
   terraform_vars+=("-var=dev_external_ocr_impersonators=${dev_external_ocr_impersonators}")

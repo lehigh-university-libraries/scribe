@@ -40,14 +40,15 @@ func TestRunPreviewInputs(t *testing.T) {
 
 	const outputPath = "/runner/github-output"
 	environment := map[string]string{
-		"GITHUB_OUTPUT":     outputPath,
-		"GITHUB_REPOSITORY": "example/scribe",
-		"GCLOUD_PROJECT":    "example-project",
-		"SCRIBE_REGION":     "us-east5",
-		"SCRIBE_ZONE":       "us-east5-c",
-		"WORKFLOW_REF":      "refs/heads/main",
-		"DISPATCH_ACTION":   "recover-destroy",
-		"DISPATCH_PR":       "75",
+		"GITHUB_OUTPUT":               outputPath,
+		"GITHUB_REPOSITORY":           "example/scribe",
+		"GCLOUD_PROJECT":              "example-project",
+		"SCRIBE_PREVIEW_MACHINE_TYPE": "n2d-standard-2",
+		"SCRIBE_REGION":               "us-east5",
+		"SCRIBE_ZONE":                 "us-east5-c",
+		"WORKFLOW_REF":                "refs/heads/main",
+		"DISPATCH_ACTION":             "recover-destroy",
+		"DISPATCH_PR":                 "75",
 	}
 	github := &commandGitHub{
 		mainSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -75,7 +76,7 @@ func TestRunPreviewInputs(t *testing.T) {
 	if !output.closed {
 		t.Fatal("GitHub output was not closed")
 	}
-	for _, line := range []string{"mode=destroy", "recover_destroy_inputs=true", "base_sha=" + github.mainSHA} {
+	for _, line := range []string{"mode=destroy", "recover_destroy_inputs=true", "preview_machine_type=n2d-standard-2", "base_sha=" + github.mainSHA} {
 		if !strings.Contains(output.String(), line+"\n") {
 			t.Errorf("GitHub output does not contain %q: %s", line, output.String())
 		}

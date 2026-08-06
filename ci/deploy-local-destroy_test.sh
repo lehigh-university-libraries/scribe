@@ -172,6 +172,7 @@ cat >"${state_file}" <<'EOF'
     "iiif_max_manifest_import_bytes": 67108864,
     "monitoring_notification_channels": ["projects/example-project/notificationChannels/release-alerts"],
     "network_ip_cidr_range": "10.42.0.0/24",
+    "preview_machine_type": "n2d-standard-2",
     "project_id": "example-project",
     "region": "us-east5",
     "storage_max_bytes_per_workspace": 5368709120,
@@ -204,6 +205,7 @@ run_destroy() {
     TF_STATE_BUCKET=example-state \
     ALLOWED_IPS='["127.0.0.1/32"]' \
     SCRIBE_REGION=caller-region1 \
+    SCRIBE_PREVIEW_MACHINE_TYPE="${SCRIBE_PREVIEW_MACHINE_TYPE:-e2-medium}" \
     SCRIBE_ZONE=caller-region1-a \
     VAULT_TOKEN=test-only-token \
     TF_TEST_COMMAND_LOG="${command_log}" \
@@ -231,6 +233,7 @@ run_refresh() {
     VAULT_ADMIN_EMAILS='["caller@lehigh.edu"]' \
     VAULT_CI_SERVICE_ACCOUNT_EMAILS='["new-ci@example-project.iam.gserviceaccount.com"]' \
     SCRIBE_REGION=caller-region1 \
+    SCRIBE_PREVIEW_MACHINE_TYPE="${SCRIBE_PREVIEW_MACHINE_TYPE:-e2-medium}" \
     SCRIBE_ZONE=caller-region1-a \
     VAULT_TOKEN=test-only-token \
     TF_TEST_COMMAND_LOG="${command_log}" \
@@ -261,12 +264,53 @@ grep -F -- '-var=frontend_gar_image=us-docker.pkg.dev/example-project/internal/s
 grep -F -- '-var=dev_external_ocr_impersonators=[]' "${terraform_log}" >/dev/null
 grep -F -- '-var=region=us-east5' "${terraform_log}" >/dev/null
 grep -F -- '-var=zone=us-east5-b' "${terraform_log}" >/dev/null
+grep -F -- '-var=preview_machine_type=n2d-standard-2' "${terraform_log}" >/dev/null
 if grep -F -- '-var=frontend_image=' "${terraform_log}" >/dev/null; then
   echo "destroy replayed an unused GHCR frontend image into Terraform" >&2
   exit 1
 fi
 grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 test ! -s "${command_log}"
+
+# The preview machine profile was previously hardcoded. Absence alone must
+# replay that historical e2-medium value, while caller configuration remains
+# irrelevant to teardown.
+legacy_machine_state="${TEST_DIR}/deployment-inputs-before-preview-machine-type.json"
+jq 'del(.configuration.preview_machine_type)' "${state_file}" >"${legacy_machine_state}"
+: >"${terraform_log}"
+if ! SCRIBE_PREVIEW_MACHINE_TYPE=n2d-standard-2 \
+  TF_TEST_STATE_FILE="$legacy_machine_state" run_destroy valid \
+  "${TEST_DIR}/legacy-machine.out" "${TEST_DIR}/legacy-machine.err"; then
+  echo "valid pre-preview-machine-profile state did not reach Terraform destroy" >&2
+  sed -n '1,20p' "${TEST_DIR}/legacy-machine.err" >&2
+  exit 1
+fi
+grep -F 'destroy -auto-approve' "${terraform_log}" >/dev/null
+grep -F -- '-var=preview_machine_type=e2-medium' "${terraform_log}" >/dev/null
+if grep -F -- '-var=preview_machine_type=n2d-standard-2' "${terraform_log}" >/dev/null; then
+  echo "legacy preview destroy used the conflicting caller machine profile" >&2
+  exit 1
+fi
+grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
+
+for invalid_machine_type in null unreviewed; do
+  invalid_state="${TEST_DIR}/deployment-inputs-machine-${invalid_machine_type}.json"
+  case "$invalid_machine_type" in
+    null) jq '.configuration.preview_machine_type = null' "${state_file}" >"${invalid_state}" ;;
+    unreviewed) jq '.configuration.preview_machine_type = "n2d-standard-96"' "${state_file}" >"${invalid_state}" ;;
+  esac
+  : >"${terraform_log}"
+  if TF_TEST_STATE_FILE="$invalid_state" run_destroy valid \
+    "${TEST_DIR}/machine-${invalid_machine_type}.out" \
+    "${TEST_DIR}/machine-${invalid_machine_type}.err"; then
+    echo "destroy accepted explicitly invalid preview machine state: ${invalid_machine_type}" >&2
+    exit 1
+  fi
+  if grep -F 'destroy -auto-approve' "${terraform_log}" >/dev/null; then
+    echo "destroy ran with explicitly invalid preview machine state: ${invalid_machine_type}" >&2
+    exit 1
+  fi
+done
 
 # A provider can report a short-lived dependency after its parent service has
 # completed deletion. Retry in the same process so the already validated,

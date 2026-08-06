@@ -526,6 +526,10 @@ test("structural edit pickers split at the chosen boundary and join explicit sub
     window.__scribeBrowserHarness.pluginSnapshot().activeCanvasId
   )), pluginPollOptions).toBe(canvasB);
 
+  await expect(page.locator("[data-scribe-granularity]")).toHaveCount(0);
+  await page.getByRole("button", { name: /Overlay off/i }).click();
+  await page.getByRole("button", { name: /Edit overlay/i }).click();
+  await expect(page.getByRole("button", { name: /Read overlay/i })).toBeVisible();
   await expect(page.locator('[data-scribe-granularity="line"]')).not.toHaveCount(0);
   await expect(page.locator('[data-scribe-granularity="word"]')).not.toHaveCount(0);
 
@@ -544,8 +548,6 @@ test("structural edit pickers split at the chosen boundary and join explicit sub
     texts: expect.arrayContaining(["alpha beta gamma", "delta"]),
   });
 
-  await page.getByRole("button", { name: /Overlay off/i }).click();
-  await page.getByRole("button", { name: /Edit overlay/i }).click();
   await page.getByRole("button", { name: "Edit line: second line" }).click();
   await page.getByRole("button", { name: /Join lines/i }).focus();
   await page.keyboard.press("Alt+l");

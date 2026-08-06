@@ -101,6 +101,7 @@ func run(ctx context.Context, args []string, stdout io.Writer, deps dependencies
 		inputs, err := deployer.ResolvePreviewInputs(ctx, deployer.PreviewRequest{
 			Repository:           deps.getenv("GITHUB_REPOSITORY"),
 			ProjectID:            deps.getenv("GCLOUD_PROJECT"),
+			PreviewMachineType:   deps.getenv("SCRIBE_PREVIEW_MACHINE_TYPE"),
 			Region:               deps.getenv("SCRIBE_REGION"),
 			Zone:                 deps.getenv("SCRIBE_ZONE"),
 			WorkflowRef:          deps.getenv("WORKFLOW_REF"),

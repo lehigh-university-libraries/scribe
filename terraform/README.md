@@ -129,12 +129,14 @@ documented in the
 [deployment guide](../docs/operations/deployment.md#shared-vault-owner-bootstrap-and-recovery).
 `ACTION=refresh` cannot be combined with a targeted maintenance entry point.
 It validates and replays every field in the recorded `deployment_inputs`
-schema. Additive legacy state has three unambiguous defaults: a missing
+schema. Additive legacy state has four unambiguous defaults: a missing
 `dev_external_ocr_impersonators` is `[]`, a missing
 `browser_readiness_image` is empty, and a missing
-`browser_readiness_subnet_cidr` is `10.43.0.0/26`. Explicit null or malformed
-values still fail closed, and non-empty browser images remain subject to the
-exact environment/image contract.
+`browser_readiness_subnet_cidr` is `10.43.0.0/26`. A missing dedicated
+`preview_machine_type` is the former `e2-medium` preview default and is ignored
+outside preview workspaces. Explicit null or malformed values still fail
+closed, and non-empty browser images remain subject to the exact
+environment/image contract.
 Refresh creates a full-graph saved `terraform plan -refresh-only` and rejects
 non-move drift or any non-no-op resource/output action. The wrapper prints the
 verified plan before auto-applying that exact saved plan. It does not invoke
@@ -171,7 +173,8 @@ Do not commit `terraform.tfvars`. The complete typed input contract and
 examples are in [variables.tf](variables.tf) and
 [terraform.tfvars.example](terraform.tfvars.example). The important groups are:
 
-- `project_id`, `region`, `zone`, `name`, and `docker_compose_branch`;
+- `project_id`, `region`, `zone`, `name`, `docker_compose_branch`, and the
+  preview-only `preview_machine_type` (`n2d-standard-2` or `e2-medium`);
 - `allowed_ips`, exact SSH CIDRs, and the managed/Compose network CIDRs;
 - `data_generation`, which scopes every persistent store and queue;
 - the API, frontend GAR, and model-service image digests;
@@ -188,6 +191,7 @@ examples are in [variables.tf](variables.tf) and
 - `SCRIBE_OCR_IMAGES_JSON`
 - `SCRIBE_DATA_GENERATION`
 - `SCRIBE_OCR_IMAGE_TAG`
+- `SCRIBE_PREVIEW_MACHINE_TYPE` (`n2d-standard-2` or `e2-medium`, preview only)
 - `SCRIBE_REGION` and `SCRIBE_ZONE`
 - `ALLOWED_IPS`, `ALLOWED_SSH_IPV4`, and `ALLOWED_SSH_IPV6`
 - `DEV_EXTERNAL_OCR_IMPERSONATORS`, a JSON array of explicit `user:` or
@@ -256,7 +260,7 @@ The `deployment_inputs` output records the Compose SHA, persistence generation,
 actual runtime image digests, and non-secret configuration needed by refresh,
 destroy, drift detection, and rollback. Replay validates the recorded schema
 and fails closed rather than resolving a tag or guessing a missing value, apart
-from the three documented additive legacy defaults.
+from the four documented additive legacy defaults.
 
 ## GitHub delivery
 

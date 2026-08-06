@@ -33,6 +33,7 @@ if ! normalized="$({
           "iiif_max_manifest_import_bytes",
           "monitoring_notification_channels",
           "network_ip_cidr_range",
+          "preview_machine_type",
           "project_id",
           "region",
           "storage_max_bytes_per_workspace",
@@ -63,6 +64,7 @@ if ! normalized="$({
         (.configuration.backup_restore_service_account_email | type == "string") and
         (.configuration.browser_readiness_subnet_cidr |
           type == "string" and test("^[0-9]{1,3}([.][0-9]{1,3}){3}/26$") and startswith("169.254.") == false) and
+        (.configuration.preview_machine_type == "e2-medium" or .configuration.preview_machine_type == "n2d-standard-2") and
         (.configuration.compose_network_cidr | type == "string" and length > 0) and
         (.configuration.network_ip_cidr_range | type == "string" and length > 0) and
         (.configuration.region | type == "string" and length > 0) and

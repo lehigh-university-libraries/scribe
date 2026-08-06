@@ -30,6 +30,12 @@ legacy_browser_subnet_normalized="$($resolver "$legacy_browser_subnet_fixture")"
 jq -e '.configuration.browser_readiness_subnet_cidr == "10.43.0.0/26"' \
   <<<"$legacy_browser_subnet_normalized" >/dev/null
 
+legacy_machine_fixture="$test_dir/deployment-inputs-before-preview-machine-type.json"
+jq 'del(.configuration.preview_machine_type)' "$fixture" >"$legacy_machine_fixture"
+legacy_machine_normalized="$($resolver "$legacy_machine_fixture")"
+jq -e '.configuration.preview_machine_type == "e2-medium"' \
+  <<<"$legacy_machine_normalized" >/dev/null
+
 assert_rejected() {
   local name="$1"
   local filter="$2"
@@ -75,6 +81,8 @@ assert_rejected null-browser-image '.browser_readiness_image = null'
 assert_rejected zero-browser-image '.browser_readiness_image = "us-docker.pkg.dev/scribe-test1/internal/scribe-browser-readiness@sha256:0000000000000000000000000000000000000000000000000000000000000000"'
 assert_rejected null-browser-subnet '.configuration.browser_readiness_subnet_cidr = null'
 assert_rejected broad-browser-subnet '.configuration.browser_readiness_subnet_cidr = "10.43.0.0/24"'
+assert_rejected null-preview-machine-type '.configuration.preview_machine_type = null'
+assert_rejected unreviewed-preview-machine-type '.configuration.preview_machine_type = "n2d-standard-96"'
 assert_rejected unsafe-ocr-service-key '.ocr_service_images["ollama/glm-ocr:bf16\nINJECTED"] = .ocr_service_images["ollama/glm-ocr:bf16"]'
 assert_rejected unused-frontend-source-image '.frontend_image = "ghcr.io/lehigh-university-libraries/scribe-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'
 assert_rejected cross-project-image '.frontend_gar_image = "us-docker.pkg.dev/other-project/internal/scribe-frontend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'

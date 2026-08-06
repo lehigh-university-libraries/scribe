@@ -3,6 +3,9 @@ project_id     = "your-gcp-project-id"
 region = "us-east5"
 zone   = "us-east5-b"
 
+# Used only by pr-* workspaces; production and development retain machine_type.
+preview_machine_type = "n2d-standard-2"
+
 # Restrict ingress to your office/VPN/public IPs.
 allowed_ips = [
   "203.0.113.10/32",

@@ -198,6 +198,8 @@ readiness_line="$(rg -n 'name: Verify frontend, backend, and OCR readiness' .git
 preview_deploy_call="$(sed -n '/^  deploy:/,/^  destroy:/p' .github/workflows/terraform-preview.yaml)"
 rg -q 'checkout_ref: \$\{\{ needs\.prepare\.outputs\.base_sha \}\}' <<<"$preview_deploy_call" ||
   fail "credentialed preview deploy does not execute the immutable trusted base"
+rg -q 'browser_readiness_source_sha: \$\{\{ needs\.prepare\.outputs\.head_sha \}\}' <<<"$preview_deploy_call" ||
+  fail "preview browser readiness does not receive the exact resolved PR-head source SHA"
 rg -q 'region: \$\{\{ needs\.prepare\.outputs\.region \}\}' <<<"$preview_deploy_call" ||
   fail "shared preview Vault reconciliation does not inherit the validated deployment region"
 if rg -q 'reconcile-preview-vault-runtime' <<<"$preview_deploy_call"; then

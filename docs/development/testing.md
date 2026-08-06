@@ -102,19 +102,29 @@ not running. Authentication policy, a full live Mirador workspace, and worker
 delivery remain covered by the required Go integration suite; `make e2e-smoke`
 selects the core ingest/revision cases for focused iteration.
 
-The managed preview scenario is separate from the local harness. Protected
-deployment source packages `web/e2e/deployed-readiness.mjs` into the locked
-Playwright image and runs it only after the preview apply. The scenario uses a
-browser-only `/26` and NAT to target the canonical `scribe-pr-*` Cloud Run
-origin, uses preview-anonymous auth and
+The managed preview scenario is separate from the local harness. Trusted
+`pull_request_target` orchestration checks out the protected base, then before
+cloud authentication retrieves exactly `web/e2e/deployed-readiness.mjs` at the
+resolved same-repository PR-head SHA. The bounded helper resolves that exact
+commit, walks the non-recursive Git trees for `web/` and `e2e/`, requires both
+parents to be trees and the leaf to be one `100644` blob, then reconciles its
+SHA and size with the Contents API payload before replacing only that path.
+Symlinks, gitlinks, duplicate entries, truncated trees, and mismatched payloads
+fail closed. The protected Dockerfile, package manifests, and dependencies
+remain from the base; its credentialed build copies but does not execute the PR
+script. The script runs only after the preview apply in a no-IAM, preview-only
+Playwright job. The scenario uses a browser-only `/26` and NAT to target the canonical
+`scribe-pr-*` Cloud Run origin, uses preview-anonymous auth and
 the built-in Tesseract context, and deletes the workspace token and uploaded
 item it creates. It verifies the completed private draft through
 `AnnotationService.GetAnnotationPage`, then requires its public Triplet
 AnnotationPage only after the editor publishes that revision. It deliberately
 produces no browser artifacts; on failure the
-Cloud Run helper retains only the exact allowlisted stage category. Run `bash
+Cloud Run helper retains only an exact allowlisted stage category, including
+the bounded `structure` and `manifest` categories; free-form messages are
+discarded. Run `bash
 ci/browser-readiness-contract_test.sh` and `bash
 ci/run-cloud-run-readiness_test.sh` for focused orchestration iteration. A
-feature PR cannot replace this trusted runner: `pull_request_target` supplies
-the protected base implementation while the runner exercises the PR-head
-frontend and backend images.
+feature PR can change only the deployed readiness script in this trusted build
+path, while protected-base orchestration and dependencies package it to
+exercise the PR-head frontend and backend images.

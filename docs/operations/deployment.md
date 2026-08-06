@@ -113,11 +113,14 @@ Destroy reads the exact Compose SHA and image digests recorded in that
 workspace's `deployment_inputs`; it never resolves a tag, pulls an image, or
 builds PR code with deployment credentials. Missing or malformed state fails
 closed with an operator recovery instruction, because guessing replacement
-inputs could mutate the plan before teardown. Three additive schema transitions
+inputs could mutate the plan before teardown. Four additive schema transitions
 have unambiguous historical values: an absent
 `dev_external_ocr_impersonators` becomes `[]`, an absent
 `browser_readiness_image` becomes the pre-runner empty value, and an absent
 `browser_readiness_subnet_cidr` becomes the reviewed `10.43.0.0/26` default.
+An absent `preview_machine_type` becomes the former `e2-medium` preview
+default; this dedicated variable is structurally ignored by production and
+development workspaces.
 Explicit null or malformed values still fail closed; non-empty browser images
 remain governed by the exact preview/production image contract. Terraform
 destroy makes at most three bounded attempts with the same validated
@@ -434,17 +437,31 @@ that address family closed.
 
 ### Managed preview browser readiness
 
-Every protected preview apply builds the browser-readiness image from the
-checked-out protected base SHA, never from the pull-request checkout. The
-Playwright runtime and browser are digest-pinned, run as `pwuser`, and receive
-only the preview's canonical HTTPS origin. A dedicated Cloud Run job uses a
-dedicated service account with no project, storage, Vault, Pub/Sub, or OCR IAM
-grants. Direct VPC egress attaches only this job to a dedicated, non-overlapping
-preview `/26`; Cloud NAT covers only that subnet and a reserved regional
-address. The VM, backend probe, OCR probe, and application subnet cannot use
-that NAT path. Terraform derives one `/32` from the address and appends it only
-to that preview's PPB ingress allowlist. Production and other previews are not
-widened.
+Every protected preview apply checks out the exact protected base SHA for its
+workflow, source-preparation helper, Dockerfile, package manifests, and locked
+dependencies. Before cloud authentication, that helper requests only
+the exact commit, the non-recursive Git trees leading to
+`web/e2e/deployed-readiness.mjs`, and that fixed Contents path at the already
+resolved same-repository PR-head SHA. Every response is bounded. The helper
+requires `web/` and `e2e/`
+to be unique `040000` tree entries and the source to be one `100644` blob, then
+requires the Contents API payload's path, base64 encoding, declared size, and
+Git blob SHA to match that tree entry. Symlinks, gitlinks, duplicate entries,
+truncated trees, and mismatched payloads fail closed before staging. The
+credentialed Docker build copies the script into the final image but never
+executes it; the protected Dockerfile installs only protected-base dependencies
+before that copy. The image tag is the source SHA and Terraform records its
+resolved digest.
+
+The PR-head script runs only later in the preview-only Playwright job. The
+runtime and browser are digest-pinned, run as `pwuser`, and receive only the
+preview's canonical HTTPS origin. A dedicated Cloud Run job uses a dedicated
+service account with no project, storage, Vault, Pub/Sub, or OCR IAM grants.
+Direct VPC egress attaches only this job to a dedicated, non-overlapping preview
+`/26`; Cloud NAT covers only that subnet and a reserved regional address. The
+VM, backend probe, OCR probe, and application subnet cannot use that NAT path.
+Terraform derives one `/32` from the address and appends it only to that
+preview's PPB ingress allowlist. Production and other previews are not widened.
 
 The job authenticates through the existing isolated
 `AUTH_PREVIEW_ANONYMOUS` workspace. It selects the built-in Tesseract context,
@@ -453,13 +470,17 @@ transcription and a non-empty canonical AnnotationPage, exercises overlay,
 retranscription, save, publish, narrow-display layout, and the copy-once
 workspace-token modal, then deletes the token and item. Same-origin HTTP
 failures, failed requests, CSP console violations, unexpected native dialogs,
-or failed cleanup make readiness fail. The runner emits only an allowlisted
-stage name; it never stores browser state or uploads browser output. Terraform
-records the exact runner digest and dedicated subnet in `deployment_inputs`, so
-refresh and destroy replay the same graph. The protected apply workflow always
-supplies a non-empty digest and requires the resulting browser job to pass
-before preview success. Terraform permits an empty runner value only so
-non-preview and pre-runner lifecycle state can be planned or destroyed;
+or failed cleanup make readiness fail. Cloud diagnostics accept only these
+exact browser categories: `home`, `context`, `upload`, `handoff`,
+`transcription`, `annotations`, `editor`, `overlay`, `structure`, `manifest`,
+`retranscribe`, `save`, `publish`, `responsive`, `token`, `cleanup`, `network`,
+and `csp`. Free-form or suffixed messages are discarded. The runner stores no
+browser state and uploads no browser output. Terraform records the exact runner
+digest and dedicated subnet in `deployment_inputs`, so refresh and destroy
+replay the same graph without retrieving PR source again. The protected apply
+workflow always supplies a non-empty digest and requires the resulting browser
+job to pass before preview success. Terraform permits an empty runner value only
+so non-preview and pre-runner lifecycle state can be planned or destroyed;
 historical absence normalizes to that empty value. Explicit null, mutable,
 cross-project, or placeholder values fail closed.
 
@@ -845,20 +866,30 @@ reattaching the stable data and Docker-volume disks; Scribe does not maintain a
 second host-operating-system path.
 
 Production and development use the reviewed N4/Hyperdisk Balanced profile.
-Ephemeral pull-request previews still run COS, but use `e2-medium` with Standard
-Persistent Disk. That profile keeps preview disks out of the finite production
-Hyperdisk capacity pool while preserving the same Cloud Compose bootstrap,
-separate data and Docker-volume disks, and teardown path.
+Ephemeral pull-request previews still run COS, but default to
+`n2d-standard-2` with Standard Persistent Disk. That profile keeps preview
+disks out of the finite production Hyperdisk capacity pool while preserving
+the same Cloud Compose bootstrap, separate data and Docker-volume disks, and
+teardown path.
 
 Production defaults to `us-east5-b`; pull-request previews use the separate
 `us-east5-c` placement default so preview capacity does not contend with the
 production VM's zone. Set the protected repository variable
-`SCRIBE_PREVIEW_ZONE` to another E2-capable zone in the configured region when
-preview placement must change. Local preview commands use the same `us-east5-c`
-default and accept `SCRIBE_ZONE` as an explicit override. Changing a preview's zone replaces its
-three ephemeral zonal disks. Refresh and destroy always replay the region and
-zone recorded in that workspace's deployment inputs instead of guessing from
-the current default.
+`SCRIBE_PREVIEW_ZONE` to another zone in the configured region that supports
+the selected reviewed machine profile when preview placement must change. Set
+the protected repository variable
+`SCRIBE_PREVIEW_MACHINE_TYPE` to `n2d-standard-2` or the reviewed fallback
+`e2-medium` when preview compute capacity must change. Protected orchestration
+reads that setting once before any credentialed job, validates the exact
+allowlist, and freezes it for both apply and teardown; pull-request and manual
+dispatch input cannot select a profile. Local preview commands use the same
+`us-east5-c` and `n2d-standard-2` defaults and accept `SCRIBE_ZONE` and
+`SCRIBE_PREVIEW_MACHINE_TYPE` as explicit overrides. Changing a preview's zone
+replaces its three ephemeral zonal disks; changing its machine profile performs
+the provider-managed stop/update/start while retaining its persistent disks.
+Refresh and destroy always replay the region, zone, and preview machine profile
+recorded in that workspace's deployment inputs instead of guessing from the
+current defaults.
 
 The Compose checkout is workspace-stable at
 `/mnt/disks/data/scribe/<workspace>`, even though every deployment fetches,

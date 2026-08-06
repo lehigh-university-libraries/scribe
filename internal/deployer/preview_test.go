@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	testRepository = "example/scribe"
-	testProject    = "example-project"
-	testRegion     = "us-east5"
-	testZone       = "us-east5-c"
-	testMainSHA    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	testHeadSHA    = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	testRepository         = "example/scribe"
+	testProject            = "example-project"
+	testPreviewMachineType = "n2d-standard-2"
+	testRegion             = "us-east5"
+	testZone               = "us-east5-c"
+	testMainSHA            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testHeadSHA            = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
 
 func TestResolvePreviewEventInputs(t *testing.T) {
@@ -43,6 +44,7 @@ func TestResolvePreviewEventInputs(t *testing.T) {
 			inputs, err := ResolvePreviewInputs(context.Background(), PreviewRequest{
 				Repository:           testRepository,
 				ProjectID:            testProject,
+				PreviewMachineType:   testPreviewMachineType,
 				Region:               testRegion,
 				Zone:                 testZone,
 				EventAction:          test.action,
@@ -107,6 +109,25 @@ func TestResolvePreviewDispatchInputs(t *testing.T) {
 	}
 }
 
+func TestResolvePreviewReviewedMachineTypes(t *testing.T) {
+	t.Parallel()
+
+	for _, machineType := range []string{"e2-medium", "n2d-standard-2"} {
+		t.Run(machineType, func(t *testing.T) {
+			t.Parallel()
+			request := dispatchRequest("deploy")
+			request.PreviewMachineType = machineType
+			inputs, err := ResolvePreviewInputs(context.Background(), request, validDispatchGitHub())
+			if err != nil {
+				t.Fatalf("ResolvePreviewInputs returned error: %v", err)
+			}
+			if inputs.PreviewMachineType != machineType {
+				t.Fatalf("preview machine type = %q, want %q", inputs.PreviewMachineType, machineType)
+			}
+		})
+	}
+}
+
 func TestResolvePreviewInputsFailsClosed(t *testing.T) {
 	t.Parallel()
 
@@ -123,6 +144,9 @@ func TestResolvePreviewInputsFailsClosed(t *testing.T) {
 		{name: "invalid protected SHA", request: dispatchRequest("deploy"), github: &fakeGitHub{mainSHA: "main", pullRequest: validDispatchGitHub().pullRequest}, want: "invalid protected-main SHA"},
 		{name: "invalid head SHA", request: dispatchRequest("deploy"), github: &fakeGitHub{mainSHA: testMainSHA, pullRequest: PullRequest{BaseRef: "main", HeadRepository: testRepository, HeadSHA: "head"}}, want: "invalid PR head SHA"},
 		{name: "project output injection", request: withDispatchOverride(func(request *PreviewRequest) { request.ProjectID = testProject + "\nmode=apply" }), github: validDispatchGitHub(), want: "valid Google Cloud project"},
+		{name: "missing preview machine type", request: withDispatchOverride(func(request *PreviewRequest) { request.PreviewMachineType = "" }), github: validDispatchGitHub(), want: "explicitly reviewed preview machine type"},
+		{name: "preview machine type injection", request: withDispatchOverride(func(request *PreviewRequest) { request.PreviewMachineType = "n2d-standard-2\nmode=apply" }), github: validDispatchGitHub(), want: "explicitly reviewed preview machine type"},
+		{name: "unreviewed preview machine type", request: withDispatchOverride(func(request *PreviewRequest) { request.PreviewMachineType = "n2d-standard-96" }), github: validDispatchGitHub(), want: "explicitly reviewed preview machine type"},
 		{name: "zone outside region", request: withDispatchOverride(func(request *PreviewRequest) { request.Zone = "us-west1-b" }), github: validDispatchGitHub(), want: "belong to SCRIBE_REGION"},
 		{name: "main lookup failure", request: dispatchRequest("deploy"), github: &fakeGitHub{mainErr: errors.New("token-canary")}, want: "protected-main SHA: failed"},
 		{name: "pull lookup failure", request: dispatchRequest("deploy"), github: &fakeGitHub{mainSHA: testMainSHA, pullErr: errors.New("token-canary")}, want: "pull request: failed"},
@@ -159,6 +183,7 @@ func TestPreviewInputsWriteGitHubOutput(t *testing.T) {
 		"base_sha=" + testMainSHA,
 		"mode=destroy",
 		"recover_destroy_inputs=true",
+		"preview_machine_type=" + testPreviewMachineType,
 		"zone=us-east5-c",
 		"frontend_gar_image_tag=us-docker.pkg.dev/example-project/internal/scribe-frontend:pr-75",
 		"backend_origin=http://scribe-pr-75.us-east5-c.c.example-project.internal",
@@ -189,6 +214,23 @@ func TestPreviewInputsWriteGitHubOutputRejectsInjection(t *testing.T) {
 	}
 }
 
+func TestPreviewInputsWriteGitHubOutputRejectsUnreviewedMachineType(t *testing.T) {
+	t.Parallel()
+
+	inputs, err := ResolvePreviewInputs(context.Background(), dispatchRequest("deploy"), validDispatchGitHub())
+	if err != nil {
+		t.Fatalf("ResolvePreviewInputs returned error: %v", err)
+	}
+	inputs.PreviewMachineType = "n2d-standard-96"
+	var output bytes.Buffer
+	if err := inputs.WriteGitHubOutput(&output); err == nil {
+		t.Fatal("WriteGitHubOutput accepted an unreviewed preview machine type")
+	}
+	if output.Len() != 0 {
+		t.Fatalf("WriteGitHubOutput emitted partial output: %q", output.String())
+	}
+}
+
 type fakeGitHub struct {
 	mainSHA     string
 	mainErr     error
@@ -208,13 +250,14 @@ func (github *fakeGitHub) PullRequest(_ context.Context, _, _ string) (PullReque
 
 func dispatchRequest(action string) PreviewRequest {
 	return PreviewRequest{
-		Repository:     testRepository,
-		ProjectID:      testProject,
-		Region:         testRegion,
-		Zone:           testZone,
-		WorkflowRef:    "refs/heads/main",
-		DispatchAction: action,
-		DispatchPR:     "75",
+		Repository:         testRepository,
+		ProjectID:          testProject,
+		PreviewMachineType: testPreviewMachineType,
+		Region:             testRegion,
+		Zone:               testZone,
+		WorkflowRef:        "refs/heads/main",
+		DispatchAction:     action,
+		DispatchPR:         "75",
 	}
 }
 
@@ -242,5 +285,8 @@ func assertPreviewInputs(t *testing.T, inputs PreviewInputs) {
 	}
 	if inputs.Region != testRegion || inputs.Zone != testZone || inputs.Tag != "pr-75" {
 		t.Fatalf("unexpected location/tag: %+v", inputs)
+	}
+	if inputs.PreviewMachineType != testPreviewMachineType {
+		t.Fatalf("preview machine type = %q, want %q", inputs.PreviewMachineType, testPreviewMachineType)
 	}
 }

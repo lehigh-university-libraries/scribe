@@ -43,6 +43,38 @@ grep -F "vars.SCRIBE_PREVIEW_ZONE != '' && vars.SCRIBE_PREVIEW_ZONE || 'us-east5
   echo "Terraform Preview must use its protected preview-only zone default" >&2
   exit 1
 }
+grep -F "vars.SCRIBE_PREVIEW_MACHINE_TYPE != '' && vars.SCRIBE_PREVIEW_MACHINE_TYPE || 'n2d-standard-2'" "${workflow}" >/dev/null || {
+  echo "Terraform Preview must freeze its protected reviewed machine profile in prepare" >&2
+  exit 1
+}
+[ "$(rg -c '^      SCRIBE_PREVIEW_MACHINE_TYPE:.*vars\.SCRIBE_PREVIEW_MACHINE_TYPE' "${workflow}")" -eq 1 ] || {
+  echo "Terraform Preview must read its protected machine profile exactly once" >&2
+  exit 1
+}
+[ "$(rg -c '^      preview_machine_type: \$\{\{ needs\.prepare\.outputs\.preview_machine_type \}\}$' "${workflow}")" -eq 2 ] || {
+  echo "Terraform Preview must thread the frozen machine profile to apply and destroy" >&2
+  exit 1
+}
+if rg -q 'vars\.SCRIBE_PREVIEW_MACHINE_TYPE' "${ROOT_DIR}/.github/workflows/terraform-deploy.yaml"; then
+  echo "Credentialed deployment must not reread the mutable repository machine profile" >&2
+  exit 1
+fi
+# shellcheck disable=SC2016 # Match the workflow's literal GitHub expression.
+grep -F 'SCRIBE_PREVIEW_MACHINE_TYPE: ${{ inputs.preview_machine_type }}' \
+  "${ROOT_DIR}/.github/workflows/terraform-deploy.yaml" >/dev/null || {
+  echo "Reusable deployment must pass only the frozen typed preview profile through the environment" >&2
+  exit 1
+}
+# shellcheck disable=SC2016 # Match the workflow's literal runtime expression.
+grep -F '[[ "$SCRIBE_PREVIEW_MACHINE_TYPE" =~ ^(e2-medium|n2d-standard-2)$ ]]' \
+  "${ROOT_DIR}/.github/workflows/terraform-deploy.yaml" >/dev/null || {
+  echo "Credentialed preview deployment must revalidate the exact reviewed profile allowlist" >&2
+  exit 1
+}
+if rg -q 'preview_machine_type:' "${ROOT_DIR}/.github/workflows/terraform-apply.yaml"; then
+  echo "Production must not consume the preview-only machine profile" >&2
+  exit 1
+fi
 grep -F "vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || 'us-east5-b'" \
   "${ROOT_DIR}/.github/workflows/terraform-apply.yaml" >/dev/null || {
   echo "Terraform Apply must retain the production zone default" >&2

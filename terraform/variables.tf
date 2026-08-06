@@ -38,6 +38,17 @@ variable "machine_type" {
   default     = "n4-standard-2"
 }
 
+variable "preview_machine_type" {
+  description = "Reviewed Compute Engine machine profile used only by pull-request preview workspaces."
+  type        = string
+  default     = "n2d-standard-2"
+
+  validation {
+    condition     = contains(["e2-medium", "n2d-standard-2"], var.preview_machine_type)
+    error_message = "preview_machine_type must be an explicitly reviewed preview profile: e2-medium or n2d-standard-2."
+  }
+}
+
 variable "disk_size_gb" {
   description = "Persistent docker volumes disk size in GB."
   type        = number

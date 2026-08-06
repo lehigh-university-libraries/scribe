@@ -46,6 +46,11 @@ normalized="$(
       else
         .
       end
+    | if (.configuration | type) == "object" and (.configuration | has("preview_machine_type") | not) then
+        .configuration.preview_machine_type = "e2-medium"
+      else
+        .
+      end
     | . as $deployment
     | .configuration as $configuration
     | ($configuration.project_id // "") as $project
@@ -79,6 +84,7 @@ normalized="$(
           "iiif_max_manifest_import_bytes",
           "monitoring_notification_channels",
           "network_ip_cidr_range",
+          "preview_machine_type",
           "project_id",
           "region",
           "storage_max_bytes_per_workspace",
@@ -111,6 +117,7 @@ normalized="$(
         ($configuration.backup_restore_service_account_email | service_account_email) and
         ($configuration.browser_readiness_subnet_cidr |
           ipv4_cidr and test("/26$") and startswith("169.254.") == false) and
+        ($configuration.preview_machine_type == "e2-medium" or $configuration.preview_machine_type == "n2d-standard-2") and
         ($configuration.dev_external_ocr_impersonators | type == "array" and length == 0) and
         ($configuration.network_ip_cidr_range | ipv4_cidr) and
         ($configuration.compose_network_cidr | ipv4_cidr) and

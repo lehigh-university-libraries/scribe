@@ -464,12 +464,24 @@ rg -q '^    needs: \[[^]]*resolve-production-ocr-images[^]]*\]$' <<<"$preview_de
 # shellcheck disable=SC2016 # Match the literal GitHub expression.
 rg -Fq 'ocr_images_json: ${{ needs.resolve-production-ocr-images.outputs.images_json }}' <<<"$preview_deploy_job" ||
   fail "preview deploy does not consume the validated production OCR digest map"
+# shellcheck disable=SC2016 # Match the literal GitHub expression.
+rg -Fq 'browser_readiness_source_sha: ${{ needs.prepare.outputs.head_sha }}' <<<"$preview_deploy_job" ||
+  fail "preview deploy does not bind the isolated browser script to the resolved PR-head commit"
+preview_destroy_job="$(sed -n '/^  destroy:/,/^  record-preview-deployment:/p' .github/workflows/terraform-preview.yaml)"
+if rg -q 'browser_readiness_source_sha' <<<"$preview_destroy_job"; then
+  fail "preview destroy must replay the recorded digest without fetching PR-head source"
+fi
 for preview_deploy_job in \
   "$preview_deploy_job" \
-  "$(sed -n '/^  destroy:/,/^  record-preview-deployment:/p' .github/workflows/terraform-preview.yaml)"; do
+  "$preview_destroy_job"; do
   rg -q '^      packages: read$' <<<"$preview_deploy_job" ||
     fail "preview deploy and destroy callers must satisfy the reusable workflow package-read contract"
 done
+
+browser_source_line="$(rg -n 'name: Stage exact PR-head browser readiness source' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
+cloud_auth_line="$(rg -n 'name: Authenticate to Google Cloud' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
+[[ "$browser_source_line" =~ ^[0-9]+$ && "$cloud_auth_line" =~ ^[0-9]+$ && "$browser_source_line" -lt "$cloud_auth_line" ]] ||
+  fail "the exact PR-head browser source must be validated before cloud credentials exist"
 
 # Every third-party action is pinned to a full commit SHA. Local reusable
 # workflows are deliberately exempt.
