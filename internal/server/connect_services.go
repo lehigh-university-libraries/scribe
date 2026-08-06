@@ -113,6 +113,24 @@ func processingContextFromStore(c store.Context) hocr.ProcessingContext {
 	}
 }
 
+// normalizeContextForExecution accepts only the compatibility difference
+// needed by persisted Gemini 3.x contexts and immutable job snapshots created
+// before model-default sampling became mandatory. Creation and update paths do
+// not call this helper and continue to reject an explicit temperature.
+func normalizeContextForExecution(c store.Context, registry providerregistry.Registry) (store.Context, error) {
+	temperature, err := registry.NormalizeExecutionSelection(
+		c.TranscriptionProvider,
+		c.TranscriptionModel,
+		c.SystemPrompt,
+		c.Temperature,
+	)
+	if err != nil {
+		return store.Context{}, err
+	}
+	c.Temperature = temperature
+	return c, nil
+}
+
 func processingLimitProvider(c store.Context) string {
 	// Provider concurrency is a property of the installed transcription
 	// capability. Segmentor/model choices must not create independent buckets

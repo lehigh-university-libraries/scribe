@@ -62,17 +62,19 @@ message ModelDescriptor {
   string id = 1;
   string label = 2;
   bool is_default = 3;
+  bool supports_temperature = 4;
 }
 
 // ProviderDescriptor describes one installed transcription provider. Endpoint
 // and credential details intentionally remain server-owned.
 message ProviderDescriptor {
+  reserved 6;
+  reserved "supports_temperature";
   string id = 1;
   string label = 2;
   repeated ModelDescriptor models = 3;
   bool requires_api_key = 4;
   bool supports_system_prompt = 5;
-  bool supports_temperature = 6;
 }
 
 // RuleCondition is a single AND-clause predicate.

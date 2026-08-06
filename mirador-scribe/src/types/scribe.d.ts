@@ -413,6 +413,15 @@ export interface ScribePublishResultEventDetail {
 export interface ScribeReloadAnnotationsEventDetail {
   canvasId: string;
   itemImageId: string;
+  requestId?: string;
+  windowId: string;
+}
+
+export interface ScribeReloadAnnotationsResultEventDetail {
+  canvasId: string;
+  itemImageId: string;
+  ok: boolean;
+  requestId: string;
   windowId: string;
 }
 
@@ -422,11 +431,25 @@ export interface ScribeRemoteRebaseReadyEventDetail {
   windowId: string;
 }
 
+export interface ScribeTranscriptionOverlayStateEventDetail {
+  canvasId: string;
+  ready: boolean;
+  windowId: string;
+}
+
 export interface ScribeTranscriptionEventDetail {
   annotation: IIIFAnnotation | null;
+  annotationId?: string;
+  attemptNumber?: number;
   canvasId: string;
+  // Catch-up events are reconstructed from the successful attempt's exact
+  // canonical result after the overlay mounts. Live task events are false.
+  catchUp?: boolean;
+  // Segment events use the 1-based active-line ordinal. Result events use the
+  // number of processed lines.
   done?: number;
   itemImageId?: string;
+  jobId?: string;
   persisted?: boolean;
   total?: number;
   windowId: string;

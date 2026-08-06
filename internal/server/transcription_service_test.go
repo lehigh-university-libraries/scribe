@@ -95,6 +95,7 @@ func TestTranscriptionSegmentProviderFailureDisposition(t *testing.T) {
 		{name: "segment local", err: errors.New("line crop failed"), wantNil: true},
 		{name: "canceled", err: fmt.Errorf("provider canceled: %w", context.Canceled), wantCanceled: true},
 		{name: "permanent", err: fmt.Errorf("provider rejected: %w", hocr.ErrPermanentProviderRequest), wantPermanent: true},
+		{name: "blank output", err: fmt.Errorf("provider output: %w", errEmptyAnnotationTranscription), wantPermanent: true},
 		{name: "retryable", err: fmt.Errorf("provider unavailable: %w", hocr.ErrRetryableProviderRequest), wantRetryable: true},
 	}
 	for _, test := range tests {

@@ -103,6 +103,105 @@ function waitForStream(url, headers = {}) {
 }
 
 describe("frontend server lifecycle", () => {
+  it("rejects timeout configurations outside the frontend platform boundary", async () => {
+    const invalidConfigurations = [
+      {
+        SCRIBE_FRONTEND_BACKEND_UPSTREAM_TIMEOUT_MS: "285000",
+        SCRIBE_FRONTEND_REQUEST_BUDGET_MS: "285000",
+        message: "must be less than SCRIBE_FRONTEND_REQUEST_BUDGET_MS",
+      },
+      {
+        SCRIBE_FRONTEND_BACKEND_UPSTREAM_TIMEOUT_MS: "270000",
+        SCRIBE_FRONTEND_REQUEST_BUDGET_MS: "300000",
+        message: "must be less than the 300000ms platform request boundary",
+      },
+    ];
+
+    for (const { message, ...env } of invalidConfigurations) {
+      const frontend = spawnFrontend(env);
+      const result = await frontend.exited;
+      expect(result.code).not.toBe(0);
+      expect(frontend.output().stderr).toContain(message);
+    }
+  });
+
+  it("retries a cold upload before starting it with a truncated inference budget", async () => {
+    let readinessCalls = 0;
+    let uploadCalls = 0;
+    const upstream = http.createServer((request, response) => {
+      if (request.url === "/readyz") {
+        readinessCalls += 1;
+        setTimeout(() => {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end('{"status":"ready","public_origin":"https://scribe-123.us-east5.run.app"}');
+        }, 80);
+        return;
+      }
+      uploadCalls += 1;
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("{}");
+    });
+    const upstreamPort = await listen(upstream);
+    const frontend = spawnFrontend({
+      SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+      SCRIBE_FRONTEND_BACKEND_UPSTREAM_TIMEOUT_MS: "150",
+      SCRIBE_FRONTEND_REQUEST_BUDGET_MS: "200",
+    });
+
+    try {
+      const boundFrontendPort = await frontendPort(frontend);
+      const uploadURL = `http://127.0.0.1:${boundFrontendPort}/scribe.v1.ItemService/UploadItemImage`;
+      const first = await fetch(uploadURL, { method: "POST", body: "first" });
+      expect(first.status).toBe(503);
+      expect(first.headers.get("retry-after")).toBe("2");
+      expect(uploadCalls).toBe(0);
+
+      const second = await fetch(uploadURL, { method: "POST", body: "second" });
+      expect(second.status).toBe(200);
+      expect(await second.json()).toEqual({});
+      expect(readinessCalls).toBe(1);
+      expect(uploadCalls).toBe(1);
+    } finally {
+      await stopFrontend(frontend);
+      await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 10_000);
+
+  it("enforces the absolute request budget despite active upstream data", async () => {
+    const intervals = new Set();
+    const upstream = http.createServer((request, response) => {
+      if (handleReadinessProbe(request, response)) return;
+      response.writeHead(200, { "content-type": "text/plain" });
+      const interval = setInterval(() => response.write("progress\n"), 25);
+      intervals.add(interval);
+      response.once("close", () => {
+        clearInterval(interval);
+        intervals.delete(interval);
+      });
+    });
+    const upstreamPort = await listen(upstream);
+    const frontend = spawnFrontend({
+      SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${upstreamPort}`,
+      SCRIBE_FRONTEND_BACKEND_UPSTREAM_TIMEOUT_MS: "100",
+      SCRIBE_FRONTEND_REQUEST_BUDGET_MS: "150",
+    });
+
+    try {
+      const boundFrontendPort = await frontendPort(frontend);
+      const startedAt = performance.now();
+      const response = await fetch(
+        `http://127.0.0.1:${boundFrontendPort}/scribe.v1.TestService/Stream`,
+      );
+      expect(response.status).toBe(200);
+      await expect(response.text()).rejects.toThrow();
+      expect(performance.now() - startedAt).toBeLessThan(1_000);
+    } finally {
+      for (const interval of intervals) clearInterval(interval);
+      await stopFrontend(frontend);
+      await new Promise((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+    }
+  }, 10_000);
+
   it("proxies public liveness and readiness to the backend", async () => {
     const observed = [];
     const upstream = http.createServer((request, response) => {

@@ -6,13 +6,11 @@ import { editorBridgeEventDetail, useDocumentEvent } from './useDocumentEvent';
  *
  * @param {Object} options
  * @param {string} options.canvasId
- * @param {(options: { all: boolean }) => void | Promise<void>} options.handleTranscribe
  * @param {() => Promise<{ ok: boolean, remainingCanvasIds: string[] }>} options.performSaveAllDirty
  * @param {string} options.windowId
  */
 export function useEditorRequestBridge({
   canvasId,
-  handleTranscribe,
   performSaveAllDirty,
   windowId,
 }) {
@@ -32,12 +30,6 @@ export function useEditorRequestBridge({
         },
       }));
     })();
-  });
-
-  useDocumentEvent('scribe:request-transcribe-all', (event) => {
-    const detail = editorBridgeEventDetail(event);
-    if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
-    void handleTranscribe({ all: true });
   });
 }
 /**

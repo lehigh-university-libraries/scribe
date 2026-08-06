@@ -450,7 +450,9 @@ Git blob SHA to match that tree entry. Symlinks, gitlinks, duplicate entries,
 truncated trees, and mismatched payloads fail closed before staging. The
 credentialed Docker build copies the script into the final image but never
 executes it; the protected Dockerfile installs only protected-base dependencies
-before that copy. The image tag is the source SHA and Terraform records its
+before that copy. The exact script embeds the reviewed two-line upload fixture
+and its SHA-256 digest; no separate PR-head fixture is staged into the protected
+build or Terraform. The image tag is the source SHA and Terraform records its
 resolved digest.
 
 Because the credentialed apply deliberately executes only protected-base
@@ -471,23 +473,88 @@ Terraform derives one `/32` from the address and appends it only to that
 preview's PPB ingress allowlist. Production and other previews are not widened.
 
 The job authenticates through the existing isolated
-`AUTH_PREVIEW_ANONYMOUS` workspace. It selects the built-in Tesseract context,
-uploads the reviewed image fixture, waits for completed background
-transcription and a non-empty canonical AnnotationPage, exercises overlay,
-retranscription, save, publish, narrow-display layout, and the copy-once
-workspace-token modal, then deletes the token and item. Same-origin HTTP
-failures, failed requests, CSP console violations, unexpected native dialogs,
-or failed cleanup make readiness fail. Cloud diagnostics accept only these
-exact browser categories: `home`, `context`, `upload`, `handoff`,
+`AUTH_PREVIEW_ANONYMOUS` workspace. It leaves context selection on `Default`
+and proves the durable job resolved a concrete context, uploads the reviewed
+two-line image fixture through the frontend retry path, and intentionally holds
+the editor bundle until the exact durable job has completed. The loaded editor
+must catch up from that completed job and its canonical revision: the visible
+magic-wand badge must move between two distinct line annotations in increasing
+order, and both lines must emit matched start and result events for the exact
+job and successful attempt. The runner then reloads an unpinned editor, waits
+for its overlay and event bridge to mount, and enqueues a distinct durable job.
+It waits for the item-scoped SSE response before enqueueing so no task event can
+race ahead of the new stream's outbox high-water mark. That in-flight path must
+emit live (not reconstructed catch-up) events and move the visible wand through
+both lines before completion. The editor does not
+publish its terminal available state or re-enable
+foreground retranscription until Mirador acknowledges the exact correlated
+canonical reload; mismatched, failed, or timed-out reloads remain blocked and
+require a page reload. The runner also proves automatic transcription made no
+foreground `EnrichAnnotation` request, the durable job completed with zero failed
+segments, and every canonical line contains text. It then
+exercises overlays, retranscription, draw and centered-line creation,
+undo/redo, inline text, word/line split and join adapters, deletion, save,
+publish, responsive bottom-pane layout, both home/sidebar trash actions, and
+the copy-once workspace-token modal. The editor loads once and resizes in place
+through 360x800, 667x375, 768x1024, and 1440x900; every viewport must keep all
+14 primary actions in view without scrolling, retain a usable OpenSeadragon
+image height, and preserve the saved canonical revision and page. A second
+golden path imports the reviewed six-page Lehigh manifest without reprocessing.
+It requires the mounted Scribe
+panel, a successful bounded nonempty image response rendered by OpenSeadragon,
+and exact agreement among the active Canvas, item-image, and editor URL. The
+runner validates both the canonical and exact public Presentation
+AnnotationPage, turns to the second Canvas with Mirador's real UI, repeats the
+identity/image/page checks, cycles every overlay mode, and proves an editor
+action remains usable.
+
+Retryable `UploadItemImage` responses do not independently fail the browser's
+global network sentinel. The runner requires one to three attempts, permits
+only retryable Connect/transport outcomes before the last attempt, validates
+the last response's item/image/job identities, and requires the exact editor
+handoff before any terminal upload result. The manifest path observes exactly
+one import request, no reprocess request, and six positive unique image IDs.
+Expected image evidence is capped at 100 responses, rejects empty or
+larger-than-64-MiB bodies, and shares the bounded stage timeout. Its two local
+publications are removed with the exact disposable manifest item during normal
+cleanup.
+
+Before teardown, the runner returns home, deletes the upload through the
+homepage and the manifest item through the sidebar, accepts only the exact
+item-ID confirmation dialog, and requires both rendered library copies to
+disappear after each deletion. Cleanup then closes the page to stop future
+browser retries and uses the retained session only for direct Connect
+reconciliation. It records the latest observed upload, manifest-import, and
+token-creation request plus response-settled and validated state. Any uncertain
+operation is polled through at least the 300-second request commit horizon
+before stable absence can pass. Uploads are matched by unique exact name;
+manifest discovery scans a capped, empty-query workspace inventory and loads
+candidates before matching the exact source type and URL; workspace tokens are
+listed and matched by their unique exact name. Same-origin failures outside
+that bounded upload retry path, failed requests, CSP console violations,
+unexpected native dialogs, or failed cleanup make readiness fail. Cloud
+diagnostics accept only these exact browser categories: `home`, `context`,
+`upload`, `handoff`,
 `transcription`, `annotations`, `editor`, `overlay`, `structure`, `manifest`,
 `retranscribe`, `save`, `publish`, `responsive`, `token`, `cleanup`, `network`,
-and `csp`. Free-form or suffixed messages are discarded. The runner stores no
-browser state and uploads no browser output. Terraform records the exact runner
-digest and dedicated subnet in `deployment_inputs`, so refresh and destroy
-replay the same graph without retrieving PR source again. The protected apply
-workflow always supplies a non-empty digest and requires the resulting browser
-job to pass before preview success. Terraform permits an empty runner value only
-so non-preview and pre-runner lifecycle state can be planned or destroyed;
+and `csp`; free-form or suffixed messages are discarded. The runner stores no
+browser state and uploads no browser output.
+
+A 30-minute scenario deadline measured from process startup closes the browser
+page and enters normal cleanup before the platform boundary. The Cloud Run task
+has a 40-minute timeout and reserves its final 10 minutes for deadline-aware
+reconciliation: 300 seconds for a late mutation to commit, a 180-second
+recovery tail, and bounded request/control overhead. The protected 120-minute
+deploy workflow covers the sequential 300-second backend, 1,800-second OCR,
+and 2,400-second browser job bounds plus 1,800 seconds of control-plane
+headroom.
+
+Terraform records the exact runner digest and dedicated subnet in
+`deployment_inputs`, so
+refresh and destroy replay the same graph. The protected apply workflow always
+supplies a non-empty digest and requires the resulting browser job to pass
+before preview success. Terraform permits an empty runner value only so
+non-preview and pre-runner lifecycle state can be planned or destroyed;
 historical absence normalizes to that empty value. Explicit null, mutable,
 cross-project, or placeholder values fail closed.
 

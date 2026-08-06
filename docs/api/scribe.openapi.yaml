@@ -4047,6 +4047,9 @@ components:
         isDefault:
           type: boolean
           title: is_default
+        supportsTemperature:
+          type: boolean
+          title: supports_temperature
       title: ModelDescriptor
       additionalProperties: false
       description: ModelDescriptor is a server-approved model that can be selected by a context.
@@ -4353,9 +4356,6 @@ components:
         supportsSystemPrompt:
           type: boolean
           title: supports_system_prompt
-        supportsTemperature:
-          type: boolean
-          title: supports_temperature
       title: ProviderDescriptor
       additionalProperties: false
       description: |-

@@ -10,11 +10,13 @@ import type {
   ScribePublishRequestEventDetail,
   ScribePublishResultEventDetail,
   ScribeReloadAnnotationsEventDetail,
+  ScribeReloadAnnotationsResultEventDetail,
   ScribeRemoteRebaseReadyEventDetail,
   ScribeSaveRequestEventDetail,
   ScribeSaveResultEventDetail,
   ScribeTranscriptionEventDetail,
   ScribeTranscriptionJobStateEventDetail,
+  ScribeTranscriptionOverlayStateEventDetail,
 } from './types/scribe';
 
 export type {
@@ -55,11 +57,13 @@ export type {
   ScribePublishRequestEventDetail,
   ScribePublishResultEventDetail,
   ScribeReloadAnnotationsEventDetail,
+  ScribeReloadAnnotationsResultEventDetail,
   ScribeRemoteRebaseReadyEventDetail,
   ScribeSaveRequestEventDetail,
   ScribeSaveResultEventDetail,
   ScribeTranscriptionEventDetail,
   ScribeTranscriptionJobStateEventDetail,
+  ScribeTranscriptionOverlayStateEventDetail,
 } from './types/scribe';
 
 declare global {
@@ -72,12 +76,13 @@ declare global {
     'scribe:focus-resize-handle': CustomEvent<ScribeFocusResizeHandleEventDetail>;
     'scribe:publish-result': CustomEvent<ScribePublishResultEventDetail>;
     'scribe:reload-annotations': CustomEvent<ScribeReloadAnnotationsEventDetail>;
+    'scribe:reload-annotations-result': CustomEvent<ScribeReloadAnnotationsResultEventDetail>;
     'scribe:remote-rebase-ready': CustomEvent<ScribeRemoteRebaseReadyEventDetail>;
     'scribe:request-publish': CustomEvent<ScribePublishRequestEventDetail>;
     'scribe:request-save': CustomEvent<ScribeSaveRequestEventDetail>;
-    'scribe:request-transcribe-all': CustomEvent<{ canvasId: string; windowId: string }>;
     'scribe:save-result': CustomEvent<ScribeSaveResultEventDetail>;
     'scribe:transcription-job-state': CustomEvent<ScribeTranscriptionJobStateEventDetail>;
+    'scribe:transcription-overlay-state': CustomEvent<ScribeTranscriptionOverlayStateEventDetail>;
     'scribe:transcription-result': CustomEvent<ScribeTranscriptionEventDetail>;
     'scribe:transcription-segment': CustomEvent<ScribeTranscriptionEventDetail>;
   }

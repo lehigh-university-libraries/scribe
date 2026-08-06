@@ -7,6 +7,7 @@ package providerregistry
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -30,9 +31,10 @@ const (
 
 // Model describes one selectable model or segmentation selection.
 type Model struct {
-	ID        string
-	Label     string
-	IsDefault bool
+	ID                  string
+	Label               string
+	IsDefault           bool
+	SupportsTemperature bool
 }
 
 // Execution identifies the runtime implementation used by a transcription
@@ -201,7 +203,6 @@ type ProviderCatalogEntry struct {
 	Models               []Model
 	RequiresAPIKey       bool
 	SupportsSystemPrompt bool
-	SupportsTemperature  bool
 }
 
 // Catalog is the complete safe model-selection projection for clients.
@@ -487,13 +488,16 @@ func (r Registry) Catalog() Catalog {
 	}
 	for _, id := range r.providerOrder {
 		descriptor := r.providers[id]
+		models := cloneModels(descriptor.Models)
+		for index := range models {
+			models[index].SupportsTemperature = providerModelSupportsTemperature(descriptor, models[index].ID)
+		}
 		catalog.TranscriptionProviders = append(catalog.TranscriptionProviders, ProviderCatalogEntry{
 			ID:                   descriptor.ID,
 			Label:                descriptor.Label,
-			Models:               cloneModels(descriptor.Models),
+			Models:               models,
 			RequiresAPIKey:       descriptor.Credentials.Required(),
 			SupportsSystemPrompt: descriptor.Capabilities.SystemPrompt,
-			SupportsTemperature:  descriptor.Capabilities.Temperature,
 		})
 	}
 	return catalog
@@ -557,6 +561,12 @@ func (r Registry) ProviderConfig(providerID, model, prompt string, temperature f
 	if err != nil {
 		return providers.Config{}, err
 	}
+	if descriptor.ID == "gemini" && geminiModelUsesDefaultSampling(model) {
+		if temperature != 0 {
+			return providers.Config{}, fmt.Errorf("provider %q model %q execution temperature was not normalized", descriptor.ID, model)
+		}
+		temperature = 0
+	}
 	endpoint := descriptor.EndpointForModel(model)
 	return providers.Config{
 		Provider:    descriptor.ID,
@@ -576,19 +586,66 @@ func (r Registry) ValidateSelection(providerID, modelID, systemPrompt string, te
 	if !ok {
 		return fmt.Errorf("unsupported transcription provider %q", strings.TrimSpace(providerID))
 	}
-	if _, err := r.EffectiveModel(descriptor.ID, modelID); err != nil {
+	model, err := r.EffectiveModel(descriptor.ID, modelID)
+	if err != nil {
 		return err
 	}
+	return validateResolvedSelection(descriptor, model, systemPrompt, temperature)
+}
+
+// NormalizeExecutionSelection validates an already-persisted context or job
+// snapshot and returns a detached temperature for execution. It removes only
+// the legacy temperature value that older Scribe versions allowed on Gemini
+// 3.x. New context create/update paths must continue to use ValidateSelection
+// so they cannot persist that unsupported option.
+func (r Registry) NormalizeExecutionSelection(providerID, modelID, systemPrompt string, temperature *float64) (*float64, error) {
+	descriptor, ok := r.Provider(providerID)
+	if !ok {
+		return nil, fmt.Errorf("unsupported transcription provider %q", strings.TrimSpace(providerID))
+	}
+	model, err := r.EffectiveModel(descriptor.ID, modelID)
+	if err != nil {
+		return nil, err
+	}
+	normalizedTemperature := temperature
+	if descriptor.ID == "gemini" && geminiModelUsesDefaultSampling(model) {
+		if err := validateTemperatureBounds(descriptor, temperature); err != nil {
+			return nil, err
+		}
+		normalizedTemperature = nil
+	}
+	if err := validateResolvedSelection(descriptor, model, systemPrompt, normalizedTemperature); err != nil {
+		return nil, err
+	}
+	if normalizedTemperature == nil {
+		return nil, nil
+	}
+	value := *normalizedTemperature
+	return &value, nil
+}
+
+func validateResolvedSelection(descriptor Provider, model, systemPrompt string, temperature *float64) error {
 	if strings.TrimSpace(systemPrompt) != "" && !descriptor.Capabilities.SystemPrompt {
 		return fmt.Errorf("provider %q does not support a system prompt", descriptor.ID)
 	}
 	if temperature != nil {
-		if !descriptor.Capabilities.Temperature {
-			return fmt.Errorf("provider %q does not support temperature", descriptor.ID)
+		if !providerModelSupportsTemperature(descriptor, model) {
+			return fmt.Errorf("provider %q model %q does not support temperature", descriptor.ID, model)
 		}
-		if *temperature < descriptor.Limits.TemperatureMin || *temperature > descriptor.Limits.TemperatureMax {
-			return fmt.Errorf("temperature must be between %v and %v", descriptor.Limits.TemperatureMin, descriptor.Limits.TemperatureMax)
+		if err := validateTemperatureBounds(descriptor, temperature); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func validateTemperatureBounds(descriptor Provider, temperature *float64) error {
+	if temperature == nil {
+		return nil
+	}
+	if math.IsNaN(*temperature) || math.IsInf(*temperature, 0) ||
+		*temperature < descriptor.Limits.TemperatureMin || *temperature > descriptor.Limits.TemperatureMax {
+		return fmt.Errorf("temperature must be between %v and %v", descriptor.Limits.TemperatureMin, descriptor.Limits.TemperatureMax)
 	}
 	return nil
 }

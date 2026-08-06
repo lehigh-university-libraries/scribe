@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { addOrUpdateCompanionWindow as addOrUpdateCompanionWindowAction } from 'mirador';
 import { hasCompanionWindowContent } from '../utils/iiif';
@@ -15,11 +15,14 @@ interface WindowOwnProps {
 
 type MiradorDispatch = (action: Record<string, unknown>) => unknown;
 
-function ScribeAutoOpenPlugin({
+export function ScribeAutoOpenPlugin({
   hasScribeWindow,
   openScribeWindow,
 }: ScribeAutoOpenProps) {
+  const didAutoOpen = useRef(false);
   useEffect(() => {
+    if (didAutoOpen.current) return;
+    didAutoOpen.current = true;
     if (!hasScribeWindow) {
       openScribeWindow();
     }

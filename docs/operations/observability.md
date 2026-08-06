@@ -84,6 +84,25 @@ transcription each use a 240-second request budget so a scale-to-zero CPU
 inference service can load its model and complete useful work; handler and write
 deadlines retain
 bounded margins below the current 300-second Cloud Run service request timeout.
+The frontend proxy caps upstream inactivity at 270 seconds while charging
+backend wake time and upstream work to one 285-second request budget below the
+platform cutoff. Startup rejects custom values unless the upstream cap is below
+the frontend budget and the frontend budget remains below the 300-second
+platform boundary. Managed browser readiness allows 300 seconds for the
+upload/editor handoff. An upload marker covers the frontend's bounded retry
+sequence and requires its last `UploadItemImage` response to succeed;
+individual retryable attempts are not promoted to the generic network marker.
+Structure and manifest markers separately isolate live editor-transform and
+preserve-hOCR import failures.
+
+The cleanup marker can remain active through the 300-second mutation commit
+horizon and a 180-second recovery tail when an upload, manifest import, or token
+creation loses its response; this is bounded recovery, not an unbounded browser
+retry. The runner stops product work after 30 minutes and reserves the final 10
+minutes of its 40-minute Cloud Run task for deadline-aware reconciliation and
+request/control overhead. A platform `deadline` before the categorical browser
+marker therefore indicates runner/job budget drift and must fail deployment.
+Reconciliation logs no resource name, URL, response body, or token secret.
 A failed production Terraform apply or readiness failure initiates automatic
 rollback to the prior recorded reviewed source, configuration, generation, and
 digest set.

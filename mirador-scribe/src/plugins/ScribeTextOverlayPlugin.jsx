@@ -40,6 +40,10 @@ const INLINE_WORD_GAP_PX = 6;
 const ACTION_BAR_HEIGHT_PX = 104;
 const INLINE_EDITOR_HANDLE_PX = 5;
 const INLINE_EDITOR_CONTENT_INSET_PX = 10;
+const TRANSCRIPTION_SEGMENT_MAX_DISPLAY_MS = 400;
+const TRANSCRIPTION_SEGMENT_MIN_DISPLAY_MS = 40;
+const TRANSCRIPTION_SEGMENT_MAX_TOTAL_DISPLAY_MS = 20_000;
+const TRANSCRIPTION_SEGMENT_QUEUE_LIMIT = 500;
 
 /** @typedef {import('../types/scribe').ImageBBox} Rect */
 /** @typedef {import('../types/scribe').IIIFAnnotation} IIIFAnnotation */
@@ -49,9 +53,9 @@ const INLINE_EDITOR_CONTENT_INSET_PX = 10;
 /** @typedef {{ annotationPage?: IIIFAnnotationPage, canvasId?: string, selectedAnnotationId?: string, focusedWordAnnotationId?: string, isBusy?: boolean, overlayMode?: 'none' | 'read' | 'edit' | 'outline', windowId?: string }} OverlayEditorState */
 /** @typedef {{ currentTop: number, lineTop: number, pointerY: number, startY: number }} EditorDragState */
 /** @typedef {{ annotationId: string, currentClientX: number, currentClientY: number, handle: string, originalBBox: Rect, startClientX: number, startClientY: number }} BBoxDragState */
-/** @typedef {{ annotation: IIIFAnnotation, done: number, total: number }} TranscriptionSegment */
-/** @typedef {{ annotation: IIIFAnnotation, done: number, total: number, text: string | null }} TranscriptionResult */
-/** @typedef {{ annotation?: IIIFAnnotation | null, canvasId?: string, done?: number, total?: number, windowId?: string }} TranscriptionEventDetail */
+/** @typedef {{ annotation: IIIFAnnotation, attemptNumber: number, done: number, jobId: string, total: number }} TranscriptionSegment */
+/** @typedef {{ annotation: IIIFAnnotation, attemptNumber: number, done: number, jobId: string, total: number, text: string | null }} TranscriptionResult */
+/** @typedef {{ annotation?: IIIFAnnotation | null, attemptNumber?: number, canvasId?: string, done?: number, jobId?: string, total?: number, windowId?: string }} TranscriptionEventDetail */
 /** @typedef {{ id: string, isWord: boolean, rect: Rect, text: string }} OverlayLabel */
 /** @typedef {{ granularity: 'line' | 'word', id: string, rect: Rect, selected: boolean }} GranularityMarker */
 /** @typedef {{ annotationId: string | null, fallbackIndex?: number, rect: Rect, text: string }} WordEditor */
@@ -109,20 +113,42 @@ function fallbackWordRects(lineRect, count) {
 }
 
 /** @param {OpenSeadragon.Viewer | null | undefined} viewer @returns {Rect | null} */
-function visibleImageBounds(viewer) {
+function visibleImageBounds(viewer, paddingRatio = 0.1) {
   if (!viewer?.viewport || !viewer?.world?.getItemCount?.()) return null;
   const tiledImage = viewer.world.getItemAt(0);
   const viewportBounds = viewer.viewport.getBounds?.(true);
   const imageBounds = tiledImage?.viewportToImageRectangle?.(viewportBounds);
   if (!imageBounds) return null;
-  const paddingX = imageBounds.width * 0.1;
-  const paddingY = imageBounds.height * 0.1;
+  const paddingX = imageBounds.width * paddingRatio;
+  const paddingY = imageBounds.height * paddingRatio;
   return {
     h: imageBounds.height + paddingY * 2,
     w: imageBounds.width + paddingX * 2,
     x: imageBounds.x - paddingX,
     y: imageBounds.y - paddingY,
   };
+}
+
+/** @param {Rect} inner @param {Rect} outer @returns {boolean} */
+function rectIsWithin(inner, outer) {
+  return inner.x >= outer.x
+    && inner.y >= outer.y
+    && inner.x + inner.w <= outer.x + outer.w
+    && inner.y + inner.h <= outer.y + outer.h;
+}
+
+/** @param {number} total @returns {number} */
+function transcriptionSegmentDisplayDuration(total) {
+  const boundedTotal = Number.isSafeInteger(total) && total > 0
+    ? Math.min(total, TRANSCRIPTION_SEGMENT_QUEUE_LIMIT)
+    : 1;
+  return Math.min(
+    TRANSCRIPTION_SEGMENT_MAX_DISPLAY_MS,
+    Math.max(
+      TRANSCRIPTION_SEGMENT_MIN_DISPLAY_MS,
+      Math.floor(TRANSCRIPTION_SEGMENT_MAX_TOTAL_DISPLAY_MS / boundedTotal),
+    ),
+  );
 }
 
 /** @param {OverlayLabel} label @param {string} windowId @param {string} canvasId */
@@ -159,7 +185,11 @@ export function ScribeTextOverlayPlugin({
   const inputRefs = useRef(/** @type {Map<string, HTMLInputElement>} */ (new Map()));
   const resizeHandleRefs = useRef(/** @type {Map<string, HTMLButtonElement>} */ (new Map()));
   const dragIntentRef = useRef(/** @type {{ timeoutId: number } | null} */ (null));
+  const transcriptionSegmentClearPendingRef = useRef(false);
+  const transcriptionSegmentQueueRef = useRef(/** @type {TranscriptionSegment[]} */ ([]));
+  const transcriptionSegmentTimerRef = useRef(/** @type {number | null} */ (null));
   const transcriptionResultTimerRef = useRef(/** @type {number | null} */ (null));
+  const transcriptionFocusKeyRef = useRef('');
   const viewportAnimationFrameRef = useRef(/** @type {number | null} */ (null));
 
   /** @param {number} clientX @param {number} clientY */
@@ -221,6 +251,7 @@ export function ScribeTextOverlayPlugin({
     setPendingResizeFocus(null);
     setTranscriptionSegment(null);
     setTranscriptionResult(null);
+    transcriptionFocusKeyRef.current = '';
   }, [canvasId]);
 
   useEffect(() => {
@@ -247,15 +278,61 @@ export function ScribeTextOverlayPlugin({
   }, [canvasId, windowId]);
 
   useEffect(() => {
+    /** @param {TranscriptionSegment} segment */
+    const showSegment = (segment) => {
+      setTranscriptionSegment(segment);
+      transcriptionSegmentTimerRef.current = window.setTimeout(() => {
+        transcriptionSegmentTimerRef.current = null;
+        const next = transcriptionSegmentQueueRef.current.shift();
+        if (next) {
+          showSegment(next);
+          return;
+        }
+        if (transcriptionSegmentClearPendingRef.current) {
+          transcriptionSegmentClearPendingRef.current = false;
+          setTranscriptionSegment(null);
+        }
+      }, transcriptionSegmentDisplayDuration(segment.total));
+    };
+
     /** @param {Event} event */
     const handle = (event) => {
       const detail = /** @type {CustomEvent<TranscriptionEventDetail>} */ (event).detail;
       if (detail?.windowId !== windowId || detail.canvasId !== canvasId) return;
-      const { annotation, done = 0, total = 0 } = detail;
-      setTranscriptionSegment(annotation ? { annotation, done, total } : null);
+      const {
+        annotation, attemptNumber = 0, done = 0, jobId = '', total = 0,
+      } = detail;
+      if (!annotation) {
+        transcriptionSegmentClearPendingRef.current = true;
+        if (
+          transcriptionSegmentTimerRef.current === null
+          && transcriptionSegmentQueueRef.current.length === 0
+        ) {
+          transcriptionSegmentClearPendingRef.current = false;
+          setTranscriptionSegment(null);
+        }
+        return;
+      }
+      const segment = { annotation, attemptNumber, done, jobId, total };
+      transcriptionSegmentClearPendingRef.current = false;
+      if (transcriptionSegmentTimerRef.current === null) {
+        showSegment(segment);
+        return;
+      }
+      if (transcriptionSegmentQueueRef.current.length < TRANSCRIPTION_SEGMENT_QUEUE_LIMIT) {
+        transcriptionSegmentQueueRef.current.push(segment);
+      }
     };
     document.addEventListener('scribe:transcription-segment', handle);
-    return () => document.removeEventListener('scribe:transcription-segment', handle);
+    return () => {
+      if (transcriptionSegmentTimerRef.current !== null) {
+        window.clearTimeout(transcriptionSegmentTimerRef.current);
+        transcriptionSegmentTimerRef.current = null;
+      }
+      transcriptionSegmentQueueRef.current.length = 0;
+      transcriptionSegmentClearPendingRef.current = false;
+      document.removeEventListener('scribe:transcription-segment', handle);
+    };
   }, [canvasId, windowId]);
 
   useEffect(() => {
@@ -263,10 +340,14 @@ export function ScribeTextOverlayPlugin({
     const handle = (event) => {
       const detail = /** @type {CustomEvent<TranscriptionEventDetail>} */ (event).detail;
       if (detail?.windowId !== windowId || detail.canvasId !== canvasId) return;
-      const { annotation, done = 0, total = 0 } = detail;
+      const {
+        annotation, attemptNumber = 0, done = 0, jobId = '', total = 0,
+      } = detail;
       if (!annotation) return;
       const text = annotationText(annotation) || null;
-      setTranscriptionResult({ annotation, text, done, total });
+      setTranscriptionResult({
+        annotation, attemptNumber, text, done, jobId, total,
+      });
       if (transcriptionResultTimerRef.current) {
         window.clearTimeout(transcriptionResultTimerRef.current);
       }
@@ -282,6 +363,21 @@ export function ScribeTextOverlayPlugin({
         transcriptionResultTimerRef.current = null;
       }
       document.removeEventListener('scribe:transcription-result', handle);
+    };
+  }, [canvasId, windowId]);
+
+  useEffect(() => {
+    if (!canvasId || !windowId) return;
+    // This effect is deliberately declared after both transcription event
+    // listeners. The shell may now replay a durable current-segment snapshot
+    // without racing this overlay's mount.
+    document.dispatchEvent(new CustomEvent('scribe:transcription-overlay-state', {
+      detail: { canvasId, ready: true, windowId },
+    }));
+    return () => {
+      document.dispatchEvent(new CustomEvent('scribe:transcription-overlay-state', {
+        detail: { canvasId, ready: false, windowId },
+      }));
     };
   }, [canvasId, windowId]);
 
@@ -381,6 +477,35 @@ export function ScribeTextOverlayPlugin({
     if (!transcriptionSegment?.annotation || !viewer) return null;
     return annotationRect(viewer, transcriptionSegment.annotation);
   }, [transcriptionSegment, viewer, version]);
+
+  useEffect(() => {
+    if (!transcriptionSegment?.annotation || !viewer) return;
+    const visibleBounds = visibleImageBounds(viewer, 0);
+    if (!visibleBounds) return;
+    const tiledImage = viewer.world?.getItemAt?.(0);
+    const contentSize = tiledImage?.getContentSize?.();
+    const bbox = annotationBBox(transcriptionSegment.annotation, contentSize ? {
+      height: contentSize.y,
+      width: contentSize.x,
+    } : null);
+    if (bbox.w <= 0 || bbox.h <= 0 || rectIsWithin(bbox, visibleBounds)) return;
+    const focusKey = [
+      transcriptionSegment.jobId,
+      transcriptionSegment.attemptNumber,
+      transcriptionSegment.done,
+      transcriptionSegment.annotation.id,
+    ].join(':');
+    if (transcriptionFocusKeyRef.current === focusKey) return;
+    transcriptionFocusKeyRef.current = focusKey;
+    document.dispatchEvent(new CustomEvent('scribe:focus-annotation', {
+      detail: {
+        annotationId: transcriptionSegment.annotation.id,
+        bbox,
+        canvasId,
+        windowId,
+      },
+    }));
+  }, [canvasId, transcriptionSegment, viewer, version, windowId]);
 
   const transcriptionResultRect = useMemo(() => {
     if (!transcriptionResult?.annotation || !viewer) return null;
@@ -1179,6 +1304,14 @@ export function ScribeTextOverlayPlugin({
               }}
             />
             <div
+              aria-label={`Automatic transcription: line ${transcriptionSegment.done} of ${transcriptionSegment.total}`}
+              data-scribe-transcription-active="true"
+              data-scribe-transcription-annotation={transcriptionSegment.annotation?.id || ''}
+              data-scribe-transcription-attempt={transcriptionSegment.attemptNumber}
+              data-scribe-transcription-job={transcriptionSegment.jobId}
+              data-scribe-transcription-line={transcriptionSegment.done}
+              data-scribe-transcription-total={transcriptionSegment.total}
+              role="status"
               style={{
                 alignItems: 'center',
                 background: scribeTheme.transcribe,

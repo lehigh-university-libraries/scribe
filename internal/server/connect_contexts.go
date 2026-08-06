@@ -162,7 +162,6 @@ func (h *Handler) GetModelCatalog(ctx context.Context, req *connect.Request[scri
 			Label:                descriptor.Label,
 			RequiresApiKey:       descriptor.RequiresAPIKey,
 			SupportsSystemPrompt: descriptor.SupportsSystemPrompt,
-			SupportsTemperature:  descriptor.SupportsTemperature,
 		}
 		for _, model := range descriptor.Models {
 			provider.Models = append(provider.Models, modelDescriptorToProto(model))
@@ -201,7 +200,12 @@ func (h *Handler) GetContextMetrics(ctx context.Context, req *connect.Request[sc
 }
 
 func modelDescriptorToProto(model providerregistry.Model) *scribev1.ModelDescriptor {
-	return &scribev1.ModelDescriptor{Id: model.ID, Label: model.Label, IsDefault: model.IsDefault}
+	return &scribev1.ModelDescriptor{
+		Id:                  model.ID,
+		Label:               model.Label,
+		IsDefault:           model.IsDefault,
+		SupportsTemperature: model.SupportsTemperature,
+	}
 }
 
 func validateContextSelection(contextValue store.Context) error {

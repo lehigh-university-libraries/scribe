@@ -18,6 +18,12 @@ export function isCompletedStatus(status: TranscriptionJobStatus | string | numb
     || status === "completed";
 }
 
+export function isCanceledStatus(status: TranscriptionJobStatus | string | number): boolean {
+  return status === TranscriptionJobStatus.CANCELED
+    || status === "TRANSCRIPTION_JOB_STATUS_CANCELED"
+    || status === "canceled";
+}
+
 export function isFailedStatus(status: TranscriptionJobStatus | string | number): boolean {
   return status === TranscriptionJobStatus.FAILED
     || status === "TRANSCRIPTION_JOB_STATUS_FAILED"

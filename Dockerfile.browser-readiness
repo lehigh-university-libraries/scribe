@@ -14,7 +14,6 @@ WORKDIR /app
 
 COPY --from=dependencies --chown=pwuser:pwuser /app/node_modules ./node_modules
 COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs
-COPY --chown=pwuser:pwuser config/readiness-smoke.png.base64 ./readiness-smoke.png.base64
 
 USER pwuser
 

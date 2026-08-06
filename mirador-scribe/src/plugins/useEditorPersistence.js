@@ -157,7 +157,7 @@ export function useEditorPersistence({
     adapter = adapterFactory?.(canvasId),
     targetCanvasId = canvasId,
   ) {
-    if (!adapter || !targetCanvasId || editingIsBlocked(targetCanvasId)) return;
+    if (!adapter || !targetCanvasId || editingIsBlocked(targetCanvasId)) return false;
     dispatchSessionForCanvas(targetCanvasId, { type: 'load-start' });
     setOperationBusy(true);
     setStatusMessage('Reloading server updates...');
@@ -173,10 +173,12 @@ export function useEditorPersistence({
       setStatusMessage(sessionIsDirty(nextSession)
         ? 'Server updates loaded; your unsaved edits were preserved.'
         : 'Server updates loaded.');
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Reload failed.';
       dispatchSessionForCanvas(targetCanvasId, { error: message, type: 'load-error' });
       setStatusMessage(message);
+      return false;
     } finally {
       setOperationBusy(false);
     }

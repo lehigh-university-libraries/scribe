@@ -31,6 +31,11 @@ Background processing payloads additionally carry `itemImageId`. Receivers
 must require all applicable identities; an omitted ID is never interpreted as
 a broadcast. Mirador's current window Canvas is authoritative during page
 turns—an annotation selection from the prior Canvas is not a routing fallback.
+Transcription progress also carries the durable job attempt number. Live
+progress and completed-job catch-up keep separate attempt-scoped visual history,
+so failed-attempt ordinals cannot hide a successful retry. When the active wand
+line falls outside the current OpenSeadragon image bounds, the overlay emits the
+existing scoped focus event; a line already in view never moves the viewport.
 
 Line creation has two scoped bridge paths. Pointer drawing emits
 `scribe:create-annotation` after a drag. The keyboard action emits

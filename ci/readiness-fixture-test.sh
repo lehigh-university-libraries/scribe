@@ -4,12 +4,35 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 decoded="$(mktemp)"
-trap 'rm -f "$decoded"' EXIT
+embedded_decoded="$(mktemp)"
+trap 'rm -f -- "$decoded" "$embedded_decoded"' EXIT
 
 base64 --decode < "$ROOT_DIR/config/readiness-smoke.png.base64" > "$decoded"
 actual_sha="$(sha256sum "$decoded" | awk '{print $1}')"
-[ "$actual_sha" = "e3f3bb2b5ade3c15af262a76ad58b720e7eb3b3d079802df04f1dd50be917b2d" ] || {
+expected_sha="e3f3bb2b5ade3c15af262a76ad58b720e7eb3b3d079802df04f1dd50be917b2d"
+[ "$actual_sha" = "$expected_sha" ] || {
   echo "readiness fixture digest changed unexpectedly: $actual_sha" >&2
+  exit 1
+}
+runner="$ROOT_DIR/web/e2e/deployed-readiness.mjs"
+embedded_matches="$(grep -Ec '^const readinessSmokeFixtureBase64 = "[A-Za-z0-9+/=]+";$' "$runner" || true)"
+[ "$embedded_matches" = "1" ] || {
+  echo "deployed readiness must embed exactly one base64 fixture" >&2
+  exit 1
+}
+embedded_base64="$(sed -n 's/^const readinessSmokeFixtureBase64 = "\(.*\)";$/\1/p' "$runner")"
+if ! printf '%s' "$embedded_base64" | base64 --decode > "$embedded_decoded"; then
+  echo "deployed readiness embedded fixture is not valid base64" >&2
+  exit 1
+fi
+embedded_sha="$(sha256sum "$embedded_decoded" | awk '{print $1}')"
+[ "$embedded_sha" = "$expected_sha" ] || {
+  echo "deployed readiness embedded fixture digest changed unexpectedly: $embedded_sha" >&2
+  exit 1
+}
+grep -Fq "const readinessSmokeFixtureSHA256 = \"$expected_sha\";" "$runner"
+cmp -s "$decoded" "$embedded_decoded" || {
+  echo "deployed readiness embedded fixture differs from the committed fixture" >&2
   exit 1
 }
 description="$(file "$decoded")"
@@ -17,6 +40,12 @@ case "$description" in
   *'PNG image data, 640 x 160, 1-bit grayscale'*) ;;
   *) echo "readiness fixture has unexpected format: $description" >&2; exit 1 ;;
 esac
+for forbidden_chunk in tRNS tIME tEXt zTXt iTXt; do
+  if grep -aFq "$forbidden_chunk" "$decoded"; then
+    echo "readiness fixture contains forbidden PNG chunk: $forbidden_chunk" >&2
+    exit 1
+  fi
+done
 # The pinned backend test path performs a full stdlib PNG decode. Keep that
 # deeper guard paired with this fast shell-level digest and header contract.
 grep -Fq 'func TestReadinessSmokeFixtureFullyDecodes' \

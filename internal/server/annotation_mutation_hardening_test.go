@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,6 +17,14 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
+
+type blankTranscriptionOCR struct {
+	imageOnlyWorkerOCR
+}
+
+func (*blankTranscriptionOCR) TranscribeImageFileWithContext(context.Context, string, string, string) (string, error) {
+	return " \n\t", nil
+}
 
 func TestEnrichAnnotationPageIsAtomicAndPreservesPageProperties(t *testing.T) {
 	pageJSON := `{
@@ -250,6 +259,43 @@ func TestExternalCanvasResolutionDuringEnrichmentIsTenantScoped(t *testing.T) {
 	}
 }
 
+func TestEnrichSingleAnnotationRejectsBlankProviderOutput(t *testing.T) {
+	database := openTestDB(t)
+	canvasURI := "https://source.example/canvas/" + uuid.NewString()
+	image := createServerTestItemImage(
+		t,
+		database,
+		store.AnonymousWorkspaceID,
+		store.AnonymousUserID,
+		canvasURI,
+	)
+	h := &Handler{
+		items:   store.NewItemStore(database),
+		ocrRuns: store.NewOCRRunStore(database),
+		ocr:     &blankTranscriptionOCR{},
+	}
+	h.imageRegionFetcher = func(context.Context, string, int, int, int, int) (string, func(), error) {
+		return "region.png", func() {}, nil
+	}
+	annotation := fmt.Sprintf(`{
+  "id":"https://scribe.test/presentation/v3/item-image-%d/canvas/page-1/annotations/items/line",
+  "type":"Annotation",
+  "textGranularity":"line",
+  "body":{"type":"TextualBody","value":"before"},
+  "target":%q
+}`, image.ID, canvasURI+"#xywh=pixel:0,0,10,10")
+
+	enriched, err := h.enrichSingleAnnotation(
+		context.Background(),
+		image.ID,
+		annotation,
+		store.Context{},
+	)
+	if enriched != "" || !errors.Is(err, errEmptyAnnotationTranscription) {
+		t.Fatalf("blank provider output = %q, %v; want classified failure", enriched, err)
+	}
+}
+
 func TestLocalAnnotationCRUDSavedAsWholePagesPreservesCanonicalProperties(t *testing.T) {
 	database := openTestDB(t)
 	ctx := context.Background()
@@ -306,9 +352,9 @@ func TestLocalAnnotationCRUDSavedAsWholePagesPreservesCanonicalProperties(t *tes
 	ensureServerTestDefaultContext(t, contextStore, store.Context{
 		Name:                  "annotation-hardening-default",
 		IsDefault:             true,
-		SegmentationModel:     "tesseract/auto",
-		TranscriptionProvider: "ollama",
-		TranscriptionModel:    "test-model",
+		SegmentationModel:     "tesseract",
+		TranscriptionProvider: "tesseract",
+		TranscriptionModel:    "tesseract",
 	})
 	enrichResponse, err := h.EnrichAnnotation(ctx, connect.NewRequest(&scribev1.EnrichAnnotationRequest{
 		ItemImageId:    image.ID,

@@ -75,6 +75,7 @@ export const itemExportFormats = [
 
 export interface ItemExportActionState {
   busyFormat?: AnnotationExportFormat;
+  deleting?: boolean;
   error?: string;
 }
 
@@ -88,16 +89,17 @@ export function contextOptions(contexts: Context[]): TrustedHTML[] {
 export function renderItemActions(item: ItemSummary, exportState?: ItemExportActionState): TrustedHTML {
   const openHref = editorHrefForItem(item);
   const exportBusy = exportState?.busyFormat !== undefined;
+  const deleteBusy = exportState?.deleting === true;
   return html`
     <div class="mt-4 flex flex-wrap items-center gap-2">
       ${openHref ? html`<a href="${openHref}" class="${primary}">Open editor</a>` : html`<span class="rounded-md border px-3 py-2 text-xs text-muted-foreground">No images</span>`}
       <button data-item-logs="${item.id}" class="${buttons}" type="button">Logs</button>
-      ${openHref ? itemExportFormats.map(({ format, label }) => html`<button data-item-export="${item.id}" data-item-export-format="${format}" class="${buttons}" type="button"${exportBusy ? " disabled" : ""}${exportState?.busyFormat === format ? ' aria-busy="true"' : ""}>${exportState?.busyFormat === format ? "Preparing…" : label}</button>`) : ""}
-      <button data-item-delete="${item.id}" aria-label="Delete item ${item.name?.trim() || item.id}" class="${destructive}" type="button">
+      ${openHref ? itemExportFormats.map(({ format, label }) => html`<button data-item-export="${item.id}" data-item-export-format="${format}" class="${buttons}" type="button"${exportBusy || deleteBusy ? " disabled" : ""}${exportState?.busyFormat === format ? ' aria-busy="true"' : ""}>${exportState?.busyFormat === format ? "Preparing…" : label}</button>`) : ""}
+      <button data-item-delete="${item.id}" aria-label="Delete item ${item.name?.trim() || item.id}" aria-busy="${deleteBusy ? "true" : "false"}" class="${destructive}" type="button"${exportBusy || deleteBusy ? " disabled" : ""}>
         <svg aria-hidden="true" focusable="false" class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m4 4v6m6-6v6"></path>
         </svg>
-        <span>Delete</span>
+        <span>${deleteBusy ? "Deleting…" : "Delete"}</span>
       </button>
       ${exportState?.error ? html`<p class="basis-full text-xs text-destructive" role="alert">${exportState.error}</p>` : ""}
     </div>

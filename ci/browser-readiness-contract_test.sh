@@ -49,6 +49,7 @@ require_fixed 'ENTRYPOINT ["node", "/app/deployed-readiness.mjs"]' Dockerfile.br
 require_fixed 'COPY web/package.json web/package-lock.json ./' Dockerfile.browser-readiness
 require_fixed 'RUN npm ci --ignore-scripts --prefer-offline --no-audit' Dockerfile.browser-readiness
 require_fixed 'COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs' Dockerfile.browser-readiness
+forbid_pattern 'readiness-smoke\.png\.base64' Dockerfile.browser-readiness
 require_fixed 'gha-creds-*.json' .dockerignore
 forbid_pattern 'latest|curl|wget|apt-get' Dockerfile.browser-readiness
 [ "$(rg -c -F 'COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs' Dockerfile.browser-readiness)" -eq 1 ] ||
@@ -60,15 +61,144 @@ if rg -q '^RUN[[:space:]]' <<<"$final_image_stage"; then
 fi
 
 bash ci/prepare-browser-readiness-source_test.sh
+forbid_pattern 'readiness-smoke\.png\.base64' ci/prepare-browser-readiness-source.sh
 
 node --check web/e2e/deployed-readiness.mjs
+require_fixed 'import { createHash, randomUUID } from "node:crypto";' web/e2e/deployed-readiness.mjs
+require_fixed 'const readinessSmokeFixtureSHA256 = "e3f3bb2b5ade3c15af262a76ad58b720e7eb3b3d079802df04f1dd50be917b2d";' web/e2e/deployed-readiness.mjs
+require_fixed 'const fixture = Buffer.from(readinessSmokeFixtureBase64, "base64");' web/e2e/deployed-readiness.mjs
+require_fixed 'createHash("sha256").update(fixture).digest("hex")' web/e2e/deployed-readiness.mjs
+require_fixed 'const fixture = exactReadinessSmokeFixture();' web/e2e/deployed-readiness.mjs
+require_pattern '^const readinessSmokeFixtureBase64 = "[A-Za-z0-9+/=]+";$' web/e2e/deployed-readiness.mjs
+forbid_pattern 'node:fs/promises|fixturePath|/app/readiness-smoke\.png\.base64' web/e2e/deployed-readiness.mjs
 for forbidden in 'screenshot' 'tracing' 'recordVideo' 'storageState'; do
   forbid_pattern "$forbidden" web/e2e/deployed-readiness.mjs
 done
 # shellcheck disable=SC2016 # These are literal JavaScript source assertions.
 for required in \
-  'selectOption({ label: "Tesseract OCR" })' \
-  'const fixtureName = `browser-readiness-${Date.now()}.png`' \
+  'if (await contextSelect.inputValue() !== "0")' \
+  'const durableJob = await loadTranscriptionJob(jobID, workspaceID)' \
+  '!positiveID(durableJob?.contextId)' \
+  'globalThis.__scribeReadinessAutomaticTranscription' \
+  'overlayReady: false' \
+  'attemptNumber: Number(detail.attemptNumber ?? 0)' \
+  'previous?.attemptNumber === sample.attemptNumber' \
+  'canvasId: String(detail.canvasId ?? "")' \
+  'catchUp: detail.catchUp === true' \
+  'data-scribe-transcription-active="true"' \
+  'automatic transcription omitted visible line-by-line wand progress' \
+  'enrichAnnotationRequestCount !== 0' \
+  'automatic transcription used the foreground enrichment path' \
+  'enrichAnnotationRequestCount < 1' \
+  'const editorAssetPattern = /\/assets\/editor-' \
+  'page.route(editorAssetPattern, delayEditorAssetUntilJobCompletes)' \
+  'assetURL.origin !== baseURL.origin' \
+  'editorRoute.origin !== baseURL.origin' \
+  'editorAssetDelayObserved = true' \
+  'waitForTerminalTranscriptionJob' \
+  'pollDelayMs = Math.min(pollDelayMs * 2, 2_000)' \
+  'editorAssetDelayReachedCompletion = transcriptionJobCompleted(delayedJob)' \
+  'editorAssetDelayFailed' \
+  '|| !editorAssetDelayObserved' \
+  '|| !editorAssetDelayReachedCompletion' \
+  'page.unroute(editorAssetPattern, delayEditorAssetUntilJobCompletes)' \
+  'timeout: transcriptionTimeoutMs + stageTimeoutMs' \
+  'exactCompletedAttemptResultRevision(completedDurableJob, jobID)' \
+  'positiveID(attempt?.jobId) === jobID' \
+  'positiveID(attempt?.attemptNumber)' \
+  'transcriptionJobAttemptCompleted(attempt)' \
+  'positiveID(attempt?.resultRevision)' \
+  'completedAttempts.length === 1' \
+  'const revision = positiveID(payload?.revision)' \
+  'const canvasURI = String(payload?.canvasUri ?? "").trim()' \
+  'responseItemImageID !== itemImageID' \
+  'canonicalSnapshot.revision !== completedResultRevision' \
+  'canonicalSnapshot.itemImageID !== itemImageID' \
+  'const wandVisualProofGraceMs = 5_000;' \
+  'canvasID: canonicalSnapshot.canvasURI' \
+  'attemptNumber: Number(completedDurableJob.attemptCount)' \
+  'lineIDs: canonicalLineIDs' \
+  'sample.canvasId === expected.canvasID' \
+  'sample.attemptNumber === expected.attemptNumber' \
+  'sample.done <= 2' \
+  'sample.total === 2' \
+  'sample.catchUp' \
+  'sample.annotationId === expected.lineIDs[sample.done - 1]' \
+  'sample.done < previous' \
+  'seen.size === 2 && seen.has(1) && seen.has(2)' \
+  'badge.jobId === expected.jobID && badge.visible' \
+  'badge.line <= 2' \
+  'badge.total === 2' \
+  'badge.annotationId === expected.lineIDs[badge.line - 1]' \
+  'badge.line >= badges[index - 1].line' \
+  'first.line === 1' \
+  'second.line === 2' \
+  'let pendingFrame = 0;' \
+  'new MutationObserver(scheduleRecord).observe(document.documentElement, {' \
+  'pendingFrame = requestAnimationFrame(() => {' \
+  'first.annotationId === expected.lineIDs[0]' \
+  'second.annotationId === expected.lineIDs[1]' \
+  'status.startsWith("The completed transcription could not")' \
+  'Date.now() < expected.visualDeadline' \
+  'visualDeadline: Date.now() + wandVisualProofGraceMs' \
+  '/scribe.v1.TranscriptionService/CreateTranscriptionJob' \
+  'globalThis.__scribeReadinessAutomaticTranscription?.overlayReady === true' \
+  'evidence.badges.length = 0' \
+  'const liveEventStreamReady = page.waitForResponse(' \
+  'url.searchParams.get("item_image_id") === itemImageID' \
+  'await liveEventStreamReady' \
+  'if (liveJobID === jobID)' \
+  'sample.attemptNumber === 1' \
+  'sample.catchUp === false' \
+  'in-flight automatic transcription omitted live wand progress' \
+  'Number(liveCompletedJob?.attemptCount ?? -1) !== 1' \
+  'liveCanonicalSnapshot.revision !== liveCompletedRevision' \
+  'liveCanonicalSnapshot.itemImageID !== itemImageID' \
+  'liveCanonicalSnapshot.canvasURI !== canonicalSnapshot.canvasURI' \
+  'annotationID !== canonicalLineIDs[index]' \
+  'BigInt(liveCompletedRevision) <= BigInt(completedResultRevision)' \
+  'Number(completedDurableJob?.failedSegments ?? 0) !== 0' \
+  'Number(completedDurableJob?.attemptCount ?? -1) !== 1' \
+  'Number(completedDurableJob?.completedSegments ?? -1) !== 2' \
+  'Number(completedDurableJob?.totalSegments ?? -1) !== 2' \
+  'canonicalLines.length !== 2' \
+  'new Set(canonicalLineIDs).size !== 2' \
+  'canonicalLines.every(annotationHasText)' \
+  'fixtureName = `browser-readiness-${randomUUID()}.png`' \
+  'page.on("request"' \
+  'page.on("requestfinished"' \
+  'const responseJSONSnapshots = new WeakMap();' \
+  'const navigationResponseJSONSnapshots = new WeakMap();' \
+  'const navigationResponseJSONPaths = new Set(["/scribe.v1.ItemService/StartUploadBatch", "/scribe.v1.ItemService/UploadItemImage", "/scribe.v1.ItemService/ImportManifest"]);' \
+  'const maxNavigationResponseJSONBytes = 1024 * 1024;' \
+  'const snapshot = responseJSONSnapshots.get(response);' \
+  'contentType = String(response.headers()["content-type"] ?? "").trim();' \
+  'declaredLengthHeader = String(response.headers()["content-length"] ?? "").trim();' \
+  '!/^application\/json(?:\s*;|$)/iu.test(contentType)' \
+  '!Number.isSafeInteger(declaredLength)' \
+  'declaredLength > maxNavigationResponseJSONBytes' \
+  'body = await response.body();' \
+  'body.byteLength === 0' \
+  'body.byteLength > maxNavigationResponseJSONBytes' \
+  'JSON.parse(body.toString("utf8"))' \
+  'const navigationResponseJSONRoutePattern = /\/scribe\.v1\.ItemService\/(?:StartUploadBatch|UploadItemImage|ImportManifest)$/;' \
+  'const upstreamResponse = await route.fetch({' \
+  'maxRedirects: 0' \
+  'maxRetries: 0' \
+  'timeout: uploadTimeoutMs' \
+  'const snapshot = await snapshotNavigationResponseJSON(upstreamResponse);' \
+  'navigationResponseJSONSnapshots.set(request, Promise.resolve(snapshot));' \
+  'await route.fulfill({ response: upstreamResponse });' \
+  'navigationResponseJSONSnapshots.get(response.request())' \
+  'navigationResponseJSONPaths.has(responseURL.pathname)' \
+  'responseJSON(outcome.response, "invalid retryable upload response")' \
+  'uploadImageAttempts.length < 1 || uploadImageAttempts.length > 3' \
+  'uploadImageAttempts.slice(0, -1)' \
+  'if (!await uploadAttemptIsRetryable(attempt))' \
+  'finalAttempt?.outcome?.kind !== "response"' \
+  'if (await uploadOutcome.jsonValue() !== "handoff")' \
+  'const finalUploadImageResponse = await requireUploadAttemptEvidence()' \
+  'Number(liveCompletedJob?.failedSegments ?? 0) !== 0' \
   'Batch transcription complete. Updated text is now available in the editor.' \
   '/scribe.v1.AnnotationService/GetAnnotationPage' \
   'payload?.annotationPageJson' \
@@ -76,44 +206,270 @@ for required in \
   'assertTextualAnnotationPage(annotationPage)' \
   'assertTextualAnnotationPage(publishedAnnotationPage)' \
   'Document retranscribed. Save to persist this draft.' \
+  'name: "Draw New Line", exact: true' \
+  'Add a line at the viewport center and focus its keyboard resize handle' \
+  'Draft line created.' \
+  'name: "Undo", exact: true' \
+  'name: "Redo", exact: true' \
+  'name: "Edit line: empty text"' \
+  'centered line was not selected' \
+  'name: "Split Words", exact: true' \
+  'Add a word annotation beside the selection' \
+  'name: "Join Words", exact: true' \
+  'name: "Choose words to join", exact: true' \
+  'name: "Choose a split boundary", exact: true' \
+  'name: "Choose lines to join", exact: true' \
+  '/scribe.v1.AnnotationService/SplitLineIntoWords' \
+  '/scribe.v1.AnnotationService/JoinWordsIntoLine' \
+  '/scribe.v1.AnnotationService/SplitLineIntoTwoLines' \
+  '/scribe.v1.AnnotationService/JoinLines' \
+  'await waitForEditorAnnotationCount(beforeDeleteCount - 1)' \
+  '/scribe.v1.AnnotationService/SaveAnnotationPage' \
   'Saved page.' \
   'Edits published.' \
   'Publish edits' \
   'width: 360, height: 800' \
+  'width: 667, height: 375, minimumImageHeight: 60' \
   'width: 768, height: 1024' \
   'width: 1440, height: 900' \
+  'const responsiveViewports = [' \
+  'for (const viewport of responsiveViewports)' \
+  'await page.setViewportSize({ width: viewport.width, height: viewport.height })' \
+  'await navigate(responsiveEditorPath)' \
+  'const expectedPaneHeight = bottomPaneHeightForViewport({' \
+  'Math.abs(geometry.companionHeight - expectedPaneHeight) <= 1' \
+  'geometry.primaryActionCount === 14' \
+  'geometry.primaryActionsVisible' \
+  'geometry.osdImageHeight >= minimumImageHeight' \
+  'geometry.panelScrollTop === 0' \
+  'responsiveCanonicalAfter.revision !== responsiveCanonicalSnapshot.revision' \
+  'JSON.stringify(responsiveCanonicalAfter.page)' \
   'data-scribe-action-panel="true"' \
+  'assertItemDeletePresentation("#shell-content", createdItemID, fixtureName)' \
+  'assertItemDeletePresentation("#shell-sidebar", createdItemID, fixtureName)' \
+  'await deleteItemThroughLibrary("#shell-content", createdItemID, fixtureName)' \
+  'await deleteItemThroughLibrary("#shell-sidebar", createdManifestItemID, createdManifestItemName)' \
+  'dialog.type() === "confirm"' \
+  'dialog.message() === expectedItemDeleteDialog.message' \
+  'browserFaultCategory ??= "token"' \
+  'button.getAttribute("aria-label")' \
+  'button.textContent?.trim() === "Delete"' \
+  'button.parentElement?.lastElementChild === button' \
+  'svg[aria-hidden="true"]' \
   'Copy workspace token' \
   'Copy token' \
   'navigator.clipboard.writeText("")' \
   'page.on("response"' \
   'page.on("requestfailed"' \
   'page.on("console"' \
-  'page.on("dialog"'; do
+  'page.on("dialog"' \
+  'https://preserve.lehigh.edu/node/38817/book-manifest' \
+  'input[name="library-manifest-mode"][value="import"]' \
+  'manifestItem?.sourceType !== "manifest"' \
+  'manifestItem?.sourceUrl !== manifestURL' \
+  'manifestMutation.requestCount !== 1' \
+  'manifestReprocessRequestCount !== 0' \
+  'manifestImageIDs.length !== 6' \
+  'manifestImageIDs.some((imageID) => !imageID)' \
+  'new Set(manifestImageIDs).size !== 6' \
+  '/scribe.v1.ItemService/GetEditorManifest' \
+  'globalThis.__scribeReadinessActiveCanvas' \
+  'data-scribe-action-panel="true"' \
+  '.openseadragon-canvas' \
+  'response.request().resourceType() === "image"' \
+  'successfulImageResponses.length > maxObservedImageResponses' \
+  'successfulImageResponses.length = 0' \
+  'declaredLength > maxReadinessImageBytes' \
+  'await imageResponse.body()' \
+  'imageBody.byteLength > maxReadinessImageBytes' \
+  'name: "Next item", exact: true' \
+  'manifestSecondImageID' \
+  'url.searchParams.get("itemImageId") === identity.itemImageID' \
+  'activeCanvas?.canvasId === identity.canvasID' \
+  'activeCanvas?.itemImageId === identity.itemImageID' \
+  'activeCanvas?.windowId === "scribe-editor-window"' \
+  'assertExactPresentationAnnotationPage(' \
+  'page.id !== expectedID' \
+  'name: "Overlay off", exact: true' \
+  'name: "Edit overlay", exact: true' \
+  'name: "Read overlay", exact: true' \
+  'name: "Outline overlay", exact: true' \
+  'if (!await manifestRetranscribe.isEnabled())' \
+  'assertTextualAnnotationPage(manifestAnnotationPage)' \
+  '/scribe.v1.ItemService/ListItems' \
+  '/scribe.v1.ItemService/DeleteItem' \
+  'const scriptStartedAt = Date.now();' \
+  'const mainScenarioDeadline = scriptStartedAt + mainScenarioBudgetMs;' \
+  'const globalCleanupDeadline = mainScenarioDeadline + cleanupReserveMs - cleanupPlatformHeadroomMs;' \
+  'const cleanupCommitHorizonMs = uploadTimeoutMs' \
+  'observation.latestRequestAt = Date.now()' \
+  '!observation.responseSettled || !observation.validated' \
+  'observation.latestRequestAt + cleanupCommitHorizonMs' \
+  'const recoveryDeadline = Math.min(resourceRecoveryDeadline, cleanupDeadline);' \
+  'options.timeout = remainingCleanupTimeMs(recoveryDeadline);' \
+  'const watchdogDelayMs = Math.max(0, mainScenarioDeadline - Date.now());' \
+  'observation.validated = false' \
+  'await waitForMutationResponsesToSettle(uploadMutation)' \
+  'await waitForMutationResponsesToSettle(tokenMutation)' \
+  'await waitForMutationResponsesToSettle(manifestMutation)' \
+  'stablePasses >= cleanupStablePasses' \
+  'await page.close({ runBeforeUnload: false })' \
+  'if (watchdogPageClose) await watchdogPageClose;' \
+  'await cleanupExactAPIKeys(' \
+  'await cleanupExactManifestItems(' \
+  'await cleanupExactUploadItems('; do
   require_fixed "$required" web/e2e/deployed-readiness.mjs
 done
 require_fixed 'data-scribe-action-panel="true"' mirador-scribe/src/components/ScribeActionPanel.jsx
+require_fixed 'data-scribe-transcription-active="true"' mirador-scribe/src/plugins/ScribeTextOverlayPlugin.jsx
+require_fixed "data-scribe-transcription-annotation={transcriptionSegment.annotation?.id || ''}" mirador-scribe/src/plugins/ScribeTextOverlayPlugin.jsx
+require_fixed 'data-scribe-transcription-attempt={transcriptionSegment.attemptNumber}' mirador-scribe/src/plugins/ScribeTextOverlayPlugin.jsx
+require_fixed 'data-scribe-transcription-job={transcriptionSegment.jobId}' mirador-scribe/src/plugins/ScribeTextOverlayPlugin.jsx
+require_fixed 'data-scribe-transcription-line={transcriptionSegment.done}' mirador-scribe/src/plugins/ScribeTextOverlayPlugin.jsx
+require_fixed 'data-scribe-transcription-total={transcriptionSegment.total}' mirador-scribe/src/plugins/ScribeTextOverlayPlugin.jsx
+require_fixed "scribe:transcription-overlay-state" mirador-scribe/src/plugins/ScribeTextOverlayPlugin.jsx
+require_fixed "detail: { canvasId, ready: true, windowId }" mirador-scribe/src/plugins/ScribeTextOverlayPlugin.jsx
+require_fixed "detail: { canvasId, ready: false, windowId }" mirador-scribe/src/plugins/ScribeTextOverlayPlugin.jsx
+require_fixed "scribe:reload-annotations-result" web/src/pages/editor.ts
+require_fixed "requestId: pending.requestId" web/src/pages/editor.ts
+require_fixed 'detail?.requestId?.trim() !== pending.requestId' web/src/pages/editor.ts
+require_fixed "reloadedCompletedJobs.add(pending.completionKey)" web/src/pages/editor.ts
+require_fixed "renderJobStatus(pending.job)" web/src/pages/editor.ts
+require_fixed "publishBatchState(message, true)" web/src/pages/editor.ts
+require_fixed "ok = await reloadAnnotations(adapter, canvasId) !== false" mirador-scribe/src/plugins/useRemoteAnnotationRebase.js
+require_fixed "scribe:reload-annotations-result" mirador-scribe/src/plugins/useRemoteAnnotationRebase.js
+require_fixed "ScribeReloadAnnotationsResultEventDetail" mirador-scribe/src/index.d.ts
 require_fixed 'startUploadPayload?.item?.id' web/e2e/deployed-readiness.mjs
+require_fixed '/scribe.v1.ItemService/UploadItemImage' web/e2e/deployed-readiness.mjs
+require_fixed 'String(uploadImagePayload?.item?.id ?? "") !== createdItemID' web/e2e/deployed-readiness.mjs
 require_fixed '/scribe.v1.AuthService/DeleteAPIKey' web/e2e/deployed-readiness.mjs
 require_fixed '/scribe.v1.AuthService/ListAPIKeys' web/e2e/deployed-readiness.mjs
-require_fixed 'listPayload.apiKeys.some' web/e2e/deployed-readiness.mjs
-require_fixed 'apiKeyDelete.getAttribute("data-api-key-delete")' web/e2e/deployed-readiness.mjs
-require_fixed 'waitForActionToDisappear("data-api-key-delete", apiKeyID)' web/e2e/deployed-readiness.mjs
-require_fixed 'findActionByValue(page, "data-item-delete", createdItemID)' web/e2e/deployed-readiness.mjs
-require_fixed 'deleteWithConfirmation(itemDelete, "data-item-delete")' web/e2e/deployed-readiness.mjs
-require_fixed 'Math.abs(geometry.panelClientHeight - geometry.parentClientHeight) > 2' web/e2e/deployed-readiness.mjs
-require_fixed 'geometry.panelScrollWidth > geometry.panelClientWidth + 1' web/e2e/deployed-readiness.mjs
+require_fixed 'payload.apiKeys.filter((key) => key?.name === keyName)' web/e2e/deployed-readiness.mjs
+require_fixed 'positiveID(key?.workspaceId) !== workspaceID' web/e2e/deployed-readiness.mjs
+require_fixed 'tokenMutation.validated = true' web/e2e/deployed-readiness.mjs
+require_fixed 'const summaries = await listItemSummaries(workspaceID, "", recoveryDeadline);' web/e2e/deployed-readiness.mjs
+require_fixed 'protectedItemIDs.has(summaryID)' web/e2e/deployed-readiness.mjs
+require_fixed 'const cleanupMaxItemPages = 100;' web/e2e/deployed-readiness.mjs
+require_fixed 'const cleanupMaxItems = 10_000;' web/e2e/deployed-readiness.mjs
+require_fixed 'pageCount > cleanupMaxItemPages' web/e2e/deployed-readiness.mjs
+require_fixed 'items.length > cleanupMaxItems' web/e2e/deployed-readiness.mjs
+require_fixed '/scribe.v1.ItemService/ImportManifest' web/e2e/deployed-readiness.mjs
+require_fixed '/scribe.v1.ImageProcessingService/ReprocessItemImage' web/e2e/deployed-readiness.mjs
+require_fixed 'Math.abs(geometry.panelClientHeight - geometry.parentClientHeight) <= 2' web/e2e/deployed-readiness.mjs
+require_fixed 'geometry.panelScrollWidth <= geometry.panelClientWidth + 1' web/e2e/deployed-readiness.mjs
 require_fixed 'const clientCancellation = /ERR_ABORTED|cancell?ed/i.test' web/e2e/deployed-readiness.mjs
-require_fixed 'await navigate("/", false);' web/e2e/deployed-readiness.mjs
 require_fixed 'if (requireHealthy) assertBrowserHealthy();' web/e2e/deployed-readiness.mjs
 require_fixed 'page.locator("[data-scribe-granularity]").count() !== 0' web/e2e/deployed-readiness.mjs
 require_fixed 'if (await tokenField.inputValue() !== "")' web/e2e/deployed-readiness.mjs
+require_fixed 'structure|save|publish|responsive|token|manifest|cleanup' ci/run-cloud-run-readiness.sh
 assert_before web/e2e/deployed-readiness.mjs '/scribe\.v1\.AnnotationService/GetAnnotationPage' 'category = "publish"'
 assert_before web/e2e/deployed-readiness.mjs 'category = "publish"' '/presentation/v3/item-image-\$\{itemImageID\}/canvas/page-1/annotations'
+assert_before web/e2e/deployed-readiness.mjs 'contextSelect\.inputValue\(\) !== "0"' 'category = "upload"'
+assert_before web/e2e/deployed-readiness.mjs 'editorAssetDelayReachedCompletion = transcriptionJobCompleted\(delayedJob\)' 'await page\.route\(editorAssetPattern, delayEditorAssetUntilJobCompletes\)'
+assert_before web/e2e/deployed-readiness.mjs 'await route\.continue\(\)' 'page\.unroute\(editorAssetPattern, delayEditorAssetUntilJobCompletes\)'
+assert_before web/e2e/deployed-readiness.mjs 'canonicalSnapshot\.revision !== completedResultRevision' 'const automaticTranscriptionProof'
+[ "$(rg -c -F 'visualDeadline: Date.now() + wandVisualProofGraceMs' web/e2e/deployed-readiness.mjs)" -eq 2 ] ||
+  fail "both automatic transcription proofs must retain a bounded visual queue grace period"
+assert_before web/e2e/deployed-readiness.mjs 'category = "structure"' 'category = "save"'
+assert_before web/e2e/deployed-readiness.mjs 'manifestItem\?\.sourceUrl !== manifestURL' 'const manifestAnnotationSnapshot = await loadCanonicalAnnotationSnapshot'
+assert_before web/e2e/deployed-readiness.mjs 'await navigate\(responsiveEditorPath\)' 'for \(const viewport of responsiveViewports\)'
+assert_before web/e2e/deployed-readiness.mjs 'for \(const viewport of responsiveViewports\)' 'page\.setViewportSize\(\{ width: viewport\.width, height: viewport\.height \}\)'
+assert_before web/e2e/deployed-readiness.mjs 'page\.setViewportSize\(\{ width: viewport\.width, height: viewport\.height \}\)' 'await assertResponsiveEditorGeometry\('
+require_fixed '|| protectedItemIDs.has(itemID)' web/e2e/deployed-readiness.mjs
+require_fixed '|| item?.sourceType !== "manifest"' web/e2e/deployed-readiness.mjs
+require_fixed '|| item?.sourceUrl !== manifestURL' web/e2e/deployed-readiness.mjs
+assert_before web/e2e/deployed-readiness.mjs 'if \(isUploadImageResponse\)' 'responseURL\.origin === baseURL\.origin && response\.status\(\) >= 400'
+assert_before web/e2e/deployed-readiness.mjs 'navigationResponseJSONSnapshots\.set\(request, Promise\.resolve\(snapshot\)\)' 'route\.fulfill\(\{ response: upstreamResponse \}\)'
+assert_before web/e2e/deployed-readiness.mjs 'navigationResponseJSONSnapshots\.get\(response\.request\(\)\)' 'if \(isUploadImageResponse\)'
+assert_before web/e2e/deployed-readiness.mjs 'page\.on\("request"' 'page\.on\("response"'
+assert_before web/e2e/deployed-readiness.mjs 'await page\.close' 'await cleanupExactAPIKeys'
+response_handler="$(sed -n '/page.on("response"/,/page.on("requestfinished"/p' web/e2e/deployed-readiness.mjs)"
+request_finished_handler="$(sed -n '/page.on("requestfinished"/,/page.on("requestfailed"/p' web/e2e/deployed-readiness.mjs)"
+request_failed_handler="$(sed -n '/page.on("requestfailed"/,/page.on("console"/p' web/e2e/deployed-readiness.mjs)"
+if rg -Fq 'settleMutationRequest' <<<"$response_handler"; then
+  fail "response headers must not settle a mutation before request completion"
+fi
+rg -Fq 'settleMutationRequest(observation, request)' <<<"$request_finished_handler" ||
+  fail "finished mutation requests must settle"
+for required in 'observation.validated = false' 'attempt.outcome = { kind: "transport", status: 0 }'; do
+  rg -Fq "$required" <<<"$request_failed_handler" ||
+    fail "failed mutation requests must invalidate response evidence: $required"
+done
 forbid_pattern 'settings-api-key-form"\)\.count\(\) > 0' web/e2e/deployed-readiness.mjs
+forbid_pattern 'findAPIKeyDeleteByName|deleteAPIKeyWithConfirmation' web/e2e/deployed-readiness.mjs
+forbid_pattern 'response\.json\(\)\.then|outcome\.response\.json\(|snapshotNavigationResponseJSON\(createKeyResponse\)' web/e2e/deployed-readiness.mjs
+forbid_pattern 'Math\.abs\(second\.y - first\.y\)|previous\?\.x === sample\.x|previous\?\.y === sample\.y' web/e2e/deployed-readiness.mjs
+forbid_pattern 'console\.(log|error|warn)|response\.text\(\)|message\.text\(\).*process\.' web/e2e/deployed-readiness.mjs
 require_pattern '\^scribe-pr-\[1-9\]\[0-9\]\*-' web/e2e/deployed-readiness.mjs
 [ "$(rg -c -F 'process.stderr.write(`browser readiness failed: ${failureCategory}\n`)' web/e2e/deployed-readiness.mjs)" -eq 1 ] ||
   fail "the runner must emit exactly one bounded failure marker"
+
+inference_timeout_seconds="$(
+  sed -nE 's/^const InferenceRequestTimeout = ([0-9]+) \* time\.Second$/\1/p' internal/segmentor/client.go
+)"
+proxy_timeout_ms="$(
+  sed -nE 's/^const defaultBackendUpstreamTimeoutMs = ([0-9_]+);$/\1/p' web/server.mjs | tr -d '_'
+)"
+frontend_request_budget_ms="$(
+  sed -nE 's/^const defaultFrontendRequestBudgetMs = ([0-9_]+);$/\1/p' web/server.mjs | tr -d '_'
+)"
+browser_upload_timeout_ms="$(
+  sed -nE 's/^const uploadTimeoutMs = ([0-9_]+);$/\1/p' web/e2e/deployed-readiness.mjs | tr -d '_'
+)"
+browser_stage_timeout_ms="$(
+  sed -nE 's/^const stageTimeoutMs = ([0-9_]+);$/\1/p' web/e2e/deployed-readiness.mjs | tr -d '_'
+)"
+browser_main_scenario_budget_ms="$(
+  sed -nE 's/^const mainScenarioBudgetMs = ([0-9_]+);$/\1/p' web/e2e/deployed-readiness.mjs | tr -d '_'
+)"
+browser_cleanup_reserve_ms="$(
+  sed -nE 's/^const cleanupReserveMs = ([0-9_]+);$/\1/p' web/e2e/deployed-readiness.mjs | tr -d '_'
+)"
+browser_cleanup_platform_headroom_ms="$(
+  sed -nE 's/^const cleanupPlatformHeadroomMs = ([0-9_]+);$/\1/p' web/e2e/deployed-readiness.mjs | tr -d '_'
+)"
+browser_job_timeout_seconds="$(
+  sed -n '/^resource "google_cloud_run_v2_job" "browser_readiness"/,/^}/p' terraform/readiness.tf |
+    sed -nE 's/^[[:space:]]*timeout[[:space:]]*=[[:space:]]*"([0-9]+)s"$/\1/p'
+)"
+[[ "$inference_timeout_seconds" =~ ^[1-9][0-9]*$ \
+  && "$proxy_timeout_ms" =~ ^[1-9][0-9]*$ \
+  && "$frontend_request_budget_ms" =~ ^[1-9][0-9]*$ \
+  && "$browser_upload_timeout_ms" =~ ^[1-9][0-9]*$ \
+  && "$browser_stage_timeout_ms" =~ ^[1-9][0-9]*$ \
+  && "$browser_main_scenario_budget_ms" =~ ^[1-9][0-9]*$ \
+  && "$browser_cleanup_reserve_ms" =~ ^[1-9][0-9]*$ \
+  && "$browser_cleanup_platform_headroom_ms" =~ ^[1-9][0-9]*$ \
+  && "$browser_job_timeout_seconds" =~ ^[1-9][0-9]*$ ]] ||
+  fail "could not resolve the inference, frontend, and browser timeout chain"
+inference_timeout_ms=$((inference_timeout_seconds * 1000))
+[ "$inference_timeout_ms" -lt "$proxy_timeout_ms" ] && [ "$proxy_timeout_ms" -lt "$frontend_request_budget_ms" ] && [ "$frontend_request_budget_ms" -lt "$browser_upload_timeout_ms" ] ||
+  fail "timeouts must satisfy inference < proxy cap < frontend request < browser upload"
+[ "$frontend_request_budget_ms" -lt 300000 ] ||
+  fail "the frontend request budget must retain margin below the platform boundary"
+[ "$browser_upload_timeout_ms" -ge 300000 ] ||
+  fail "the browser mutation cleanup horizon must cover at least 300 seconds"
+[ "$browser_main_scenario_budget_ms" -eq 1800000 ] ||
+  fail "the browser product scenario must stop after exactly 30 minutes"
+[ "$browser_cleanup_reserve_ms" -ge 600000 ] ||
+  fail "the browser job must reserve at least 10 minutes for cleanup"
+[ "$browser_cleanup_platform_headroom_ms" -ge 120000 ] ||
+  fail "browser cleanup must retain two minutes of platform shutdown headroom"
+[ "$((browser_cleanup_reserve_ms - browser_cleanup_platform_headroom_ms))" -ge "$((browser_upload_timeout_ms + browser_stage_timeout_ms))" ] ||
+  fail "browser cleanup cannot cover its commit horizon and recovery tail"
+[ "$browser_job_timeout_seconds" -eq 2400 ] ||
+  fail "the browser Cloud Run job must retain its reviewed 40-minute bound"
+[ "$((browser_main_scenario_budget_ms + browser_cleanup_reserve_ms))" -le "$((browser_job_timeout_seconds * 1000))" ] ||
+  fail "the browser scenario and cleanup reserve exceed the Cloud Run job timeout"
+[ "$(rg -c -F 'globalCleanupDeadline,' web/e2e/deployed-readiness.mjs)" -eq 3 ] ||
+  fail "all three disposable-resource cleanup paths must share the global deadline"
+require_fixed 'upstreamTimeoutForBudgetMs(' web/server.mjs
+require_fixed 'server.requestTimeout = frontendRequestBudgetMs;' web/server.mjs
+require_fixed 'COPY web/request-budget.mjs /app/web/request-budget.mjs' Dockerfile.frontend
+require_fixed 'caps upstream inactivity by the remaining end-to-end request budget' web/request-budget.test.mjs
+require_fixed 'enforces the absolute request budget despite active upstream data' web/server-lifecycle.test.mjs
+require_fixed 'retries a cold upload before starting it with a truncated inference budget' web/server-lifecycle.test.mjs
+require_fixed 'rejects timeout configurations outside the frontend platform boundary' web/server-lifecycle.test.mjs
 
 require_fixed 'normalized_browser_readiness_image = trimspace(var.browser_readiness_image)' terraform/readiness.tf
 require_pattern 'browser_readiness_enabled[[:space:]]+= local\.is_preview_workspace && local\.normalized_browser_readiness_image != ""' terraform/readiness.tf
@@ -255,6 +611,6 @@ forbid_pattern 'recursive(=|%3[dD])' ci/prepare-browser-readiness-source.sh
 for tree_rejection in parent-symlink parent-gitlink source-symlink source-gitlink duplicate-source-entry truncated-tree; do
   require_fixed "$tree_rejection" ci/prepare-browser-readiness-source_test.sh
 done
-require_fixed "structure|manifest" ci/run-cloud-run-readiness.sh
+require_pattern "BROWSER_READINESS_LOG_PATTERN=.*structure.*manifest" ci/run-cloud-run-readiness.sh
 
 echo "Exact-head preview browser readiness is protected, isolated, replayable, and categorical."

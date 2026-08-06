@@ -260,10 +260,24 @@ readiness markers. A backend marker isolates frontend-to-VM startup, transport,
 or readiness-contract failures. An OCR marker identifies the failed image,
 segmentation, transcription, or Ollama stage. A preview browser marker names
 only the failed home, context, upload, handoff, transcription, annotations,
-editor, overlay, retranscribe, save, publish, responsive, token,
-cleanup, network, or CSP stage. Inspect the named product boundary and the
-ordinary redacted service telemetry; browser state, DOM, URLs, tokens, console
-text, and provider responses are intentionally unavailable as artifacts.
+editor, overlay, retranscribe, structure, save, publish, responsive, token,
+manifest, cleanup, network, or CSP stage. Upload covers the complete bounded
+frontend retry sequence; structure covers live draft transforms through Save;
+manifest covers preserve-hOCR import and first-page canonical OCR. Inspect the
+named product boundary and the ordinary redacted service telemetry; browser
+state, DOM, URLs, tokens, console text, and provider responses are intentionally
+unavailable as artifacts.
+
+If `cleanup` follows an interrupted mutation, allow the runner its full
+10-minute cleanup reserve. It has already closed the UI page and is polling the
+workspace-scoped API for the exact generated upload name, manifest source tuple,
+or token name. The reserve contains the 300-second commit horizon, a 180-second
+recovery tail, and bounded request/control overhead. A cleanup failure after
+that bound means stable absence was not proved; rerun only after investigating
+the ordinary redacted service telemetry. A Cloud Run `deadline` before the
+categorical marker means the 30-minute scenario or 10-minute cleanup budget no
+longer fits the configured 40-minute task and is an infrastructure contract
+failure, not permission to skip cleanup.
 
 An authorized production deploy operator may rerun the same bounded probes from
 a trusted checkout of the deployed `main` commit. This creates new Cloud Run

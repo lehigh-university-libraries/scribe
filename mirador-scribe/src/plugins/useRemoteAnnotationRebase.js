@@ -12,11 +12,13 @@ import { annotationCanvasId } from '../utils/iiif';
 /** @typedef {import('../types/scribe').ScribeAdapterLike} ScribeAdapterLike */
 /**
  * @typedef {Object} RemoteEditorEventDetail
+ * @property {boolean} [active]
  * @property {IIIFAnnotation} [annotation]
  * @property {string} [canvasId]
  * @property {string | number | bigint} [itemImageId]
  * @property {string} [message]
  * @property {boolean} [persisted]
+ * @property {string} [requestId]
  * @property {string} [windowId]
  */
 
@@ -34,8 +36,9 @@ function remoteEventDetail(event) {
  * @param {ScribeAdapterFactory | null | undefined} options.adapterFactory
  * @param {string} options.canvasId
  * @param {(action: EditorSessionAction) => EditorSessionCache} options.dispatchSession
- * @param {(adapter?: ScribeAdapterLike | null, canvasId?: string) => Promise<void>} options.reloadAnnotations
+ * @param {(adapter?: ScribeAdapterLike | null, canvasId?: string) => Promise<boolean | void>} options.reloadAnnotations
  * @param {EditorSession} options.session
+ * @param {(active: boolean) => void} options.setBatchTranscriptionActive
  * @param {(message: string) => void} options.setStatusMessage
  * @param {(page: IIIFAnnotationPage | null | undefined, canvasId: string) => Promise<void>} options.syncPage
  * @param {string} options.windowId
@@ -46,6 +49,7 @@ export function useRemoteAnnotationRebase({
   dispatchSession,
   reloadAnnotations,
   session,
+  setBatchTranscriptionActive,
   setStatusMessage,
   syncPage,
   windowId,
@@ -57,6 +61,7 @@ export function useRemoteAnnotationRebase({
       if (detail.windowId !== windowId || detail.canvasId !== canvasId) return;
       if (detail.itemImageId
         && String(detail.itemImageId) !== String(adapterFactory?.(canvasId)?.itemImageId || '')) return;
+      if (typeof detail.active === 'boolean') setBatchTranscriptionActive(detail.active);
       if (typeof detail.message === 'string') setStatusMessage(detail.message);
     };
 
@@ -101,7 +106,23 @@ export function useRemoteAnnotationRebase({
       const adapter = adapterFactory?.(canvasId);
       if (!adapter) return;
       if (detail.itemImageId && String(detail.itemImageId) !== String(adapter.itemImageId || '')) return;
-      await reloadAnnotations(adapter, canvasId);
+      let ok = false;
+      try {
+        ok = await reloadAnnotations(adapter, canvasId) !== false;
+      } catch {
+        ok = false;
+      }
+      const requestId = detail.requestId?.trim();
+      if (!requestId) return;
+      document.dispatchEvent(new CustomEvent('scribe:reload-annotations-result', {
+        detail: {
+          canvasId,
+          itemImageId: String(adapter.itemImageId || ''),
+          ok,
+          requestId,
+          windowId,
+        },
+      }));
     };
 
     document.addEventListener('scribe:transcription-job-state', handleBatchState);
@@ -109,7 +130,10 @@ export function useRemoteAnnotationRebase({
     document.addEventListener('scribe:reload-annotations', handleReload);
     const adapter = adapterFactory?.(canvasId);
     const itemImageId = String(adapter?.itemImageId || '');
-    if (canvasId && itemImageId && windowId) {
+    const canonicalPageReady = Boolean(session?.draftPage)
+      && session.status !== 'loading'
+      && session.status !== 'saving';
+    if (canvasId && itemImageId && windowId && canonicalPageReady) {
       document.dispatchEvent(new CustomEvent('scribe:remote-rebase-ready', {
         detail: { canvasId, itemImageId, windowId },
       }));
@@ -119,5 +143,5 @@ export function useRemoteAnnotationRebase({
       document.removeEventListener('scribe:transcription-result', handleBatchResult);
       document.removeEventListener('scribe:reload-annotations', handleReload);
     };
-  }, [adapterFactory, canvasId, dispatchSession, reloadAnnotations, session, setStatusMessage, syncPage, windowId]);
+  }, [adapterFactory, canvasId, dispatchSession, reloadAnnotations, session, setBatchTranscriptionActive, setStatusMessage, syncPage, windowId]);
 }

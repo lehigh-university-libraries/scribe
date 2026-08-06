@@ -37,7 +37,7 @@ func newGeminiClient(descriptor Provider, model string) (providers.Client, error
 		return nil, err
 	}
 	client, err := gemini.NewClient(gemini.Options{
-		HTTPClient:              descriptor.vendorHTTPClient,
+		HTTPClient:              geminiModelHTTPClient(descriptor.vendorHTTPClient, model),
 		Endpoint:                endpoint.URL,
 		APIKey:                  providerCredentialSource(descriptor),
 		Timeout:                 descriptor.Limits.Timeout,

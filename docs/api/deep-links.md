@@ -17,12 +17,11 @@ change and requires new browser acceptance evidence.
 | `itemId` | Optional | Expected Scribe item ID. When supplied, the editor fails closed if the selected image belongs to another item. |
 | `workspace_id` | Required for external links | Positive base-10 workspace ID. It selects the browser workspace before authenticated API calls; it never grants membership. |
 | `contextId` | Optional | Positive base-10 processing-context hint. The server-owned context recorded on the existing OCR run or durable job remains authoritative. |
-| `autoTranscribe` | Optional | The exact value `1` requests the legacy foreground transcribe-all flow when no durable `jobId` is supplied. Omit it for normal durable jobs. |
 | `jobId` | Optional | Positive base-10 durable transcription-job correlation. Its presence tells the editor that batch work is already scheduled; the editor reconciles authorized job state for the selected item image instead of trusting the URL as status or authority. |
 
 When `jobId` identifies a failed durable job, the editor keeps that terminal
 state visible with the job's bounded, redacted failure reason. It does not
-replace the failure with a generic preparing state or start the legacy
+replace the failure with a generic preparing state or start a second
 foreground flow. A reload reconciles the same authorized durable job rather
 than treating the query parameter itself as evidence that work is active.
 
@@ -38,6 +37,13 @@ The selected item image, optional item assertion, workspace principal, OCR run,
 job, and returned editor Manifest must all agree. A stale or cross-workspace
 combination fails closed and offers a return to the library; it must never fall
 back to a similarly named Canvas or item in another workspace.
+
+When a page turn selects another Canvas in a multi-image item, the editor
+updates `itemImageId` in place and removes the image-bound `jobId` hint. It
+preserves `workspace_id` so a reload remains in the
+selected workspace without trying to reconcile the prior image's job. The
+exact-job binding is one-shot: returning to the original Canvas uses normal
+latest-job discovery and cannot revive the discarded route hint.
 
 ## Authentication handoff
 
