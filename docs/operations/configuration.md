@@ -185,9 +185,12 @@ depend on the tuple; remove the compatibility overlay after that rollback
 generation expires.
 
 `SEGMENTOR_MAX_CONCURRENCY` (default `1`, maximum `8`) bounds model work per
-process while leaving health probes unqueued. Triplet owns its own transform
-concurrency and decoded-image limits in `triplet.config.yaml`. Increase either
-only with measured CPU and memory headroom.
+process while leaving health probes unqueued. Hosted OCR services also admit
+exactly one request per Cloud Run instance, matching that process limit so
+pressure scales to another bounded instance instead of forming an invisible
+queue behind one native model call. Keep both limits equal; increase them only
+with measured CPU and memory headroom. Triplet owns its own transform
+concurrency and decoded-image limits in `triplet.config.yaml`.
 
 `iiif.max_manifest_canvases` (or `IIIF_MAX_MANIFEST_CANVASES`) defaults to
 `500` and may be configured from `1` through `5000`. Manifest import counts

@@ -184,9 +184,9 @@ failures, immediate failure for non-transient HTTP responses, and preview status
 gating on successful Vault namespace cleanup.
 
 Managed readiness exercises the exact deployed frontend/API path plus private
-image normalization, segmentation, Kraken transcription, and the production
-default Ollama OCR request. Fixture contracts require authenticated requests,
-real image bytes, JPEG validation, non-empty model output, and Ollama
+image normalization, Tesseract segmentation, Kraken transcription, and the
+production default Ollama OCR request. Fixture contracts require authenticated
+requests, real image bytes, JPEG validation, non-empty model output, and Ollama
 `done=true`; a health-only response is not deployment evidence.
 
 Preview readiness also runs a digest-pinned Playwright image on a dedicated

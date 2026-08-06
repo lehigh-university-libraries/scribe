@@ -63,13 +63,20 @@ func TestReadinessSmokeFixtureFullyDecodes(t *testing.T) {
 	}
 
 	darkPixels := 0
+	transparentPixels := 0
 	for y := fixtureImage.Bounds().Min.Y; y < fixtureImage.Bounds().Max.Y; y++ {
 		for x := fixtureImage.Bounds().Min.X; x < fixtureImage.Bounds().Max.X; x++ {
-			red, green, blue, _ := fixtureImage.At(x, y).RGBA()
+			red, green, blue, alpha := fixtureImage.At(x, y).RGBA()
+			if alpha != 0xffff {
+				transparentPixels++
+			}
 			if red+green+blue < 3*0xffff/2 {
 				darkPixels++
 			}
 		}
+	}
+	if transparentPixels != 0 {
+		t.Fatalf("readiness fixture has %d transparent pixels; opaque OCR text is required", transparentPixels)
 	}
 	if darkPixels < 100 {
 		t.Fatalf("readiness fixture has only %d dark pixels; visible OCR text is required", darkPixels)

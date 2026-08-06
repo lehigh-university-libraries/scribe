@@ -78,10 +78,11 @@ dashboard; absence of a dashboard is not evidence that a platform alert fired.
 After every deploy, inspect the backend and OCR readiness job executions. Use
 the [production troubleshooting](troubleshooting.md#cloud-run-readiness)
 runbook to download the bounded diagnostics or rerun a probe safely. OCR
-readiness includes image normalization, segmentation, Kraken transcription,
-and the production default Ollama request. Segmentation and transcription each
-use a 240-second request budget so a scale-to-zero CPU inference service can
-load its model and complete useful work; handler and write deadlines retain
+readiness includes image normalization, Tesseract segmentation, Kraken
+transcription, and the production default Ollama request. Segmentation and
+transcription each use a 240-second request budget so a scale-to-zero CPU
+inference service can load its model and complete useful work; handler and write
+deadlines retain
 bounded margins below the current 300-second Cloud Run service request timeout.
 A failed production Terraform apply or readiness failure initiates automatic
 rollback to the prior recorded reviewed source, configuration, generation, and

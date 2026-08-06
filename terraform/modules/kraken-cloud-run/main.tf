@@ -8,16 +8,17 @@ data "google_service_account" "service" {
 }
 
 module "service" {
-  source = "https://github.com/libops/terraform-cloudrun-v2/archive/903c0758f5b19740a233558d097efdccabece7c5.tar.gz//terraform-cloudrun-v2-903c0758f5b19740a233558d097efdccabece7c5?archive=tar.gz"
+  source = "https://github.com/libops/terraform-cloudrun-v2/archive/8718cd663a74fd33f45306321b4f2b11c83814d5.tar.gz//terraform-cloudrun-v2-8718cd663a74fd33f45306321b4f2b11c83814d5?archive=tar.gz"
 
-  name          = var.name
-  project       = var.project_id
-  gsa           = data.google_service_account.service.account_id
-  regions       = var.regions
-  min_instances = var.min_instances
-  max_instances = var.max_instances
-  skipNeg       = var.skip_neg
-  invokers      = var.invokers
+  name                             = var.name
+  project                          = var.project_id
+  gsa                              = data.google_service_account.service.account_id
+  regions                          = var.regions
+  min_instances                    = var.min_instances
+  max_instances                    = var.max_instances
+  max_instance_request_concurrency = 1
+  skipNeg                          = var.skip_neg
+  invokers                         = var.invokers
 
   containers = [
     {

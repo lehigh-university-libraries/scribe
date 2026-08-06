@@ -8,7 +8,7 @@ trap 'rm -f "$decoded"' EXIT
 
 base64 --decode < "$ROOT_DIR/config/readiness-smoke.png.base64" > "$decoded"
 actual_sha="$(sha256sum "$decoded" | awk '{print $1}')"
-[ "$actual_sha" = "2d9ee66d4bbccfaf2d306646bd5b4e6810b584c1ed8f4e9d063476bbba5604ff" ] || {
+[ "$actual_sha" = "e3f3bb2b5ade3c15af262a76ad58b720e7eb3b3d079802df04f1dd50be917b2d" ] || {
   echo "readiness fixture digest changed unexpectedly: $actual_sha" >&2
   exit 1
 }
@@ -23,8 +23,12 @@ grep -Fq 'func TestReadinessSmokeFixtureFullyDecodes' \
   "$ROOT_DIR/internal/segmentor/service_test.go"
 grep -Fq 'png.Decode(bytes.NewReader(decoded))' \
   "$ROOT_DIR/internal/segmentor/service_test.go"
+grep -Fq 'transparentPixels != 0' \
+  "$ROOT_DIR/internal/segmentor/service_test.go"
 
 grep -Fq '(.words | length) > 0' "$ROOT_DIR/scripts/ocr-readiness.sh"
+# shellcheck disable=SC2016 # Match the literal jq expression in the probe.
+grep -Fq '.provider == $model' "$ROOT_DIR/scripts/ocr-readiness.sh"
 grep -Fq '(.text | length) > 0' "$ROOT_DIR/scripts/ocr-readiness.sh"
 # shellcheck disable=SC2016 # Match the literal runtime model in the probe.
 grep -Fq '"$SEGMENTATION_MODEL"' "$ROOT_DIR/scripts/ocr-readiness.sh"
@@ -36,7 +40,7 @@ grep -Fq '.done == true' "$ROOT_DIR/scripts/ocr-readiness.sh"
 grep -Fq 'ocr_readiness_script = file("${local.repo_root}/scripts/ocr-readiness.sh")' \
   "$ROOT_DIR/terraform/readiness.tf"
 grep -Fq 'name  = "SEGMENTATION_MODEL"' "$ROOT_DIR/terraform/readiness.tf"
-grep -Fq 'value = local.kraken_default_segmentation_key' "$ROOT_DIR/terraform/readiness.tf"
+grep -Fq 'value = "tesseract"' "$ROOT_DIR/terraform/readiness.tf"
 ocr_readiness_resource="$(
   sed -n '/^resource "google_cloud_run_v2_job" "ocr_readiness"/,/^}/p' \
     "$ROOT_DIR/terraform/readiness.tf"

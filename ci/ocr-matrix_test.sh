@@ -17,6 +17,23 @@ fail() {
 
 bash "${repo_root}/ci/ocr-local-defaults-contract_test.sh"
 
+cloud_run_wrapper="${repo_root}/terraform/modules/kraken-cloud-run/main.tf"
+cloud_run_module_source='  source = "https://github.com/libops/terraform-cloudrun-v2/archive/8718cd663a74fd33f45306321b4f2b11c83814d5.tar.gz//terraform-cloudrun-v2-8718cd663a74fd33f45306321b4f2b11c83814d5?archive=tar.gz"'
+[ "$(grep -Fxc "${cloud_run_module_source}" "${cloud_run_wrapper}")" -eq 1 ] ||
+  fail "Cloud Run OCR services do not pin the reviewed concurrency-capable module"
+[ "$(grep -Fc 'max_instance_request_concurrency = 1' "${cloud_run_wrapper}")" -eq 1 ] ||
+  fail "Cloud Run must admit exactly one OCR request per segmentor instance"
+[ "$(grep -Fc '{ name = "SEGMENTOR_MAX_CONCURRENCY", value = "1" }' "${repo_root}/terraform/kraken.tf")" -eq 3 ] ||
+  fail "every segmentor process must retain the matching single-request work limit"
+
+readiness="${repo_root}/terraform/readiness.tf"
+browser_readiness="$(sed -n '/^resource "google_cloud_run_v2_job" "browser_readiness"/,/^}/p' "${readiness}")"
+[ "$(grep -Fc 'timeout = "2400s"' <<<"${browser_readiness}")" -eq 1 ] ||
+  fail "preview browser readiness must retain its bounded 40-minute task budget"
+ocr_readiness="$(sed -n '/^resource "google_cloud_run_v2_job" "ocr_readiness"/,/^}/p' "${readiness}")"
+[ "$(grep -Fc 'value = "tesseract"' <<<"${ocr_readiness}")" -eq 1 ] ||
+  fail "managed OCR readiness must probe the Tesseract segmentation route"
+
 matrix="$(
   GCLOUD_PROJECT=scribe-test \
     WORKSPACE_SLUG=prod \
