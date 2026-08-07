@@ -453,6 +453,13 @@ executes it; the protected Dockerfile installs only protected-base dependencies
 before that copy. The image tag is the source SHA and Terraform records its
 resolved digest.
 
+Because the credentialed apply deliberately executes only protected-base
+Terraform, a pull request that depends on preview infrastructure changes must
+land those changes first as a narrow reviewed prerequisite. Rebase the dependent
+pull request onto that protected commit before running its preview. Do not stage
+or execute pull-request Terraform with cloud credentials to collapse the two
+reviews into one run.
+
 The PR-head script runs only later in the preview-only Playwright job. The
 runtime and browser are digest-pinned, run as `pwuser`, and receive only the
 preview's canonical HTTPS origin. A dedicated Cloud Run job uses a dedicated

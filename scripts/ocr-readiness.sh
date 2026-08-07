@@ -16,7 +16,7 @@ readonly TRANSCRIBE_REQUEST_TIMEOUT_SECONDS=240
 readonly OLLAMA_MAX_ATTEMPTS=3
 readonly OLLAMA_REQUEST_TIMEOUT_SECONDS=120
 readonly SERVICE_RETRY_DELAY_SECONDS=5
-readonly SMOKE_IMAGE_SHA256=2d9ee66d4bbccfaf2d306646bd5b4e6810b584c1ed8f4e9d063476bbba5604ff
+readonly SMOKE_IMAGE_SHA256=e3f3bb2b5ade3c15af262a76ad58b720e7eb3b3d079802df04f1dd50be917b2d
 
 fail_stage() {
   # This exact marker vocabulary is the only probe detail allowed into
@@ -137,7 +137,8 @@ validate_multipart_response() (
   case "$kind" in
     segment)
       jq -e \
-        '(.words | type) == "array" and (.words | length) > 0' \
+        --arg model "$model" \
+        '.provider == $model and (.words | type) == "array" and (.words | length) > 0' \
         "$work_dir/$kind.response" >/dev/null
       ;;
     transcribe)

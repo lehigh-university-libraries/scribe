@@ -147,7 +147,9 @@ resource "google_cloud_run_v2_job" "browser_readiness" {
     template {
       service_account = google_service_account.browser_readiness[0].email
       max_retries     = 0
-      timeout         = "900s"
+      # The deployed browser runner stops product work after 30 minutes and
+      # reserves its final 10 minutes for bounded cleanup and reconciliation.
+      timeout = "2400s"
 
       containers {
         image = local.normalized_browser_readiness_image
@@ -285,7 +287,7 @@ resource "google_cloud_run_v2_job" "ocr_readiness" {
         }
         env {
           name  = "SEGMENTATION_MODEL"
-          value = local.kraken_default_segmentation_key
+          value = "tesseract"
         }
         env {
           name  = "TRANSCRIPTION_MODEL"
