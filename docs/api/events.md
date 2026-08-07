@@ -81,10 +81,13 @@ same correlation spine in `data`:
 - caller values `externalReferenceId`, `idempotencyKey`, and `metadata` when
   the ingest supplied them.
 
-`dev.scribe.transcription.completed` also includes `jobId`,
+`dev.scribe.transcription.completed` also includes `jobId`, `attemptNumber`,
 `completedSegments`, `failedSegments`, and `totalSegments`.
-`dev.scribe.transcription.failed` includes the job ID and a bounded, redacted
-`error`. `dev.scribe.annotations.published` adds `annotationCount`,
+`dev.scribe.transcription.failed` includes the job and claimed-attempt IDs plus
+a bounded, redacted `error`; cancellation includes the current attempt number.
+The transient `dev.scribe.transcription.task.started` and `.task.completed`
+previews carry that same attempt number so clients can fence retry visuals.
+`dev.scribe.annotations.published` adds `annotationCount`,
 `annotationPageId`, `publishedRevision`, `publicUrl`, and `publishedAt`.
 Treat the IDs as one workspace-scoped tuple and validate them against the
 integration's persisted ingest record. Never perform a lookup by Canvas URI

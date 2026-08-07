@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -136,6 +137,65 @@ func TestValidateSelectionUsesDescriptorCapabilitiesAndModels(t *testing.T) {
 	}
 	if err := registry.ValidateSelection("kraken", "", "custom prompt", nil); err == nil {
 		t.Fatal("ValidateSelection() accepted an unsupported provider capability")
+	}
+}
+
+func TestGemini3DoesNotAdvertiseOrAcceptDeprecatedTemperature(t *testing.T) {
+	cfg := config.Config{}
+	cfg.LLM.Gemini.Model = "gemini-3.5-flash"
+	cfg.LLM.Gemini.Models = []string{"gemini-3.5-flash", "gemini-2.5-flash"}
+	registry := New(cfg)
+	temperature := 0.3
+
+	if err := registry.ValidateSelection("gemini", "gemini-3.5-flash", "", &temperature); err == nil {
+		t.Fatal("ValidateSelection() accepted temperature for Gemini 3.5")
+	}
+	if err := registry.ValidateSelection("gemini", "gemini-2.5-flash", "", &temperature); err != nil {
+		t.Fatalf("ValidateSelection() rejected legacy Gemini temperature: %v", err)
+	}
+	normalized, err := registry.NormalizeExecutionSelection("gemini", "gemini-3.5-flash", "", &temperature)
+	if err != nil || normalized != nil {
+		t.Fatalf("NormalizeExecutionSelection(Gemini 3.5) = %v, %v; want nil temperature", normalized, err)
+	}
+	legacyNormalized, err := registry.NormalizeExecutionSelection("gemini", "gemini-2.5-flash", "", &temperature)
+	if err != nil || legacyNormalized == nil || *legacyNormalized != temperature || legacyNormalized == &temperature {
+		t.Fatalf("NormalizeExecutionSelection(Gemini 2.5) = %v, %v; want detached %v", legacyNormalized, err, temperature)
+	}
+	if _, err := registry.ProviderConfig("gemini", "gemini-3.5-flash", "", temperature); err == nil {
+		t.Fatal("ProviderConfig(Gemini 3.5) accepted a non-normalized execution temperature")
+	}
+	providerConfig, err := registry.ProviderConfig("gemini", "gemini-3.5-flash", "", 0)
+	if err != nil || providerConfig.Temperature != 0 {
+		t.Fatalf("ProviderConfig(Gemini 3.5 default sampling) = %v, %v", providerConfig.Temperature, err)
+	}
+	invalidTemperature := 3.0
+	if _, err := registry.NormalizeExecutionSelection("gemini", "gemini-3.5-flash", "", &invalidTemperature); err == nil {
+		t.Fatal("NormalizeExecutionSelection() accepted an out-of-range legacy temperature")
+	}
+	notANumber := math.NaN()
+	if _, err := registry.NormalizeExecutionSelection("gemini", "gemini-3.5-flash", "", &notANumber); err == nil {
+		t.Fatal("NormalizeExecutionSelection() accepted a non-finite legacy temperature")
+	}
+	if _, err := registry.NormalizeExecutionSelection("gemini", "unknown", "", &temperature); err == nil {
+		t.Fatal("NormalizeExecutionSelection() accepted an unregistered legacy model")
+	}
+
+	for _, provider := range registry.Catalog().TranscriptionProviders {
+		if provider.ID != "gemini" {
+			continue
+		}
+		for _, model := range provider.Models {
+			switch model.ID {
+			case "gemini-3.5-flash":
+				if model.SupportsTemperature {
+					t.Fatal("Gemini 3.5 catalog model advertised deprecated temperature support")
+				}
+			case "gemini-2.5-flash":
+				if !model.SupportsTemperature {
+					t.Fatal("Gemini 2.5 catalog model omitted temperature support")
+				}
+			}
+		}
 	}
 }
 

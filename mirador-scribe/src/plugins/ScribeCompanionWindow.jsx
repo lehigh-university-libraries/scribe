@@ -121,6 +121,10 @@ export function ScribeCompanionWindow({
   const localPage = session.draftPage;
   const [viewportBounds, setViewportBounds] = useState(/** @type {{ x: number, y: number, w: number, h: number } | null} */ (null));
   const [transcribeDialogOpen, setTranscribeDialogOpen] = useState(false);
+  const [batchTranscriptionState, setBatchTranscriptionState] = useState(() => ({
+    active: true,
+    canvasId,
+  }));
   const [transcribeSelection, setTranscribeSelection] = useState(/** @type {string[]} */ ([]));
   const [drawMode, setDrawMode] = useState(false);
   const [overlayMode, setOverlayMode] = useState(/** @type {OverlayMode} */ ('none'));
@@ -132,9 +136,34 @@ export function ScribeCompanionWindow({
   const mountedRef = useRef(true);
   const activeCanvasEventRef = useRef('');
   const activeCanvasRef = useRef(canvasId);
+  const batchTranscriptionStateRef = useRef({ active: true, canvasId });
   activeCanvasRef.current = canvasId;
+  if (batchTranscriptionStateRef.current.canvasId !== canvasId) {
+    batchTranscriptionStateRef.current = { active: true, canvasId };
+  }
+  const batchTranscriptionActive = batchTranscriptionState.canvasId !== canvasId
+    || batchTranscriptionState.active;
+  const setBatchTranscriptionActive = useCallback((/** @type {boolean} */ active) => {
+    const next = { active, canvasId };
+    batchTranscriptionStateRef.current = next;
+    setBatchTranscriptionState((current) => (
+      current.canvasId === next.canvasId && current.active === next.active ? current : next
+    ));
+  }, [canvasId]);
+  const foregroundTranscriptionIsBlocked = useCallback(() => {
+    const current = batchTranscriptionStateRef.current;
+    return current.canvasId !== canvasId || current.active;
+  }, [canvasId]);
   const inlineEditorVisible = overlayMode === 'edit';
   const textOverlayVisible = overlayMode === 'read';
+
+  useEffect(() => {
+    setTranscribeDialogOpen(false);
+  }, [canvasId]);
+
+  useEffect(() => {
+    if (batchTranscriptionActive) setTranscribeDialogOpen(false);
+  }, [batchTranscriptionActive]);
 
   // Mirador's annotation slice is a rendered projection only. Keep it aligned
   // with the reducer draft so undo, structural transforms, and unsaved geometry
@@ -220,6 +249,14 @@ export function ScribeCompanionWindow({
     if (!viewportBounds) return annotations;
     return annotations.filter((annotation) => annotationIntersectsImageRect(annotation, viewportBounds));
   }, [annotations, viewportBounds]);
+  const visibleLineAnnotations = useMemo(
+    () => visibleAnnotations.filter(isLineAnnotation),
+    [visibleAnnotations],
+  );
+  const hasPageLines = useMemo(
+    () => annotations.some(isLineAnnotation),
+    [annotations],
+  );
   const visibleRows = useMemo(() => groupAnnotationsForEditor({ items: visibleAnnotations }), [visibleAnnotations]);
   const selectedAnnotation = useMemo(
     () => editorSelectedAnnotation(
@@ -314,14 +351,15 @@ export function ScribeCompanionWindow({
   }, [effectiveSelectedAnnotationId, focusedWordAnnotationId, localPage]);
 
   useEffect(() => {
-    const validIds = new Set(visibleAnnotations.map((annotation) => annotation.id));
-    const preferred = selectedAnnotation?.id || visibleAnnotations[0]?.id || '';
+    const validIds = new Set(visibleLineAnnotations.map((annotation) => annotation.id));
+    const selectedLineId = selectedLineAnnotation?.id || '';
+    const preferred = validIds.has(selectedLineId) ? selectedLineId : visibleLineAnnotations[0]?.id || '';
     setTranscribeSelection((current) => {
       const retained = current.filter((id) => validIds.has(id));
       if (retained.length > 0) return retained;
       return preferred ? [preferred] : [];
     });
-  }, [selectedAnnotation?.id, visibleAnnotations]);
+  }, [selectedLineAnnotation?.id, visibleLineAnnotations]);
 
   useViewportBridge({ canvasId, setViewportBounds, windowId });
 
@@ -356,7 +394,9 @@ export function ScribeCompanionWindow({
       } else if (command === 'join-words') {
         structuralEdits.openJoinWords();
       } else if (command === 'retranscribe') {
-        setTranscribeDialogOpen(true);
+        if (!foregroundTranscriptionIsBlocked() && !isBusy && hasPageLines) {
+          setTranscribeDialogOpen(true);
+        }
       } else if (command === 'publish') {
         void handlePublish();
       }
@@ -364,7 +404,7 @@ export function ScribeCompanionWindow({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [adapterFactory, canvasId, focusedWordAnnotationId, isFocusedWindow, localPage, selectedAnnotation, structuralEdits]);
+  }, [adapterFactory, canvasId, focusedWordAnnotationId, foregroundTranscriptionIsBlocked, hasPageLines, isBusy, isFocusedWindow, localPage, selectedAnnotation, structuralEdits]);
 
   useEffect(() => {
     document.dispatchEvent(new CustomEvent('scribe:set-draw-mode', {
@@ -561,6 +601,7 @@ export function ScribeCompanionWindow({
     applyTransformResult,
     canvasId,
     editingIsBlocked,
+    foregroundTranscriptionIsBlocked,
     localPage,
     mountedRef,
     operationBusyRef,
@@ -578,7 +619,6 @@ export function ScribeCompanionWindow({
 
   useEditorRequestBridge({
     canvasId,
-    handleTranscribe,
     performSaveAllDirty,
     windowId,
   });
@@ -589,6 +629,7 @@ export function ScribeCompanionWindow({
     dispatchSession,
     reloadAnnotations,
     session,
+    setBatchTranscriptionActive,
     setStatusMessage,
     syncPage,
     windowId,
@@ -693,7 +734,8 @@ export function ScribeCompanionWindow({
 
   return (
     <ScribeActionPanel
-      annotations={visibleAnnotations}
+      annotations={annotations}
+      batchTranscriptionActive={batchTranscriptionActive}
       canSplitToWords={canSplitToWords}
       drawMode={drawMode}
       id={id}
@@ -711,7 +753,11 @@ export function ScribeCompanionWindow({
       onSave={handleSave}
       onTranscribe={handleTranscribe}
       onTranscribeDialogClose={() => setTranscribeDialogOpen(false)}
-      onTranscribeDialogOpen={() => setTranscribeDialogOpen(true)}
+      onTranscribeDialogOpen={() => {
+        if (!foregroundTranscriptionIsBlocked() && !isBusy && hasPageLines) {
+          setTranscribeDialogOpen(true);
+        }
+      }}
       onTranscribeSelectionChange={setTranscribeSelection}
       onUndo={handleUndo}
       pendingRemoteIds={session.pendingRemoteIds}
@@ -723,6 +769,7 @@ export function ScribeCompanionWindow({
       structuralEdits={structuralEdits}
       transcribeDialogOpen={transcribeDialogOpen}
       transcribeSelection={transcribeSelection}
+      visibleAnnotations={visibleAnnotations}
       windowId={windowId}
     />
   );

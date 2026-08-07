@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
+	"github.com/lehigh-university-libraries/scribe/internal/providerregistry"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
@@ -332,6 +334,13 @@ func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scr
 		}
 		processingContext = c
 	}
+	processingContext, err := normalizeContextForExecution(
+		processingContext,
+		providerregistry.New(config.Get().Config),
+	)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("processing context is not executable"))
+	}
 
 	releaseProcessing, err := h.acquireProcessingSlot(ctx, h.currentWorkspaceID(ctx), processingContext)
 	if err != nil {
@@ -360,6 +369,8 @@ func annotationEnrichmentConnectError(err error) error {
 		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("annotation enrichment deadline exceeded"))
 	case errors.Is(err, errInvalidAnnotationEnrichmentInput):
 		return connect.NewError(connect.CodeInvalidArgument, err)
+	case errors.Is(err, errEmptyAnnotationTranscription):
+		return connect.NewError(connect.CodeFailedPrecondition, errEmptyAnnotationTranscription)
 	case errors.Is(err, hocr.ErrPermanentProviderRequest):
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("transcription provider rejected the configured credential or context"))
 	case errors.Is(err, hocr.ErrRetryableProviderRequest):

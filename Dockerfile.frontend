@@ -31,6 +31,7 @@ COPY web/readiness-job.mjs /app/web/readiness-job.mjs
 COPY web/proxy-url.mjs /app/web/proxy-url.mjs
 COPY web/proxy-headers.mjs /app/web/proxy-headers.mjs
 COPY web/proxy-pipeline.mjs /app/web/proxy-pipeline.mjs
+COPY web/request-budget.mjs /app/web/request-budget.mjs
 COPY web/static-pipeline.mjs /app/web/static-pipeline.mjs
 
 EXPOSE 8888

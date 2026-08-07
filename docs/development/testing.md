@@ -112,14 +112,80 @@ SHA and size with the Contents API payload before replacing only that path.
 Symlinks, gitlinks, duplicate entries, truncated trees, and mismatched payloads
 fail closed. The protected Dockerfile, package manifests, and dependencies
 remain from the base; its credentialed build copies but does not execute the PR
-script. The script runs only after the preview apply in a no-IAM, preview-only
-Playwright job. The scenario uses a browser-only `/26` and NAT to target the canonical
-`scribe-pr-*` Cloud Run origin, uses preview-anonymous auth and
-the built-in Tesseract context, and deletes the workspace token and uploaded
-item it creates. It verifies the completed private draft through
-`AnnotationService.GetAnnotationPage`, then requires its public Triplet
-AnnotationPage only after the editor publishes that revision. It deliberately
-produces no browser artifacts; on failure the
+script. The reviewed two-line upload fixture and its SHA-256 digest are embedded
+in that attested script, so the build does not combine it with a separately
+staged PR-head fixture. The source SHA tags the image and Terraform records its
+resolved digest. The script runs only after the preview apply in a no-IAM,
+preview-only Playwright job with digest-pinned runtime and browser dependencies.
+Its dedicated service account has no project, storage, Vault, Pub/Sub, or OCR
+IAM grants. A browser-only `/26` and NAT can reach only the canonical
+`scribe-pr-*` Cloud Run origin; production and other previews are not widened.
+
+The scenario uses preview-anonymous auth and leaves the upload selector on
+resolver-backed `Default` (`0`), then verifies the resulting durable
+transcription job records a concrete nonzero context. It uploads a reviewed
+two-line fixture and intentionally delays the editor bundle until that exact
+job completes. The editor must reconcile the completed job and canonical
+revision, show the catch-up magic wand moving through both line annotations in
+order, and emit matched start/result events for the exact successful attempt.
+The runner then mounts an unpinned editor before enqueueing a distinct durable
+job, waits for that editor's item-scoped SSE response so the server has captured
+its outbox high-water mark, and requires live, non-catch-up start/result events
+plus the visible wand's line-by-line movement. Neither automatic path may make
+a foreground `EnrichAnnotation` request. The editor must keep retranscription blocked
+until Mirador acknowledges the exact correlated canonical reload. Retryable
+image-upload responses are evaluated as one frontend retry sequence: readiness
+requires one to three attempts containing only retryable predecessors and an
+exact final success before editor handoff.
+
+The scenario verifies the completed private draft through
+`AnnotationService.GetAnnotationPage`; exercises overlay modes, retranscription,
+draw mode, centered creation, undo/redo, inline text editing, word and line
+split/join transforms, editor deletion, save, and publish; and then requires
+the public Triplet AnnotationPage. The saved editor is loaded once and resized
+in place through 360x800, 667x375, 768x1024, and 1440x900 so the mounted bottom
+pane must follow every viewport change. Every viewport must expose all 14
+primary actions without scrolling, retain a usable OpenSeadragon image area,
+and leave the canonical revision and page byte-for-byte unchanged. It also
+imports the exact Lehigh six-Canvas manifest in its default preserve-hOCR mode.
+The imported-item path requires the
+Scribe panel, an expected nonempty OpenSeadragon image response, and exact
+active Canvas, item-image, and editor-route identity. It validates the first
+page through the private canonical API and the exact public Presentation
+AnnotationPage, uses Mirador's real **Next item** control, and repeats those
+checks on the second Canvas before cycling every overlay mode and confirming an
+editor action remains enabled. Publication is limited to the disposable local
+item and exact cleanup removes the import. Both home-library copies of each
+disposable item must expose the exact final destructive trash action. The runner
+deletes the upload through the homepage and the manifest item through the
+sidebar, accepts only the exact item-ID confirmation dialog, and requires both
+rendered copies to disappear after each deletion. Finally, it deletes the
+copy-once workspace token and directly reconciles the upload by exact name and
+the manifest item by exact source URL. The scenario records the latest upload,
+manifest-import, and token-creation request time. If the corresponding response
+did not settle and validate, direct reconciliation continues deleting exact
+matches through the full 300-second request commit horizon and then requires
+stable absence. This prevents a lost response or a canceled browser request
+from committing a resource after cleanup. Manifest reconciliation scans the
+capped workspace inventory with an empty query before loading each candidate
+and matching the exact source tuple; token cleanup lists keys and matches only
+the unique generated name, without reading a secret.
+
+The scenario allows 300 seconds for upload handoff so the frontend's 270-second
+upstream cap can cover the backend's 240-second scale-to-zero inference budget.
+The proxy charges backend wake time and upstream work to one 285-second request
+budget below the platform cutoff. The complete product scenario has a 30-minute
+deadline measured from runner startup. Reaching it closes the page so the normal
+failure path can use the retained API session, rather than letting the platform
+terminate browser work mid-mutation. The runner reserves the final 10 minutes
+of its 40-minute Cloud Run task for deadline-aware cleanup. That reserve covers
+the 300-second commit horizon, a 180-second recovery tail, and bounded
+request/control overhead.
+
+The protected deploy job keeps its existing 120-minute ceiling. Its executable
+contract reserves 300 seconds for backend readiness, 1,800 seconds for OCR,
+2,400 seconds for the browser task, and 1,800 seconds for build, Terraform, and
+control-plane work. The scenario produces no browser artifacts; on failure the
 Cloud Run helper retains only an exact allowlisted stage category, including
 the bounded `structure` and `manifest` categories; free-form messages are
 discarded. Run `bash

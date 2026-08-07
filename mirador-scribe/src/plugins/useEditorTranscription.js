@@ -1,6 +1,6 @@
 import {
   annotationCanvasId,
-  isWordAnnotation,
+  isLineAnnotation,
   upsertAnnotationInPage,
 } from '../utils/iiif';
 
@@ -23,6 +23,7 @@ function stopsForegroundTranscriptionBatch(error) {
  * @param {(targetCanvasId: string, submittedPage: IIIFAnnotationPage, transformedPage: IIIFAnnotationPage, selectedIds: string[]) => { overlap: boolean }} options.applyTransformResult
  * @param {string} options.canvasId
  * @param {(canvasId?: string) => boolean} options.editingIsBlocked
+ * @param {() => boolean} options.foregroundTranscriptionIsBlocked
  * @param {IIIFAnnotationPage | null} options.localPage
  * @param {{ current: boolean }} options.mountedRef
  * @param {{ current: boolean }} options.operationBusyRef
@@ -43,6 +44,7 @@ export function useEditorTranscription({
   applyTransformResult,
   canvasId,
   editingIsBlocked,
+  foregroundTranscriptionIsBlocked,
   localPage,
   mountedRef,
   operationBusyRef,
@@ -65,7 +67,10 @@ export function useEditorTranscription({
 
   /** @param {{ all?: boolean, annotationIds?: string[] }} [options] */
   async function handleTranscribe({ all = false, annotationIds = [] } = {}) {
-    if (!adapterFactory || !localPage || editingIsBlocked()) return;
+    if (!adapterFactory
+      || !localPage
+      || editingIsBlocked()
+      || foregroundTranscriptionIsBlocked()) return;
     const targetCanvasId = canvasId;
     if (!targetCanvasId) return;
     setOperationBusy(true);
@@ -78,9 +83,14 @@ export function useEditorTranscription({
         : (annotationIds.length > 0 ? annotationIds : transcribeSelection)
             .map((id) => (submittedPage.items || []).find((annotation) => annotation?.id === id))
             .filter(Boolean))
-        .filter((annotation) => !isWordAnnotation(annotation)));
+        .filter(isLineAnnotation));
 
       const total = targetAnnotations.length;
+      if (total === 0) {
+        setDialogOpen(false);
+        setStatusMessage('Select at least one line to retranscribe.');
+        return;
+      }
       setStatusMessage(`Transcribing… 0 / ${total}`);
       let nextPage = submittedPage;
       const failures = [];
@@ -149,7 +159,9 @@ export function useEditorTranscription({
         const first = failures[0];
         setStatusMessage(`Retranscribed ${successful}/${total}. ${first.id}: ${first.message}`);
       } else {
-        setStatusMessage(all ? 'Document transcribed.' : 'Selected text transcribed.');
+        setStatusMessage(all
+          ? 'Document retranscribed. Save to persist this draft.'
+          : 'Selected text retranscribed. Save to persist this draft.');
       }
     } catch (error) {
       if (mountedRef.current && activeCanvasRef.current === targetCanvasId) {

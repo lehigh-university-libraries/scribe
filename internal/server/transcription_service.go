@@ -100,8 +100,9 @@ func (h *Handler) CancelTranscriptionJob(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload canceled transcription job: %w", err))
 	}
 	h.publishEvent("dev.scribe.transcription.canceled", subjectForItemImage(job.ItemImageID), map[string]any{
-		"jobId":       job.ID,
-		"itemImageId": job.ItemImageID,
+		"jobId":         job.ID,
+		"itemImageId":   job.ItemImageID,
+		"attemptNumber": job.AttemptCount,
 	})
 	return connect.NewResponse(&scribev1.CancelTranscriptionJobResponse{Job: storeJobToProto(job)}), nil
 }
@@ -518,6 +519,8 @@ func transcriptionJobFailureForSegment(err error) error {
 		return err
 	case errors.Is(err, hocr.ErrPermanentProviderRequest):
 		return permanentTranscriptionFailure("transcription provider request failed")
+	case errors.Is(err, errEmptyAnnotationTranscription):
+		return permanentTranscriptionFailure("transcription provider returned no text")
 	case errors.Is(err, hocr.ErrRetryableProviderRequest):
 		return fmt.Errorf("transcription provider request failed: %w", err)
 	default:
@@ -541,11 +544,12 @@ func (h *Handler) recordClaimedTranscriptionJobFailure(ctx context.Context, job 
 		return h.transcriptionJobs.Defer(deferCtx, fence, safeMessage, time.Now().UTC().Add(5*time.Second))
 	}
 	eventData := map[string]any{
-		"jobId":       job.ID,
-		"itemImageId": job.ItemImageID,
-		"error":       safeMessage,
-		"workspaceId": job.WorkspaceID,
-		"revision":    job.InputRevision,
+		"jobId":         job.ID,
+		"itemImageId":   job.ItemImageID,
+		"attemptNumber": fence.AttemptNumber,
+		"error":         safeMessage,
+		"workspaceId":   job.WorkspaceID,
+		"revision":      job.InputRevision,
 	}
 	if h.items != nil {
 		if image, imageErr := h.items.GetImageForWorkspace(ctx, job.ItemImageID, job.WorkspaceID); imageErr == nil {
@@ -766,7 +770,8 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		))
 	}
 	registry := providerregistry.New(config.Get().Config)
-	if err := registry.ValidateSelection(pctx.TranscriptionProvider, pctx.TranscriptionModel, pctx.SystemPrompt, pctx.Temperature); err != nil {
+	pctx, err = normalizeContextForExecution(pctx, registry)
+	if err != nil {
 		return permanentTranscriptionFailure("transcription context snapshot is invalid")
 	}
 	provider, ok := registry.Provider(pctx.TranscriptionProvider)
@@ -824,6 +829,7 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		h.publishEvent("dev.scribe.transcription.task.started", subjectForAnnotation(job.ItemImageID, entry.id), map[string]any{
 			"jobId":             job.ID,
 			"itemImageId":       job.ItemImageID,
+			"attemptNumber":     fence.AttemptNumber,
 			"annotationId":      entry.id,
 			"completedSegments": completed,
 			"failedSegments":    failed,
@@ -865,6 +871,7 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		h.publishEvent("dev.scribe.transcription.task.completed", subjectForAnnotation(job.ItemImageID, entry.id), map[string]any{
 			"jobId":             job.ID,
 			"itemImageId":       job.ItemImageID,
+			"attemptNumber":     fence.AttemptNumber,
 			"annotationId":      entry.id,
 			"completedSegments": completed,
 			"failedSegments":    failed,
@@ -906,6 +913,7 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	eventData := itemEventData(item, img, page.Revision+1)
 	eventData = mergeEventData(eventData, map[string]any{
 		"jobId":             job.ID,
+		"attemptNumber":     fence.AttemptNumber,
 		"completedSegments": completed,
 		"failedSegments":    failed,
 		"totalSegments":     total,

@@ -16,7 +16,10 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
-var errInvalidAnnotationEnrichmentInput = errors.New("invalid annotation enrichment input")
+var (
+	errEmptyAnnotationTranscription     = errors.New("transcription provider returned no text")
+	errInvalidAnnotationEnrichmentInput = errors.New("invalid annotation enrichment input")
+)
 
 // --- IIIF annotation normalisation (ported from annotationserver) ---
 
@@ -263,11 +266,15 @@ func (h *Handler) enrichSingleAnnotationInWorkspace(
 	if err != nil {
 		return "", fmt.Errorf("transcribe region: %w", err)
 	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", fmt.Errorf("transcribe region: %w", errEmptyAnnotationTranscription)
+	}
 
 	// Change the first TextualBody in place so language, service, confidence,
 	// and extension properties survive the model operation. Its old RDF
 	// identity cannot survive a changed value, so the mutated body is anonymous.
-	anno["body"] = textBodyWithValue(anno["body"], strings.TrimSpace(text))
+	anno["body"] = textBodyWithValue(anno["body"], text)
 	clearFirstTextualBodyIdentity(anno["body"])
 	if strings.TrimSpace(annStringValue(anno, "textGranularity")) == "" {
 		anno["textGranularity"] = "line"

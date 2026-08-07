@@ -6,10 +6,11 @@ import { getAnnotationPage } from "../api/annotations";
 import { createAPIKey, createProviderSecret, deleteAPIKey, deleteProviderSecret, getAuthMe, listAPIKeys, listProviderSecrets, logout } from "../api/auth";
 import { createContext, getContextMetrics, getModelCatalog, listContexts } from "../api/context";
 import { subscribeToEvents } from "../api/events";
-import { getItemExportSnapshot, importManifest, listItems, listItemProviderCallAudits, prepareItemExport, UploadBatchCancellationError, uploadItemImages, type UploadBatchProgress } from "../api/items";
+import { deleteItem, getItemExportSnapshot, importManifest, listItems, listItemProviderCallAudits, prepareItemExport, UploadBatchCancellationError, uploadItemImages, type UploadBatchProgress } from "../api/items";
 import { processImageURL, reprocessItemImage } from "../api/processing";
 import { addWorkspaceMember, deleteWorkspaceMember, listWorkspaceMembers, listWorkspaces, updateWorkspaceMember } from "../api/workspaces";
 import { AnnotationExportFormat } from "../proto/scribe/v1/annotation_pb";
+import { UploadBatchFileStatus } from "../proto/scribe/v1/item_pb";
 import { renderShell } from "./shell";
 
 vi.mock("../api/annotations", () => ({
@@ -129,8 +130,8 @@ async function setupShell(
   vi.mocked(listContexts).mockResolvedValue([]);
   vi.mocked(getModelCatalog).mockResolvedValue(catalog ?? {
     transcriptionProviders: [
-      { id: "ollama", label: "Ollama", models: [{ id: "glm-ocr:bf16", label: "glm-ocr:bf16", isDefault: true }], supportsSystemPrompt: true, supportsTemperature: true },
-      { id: "gemini", label: "Google Gemini", models: [{ id: "gemini-3.5-flash", label: "gemini-3.5-flash", isDefault: true }], requiresApiKey: true, supportsSystemPrompt: true, supportsTemperature: true },
+      { id: "ollama", label: "Ollama", models: [{ id: "glm-ocr:bf16", label: "glm-ocr:bf16", isDefault: true, supportsTemperature: true }], supportsSystemPrompt: true },
+      { id: "gemini", label: "Google Gemini", models: [{ id: "gemini-3.5-flash", label: "gemini-3.5-flash", isDefault: true, supportsTemperature: false }], requiresApiKey: true, supportsSystemPrompt: true },
     ],
     segmentationModels: [{ id: "kraken", label: "Kraken", isDefault: true }],
   } as never);
@@ -254,6 +255,103 @@ describe("annotation upload actions", () => {
     });
   });
 
+  it.each([
+    ["homepage", "#shell-content"],
+    ["sidebar", "#shell-sidebar"],
+  ])("keeps an item when deletion is dismissed from the %s", async (_location, rootSelector) => {
+    const summary = itemSummary("item-keep", "Keep this item");
+    const confirm = vi.fn(() => false);
+    Object.defineProperty(window, "confirm", { configurable: true, value: confirm });
+    await setupShell("library", vi.fn(), undefined, { items: [summary], nextPageToken: "" });
+
+    document.querySelector<HTMLButtonElement>(`${rootSelector} [data-item-delete="item-keep"]`)?.click();
+
+    expect(confirm).toHaveBeenCalledWith('Delete item "item-keep"?');
+    expect(deleteItem).not.toHaveBeenCalled();
+    expect(document.querySelector(`${rootSelector} [data-item-delete="item-keep"]`)).toBeTruthy();
+  });
+
+  it.each([
+    ["homepage", "#shell-content"],
+    ["sidebar", "#shell-sidebar"],
+  ])("deletes and removes an item selected from the %s", async (_location, rootSelector) => {
+    const summary = itemSummary("item-delete", "Delete this item");
+    Object.defineProperty(window, "confirm", { configurable: true, value: vi.fn(() => true) });
+    vi.mocked(deleteItem).mockResolvedValue({} as never);
+    await setupShell("library", vi.fn(), undefined, { items: [summary], nextPageToken: "" });
+    vi.mocked(listItems).mockResolvedValueOnce({ items: [], nextPageToken: "" });
+
+    document.querySelector<HTMLButtonElement>(`${rootSelector} [data-item-delete="item-delete"]`)?.click();
+
+    await waitFor(() => {
+      expect(deleteItem).toHaveBeenCalledOnce();
+      expect(deleteItem).toHaveBeenCalledWith("item-delete");
+      expect(document.querySelector('[data-item-delete="item-delete"]')).toBeNull();
+    });
+  });
+
+  it("contains a sidebar delete failure and keeps the item retryable", async () => {
+    const summary = itemSummary("item-delete-fails", "Delete failure");
+    Object.defineProperty(window, "confirm", { configurable: true, value: vi.fn(() => true) });
+    vi.mocked(deleteItem).mockRejectedValue(new Error("storage unavailable"));
+    await setupShell("library", vi.fn(), undefined, { items: [summary], nextPageToken: "" });
+
+    document.querySelector<HTMLButtonElement>('#shell-sidebar [data-item-delete="item-delete-fails"]')?.click();
+
+    await waitFor(() => {
+      const deleteButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-item-delete="item-delete-fails"]'));
+      expect(deleteButtons).toHaveLength(2);
+      expect(deleteButtons.every((button) => !button.disabled && button.textContent?.trim() === "Delete")).toBe(true);
+      const alerts = Array.from(document.querySelectorAll<HTMLElement>('[role="alert"]'));
+      expect(alerts.some((alert) => alert.textContent === "Delete failed: storage unavailable")).toBe(true);
+    });
+    expect(listItems).toHaveBeenCalledOnce();
+  });
+
+  it("submits one delete while duplicate homepage and sidebar actions are in flight", async () => {
+    const summary = {
+      ...itemSummary("item-delete-once", "Delete once"),
+      imageCount: 1n,
+      previewImage: { id: 61n },
+    } as TestItemPage["items"][number];
+    const confirm = vi.fn(() => true);
+    Object.defineProperty(window, "confirm", { configurable: true, value: confirm });
+    let resolveDelete: (() => void) | undefined;
+    vi.mocked(deleteItem).mockImplementation(() => new Promise((resolve) => {
+      resolveDelete = () => resolve({} as never);
+    }));
+    await setupShell("library", vi.fn(), undefined, { items: [summary], nextPageToken: "" });
+    vi.mocked(listItems).mockResolvedValueOnce({ items: [], nextPageToken: "" });
+    const homeDelete = document.querySelector<HTMLButtonElement>('#shell-content [data-item-delete="item-delete-once"]');
+    const sidebarDelete = document.querySelector<HTMLButtonElement>('#shell-sidebar [data-item-delete="item-delete-once"]');
+    expect(homeDelete).toBeTruthy();
+    expect(sidebarDelete).toBeTruthy();
+
+    homeDelete!.click();
+    sidebarDelete!.click();
+
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(deleteItem).toHaveBeenCalledOnce();
+    const pendingButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-item-delete="item-delete-once"]'));
+    expect(pendingButtons).toHaveLength(2);
+    expect(pendingButtons.map((button) => ({
+      ariaBusy: button.getAttribute("aria-busy"),
+      disabled: button.disabled,
+      text: button.textContent?.trim(),
+    }))).toEqual([
+      { ariaBusy: "true", disabled: true, text: "Deleting…" },
+      { ariaBusy: "true", disabled: true, text: "Deleting…" },
+    ]);
+    const pendingExports = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-item-export="item-delete-once"]'));
+    expect(pendingExports.length).toBeGreaterThan(1);
+    expect(pendingExports.every((button) => button.disabled)).toBe(true);
+    pendingExports[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(getItemExportSnapshot).not.toHaveBeenCalled();
+
+    resolveDelete?.();
+    await waitFor(() => expect(document.querySelector('[data-item-delete="item-delete-once"]')).toBeNull());
+  });
+
   it("searches the complete library through the server", async () => {
     await setupShell("library", vi.fn(), undefined, {
       items: [itemSummary("item-new", "Newest")],
@@ -353,6 +451,7 @@ describe("annotation upload actions", () => {
       const params = new URLSearchParams(window.location.search);
       expect(params.get("itemId")).toBe("url-item");
       expect(params.get("jobId")).toBe("501");
+      expect(params.has("autoTranscribe")).toBe(false);
     });
   });
 
@@ -385,6 +484,9 @@ describe("annotation upload actions", () => {
       expect(document.body.textContent).toContain("Preparing file");
     });
 
+    reportProgress?.({ attempt: 1, completed: 0, filename: file.name, sequence: 1, status: "uploading", total: 1 });
+    expect(document.getElementById("shell-upload-status")?.textContent).toBe("Uploading and processing 1/1…");
+
     reportProgress?.({ attempt: 1, completed: 1, filename: file.name, sequence: 1, status: "completed", total: 1 });
     expect(document.body.textContent).toContain("Uploaded 1/1. Starting automatic transcription");
 
@@ -394,7 +496,7 @@ describe("annotation upload actions", () => {
 
     resolveUpload?.({
       item: { id: "upload-item" },
-      batch: { files: [{ sequence: 1, itemImageId: 202n, transcriptionJobId: 502n }] },
+      batch: { files: [{ sequence: 1, status: UploadBatchFileStatus.COMPLETED, itemImageId: 202n, transcriptionJobId: 502n }] },
     } as never);
     await waitFor(() => {
       expect(window.location.pathname).toBe("/editor");
@@ -402,7 +504,102 @@ describe("annotation upload actions", () => {
       expect(params.get("itemImageId")).toBe("202");
       expect(params.get("itemId")).toBe("upload-item");
       expect(params.get("jobId")).toBe("502");
+      expect(params.has("autoTranscribe")).toBe(false);
     });
+  });
+
+  it("hands a durably completed upload to the editor when cancel races with the final response", async () => {
+    await setupShell();
+    const file = new File(["image-bytes"], "completed-while-canceling.jpg", { type: "image/jpeg" });
+    let uploadSignal: AbortSignal | undefined;
+    let resolveUpload: ((result: Awaited<ReturnType<typeof uploadItemImages>>) => void) | undefined;
+    vi.mocked(uploadItemImages).mockImplementation((_files, options) => {
+      uploadSignal = options?.signal;
+      return new Promise((resolve) => { resolveUpload = resolve; });
+    });
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
+    const input = document.getElementById("library-single-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(resolveUpload).toBeDefined());
+
+    document.getElementById("shell-upload-cancel")?.click();
+    expect(uploadSignal?.aborted).toBe(true);
+    resolveUpload?.({
+      item: { id: "durable-upload" },
+      batch: { files: [{ sequence: 1, status: UploadBatchFileStatus.COMPLETED, itemImageId: 204n, transcriptionJobId: 504n }] },
+    } as never);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/editor");
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("itemImageId")).toBe("204");
+      expect(params.get("itemId")).toBe("durable-upload");
+      expect(params.get("jobId")).toBe("504");
+      expect(params.get("workspace_id")).toBe("7");
+    });
+  });
+
+  it.each([
+    {
+      label: "is not completed",
+      uploaded: { sequence: 1, status: UploadBatchFileStatus.PROCESSING, itemImageId: 202n, transcriptionJobId: 502n },
+      message: "selected file did not complete",
+    },
+    {
+      label: "has no image identity",
+      uploaded: { sequence: 1, status: UploadBatchFileStatus.COMPLETED, itemImageId: 0n, transcriptionJobId: 502n },
+      message: "without an image identifier",
+    },
+    {
+      label: "has no transcription job identity",
+      uploaded: { sequence: 1, status: UploadBatchFileStatus.COMPLETED, itemImageId: 202n, transcriptionJobId: 0n },
+      message: "without a transcription job identifier",
+    },
+  ])("does not hand an upload to the editor when the selected file $label", async ({ uploaded, message }) => {
+    await setupShell();
+    const file = new File(["image-bytes"], "incomplete.jpg", { type: "image/jpeg" });
+    vi.mocked(uploadItemImages).mockResolvedValue({
+      item: { id: "upload-item" },
+      batch: { files: [uploaded] },
+    } as never);
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
+    const input = document.getElementById("library-single-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await waitFor(() => {
+      expect(document.getElementById("shell-upload-status")?.textContent).toContain(message);
+      expect(document.getElementById("shell-upload-cancel")?.textContent).toBe("Close");
+    });
+    expect(window.location.pathname).toBe("/library");
+  });
+
+  it("does not navigate when a completed single upload resolves after pagehide", async () => {
+    await setupShell();
+    const file = new File(["image-bytes"], "late.jpg", { type: "image/jpeg" });
+    let resolveUpload: ((result: Awaited<ReturnType<typeof uploadItemImages>>) => void) | undefined;
+    vi.mocked(uploadItemImages).mockImplementation(() => new Promise((resolve) => {
+      resolveUpload = resolve;
+    }));
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
+    const input = document.getElementById("library-single-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(resolveUpload).toBeDefined());
+
+    window.dispatchEvent(new Event("pagehide"));
+    resolveUpload?.({
+      item: { id: "late-upload" },
+      batch: { files: [{ sequence: 1, status: UploadBatchFileStatus.COMPLETED, itemImageId: 203n, transcriptionJobId: 503n }] },
+    } as never);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    expect(window.location.pathname).toBe("/library");
+    expect(window.location.search).not.toContain("itemImageId=203");
   });
 
   it("keeps single-upload failures visible until the user closes the dialog", async () => {
@@ -438,6 +635,35 @@ describe("annotation upload actions", () => {
     expect(document.getElementById("shell-upload-dialog")?.getAttribute("aria-hidden")).toBe("true");
     expect(document.getElementById("shell-content")?.inert).toBe(false);
     expect(document.activeElement).toBe(document.getElementById("library-single-file"));
+  });
+
+  it("clears the file control on close so the same failed file can be selected again", async () => {
+    await setupShell();
+    const file = new File(["image-bytes"], "retry-same-file.jpg", { type: "image/jpeg" });
+    vi.mocked(uploadItemImages).mockRejectedValue(new Error("upload gateway unavailable"));
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="single"]')?.click();
+    const input = document.getElementById("library-single-file") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    Object.defineProperty(input, "value", {
+      configurable: true,
+      value: "C:\\fakepath\\retry-same-file.jpg",
+      writable: true,
+    });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await waitFor(() => {
+      expect(uploadItemImages).toHaveBeenCalledTimes(1);
+      expect(document.getElementById("shell-upload-cancel")?.textContent).toBe("Close");
+    });
+    document.getElementById("shell-upload-cancel")?.click();
+
+    expect(input.isConnected).toBe(true);
+    expect(input.value).toBe("");
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.value = "C:\\fakepath\\retry-same-file.jpg";
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await waitFor(() => expect(uploadItemImages).toHaveBeenCalledTimes(2));
   });
 
   it("cancels an active single upload from the progress dialog", async () => {
@@ -511,6 +737,26 @@ describe("annotation upload actions", () => {
       );
       expect(document.body.textContent).toContain("Batch item");
     });
+  });
+
+  it("reports the active multi-image upload without claiming it completed", async () => {
+    await setupShell();
+    const first = new File(["first"], "page-one.jpg", { type: "image/jpeg" });
+    const second = new File(["second"], "page-two.jpg", { type: "image/jpeg" });
+    let reportProgress: ((progress: UploadBatchProgress) => void) | undefined;
+    vi.mocked(uploadItemImages).mockImplementation((_files, options) => {
+      reportProgress = options?.onProgress;
+      return new Promise(() => undefined);
+    });
+
+    document.querySelector<HTMLButtonElement>('[data-library-tab="multi"]')?.click();
+    const input = document.getElementById("library-multi-files") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [first, second] });
+    document.getElementById("library-form-multi")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await waitFor(() => expect(reportProgress).toBeDefined());
+
+    reportProgress?.({ attempt: 1, completed: 0, filename: first.name, sequence: 1, status: "uploading", total: 2 });
+    expect(document.getElementById("library-multi-status")?.textContent).toBe("Uploading and processing 1/2: page-one.jpg");
   });
 
   it("keeps multi-image cancellation connected across a library rerender", async () => {
@@ -650,9 +896,9 @@ describe("annotation upload actions", () => {
   it("creates contexts from the deployed model catalog", async () => {
     const catalog: TestModelCatalog = {
       transcriptionProviders: [
-        { id: "ollama", label: "Ollama", models: [{ id: "glm-ocr:bf16", label: "glm-ocr:bf16", isDefault: true }, { id: "llava", label: "llava", isDefault: false }], supportsSystemPrompt: true, supportsTemperature: true },
+        { id: "ollama", label: "Ollama", models: [{ id: "glm-ocr:bf16", label: "glm-ocr:bf16", isDefault: true, supportsTemperature: true }, { id: "llava", label: "llava", isDefault: false, supportsTemperature: true }], supportsSystemPrompt: true },
         { id: "kraken", label: "Kraken", models: [{ id: "catmus-print-fondue-large.mlmodel", label: "CATMuS", isDefault: true }] },
-        { id: "openai", label: "OpenAI", models: [{ id: "gpt-4.1", label: "GPT-4.1", isDefault: true }], requiresApiKey: true, supportsSystemPrompt: true, supportsTemperature: true },
+        { id: "openai", label: "OpenAI", models: [{ id: "gpt-4.1", label: "GPT-4.1", isDefault: true, supportsTemperature: true }], requiresApiKey: true, supportsSystemPrompt: true },
       ],
       segmentationModels: [{ id: "kraken", label: "Kraken", isDefault: true }, { id: "kraken-manuscript", label: "Kraken manuscript", isDefault: false }],
     } as never;
@@ -683,14 +929,56 @@ describe("annotation upload actions", () => {
     });
   });
 
-  it("creates and deletes API keys from settings", async () => {
+  it("updates temperature controls from the selected model capability", async () => {
+    const catalog: TestModelCatalog = {
+      transcriptionProviders: [{
+        id: "gemini",
+        label: "Google Gemini",
+        models: [
+          { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", isDefault: true, supportsTemperature: false },
+          { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", isDefault: false, supportsTemperature: true },
+        ],
+        requiresApiKey: true,
+        supportsSystemPrompt: true,
+      }],
+      segmentationModels: [{ id: "kraken", label: "Kraken", isDefault: true }],
+    } as never;
+
+    await setupShell("contexts", vi.fn(), catalog);
+
+    const model = document.getElementById("contexts-model") as HTMLSelectElement;
+    const temperature = document.getElementById("contexts-temperature") as HTMLInputElement;
+    const temperatureLabel = document.getElementById("contexts-temperature-label") as HTMLLabelElement;
+    expect(model.value).toBe("gemini-3.5-flash");
+    expect(temperature.disabled).toBe(true);
+    expect(temperatureLabel.hidden).toBe(true);
+
+    model.value = "gemini-2.5-flash";
+    model.dispatchEvent(new Event("change"));
+    expect(temperature.disabled).toBe(false);
+    expect(temperatureLabel.hidden).toBe(false);
+
+    temperature.value = "0.4";
+    model.value = "gemini-3.5-flash";
+    model.dispatchEvent(new Event("change"));
+    expect(temperature.disabled).toBe(true);
+    expect(temperature.value).toBe("");
+  });
+
+  it("shows a copyable one-time workspace token in an accessible modal and clears it on close", async () => {
+    const oneTimeKey = "scribe_secret_once";
+    const writeText = vi.fn().mockResolvedValue(undefined);
     vi.mocked(createAPIKey).mockResolvedValue({
-      key: "scribe_secret_once",
+      key: oneTimeKey,
       apiKey: { id: 56n, name: "New key", role: "write", scopes: [], keyPrefix: "sk_new", createdAt: "2026-06-01T00:00:00Z" },
     } as never);
     vi.mocked(deleteAPIKey).mockResolvedValue({} as never);
     Object.defineProperty(window, "alert", { configurable: true, value: vi.fn() });
     Object.defineProperty(window, "confirm", { configurable: true, value: vi.fn(() => true) });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
 
     await setupShell("settings");
     vi.mocked(listAPIKeys).mockResolvedValue([
@@ -706,12 +994,33 @@ describe("annotation upload actions", () => {
 
     name!.value = "New key";
     role!.value = "write";
+    form!.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus();
     form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
     await waitFor(() => {
       expect(createAPIKey).toHaveBeenCalledWith({ name: "New key", role: "write" });
-      expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("scribe_secret_once"));
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("false");
+      expect(document.getElementById("shell-api-key-heading")?.textContent).toBe("Copy workspace token");
+      const token = document.getElementById("shell-api-key-value") as HTMLTextAreaElement | null;
+      expect(token?.readOnly).toBe(true);
+      expect(token?.value).toBe(oneTimeKey);
+      expect(document.activeElement).toBe(token);
+      expect(token?.selectionStart).toBe(0);
+      expect(token?.selectionEnd).toBe(oneTimeKey.length);
     });
+
+    document.getElementById("shell-api-key-copy")?.click();
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(oneTimeKey);
+      expect(document.getElementById("shell-api-key-copy-status")?.textContent).toBe("Copied to clipboard.");
+    });
+
+    document.getElementById("shell-api-key-done")?.click();
+    expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("true");
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement | null)?.value).toBe("");
+    expect(document.body.textContent).not.toContain(oneTimeKey);
+    expect(document.activeElement).toBe(document.getElementById("settings-api-key-name"));
 
     let deleteButton: HTMLButtonElement | null = null;
     await waitFor(() => {
@@ -723,6 +1032,197 @@ describe("annotation upload actions", () => {
     await waitFor(() => {
       expect(deleteAPIKey).toHaveBeenCalledWith("55");
     });
+  });
+
+  it("ignores a delayed clipboard failure after the workspace token modal closes", async () => {
+    let rejectCopy: ((reason?: unknown) => void) | undefined;
+    const pendingCopy = new Promise<void>((_resolve, reject) => {
+      rejectCopy = reject;
+    });
+    const writeText = vi.fn().mockReturnValue(pendingCopy);
+    vi.mocked(createAPIKey).mockResolvedValue({
+      key: "scribe_secret_once",
+      apiKey: { id: 57n, name: "Delayed copy", role: "write", scopes: [], keyPrefix: "sk_new", createdAt: "2026-06-01T00:00:00Z" },
+    } as never);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    await setupShell("settings");
+    const name = document.getElementById("settings-api-key-name") as HTMLInputElement;
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    name.value = "Delayed copy";
+    form.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus();
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await waitFor(() => {
+      expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("false");
+    });
+    document.getElementById("shell-api-key-copy")?.click();
+    expect(writeText).toHaveBeenCalledWith("scribe_secret_once");
+
+    document.getElementById("shell-api-key-done")?.click();
+    expect(document.activeElement?.id).toBe("settings-api-key-name");
+    rejectCopy?.(new Error("clipboard denied"));
+
+    await waitFor(() => {
+      expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("true");
+      expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("");
+      expect(document.getElementById("shell-api-key-copy-status")?.textContent).toBe("");
+      expect(document.activeElement?.id).toBe("settings-api-key-name");
+    });
+  });
+
+  it("fences delayed workspace token creation and reveals the token before the key list refresh", async () => {
+    let resolveCreate: ((value: Awaited<ReturnType<typeof createAPIKey>>) => void) | undefined;
+    let resolveKeyRefresh: ((value: Awaited<ReturnType<typeof listAPIKeys>>) => void) | undefined;
+    const createResponse = new Promise<Awaited<ReturnType<typeof createAPIKey>>>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const keyRefresh = new Promise<Awaited<ReturnType<typeof listAPIKeys>>>((resolve) => {
+      resolveKeyRefresh = resolve;
+    });
+    vi.mocked(createAPIKey).mockReturnValue(createResponse);
+
+    await setupShell("settings");
+    vi.mocked(listAPIKeys).mockReturnValueOnce(keyRefresh);
+
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    const name = document.getElementById("settings-api-key-name") as HTMLInputElement;
+    const role = document.getElementById("settings-api-key-role") as HTMLSelectElement;
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]') as HTMLButtonElement;
+    name.value = "Race-proof key";
+    role.value = "write";
+
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    expect(createAPIKey).toHaveBeenCalledTimes(1);
+    expect(createAPIKey).toHaveBeenCalledWith({ name: "Race-proof key", role: "write" });
+    expect(name.disabled).toBe(true);
+    expect(role.disabled).toBe(true);
+    expect(submit.disabled).toBe(true);
+    expect(form.getAttribute("aria-busy")).toBe("true");
+
+    resolveCreate?.({
+      key: "scribe_first_response",
+      apiKey: { id: 91n, name: "Race-proof key", role: "write", scopes: [], keyPrefix: "sk_race", createdAt: "2026-06-01T00:00:00Z" },
+    } as never);
+
+    await waitFor(() => {
+      expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("false");
+      expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("scribe_first_response");
+      expect(listAPIKeys).toHaveBeenCalledTimes(2);
+      expect(name.disabled).toBe(true);
+      expect(role.disabled).toBe(true);
+      expect(submit.disabled).toBe(true);
+      expect(form.getAttribute("aria-busy")).toBe("false");
+    });
+
+    const rerenderedForm = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    rerenderedForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(createAPIKey).toHaveBeenCalledTimes(1);
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("scribe_first_response");
+
+    resolveKeyRefresh?.([
+      { id: 91n, name: "Race-proof key", role: "write", scopes: [], keyPrefix: "sk_race", createdAt: "2026-06-01T00:00:00Z" },
+    ] as never);
+    await waitFor(() => {
+      const refreshedName = document.getElementById("settings-api-key-name") as HTMLInputElement;
+      const refreshedRole = document.getElementById("settings-api-key-role") as HTMLSelectElement;
+      const refreshedSubmit = document.querySelector<HTMLButtonElement>('#settings-api-key-form button[type="submit"]');
+      expect(refreshedName.disabled).toBe(true);
+      expect(refreshedRole.disabled).toBe(true);
+      expect(refreshedSubmit?.disabled).toBe(true);
+      expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("scribe_first_response");
+    });
+
+    document.getElementById("shell-api-key-done")?.click();
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("");
+    expect(document.querySelector<HTMLButtonElement>('#settings-api-key-form button[type="submit"]')?.disabled).toBe(false);
+  });
+
+  it("keeps a created token visible and distinguishes a subsequent key-list refresh failure", async () => {
+    vi.mocked(createAPIKey).mockResolvedValue({
+      key: "scribe_created_before_refresh_failure",
+      apiKey: { id: 94n, name: "Created key", role: "read", scopes: [], keyPrefix: "sk_created", createdAt: "2026-06-01T00:00:00Z" },
+    } as never);
+
+    await setupShell("settings");
+    vi.mocked(listAPIKeys).mockRejectedValueOnce(new Error("list unavailable"));
+
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    (document.getElementById("settings-api-key-name") as HTMLInputElement).value = "Created key";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await waitFor(() => {
+      expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("false");
+      expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("scribe_created_before_refresh_failure");
+      expect(document.getElementById("settings-api-key-status")?.textContent).toContain("created, but the workspace token list could not be refreshed");
+      expect(document.getElementById("settings-api-key-status")?.textContent).not.toContain("Create failed");
+    });
+  });
+
+  it("revokes a workspace token that resolves after the page is hidden without exposing it", async () => {
+    let resolveCreate: ((value: Awaited<ReturnType<typeof createAPIKey>>) => void) | undefined;
+    vi.mocked(createAPIKey).mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    vi.mocked(deleteAPIKey).mockResolvedValue();
+
+    await setupShell("settings");
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    (document.getElementById("settings-api-key-name") as HTMLInputElement).value = "Abandoned key";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    window.dispatchEvent(new Event("pagehide"));
+
+    resolveCreate?.({
+      key: "scribe_never_expose_after_pagehide",
+      apiKey: { id: 92n, name: "Abandoned key", role: "read", scopes: [], keyPrefix: "sk_gone", createdAt: "2026-06-01T00:00:00Z" },
+    } as never);
+
+    await waitFor(() => {
+      expect(deleteAPIKey).toHaveBeenCalledWith(92n, { workspaceId: "7" });
+    });
+    expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("true");
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("");
+    expect(document.body.textContent).not.toContain("scribe_never_expose_after_pagehide");
+  });
+
+  it("revokes a stale workspace token even when the user switches away and back before creation resolves", async () => {
+    let resolveCreate: ((value: Awaited<ReturnType<typeof createAPIKey>>) => void) | undefined;
+    vi.mocked(createAPIKey).mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    vi.mocked(deleteAPIKey).mockResolvedValue();
+
+    await setupShell("settings");
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement;
+    (document.getElementById("settings-api-key-name") as HTMLInputElement).value = "Stale key";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    const workspaceSelect = document.getElementById("sidebar-workspace-select") as HTMLSelectElement;
+    const otherWorkspace = document.createElement("option");
+    otherWorkspace.textContent = "Other workspace";
+    otherWorkspace.value = "8";
+    workspaceSelect.add(otherWorkspace);
+    workspaceSelect.value = "8";
+    workspaceSelect.dispatchEvent(new Event("change"));
+    workspaceSelect.value = "7";
+    workspaceSelect.dispatchEvent(new Event("change"));
+
+    resolveCreate?.({
+      key: "scribe_never_expose_after_workspace_switch",
+      apiKey: { id: 93n, name: "Stale key", role: "read", scopes: [], keyPrefix: "sk_stale", createdAt: "2026-06-01T00:00:00Z" },
+    } as never);
+
+    await waitFor(() => {
+      expect(deleteAPIKey).toHaveBeenCalledWith(93n, { workspaceId: "7" });
+    });
+    expect(document.getElementById("shell-api-key-dialog")?.getAttribute("aria-hidden")).toBe("true");
+    expect((document.getElementById("shell-api-key-value") as HTMLTextAreaElement).value).toBe("");
+    expect(document.body.textContent).not.toContain("scribe_never_expose_after_workspace_switch");
   });
 
   it("creates provider secrets and removes stored provider secrets from settings", async () => {

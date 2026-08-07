@@ -31,6 +31,12 @@ func TestAnnotationEnrichmentConnectErrorMapsProviderFailures(t *testing.T) {
 			wantCode:    connect.CodeUnavailable,
 			wantMessage: "transcription provider is temporarily unavailable",
 		},
+		{
+			name:        "blank output",
+			cause:       errEmptyAnnotationTranscription,
+			wantCode:    connect.CodeFailedPrecondition,
+			wantMessage: "transcription provider returned no text",
+		},
 	}
 
 	for _, test := range tests {

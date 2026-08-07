@@ -1,11 +1,11 @@
 import { startTransition } from 'react';
 import PropTypes from 'prop-types';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
-import BackspaceOutlinedIcon from '@mui/icons-material/BackspaceOutlined';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import AddBoxOutlinedIcon from '@mui/icons-material/AddBoxOutlined';
 import BorderColorOutlinedIcon from '@mui/icons-material/BorderColorOutlined';
 import CallSplitOutlinedIcon from '@mui/icons-material/CallSplitOutlined';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import HorizontalSplitOutlinedIcon from '@mui/icons-material/HorizontalSplitOutlined';
 import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
 import MergeTypeOutlinedIcon from '@mui/icons-material/MergeTypeOutlined';
@@ -37,6 +37,8 @@ import { annotationGranularity, annotationText, isLineAnnotation } from '../util
 import { scribeTheme } from '../theme';
 import StructuralEditDialogs from './StructuralEditDialogs';
 
+const compactEditorMedia = '@media (max-width: 480px), (max-height: 500px)';
+
 export const actionPanelRootSx = {
   alignItems: 'center',
   background: `linear-gradient(180deg, ${scribeTheme.background} 0%, ${scribeTheme.surfaceMuted} 100%)`,
@@ -50,6 +52,60 @@ export const actionPanelRootSx = {
   overflow: 'auto',
   p: 1,
   width: '100%',
+  [compactEditorMedia]: {
+    p: 0.5,
+  },
+};
+
+export const actionPanelToolbarLayoutSx = {
+  alignItems: 'stretch',
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 1.5,
+  justifyContent: 'center',
+  minWidth: 0,
+  width: '100%',
+  [compactEditorMedia]: {
+    gap: 0.5,
+  },
+};
+
+export const shortcutLegendSx = {
+  alignSelf: 'stretch',
+  display: 'grid',
+  flex: '1 1 280px',
+  gap: 0.5,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))',
+  listStyle: 'none',
+  m: 0,
+  maxWidth: 560,
+  minWidth: 0,
+  p: 0,
+  pl: 0.5,
+  width: '100%',
+  '@media (max-height: 500px)': {
+    display: 'none',
+  },
+  '@media (max-width: 480px)': {
+    gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))',
+  },
+};
+
+export const compactToolbarActionSx = {
+  [compactEditorMedia]: {
+    minHeight: 30,
+    minWidth: 34,
+    px: 0.5,
+    '& .MuiButton-startIcon': {
+      m: 0,
+    },
+  },
+};
+
+export const toolbarActionLabelSx = {
+  [compactEditorMedia]: {
+    display: 'none',
+  },
 };
 
 /**
@@ -70,6 +126,7 @@ export const actionPanelRootSx = {
  * @property {ToolbarVariant} [variant]
  * @typedef {Object} ScribeActionPanelProps
  * @property {IdentifiedAnnotation[]} annotations
+ * @property {boolean} batchTranscriptionActive
  * @property {boolean} canSplitToWords
  * @property {boolean} drawMode
  * @property {string} id
@@ -116,6 +173,7 @@ export const actionPanelRootSx = {
  * }} structuralEdits
  * @property {boolean} transcribeDialogOpen
  * @property {string[]} transcribeSelection
+ * @property {IdentifiedAnnotation[]} visibleAnnotations
  * @property {string} windowId
  */
 
@@ -131,6 +189,7 @@ function ToolbarAction({
   title,
   variant = 'outlined',
 }) {
+  const destructive = color === 'error' && variant === 'contained';
   return (
     <Tooltip title={title} placement="top">
       <span>
@@ -148,25 +207,33 @@ function ToolbarAction({
             backdropFilter: 'blur(10px)',
             backgroundColor: disabled
               ? scribeTheme.surfaceMuted
-              : selected
-                ? scribeTheme.selected
-                : scribeTheme.surface,
-            border: `1px solid ${scribeTheme.border}`,
+              : destructive
+                ? 'error.main'
+                : selected
+                  ? scribeTheme.selected
+                  : scribeTheme.surface,
+            border: '1px solid',
+            borderColor: destructive && !disabled ? 'error.dark' : scribeTheme.border,
             borderRadius: 2,
             boxShadow: disabled ? 'none' : `0 8px 20px ${scribeTheme.shadowSoft}`,
-            color: selected ? scribeTheme.selectedForeground : scribeTheme.foreground,
+            color: destructive && !disabled
+              ? 'error.contrastText'
+              : selected ? scribeTheme.selectedForeground : scribeTheme.foreground,
             minHeight: 34,
             px: 1.25,
             textTransform: 'none',
             transition: 'transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease',
             '&:hover': {
-              backgroundColor: disabled ? scribeTheme.surfaceMuted : (selected ? scribeTheme.selected : scribeTheme.accent),
+              backgroundColor: disabled
+                ? scribeTheme.surfaceMuted
+                : destructive ? 'error.dark' : (selected ? scribeTheme.selected : scribeTheme.accent),
               boxShadow: disabled ? 'none' : `0 12px 24px ${scribeTheme.shadow}`,
               transform: disabled ? 'none' : 'translateY(-1px)',
             },
+            ...compactToolbarActionSx,
           }}
         >
-          {label}
+          <Box component="span" sx={toolbarActionLabelSx}>{label}</Box>
         </Button>
       </span>
     </Tooltip>
@@ -193,14 +260,9 @@ function ShortcutLegend() {
 
   return (
     <Box
+      aria-label="Keyboard shortcuts"
       component="ul"
-      sx={{
-        alignSelf: 'center',
-        listStyle: 'none',
-        m: 0,
-        p: 0,
-        pl: 0.5,
-      }}
+      sx={shortcutLegendSx}
     >
       {shortcuts.map((shortcut) => (
         <Box
@@ -210,7 +272,7 @@ function ShortcutLegend() {
             alignItems: 'center',
             display: 'flex',
             gap: 0.75,
-            mb: 0.3,
+            minWidth: 0,
           }}
         >
           <Typography component="span" sx={{ color: 'text.disabled', fontSize: 10, lineHeight: 1 }}>
@@ -225,9 +287,24 @@ function ShortcutLegend() {
               borderColor: scribeTheme.border,
               fontSize: 10,
               height: 18,
+              '@media (max-width: 480px)': {
+                fontSize: 9,
+                height: 16,
+                '& .MuiChip-label': { px: 0.5 },
+              },
             }}
           />
-          <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11, lineHeight: 1 }}>
+          <Typography
+            component="span"
+            noWrap
+            sx={{
+              color: 'text.secondary',
+              fontSize: 11,
+              lineHeight: 1,
+              minWidth: 0,
+              '@media (max-width: 480px)': { display: 'none' },
+            }}
+          >
             {shortcut.label}
           </Typography>
         </Box>
@@ -251,6 +328,7 @@ ToolbarAction.propTypes = {
 /** @param {ScribeActionPanelProps} props */
 export default function ScribeActionPanel({
   annotations,
+  batchTranscriptionActive,
   canSplitToWords,
   drawMode,
   id,
@@ -280,10 +358,16 @@ export default function ScribeActionPanel({
   structuralEdits,
   transcribeDialogOpen,
   transcribeSelection,
+  visibleAnnotations,
   windowId,
 }) {
   const { t } = useTranslation();
   const orderedAnnotations = annotations;
+  const pageLineAnnotations = orderedAnnotations.filter(isLineAnnotation);
+  const visibleLineAnnotations = visibleAnnotations.filter(isLineAnnotation);
+  const validTranscribeSelection = transcribeSelection.filter((id) => (
+    visibleLineAnnotations.some((annotation) => annotation.id === id)
+  ));
   const hasSelection = Boolean(selectedAnnotation?.id);
 
   const overlayModeLabel = overlayMode === 'edit' ? 'Edit overlay'
@@ -298,13 +382,7 @@ export default function ScribeActionPanel({
         sx={actionPanelRootSx}
       >
         <Box
-          sx={{
-            alignItems: 'stretch',
-            display: 'flex',
-            gap: 1.5,
-            justifyContent: 'center',
-            width: '100%',
-          }}
+          sx={actionPanelToolbarLayoutSx}
         >
           <Box
             sx={{
@@ -313,20 +391,31 @@ export default function ScribeActionPanel({
               borderRadius: 3,
               boxShadow: `0 10px 30px ${scribeTheme.shadowSoft}`,
               display: 'flex',
+              flex: '1 1 480px',
               flexDirection: 'column',
               maxWidth: 680,
+              minWidth: 0,
               p: 1,
+              width: '100%',
+              [compactEditorMedia]: { p: 0.5 },
             }}
           >
-            <Stack spacing={1}>
+            <Stack spacing={0.5}>
               <Box>
                 <Typography
                   variant="caption"
-                  sx={{ color: 'text.secondary', display: 'block', mb: 0.75, px: 0.25, textTransform: 'uppercase' }}
+                  sx={{
+                    color: 'text.secondary',
+                    display: 'block',
+                    mb: 0.5,
+                    px: 0.25,
+                    textTransform: 'uppercase',
+                    [compactEditorMedia]: { display: 'none' },
+                  }}
                 >
                   View and modes
                 </Typography>
-                <Stack direction="row" flexWrap="wrap" useFlexGap spacing={0.75}>
+                <Stack aria-label="View and modes" direction="row" flexWrap="wrap" role="group" useFlexGap spacing={0.5}>
                   <ToolbarAction
                     title={t('scribeEditorCreateLine')}
                     label="Draw line"
@@ -370,16 +459,23 @@ export default function ScribeActionPanel({
                 </Stack>
               </Box>
 
-              <Divider />
+              <Divider sx={{ [compactEditorMedia]: { display: 'none' } }} />
 
               <Box>
                 <Typography
                   variant="caption"
-                  sx={{ color: 'text.secondary', display: 'block', mb: 0.75, px: 0.25, textTransform: 'uppercase' }}
+                  sx={{
+                    color: 'text.secondary',
+                    display: 'block',
+                    mb: 0.5,
+                    px: 0.25,
+                    textTransform: 'uppercase',
+                    [compactEditorMedia]: { display: 'none' },
+                  }}
                 >
                   Text and page actions
                 </Typography>
-                <Stack direction="row" flexWrap="wrap" useFlexGap spacing={0.75}>
+                <Stack aria-label="Text and page actions" direction="row" flexWrap="wrap" role="group" useFlexGap spacing={0.5}>
                   <ToolbarAction
                     title={t('scribeEditorSplitWords')}
                     label="Split to words"
@@ -424,22 +520,8 @@ export default function ScribeActionPanel({
                     icon={AutoFixHighIcon}
                     color="secondary"
                     keyShortcuts="Alt+R"
-                    disabled={isBusy || orderedAnnotations.length === 0}
+                    disabled={batchTranscriptionActive || isBusy || pageLineAnnotations.length === 0}
                     onClick={onTranscribeDialogOpen}
-                  />
-                  <ToolbarAction
-                    title={t('scribeEditorDelete')}
-                    label="Delete"
-                    icon={BackspaceOutlinedIcon}
-                    color="error"
-                    disabled={isBusy || !hasSelection}
-                    onClick={() => {
-                      const annotationId = selectedAnnotation?.id;
-                      if (!annotationId) return;
-                      startTransition(() => {
-                        void onDelete(annotationId);
-                      });
-                    }}
                   />
                   <ToolbarAction
                     title={t('scribeEditorSave')}
@@ -466,6 +548,21 @@ export default function ScribeActionPanel({
                       });
                     }}
                   />
+                  <ToolbarAction
+                    title={t('scribeEditorDelete')}
+                    label="Delete"
+                    icon={DeleteOutlineIcon}
+                    color="error"
+                    disabled={isBusy || !hasSelection}
+                    onClick={() => {
+                      const annotationId = selectedAnnotation?.id;
+                      if (!annotationId) return;
+                      startTransition(() => {
+                        void onDelete(annotationId);
+                      });
+                    }}
+                    variant="contained"
+                  />
                 </Stack>
               </Box>
             </Stack>
@@ -474,7 +571,7 @@ export default function ScribeActionPanel({
               direction="row"
               role="group"
               spacing={0.75}
-              sx={{ alignItems: 'center', justifyContent: 'center', mt: 0.75 }}
+              sx={{ alignItems: 'center', justifyContent: 'center', mt: 0.5 }}
             >
               <Chip
                 aria-current={selectedGranularity === 'line' ? 'true' : undefined}
@@ -554,7 +651,7 @@ export default function ScribeActionPanel({
               fullWidth
               size="large"
               variant="contained"
-              disabled={isBusy || orderedAnnotations.length === 0}
+              disabled={batchTranscriptionActive || isBusy || pageLineAnnotations.length === 0}
               startIcon={<AutoFixHighIcon />}
               onClick={() => {
                 onTranscribeDialogClose();
@@ -574,7 +671,7 @@ export default function ScribeActionPanel({
                 },
               }}
             >
-            &nbsp; entire page
+              Retranscribe entire page
             </Button>
 
             <Divider>
@@ -585,7 +682,7 @@ export default function ScribeActionPanel({
 
             <List dense disablePadding sx={{ maxHeight: 280, overflowY: 'auto' }}>
               {(() => {
-                const lineAnnotations = orderedAnnotations.filter(isLineAnnotation);
+                const lineAnnotations = visibleLineAnnotations;
                 const allLinesSelected = lineAnnotations.length > 0
                   && lineAnnotations.every((a) => transcribeSelection.includes(a.id));
                 return (
@@ -635,6 +732,13 @@ export default function ScribeActionPanel({
           </Stack>
         </DialogContent>
         <DialogActions>
+          <Button
+            disabled={isBusy}
+            onClick={onTranscribeDialogClose}
+            size="small"
+          >
+            Cancel
+          </Button>
           <Tooltip title={t('scribeEditorTranscribeSelected')}>
             <span>
               <Button
@@ -642,14 +746,14 @@ export default function ScribeActionPanel({
                 color="secondary"
                 size="small"
                 startIcon={<AutoFixHighIcon />}
-                disabled={isBusy || transcribeSelection.length === 0}
+                disabled={batchTranscriptionActive || isBusy || validTranscribeSelection.length === 0}
                 onClick={() => {
                   onTranscribeDialogClose();
-                  void onTranscribe({ all: false, annotationIds: transcribeSelection });
+                  void onTranscribe({ all: false, annotationIds: validTranscribeSelection });
                 }}
                 sx={{ textTransform: 'none' }}
               >
-                Transcribe selected
+                Retranscribe selected
               </Button>
             </span>
           </Tooltip>
@@ -666,6 +770,7 @@ ScribeActionPanel.propTypes = {
     target: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
     textGranularity: PropTypes.string,
   })).isRequired,
+  batchTranscriptionActive: PropTypes.bool.isRequired,
   canSplitToWords: PropTypes.bool.isRequired,
   drawMode: PropTypes.bool.isRequired,
   id: PropTypes.string.isRequired,
@@ -714,5 +819,11 @@ ScribeActionPanel.propTypes = {
   }).isRequired,
   transcribeDialogOpen: PropTypes.bool.isRequired,
   transcribeSelection: PropTypes.arrayOf(PropTypes.string).isRequired,
+  visibleAnnotations: PropTypes.arrayOf(PropTypes.shape({
+    body: PropTypes.oneOfType([PropTypes.array, PropTypes.object, PropTypes.string]),
+    id: PropTypes.string,
+    target: PropTypes.oneOfType([PropTypes.object, PropTypes.string]),
+    textGranularity: PropTypes.string,
+  })).isRequired,
   windowId: PropTypes.string.isRequired,
 };

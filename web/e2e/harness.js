@@ -1,6 +1,12 @@
 import "../src/styles.css";
 import { annotationClient } from "../src/api/annotations";
 import { parseIIIFJSON } from "../src/lib/iiif-json";
+import {
+  bottomPaneHeightForViewport,
+  commonViewerOptions,
+  observeResponsiveBottomPane,
+} from "../src/pages/editor/mirador";
+import { renderEditorLayout } from "../src/pages/editor/layout";
 
 const status = document.getElementById("harness-status");
 const app = document.getElementById("app");
@@ -27,6 +33,7 @@ let pluginState = null;
 const pluginLoadItemImageIds = [];
 const pluginSaveItemImageIds = [];
 const pluginActiveCanvasEvents = [];
+const pluginTranscriptionCalls = [];
 let pluginLastEditorState = null;
 let pluginPendingSplit = null;
 let pluginStructuralCalls = {
@@ -129,6 +136,7 @@ async function initializePlugin(structural = false) {
     import("../src/pages/editor/canvas-image-registry"),
   ]);
   const Mirador = miradorModule.default;
+  const updateWindow = miradorModule.updateWindow;
   pluginSetCanvas = miradorModule.setCanvas;
   const PluginAdapter = adapterModule.default;
   const canvasA = `${window.location.origin}/e2e/canvas/a`;
@@ -138,6 +146,7 @@ async function initializePlugin(structural = false) {
     { canvasUri: canvasB, id: 2002n },
   ]);
   pluginStructuralCalls = { joinLineIds: [], joinWordIds: [], splitAtWord: 0 };
+  pluginTranscriptionCalls.length = 0;
   pluginState = new Map([
     ["1001", {
       page: page([{
@@ -178,6 +187,17 @@ async function initializePlugin(structural = false) {
   ]);
   pluginState.get("1001").page.id = "https://scribe.test/presentation/v3/item-image-1001/canvas/page-1/annotations";
   const client = {
+    async enrichAnnotation(itemImageId, scope, annotationJson, contextId) {
+      const submitted = parseIIIFJSON(annotationJson);
+      pluginTranscriptionCalls.push({
+        annotationId: submitted?.id || "",
+        contextId: String(contextId),
+        itemImageId: String(itemImageId),
+        scope,
+      });
+      if (scope !== "line") throw new Error(`unexpected browser transcription scope ${scope}`);
+      return withAnnotationValue(submitted, `retranscribed ${annotationValue(submitted)}`);
+    },
     async getAnnotationPage(itemImageId) {
       pluginLoadItemImageIds.push(String(itemImageId));
       const snapshot = pluginState.get(String(itemImageId));
@@ -231,17 +251,36 @@ async function initializePlugin(structural = false) {
       );
     },
   };
-  const adapterFactory = (canvasId) => new PluginAdapter(
+  const responsive = new URLSearchParams(window.location.search).get("responsive") === "1";
+  const viewerId = responsive ? "mirador-viewer" : "plugin-mirador";
+  if (responsive) {
+    status.hidden = true;
+    renderEditorLayout(app);
+  } else {
+    app.style.height = "900px";
+    app.style.width = "1200px";
+    app.id = viewerId;
+  }
+  const viewerElement = document.getElementById(viewerId);
+  const viewerOptions = commonViewerOptions(
     window.location.origin,
-    3,
-    canvasId,
-    "Browser plugin test",
-    {
-      client,
+    PluginAdapter,
+    client,
+    (canvasId) => ({
       contextId: "1",
       itemImageId: registry.itemImageIdForCanvas(canvasId),
       windowId: "plugin-window",
+    }),
+    {
+      ajaxWithCredentials: false,
+      animationTime: 0,
+      blendTime: 0,
+      crossOriginPolicy: "Anonymous",
     },
+    bottomPaneHeightForViewport({
+      height: viewerElement?.clientHeight || window.innerHeight,
+      width: viewerElement?.clientWidth || window.innerWidth,
+    }),
   );
   document.addEventListener("scribe:active-canvas", (event) => {
     pluginActiveCanvasEvents.push(structuredClone(event.detail));
@@ -251,6 +290,34 @@ async function initializePlugin(structural = false) {
       pluginLastEditorState = structuredClone(event.detail);
     }
   });
+  const pluginRemoteRebaseReady = new Set();
+  const handlePluginRemoteRebaseReady = (event) => {
+    const detail = event.detail;
+    if (detail?.windowId !== "plugin-window") return;
+    let itemImageId;
+    try {
+      itemImageId = registry.itemImageIdForCanvas(detail.canvasId);
+    } catch {
+      return;
+    }
+    if (String(detail.itemImageId || "") !== String(itemImageId)) return;
+    const identity = `${detail.windowId}\u0000${detail.canvasId}\u0000${itemImageId}`;
+    if (pluginRemoteRebaseReady.has(identity)) return;
+    pluginRemoteRebaseReady.add(identity);
+    document.dispatchEvent(new CustomEvent("scribe:transcription-job-state", {
+      detail: {
+        active: false,
+        canvasId: detail.canvasId,
+        itemImageId: String(itemImageId),
+        message: "",
+        windowId: detail.windowId,
+      },
+    }));
+  };
+  document.addEventListener("scribe:remote-rebase-ready", handlePluginRemoteRebaseReady);
+  window.addEventListener("pagehide", () => {
+    document.removeEventListener("scribe:remote-rebase-ready", handlePluginRemoteRebaseReady);
+  }, { once: true });
   document.addEventListener("scribe:request-publish", (event) => {
     document.dispatchEvent(new CustomEvent("scribe:publish-result", {
       detail: {
@@ -262,19 +329,16 @@ async function initializePlugin(structural = false) {
       },
     }));
   });
-  app.style.height = "900px";
-  app.style.width = "1200px";
-  app.id = "plugin-mirador";
   pluginStore = Mirador.viewer({
-    id: "plugin-mirador",
-    annotation: { adapter: adapterFactory, readonly: false },
-    osdConfig: { animationTime: 0, blendTime: 0, crossOriginPolicy: "Anonymous" },
+    ...viewerOptions,
+    id: viewerId,
     windows: [{
       canvasId: canvasA,
       id: "plugin-window",
       manifestId: `${window.location.origin}/e2e/two-canvas-manifest.json`,
     }],
     window: {
+      ...viewerOptions.window,
       allowClose: false,
       allowFullscreen: false,
       allowMaximize: false,
@@ -283,6 +347,19 @@ async function initializePlugin(structural = false) {
     },
     workspaceControlPanel: { enabled: false },
   }, [...pluginModule.default]);
+  if (responsive && viewerElement) {
+    const stopResponsiveBottomPane = observeResponsiveBottomPane(
+      viewerElement,
+      (height) => pluginStore?.store?.dispatch(updateWindow(
+        "plugin-window",
+        { defaultSidebarPanelHeight: height },
+      )),
+    );
+    window.addEventListener("pagehide", () => {
+      stopResponsiveBottomPane();
+      pluginStore?.unmount?.();
+    }, { once: true });
+  }
 
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
@@ -802,6 +879,7 @@ function pluginSnapshot() {
     selectedAnnotationId: pluginLastEditorState?.selectedAnnotationId || "",
     selectedDraftTarget: structuredClone(selectedDraft?.target || null),
     statusMessage: pluginLastEditorState?.statusMessage || "",
+    transcriptionCalls: structuredClone(pluginTranscriptionCalls),
     splitPending: Boolean(pluginPendingSplit),
     structural: {
       calls: structuredClone(pluginStructuralCalls),

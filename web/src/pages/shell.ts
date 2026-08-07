@@ -11,7 +11,7 @@ import { mapConcurrent } from "../lib/async";
 import { html, setHTML, uint64ToString } from "../lib/util";
 import type { AnnotationExportFormat } from "../proto/scribe/v1/annotation_pb";
 import { ContextSchema, type Context, type GetModelCatalogResponse } from "../proto/scribe/v1/context_pb";
-import type { ItemSummary } from "../proto/scribe/v1/item_pb";
+import { UploadBatchFileStatus, type ItemSummary } from "../proto/scribe/v1/item_pb";
 import type { WorkspaceAccess, WorkspaceMember } from "../proto/scribe/v1/workspace_pb";
 import { avatar, buttons, canAdminWorkspace, canWriteWorkspace, card, contextOptions, currentWorkspace, currentWorkspaceRole, editorHrefForItem, formatDateTime, input, itemExportFormats, loginHref, primary, renderAPIKeys, renderItemActions, renderItemCard, renderProviderSecrets, workspaceIdString, type ItemExportActionState } from "./shell_helpers";
 
@@ -75,7 +75,13 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   let activeSingleUpload: AbortController | undefined;
   let drawerReturnFocus: HTMLElement | null = null;
   let modalReturnFocus: HTMLElement | null = null;
+  let apiKeyDialogReturnFocus: HTMLElement | null = null;
   let uploadDialogReturnFocus: HTMLElement | null = null;
+  let oneTimeAPIKey = "";
+  let apiKeyCreatePending = false;
+  let apiKeyCreateStatus = "";
+  let apiKeyCreateGeneration = 0;
+  let apiKeyCopyGeneration = 0;
   let modalLoadGeneration = 0;
   let contextMetricsGeneration = 0;
   let settingsDataGeneration = 0;
@@ -104,6 +110,19 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           <div id="shell-modal-body" class="mt-5"></div>
         </div>
       </div>
+      <div id="shell-api-key-dialog" aria-hidden="true" aria-labelledby="shell-api-key-heading" aria-describedby="shell-api-key-description" aria-modal="true" role="dialog" class="fixed inset-0 z-[60] hidden items-center justify-center bg-foreground/20 p-4">
+        <div class="${card} w-full max-w-xl" tabindex="-1">
+          <h2 id="shell-api-key-heading" class="text-lg font-semibold">Copy workspace token</h2>
+          <p id="shell-api-key-description" class="mt-2 text-sm text-muted-foreground">This token is shown only once. Copy it before closing this dialog.</p>
+          <label for="shell-api-key-value" class="mt-5 block text-sm font-medium">Workspace token</label>
+          <textarea id="shell-api-key-value" aria-label="Workspace token" autocomplete="off" class="${input} mt-2 min-h-24 resize-y font-mono text-xs" readonly spellcheck="false" wrap="off"></textarea>
+          <p id="shell-api-key-copy-status" role="status" aria-live="polite" class="mt-2 min-h-5 text-sm text-muted-foreground"></p>
+          <div class="mt-5 flex flex-wrap justify-end gap-2">
+            <button id="shell-api-key-copy" class="${primary}" type="button">Copy token</button>
+            <button id="shell-api-key-done" class="${buttons}" type="button">Done</button>
+          </div>
+        </div>
+      </div>
       <div id="shell-upload-dialog" aria-hidden="true" aria-labelledby="shell-upload-heading" aria-modal="true" role="dialog" class="fixed inset-0 z-[60] hidden items-center justify-center bg-foreground/20 p-4">
         <div class="${card} w-full max-w-md" tabindex="-1">
           <div class="flex items-start gap-3">
@@ -129,6 +148,9 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   const modal = document.getElementById("shell-modal") as HTMLDivElement;
   const modalTitle = document.getElementById("shell-modal-title") as HTMLParagraphElement;
   const modalBody = document.getElementById("shell-modal-body") as HTMLDivElement;
+  const apiKeyDialog = document.getElementById("shell-api-key-dialog") as HTMLDivElement;
+  const apiKeyValue = document.getElementById("shell-api-key-value") as HTMLTextAreaElement;
+  const apiKeyCopyStatus = document.getElementById("shell-api-key-copy-status") as HTMLParagraphElement;
   const uploadDialog = document.getElementById("shell-upload-dialog") as HTMLDivElement;
   const uploadFilename = document.getElementById("shell-upload-filename") as HTMLParagraphElement;
   const uploadStatus = document.getElementById("shell-upload-status") as HTMLParagraphElement;
@@ -137,18 +159,103 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
 
   function syncDialogInertness(): void {
     const modalOpen = !modal.classList.contains("hidden");
+    const apiKeyOpen = !apiKeyDialog.classList.contains("hidden");
     const uploadOpen = !uploadDialog.classList.contains("hidden");
     const drawerOpen = state.panel !== null;
     for (const element of [sidebar, topbar, content, accountFab]) {
-      element.inert = uploadOpen || modalOpen || drawerOpen;
+      element.inert = uploadOpen || modalOpen || apiKeyOpen || drawerOpen;
     }
-    drawer.inert = uploadOpen || modalOpen;
-    modal.inert = uploadOpen || !modalOpen;
+    drawer.inert = uploadOpen || modalOpen || apiKeyOpen;
+    modal.inert = uploadOpen || apiKeyOpen || !modalOpen;
+    apiKeyDialog.inert = uploadOpen || !apiKeyOpen;
     uploadDialog.inert = !uploadOpen;
   }
 
-  function openSingleUploadDialog(filename: string): void {
-    uploadDialogReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  function syncAPIKeyCreationUI(): void {
+    const form = document.getElementById("settings-api-key-form") as HTMLFormElement | null;
+    const blocked = apiKeyCreatePending || oneTimeAPIKey !== "";
+    form?.setAttribute("aria-busy", apiKeyCreatePending ? "true" : "false");
+    form?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>("input, select, button")
+      .forEach((control) => { control.disabled = blocked; });
+    const submit = form?.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (submit) submit.textContent = apiKeyCreatePending ? "Creating…" : "Create key";
+    const status = document.getElementById("settings-api-key-status");
+    if (status) status.textContent = apiKeyCreateStatus;
+  }
+
+  function invalidatePendingAPIKeyCreation(): void {
+    apiKeyCreateGeneration++;
+    if (!apiKeyCreatePending) return;
+    apiKeyCreatePending = false;
+    apiKeyCreateStatus = "";
+    syncAPIKeyCreationUI();
+  }
+
+  function selectCurrentWorkspace(workspaceId: string | number | bigint | null | undefined): string {
+    const nextWorkspaceId = applyWorkspaceToLocation(workspaceId);
+    if (nextWorkspaceId !== state.currentWorkspaceId) invalidatePendingAPIKeyCreation();
+    state.currentWorkspaceId = nextWorkspaceId;
+    return nextWorkspaceId;
+  }
+
+  function openAPIKeyDialog(key: string, returnFocus: HTMLElement | null): void {
+    apiKeyCopyGeneration++;
+    oneTimeAPIKey = key;
+    apiKeyDialogReturnFocus = returnFocus;
+    apiKeyValue.value = key;
+    apiKeyCopyStatus.textContent = "";
+    apiKeyDialog.classList.remove("hidden");
+    apiKeyDialog.classList.add("flex");
+    apiKeyDialog.setAttribute("aria-hidden", "false");
+    syncAPIKeyCreationUI();
+    syncDialogInertness();
+    apiKeyValue.focus({ preventScroll: true });
+    apiKeyValue.select();
+  }
+
+  function closeAPIKeyDialog({ restoreFocus = true } = {}): void {
+    apiKeyCopyGeneration++;
+    oneTimeAPIKey = "";
+    apiKeyValue.value = "";
+    apiKeyCopyStatus.textContent = "";
+    apiKeyDialog.classList.add("hidden");
+    apiKeyDialog.classList.remove("flex");
+    apiKeyDialog.setAttribute("aria-hidden", "true");
+    syncAPIKeyCreationUI();
+    syncDialogInertness();
+    if (restoreFocus) {
+      const focusTarget = apiKeyDialogReturnFocus?.isConnected
+        ? apiKeyDialogReturnFocus
+        : document.getElementById("settings-api-key-name") ?? document.getElementById("shell-account-button");
+      focusTarget?.focus({ preventScroll: true });
+    }
+    apiKeyDialogReturnFocus = null;
+  }
+
+  async function copyOneTimeAPIKey(): Promise<void> {
+    if (!oneTimeAPIKey) return;
+    const key = oneTimeAPIKey;
+    const generation = ++apiKeyCopyGeneration;
+    const copyIsCurrent = () => !disposed
+      && generation === apiKeyCopyGeneration
+      && oneTimeAPIKey === key
+      && !apiKeyDialog.classList.contains("hidden");
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(key);
+      if (!copyIsCurrent()) return;
+      apiKeyCopyStatus.textContent = "Copied to clipboard.";
+    } catch {
+      if (!copyIsCurrent()) return;
+      apiKeyValue.focus({ preventScroll: true });
+      apiKeyValue.select();
+      apiKeyCopyStatus.textContent = "Automatic copy is unavailable. Press Ctrl+C or Command+C to copy the selected token.";
+    }
+  }
+
+  function openSingleUploadDialog(filename: string, returnFocus?: HTMLElement | null): void {
+    uploadDialogReturnFocus = returnFocus
+      ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     uploadFilename.textContent = filename;
     uploadStatus.textContent = "Preparing file…";
     uploadSpinner.classList.remove("hidden");
@@ -169,13 +276,15 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
 
   function closeSingleUploadDialog(): void {
     if (activeSingleUpload) return;
+    const fileInput = document.getElementById("library-single-file") as HTMLInputElement | null;
+    if (fileInput) fileInput.value = "";
     uploadDialog.classList.add("hidden");
     uploadDialog.classList.remove("flex");
     uploadDialog.setAttribute("aria-hidden", "true");
     syncDialogInertness();
     const focusTarget = uploadDialogReturnFocus?.isConnected
       ? uploadDialogReturnFocus
-      : document.getElementById("library-single-file") ?? document.getElementById("library-refresh");
+      : fileInput ?? document.getElementById("library-refresh");
     focusTarget?.focus({ preventScroll: true });
     uploadDialogReturnFocus = null;
   }
@@ -212,7 +321,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       return [] as WorkspaceAccess[];
     });
     const ids = new Set(state.workspaces.map((entry) => uint64ToString(entry.workspace?.id ?? 0n)));
-    if (!ids.has(state.currentWorkspaceId)) state.currentWorkspaceId = applyWorkspaceToLocation(workspaceIdString(state.workspaces[0]?.workspace?.id));
+    if (!ids.has(state.currentWorkspaceId)) selectCurrentWorkspace(workspaceIdString(state.workspaces[0]?.workspace?.id));
   }
 
   async function refreshMembers() {
@@ -324,17 +433,18 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     state.contextMetrics = new Map(metrics.flatMap((metric) => metric ? [[metric.contextId.toString(), metric] as const] : []));
   }
 
-  async function refreshSettingsData() {
-    if (!state.auth?.authenticated) return;
+  async function refreshSettingsData(): Promise<"updated" | "failed" | "stale"> {
+    if (!state.auth?.authenticated) return "stale";
     const generation = ++settingsDataGeneration;
     const workspaceID = state.currentWorkspaceId;
-    const [secrets, keys] = await Promise.all([
-      listProviderSecrets().catch(() => [] as ProviderSecretRecord[]),
-      canAdminWorkspace(state) ? listAPIKeys().catch(() => [] as APIKeyRecord[]) : Promise.resolve([] as APIKeyRecord[]),
+    const [secrets, keys] = await Promise.allSettled([
+      listProviderSecrets(),
+      canAdminWorkspace(state) ? listAPIKeys() : Promise.resolve([] as APIKeyRecord[]),
     ]);
-    if (generation !== settingsDataGeneration || workspaceID !== state.currentWorkspaceId) return;
-    state.providerSecrets = secrets;
-    state.apiKeys = keys;
+    if (generation !== settingsDataGeneration || workspaceID !== state.currentWorkspaceId) return "stale";
+    state.providerSecrets = secrets.status === "fulfilled" ? secrets.value : [];
+    state.apiKeys = keys.status === "fulfilled" ? keys.value : [];
+    return secrets.status === "fulfilled" && keys.status === "fulfilled" ? "updated" : "failed";
   }
 
   async function ensurePanelData(panel: ShellPanel) {
@@ -394,7 +504,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     ` : html`<h2 class="text-2xl font-semibold">Scribe</h2><p class="mt-3 text-sm text-muted-foreground">${state.authError || "Sign in to manage workspaces."}</p><a href="${loginHref(state.auth)}" class="${primary} mt-4">Sign in with Google</a>`);
 
     document.getElementById("sidebar-workspace-select")?.addEventListener("change", async (event) => {
-      state.currentWorkspaceId = applyWorkspaceToLocation((event.target as HTMLSelectElement).value);
+      selectCurrentWorkspace((event.target as HTMLSelectElement).value);
       await refreshWorkspaceScopedData();
       if (state.panel) await ensurePanelData(state.panel);
       renderAll();
@@ -404,7 +514,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       if (!name) return;
       const created = await createWorkspace(name);
       await refreshWorkspaces();
-      state.currentWorkspaceId = applyWorkspaceToLocation(workspaceIdString(created.workspace?.id));
+      selectCurrentWorkspace(workspaceIdString(created.workspace?.id));
       await refreshWorkspaceScopedData();
       renderAll();
     });
@@ -492,11 +602,12 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const submitSingleUpload = async () => {
       if (activeSingleUpload) return;
       const status = document.getElementById("library-single-status") as HTMLParagraphElement | null;
-      const file = (document.getElementById("library-single-file") as HTMLInputElement).files?.[0];
+      const fileInput = document.getElementById("library-single-file") as HTMLInputElement;
+      const file = fileInput.files?.[0];
       if (!file) return;
       const controller = new AbortController();
       activeSingleUpload = controller;
-      openSingleUploadDialog(file.name || "Selected image");
+      openSingleUploadDialog(file.name || "Selected image", fileInput);
       if (status) status.textContent = "Uploading and processing…";
       try {
         const result = await uploadItemImages([file], {
@@ -505,19 +616,25 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           onProgress: ({ completed, total, filename, status: progressStatus, attempt }) => {
             if (activeSingleUpload !== controller) return;
             if (progressStatus === "hashing") uploadStatus.textContent = `Preparing ${completed + 1}/${total}: ${filename}`;
+            else if (progressStatus === "uploading") uploadStatus.textContent = `Uploading and processing ${completed + 1}/${total}…`;
             else if (progressStatus === "retrying") uploadStatus.textContent = `Upload interrupted; retrying ${filename} (attempt ${attempt + 1})…`;
             else if (progressStatus === "completed") uploadStatus.textContent = `Uploaded ${completed}/${total}. Starting automatic transcription…`;
             else if (progressStatus === "failed") uploadStatus.textContent = `Upload failed for ${filename}.`;
             else uploadStatus.textContent = "Canceling upload…";
           },
         });
+        if (disposed || activeSingleUpload !== controller) return;
         const uploaded = result.batch.files.find((entry) => entry.sequence === 1);
-        const itemImageId = uint64ToString(uploaded?.itemImageId ?? 0n);
+        if (!uploaded || uploaded.status !== UploadBatchFileStatus.COMPLETED) {
+          throw new Error("selected file did not complete");
+        }
+        const itemImageId = uint64ToString(uploaded.itemImageId);
         if (!itemImageId || itemImageId === "0") throw new Error("upload completed without an image identifier");
+        const jobId = uint64ToString(uploaded.transcriptionJobId);
+        if (!jobId || jobId === "0") throw new Error("upload completed without a transcription job identifier");
         const params = new URLSearchParams({ itemImageId });
         if (result.item.id) params.set("itemId", result.item.id);
-        const jobId = uint64ToString(uploaded?.transcriptionJobId ?? 0n);
-        if (jobId && jobId !== "0") params.set("jobId", jobId);
+        params.set("jobId", jobId);
         window.location.href = workspaceAwarePath(`/editor?${params.toString()}`);
       } catch (error) {
         if (activeSingleUpload !== controller) return;
@@ -552,9 +669,9 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           contextId: selectedContextId(),
           signal: controller.signal,
           onProgress: ({ completed, total, filename, status: progressStatus }) => {
-            status.textContent = progressStatus === "hashing"
-              ? `Preparing ${completed + 1}/${total}: ${filename}`
-              : `Uploaded ${completed}/${total}: ${filename}`;
+            if (progressStatus === "hashing") status.textContent = `Preparing ${completed + 1}/${total}: ${filename}`;
+            else if (progressStatus === "uploading") status.textContent = `Uploading and processing ${completed + 1}/${total}: ${filename}`;
+            else status.textContent = `Uploaded ${completed}/${total}: ${filename}`;
           },
         });
         await refreshWorkspaceScopedData();
@@ -618,7 +735,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const systemPrompt = document.getElementById("contexts-system-prompt") as HTMLTextAreaElement | null;
     const temperature = document.getElementById("contexts-temperature") as HTMLInputElement | null;
     const temperatureLabel = document.getElementById("contexts-temperature-label") as HTMLLabelElement | null;
-    const syncProviderCapabilities = () => {
+    const syncProviderCapabilities = (refreshModels: boolean) => {
       const provider = providers.find((candidate) => candidate.id === providerSelect?.value) ?? selectedProvider;
       // Some DOM implementations do not initialize select.value from a
       // dynamically-rendered selected option until the next layout pass.
@@ -627,21 +744,27 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       if (providerSelect && provider && providerSelect.value !== provider.id) {
         providerSelect.value = provider.id;
       }
-      if (modelSelect) {
+      if (modelSelect && refreshModels) {
         setHTML(modelSelect, html`${(provider?.models ?? []).map((model) => html`<option value="${model.id}"${model.isDefault ? " selected" : ""}>${model.label || model.id}</option>`)}`);
+        const defaultModel = provider?.models.find((candidate) => candidate.isDefault) ?? provider?.models[0];
+        if (defaultModel) modelSelect.value = defaultModel.id;
       }
+      const model = provider?.models.find((candidate) => candidate.id === modelSelect?.value)
+        ?? provider?.models.find((candidate) => candidate.isDefault)
+        ?? provider?.models[0];
       if (systemPrompt) {
         systemPrompt.disabled = !provider?.supportsSystemPrompt;
         if (systemPrompt.disabled) systemPrompt.value = "";
       }
       if (temperature && temperatureLabel) {
-        temperature.disabled = !provider?.supportsTemperature;
+        temperature.disabled = !model?.supportsTemperature;
         temperatureLabel.hidden = temperature.disabled;
         if (temperature.disabled) temperature.value = "";
       }
     };
-    providerSelect?.addEventListener("change", syncProviderCapabilities);
-    syncProviderCapabilities();
+    providerSelect?.addEventListener("change", () => syncProviderCapabilities(true));
+    modelSelect?.addEventListener("change", () => syncProviderCapabilities(false));
+    syncProviderCapabilities(true);
     document.getElementById("contexts-create-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const name = (document.getElementById("contexts-name") as HTMLInputElement).value.trim();
@@ -667,6 +790,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   function renderSettingsPanel() {
     const workspace = currentWorkspace(state);
     const admin = canAdminWorkspace(state);
+    const apiKeyCreationBlocked = apiKeyCreatePending || oneTimeAPIKey !== "";
     const secretProviderOptions = (state.modelCatalog?.transcriptionProviders ?? [])
       .filter((provider) => provider.requiresApiKey)
       .map((provider) => html`<option value="${provider.id}">${provider.label || provider.id}</option>`);
@@ -677,7 +801,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         <section class="${card} mt-4"><h3 class="text-xl font-semibold">${workspace?.name || "Workspace"}</h3><form id="settings-rename-workspace" class="mt-3 flex gap-2"><input id="settings-workspace-name" aria-label="Workspace name" class="${input}" value="${workspace?.name || ""}"${admin && !workspace?.isPersonal ? "" : " disabled"} /><button class="${primary}" type="submit"${admin && !workspace?.isPersonal ? "" : " disabled"}>Rename</button></form><form id="settings-create-workspace" class="mt-3 flex gap-2"><input id="settings-new-workspace-name" aria-label="New workspace name" class="${input}" placeholder="Create a new workspace" /><button class="${buttons}" type="submit">Create workspace</button></form><p id="settings-workspace-status" aria-live="polite" class="mt-2 text-sm text-muted-foreground"></p></section>
         <section class="${card} mt-4"><h3 class="text-xl font-semibold">Workspace members</h3><div class="mt-3 grid gap-2">${state.members.map((member) => html`<div class="flex flex-wrap items-center justify-between gap-2 border-t py-2"><span>${member.user?.email || member.user?.name}</span><select aria-label="Role for ${member.user?.email || member.user?.name}" data-member-role="${uint64ToString(member.user?.id ?? 0n)}" class="${input} max-w-[140px]"${admin && !workspace?.isPersonal ? "" : " disabled"}>${["admin", "write", "create", "read"].map((role) => html`<option value="${role}"${member.role === role ? " selected" : ""}>${role}</option>`)}</select><button data-member-save="${uint64ToString(member.user?.id ?? 0n)}" class="${buttons}" type="button"${admin && !workspace?.isPersonal ? "" : " disabled"}>Save</button><button data-member-remove="${uint64ToString(member.user?.id ?? 0n)}" class="${buttons}" type="button"${admin && !workspace?.isPersonal ? "" : " disabled"}>Remove</button></div>`)}</div><form id="settings-add-member" class="mt-3 grid gap-2 sm:grid-cols-[1fr_140px_auto]"><input id="settings-member-email" aria-label="Member email" class="${input}" placeholder="user@example.edu"${admin && !workspace?.isPersonal ? "" : " disabled"} /><select id="settings-member-role" aria-label="New member role" class="${input}"${admin && !workspace?.isPersonal ? "" : " disabled"}><option>read</option><option>create</option><option>write</option><option>admin</option></select><button class="${primary}" type="submit"${admin && !workspace?.isPersonal ? "" : " disabled"}>Add member</button></form><p id="settings-members-status" aria-live="polite" class="mt-2 text-sm text-muted-foreground"></p></section>
         <section class="${card} mt-4"><h3 class="text-xl font-semibold">Provider secrets</h3><p class="mt-2 text-sm text-muted-foreground">Workspace keys power uploads, reprocessing, and queued transcription. Personal keys are limited to interactive editor enrichment.</p><form id="settings-provider-secret-form" class="mt-3 grid gap-2"><select id="settings-provider-secret-provider" aria-label="Provider" class="${input}"${canWriteWorkspace(state) && secretProviderOptions.length > 0 ? "" : " disabled"}>${secretProviderOptions}</select><input id="settings-provider-secret-name" aria-label="Provider key name" class="${input}" placeholder="Name"${canWriteWorkspace(state) ? "" : " disabled"} /><select id="settings-provider-secret-scope" aria-label="Provider key scope" class="${input}"${canWriteWorkspace(state) ? "" : " disabled"}>${admin ? html`<option value="workspace" selected>Workspace (queued processing)</option>` : ""}<option value="user"${admin ? "" : " selected"}>Personal (editor enrichment only)</option></select><input id="settings-provider-secret-api-key" aria-label="Provider API key" type="password" class="${input}" placeholder="API key"${canWriteWorkspace(state) ? "" : " disabled"} /><button class="${primary}" type="submit"${canWriteWorkspace(state) && secretProviderOptions.length > 0 ? "" : " disabled"}>Save provider key</button><p id="settings-provider-secret-status" aria-live="polite" class="text-sm text-muted-foreground"></p></form><div class="mt-3">${renderProviderSecrets(state.providerSecrets)}</div></section>
-        <section class="${card} mt-4"><h3 class="text-xl font-semibold">Workspace tokens</h3>${admin ? html`<form id="settings-api-key-form" class="mt-3 grid gap-2 sm:grid-cols-[1fr_140px_auto]"><input id="settings-api-key-name" aria-label="Workspace token name" class="${input}" placeholder="Token name" /><select id="settings-api-key-role" aria-label="Workspace token role" class="${input}"><option>read</option><option>create</option><option>write</option><option>admin</option></select><button class="${primary}" type="submit">Create key</button></form>` : ""}<p id="settings-api-key-status" aria-live="polite" class="mt-2 text-sm text-muted-foreground"></p><div class="mt-3">${admin ? renderAPIKeys(state.apiKeys) : ""}</div></section>
+        <section class="${card} mt-4"><h3 class="text-xl font-semibold">Workspace tokens</h3>${admin ? html`<form id="settings-api-key-form" aria-busy="${apiKeyCreatePending ? "true" : "false"}" class="mt-3 grid gap-2 sm:grid-cols-[1fr_140px_auto]"><input id="settings-api-key-name" aria-label="Workspace token name" class="${input}" placeholder="Token name"${apiKeyCreationBlocked ? " disabled" : ""} /><select id="settings-api-key-role" aria-label="Workspace token role" class="${input}"${apiKeyCreationBlocked ? " disabled" : ""}><option>read</option><option>create</option><option>write</option><option>admin</option></select><button class="${primary}" type="submit"${apiKeyCreationBlocked ? " disabled" : ""}>${apiKeyCreatePending ? "Creating…" : "Create key"}</button></form>` : ""}<p id="settings-api-key-status" aria-live="polite" class="mt-2 text-sm text-muted-foreground">${apiKeyCreateStatus}</p><div class="mt-3">${admin ? renderAPIKeys(state.apiKeys) : ""}</div></section>
       ` : html`<a href="${loginHref(state.auth)}" class="${primary} mt-5">Sign in with Google</a>`}
     `);
     bindSettingsActions();
@@ -701,7 +825,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       const name = (document.getElementById("settings-new-workspace-name") as HTMLInputElement).value.trim();
       if (!name) return;
       const created = await createWorkspace(name);
-      await refreshWorkspaces(); state.currentWorkspaceId = applyWorkspaceToLocation(workspaceIdString(created.workspace?.id)); await refreshWorkspaceScopedData(); await refreshSettingsData(); renderAll();
+      await refreshWorkspaces(); selectCurrentWorkspace(workspaceIdString(created.workspace?.id)); await refreshWorkspaceScopedData(); await refreshSettingsData(); renderAll();
     });
     document.getElementById("settings-add-member")?.addEventListener("submit", async (event) => {
       event.preventDefault(); if (!workspace) return;
@@ -719,10 +843,45 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     }));
     document.getElementById("settings-api-key-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const created = await createAPIKey({ name: (document.getElementById("settings-api-key-name") as HTMLInputElement).value.trim(), role: (document.getElementById("settings-api-key-role") as HTMLSelectElement).value }).catch((error) => { if (apiKeyStatus) apiKeyStatus.textContent = `Create failed: ${String(error)}`; return null; });
-      if (!created) return;
-      window.alert(`Copy this API key now. It will not be shown again.\n\n${created.key}`);
-      await refreshSettingsData(); renderAll();
+      if (apiKeyCreatePending || oneTimeAPIKey) return;
+      const form = event.currentTarget as HTMLFormElement;
+      const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const createGeneration = ++apiKeyCreateGeneration;
+      const createWorkspaceID = state.currentWorkspaceId;
+      const createIsCurrent = () => !disposed
+        && createGeneration === apiKeyCreateGeneration
+        && createWorkspaceID === state.currentWorkspaceId;
+      const request = {
+        name: (form.querySelector("#settings-api-key-name") as HTMLInputElement).value.trim(),
+        role: (form.querySelector("#settings-api-key-role") as HTMLSelectElement).value,
+      };
+      apiKeyCreatePending = true;
+      apiKeyCreateStatus = "Creating workspace token…";
+      syncAPIKeyCreationUI();
+      let created: Awaited<ReturnType<typeof createAPIKey>>;
+      try {
+        created = await createAPIKey(request);
+      } catch (error) {
+        if (!createIsCurrent()) return;
+        apiKeyCreatePending = false;
+        apiKeyCreateStatus = `Create failed: ${String(error)}`;
+        syncAPIKeyCreationUI();
+        return;
+      }
+      if (!createIsCurrent()) {
+        await deleteAPIKey(created.apiKey.id, { workspaceId: createWorkspaceID }).catch(() => undefined);
+        return;
+      }
+      openAPIKeyDialog(created.key, returnFocus);
+      apiKeyCreatePending = false;
+      apiKeyCreateStatus = "";
+      syncAPIKeyCreationUI();
+      const refreshResult = await refreshSettingsData();
+      if (!createIsCurrent() || refreshResult === "stale") return;
+      if (refreshResult === "failed") {
+        apiKeyCreateStatus = "Workspace token was created, but the workspace token list could not be refreshed.";
+      }
+      renderAll();
     });
     drawer.querySelectorAll<HTMLButtonElement>("[data-api-key-delete]").forEach((button) => button.addEventListener("click", async () => {
       if (!button.dataset.apiKeyDelete || !window.confirm("Delete this API key?")) return;
@@ -760,7 +919,8 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   }
 
   async function downloadItemExport(itemId: string, format: AnnotationExportFormat): Promise<void> {
-    if (state.itemExports.get(itemId)?.busyFormat !== undefined) return;
+    const currentAction = state.itemExports.get(itemId);
+    if (currentAction?.deleting || currentAction?.busyFormat !== undefined) return;
     state.itemExports.set(itemId, { busyFormat: format });
     renderAll();
     try {
@@ -794,11 +954,23 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       if (itemId && exportOption) void downloadItemExport(itemId, exportOption.format);
     }));
     app.querySelectorAll<HTMLButtonElement>("[data-item-delete]").forEach((button) => button.addEventListener("click", async () => {
-      if (!button.dataset.itemDelete || !window.confirm(`Delete item "${button.dataset.itemDelete}"?`)) return;
-      await deleteItem(button.dataset.itemDelete);
-      await refreshWorkspaceScopedData();
-      if (state.panel) await ensurePanelData(state.panel);
+      const itemId = button.dataset.itemDelete ?? "";
+      const currentAction = state.itemExports.get(itemId);
+      if (!itemId || currentAction?.deleting || currentAction?.busyFormat !== undefined) return;
+      if (!window.confirm(`Delete item "${itemId}"?`)) return;
+      state.itemExports.set(itemId, { ...currentAction, deleting: true, error: undefined });
       renderAll();
+      try {
+        await deleteItem(itemId);
+        state.itemExports.delete(itemId);
+        await refreshWorkspaceScopedData();
+        if (state.panel) await ensurePanelData(state.panel);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        state.itemExports.set(itemId, { deleting: false, error: `Delete failed: ${message}` });
+      } finally {
+        renderAll();
+      }
     }));
   }
 
@@ -872,6 +1044,15 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       }
       return;
     }
+    if (!apiKeyDialog.classList.contains("hidden")) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeAPIKeyDialog();
+      } else {
+        trapDialogFocus(event, apiKeyDialog);
+      }
+      return;
+    }
     if (!modal.classList.contains("hidden")) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -892,6 +1073,8 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   };
 
   document.getElementById("shell-modal-close")?.addEventListener("click", closeLogsModal);
+  document.getElementById("shell-api-key-copy")?.addEventListener("click", () => void copyOneTimeAPIKey());
+  document.getElementById("shell-api-key-done")?.addEventListener("click", () => closeAPIKeyDialog());
   uploadCancel.addEventListener("click", () => {
     if (activeSingleUpload) {
       uploadStatus.textContent = "Canceling upload…";
@@ -915,7 +1098,9 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   }) : null;
   window.addEventListener("pagehide", () => {
     disposed = true;
+    invalidatePendingAPIKeyCreation();
     modalLoadGeneration++;
+    closeAPIKeyDialog({ restoreFocus: false });
     if (itemSearchTimer !== undefined) window.clearTimeout(itemSearchTimer);
     itemListAbortController?.abort();
     activeSingleUpload?.abort();

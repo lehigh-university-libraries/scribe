@@ -202,15 +202,46 @@ during the credentialed build. Its no-IAM preview service account later runs
 the script with preview-anonymous auth to exercise the
 PR-head frontend's complete upload-to-editor handoff with deterministic
 Tesseract processing, canonical annotations, overlay on/off semantics,
-retranscription, save, publish, narrow viewport layout, copy-once token modal,
-and cleanup. Same-origin 4xx/5xx responses, request failures, CSP console
-errors, unexpected native dialogs, missing annotations, and leaked cleanup
-state are failures. Cloud diagnostics admit only exact stage categories,
-including `structure` and `manifest`; free-form log messages, raw browser
-output, and credential-bearing state are not retained.
+resolver-backed default-context selection and the resulting concrete context.
+The retry-bounded upload uses a reviewed two-line fixture and delays the editor
+bundle until durable transcription completes. The editor must reconcile that
+exact job and canonical revision, visibly move its catch-up wand between the
+two lines, and emit matched per-line events. It then mounts the editor before a
+distinct durable job starts, waits for the item-scoped SSE handshake, and proves
+live, attempt-scoped event and wand progress through both lines. Both paths must
+make no automatic foreground
+`EnrichAnnotation` calls and wait for an exact canonical-reload acknowledgment
+before unblocking retranscription.
+
+The scenario then exercises retranscription, live word/line transforms, save,
+publish, destructive-action presentation, the copy-once token modal, and exact
+six-Canvas manifest import. Responsive coverage loads the saved editor once,
+resizes it in place through 360x800, 667x375, 768x1024, and 1440x900, and
+requires all 14 primary actions without scrolling, a usable OpenSeadragon image
+area, and unchanged canonical state. The manifest gate
+requires a mounted Scribe action panel, bounded nonempty OpenSeadragon image
+evidence, exact active Canvas/item-image/URL agreement, canonical and public
+Presentation AnnotationPages, a real Mirador page turn, and a usable editor
+after cycling all overlay modes on the second Canvas. The runner deletes the
+upload through the homepage and the manifest item through the sidebar, accepts
+only exact item-ID confirmation dialogs, and requires both rendered library
+copies to disappear. Cleanup then directly reconciles exact upload, manifest,
+and token identities through the bounded late-commit horizon. Same-origin
+4xx/5xx responses outside the allowed upload retry sequence, request failures,
+CSP console errors, unexpected native dialogs, missing annotations, and leaked
+cleanup state are failures. Cloud diagnostics admit only exact stage
+categories, including `structure` and `manifest`; free-form messages, raw
+browser output, and credential-bearing state are neither generated nor
+uploaded.
+
 `ci/browser-readiness-contract_test.sh` locks the split protected-base/exact-head
-source boundary, image digest, zero-IAM identity, isolated static egress, replay
-schema, and bounded diagnostic contract.
+source boundary, self-contained runner, image digest, zero-IAM identity,
+isolated static egress, replay schema, bounded categorical diagnostics, and the
+30-minute scenario plus 10-minute cleanup reserve beneath the 40-minute Cloud
+Run task. `ci/readiness-fixture-test.sh` proves the runner's embedded bytes and
+declared SHA-256 match the committed deterministic opaque PNG. The reusable
+deploy-workflow contract also fits backend, OCR, and browser readiness plus
+control-plane headroom beneath its 120-minute ceiling.
 
 `make generate` consumes the reviewed dependency commits in `proto/buf.lock`.
 To upgrade a Buf module deliberately, run `cd proto && ../.tools/bin/buf dep

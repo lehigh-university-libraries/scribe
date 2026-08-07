@@ -12,7 +12,7 @@ describe("contextOptions", () => {
   it("keeps resolver-backed Default selected instead of a concrete default row", () => {
     const markup = contextOptions([
       { id: 0n, name: "synthetic", isDefault: true },
-      { id: 11n, name: "Scribe Custom", isDefault: true },
+      { id: 11n, name: "Tesseract OCR", isDefault: true },
       { id: 12n, name: "Workspace default", isDefault: true },
       { id: 13n, name: "Gemini Pro", isDefault: false },
     ] as Context[]).map((option) => option.value).join("");

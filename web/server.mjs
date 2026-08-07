@@ -22,6 +22,10 @@ import {
   pipeUpstreamRequest,
   pipeUpstreamResponse,
 } from "./proxy-pipeline.mjs";
+import {
+  remainingRequestBudgetMs,
+  upstreamTimeoutForBudgetMs,
+} from "./request-budget.mjs";
 import { pipeStaticResponse } from "./static-pipeline.mjs";
 
 function positiveInteger(name, fallback) {
@@ -46,6 +50,30 @@ const backendStartupTimeoutMs = positiveInteger("SCRIBE_FRONTEND_BACKEND_STARTUP
 const backendProbeTimeoutMs = positiveInteger("SCRIBE_FRONTEND_BACKEND_PROBE_TIMEOUT_MS", 2_000);
 const backendProbeRetryMs = positiveInteger("SCRIBE_FRONTEND_BACKEND_PROBE_RETRY_MS", 1_000);
 const backendReadyCacheMs = positiveInteger("SCRIBE_FRONTEND_BACKEND_READY_CACHE_MS", 10_000);
+// Remote segmentation has a 240-second scale-to-zero inference budget. Leave
+// enough time for the backend to commit the upload response while retaining a
+// margin below the frontend platform's 300-second request boundary.
+const defaultBackendUpstreamTimeoutMs = 270_000;
+const backendUpstreamTimeoutMs = positiveInteger(
+  "SCRIBE_FRONTEND_BACKEND_UPSTREAM_TIMEOUT_MS",
+  defaultBackendUpstreamTimeoutMs,
+);
+const defaultFrontendRequestBudgetMs = 285_000;
+const frontendRequestBudgetMs = positiveInteger(
+  "SCRIBE_FRONTEND_REQUEST_BUDGET_MS",
+  defaultFrontendRequestBudgetMs,
+);
+const frontendPlatformRequestBoundaryMs = 300_000;
+if (backendUpstreamTimeoutMs >= frontendRequestBudgetMs) {
+  throw new Error(
+    "SCRIBE_FRONTEND_BACKEND_UPSTREAM_TIMEOUT_MS must be less than SCRIBE_FRONTEND_REQUEST_BUDGET_MS",
+  );
+}
+if (frontendRequestBudgetMs >= frontendPlatformRequestBoundaryMs) {
+  throw new Error(
+    "SCRIBE_FRONTEND_REQUEST_BUDGET_MS must be less than the 300000ms platform request boundary",
+  );
+}
 const edgeMode = (process.env.SCRIBE_FRONTEND_EDGE_MODE || "direct").trim();
 if (edgeMode !== "direct" && edgeMode !== "ppb") {
   throw new Error("SCRIBE_FRONTEND_EDGE_MODE must be direct or ppb");
@@ -58,6 +86,9 @@ let backendReadyUntil = 0;
 let backendProbePromise = null;
 let backendProbeController = null;
 let canonicalPublicOrigin = null;
+const retryAfterBackendWarmupPaths = new Set([
+  "/scribe.v1.ItemService/UploadItemImage",
+]);
 
 const safeErrorCodes = new Set([
   "EACCES",
@@ -470,7 +501,13 @@ async function enforceCanonicalRequestOrigin(req, res, requestURL, pathname) {
   return { continueRequest: false, forwardingIdentity: null };
 }
 
-async function proxyRequest(req, res, pathname, establishedForwardingIdentity = null) {
+async function proxyRequest(
+  req,
+  res,
+  pathname,
+  requestStartedAt,
+  establishedForwardingIdentity = null,
+) {
   const targetOrigin = targetOriginForPath(pathname);
   if (!targetOrigin) {
     res.writeHead(502, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
@@ -481,6 +518,38 @@ async function proxyRequest(req, res, pathname, establishedForwardingIdentity = 
   const usesBackendOrigin = Boolean(backendOrigin && targetOrigin.origin === backendOrigin.origin);
   if (usesBackendOrigin && !transparentBackendStatusPaths.has(pathname)) {
     if (!await waitForRequestBackend(req, res)) return;
+  }
+
+  const budgetNow = performance.now();
+  const remainingBudgetMs = remainingRequestBudgetMs(
+    requestStartedAt,
+    budgetNow,
+    frontendRequestBudgetMs,
+  );
+  const upstreamTimeoutMs = upstreamTimeoutForBudgetMs(
+    requestStartedAt,
+    budgetNow,
+    frontendRequestBudgetMs,
+    backendUpstreamTimeoutMs,
+  );
+  if (upstreamTimeoutMs === 0) {
+    res.writeHead(503, responseHeaders({
+      "content-type": "text/plain; charset=utf-8",
+      "retry-after": "2",
+    }));
+    res.end("frontend request budget exhausted while starting the backend");
+    return;
+  }
+  if (
+    retryAfterBackendWarmupPaths.has(pathname)
+    && remainingBudgetMs < backendUpstreamTimeoutMs
+  ) {
+    res.writeHead(503, responseHeaders({
+      "content-type": "text/plain; charset=utf-8",
+      "retry-after": "2",
+    }));
+    res.end("backend became ready; retry the upload with a fresh request budget");
+    return;
   }
 
   const targetURL = createUpstreamURL(targetOrigin, req.url || "/");
@@ -541,7 +610,30 @@ async function proxyRequest(req, res, pathname, establishedForwardingIdentity = 
   );
   trackActiveStream(upstream);
 
+  let requestBudgetExpired = false;
+  const requestBudgetTimer = setTimeout(() => {
+    requestBudgetExpired = true;
+    const error = new Error("frontend request budget exhausted");
+    if (res.headersSent && !res.destroyed) res.destroy(error);
+    upstream.destroy(error);
+  }, remainingBudgetMs);
+  requestBudgetTimer.unref();
+  const clearRequestBudgetTimer = () => clearTimeout(requestBudgetTimer);
+  res.once("finish", clearRequestBudgetTimer);
+
   upstream.on("error", (error) => {
+    if (requestBudgetExpired) {
+      logFailure("frontend proxy request budget exhausted", error);
+      if (res.destroyed) return;
+      if (!res.headersSent) {
+        res.writeHead(504, responseHeaders({
+          "content-type": "text/plain; charset=utf-8",
+          "retry-after": "2",
+        }));
+      }
+      res.end("upstream request deadline exceeded");
+      return;
+    }
     logFailure("frontend proxy request failed", error);
     if (usesBackendOrigin) invalidateBackendReadiness();
     if (res.destroyed) return;
@@ -550,9 +642,13 @@ async function proxyRequest(req, res, pathname, establishedForwardingIdentity = 
     }
     res.end("upstream request failed");
   });
-  upstream.setTimeout(120_000, () => upstream.destroy(new Error("upstream request timed out")));
-  req.on("aborted", () => upstream.destroy());
+  upstream.setTimeout(upstreamTimeoutMs, () => upstream.destroy(new Error("upstream request timed out")));
+  req.on("aborted", () => {
+    clearRequestBudgetTimer();
+    upstream.destroy();
+  });
   res.on("close", () => {
+    clearRequestBudgetTimer();
     if (!upstream.destroyed) upstream.destroy();
   });
 
@@ -608,6 +704,7 @@ async function resolveStaticPath(pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const requestStartedAt = performance.now();
   if (shuttingDown) {
     res.writeHead(503, responseHeaders({
       connection: "close",
@@ -636,12 +733,24 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (method !== "GET" && method !== "HEAD" && isProxyPath(pathname)) {
-    await proxyRequest(req, res, pathname, canonicalRequest.forwardingIdentity);
+    await proxyRequest(
+      req,
+      res,
+      pathname,
+      requestStartedAt,
+      canonicalRequest.forwardingIdentity,
+    );
     return;
   }
 
   if (isProxyPath(pathname)) {
-    await proxyRequest(req, res, pathname, canonicalRequest.forwardingIdentity);
+    await proxyRequest(
+      req,
+      res,
+      pathname,
+      requestStartedAt,
+      canonicalRequest.forwardingIdentity,
+    );
     return;
   }
 
@@ -671,7 +780,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.headersTimeout = 15_000;
-server.requestTimeout = backendStartupTimeoutMs + 120_000;
+server.requestTimeout = frontendRequestBudgetMs;
 server.keepAliveTimeout = 60_000;
 
 server.on("connection", (socket) => {

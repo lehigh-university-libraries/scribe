@@ -16,6 +16,10 @@ it on create/update, and resolves endpoint, audience, and credentials only when
 executing a job. Context protobuf fields for client-controlled provider URLs or
 audiences are reserved and must not be reintroduced.
 
+Optional sampling controls are model capabilities, not provider-wide guesses.
+Clients show temperature only when the selected model descriptor advertises it;
+the server validates the same capability when a context is written.
+
 Context quality is read through the generated Connect
 `ContextService.GetContextMetrics` RPC. It summarizes committed processing and
 correction data; there is no parallel REST metrics route.

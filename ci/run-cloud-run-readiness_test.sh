@@ -329,19 +329,13 @@ if [[ "$1 $2" == "logging read" ]]; then
     "labels": {
       "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
     },
-    "textPayload": "browser readiness failed: structure\n"
-  },
-  {
-    "labels": {
-      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
-    },
-    "textPayload": "browser readiness failed: manifest\n"
-  },
-  {
-    "labels": {
-      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
-    },
     "textPayload": "browser readiness failed: retranscribe\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: structure\n"
   },
   {
     "labels": {
@@ -366,6 +360,12 @@ if [[ "$1 $2" == "logging read" ]]; then
       "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
     },
     "textPayload": "browser readiness failed: token\n"
+  },
+  {
+    "labels": {
+      "run.googleapis.com/execution_name": "__MOCK_EXECUTION__"
+    },
+    "textPayload": "browser readiness failed: manifest\n"
   },
   {
     "labels": {
@@ -524,13 +524,13 @@ for expected in \
   'browser readiness failed: annotations' \
   'browser readiness failed: editor' \
   'browser readiness failed: overlay' \
-  'browser readiness failed: structure' \
-  'browser readiness failed: manifest' \
   'browser readiness failed: retranscribe' \
+  'browser readiness failed: structure' \
   'browser readiness failed: save' \
   'browser readiness failed: publish' \
   'browser readiness failed: responsive' \
   'browser readiness failed: token' \
+  'browser readiness failed: manifest' \
   'browser readiness failed: cleanup' \
   'browser readiness failed: network' \
   'browser readiness failed: csp' \

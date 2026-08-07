@@ -160,12 +160,13 @@ func (x *Context) GetUpdatedAt() string {
 
 // ModelDescriptor is a server-approved model that can be selected by a context.
 type ModelDescriptor struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
-	IsDefault     bool                   `protobuf:"varint,3,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	Id                  string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Label               string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	IsDefault           bool                   `protobuf:"varint,3,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
+	SupportsTemperature bool                   `protobuf:"varint,4,opt,name=supports_temperature,json=supportsTemperature,proto3" json:"supports_temperature,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ModelDescriptor) Reset() {
@@ -219,6 +220,13 @@ func (x *ModelDescriptor) GetIsDefault() bool {
 	return false
 }
 
+func (x *ModelDescriptor) GetSupportsTemperature() bool {
+	if x != nil {
+		return x.SupportsTemperature
+	}
+	return false
+}
+
 // ProviderDescriptor describes one installed transcription provider. Endpoint
 // and credential details intentionally remain server-owned.
 type ProviderDescriptor struct {
@@ -228,7 +236,6 @@ type ProviderDescriptor struct {
 	Models               []*ModelDescriptor     `protobuf:"bytes,3,rep,name=models,proto3" json:"models,omitempty"`
 	RequiresApiKey       bool                   `protobuf:"varint,4,opt,name=requires_api_key,json=requiresApiKey,proto3" json:"requires_api_key,omitempty"`
 	SupportsSystemPrompt bool                   `protobuf:"varint,5,opt,name=supports_system_prompt,json=supportsSystemPrompt,proto3" json:"supports_system_prompt,omitempty"`
-	SupportsTemperature  bool                   `protobuf:"varint,6,opt,name=supports_temperature,json=supportsTemperature,proto3" json:"supports_temperature,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -294,13 +301,6 @@ func (x *ProviderDescriptor) GetRequiresApiKey() bool {
 func (x *ProviderDescriptor) GetSupportsSystemPrompt() bool {
 	if x != nil {
 		return x.SupportsSystemPrompt
-	}
-	return false
-}
-
-func (x *ProviderDescriptor) GetSupportsTemperature() bool {
-	if x != nil {
-		return x.SupportsTemperature
 	}
 	return false
 }
@@ -1550,19 +1550,19 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"created_at\x18\r \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
 	"updated_at\x18\x0e \x01(\tR\tupdatedAtB\x0e\n" +
-	"\f_temperatureJ\x04\b\a\x10\bJ\x04\b\f\x10\rJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11R\x13image_preprocessorsR\x15post_processing_stepsR\x16transcription_base_urlR\x16transcription_audience\"V\n" +
+	"\f_temperatureJ\x04\b\a\x10\bJ\x04\b\f\x10\rJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11R\x13image_preprocessorsR\x15post_processing_stepsR\x16transcription_base_urlR\x16transcription_audience\"\x89\x01\n" +
 	"\x0fModelDescriptor\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x03 \x01(\bR\tisDefault\"\x81\x02\n" +
+	"is_default\x18\x03 \x01(\bR\tisDefault\x121\n" +
+	"\x14supports_temperature\x18\x04 \x01(\bR\x13supportsTemperature\"\xea\x01\n" +
 	"\x12ProviderDescriptor\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x122\n" +
 	"\x06models\x18\x03 \x03(\v2\x1a.scribe.v1.ModelDescriptorR\x06models\x12(\n" +
 	"\x10requires_api_key\x18\x04 \x01(\bR\x0erequiresApiKey\x124\n" +
-	"\x16supports_system_prompt\x18\x05 \x01(\bR\x14supportsSystemPrompt\x121\n" +
-	"\x14supports_temperature\x18\x06 \x01(\bR\x13supportsTemperature\"\x91\x03\n" +
+	"\x16supports_system_prompt\x18\x05 \x01(\bR\x14supportsSystemPromptJ\x04\b\x06\x10\aR\x14supports_temperature\"\x91\x03\n" +
 	"\rRuleCondition\x12)\n" +
 	"\x05field\x18\x01 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v(\xff\x012\x06.*\\S.*R\x05field\x12.\n" +
 	"\boperator\x18\x02 \x01(\tB\x12\xbaH\x0f\xc8\x01\x01r\n" +

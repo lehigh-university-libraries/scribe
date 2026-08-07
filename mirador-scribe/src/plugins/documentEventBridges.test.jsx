@@ -101,6 +101,7 @@ describe('document event bridges', () => {
     const cache = createEditorSessionCache(canvasId, emptyPage);
     const adapter = { itemImageId: '41', loadSnapshot: vi.fn() };
     const reloadAnnotations = vi.fn(async () => {});
+    const setBatchTranscriptionActive = vi.fn();
     const ready = vi.fn((event) => {
       document.dispatchEvent(new CustomEvent('scribe:reload-annotations', {
         detail: event.detail,
@@ -114,6 +115,7 @@ describe('document event bridges', () => {
       dispatchSession: () => cache,
       reloadAnnotations,
       session: editorSessionForCanvas(cache, canvasId),
+      setBatchTranscriptionActive,
       setStatusMessage: vi.fn(),
       syncPage: vi.fn(async () => {}),
       windowId,
@@ -126,7 +128,139 @@ describe('document event bridges', () => {
       windowId,
     });
     expect(reloadAnnotations).toHaveBeenCalledWith(adapter, canvasId);
+    dispatch('scribe:transcription-job-state', {
+      active: true,
+      canvasId,
+      itemImageId: '41',
+      message: 'Automatic transcription in progress',
+      windowId,
+    });
+    expect(setBatchTranscriptionActive).toHaveBeenCalledWith(true);
     document.removeEventListener('scribe:remote-rebase-ready', ready);
+  });
+
+  it('waits for the canonical page to load before announcing remote-rebase readiness', () => {
+    const emptyPage = page([]);
+    const adapter = { itemImageId: '41', loadSnapshot: vi.fn() };
+    const ready = vi.fn();
+    document.addEventListener('scribe:remote-rebase-ready', ready);
+    let cache = editorSessionCacheReducer(createEditorSessionCache(), {
+      canvasId,
+      type: 'load-start',
+    });
+    const options = {
+      adapterFactory: () => adapter,
+      canvasId,
+      dispatchSession: () => cache,
+      reloadAnnotations: vi.fn(async () => true),
+      session: editorSessionForCanvas(cache, canvasId),
+      setBatchTranscriptionActive: vi.fn(),
+      setStatusMessage: vi.fn(),
+      syncPage: vi.fn(async () => {}),
+      windowId,
+    };
+
+    mount(<RemoteRebaseHarness options={options} />);
+    expect(ready).not.toHaveBeenCalled();
+
+    cache = editorSessionCacheReducer(cache, {
+      canvasId,
+      page: emptyPage,
+      revision: '1',
+      type: 'loaded',
+    });
+    act(() => root.render(<RemoteRebaseHarness options={{
+      ...options,
+      session: editorSessionForCanvas(cache, canvasId),
+    }} />));
+
+    expect(ready).toHaveBeenCalledOnce();
+    document.removeEventListener('scribe:remote-rebase-ready', ready);
+  });
+
+  it('acknowledges a correlated reload only after the canonical reload succeeds', async () => {
+    const emptyPage = page([]);
+    const cache = createEditorSessionCache(canvasId, emptyPage);
+    const adapter = { itemImageId: '41', loadSnapshot: vi.fn() };
+    let finishReload;
+    const reloadAnnotations = vi.fn(() => new Promise((resolve) => {
+      finishReload = resolve;
+    }));
+    const reloadResult = vi.fn();
+    document.addEventListener('scribe:reload-annotations-result', reloadResult);
+
+    mount(<RemoteRebaseHarness options={{
+      adapterFactory: () => adapter,
+      canvasId,
+      dispatchSession: () => cache,
+      reloadAnnotations,
+      session: editorSessionForCanvas(cache, canvasId),
+      setBatchTranscriptionActive: vi.fn(),
+      setStatusMessage: vi.fn(),
+      syncPage: vi.fn(async () => {}),
+      windowId,
+    }} />);
+
+    dispatch('scribe:reload-annotations', {
+      canvasId,
+      itemImageId: '41',
+      requestId: 'reload-request-1',
+      windowId,
+    });
+    expect(reloadAnnotations).toHaveBeenCalledWith(adapter, canvasId);
+    expect(reloadResult).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishReload(true);
+      await Promise.resolve();
+    });
+    expect(reloadResult).toHaveBeenCalledOnce();
+    expect(reloadResult.mock.calls[0][0].detail).toEqual({
+      canvasId,
+      itemImageId: '41',
+      ok: true,
+      requestId: 'reload-request-1',
+      windowId,
+    });
+    document.removeEventListener('scribe:reload-annotations-result', reloadResult);
+  });
+
+  it('negatively acknowledges a correlated reload failure without leaking adapter errors', async () => {
+    const emptyPage = page([]);
+    const cache = createEditorSessionCache(canvasId, emptyPage);
+    const adapter = { itemImageId: '41', loadSnapshot: vi.fn() };
+    const reloadAnnotations = vi.fn(async () => false);
+    const reloadResult = vi.fn();
+    document.addEventListener('scribe:reload-annotations-result', reloadResult);
+
+    mount(<RemoteRebaseHarness options={{
+      adapterFactory: () => adapter,
+      canvasId,
+      dispatchSession: () => cache,
+      reloadAnnotations,
+      session: editorSessionForCanvas(cache, canvasId),
+      setBatchTranscriptionActive: vi.fn(),
+      setStatusMessage: vi.fn(),
+      syncPage: vi.fn(async () => {}),
+      windowId,
+    }} />);
+
+    dispatch('scribe:reload-annotations', {
+      canvasId,
+      itemImageId: '41',
+      requestId: 'reload-request-2',
+      windowId,
+    });
+    await act(async () => Promise.resolve());
+    expect(reloadResult).toHaveBeenCalledOnce();
+    expect(reloadResult.mock.calls[0][0].detail).toEqual({
+      canvasId,
+      itemImageId: '41',
+      ok: false,
+      requestId: 'reload-request-2',
+      windowId,
+    });
+    document.removeEventListener('scribe:reload-annotations-result', reloadResult);
   });
 
   it('registers once, routes through the latest callback, and removes the exact listener', () => {
@@ -202,7 +336,6 @@ describe('document event bridges', () => {
     };
     const requestOptions = {
       canvasId,
-      handleTranscribe: noop,
       performSaveAllDirty: async () => ({ ok: true, remainingCanvasIds: [] }),
       windowId,
     };
@@ -224,7 +357,6 @@ describe('document event bridges', () => {
       'scribe:resize-annotation',
       'scribe:annotation-mutation',
       'scribe:request-save',
-      'scribe:request-transcribe-all',
       'scribe:viewport-change',
     ];
     const registrations = new Map(eventNames.map((eventName) => [
@@ -526,17 +658,15 @@ describe('document event bridges', () => {
     expect(setStatusMessage).toHaveBeenCalledWith('Draft updated. Save to persist it.');
   });
 
-  it('correlates scoped save requests and routes transcribe-all commands', async () => {
+  it('correlates scoped save requests', async () => {
     const performSaveAllDirty = vi.fn().mockResolvedValue({
       ok: true,
       remainingCanvasIds: ['https://example.test/canvas/2'],
     });
-    const handleTranscribe = vi.fn();
     const saveResult = vi.fn();
     document.addEventListener('scribe:save-result', saveResult);
     mount(<RequestBridgeHarness options={{
       canvasId,
-      handleTranscribe,
       performSaveAllDirty,
       windowId,
     }} />);
@@ -564,11 +694,6 @@ describe('document event bridges', () => {
         windowId,
       },
     }));
-
-    dispatch('scribe:request-transcribe-all', { canvasId, windowId: 'window-other' });
-    expect(handleTranscribe).not.toHaveBeenCalled();
-    dispatch('scribe:request-transcribe-all', { canvasId, windowId });
-    expect(handleTranscribe).toHaveBeenCalledWith({ all: true });
     document.removeEventListener('scribe:save-result', saveResult);
   });
 
