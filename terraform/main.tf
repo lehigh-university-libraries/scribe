@@ -807,7 +807,7 @@ module "scribe" {
     zone           = var.zone
 
     identity = {
-      # cloud-compose 1.7.2 mints and rotates the scribe app SA key into
+      # cloud-compose 1.8.1 mints and rotates the scribe app SA key into
       # secrets/GOOGLE_APPLICATION_CREDENTIALS. The app requires that file to
       # sign its Vault GCP-IAM login JWT (metadata signJwt is blocked on the VM),
       # so managed credentials must stay enabled.
@@ -836,7 +836,7 @@ module "scribe" {
       mtu                      = google_compute_network.application.mtu
       power_button_allowed_ips = distinct(concat(var.allowed_ips, local.browser_readiness_allowed_ips))
       power_button_ip_depth    = 0
-      ssh_ipv4                 = var.allowed_ssh_ipv4
+      ssh_ipv4                 = local.effective_allowed_ssh_ipv4
       ssh_ipv6                 = var.allowed_ssh_ipv6
     }
 

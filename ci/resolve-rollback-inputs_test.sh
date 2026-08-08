@@ -76,9 +76,16 @@ assert_rejected extra-input '.unexpected = true'
 assert_rejected zero-compose-sha '.docker_compose_sha = "0000000000000000000000000000000000000000"'
 assert_rejected unsupported-generation '.data_generation = "canonical-v999"'
 assert_rejected mutable-image '.api_image = "ghcr.io/lehigh-university-libraries/scribe:main"'
-assert_rejected production-browser-image '.browser_readiness_image = "us-docker.pkg.dev/scribe-test1/internal/scribe-browser-readiness@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+production_browser_fixture="$test_dir/production-browser-image.json"
+jq '.browser_readiness_image = "us-docker.pkg.dev/scribe-test1/internal/scribe-browser-readiness@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"' \
+  "$fixture" >"$production_browser_fixture"
+production_browser_normalized="$($resolver "$production_browser_fixture")"
+jq -e '.browser_readiness_image == "us-docker.pkg.dev/scribe-test1/internal/scribe-browser-readiness@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"' \
+  <<<"$production_browser_normalized" >/dev/null
 assert_rejected null-browser-image '.browser_readiness_image = null'
 assert_rejected zero-browser-image '.browser_readiness_image = "us-docker.pkg.dev/scribe-test1/internal/scribe-browser-readiness@sha256:0000000000000000000000000000000000000000000000000000000000000000"'
+assert_rejected cross-project-browser-image '.browser_readiness_image = "us-docker.pkg.dev/other-project/internal/scribe-browser-readiness@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+assert_rejected mutable-browser-image '.browser_readiness_image = "us-docker.pkg.dev/scribe-test1/internal/scribe-browser-readiness:main"'
 assert_rejected null-browser-subnet '.configuration.browser_readiness_subnet_cidr = null'
 assert_rejected broad-browser-subnet '.configuration.browser_readiness_subnet_cidr = "10.43.0.0/24"'
 assert_rejected null-preview-machine-type '.configuration.preview_machine_type = null'

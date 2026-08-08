@@ -317,22 +317,86 @@ deploy_timeout_expression="$(
   sed -nE 's/^[[:space:]]*timeout-minutes:[[:space:]]*(.+)$/\1/p' \
     "$ROOT_DIR/.github/workflows/terraform-deploy.yaml"
 )"
-readonly EXPECTED_DEPLOY_TIMEOUT_EXPRESSION="\${{ inputs.mode == 'destroy' && inputs.environment_name == 'preview' && 180 || 120 }}"
+readonly EXPECTED_DEPLOY_TIMEOUT_EXPRESSION="\${{ inputs.mode == 'destroy' && 180 || inputs.mode == 'apply' && inputs.environment_name == 'production' && 240 || 120 }}"
 [[ "$deploy_timeout_expression" == "$EXPECTED_DEPLOY_TIMEOUT_EXPRESSION" ]] ||
-  fail "the reusable deploy workflow does not isolate its extended preview destroy timeout"
-readonly deploy_timeout_minutes=120
+  fail "the reusable deploy workflow does not isolate its extended destroy and production recovery timeouts"
+readonly preview_deploy_timeout_minutes=120
+readonly production_deploy_timeout_minutes=240
 readonly DEPLOY_CONTROL_PLANE_HEADROOM_SECONDS=1800
-minimum_deploy_budget=$((
+minimum_production_deploy_budget=$((
   2 * (backend_job_timeout + job_timeout) +
+    2 * browser_job_timeout +
     DEPLOY_CONTROL_PLANE_HEADROOM_SECONDS
 ))
-[[ "$((deploy_timeout_minutes * 60))" -ge "$minimum_deploy_budget" ]] ||
-  fail "the reusable deploy workflow cannot complete rollout and rollback readiness plus control-plane work"
+[[ "$((production_deploy_timeout_minutes * 60))" -ge "$minimum_production_deploy_budget" ]] ||
+  fail "the reusable deploy workflow cannot fence production browser work and complete rollback readiness plus control-plane work"
 minimum_preview_deploy_budget=$((
   backend_job_timeout + job_timeout + browser_job_timeout +
     DEPLOY_CONTROL_PLANE_HEADROOM_SECONDS
 ))
-[[ "$((deploy_timeout_minutes * 60))" -ge "$minimum_preview_deploy_budget" ]] ||
+[[ "$((preview_deploy_timeout_minutes * 60))" -ge "$minimum_preview_deploy_budget" ]] ||
   fail "the reusable deploy workflow cannot complete preview readiness plus control-plane work"
+
+deploy_workflow="$ROOT_DIR/.github/workflows/terraform-deploy.yaml"
+grep -F -- '- name: Fence prior production browser execution' "$deploy_workflow" >/dev/null ||
+  fail "production apply does not fence a prior browser execution before rollout"
+grep -F -- "if: inputs.mode == 'apply' && inputs.pr_number == ''" "$deploy_workflow" >/dev/null ||
+  fail "the prior browser fence is not production-apply-only"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'if ! terraform -chdir=terraform output -json >"$prior_outputs" 2>/dev/null; then' "$deploy_workflow" >/dev/null ||
+  fail "the prior browser fence does not fail closed when production state cannot be read"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'prior_browser_job="$(jq -r '\''.browser_readiness_job.value'\'' "$prior_outputs")"' "$deploy_workflow" >/dev/null ||
+  fail "the prior browser fence does not resolve the exact state-owned job"
+# shellcheck disable=SC2016 # Match literal workflow and GitHub expressions.
+grep -F -- 'if [ '\''${{ steps.previous.outputs.available }}'\'' = true ] && [ -n "$previous_browser_image" ]; then' "$deploy_workflow" >/dev/null ||
+  fail "the prior browser fence does not reject an empty job identity for a recorded runner"
+grep -F -- 'The prior production browser output is missing from non-historical state.' "$deploy_workflow" >/dev/null ||
+  fail "the prior browser fence accepts a missing job output outside historical empty state"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- '"$GITHUB_WORKSPACE/ci/run-cloud-run-readiness.sh" --preflight-only "$prior_browser_job" browser' "$deploy_workflow" >/dev/null ||
+  fail "the prior browser fence does not use the non-launching readiness preflight"
+fence_line="$(rg -n -m1 -- '- name: Fence prior production browser execution' "$deploy_workflow" | cut -d: -f1)"
+apply_line="$(rg -n -m1 -- '- name: Run production Terraform$' "$deploy_workflow" | cut -d: -f1)"
+[[ "$fence_line" =~ ^[1-9][0-9]*$ && "$apply_line" =~ ^[1-9][0-9]*$ && "$fence_line" -lt "$apply_line" ]] ||
+  fail "the prior browser execution is not fenced before production apply"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'forward_browser_readiness_image="$SCRIBE_BROWSER_READINESS_IMAGE"' "$deploy_workflow" >/dev/null ||
+  fail "production rollback does not preserve the reviewed forward browser runner identity"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'forward_browser_readiness_subnet_cidr="$TF_VAR_browser_readiness_subnet_cidr"' "$deploy_workflow" >/dev/null ||
+  fail "production rollback does not preserve the reviewed forward browser subnet identity"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'if [ -z "$previous_browser_readiness_image" ]; then' "$deploy_workflow" >/dev/null ||
+  fail "production rollback does not recognize historical deployment state without a browser runner"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'SCRIBE_BROWSER_READINESS_IMAGE="$forward_browser_readiness_image"' "$deploy_workflow" >/dev/null ||
+  fail "historical first-runner rollback can delete the newly reviewed browser safety graph"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'TF_VAR_browser_readiness_subnet_cidr="$forward_browser_readiness_subnet_cidr"' "$deploy_workflow" >/dev/null ||
+  fail "production rollback can replace the already applied Direct VPC subnet"
+grep -F -- 'Keep the already applied' "$deploy_workflow" >/dev/null ||
+  fail "production rollback does not document its forward subnet safety exception"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'SCRIBE_BROWSER_READINESS_IMAGE="$previous_browser_readiness_image"' "$deploy_workflow" >/dev/null ||
+  fail "ordinary production rollback does not replay the previously recorded browser runner"
+
+rollback_block="$(sed -n '/^[[:space:]]*- name: Roll back failed production rollout$/,/^[[:space:]]*- name: Read production backup outputs$/p' "$deploy_workflow")"
+# shellcheck disable=SC2016 # Match a literal GitHub workflow expression.
+grep -F -- 'FORWARD_APPLY_OUTCOME: ${{ steps.apply.outcome }}' <<<"$rollback_block" >/dev/null ||
+  fail "production rollback does not distinguish a partial apply from post-apply readiness failure"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'if terraform -chdir=terraform output -json >"$rollback_outputs" 2>/dev/null; then' <<<"$rollback_block" >/dev/null ||
+  fail "production rollback does not parse the current output set as a typed document"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- 'if [ "$FORWARD_APPLY_OUTCOME" = success ] && [ -z "$rollback_browser_job" ]; then' <<<"$rollback_block" >/dev/null ||
+  fail "post-apply rollback does not fail closed when the current browser job cannot be resolved"
+# shellcheck disable=SC2016 # Match literal workflow shell source.
+grep -F -- '"$GITHUB_WORKSPACE/ci/run-cloud-run-readiness.sh" --preflight-only "$rollback_browser_job" browser' <<<"$rollback_block" >/dev/null ||
+  fail "production rollback does not fence the current browser execution"
+rollback_fence_line="$(rg -n -m1 -- 'run-cloud-run-readiness\.sh.*--preflight-only.*rollback_browser_job' <<<"$rollback_block" | cut -d: -f1)"
+rollback_apply_line="$(rg -n -m1 -- 'capture-command-log\.sh.*make tf-prod.*ACTION=apply' <<<"$rollback_block" | cut -d: -f1)"
+[[ "$rollback_fence_line" =~ ^[1-9][0-9]*$ && "$rollback_apply_line" =~ ^[1-9][0-9]*$ && "$rollback_fence_line" -lt "$rollback_apply_line" ]] ||
+  fail "the current browser execution is not fenced immediately before production rollback"
 
 echo "OCR readiness retries, timeouts, response contracts, and redacted stage markers passed."

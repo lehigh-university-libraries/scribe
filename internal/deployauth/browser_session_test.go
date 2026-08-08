@@ -59,6 +59,9 @@ func (f *fakeBrowserSessionIdentities) DeleteSession(_ context.Context, token st
 }
 
 func TestMintBrowserSessionFileWritesBoundedPlaywrightState(t *testing.T) {
+	if BrowserSessionTTL != 50*time.Minute {
+		t.Fatalf("browser session TTL = %s, want 50m", BrowserSessionTTL)
+	}
 	outputPath := newBrowserSessionOutputPath(t)
 	now := time.Date(2026, time.August, 4, 12, 0, 0, 0, time.UTC)
 	identities := reservedBrowserSessionIdentities()
@@ -304,7 +307,7 @@ func TestMintBrowserSessionFileAuthenticatesReservedIdentity(t *testing.T) {
 		t.Fatalf("load persisted browser session expiry: %v", err)
 	}
 	remaining := time.Until(expiresAt)
-	if remaining < 4*time.Minute+50*time.Second || remaining > BrowserSessionTTL+5*time.Second {
+	if remaining < BrowserSessionTTL-10*time.Second || remaining > BrowserSessionTTL+5*time.Second {
 		t.Fatalf("persisted browser session remaining lifetime = %s", remaining)
 	}
 }

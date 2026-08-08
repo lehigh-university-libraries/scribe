@@ -16,6 +16,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -42,6 +43,7 @@ type uploadBatchAcceptanceOCR struct {
 	calls             []uploadBatchAcceptanceCall
 	successfulUploads []string
 	failOnceFilename  string
+	failOnceError     error
 	failedOnce        bool
 	block             *uploadBatchAcceptanceBlock
 }
@@ -91,6 +93,9 @@ func (f *uploadBatchAcceptanceOCR) ProcessImageUploadWithContext(ctx context.Con
 	f.mu.Unlock()
 
 	if shouldFail {
+		if f.failOnceError != nil {
+			return nil, f.failOnceError
+		}
 		return nil, fmt.Errorf("temporary segmentation failure")
 	}
 	if block != nil {
@@ -186,7 +191,15 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 	items := store.NewItemStore(database)
 	annotations := store.NewAnnotationStore(database)
 	jobs := store.NewTranscriptionJobStore(database)
-	fakeOCR := &uploadBatchAcceptanceOCR{failOnceFilename: "resume-page-2.png"}
+	fakeOCR := &uploadBatchAcceptanceOCR{
+		failOnceFilename: "resume-page-2.png",
+		failOnceError: providers.NewError(
+			providers.ErrorAuthentication,
+			http.StatusForbidden,
+			false,
+			nil,
+		),
+	}
 	handler := NewHandler(ocrRuns, items, contextStore, annotations, jobs, nil, nil, nil)
 	handler.ocr = fakeOCR
 	appServer := newTenantScopedServer(t, handler, map[string]testTenantIdentity{
@@ -271,7 +284,8 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 	failedFile := uploadBatchAcceptanceFile(t, partialBatch, 2)
 	if partialBatch.GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_IN_PROGRESS ||
 		partialBatch.GetCompletedFiles() != 1 || partialBatch.GetFailedFiles() != 1 ||
-		failedFile.GetStatus() != scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_FAILED || failedFile.GetAttemptCount() != 1 {
+		failedFile.GetStatus() != scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_FAILED || failedFile.GetAttemptCount() != 1 ||
+		failedFile.GetErrorMessage() != "provider request failed with HTTP status 403" {
 		t.Fatalf("partial upload batch = %#v", partialBatch)
 	}
 

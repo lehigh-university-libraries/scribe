@@ -1313,6 +1313,120 @@ describe("renderEditor", () => {
     document.removeEventListener("scribe:reload-annotations", onReload);
   });
 
+  it("loads a partially transcribed page once and reports unreadable lines without restarting", async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(
+      {},
+      "",
+      "/editor?itemImageId=7&jobId=91",
+    );
+    mocks.getOCRRun.mockResolvedValue({
+      contextId: 33n,
+      itemImageId: 7n,
+      model: "tesseract",
+      imageUrl: "https://example.test/page.jpg",
+    });
+    mocks.getTranscriptionJob.mockResolvedValue({
+      id: 91n,
+      itemImageId: 7n,
+      status: "completed",
+      completedSegments: 1,
+      failedSegments: 1,
+      totalSegments: 2,
+      attempts: [{
+        attemptNumber: 1,
+        jobId: 91n,
+        outcome: TranscriptionJobAttemptOutcome.COMPLETED,
+        resultRevision: 20n,
+      }],
+    });
+    const lines = [
+      {
+        id: "https://example.test/annotations/line-1",
+        type: "Annotation",
+        textGranularity: "line",
+        body: { type: "TextualBody", value: "Transcribed line" },
+      },
+      {
+        id: "https://example.test/annotations/line-2",
+        type: "Annotation",
+        textGranularity: "line",
+        body: { type: "TextualBody", value: "Retained human text" },
+      },
+    ];
+    mocks.getAnnotationPage.mockResolvedValue({
+      canvasUri: "https://example.test/canvas/1",
+      page: {
+        id: "https://scribe.test/pages/7",
+        type: "AnnotationPage",
+        items: lines,
+      },
+      revision: "20",
+      updatedAt: "2026-08-07T14:23:56Z",
+    });
+    const segments: Array<Record<string, unknown>> = [];
+    const results: Array<Record<string, unknown>> = [];
+    const reloads: Array<Record<string, unknown>> = [];
+    const onSegment = (event: Event) => {
+      segments.push((event as CustomEvent<Record<string, unknown>>).detail);
+    };
+    const onReload = (event: Event) => {
+      reloads.push((event as CustomEvent<Record<string, unknown>>).detail);
+    };
+    const onResult = (event: Event) => {
+      results.push((event as CustomEvent<Record<string, unknown>>).detail);
+    };
+    document.addEventListener("scribe:transcription-segment", onSegment);
+    document.addEventListener("scribe:transcription-result", onResult);
+    document.addEventListener("scribe:reload-annotations", onReload);
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    await renderEditor(app);
+    document.dispatchEvent(new CustomEvent("scribe:remote-rebase-ready", {
+      detail: {
+        canvasId: "https://example.test/canvas/1",
+        itemImageId: "7",
+        windowId: "scribe-editor-window",
+      },
+    }));
+    document.dispatchEvent(new CustomEvent("scribe:transcription-overlay-state", {
+      detail: {
+        canvasId: "https://example.test/canvas/1",
+        ready: true,
+        windowId: "scribe-editor-window",
+      },
+    }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.getAnnotationPage).not.toHaveBeenCalled();
+    expect(
+      segments
+        .filter((detail) => detail.annotation)
+        .map((detail) => detail.annotationId),
+    ).toEqual([]);
+    expect(results).toEqual([]);
+    expect(reloads).toHaveLength(1);
+    document.dispatchEvent(new CustomEvent("scribe:reload-annotations-result", {
+      detail: { ...reloads[0], ok: true },
+    }));
+    expect(
+      document.getElementById("editor-transcription-status")?.textContent,
+    ).toBe(
+      "Automatic transcription finished: 1/2 lines transcribed; 1 line left unchanged.",
+    );
+    expect(mocks.getTranscriptionJob).toHaveBeenCalled();
+    expect(
+      mocks.getTranscriptionJob.mock.calls.every(([jobID]) => jobID === 91n),
+    ).toBe(true);
+    expect(mocks.listTranscriptionJobs).not.toHaveBeenCalled();
+    expect(mocks.reprocessItemImage).not.toHaveBeenCalled();
+
+    document.removeEventListener("scribe:transcription-segment", onSegment);
+    document.removeEventListener("scribe:transcription-result", onResult);
+    document.removeEventListener("scribe:reload-annotations", onReload);
+  });
+
   it.each([
     {
       name: "revision",
@@ -1402,7 +1516,7 @@ describe("renderEditor", () => {
       safeReload: false,
     },
     {
-      name: "failed-segment count",
+      name: "inconsistent segment totals",
       canvasUri: "https://example.test/canvas/1",
       revision: "20",
       items: [{
@@ -1411,7 +1525,7 @@ describe("renderEditor", () => {
         textGranularity: "line",
         body: { type: "TextualBody", value: "Transcribed line" },
       }],
-      completedSegments: 0,
+      completedSegments: 1,
       failedSegments: 1,
       totalSegments: 1,
       readsCanonicalPage: false,
@@ -2592,6 +2706,220 @@ describe("renderEditor", () => {
     onReady?.();
     await vi.waitFor(() => expect(mocks.listTranscriptionJobs).toHaveBeenCalledTimes(3));
     expect(reloads).toBe(1);
+  });
+
+  it("announces stream readiness only after its durable reconciliation completes", async () => {
+    window.history.replaceState({}, "", "/editor?itemImageId=7");
+    mocks.getOCRRun.mockResolvedValue({
+      contextId: 0n,
+      itemImageId: 7n,
+      model: "test-model",
+      imageUrl: "https://example.test/page.jpg",
+    });
+    let resolveReadyReconciliation: ((jobs: []) => void) | undefined;
+    const readyReconciliation = new Promise<[]>((resolve) => {
+      resolveReadyReconciliation = resolve;
+    });
+    mocks.listTranscriptionJobs
+      .mockResolvedValueOnce([])
+      .mockImplementationOnce(() => readyReconciliation);
+    let onReady: (() => void) | undefined;
+    mocks.subscribeToEvents.mockImplementation((options: { onReady?: () => void }) => {
+      onReady = options.onReady;
+      return { close: vi.fn() };
+    });
+    const streamReadyDetails: Array<Record<string, unknown>> = [];
+    const handleStreamReady = (event: Event) => {
+      streamReadyDetails.push(
+        (event as CustomEvent<Record<string, unknown>>).detail,
+      );
+    };
+    document.addEventListener(
+      "scribe:transcription-stream-ready",
+      handleStreamReady,
+    );
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    try {
+      await renderEditor(app);
+      onReady?.();
+      await vi.waitFor(() => {
+        expect(mocks.listTranscriptionJobs).toHaveBeenCalledTimes(2);
+      });
+      expect(streamReadyDetails).toEqual([]);
+
+      resolveReadyReconciliation?.([]);
+      await vi.waitFor(() => {
+        expect(streamReadyDetails).toEqual([{
+          canvasId: "https://example.test/canvas/1",
+          itemImageId: "7",
+          windowId: "scribe-editor-window",
+        }]);
+      });
+    } finally {
+      document.removeEventListener(
+        "scribe:transcription-stream-ready",
+        handleStreamReady,
+      );
+    }
+  });
+
+  it("does not announce stream readiness when reconciliation fails", async () => {
+    window.history.replaceState({}, "", "/editor?itemImageId=7");
+    mocks.getOCRRun.mockResolvedValue({
+      contextId: 0n,
+      itemImageId: 7n,
+      model: "test-model",
+      imageUrl: "https://example.test/page.jpg",
+    });
+    let rejectReadyReconciliation: ((reason: Error) => void) | undefined;
+    const readyReconciliation = new Promise<[]>((_resolve, reject) => {
+      rejectReadyReconciliation = reject;
+    });
+    mocks.listTranscriptionJobs
+      .mockResolvedValueOnce([])
+      .mockImplementationOnce(() => readyReconciliation);
+    let onReady: (() => void) | undefined;
+    mocks.subscribeToEvents.mockImplementation((options: { onReady?: () => void }) => {
+      onReady = options.onReady;
+      return { close: vi.fn() };
+    });
+    let streamReadyCount = 0;
+    const handleStreamReady = () => {
+      streamReadyCount += 1;
+    };
+    document.addEventListener(
+      "scribe:transcription-stream-ready",
+      handleStreamReady,
+    );
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    try {
+      await renderEditor(app);
+      onReady?.();
+      await vi.waitFor(() => {
+        expect(mocks.listTranscriptionJobs).toHaveBeenCalledTimes(2);
+      });
+      rejectReadyReconciliation?.(new Error("stream reconciliation failed"));
+      await vi.waitFor(() => {
+        expect(document.getElementById("editor-transcription-status")?.textContent)
+          .toContain("event stream will retry");
+      });
+      expect(streamReadyCount).toBe(0);
+    } finally {
+      document.removeEventListener(
+        "scribe:transcription-stream-ready",
+        handleStreamReady,
+      );
+    }
+  });
+
+  it("does not announce stale stream readiness after the editor is disposed", async () => {
+    window.history.replaceState({}, "", "/editor?itemImageId=7");
+    mocks.getOCRRun.mockResolvedValue({
+      contextId: 0n,
+      itemImageId: 7n,
+      model: "test-model",
+      imageUrl: "https://example.test/page.jpg",
+    });
+    let resolveReadyReconciliation: ((jobs: []) => void) | undefined;
+    const readyReconciliation = new Promise<[]>((resolve) => {
+      resolveReadyReconciliation = resolve;
+    });
+    mocks.listTranscriptionJobs
+      .mockResolvedValueOnce([])
+      .mockImplementationOnce(() => readyReconciliation);
+    let onReady: (() => void) | undefined;
+    mocks.subscribeToEvents.mockImplementation((options: { onReady?: () => void }) => {
+      onReady = options.onReady;
+      return { close: vi.fn() };
+    });
+    let streamReadyCount = 0;
+    const handleStreamReady = () => {
+      streamReadyCount += 1;
+    };
+    document.addEventListener(
+      "scribe:transcription-stream-ready",
+      handleStreamReady,
+    );
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    try {
+      await renderEditor(app);
+      onReady?.();
+      await vi.waitFor(() => {
+        expect(mocks.listTranscriptionJobs).toHaveBeenCalledTimes(2);
+      });
+      window.dispatchEvent(new Event("pagehide"));
+      resolveReadyReconciliation?.([]);
+      await readyReconciliation;
+      await Promise.resolve();
+      expect(streamReadyCount).toBe(0);
+    } finally {
+      document.removeEventListener(
+        "scribe:transcription-stream-ready",
+        handleStreamReady,
+      );
+    }
+  });
+
+  it("does not announce stream readiness for a superseded editor window", async () => {
+    window.history.replaceState({}, "", "/editor?itemImageId=7");
+    mocks.getOCRRun.mockResolvedValue({
+      contextId: 0n,
+      itemImageId: 7n,
+      model: "test-model",
+      imageUrl: "https://example.test/page.jpg",
+    });
+    let resolveReadyReconciliation: ((jobs: []) => void) | undefined;
+    const readyReconciliation = new Promise<[]>((resolve) => {
+      resolveReadyReconciliation = resolve;
+    });
+    mocks.listTranscriptionJobs
+      .mockResolvedValueOnce([])
+      .mockImplementationOnce(() => readyReconciliation);
+    let onReady: (() => void) | undefined;
+    mocks.subscribeToEvents.mockImplementation((options: { onReady?: () => void }) => {
+      onReady = options.onReady;
+      return { close: vi.fn() };
+    });
+    let streamReadyCount = 0;
+    const handleStreamReady = () => {
+      streamReadyCount += 1;
+    };
+    document.addEventListener(
+      "scribe:transcription-stream-ready",
+      handleStreamReady,
+    );
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    try {
+      await renderEditor(app);
+      onReady?.();
+      await vi.waitFor(() => {
+        expect(mocks.listTranscriptionJobs).toHaveBeenCalledTimes(2);
+      });
+      document.dispatchEvent(new CustomEvent("scribe:active-canvas", {
+        detail: {
+          canvasId: "https://example.test/canvas/1",
+          itemImageId: "7",
+          windowId: "replacement-window",
+        },
+      }));
+      resolveReadyReconciliation?.([]);
+      await readyReconciliation;
+      await Promise.resolve();
+      expect(streamReadyCount).toBe(0);
+    } finally {
+      document.removeEventListener(
+        "scribe:transcription-stream-ready",
+        handleStreamReady,
+      );
+    }
   });
 
   it("routes completed transcription events into Mirador reload events", async () => {

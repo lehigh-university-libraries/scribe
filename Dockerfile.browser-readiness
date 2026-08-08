@@ -15,7 +15,8 @@ WORKDIR /app
 COPY --from=dependencies --chown=pwuser:pwuser /app/node_modules ./node_modules
 COPY --chown=pwuser:pwuser web/e2e/deployed-readiness-routing.mjs ./deployed-readiness-routing.mjs
 COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs
+COPY --chown=pwuser:pwuser --chmod=0555 web/e2e/deployed-readiness-entrypoint.sh ./deployed-readiness-entrypoint.sh
 
 USER pwuser
 
-ENTRYPOINT ["node", "/app/deployed-readiness.mjs"]
+ENTRYPOINT ["/app/deployed-readiness-entrypoint.sh"]

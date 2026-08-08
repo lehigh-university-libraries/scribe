@@ -13,9 +13,11 @@ Attempt outcomes are `completed`, `retryable_failed`, `failed`, `canceled`,
 those outcomes is permitted. Completion records its result revision in the same
 transaction as the AnnotationPage compare-and-swap, derived index, completion
 event, and webhook outbox. Retryable provider failures use bounded exponential
-backoff. Non-retryable failures and exhausted attempts move the job to `failed`
-with a categorical, redacted reason; a replacement request uses the distinct
-job status `superseded`.
+backoff only when the attempt produced no successful lines. Once any line
+succeeds, the worker commits one partial result, counts unsuccessful lines, and
+does not restart the page from line one. Non-retryable failures and exhausted
+attempts move the job to `failed` with a categorical, redacted reason; a
+replacement request uses the distinct job status `superseded`.
 
 Canceling a multi-file ingest batch atomically marks every pending job canceled
 and closes each currently running attempt as `canceled`. This invalidates the

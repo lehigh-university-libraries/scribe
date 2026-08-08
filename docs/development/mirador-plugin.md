@@ -47,6 +47,11 @@ event with a requested resize handle. After the draft enters the reducer,
 steps. All three event payloads are declared in `src/index.d.ts` and remain
 scoped to one Canvas and Mirador window.
 
+Draft words created beside a selected word are bounded by that word's owning
+line. If the selection already reaches the line's right edge, the new draft
+uses a visible one-pixel box at that edge instead of producing geometry beyond
+the canonical image. The geometry module owns and tests this boundary rule.
+
 Draft annotations use the canonical page namespace
 `<triplet-presentation-base>/item-image-<positive-id>/canvas/page-1/annotations/items/<32-lowercase-hex>`.
 The client rejects any loaded page ID outside

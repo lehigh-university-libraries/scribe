@@ -70,7 +70,7 @@ func TestSystemContextsUseConfiguredModelsAndSupportedCapabilities(t *testing.T)
 		t.Fatal("retired Scribe Custom preset remains in the system catalog")
 	}
 	tesseract := byName["Tesseract OCR"]
-	if !tesseract.isDefault || tesseract.provider != "tesseract" || tesseract.segmentation != "tesseract" || tesseract.model != "tesseract" {
+	if !tesseract.isDefault || tesseract.provider != "tesseract" || tesseract.segmentation != "scribe" || tesseract.model != "tesseract" {
 		t.Fatalf("Tesseract OCR default = %+v", tesseract)
 	}
 	gemini := byName["Gemini Pro"]
@@ -86,12 +86,12 @@ func TestSystemContextsUseConfiguredModelsAndSupportedCapabilities(t *testing.T)
 	}
 }
 
-func TestDefaultTesseractAndProviderSpecificPresetsRemainIndependent(t *testing.T) {
+func TestDefaultScribeSegmentationAndTesseractTranscriptionRemainIndependent(t *testing.T) {
 	cfg := systemContextTestConfig()
 	cfg.LLM.Provider = "kraken"
 	defaultValue := defaultContext(cfg)
-	if defaultValue.Name != "Tesseract OCR" || defaultValue.TranscriptionProvider != "tesseract" || defaultValue.TranscriptionModel != "tesseract" || !defaultValue.IsDefault {
-		t.Fatalf("default context = %+v; want credential-free Tesseract", defaultValue)
+	if defaultValue.Name != "Tesseract OCR" || defaultValue.SegmentationModel != "scribe" || defaultValue.TranscriptionProvider != "tesseract" || defaultValue.TranscriptionModel != "tesseract" || !defaultValue.IsDefault {
+		t.Fatalf("default context = %+v; want Scribe segmentation with credential-free Tesseract transcription", defaultValue)
 	}
 	catalog := systemContexts(cfg)
 	var gemini, krakenBLLA storeContextSelection

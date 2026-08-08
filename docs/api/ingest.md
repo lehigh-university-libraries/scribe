@@ -169,7 +169,10 @@ in-memory progress counter—as the source of truth.
 - `internal`: retry after obtaining current state with `GetUploadBatch`. The
   response and structured log record only a categorical failure class and safe
   operation metadata; raw provider, request, document, and subprocess
-  diagnostics are deliberately not retained.
+  diagnostics are deliberately not retained. A failed file may expose one of
+  Scribe's fixed provider failure messages in `error_message` so clients can
+  distinguish authentication, rejection, timeout, rate-limit, and upstream
+  availability failures without receiving the upstream response.
 
 Every batch operation is workspace-scoped. External integrations should send
 the workspace header through the generated transport and use an API key whose

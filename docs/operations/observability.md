@@ -92,16 +92,26 @@ platform boundary. Managed browser readiness allows 300 seconds for the
 upload/editor handoff. An upload marker covers the frontend's bounded retry
 sequence and requires its last `UploadItemImage` response to succeed;
 individual retryable attempts are not promoted to the generic network marker.
-Structure and manifest markers separately isolate live editor-transform and
-preserve-hOCR import failures.
+`StartUploadBatch`, upload-image, and manifest responses retain their
+stage-specific attribution. Other
+same-origin HTTP 429 responses use the distinct bounded `rate` marker instead
+of the generic network marker, while canonical Presentation AnnotationPage 404
+responses remain attributed to `annotations`. Structure and manifest markers
+separately isolate live editor-transform and preserve-hOCR import failures.
+Other same-origin failures use only fixed endpoint-family and
+client/server/transport network variants; their exact task exit codes remain
+available when the allowlisted Cloud Logging query is unavailable. Browser
+fault collection stops before deadline-driven or direct cleanup so teardown
+traffic cannot mask the original stage.
 
 The cleanup marker can remain active through the 300-second mutation commit
 horizon and a 180-second recovery tail when an upload, manifest import, or token
 creation loses its response; this is bounded recovery, not an unbounded browser
-retry. The runner stops product work after 30 minutes and reserves the final 10
-minutes of its 40-minute Cloud Run task for deadline-aware reconciliation and
-request/control overhead. A platform `deadline` before the categorical browser
-marker therefore indicates runner/job budget drift and must fail deployment.
+retry. The runner stops product work after 27 minutes. Its remaining 13 minutes
+are bounded as eight minutes of resource reconciliation, three minutes of
+session revocation, 30 seconds of browser shutdown, and 90 seconds of platform
+headroom. A platform `deadline` before the categorical browser marker therefore
+indicates runner/job budget drift and must fail deployment.
 Reconciliation logs no resource name, URL, response body, or token secret.
 A failed production Terraform apply or readiness failure initiates automatic
 rollback to the prior recorded reviewed source, configuration, generation, and
@@ -127,4 +137,7 @@ Use the generated Connect APIs for diagnostic data:
 `ItemService.ListItemProviderCallAudits` reports per-item provider calls.
 Provider audits contain bounded metadata and categorical errors, never prompts
 or provider request/response bodies. Neither capability has a parallel REST
-route.
+route. Remote layout detection emits `operation=segment_image` with the
+registered segmentation selection, duration, and (on failure) only a redacted
+provider category and HTTP status. It never records the endpoint, image path,
+response body, or detected document text.

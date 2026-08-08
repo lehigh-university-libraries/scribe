@@ -511,13 +511,14 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		}), nil
 	}
 	attemptCommitted := false
+	attemptPublicError := "processing failed"
 	defer func() {
 		if attemptCommitted {
 			return
 		}
 		failureCtx, cancel := context.WithTimeout(h.backgroundContext(), 15*time.Second)
 		defer cancel()
-		if abortErr := h.items.AbortUploadBatchFileAttempt(failureCtx, workspaceID, batchID, batchFile.Sequence, batchFile.LeaseOwner, "processing failed"); abortErr != nil &&
+		if abortErr := h.items.AbortUploadBatchFileAttempt(failureCtx, workspaceID, batchID, batchFile.Sequence, batchFile.LeaseOwner, attemptPublicError); abortErr != nil &&
 			!errors.Is(abortErr, store.ErrUploadBatchFileFence) && !errors.Is(abortErr, store.ErrUploadBatchNotFound) {
 			slog.Warn("failed to abort upload batch file attempt", "batch_id", batchID, "sequence", batchFile.Sequence, "error_type", safeLogErrorType(abortErr))
 		}
@@ -571,6 +572,9 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		return h.ocr.ProcessImageUploadWithContext(callCtx, batchFile.Filename, imageData, pctx)
 	}()
 	if err != nil {
+		if providerFailure, ok := hocr.SafeProviderFailureMessage(err); ok {
+			attemptPublicError = providerFailure
+		}
 		h.queueUploadFromProcessingError(ctx, err)
 		if leaseErr := leaseFailure(); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)

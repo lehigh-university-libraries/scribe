@@ -371,6 +371,7 @@ jobs:
       contents: read
     outputs:
       api_image: ${{ steps.deployed.outputs.api_image }}
+      browser_readiness_image: ${{ steps.deployed.outputs.browser_readiness_image }}
       frontend_gar_image: ${{ steps.deployed.outputs.frontend_gar_image }}
       ocr_images_json: ${{ steps.deployed.outputs.ocr_images_json }}
     env:
@@ -416,6 +417,7 @@ jobs:
           [ "$(jq -r '.configuration.project_id' <<<"$deployed")" = "$GCLOUD_PROJECT" ]
           {
             echo "api_image=$(jq -r '.api_image' <<<"$deployed")"
+            echo "browser_readiness_image=$(jq -r '.browser_readiness_image' <<<"$deployed")"
             echo "frontend_gar_image=$(jq -r '.frontend_gar_image' <<<"$deployed")"
             echo "ocr_images_json=$(jq -c '.ocr_service_images' <<<"$deployed")"
           } >> "$GITHUB_OUTPUT"
@@ -478,6 +480,7 @@ jobs:
       docker_compose_branch: ${{ github.sha }}
       checkout_ref: ${{ github.sha }}
       image_tag: ${{ needs.resolve-plan-inputs.outputs.api_image }}
+      browser_readiness_image: ${{ needs.resolve-plan-inputs.outputs.browser_readiness_image }}
       frontend_gar_image_tag: ${{ needs.resolve-plan-inputs.outputs.frontend_gar_image }}
       ocr_images_json: ${{ needs.resolve-plan-inputs.outputs.ocr_images_json }}
       region: ${{ needs.prepare-backend-origin.outputs.region }}

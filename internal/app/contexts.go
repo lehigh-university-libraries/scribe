@@ -11,14 +11,15 @@ import (
 
 var retiredSystemContextNames = [...]string{"Default", "Scribe Custom"}
 
-// defaultContext returns the deterministic, credential-free preset used for
-// automatic context resolution.
+// defaultContext returns the credential-free preset used for automatic context
+// resolution. Scribe preserves the established segmentation quality while
+// Tesseract transcribes each detected line without provider credentials.
 func defaultContext(config.Config) store.Context {
 	return store.Context{
 		Name:                  "Tesseract OCR",
-		Description:           "Built-in system context that uses Tesseract segmentation and Tesseract transcription directly.",
+		Description:           "Built-in system context that uses Scribe segmentation and Tesseract line transcription.",
 		IsDefault:             true,
-		SegmentationModel:     "tesseract",
+		SegmentationModel:     "scribe",
 		TranscriptionProvider: "tesseract",
 		TranscriptionModel:    "tesseract",
 	}

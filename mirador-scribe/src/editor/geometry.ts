@@ -73,6 +73,50 @@ export function normalizeImageBBox({ x, y, w, h }: ImageBBox): ImageBBox {
 }
 
 /**
+ * Places a new word after the selected word without leaving its containing
+ * line. When the selection already reaches the right edge, retain a visible
+ * one-pixel box at that edge so the draft stays inside the canonical image.
+ */
+export function wordBBoxBesideSelection(
+  selection: ImageBBox,
+  containingLine: ImageBBox,
+): ImageBBox {
+  const selected = normalizeImageBBox(selection);
+  const container = normalizeImageBBox(containingLine);
+  const containerRight = container.x + container.w;
+  const containerBottom = container.y + container.h;
+  const y = Math.max(container.y, Math.min(selected.y, containerBottom - 1));
+  const h = Math.max(1, Math.min(selected.h, containerBottom - y));
+  const adjacentX = Math.max(container.x, selected.x + selected.w);
+  if (adjacentX < containerRight) {
+    return {
+      x: adjacentX,
+      y,
+      w: Math.max(1, Math.min(selected.w, containerRight - adjacentX)),
+      h,
+    };
+  }
+  return {
+    x: Math.max(container.x, containerRight - 1),
+    y,
+    w: 1,
+    h,
+  };
+}
+
+/** Match the backend's integer word-center containment rule. */
+export function imageBBoxContainsCenter(containerBBox: ImageBBox, itemBBox: ImageBBox): boolean {
+  const container = normalizeImageBBox(containerBBox);
+  const item = normalizeImageBBox(itemBBox);
+  const centerX = item.x + Math.floor(item.w / 2);
+  const centerY = item.y + Math.floor(item.h / 2);
+  return centerX >= container.x
+    && centerX <= container.x + container.w
+    && centerY >= container.y
+    && centerY <= container.y + container.h;
+}
+
+/**
  * Build a visible, line-shaped rectangle in the center of the current image
  * viewport. This is the keyboard alternative to pointer drag creation.
  */

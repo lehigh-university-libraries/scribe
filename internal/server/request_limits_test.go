@@ -187,6 +187,54 @@ func TestRequestAdmissionRateLimitsInvalidCredentialsBeforeAuthentication(t *tes
 	}
 }
 
+func TestRequestAdmissionFitsEditorGoldenPathBurstAndRetainsBound(t *testing.T) {
+	limiter := newEdgeRequestLimiter()
+	now := time.Date(2026, time.August, 7, 14, 23, 0, 0, time.UTC)
+	limiter.now = func() time.Time { return now }
+	handler := &Handler{edgeRequestLimiter: limiter}
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	admission := handler.requestAdmissionMiddleware(next)
+	paths := []string{
+		"/scribe.v1.ImageProcessingService/GetOCRRun",
+		"/scribe.v1.TranscriptionService/GetTranscriptionJob",
+		"/scribe.v1.ItemService/GetEditorManifest",
+		"/scribe.v1.AnnotationService/GetAnnotationPage",
+		"/scribe.v1.ContextService/GetContext",
+	}
+	request := func(attempt int) int {
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"https://scribe.example"+paths[(attempt-1)%len(paths)],
+			bytes.NewReader([]byte(`{}`)),
+		)
+		req.RemoteAddr = "192.0.2.44:1234"
+		req.AddCookie(&http.Cookie{Name: "scribe_session", Value: "editor-golden-path"})
+		response := httptest.NewRecorder()
+		admission.ServeHTTP(response, req)
+		return response.Code
+	}
+
+	const editorGoldenPathBurst = 40
+	for attempt := 1; attempt <= editorGoldenPathBurst; attempt++ {
+		if status := request(attempt); status != http.StatusNoContent {
+			t.Fatalf("editor request %d status = %d, want %d", attempt, status, http.StatusNoContent)
+		}
+	}
+	if status := request(editorGoldenPathBurst + 1); status != http.StatusTooManyRequests {
+		t.Fatalf("request beyond editor burst status = %d, want %d", status, http.StatusTooManyRequests)
+	}
+
+	now = now.Add(500 * time.Millisecond)
+	if status := request(editorGoldenPathBurst + 2); status != http.StatusNoContent {
+		t.Fatalf("request after one-token refill status = %d, want %d", status, http.StatusNoContent)
+	}
+	if status := request(editorGoldenPathBurst + 3); status != http.StatusTooManyRequests {
+		t.Fatalf("second request after one-token refill status = %d, want %d", status, http.StatusTooManyRequests)
+	}
+}
+
 func TestRequestAdmissionSeparatesSessionsBehindSharedInstitutionalNAT(t *testing.T) {
 	previousRuntime := config.Get()
 	config.Init(config.Runtime{Config: config.Config{Auth: config.AuthConfig{CookieName: "scribe_session"}}})
