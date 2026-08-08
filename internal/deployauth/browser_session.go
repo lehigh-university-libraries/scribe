@@ -23,7 +23,7 @@ import (
 const (
 	// BrowserSessionTTL is deliberately fixed so the trusted deployment helper
 	// cannot create a durable interactive credential.
-	BrowserSessionTTL = 5 * time.Minute
+	BrowserSessionTTL = 50 * time.Minute
 
 	browserSessionOutputPrefix = "scribe-browser-session-"
 	browserSessionOutputSuffix = ".json"
@@ -60,7 +60,7 @@ type playwrightCookie struct {
 	SameSite string `json:"sameSite"`
 }
 
-// MintBrowserSessionFile creates one five-minute session for the reserved
+// MintBrowserSessionFile creates one fixed-lifetime session for the reserved
 // user/workspace pair and writes a Playwright storage-state document to a new
 // mode-0600 file in /tmp. It deliberately returns no credential-bearing value.
 // Callers must delete the file as soon as the browser context has loaded it.

@@ -40,6 +40,7 @@ type Manager struct {
 	identities                 *store.IdentityStore
 	apiKeys                    *store.APIKeyStore
 	providerSecrets            providerSecretRepository
+	logoutSessions             logoutSessionStore
 	items                      *store.ItemStore
 	contexts                   *store.ContextStore
 	jobs                       *store.TranscriptionJobStore
@@ -77,6 +78,11 @@ type providerSecretRepository interface {
 	GetVisible(context.Context, uint64, uint64, uint64) (store.ProviderSecret, error)
 }
 
+type logoutSessionStore interface {
+	DeleteSession(context.Context, string) error
+	DeleteEditorReviewSession(context.Context, string) error
+}
+
 func NewManager(
 	cfg config.Config,
 	secrets config.Secrets,
@@ -96,6 +102,7 @@ func NewManager(
 		identities:                 identities,
 		apiKeys:                    apiKeys,
 		providerSecrets:            providerSecrets,
+		logoutSessions:             identities,
 		items:                      items,
 		contexts:                   contexts,
 		jobs:                       jobs,
@@ -402,8 +409,13 @@ func (m *Manager) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cookie, err := r.Cookie(m.auth.CookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
-		_ = m.identities.DeleteSession(r.Context(), cookie.Value)
-		_ = m.identities.DeleteEditorReviewSession(r.Context(), cookie.Value)
+		if err := m.revokeLogoutSession(r.Context(), cookie.Value); err != nil {
+			// Database errors may embed driver details or token-derived values. Log
+			// only their type and keep the client response categorical.
+			slog.Error("revoke logout session", "error_type", fmt.Sprintf("%T", err))
+			http.Error(w, "logout service unavailable", http.StatusInternalServerError)
+			return
+		}
 	}
 	m.clearSessionCookie(w, r)
 	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "application/json") {
@@ -412,6 +424,24 @@ func (m *Manager) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (m *Manager) revokeLogoutSession(ctx context.Context, rawToken string) error {
+	sessions := m.logoutSessions
+	if sessions == nil {
+		sessions = m.identities
+	}
+	if sessions == nil {
+		return fmt.Errorf("logout session store is not configured")
+	}
+
+	// A cookie can authenticate either a normal browser session or a scoped
+	// editor-review session. Attempt both idempotent deletes even if one fails so
+	// one broken table/path cannot prevent revocation through the other path.
+	return errors.Join(
+		sessions.DeleteSession(ctx, rawToken),
+		sessions.DeleteEditorReviewSession(ctx, rawToken),
+	)
 }
 
 func (m *Manager) logoutRequestSameOrigin(r *http.Request) bool {

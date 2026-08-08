@@ -5,16 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
 )
 
-const maxRemoteManifestBytes int64 = iiif.MaxSourceManifestBytes
+const (
+	maxRemoteManifestBytes       int64 = iiif.MaxSourceManifestBytes
+	maxIIIFManifestFetchAttempts       = 3
+	iiifManifestRetryBaseDelay         = time.Second
+	iiifManifestRetryMaxDelay          = 5 * time.Second
+)
 
 type canvasInfo struct {
 	imageURL   string
@@ -32,7 +39,7 @@ type canvasInfo struct {
 // v3). Valid v3 bytes are returned as the bounded source projection retained
 // for descriptive and extension-property round trips.
 func fetchIIIFManifest(ctx context.Context, manifestURL string, maxCanvases int) (map[string]any, []byte, error) {
-	resp, err := safehttp.Get(ctx, manifestURL)
+	resp, err := fetchIIIFManifestResponse(ctx, manifestURL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetch manifest: %w", err)
 	}
@@ -61,6 +68,56 @@ func fetchIIIFManifest(ctx context.Context, manifestURL string, maxCanvases int)
 		return manifest, append([]byte(nil), payload...), nil
 	}
 	return manifest, nil, nil
+}
+
+func fetchIIIFManifestResponse(ctx context.Context, manifestURL string) (*http.Response, error) {
+	for attempt := 1; attempt <= maxIIIFManifestFetchAttempts; attempt++ {
+		resp, err := safehttp.Get(ctx, manifestURL)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusTooManyRequests || attempt == maxIIIFManifestFetchAttempts {
+			return resp, nil
+		}
+
+		delay := iiifManifestRetryDelay(resp.Header.Get("Retry-After"), attempt)
+		_ = resp.Body.Close()
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, fmt.Errorf("manifest fetch attempts exhausted")
+}
+
+func iiifManifestRetryDelay(retryAfter string, attempt int) time.Duration {
+	value := strings.TrimSpace(retryAfter)
+	if seconds, err := strconv.ParseUint(value, 10, 32); err == nil {
+		delay := time.Duration(seconds) * time.Second
+		if delay > iiifManifestRetryMaxDelay {
+			return iiifManifestRetryMaxDelay
+		}
+		return delay
+	}
+	if retryAt, err := http.ParseTime(value); err == nil {
+		delay := time.Until(retryAt)
+		if delay <= 0 {
+			return 0
+		}
+		if delay > iiifManifestRetryMaxDelay {
+			return iiifManifestRetryMaxDelay
+		}
+		return delay
+	}
+
+	delay := iiifManifestRetryBaseDelay * time.Duration(1<<(attempt-1))
+	if delay > iiifManifestRetryMaxDelay {
+		return iiifManifestRetryMaxDelay
+	}
+	return delay
 }
 
 func enforceManifestCanvasLimit(manifest map[string]any, maxCanvases int) error {

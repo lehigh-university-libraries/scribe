@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -31,6 +32,20 @@ const segmentCapTestHOCR = `<!DOCTYPE html><html><body><div class="ocr_page" tit
 type segmentCapOCR struct {
 	segmentationCalls  int
 	transcriptionCalls int
+}
+
+type scriptedLineOCR struct {
+	*segmentCapOCR
+	transcriptionCalls int
+	failures           map[int]error
+}
+
+func (f *scriptedLineOCR) TranscribeImageFileWithContext(context.Context, string, string, string) (string, error) {
+	f.transcriptionCalls++
+	if err := f.failures[f.transcriptionCalls]; err != nil {
+		return "", err
+	}
+	return "transcribed first line", nil
 }
 
 func TestTranscriptionLeaseHeartbeatStopCancelsAndJoinsRenewal(t *testing.T) {
@@ -92,10 +107,10 @@ func TestTranscriptionSegmentProviderFailureDisposition(t *testing.T) {
 		wantPermanent bool
 		wantRetryable bool
 	}{
-		{name: "segment local", err: errors.New("line crop failed"), wantNil: true},
+		{name: "unclassified segment failure", err: errors.New("line crop failed")},
 		{name: "canceled", err: fmt.Errorf("provider canceled: %w", context.Canceled), wantCanceled: true},
 		{name: "permanent", err: fmt.Errorf("provider rejected: %w", hocr.ErrPermanentProviderRequest), wantPermanent: true},
-		{name: "blank output", err: fmt.Errorf("provider output: %w", errEmptyAnnotationTranscription), wantPermanent: true},
+		{name: "blank output", err: fmt.Errorf("provider output: %w", errEmptyAnnotationTranscription), wantNil: true},
 		{name: "retryable", err: fmt.Errorf("provider unavailable: %w", hocr.ErrRetryableProviderRequest), wantRetryable: true},
 	}
 	for _, test := range tests {
@@ -118,6 +133,436 @@ func TestTranscriptionSegmentProviderFailureDisposition(t *testing.T) {
 				t.Fatalf("segment failure disposition = %v", got)
 			}
 		})
+	}
+}
+
+func TestTranscriptionSegmentFailureState(t *testing.T) {
+	t.Parallel()
+
+	t.Run("retryable failure commits after partial success", func(t *testing.T) {
+		t.Parallel()
+		var state transcriptionSegmentFailureState
+		retryable := fmt.Errorf("provider unavailable: %w", hocr.ErrRetryableProviderRequest)
+		if immediate := state.record(retryable); immediate != nil {
+			t.Fatalf("record retryable failure = %v; want delayed disposition", immediate)
+		}
+		if err := state.finish(1, 1); err != nil {
+			t.Fatalf("finish partial success = %v; want commit", err)
+		}
+	})
+
+	t.Run("unclassified failure commits after partial success", func(t *testing.T) {
+		t.Parallel()
+		var state transcriptionSegmentFailureState
+		if immediate := state.record(errors.New("line crop failed")); immediate != nil {
+			t.Fatalf("record unclassified failure = %v; want delayed disposition", immediate)
+		}
+		if err := state.finish(1, 1); err != nil {
+			t.Fatalf("finish partial success = %v; want commit", err)
+		}
+	})
+
+	t.Run("zero success preserves whole-job retry", func(t *testing.T) {
+		t.Parallel()
+		var state transcriptionSegmentFailureState
+		retryable := fmt.Errorf("provider unavailable: %w", hocr.ErrRetryableProviderRequest)
+		if immediate := state.record(retryable); immediate != nil {
+			t.Fatalf("record retryable failure = %v; want delayed disposition", immediate)
+		}
+		if err := state.finish(0, 2); !errors.Is(err, hocr.ErrRetryableProviderRequest) {
+			t.Fatalf("finish zero success = %v; want retryable provider failure", err)
+		}
+	})
+
+	t.Run("all unreadable remains permanent", func(t *testing.T) {
+		t.Parallel()
+		var state transcriptionSegmentFailureState
+		if immediate := state.record(fmt.Errorf("transcribe region: %w", errEmptyAnnotationTranscription)); immediate != nil {
+			t.Fatalf("record unreadable line = %v; want isolated failure", immediate)
+		}
+		var permanent permanentTranscriptionError
+		if err := state.finish(0, 2); !errors.As(err, &permanent) || err.Error() != "transcription provider returned no text" {
+			t.Fatalf("finish unreadable page = %v; want permanent no-text failure", err)
+		}
+	})
+
+	t.Run("cancellation remains immediate", func(t *testing.T) {
+		t.Parallel()
+		var state transcriptionSegmentFailureState
+		if err := state.record(fmt.Errorf("provider canceled: %w", context.Canceled)); !errors.Is(err, context.Canceled) {
+			t.Fatalf("record cancellation = %v; want context cancellation", err)
+		}
+	})
+
+	t.Run("permanent provider failure remains immediate", func(t *testing.T) {
+		t.Parallel()
+		var state transcriptionSegmentFailureState
+		var permanent permanentTranscriptionError
+		err := state.record(fmt.Errorf("provider rejected: %w", hocr.ErrPermanentProviderRequest))
+		if !errors.As(err, &permanent) {
+			t.Fatalf("record permanent provider failure = %v; want permanent disposition", err)
+		}
+	})
+}
+
+func TestAnnotationPageLineProjectionContainsOnlySuccessfulProviderText(t *testing.T) {
+	t.Parallel()
+	const canvasURI = "https://example.test/canvas/partial-provenance"
+	raw, err := iiif.NewAnnotationPage(iiif.PageIdentity{
+		PublicBaseURL: "https://example.test",
+		ItemImageID:   42,
+		CanvasURI:     canvasURI,
+	}, []any{
+		transcriptionAnnotation("successful-line", "line", "new provider text", canvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20}),
+		transcriptionAnnotation("failed-line", "line", "retained human text", canvasURI, models.BBox{X1: 0, Y1: 30, X2: 100, Y2: 50}),
+		transcriptionAnnotation("failed-word", "word", "retained", canvasURI, models.BBox{X1: 0, Y1: 30, X2: 40, Y2: 50}),
+	})
+	if err != nil {
+		t.Fatalf("build annotation page: %v", err)
+	}
+	var page map[string]any
+	if err := iiif.DecodeJSON(raw, &page); err != nil {
+		t.Fatalf("decode annotation page: %v", err)
+	}
+	items := page["items"].([]any)
+	successfulID := annStringValue(items[0].(map[string]any), "id")
+
+	projected, err := annotationPageLineProjection(string(raw), map[string]struct{}{successfulID: {}})
+	if err != nil {
+		t.Fatalf("project successful provider line: %v", err)
+	}
+	if strings.Contains(projected, "retained human text") || strings.Contains(projected, "failed-word") {
+		t.Fatalf("provider projection retained unsuccessful annotations: %s", projected)
+	}
+	lines, _, _, err := annotationPageToHOCRLinesWithDimensions(projected, 100, 50)
+	if err != nil {
+		t.Fatalf("crosswalk provider projection: %v", err)
+	}
+	if got := linesToPlainText(lines); got != "new provider text" {
+		t.Fatalf("provider projection text = %q; want only successful line", got)
+	}
+}
+
+func TestCanonicalizeSegmentedTranscriptionPageKeepsSuccessfulLineIdentity(t *testing.T) {
+	t.Parallel()
+	const canvasURI = "https://source.example/canvas/segmented"
+	identity := iiif.PageIdentity{
+		PublicBaseURL: "https://scribe.example",
+		ItemImageID:   42,
+		CanvasURI:     canvasURI,
+	}
+	pageDocument := map[string]any{
+		"items": []any{
+			transcriptionAnnotation(
+				"urn:scribe:annotation:provider-local-line",
+				"line",
+				"segmented text",
+				canvasURI,
+				models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20},
+			),
+		},
+	}
+
+	canonicalDocument, items, err := canonicalizeSegmentedTranscriptionPage(pageDocument, identity)
+	if err != nil {
+		t.Fatalf("canonicalize segmented page: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("canonical segmented items = %d, want 1", len(items))
+	}
+	line, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("canonical segmented line = %#v", items[0])
+	}
+	lineID := annStringValue(line, "id")
+	pageID, err := iiif.AnnotationPageID(identity.PublicBaseURL, identity.ItemImageID)
+	if err != nil {
+		t.Fatalf("build canonical page id: %v", err)
+	}
+	wantPrefix := strings.TrimRight(pageID, "/") + "/items/"
+	if !strings.HasPrefix(lineID, wantPrefix) {
+		t.Fatalf("canonical segmented line id = %q, want prefix %q", lineID, wantPrefix)
+	}
+
+	line["body"] = textBodyWithValue(line["body"], "provider text")
+	clearFirstTextualBodyIdentity(line["body"])
+	canonicalDocument["items"] = items
+	updatedPage, err := json.Marshal(canonicalDocument)
+	if err != nil {
+		t.Fatalf("encode enriched segmented page: %v", err)
+	}
+	updatedPage, err = iiif.NormalizeAnnotationPage(updatedPage, identity)
+	if err != nil {
+		t.Fatalf("normalize enriched segmented page: %v", err)
+	}
+	projected, err := annotationPageLineProjection(string(updatedPage), map[string]struct{}{lineID: {}})
+	if err != nil {
+		t.Fatalf("project successful segmented line: %v", err)
+	}
+	lines, _, _, err := annotationPageToHOCRLinesWithDimensions(projected, 100, 20)
+	if err != nil {
+		t.Fatalf("crosswalk successful segmented line: %v", err)
+	}
+	if got := linesToPlainText(lines); got != "provider text" {
+		t.Fatalf("projected provider text = %q, want %q", got, "provider text")
+	}
+}
+
+func TestTranscriptionJobCommitsSuccessfulLinesWhenOneCropIsUnreadable(t *testing.T) {
+	testTranscriptionJobCommitsSuccessfulLinesWhenLaterSegmentFails(t, hocr.ErrNoTranscription)
+}
+
+func TestTranscriptionJobCommitsSuccessfulLinesWhenLaterProviderCallIsRetryable(t *testing.T) {
+	testTranscriptionJobCommitsSuccessfulLinesWhenLaterSegmentFails(
+		t,
+		fmt.Errorf("scripted transient provider failure: %w", hocr.ErrRetryableProviderRequest),
+	)
+}
+
+func TestTranscriptionJobCommitsSuccessfulLinesWhenLaterSegmentFailureIsUnclassified(t *testing.T) {
+	testTranscriptionJobCommitsSuccessfulLinesWhenLaterSegmentFails(t, errors.New("scripted region failure"))
+}
+
+func testTranscriptionJobCommitsSuccessfulLinesWhenLaterSegmentFails(t *testing.T, segmentErr error) {
+	t.Helper()
+	database := openTestDB(t)
+	ctx := context.Background()
+	workspaceID, userID := createServerTestWorkspace(t, database)
+	canvasURI := "https://source.example/canvas/" + uniqueName("partial-transcription")
+	image := createServerTestItemImage(t, database, workspaceID, userID, canvasURI)
+
+	contextStore := store.NewContextStore(database)
+	processingContext, err := contextStore.Create(ctx, store.Context{
+		UserID: &userID, WorkspaceID: &workspaceID,
+		Name: uniqueName("partial transcription"), SegmentationModel: "scribe",
+		TranscriptionProvider: "tesseract", TranscriptionModel: "tesseract",
+	})
+	if err != nil {
+		t.Fatalf("create processing context: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = contextStore.DeleteForWorkspace(context.Background(), processingContext.ID, workspaceID)
+	})
+
+	identity := iiif.PageIdentity{
+		PublicBaseURL: (&Handler{}).publicAnnotationBaseURL(),
+		ItemImageID:   image.ID,
+		CanvasURI:     canvasURI,
+	}
+	failedWord := transcriptionAnnotation(
+		"partial-word-2", "word", "original", canvasURI,
+		models.BBox{X1: 0, Y1: 30, X2: 50, Y2: 50},
+	)
+	failedWord["scribe:test-provenance"] = "must survive"
+	pageJSON, err := iiif.NewAnnotationPage(identity, []any{
+		transcriptionAnnotation("partial-line-1", "line", "original first line", canvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20}),
+		transcriptionAnnotation("partial-line-2", "line", "original second line", canvasURI, models.BBox{X1: 0, Y1: 30, X2: 100, Y2: 50}),
+		failedWord,
+	})
+	if err != nil {
+		t.Fatalf("build annotation page: %v", err)
+	}
+	pageID, err := iiif.CanonicalPageID(identity.PublicBaseURL, image.ID)
+	if err != nil {
+		t.Fatalf("build annotation page id: %v", err)
+	}
+	annotationStore := store.NewAnnotationStore(database)
+	if _, err := annotationStore.SavePage(ctx, store.AnnotationPage{
+		WorkspaceID: workspaceID, ItemImageID: image.ID,
+		PageID: pageID, CanvasURI: canvasURI, Payload: string(pageJSON),
+	}, 0); err != nil {
+		t.Fatalf("save annotation page: %v", err)
+	}
+	baseline, err := annotationStore.LoadPage(ctx, workspaceID, image.ID)
+	if err != nil {
+		t.Fatalf("load baseline annotation page: %v", err)
+	}
+	var baselineDocument map[string]any
+	if err := iiif.DecodeJSON([]byte(baseline.Payload), &baselineDocument); err != nil {
+		t.Fatalf("decode baseline annotation page: %v", err)
+	}
+	baselineItems, _ := baselineDocument["items"].([]any)
+	if len(baselineItems) != 3 {
+		t.Fatalf("baseline annotation count = %d; want 3", len(baselineItems))
+	}
+	unchangedBaseline, err := json.Marshal(baselineItems[1:])
+	if err != nil {
+		t.Fatalf("encode failed-line baseline: %v", err)
+	}
+
+	jobStore := store.NewTranscriptionJobStore(database)
+	jobID, err := jobStore.Create(ctx, image.ID, processingContext)
+	if err != nil {
+		t.Fatalf("create transcription job: %v", err)
+	}
+	limiter, err := worklimit.NewHierarchical(1, 1, 1)
+	if err != nil {
+		t.Fatalf("create processing limiter: %v", err)
+	}
+	ocr := &scriptedLineOCR{
+		segmentCapOCR: &segmentCapOCR{},
+		failures:      map[int]error{2: segmentErr},
+	}
+	ocrRuns := store.NewOCRRunStore(database)
+	handler := &Handler{
+		items: store.NewItemStore(database), annotations: annotationStore,
+		transcriptionJobs: jobStore, processingLimiter: limiter, ocr: ocr,
+		ocrRuns: ocrRuns,
+		imageRegionFetcher: func(context.Context, string, int, int, int, int) (string, func(), error) {
+			return "unused-scripted-region", func() {}, nil
+		},
+	}
+	if err := handler.processQueuedTranscriptionJob(ctx, jobID); err != nil {
+		t.Fatalf("process transcription job: %v", err)
+	}
+
+	completed, err := jobStore.Get(ctx, jobID)
+	if err != nil {
+		t.Fatalf("reload transcription job: %v", err)
+	}
+	if completed.Status != store.TranscriptionJobStatusCompleted || completed.AttemptCount != 1 ||
+		completed.TotalSegments != 2 || completed.CompletedSegments != 1 || completed.FailedSegments != 1 {
+		t.Fatalf("completed partial transcription job = %+v", completed)
+	}
+	if len(completed.Attempts) != 1 || completed.Attempts[0].Outcome != store.TranscriptionAttemptCompleted {
+		t.Fatalf("partial transcription attempts = %+v", completed.Attempts)
+	}
+	if ocr.transcriptionCalls != 2 {
+		t.Fatalf("transcription calls = %d; want each line exactly once", ocr.transcriptionCalls)
+	}
+	provenance, err := ocrRuns.GetByItemImageID(ctx, image.ID)
+	if err != nil {
+		t.Fatalf("load partial transcription OCR provenance: %v", err)
+	}
+	if provenance.Provider != "tesseract" || provenance.Model != "tesseract" {
+		t.Fatalf("partial transcription OCR provider/model = %q/%q", provenance.Provider, provenance.Model)
+	}
+	if provenance.OriginalText != "transcribed first line" {
+		t.Fatalf("partial transcription OCR text = %q; want only the successful provider result", provenance.OriginalText)
+	}
+	if strings.Contains(provenance.OriginalHOCR, "original second line") || strings.Contains(provenance.OriginalHOCR, "original") {
+		t.Fatalf("partial transcription OCR baseline attributed retained text to the provider: %s", provenance.OriginalHOCR)
+	}
+
+	saved, err := annotationStore.LoadPage(ctx, workspaceID, image.ID)
+	if err != nil {
+		t.Fatalf("load completed annotation page: %v", err)
+	}
+	var document map[string]any
+	if err := iiif.DecodeJSON([]byte(saved.Payload), &document); err != nil {
+		t.Fatalf("decode completed annotation page: %v", err)
+	}
+	items, _ := document["items"].([]any)
+	if len(items) != 3 {
+		t.Fatalf("completed annotation count = %d; want 3", len(items))
+	}
+	if got := extractAnnotationText(items[0].(map[string]any)); got != "transcribed first line" {
+		t.Fatalf("successful line text = %q", got)
+	}
+	if got := extractAnnotationText(items[1].(map[string]any)); got != "original second line" {
+		t.Fatalf("unreadable line text = %q; want original canonical text", got)
+	}
+	unchangedCompleted, err := json.Marshal(items[1:])
+	if err != nil {
+		t.Fatalf("encode completed failed-line subtree: %v", err)
+	}
+	if !bytes.Equal(unchangedCompleted, unchangedBaseline) {
+		t.Fatalf("failed-line canonical subtree changed:\n before=%s\n after=%s", unchangedBaseline, unchangedCompleted)
+	}
+}
+
+func TestTranscriptionJobRetriesWhenEverySegmentHasTransientFailure(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+	workspaceID, userID := createServerTestWorkspace(t, database)
+	canvasURI := "https://source.example/canvas/" + uniqueName("all-transient-transcription")
+	image := createServerTestItemImage(t, database, workspaceID, userID, canvasURI)
+
+	contextStore := store.NewContextStore(database)
+	processingContext, err := contextStore.Create(ctx, store.Context{
+		UserID: &userID, WorkspaceID: &workspaceID,
+		Name: uniqueName("all transient transcription"), SegmentationModel: "scribe",
+		TranscriptionProvider: "tesseract", TranscriptionModel: "tesseract",
+	})
+	if err != nil {
+		t.Fatalf("create processing context: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = contextStore.DeleteForWorkspace(context.Background(), processingContext.ID, workspaceID)
+	})
+
+	identity := iiif.PageIdentity{
+		PublicBaseURL: (&Handler{}).publicAnnotationBaseURL(),
+		ItemImageID:   image.ID,
+		CanvasURI:     canvasURI,
+	}
+	pageJSON, err := iiif.NewAnnotationPage(identity, []any{
+		transcriptionAnnotation("transient-line-1", "line", "original first line", canvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20}),
+		transcriptionAnnotation("transient-line-2", "line", "original second line", canvasURI, models.BBox{X1: 0, Y1: 30, X2: 100, Y2: 50}),
+	})
+	if err != nil {
+		t.Fatalf("build annotation page: %v", err)
+	}
+	pageID, err := iiif.CanonicalPageID(identity.PublicBaseURL, image.ID)
+	if err != nil {
+		t.Fatalf("build annotation page id: %v", err)
+	}
+	annotationStore := store.NewAnnotationStore(database)
+	if _, err := annotationStore.SavePage(ctx, store.AnnotationPage{
+		WorkspaceID: workspaceID, ItemImageID: image.ID,
+		PageID: pageID, CanvasURI: canvasURI, Payload: string(pageJSON),
+	}, 0); err != nil {
+		t.Fatalf("save annotation page: %v", err)
+	}
+
+	jobStore := store.NewTranscriptionJobStore(database)
+	jobID, err := jobStore.Create(ctx, image.ID, processingContext)
+	if err != nil {
+		t.Fatalf("create transcription job: %v", err)
+	}
+	limiter, err := worklimit.NewHierarchical(1, 1, 1)
+	if err != nil {
+		t.Fatalf("create processing limiter: %v", err)
+	}
+	transientErr := fmt.Errorf("scripted transient provider failure: %w", hocr.ErrRetryableProviderRequest)
+	ocr := &scriptedLineOCR{
+		segmentCapOCR: &segmentCapOCR{},
+		failures: map[int]error{
+			1: transientErr,
+			2: transientErr,
+		},
+	}
+	handler := &Handler{
+		items: store.NewItemStore(database), annotations: annotationStore,
+		transcriptionJobs: jobStore, processingLimiter: limiter, ocr: ocr,
+		imageRegionFetcher: func(context.Context, string, int, int, int, int) (string, func(), error) {
+			return "unused-scripted-region", func() {}, nil
+		},
+	}
+	if err := handler.processQueuedTranscriptionJob(ctx, jobID); !errors.Is(err, hocr.ErrRetryableProviderRequest) {
+		t.Fatalf("process transcription job error = %v; want retryable provider failure", err)
+	}
+
+	pending, err := jobStore.Get(ctx, jobID)
+	if err != nil {
+		t.Fatalf("reload transcription job: %v", err)
+	}
+	if pending.Status != store.TranscriptionJobStatusPending || pending.AttemptCount != 1 ||
+		pending.TotalSegments != 2 || pending.CompletedSegments != 0 || pending.FailedSegments != 2 {
+		t.Fatalf("retryable transcription job = %+v", pending)
+	}
+	if len(pending.Attempts) != 1 || pending.Attempts[0].Outcome != store.TranscriptionAttemptRetryableFailed {
+		t.Fatalf("retryable transcription attempts = %+v", pending.Attempts)
+	}
+	if ocr.transcriptionCalls != 2 {
+		t.Fatalf("transcription calls = %d; want every line attempted once", ocr.transcriptionCalls)
+	}
+	saved, err := annotationStore.LoadPage(ctx, workspaceID, image.ID)
+	if err != nil {
+		t.Fatalf("reload canonical annotation page: %v", err)
+	}
+	if saved.Revision != 1 {
+		t.Fatalf("canonical revision = %d; want unchanged revision 1", saved.Revision)
 	}
 }
 
@@ -546,6 +991,112 @@ func TestReconcileTranscribedWordsScalesAcrossMaximumMixedPage(t *testing.T) {
 	}
 	if got := extractAnnotationText(reconcileTranscribedWords(overlapping)[2].(map[string]any)); got != "first" {
 		t.Fatalf("overlapping word owner text = %q, want first", got)
+	}
+}
+
+func TestPartialTranscriptionReconcilesOnlySuccessfulLineWords(t *testing.T) {
+	const canvasURI = "https://example.test/canvas/partial-reconcile"
+	failedWord := transcriptionAnnotation(
+		"failed-word", "word", "retained", canvasURI,
+		models.BBox{X1: 0, Y1: 30, X2: 40, Y2: 50},
+	)
+	failedWord["scribe:test-provenance"] = "other-provider"
+	items := []any{
+		transcriptionAnnotation("successful-line", "line", "new words", canvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20}),
+		transcriptionAnnotation("successful-word", "word", "stale", canvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20}),
+		transcriptionAnnotation("failed-line", "line", "retained", canvasURI, models.BBox{X1: 0, Y1: 30, X2: 100, Y2: 50}),
+		failedWord,
+	}
+	failedBefore, err := json.Marshal(items[2:])
+	if err != nil {
+		t.Fatalf("encode failed-line subtree: %v", err)
+	}
+
+	reconciled := reconcileTranscribedLineWords(items, map[string]struct{}{"successful-line": {}})
+	if len(reconciled) != 3 {
+		t.Fatalf("reconciled annotation count = %d; want stale successful word removed and failed subtree retained", len(reconciled))
+	}
+	failedAfter, err := json.Marshal(reconciled[1:])
+	if err != nil {
+		t.Fatalf("encode reconciled failed-line subtree: %v", err)
+	}
+	if !bytes.Equal(failedAfter, failedBefore) {
+		t.Fatalf("failed-line subtree changed:\n before=%s\n after=%s", failedBefore, failedAfter)
+	}
+
+	// Ownership must be determined before the successful-line filter is
+	// applied. Otherwise the successful line would steal this overlapping word
+	// from the earlier failed line and replace its retained text/provenance.
+	overlappingWord := transcriptionAnnotation(
+		"overlapping-failed-word", "word", "retained", canvasURI,
+		models.BBox{X1: 10, Y1: 5, X2: 40, Y2: 15},
+	)
+	overlappingWord["scribe:test-provenance"] = "failed-line-provider"
+	overlapping := []any{
+		transcriptionAnnotation("overlapping-failed-line", "line", "retained", canvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20}),
+		transcriptionAnnotation("overlapping-successful-line", "line", "replacement", canvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20}),
+		overlappingWord,
+	}
+	overlappingResult := reconcileTranscribedLineWords(
+		overlapping,
+		map[string]struct{}{"overlapping-successful-line": {}},
+	)
+	if len(overlappingResult) != 3 {
+		t.Fatalf("overlapping reconciliation removed failed-line word; count = %d", len(overlappingResult))
+	}
+	retainedWord := overlappingResult[2].(map[string]any)
+	if got := extractAnnotationText(retainedWord); got != "retained" {
+		t.Fatalf("overlapping failed-line word text = %q; want retained", got)
+	}
+	if got := annStringValue(retainedWord, "scribe:test-provenance"); got != "failed-line-provider" {
+		t.Fatalf("overlapping failed-line word provenance = %q", got)
+	}
+}
+
+func TestReconcileTranscribedWordsRetiresOnlyChangedBodyIdentity(t *testing.T) {
+	const canvasURI = "https://example.test/canvas/body-identity"
+	changedWord := transcriptionAnnotation(
+		"changed-word", "word", "old", canvasURI,
+		models.BBox{X1: 0, Y1: 0, X2: 40, Y2: 20},
+	)
+	unchangedWord := transcriptionAnnotation(
+		"unchanged-word", "word", "stable", canvasURI,
+		models.BBox{X1: 50, Y1: 0, X2: 100, Y2: 20},
+	)
+	changedBody := changedWord["body"].([]any)[0].(map[string]any)
+	changedBody["id"] = "https://example.test/body/changed"
+	changedBody["@id"] = "https://example.test/body/changed-legacy"
+	changedBody["scribe:confidence"] = json.Number("0.75")
+	unchangedBody := unchangedWord["body"].([]any)[0].(map[string]any)
+	unchangedBody["id"] = "https://example.test/body/unchanged"
+	unchangedBody["@id"] = "https://example.test/body/unchanged-legacy"
+
+	items := []any{
+		transcriptionAnnotation("line", "line", "new stable", canvasURI, models.BBox{X1: 0, Y1: 0, X2: 100, Y2: 20}),
+		changedWord,
+		unchangedWord,
+	}
+	got := reconcileTranscribedWords(items)
+	if len(got) != 3 {
+		t.Fatalf("reconciled annotation count = %d; want 3", len(got))
+	}
+	if text := extractAnnotationText(got[1].(map[string]any)); text != "new" {
+		t.Fatalf("changed word text = %q; want new", text)
+	}
+	if _, present := changedBody["id"]; present {
+		t.Fatal("changed word retained TextualBody id")
+	}
+	if _, present := changedBody["@id"]; present {
+		t.Fatal("changed word retained TextualBody @id")
+	}
+	if confidence, ok := changedBody["scribe:confidence"].(json.Number); !ok || confidence.String() != "0.75" {
+		t.Fatalf("changed word body extension = %#v; want exact confidence", changedBody["scribe:confidence"])
+	}
+	if annStringValue(unchangedBody, "id") != "https://example.test/body/unchanged" {
+		t.Fatal("unchanged word lost TextualBody id")
+	}
+	if annStringValue(unchangedBody, "@id") != "https://example.test/body/unchanged-legacy" {
+		t.Fatal("unchanged word lost TextualBody @id")
 	}
 }
 
@@ -1050,7 +1601,7 @@ func TestTranscriptionJobUsesImmutableContextSnapshot(t *testing.T) {
 	}
 }
 
-func TestSeedTranscriptionJobOCRRunUsesActualCompletedCount(t *testing.T) {
+func TestSeedTranscriptionJobOCRRunUsesSuccessfulLineSet(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
 
@@ -1148,7 +1699,14 @@ func TestSeedTranscriptionJobOCRRunUsesActualCompletedCount(t *testing.T) {
 		ItemImageID:       completedImage.ID,
 		CompletedSegments: 0,
 	}
-	provenance, err := handler.transcriptionJobOCRRun(ctx, job, contextRow, completedImage, completedPage, 1)
+	provenance, err := handler.transcriptionJobOCRRun(
+		ctx,
+		job,
+		contextRow,
+		completedImage,
+		completedPage,
+		transcriptionLineIDs(t, completedPage.Payload),
+	)
 	if err != nil {
 		t.Fatalf("build completed OCR run: %v", err)
 	}
@@ -1172,7 +1730,7 @@ func TestSeedTranscriptionJobOCRRunUsesActualCompletedCount(t *testing.T) {
 		ItemImageID:       emptyImage.ID,
 		CompletedSegments: 1,
 	}
-	emptyProvenance, err := handler.transcriptionJobOCRRun(ctx, emptyJob, contextRow, emptyImage, emptyPage, 0)
+	emptyProvenance, err := handler.transcriptionJobOCRRun(ctx, emptyJob, contextRow, emptyImage, emptyPage, nil)
 	if err != nil {
 		t.Fatalf("build empty OCR run: %v", err)
 	}
@@ -1182,6 +1740,24 @@ func TestSeedTranscriptionJobOCRRunUsesActualCompletedCount(t *testing.T) {
 	if _, err := ocrRunStore.GetByItemImageID(ctx, emptyImage.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("empty job OCR run error = %v, want sql.ErrNoRows", err)
 	}
+}
+
+func transcriptionLineIDs(t *testing.T, pageJSON string) map[string]struct{} {
+	t.Helper()
+	var page map[string]any
+	if err := iiif.DecodeJSON([]byte(pageJSON), &page); err != nil {
+		t.Fatalf("decode annotation page line IDs: %v", err)
+	}
+	lineIDs := make(map[string]struct{})
+	items, _ := page["items"].([]any)
+	for _, value := range items {
+		annotation, ok := value.(map[string]any)
+		if !ok || !strings.EqualFold(strings.TrimSpace(annStringValue(annotation, "textGranularity")), "line") {
+			continue
+		}
+		lineIDs[annStringValue(annotation, "id")] = struct{}{}
+	}
+	return lineIDs
 }
 
 func TestResolveTranscriptionJobContextRejectsCrossWorkspaceSnapshot(t *testing.T) {

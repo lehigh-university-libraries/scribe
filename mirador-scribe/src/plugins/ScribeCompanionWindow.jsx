@@ -15,6 +15,7 @@ import {
   editorSessionForCanvas,
 } from '../editor/sessionCache';
 import { applyAdapterMutationToPage } from '../editor/adapterMutation';
+import { imageBBoxContainsCenter, wordBBoxBesideSelection } from '../editor/geometry';
 import { editorKeyboardCommand } from '../editor/keyboard';
 import {
   annotationBBox,
@@ -130,6 +131,7 @@ export function ScribeCompanionWindow({
   const [overlayMode, setOverlayMode] = useState(/** @type {OverlayMode} */ ('none'));
   const [focusedWordAnnotationId, setFocusedWordAnnotationId] = useState('');
   const preferredSelectionRef = useRef('');
+  const pendingRedoSelectionRef = useRef(/** @type {{ annotationId: string, canvasId: string } | null} */ (null));
   const didInitialSnapRef = useRef(false);
   const loadedCanvasRef = useRef('');
   const saveInFlightRef = useRef(false);
@@ -319,6 +321,23 @@ export function ScribeCompanionWindow({
   }, [canvasId, dirtyCanvasIds, hasDirtySessions, windowId]);
 
   useEffect(() => {
+    const pendingRedoSelection = pendingRedoSelectionRef.current;
+    if (pendingRedoSelection && pendingRedoSelection.canvasId !== canvasId) {
+      pendingRedoSelectionRef.current = null;
+    }
+    const restoredRedoSelection = annotations.find((annotation) => (
+      pendingRedoSelection?.canvasId === canvasId
+      && annotation?.id === pendingRedoSelection.annotationId
+    ));
+    if (restoredRedoSelection?.id) {
+      preferredSelectionRef.current = restoredRedoSelection.id;
+      if (selectedAnnotationId !== restoredRedoSelection.id) {
+        selectAnnotation(windowId, restoredRedoSelection.id);
+      } else {
+        pendingRedoSelectionRef.current = null;
+      }
+      return;
+    }
     const selectionIsOnActivePage = annotations.some((annotation) => (
       annotation?.id === selectedAnnotationId
     ));
@@ -332,7 +351,7 @@ export function ScribeCompanionWindow({
       preferredSelectionRef.current = preferred;
       selectAnnotation(windowId, preferred);
     }
-  }, [annotations, selectedAnnotationId, selectAnnotation, windowId]);
+  }, [annotations, canvasId, selectedAnnotationId, selectAnnotation, windowId]);
 
   useEffect(() => {
     if (!localPage || !effectiveSelectedAnnotationId) {
@@ -671,15 +690,29 @@ export function ScribeCompanionWindow({
   function handleAddWord() {
     if (!localPage || !selectedAnnotation || !canvasId || editingIsBlocked()) return;
     const bbox = annotationBBox(selectedAnnotation);
-    const wordWidth = isWordAnnotation(selectedAnnotation)
-      ? Math.max(1, bbox.w)
-      : Math.max(1, Math.round(bbox.w / 6));
-    const wordBBox = {
-      h: Math.max(1, bbox.h),
-      w: wordWidth,
-      x: isWordAnnotation(selectedAnnotation) ? bbox.x + bbox.w : bbox.x,
-      y: bbox.y,
-    };
+    const candidateLine = selectedRow?.lead && !isWordAnnotation(selectedRow.lead)
+      ? selectedRow.lead
+      : null;
+    const containingLineBBox = candidateLine
+      && annotationCanvasId(candidateLine) === annotationCanvasId(selectedAnnotation)
+      && imageBBoxContainsCenter(annotationBBox(candidateLine), bbox)
+      ? annotationBBox(candidateLine)
+      : null;
+    const wordBBox = isWordAnnotation(selectedAnnotation)
+      ? (containingLineBBox
+        ? wordBBoxBesideSelection(bbox, containingLineBBox)
+        : {
+          h: Math.max(1, bbox.h),
+          w: Math.max(1, bbox.w),
+          x: bbox.x + bbox.w,
+          y: bbox.y,
+        })
+      : {
+        h: Math.max(1, bbox.h),
+        w: Math.max(1, Math.round(bbox.w / 6)),
+        x: bbox.x,
+        y: bbox.y,
+      };
     const word = createDraftWordAnnotation(canvasId, wordBBox, localPage.id || '');
     pushHistory(upsertAnnotationInPage(localPage, word));
     if (word.id) {
@@ -729,7 +762,22 @@ export function ScribeCompanionWindow({
 
   function handleRedo() {
     if (editingIsBlocked()) return;
-    dispatchSession({ type: 'redo' });
+    const currentPage = editorSessionForCanvas(sessionCacheRef.current, canvasId).draftPage;
+    const previousAnnotationIds = new Set(
+      (Array.isArray(currentPage?.items) ? currentPage.items : [])
+        .map((annotation) => annotation?.id)
+        .filter(Boolean),
+    );
+    const nextCache = dispatchSession({ type: 'redo' });
+    const nextPage = editorSessionForCanvas(nextCache, canvasId).draftPage;
+    const restoredAnnotations = (Array.isArray(nextPage?.items) ? nextPage.items : [])
+      .filter((annotation) => annotation?.id && !previousAnnotationIds.has(annotation.id));
+    const restoredAnnotationId = restoredAnnotations.length === 1
+      ? String(restoredAnnotations[0]?.id || '')
+      : '';
+    pendingRedoSelectionRef.current = restoredAnnotationId
+      ? { annotationId: restoredAnnotationId, canvasId }
+      : null;
   }
 
   return (

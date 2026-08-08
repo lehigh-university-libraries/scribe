@@ -73,6 +73,110 @@ func TestFetchManifestRejectsSourceLargerThanPersistedProjectionLimit(t *testing
 	}
 }
 
+func TestFetchIIIFManifestRetriesRateLimitedSource(t *testing.T) {
+	var requests atomic.Int32
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			response.Header().Set("Retry-After", "0")
+			http.Error(response, "rate limited", http.StatusTooManyRequests)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(response).Encode(map[string]any{
+			"@context":  "http://iiif.io/api/presentation/2/context.json",
+			"@type":     "sc:Manifest",
+			"sequences": []any{},
+		})
+	}))
+	t.Cleanup(source.Close)
+
+	manifest, _, err := fetchIIIFManifest(context.Background(), source.URL, 1)
+	if err != nil {
+		t.Fatalf("fetchIIIFManifest after rate limit: %v", err)
+	}
+	if manifest["@type"] != "sc:Manifest" {
+		t.Fatalf("manifest type = %#v, want sc:Manifest", manifest["@type"])
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("manifest requests = %d, want 2", got)
+	}
+}
+
+func TestFetchIIIFManifestBoundsPersistentRateLimit(t *testing.T) {
+	var requests atomic.Int32
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		response.Header().Set("Retry-After", "0")
+		http.Error(response, "rate limited", http.StatusTooManyRequests)
+	}))
+	t.Cleanup(source.Close)
+
+	_, _, err := fetchIIIFManifest(context.Background(), source.URL, 1)
+	if err == nil || !strings.Contains(err.Error(), "status 429") {
+		t.Fatalf("persistent rate-limit error = %v, want status 429", err)
+	}
+	if got := requests.Load(); got != 3 {
+		t.Fatalf("manifest requests = %d, want bounded total of 3", got)
+	}
+}
+
+func TestFetchIIIFManifestDoesNotRetryTerminalStatus(t *testing.T) {
+	var requests atomic.Int32
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(response, "upstream failure", http.StatusInternalServerError)
+	}))
+	t.Cleanup(source.Close)
+
+	_, _, err := fetchIIIFManifest(context.Background(), source.URL, 1)
+	if err == nil || !strings.Contains(err.Error(), "status 500") {
+		t.Fatalf("terminal status error = %v, want status 500", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("manifest requests = %d, want no retry", got)
+	}
+}
+
+func TestFetchIIIFManifestRateLimitRetryHonorsContext(t *testing.T) {
+	var requests atomic.Int32
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		response.Header().Set("Retry-After", "30")
+		http.Error(response, "rate limited", http.StatusTooManyRequests)
+	}))
+	t.Cleanup(source.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	_, _, err := fetchIIIFManifest(ctx, source.URL, 1)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("rate-limit wait error = %v, want deadline exceeded", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("manifest requests = %d, want cancellation before retry", got)
+	}
+}
+
+func TestIIIFManifestRetryDelayIsBounded(t *testing.T) {
+	tests := []struct {
+		name       string
+		retryAfter string
+		attempt    int
+		want       time.Duration
+	}{
+		{name: "immediate upstream retry", retryAfter: "0", attempt: 1, want: 0},
+		{name: "bounded upstream retry", retryAfter: "3600", attempt: 1, want: 5 * time.Second},
+		{name: "fallback backoff", retryAfter: "invalid", attempt: 2, want: 2 * time.Second},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := iiifManifestRetryDelay(test.retryAfter, test.attempt); got != test.want {
+				t.Fatalf("retry delay = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
 func TestSourceManifestBudgetRejectsBeforeTenantContentWrite(t *testing.T) {
 	database := openTestDB(t)
 	source, payload := newChoiceManifestSourceWithoutHOCR(t)

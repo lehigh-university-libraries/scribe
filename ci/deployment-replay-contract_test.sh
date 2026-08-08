@@ -66,6 +66,9 @@ if rg -q 'SCRIBE_DATA_GENERATION[=:][[:space:]]*canonical-v2' <<<"$rollback_bloc
 fi
 require_fixed 'path: .deployed-source' .github/workflows/terraform-drift.yaml
 require_fixed 'working-directory: .deployed-source' .github/workflows/terraform-drift.yaml
+require_fixed 'group: terraform-deploy-scribe' .github/workflows/terraform-drift.yaml
+# shellcheck disable=SC2016 # Match literal protected workflow replay.
+require_fixed 'echo "SCRIBE_BROWSER_READINESS_IMAGE=$(jq -r '\''.browser_readiness_image'\'' <<<"$deployed")"' .github/workflows/terraform-drift.yaml
 # shellcheck disable=SC2016 # Match literal workflow shell variables.
 require_fixed 'merge-base --is-ancestor "$DEPLOYED_SHA" "$CURRENT_SHA"' .github/workflows/terraform-drift.yaml
 

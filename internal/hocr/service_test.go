@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -35,6 +37,30 @@ func (client successfulClient) Extract(context.Context, providers.Request) (prov
 }
 
 func (successfulClient) Name() string { return "successful" }
+
+func TestCompletedProviderWithUnreadableRegionReturnsTypedOutcome(t *testing.T) {
+	imagePath := t.TempDir() + "/region.png"
+	if err := os.WriteFile(imagePath, []byte("bounded-test-image"), 0o600); err != nil {
+		t.Fatalf("write test image: %v", err)
+	}
+	service := NewService()
+	for _, text := range []string{"", "not legible"} {
+		_, err := service.extractTranscriptionFromImageWithOperation(
+			context.Background(),
+			successfulClient{result: providers.Result{Text: text}},
+			"openai",
+			"gpt-4o",
+			imagePath,
+			"test",
+		)
+		if !errors.Is(err, ErrNoTranscription) {
+			t.Fatalf("unreadable provider text %q error = %v; want ErrNoTranscription", text, err)
+		}
+		if errors.Is(err, ErrPermanentProviderRequest) || errors.Is(err, ErrRetryableProviderRequest) {
+			t.Fatalf("unreadable provider text %q received a provider failure disposition: %v", text, err)
+		}
+	}
+}
 
 func TestLikelyWordBoxAcceptsUnicodeAndNumbers(t *testing.T) {
 	service := NewService()
@@ -358,6 +384,120 @@ func TestSegmentationErrorRedactionDoesNotExposeDetectorDiagnostics(t *testing.T
 	}
 	if strings.Contains(deadline.Error(), detectorDiagnostic) {
 		t.Fatalf("redacted deadline error exposed detector diagnostics: %q", deadline)
+	}
+
+	authentication := redactSegmentationError(fmt.Errorf(
+		"%s: %w",
+		detectorDiagnostic,
+		providers.NewError(providers.ErrorAuthentication, http.StatusForbidden, false, nil),
+	))
+	if got := authentication.Error(); got != "provider request failed with HTTP status 403" {
+		t.Fatalf("typed segmentation authentication error = %q", got)
+	}
+	if !errors.Is(authentication, ErrPermanentProviderRequest) || errors.Is(authentication, ErrRetryableProviderRequest) {
+		t.Fatalf("typed segmentation authentication disposition = %v", authentication)
+	}
+	if safe, ok := SafeProviderFailureMessage(fmt.Errorf("segmentation: %w", authentication)); !ok || safe != authentication.Error() {
+		t.Fatalf("SafeProviderFailureMessage() = %q, %v; want categorical authentication failure", safe, ok)
+	}
+	if strings.Contains(authentication.Error(), detectorDiagnostic) {
+		t.Fatalf("typed segmentation error exposed detector diagnostics: %q", authentication)
+	}
+}
+
+func TestDetectWithModelAuditsRedactedRemoteSegmentationFailure(t *testing.T) {
+	const privateResponse = "PRIVATE_SEGMENTOR_RESPONSE_BODY"
+	segmentorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/segment" {
+			t.Fatalf("segmentor request path = %q", request.URL.Path)
+		}
+		http.Error(w, privateResponse, http.StatusForbidden)
+	}))
+	t.Cleanup(segmentorServer.Close)
+	config.Init(config.Runtime{Config: config.Config{
+		LLM: config.LLMConfig{SegmentationModel: "scribe"},
+		Segmentation: config.ServiceEndpointConfig{
+			URL:    segmentorServer.URL,
+			Models: []string{"scribe"},
+		},
+	}})
+	t.Cleanup(func() { config.Init(config.Runtime{}) })
+
+	imagePath := t.TempDir() + "/page.png"
+	if err := os.WriteFile(imagePath, []byte("bounded image fixture"), 0o600); err != nil {
+		t.Fatalf("write image fixture: %v", err)
+	}
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	service := NewService()
+	var audit ProviderCallAuditRecord
+	service.SetProviderCallAuditLogger(func(_ context.Context, record ProviderCallAuditRecord) {
+		audit = record
+	})
+	contextID := uint64(7)
+	ctx := WithProviderCallMetadata(context.Background(), 42, "segmentation-audit", nil, &contextID)
+	_, _, err := service.detectWithModel(ctx, imagePath, "scribe", 100, 100)
+	if err == nil || err.Error() != "provider request failed with HTTP status 403" {
+		t.Fatalf("detectWithModel() error = %v", err)
+	}
+	if audit.WorkspaceID != 42 || audit.SessionID != "segmentation-audit" || audit.ContextID == nil || *audit.ContextID != contextID ||
+		audit.Provider != "segmentor" || audit.Model != "scribe" || audit.Operation != "segment_image" ||
+		audit.HTTPStatus == nil || *audit.HTTPStatus != http.StatusForbidden || audit.ErrorMessage != "provider request failed with HTTP status 403" {
+		t.Fatalf("segmentation audit = %#v", audit)
+	}
+	for _, output := range []string{err.Error(), audit.ErrorMessage, logs.String()} {
+		if strings.Contains(output, privateResponse) || strings.Contains(output, segmentorServer.URL) || strings.Contains(output, imagePath) {
+			t.Fatalf("segmentation diagnostic leaked private data: %q", output)
+		}
+	}
+}
+
+func TestDetectWithModelReturnsRedactedInvalidProviderGeometry(t *testing.T) {
+	const privateText = "PRIVATE_SEGMENTOR_DOCUMENT_TEXT"
+	segmentorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/segment" {
+			t.Fatalf("segmentor request path = %q", request.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"provider":"scribe","words":[{"X":95,"Y":1,"Width":10,"Height":10,"Text":%q,"Confidence":0.9}]}`, privateText)
+	}))
+	t.Cleanup(segmentorServer.Close)
+	config.Init(config.Runtime{Config: config.Config{
+		LLM: config.LLMConfig{SegmentationModel: "scribe"},
+		Segmentation: config.ServiceEndpointConfig{
+			URL:    segmentorServer.URL,
+			Models: []string{"scribe"},
+		},
+	}})
+	t.Cleanup(func() { config.Init(config.Runtime{}) })
+
+	imagePath := t.TempDir() + "/page.png"
+	if err := os.WriteFile(imagePath, []byte("\x89PNG\r\n\x1a\nbounded image fixture"), 0o600); err != nil {
+		t.Fatalf("write image fixture: %v", err)
+	}
+	service := NewService()
+	var audit ProviderCallAuditRecord
+	service.SetProviderCallAuditLogger(func(_ context.Context, record ProviderCallAuditRecord) {
+		audit = record
+	})
+
+	_, _, err := service.detectWithModel(context.Background(), imagePath, "scribe", 100, 100)
+	if err == nil || err.Error() != "segmentation provider request failed" {
+		t.Fatalf("detectWithModel() error = %v; want redacted geometry failure", err)
+	}
+	if safe, ok := SafeProviderFailureMessage(err); !ok || safe != "segmentation provider request failed" {
+		t.Fatalf("SafeProviderFailureMessage() = %q, %v; want bounded segmentation failure", safe, ok)
+	}
+	if audit.ErrorMessage != "provider request failed" || audit.Provider != "segmentor" || audit.Model != "scribe" || audit.Operation != "segment_image" {
+		t.Fatalf("segmentation audit = %#v", audit)
+	}
+	for _, output := range []string{err.Error(), audit.ErrorMessage} {
+		if strings.Contains(output, privateText) || strings.Contains(output, "95") {
+			t.Fatalf("invalid geometry failure exposed provider output: %q", output)
+		}
 	}
 }
 

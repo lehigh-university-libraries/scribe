@@ -71,6 +71,11 @@ const (
 )
 
 var (
+	// ErrNoTranscription means the provider completed normally but the selected
+	// image region contained no readable text. Callers may isolate this outcome
+	// to one segment without treating provider or image-pipeline failures as
+	// equivalent.
+	ErrNoTranscription = errors.New("provider returned no transcription")
 	// ErrPermanentProviderRequest classifies a redacted provider failure that
 	// cannot succeed when the same job input is retried, such as bad
 	// credentials or a rejected model request.
@@ -428,20 +433,42 @@ func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel strin
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	started := time.Now()
+	model := strings.TrimSpace(segModel)
+	if model == "" {
+		model = "auto"
+	}
+	audit := func(operationErr error) error {
+		redactedErr := redactSegmentationError(operationErr)
+		record := ProviderCallAuditRecord{
+			Provider: "segmentor", Model: model, Operation: "segment_image",
+			DurationMS: time.Since(started).Milliseconds(),
+		}
+		if redactedErr != nil {
+			record.ErrorMessage = redactedErr.Error()
+			var providerErr *providerRequestError
+			if errors.As(redactedErr, &providerErr) && providerErr.status != 0 {
+				record.HTTPStatus = &providerErr.status
+			}
+		}
+		s.auditProviderCall(ctx, record)
+		return redactedErr
+	}
 	detector, err := s.registry.NewSegmentor(segModel)
 	if err != nil {
-		return nil, "", err
+		return nil, "", audit(err)
 	}
 	words, provider, err := detector.DetectWords(ctx, imagePath)
 	if err != nil {
-		return nil, provider, redactSegmentationError(err)
+		return nil, provider, audit(err)
 	}
 	// A page contains both line and word annotations. Reserving half of the
 	// canonical capacity for lines prevents segmentation from creating an
 	// uncommittable page or unbounded transcription fan-out.
 	if err := worddetection.ValidateBoxes(words, imageWidth, imageHeight, iiif.MaxAnnotationsPerPage/2); err != nil {
-		return nil, provider, err
+		return nil, provider, audit(err)
 	}
+	_ = audit(nil)
 	return words, provider, nil
 }
 
@@ -453,6 +480,10 @@ func redactSegmentationError(err error) error {
 	if err == nil {
 		return nil
 	}
+	var htrError *providers.Error
+	if errors.As(err, &htrError) {
+		return redactProviderError(err, nil)
+	}
 	switch {
 	case errors.Is(err, context.Canceled):
 		return &providerRequestError{message: "segmentation provider request canceled", cause: err}
@@ -461,6 +492,28 @@ func redactSegmentationError(err error) error {
 	default:
 		return &providerRequestError{message: "segmentation provider request failed", cause: err}
 	}
+}
+
+// SafeProviderFailureMessage returns only Scribe's fixed categorical provider
+// message. Callers may expose it inside an already-authorized resource without
+// leaking upstream bodies, URLs, credentials, paths, or model output.
+func SafeProviderFailureMessage(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	var redacted *providerRequestError
+	if errors.As(err, &redacted) && redacted != nil {
+		return redacted.Error(), true
+	}
+	var htrError *providers.Error
+	if !errors.As(err, &htrError) {
+		return "", false
+	}
+	redactedErr := redactProviderError(htrError, nil)
+	if !errors.As(redactedErr, &redacted) || redacted == nil {
+		return "", false
+	}
+	return redacted.Error(), true
 }
 
 func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
@@ -604,7 +657,7 @@ func (s *Service) extractTranscriptionFromImageWithOperation(ctx context.Context
 
 	text = strings.TrimSpace(text)
 	if text == "" || s.isRefusalOrIllegible(text) {
-		return "", fmt.Errorf("region is not legible")
+		return "", ErrNoTranscription
 	}
 	return text, nil
 }

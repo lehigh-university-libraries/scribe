@@ -6,11 +6,12 @@ locals {
     # Cloud Run exposes deterministic and legacy non-deterministic run.app
     # hostnames. Persist and publish only the authority used by PUBLIC_BASE_URL
     # so browser navigation, OAuth, IIIF IDs, and CORS cannot silently diverge.
-    urls                  = { (var.region) = local.public_base_url }
-    backend               = module.scribe.backend
-    backend_readiness_job = try(google_cloud_run_v2_job.backend_readiness[0].name, "")
-    browser_readiness_job = try(google_cloud_run_v2_job.browser_readiness[0].name, "")
-    ocr_readiness_job     = try(google_cloud_run_v2_job.ocr_readiness[0].name, "")
+    urls                             = { (var.region) = local.public_base_url }
+    backend                          = module.scribe.backend
+    backend_readiness_job            = try(google_cloud_run_v2_job.backend_readiness[0].name, "")
+    browser_readiness_job            = try(google_cloud_run_v2_job.browser_readiness[0].name, "")
+    browser_readiness_session_secret = try(google_secret_manager_secret.browser_session[0].secret_id, "")
+    ocr_readiness_job                = try(google_cloud_run_v2_job.ocr_readiness[0].name, "")
     readiness_gsas = {
       backend = google_service_account.backend_readiness.email
       browser = try(google_service_account.browser_readiness[0].email, "")
@@ -204,8 +205,13 @@ output "backend_readiness_job" {
 }
 
 output "browser_readiness_job" {
-  description = "Preview-only Cloud Run job that exercises the canonical browser upload and editor handoff."
+  description = "Protected Cloud Run job that exercises the canonical browser upload and editor handoff."
   value       = terraform_data.recorded_root_outputs.output.browser_readiness_job
+}
+
+output "browser_readiness_session_secret" {
+  description = "Production-only Secret Manager container for one-time browser readiness sessions."
+  value       = terraform_data.recorded_root_outputs.output.browser_readiness_session_secret
 }
 
 output "ocr_readiness_job" {
@@ -232,14 +238,10 @@ output "deployment_inputs" {
       can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/scribe-frontend@sha256:[0-9a-f]{64}$", var.frontend_gar_image)) &&
       !endswith(var.frontend_gar_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000") &&
       (
-        local.is_preview_workspace
-        ? (
-          local.normalized_browser_readiness_image == "" || (
-            can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/scribe-browser-readiness@sha256:[0-9a-f]{64}$", local.normalized_browser_readiness_image)) &&
-            !endswith(local.normalized_browser_readiness_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
-          )
+        local.normalized_browser_readiness_image == "" || (
+          can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/scribe-browser-readiness@sha256:[0-9a-f]{64}$", local.normalized_browser_readiness_image)) &&
+          !endswith(local.normalized_browser_readiness_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
         )
-        : local.normalized_browser_readiness_image == ""
       ) &&
       length(setsubtract(
         toset(concat(

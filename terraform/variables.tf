@@ -106,7 +106,7 @@ variable "frontend_gar_image" {
 }
 
 variable "browser_readiness_image" {
-  description = "Protected, digest-pinned Playwright image used only by preview readiness jobs. Leave empty outside protected preview apply workflows."
+  description = "Protected, digest-pinned Playwright image used by hosted preview and production readiness jobs."
   type        = string
   default     = ""
 
@@ -168,7 +168,7 @@ variable "network_ip_cidr_range" {
 }
 
 variable "browser_readiness_subnet_cidr" {
-  description = "Dedicated, non-overlapping /26 inside the environment application VPC, used only by the protected preview browser-readiness job and its subnet-scoped Cloud NAT."
+  description = "Dedicated, non-overlapping /26 inside the environment application VPC, used only by protected browser-readiness Cloud Run jobs and their subnet-scoped Cloud NAT."
   type        = string
   default     = "10.43.0.0/26"
 

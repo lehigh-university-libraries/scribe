@@ -102,65 +102,93 @@ not running. Authentication policy, a full live Mirador workspace, and worker
 delivery remain covered by the required Go integration suite; `make e2e-smoke`
 selects the core ingest/revision cases for focused iteration.
 
-The managed preview scenario is separate from the local harness. Trusted
-`pull_request_target` orchestration checks out the protected base, then before
-cloud authentication retrieves exactly `web/e2e/deployed-readiness.mjs` at the
-resolved same-repository PR-head SHA. The bounded helper resolves that exact
-commit, walks the non-recursive Git trees for `web/` and `e2e/`, requires both
-parents to be trees and the leaf to be one `100644` blob, then reconciles its
-SHA and size with the Contents API payload before replacing only that path.
+The managed deployed scenario is separate from the local harness. For a
+preview, trusted `pull_request_target` orchestration checks out the protected
+base, then before cloud authentication retrieves exactly
+`web/e2e/deployed-readiness.mjs` at the resolved same-repository PR-head SHA.
+The bounded helper resolves that exact commit, walks the non-recursive Git
+trees for `web/` and `e2e/`, requires both parents to be trees and the leaf to
+be one `100644` blob, then reconciles its SHA and size with the Contents API
+payload before replacing only that path.
 Symlinks, gitlinks, duplicate entries, truncated trees, and mismatched payloads
 fail closed. The protected Dockerfile, package manifests, and dependencies
 remain from the base; its credentialed build copies but does not execute the PR
 script. The reviewed two-line upload fixture and its SHA-256 digest are embedded
 in that attested script, so the build does not combine it with a separately
 staged PR-head fixture. The source SHA tags the image and Terraform records its
-resolved digest. The script runs only after the preview apply in a no-IAM,
-preview-only Playwright job with digest-pinned runtime and browser dependencies.
-Its dedicated service account has no project, storage, Vault, Pub/Sub, or OCR
-IAM grants. Each preview reuses its root-owned application VPC instead of
-consuming a second project-wide network quota slot. Cloud Compose consumes that
-VPC and its application subnet as existing resources; reviewed `moved` blocks
-transfer their Terraform ownership from the nested module to the root without
+resolved digest. The script runs only after apply in a digest-pinned Playwright
+job. Preview uses a no-IAM identity and preview-anonymous authentication.
+Production builds the runner wholly from the exact reviewed `main` SHA and
+gives its dedicated identity access only to the exact browser-session secret.
+Each environment reuses its root-owned application VPC instead of consuming a
+second project-wide network quota slot. Cloud Compose consumes that VPC and its
+application subnet as existing resources; reviewed `moved` blocks transfer
+their Terraform ownership from the nested module to the root without
 recreating either object. The browser job attaches to a dedicated,
 non-overlapping dual-stack `/26` in that VPC. Its network-interface tag selects
 an egress firewall deny for the exact application subnet CIDR, so the untrusted
-preview runner cannot use the common preview VPC to reach private application
-addresses. The browser subnet receives one external IPv6 `/64`; that
-preview-owned `/64` is the sole browser range added to the preview's PPB policy,
-so production and other previews are not widened. The singleton project
-foundation grants
-`roles/compute.publicIpAdmin` only to Google's Cloud Run service agent, as
-required for external-IPv6 Direct VPC addresses; no preview workspace, human,
-deploy, or application identity owns that project-wide grant. A subnet-scoped
-Cloud NAT and reserved regional IPv4 address exist only for fixed public DNS
-and reviewed IPv4-only fixture origins. The exact-head runner must force the
-canonical `scribe-pr-*` host over AAAA and fail closed if it cannot, because
-Public Cloud NAT does not translate `run.app` traffic. A protected helper
-retries fixed public AAAA resolution for at most two minutes, accepts at most
-32 public-global answers, selects one deterministic address for Chromium's
-exact-host resolver rule, and disables Node's IPv4 family race for Playwright
-API requests. Direct VPC plus Cloud NAT does not destination-filter arbitrary
-public IPv4 browser egress, so the additional boundaries are the runner's exact
-configured HTTPS origin, host-only session cookie, no-data identity, and
-bounded product script.
+preview runner cannot use the common per-environment VPC to reach private
+application addresses. The browser subnet receives one external IPv6 `/64`,
+and only that environment-owned `/64` is added to the same environment's PPB
+policy; production and other previews are not widened. The singleton project
+foundation grants `roles/compute.publicIpAdmin` only to Google's Cloud Run
+service agent, as required for external-IPv6 Direct VPC addresses. No preview
+or production workspace manages that project-wide grant, and no human, deploy,
+or application identity receives it. A subnet-scoped Cloud NAT and reserved
+regional IPv4 address exist only for fixed public DNS and reviewed IPv4-only
+fixture origins. Canonical `run.app` traffic is forced over AAAA because Public
+Cloud NAT does not translate it. A protected helper retries fixed public AAAA
+resolution for at most two minutes, accepts at most 32 public-global answers,
+selects one deterministic address for Chromium's exact-host resolver rule, and
+disables Node's IPv4 family race for Playwright API requests. Direct VPC plus
+Cloud NAT does not destination-filter arbitrary public IPv4 browser egress, so
+the additional boundaries are the runner's exact configured HTTPS origin,
+host-only session cookie, no-data identity, and bounded product script.
 
-The scenario uses preview-anonymous auth and leaves the upload selector on
-resolver-backed `Default` (`0`), then verifies the resulting durable
+Production does not use an operator cookie or interactive Google OAuth. The
+protected deploy identity opens IAP SSH to port 22 on the exact production VM
+with an ephemeral 50-minute key, invokes the fixed backend helper, and validates
+the returned mode-`0600` storage state before creating one temporary Secret
+Manager version. The Cloud Run entrypoint unsets the injected secret before
+Node starts; the runner removes the transient file, verifies the version-bound
+digest and complete cookie structure in memory, and checks reserved user 1,
+workspace 1, and its administrator role before the common product scenario.
+Before current-run mutations, production also removes only stranded readiness
+uploads and API keys with the exact UUID namespace and manifest items with the
+strict readiness marker and reviewed source URL. Browser executions are allowed
+to reach natural terminal state so normal cleanup can finish. Browser cleanup
+retries fail-closed logout independently of Chromium and replays the original
+cookie against a protected endpoint until it receives HTTP 401. Transport
+restores the idle job's exact inert version-1 reference,
+destroys and verifies the known numeric credential version directly, or keeps
+the deployment failed. An ambiguous Secret Manager create is never accepted as
+readiness success; bounded best-effort reconciliation and the fixed session
+expiry cover that failure boundary. After hard
+termination, the next protected apply fences the recorded execution before
+Terraform rollout and the next transport repeats bounded VM/secret cleanup.
+A fixed 50-minute session lifetime remains the final revocation fallback.
+
+The scenario leaves the upload selector on resolver-backed `Default` (`0`),
+then verifies the resulting durable
 transcription job records a concrete nonzero context. It uploads a reviewed
 two-line fixture and intentionally delays the editor bundle until that exact
 job completes. The editor must reconcile the completed job and canonical
 revision, show the catch-up magic wand moving through both line annotations in
 order, and emit matched start/result events for the exact successful attempt.
 The runner then mounts an unpinned editor before enqueueing a distinct durable
-job, waits for that editor's item-scoped SSE response so the server has captured
-its outbox high-water mark, and requires live, non-catch-up start/result events
-plus the visible wand's line-by-line movement. Neither automatic path may make
-a foreground `EnrichAnnotation` request. The editor must keep retranscription blocked
+job. It waits for both that editor's item-scoped SSE response and a correlated
+application marker emitted only after the stream-ready reconciliation finishes,
+so stale status from the prior job cannot satisfy the boundary. After
+enqueueing, it waits for the exact new job to become durably terminal, then
+allows a bounded UI-drain grace before classifying missing visual progress. The
+runner requires live, non-catch-up start/result events plus the visible wand's
+line-by-line movement. Neither automatic path may make a foreground
+`EnrichAnnotation` request. The editor must keep retranscription blocked
 until Mirador acknowledges the exact correlated canonical reload. Retryable
 image-upload responses are evaluated as one frontend retry sequence: readiness
-requires one to three attempts containing only retryable predecessors and an
-exact final success before editor handoff.
+requires one to five attempts that match the durable server retry budget,
+contain only retryable predecessors, and end in exact success before editor
+handoff.
 
 The scenario verifies the completed private draft through
 `AnnotationService.GetAnnotationPage`; exercises overlay modes, retranscription,
@@ -185,36 +213,45 @@ deletes the upload through the homepage and the manifest item through the
 sidebar, accepts only the exact item-ID confirmation dialog, and requires both
 rendered copies to disappear after each deletion. Finally, it deletes the
 copy-once workspace token and directly reconciles the upload by exact name and
-the manifest item by exact source URL. The scenario records the latest upload,
+the manifest item by its run-unique readiness marker plus exact source URL. The
+scenario records the latest upload,
 manifest-import, and token-creation request time. If the corresponding response
 did not settle and validate, direct reconciliation continues deleting exact
 matches through the full 300-second request commit horizon and then requires
 stable absence. This prevents a lost response or a canceled browser request
 from committing a resource after cleanup. Manifest reconciliation scans the
 capped workspace inventory with an empty query before loading each candidate
-and matching the exact source tuple; token cleanup lists keys and matches only
-the unique generated name, without reading a secret.
+and matching that exact provenance tuple; an ordinary manifest imported from
+the same URL is never selected. Token cleanup lists keys and matches only the
+unique generated name, without reading a secret.
 
 The scenario allows 300 seconds for upload handoff so the frontend's 270-second
 upstream cap can cover the backend's 240-second scale-to-zero inference budget.
 The proxy charges backend wake time and upstream work to one 285-second request
-budget below the platform cutoff. The complete product scenario has a 30-minute
+budget below the platform cutoff. The complete product scenario has a 27-minute
 deadline measured from runner startup. Reaching it closes the page so the normal
 failure path can use the retained API session, rather than letting the platform
-terminate browser work mid-mutation. The runner reserves the final 10 minutes
-of its 40-minute Cloud Run task for deadline-aware cleanup. That reserve covers
-the 300-second commit horizon, a 180-second recovery tail, and bounded
-request/control overhead.
+terminate browser work mid-mutation. The runner partitions the remaining 13
+minutes of its 40-minute Cloud Run task into eight minutes for the 300-second
+commit horizon and 180-second recovery tail, three minutes for session
+revocation, 30 seconds for browser shutdown, and 90 seconds of platform
+headroom.
 
-The protected deploy job keeps its existing 120-minute ceiling. Its executable
-contract reserves 300 seconds for backend readiness, 1,800 seconds for OCR,
-2,400 seconds for the browser task, and 1,800 seconds for build, Terraform, and
-control-plane work. The scenario produces no browser artifacts; on failure the
+Preview apply keeps the 120-minute deploy ceiling. Production apply has a
+240-minute ceiling so the workflow can fence a nonterminal browser execution,
+restore the prior reviewed release, and rerun backend/OCR readiness after a
+failed rollout. Its executable contract reserves two 300-second backend runs,
+two 1,800-second OCR runs, two 2,400-second browser task bounds (prior/current
+fencing plus the forward scenario), and 1,800 seconds for
+build, Terraform, and control-plane work. The scenario produces no browser artifacts; on failure the
 Cloud Run helper retains only an exact allowlisted stage category, including
-the bounded `structure` and `manifest` categories; free-form messages are
+the bounded `structure`, `manifest`, and `rate` categories; free-form messages are
 discarded. Run `bash
 ci/browser-readiness-contract_test.sh` and `bash
-ci/run-cloud-run-readiness_test.sh` for focused orchestration iteration. A
-feature PR can change only the deployed readiness script in this trusted build
-path, while protected-base orchestration and dependencies package it to
-exercise the PR-head frontend and backend images.
+ci/run-cloud-run-readiness_test.sh` for focused orchestration iteration. The
+contract also covers the production IAP/session transport, one-time secret
+lifecycle, and entrypoint consumption boundary. A feature PR can change only
+the deployed readiness script in the preview trusted-build path, while
+protected-base orchestration and dependencies package it to exercise the
+PR-head frontend and backend images. Production packages and runs the same
+scenario exclusively from the reviewed `main` tree.

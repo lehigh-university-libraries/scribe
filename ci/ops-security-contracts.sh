@@ -33,6 +33,8 @@ done < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yaml' -o -name '
 bash ci/docs-workflow-contract_test.sh
 bash ci/ensure-local-vault-init-image_test.sh
 bash ci/browser-readiness-contract_test.sh
+bash ci/production-iap-ssh-contract_test.sh
+bash ci/run-production-browser-readiness_test.sh
 matrix_job="$(sed -n '/^  matrix:/,/^  build:/p' .github/workflows/build-ocr.yaml)"
 rg -q '^    permissions:$' <<<"$matrix_job" || fail "OCR matrix job must have explicit permissions"
 rg -q '^      contents: read$' <<<"$matrix_job" || fail "OCR matrix job must be explicitly read-only"
@@ -117,8 +119,10 @@ forbid_pattern 'network    = module\.scribe\.network\.self_link' terraform/readi
 forbid_pattern 'subnetwork = module\.scribe\.network\.subnetwork' terraform/readiness.tf
 require_pattern 'readiness_jobs = \{' terraform/monitoring.tf
 require_pattern 'backend = try\(google_cloud_run_v2_job\.backend_readiness\[0\]\.name, ""\)' terraform/monitoring.tf
+require_pattern 'browser = try\(google_cloud_run_v2_job\.browser_readiness\[0\]\.name, ""\)' terraform/monitoring.tf
 require_pattern 'ocr[[:space:]]+= try\(google_cloud_run_v2_job\.ocr_readiness\[0\]\.name, ""\)' terraform/monitoring.tf
-require_pattern 'for_each = local\.is_prod_workspace \? local\.readiness_jobs : \{\}' terraform/monitoring.tf
+require_pattern 'for_each = local\.is_prod_workspace \? \{' terraform/monitoring.tf
+require_pattern 'for kind, job in local\.readiness_jobs : kind => job if trimspace\(job\) != ""' terraform/monitoring.tf
 forbid_pattern 'readiness_job_names|for_each = .*toset\(' terraform/monitoring.tf
 
 # The proxy must forward Vault KV requests from app and bootstrap identities.

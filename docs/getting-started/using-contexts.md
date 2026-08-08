@@ -57,14 +57,14 @@ Useful starting points:
 - **Automatic** segmentation runs the built-in detectors and keeps the result
   with more words. Use it as an experiment rather than assuming the larger
   region count is the better layout.
-- **Tesseract** segmentation uses the local deterministic detector. Choose the
-  Tesseract transcription provider separately when both stages should use it.
-  The built-in **Tesseract OCR** preset is the credential-free system default
-  when a workspace has not selected its own default.
+- **Tesseract** segmentation uses the local deterministic detector. The
+  built-in **Tesseract OCR** preset is the credential-free system default; it
+  preserves the established Scribe segmentation path and uses Tesseract for
+  line transcription.
 - **Scribe** segmentation pairs the built-in detector with the chosen
-  transcription provider. The built-in **Gemini Pro** preset combines it with
-  the configured Gemini model and model-default sampling; select it explicitly
-  when Gemini is configured for the workspace.
+  transcription provider. The built-in **Gemini Pro** preset combines Scribe
+  segmentation with the configured Gemini model and model-default sampling;
+  select it explicitly when Gemini is configured for the workspace.
 - **Kraken** choices use administrator-built, digest-pinned model services.
 
 The context library displays run counts. Integrations can use

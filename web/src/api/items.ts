@@ -339,7 +339,7 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
     throw new DOMException("Upload batch was canceled", "AbortError");
   }
 
-  const maxAttempts = Math.max(1, Math.min(5, Math.trunc(options.maxAttempts ?? 3)));
+  const maxAttempts = Math.max(1, Math.min(5, Math.trunc(options.maxAttempts ?? 5)));
   const retryDelayMs = Math.max(0, Math.min(5000, Math.trunc(options.retryDelayMs ?? 250)));
   try {
     for (let i = 0; i < prepared.files.length; i++) {
@@ -417,6 +417,9 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
       if (lastError !== undefined) {
         const latest = await client().getUploadBatch({ batchId: batchID }).catch(() => undefined);
         if (latest?.batch) batch = latest.batch;
+        const durableFailure = batch.files
+          .find((entry) => entry.sequence === i + 1)
+          ?.errorMessage.trim();
         reportProgress(options, {
           completed: batch.completedFiles,
           total: prepared.files.length,
@@ -426,7 +429,14 @@ export async function uploadItemImages(files: File[], options: UploadBatchOption
           attempt: maxAttempts,
           error: String(lastError),
         });
-        throw new UploadBatchError(`upload failed for ${prepared.files[i].file.name}`, batch, i + 1, { cause: lastError });
+        throw new UploadBatchError(
+          durableFailure
+            ? `upload failed for ${prepared.files[i].file.name}: ${durableFailure}`
+            : `upload failed for ${prepared.files[i].file.name}`,
+          batch,
+          i + 1,
+          { cause: lastError },
+        );
       }
     }
     if (batch.status !== UploadBatchStatus.COMPLETED) {

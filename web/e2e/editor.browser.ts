@@ -658,6 +658,31 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
   await expect.poll(async () => JSON.stringify(await page.evaluate(() => (
     window.__scribeBrowserHarness.pluginSnapshot().selectedDraftTarget
   ))), pluginPollOptions).not.toBe(JSON.stringify(initialKeyboardTarget));
+  const createdAnnotationId = await page.evaluate(() => (
+    window.__scribeBrowserHarness.pluginSnapshot().selectedAnnotationId
+  ));
+  expect(createdAnnotationId).not.toBe("");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect.poll(async () => JSON.stringify(await page.evaluate(() => (
+    window.__scribeBrowserHarness.pluginSnapshot().selectedDraftTarget
+  ))), pluginPollOptions).toBe(JSON.stringify(initialKeyboardTarget));
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect.poll(async () => page.evaluate(() => (
+    window.__scribeBrowserHarness.pluginSnapshot().pageB.draftCount
+  )), pluginPollOptions).toBe(1);
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect.poll(async () => page.evaluate(() => {
+    const snapshot = window.__scribeBrowserHarness.pluginSnapshot();
+    return {
+      draftCount: snapshot.pageB.draftCount,
+      selectedAnnotationId: snapshot.selectedAnnotationId,
+    };
+  }), pluginPollOptions).toEqual({
+    draftCount: 2,
+    selectedAnnotationId: createdAnnotationId,
+  });
+  await expect(page.getByRole("textbox", { name: "Edit line token 1", exact: true })).toHaveValue("");
+  await southeastResize.focus();
   await page.keyboard.press("Control+Backspace");
   await expect.poll(async () => page.evaluate(() => (
     window.__scribeBrowserHarness.pluginSnapshot().pageB.draftCount
@@ -795,7 +820,7 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
   });
 });
 
-test("structural edit pickers split at the chosen boundary and join explicit subsets", async ({ page }) => {
+test("structural edit pickers split, join lines, and retain words when forming a line", async ({ page }) => {
   test.setTimeout(300_000);
   const pluginPollOptions = { timeout: 60_000 };
   await page.goto("/e2e/harness.html?mode=structural");
@@ -867,11 +892,19 @@ test("structural edit pickers split at the chosen boundary and join explicit sub
   await expect.poll(async () => page.evaluate(() => {
     const { structural } = window.__scribeBrowserHarness.pluginSnapshot();
     return {
+      count: structural.draft.length,
       joined: structural.calls.joinWordIds.length,
       rows: structural.draft.map(({ granularity, text }) => `${granularity}:${text}`),
     };
   }), pluginPollOptions).toEqual({
+    count: 9,
     joined: 2,
-    rows: expect.arrayContaining(["line:red blue", "word:green", "word:gold"]),
+    rows: expect.arrayContaining([
+      "line:red blue",
+      "word:red",
+      "word:green",
+      "word:blue",
+      "word:gold",
+    ]),
   });
 });

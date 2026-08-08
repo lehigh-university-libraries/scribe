@@ -189,25 +189,27 @@ production default Ollama OCR request. Fixture contracts require authenticated
 requests, real image bytes, JPEG validation, non-empty model output, and Ollama
 `done=true`; a health-only response is not deployment evidence.
 
-Preview readiness also runs a digest-pinned Playwright image in the preview's
-root-owned application VPC, avoiding an additional project-wide network quota
-slot. Reviewed state moves transfer the existing VPC and application subnet
-from nested-module ownership to the root without resource replacement, and
-Cloud Compose consumes their exact self-links. The browser job uses a
-dedicated, non-overlapping dual-stack `/26`; its interface tag selects an
-egress firewall deny for the exact private application subnet CIDR. The browser
-subnet receives one external IPv6 `/64`, and only that preview-owned `/64` is
-added to the preview's PPB policy. Its reserved IPv4 address and subnet-scoped
-Cloud NAT remain available only for fixed public DNS and reviewed IPv4-only
-fixture origins; `run.app` is forced over AAAA because Public Cloud NAT does
-not translate Google service traffic. A protected, unit-tested helper bounds
-and validates public-global AAAA answers, supplies Chromium's exact-host
-mapping, and disables Node IPv4 racing for Playwright API requests. The
-singleton foundation binds Google's required `roles/compute.publicIpAdmin`
-only to the managed Cloud Run service agent, never to preview state, deploy
-identities, or application identities. The retired deterministic `browser-v6`
-subnet is recognized only by bounded teardown recovery and grants no active
-job attachment or PPB access. Trusted orchestration fetches only the
+Managed preview and production readiness also run a digest-pinned Playwright
+image in the environment's root-owned application VPC, avoiding an additional
+network quota slot. Reviewed state moves transfer the existing VPC and
+application subnet from nested-module ownership to the root without resource
+replacement, and Cloud Compose consumes their exact self-links. The browser
+job uses a dedicated, non-overlapping dual-stack `/26`; its interface tag
+selects an egress firewall deny for the exact private application subnet CIDR.
+The browser subnet receives one external IPv6 `/64`, and only that
+environment-owned `/64` is added to the same environment's PPB policy. Its
+reserved IPv4 address and subnet-scoped Cloud NAT remain available only for
+fixed public DNS and reviewed IPv4-only fixture origins; canonical `run.app`
+traffic is forced over AAAA because Public Cloud NAT does not translate Google
+service traffic. A protected, unit-tested helper bounds and validates
+public-global AAAA answers, supplies Chromium's exact-host mapping, and
+disables Node IPv4 racing for Playwright API requests. The singleton foundation
+binds Google's required `roles/compute.publicIpAdmin` only to the managed Cloud
+Run service agent, never to preview or production workspace state, deploy
+identities, or application identities. Immediately after browser-context
+creation, a bounded initial-root warm-up may retry only PPB `403` or `404`
+responses for five minutes before production authentication, cleanup, and
+strict browser monitoring. Preview trusted orchestration fetches only the
 readiness script at the exact resolved same-repository PR-head SHA before cloud
 authentication, walks its exact commit tree, requires unique tree parents and a
 `100644` source blob, and reconciles the bounded Contents payload with that blob
@@ -215,19 +217,44 @@ before substituting only that file into a protected-base Docker build. Symlinks,
 gitlinks, duplicate or truncated tree results, and mismatched payloads fail
 closed. The protected Dockerfile and dependencies never execute the script
 during the credentialed build. Its no-IAM preview service account later runs
-the script with preview-anonymous auth to exercise the
-PR-head frontend's complete upload-to-editor handoff with deterministic
-Tesseract processing, canonical annotations, overlay on/off semantics,
+the script with preview-anonymous auth to exercise the PR-head frontend's
+complete upload-to-editor handoff with Scribe segmentation and deterministic
+Tesseract line transcription, canonical annotations, overlay on/off semantics,
 resolver-backed default-context selection and the resulting concrete context.
 The retry-bounded upload uses a reviewed two-line fixture and delays the editor
 bundle until durable transcription completes. The editor must reconcile that
 exact job and canonical revision, visibly move its catch-up wand between the
 two lines, and emit matched per-line events. It then mounts the editor before a
-distinct durable job starts, waits for the item-scoped SSE handshake, and proves
-live, attempt-scoped event and wand progress through both lines. Both paths must
-make no automatic foreground
+distinct durable job starts, waits for both the item-scoped SSE handshake and
+the correlated ready-after-reconciliation application marker, then proves live,
+attempt-scoped event and wand progress through both lines after the exact new
+job becomes durably terminal plus a bounded UI-drain grace. Both paths must make
+no automatic foreground
 `EnrichAnnotation` calls and wait for an exact canonical-reload acknowledgment
 before unblocking retranscription.
+
+Production builds the same runner exclusively from the exact reviewed `main`
+tree and does not depend on a user's cookie or Google OAuth. The protected
+deploy identity can open an IAP tunnel only to port 22 on the exact production
+VM and can manage versions only on the exact browser-session secret. It mints a
+fixed 50-minute session for reserved user/workspace 1, validates the bounded
+mode-`0600` storage state, and uploads one temporary Secret Manager version.
+The isolated Cloud Run identity can only read that secret. Its entrypoint
+unsets the injected value before Node starts; the runner removes the transient
+file, verifies the version-bound digest and cookie contract in memory, and
+checks the exact non-system user, workspace, and administrator role before any
+product action. Browser executions reach natural terminal state so final
+cleanup can retry fail-closed logout independently of Chromium and prove the
+original cookie receives HTTP 401 from a protected API. Only then may transport
+restore the exact inert version-1 job reference and destroy and verify the known
+numeric credential version without relying on `latest` or list consistency.
+Ambiguous credential creation remains a failed
+deployment with bounded best-effort reconciliation and fixed expiry. A
+pre-mutation production janitor deletes only exact readiness-owned UUID
+resources and manifest items carrying both the strict readiness marker and
+reviewed source URL. A subsequent protected apply fences work left by hard
+termination before rollout; the
+50-minute lifetime is the final revocation fallback.
 
 The scenario then exercises retranscription, live word/line transforms, save,
 publish, destructive-action presentation, the copy-once token modal, and exact
@@ -246,18 +273,25 @@ and token identities through the bounded late-commit horizon. Same-origin
 4xx/5xx responses outside the allowed upload retry sequence, request failures,
 CSP console errors, unexpected native dialogs, missing annotations, and leaked
 cleanup state are failures. Cloud diagnostics admit only exact stage
-categories, including `structure` and `manifest`; free-form messages, raw
-browser output, and credential-bearing state are neither generated nor
-uploaded.
+categories, including `structure`, `manifest`, and `rate`, plus fixed
+endpoint-family and client/server/transport variants for generic network
+failures. The exit-code mapping preserves those bounded variants when log
+queries are unavailable, and cleanup cannot overwrite the original browser
+fault. Free-form messages, raw browser output, request URLs, and
+credential-bearing state are neither generated nor uploaded.
 
 `ci/browser-readiness-contract_test.sh` locks the split protected-base/exact-head
-source boundary, self-contained runner, image digest, zero-IAM identity,
-isolated static egress, replay schema, bounded categorical diagnostics, and the
-30-minute scenario plus 10-minute cleanup reserve beneath the 40-minute Cloud
-Run task. `ci/readiness-fixture-test.sh` proves the runner's embedded bytes and
-declared SHA-256 match the committed deterministic opaque PNG. The reusable
-deploy-workflow contract also fits backend, OCR, and browser readiness plus
-control-plane headroom beneath its 120-minute ceiling.
+preview boundary, exact-main production runner, image digest, isolated static
+egress, least-privilege identities, IAP/session transport, one-time secret
+lifecycle, replay schema, bounded categorical diagnostics, and the exact
+27-minute scenario, eight-minute reconciliation, three-minute logout,
+30-second browser-close, and 90-second platform-headroom partition beneath the
+40-minute Cloud Run task.
+`ci/readiness-fixture-test.sh` proves the runner's embedded bytes and declared
+SHA-256 match the committed deterministic opaque PNG. The reusable
+deploy-workflow contract fits preview readiness beneath its 120-minute ceiling
+and production browser fencing plus rollback readiness beneath its isolated
+240-minute ceiling.
 
 `make generate` consumes the reviewed dependency commits in `proto/buf.lock`.
 To upgrade a Buf module deliberately, run `cd proto && ../.tools/bin/buf dep

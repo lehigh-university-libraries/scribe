@@ -35,6 +35,11 @@ JavaScript's exactly round-trippable numeric range. A partial or single-Canvas
 projection omits a source `start` Canvas when that Canvas is not present in the
 emitted `items` array.
 
+Manifest retrieval retries an upstream HTTP 429 only within a fixed
+three-attempt budget. A numeric or date-valued `Retry-After` delay is capped at
+five seconds and remains inside the aggregate import deadline; an exhausted
+rate limit fails before tenant content is written.
+
 The production browser policy permits OpenSeadragon to fetch `info.json` and
 tiles from HTTPS Image API services advertised by an imported manifest. Those
 cross-origin requests are anonymous and the remote service must return suitable
@@ -124,8 +129,13 @@ Structural split/join RPCs are pure complete-page transforms. A client sends
 its current full draft, including unsaved annotations and unknown IIIF or
 extension properties, and replaces its draft directly with the complete page
 returned by the backend. Clients must not reconstruct a result by removing or
-merging annotation fragments locally. Enrichment RPCs likewise accept and
-return IIIF JSON so Mirador and other editors reuse the server's semantics.
+merging annotation fragments locally. `JoinWordsIntoLine` may include explicitly
+selected loose words beside an existing line, but every word already owned by
+each affected line must be selected and every selected word must contain exactly
+one text token. The returned line expands to the union of the selected word
+geometry, orders its text by the final line's x/y/item ownership, and retains the
+word annotations intact. Enrichment RPCs likewise accept and return IIIF JSON so
+Mirador and other editors reuse the server's semantics.
 An enrichment request that the configured transcription provider permanently
 rejects returns Connect `failed_precondition` with a fixed, redacted message;
 a successful provider response containing only whitespace is also rejected as

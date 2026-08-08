@@ -58,12 +58,19 @@ func TestConcurrentSystemContextEnsureConverges(t *testing.T) {
 	t.Cleanup(func() { _ = contexts.Delete(context.Background(), id) })
 
 	desired.Description = "refreshed canonical startup definition"
+	desired.SegmentationModel = "scribe"
 	if err := contexts.EnsureSystemContext(ctx, desired); err != nil {
 		t.Fatalf("refresh converged system context: %v", err)
 	}
 	loaded, err := contexts.Get(ctx, id)
-	if err != nil || loaded.Description != desired.Description {
+	if err != nil || loaded.ID != id || loaded.Description != desired.Description || loaded.SegmentationModel != "scribe" {
 		t.Fatalf("refreshed system context = %+v/%v", loaded, err)
+	}
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM contexts WHERE workspace_id IS NULL AND name = ?`, name).Scan(&count); err != nil {
+		t.Fatalf("count refreshed system context: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("refreshed system context count = %d, want stable row", count)
 	}
 }
 

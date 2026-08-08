@@ -185,11 +185,27 @@ EOF
 
 digest_a="$(printf 'a%.0s' $(seq 1 64))"
 digest_b="$(printf 'b%.0s' $(seq 1 64))"
+: >"$TERRAFORM_LOG"
+if PATH="$TEST_DIR/bin" \
+  GCLOUD_PROJECT=example-project \
+  TF_STATE_BUCKET=bootstrap-state \
+  "$ROOT_DIR/terraform/deploy-local.sh" prod apply \
+    --branch aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    >"$TEST_DIR/missing-browser-image.out" 2>"$TEST_DIR/missing-browser-image.err"; then
+  fail "production apply accepted a missing browser readiness digest"
+fi
+grep -Fq 'plan/apply require SCRIBE_BROWSER_READINESS_IMAGE at the exact project-owned digest' \
+  "$TEST_DIR/missing-browser-image.err" ||
+  fail "production apply did not fail with the browser readiness digest contract"
+[ ! -s "$TERRAFORM_LOG" ] ||
+  fail "production apply reached Terraform before rejecting a missing browser readiness digest"
+
 PATH="$TEST_DIR/bin" \
   GCLOUD_PROJECT=example-project \
   TF_STATE_BUCKET=bootstrap-state \
   BACKUP_AUDIT_FIXTURE_DIR="$TEST_DIR/backups" \
   SCRIBE_API_IMAGE="ghcr.io/example/scribe@sha256:${digest_a}" \
+  SCRIBE_BROWSER_READINESS_IMAGE="us-docker.pkg.dev/example-project/internal/scribe-browser-readiness@sha256:${digest_b}" \
   SCRIBE_FRONTEND_GAR_IMAGE="us-docker.pkg.dev/example-project/internal/scribe-frontend@sha256:${digest_a}" \
   SCRIBE_OCR_IMAGES_JSON="{\"segmentor\":\"us-docker.pkg.dev/example-project/internal/segmentor@sha256:${digest_b}\"}" \
   VAULT_BOOTSTRAP_MODE=jwt-or-root-token \

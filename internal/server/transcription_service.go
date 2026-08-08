@@ -520,12 +520,51 @@ func transcriptionJobFailureForSegment(err error) error {
 	case errors.Is(err, hocr.ErrPermanentProviderRequest):
 		return permanentTranscriptionFailure("transcription provider request failed")
 	case errors.Is(err, errEmptyAnnotationTranscription):
-		return permanentTranscriptionFailure("transcription provider returned no text")
+		// An unreadable crop is isolated to its line. Preserve the canonical
+		// annotation and let the job commit the other successful lines instead
+		// of retrying the entire page from zero.
+		return nil
 	case errors.Is(err, hocr.ErrRetryableProviderRequest):
 		return fmt.Errorf("transcription provider request failed: %w", err)
 	default:
+		// An unclassified crop, image, validation, or subprocess failure is not
+		// evidence that a line is merely unreadable. Retry the fenced job rather
+		// than committing a false partial success.
+		return errors.New("transcription segment processing failed")
+	}
+}
+
+// transcriptionSegmentFailureState delays retryable and unclassified line
+// failures until every line has been attempted. A partially useful page can
+// then commit once, while a wholly transient attempt still follows the job's
+// bounded retry policy.
+type transcriptionSegmentFailureState struct {
+	retryWholeJob error
+}
+
+func (s *transcriptionSegmentFailureState) record(err error) error {
+	jobFailure := transcriptionJobFailureForSegment(err)
+	if jobFailure == nil {
 		return nil
 	}
+	var permanent permanentTranscriptionError
+	if errors.Is(jobFailure, context.Canceled) || errors.As(jobFailure, &permanent) {
+		return jobFailure
+	}
+	if s.retryWholeJob == nil {
+		s.retryWholeJob = jobFailure
+	}
+	return nil
+}
+
+func (s transcriptionSegmentFailureState) finish(completed, failed int) error {
+	if completed > 0 || failed == 0 {
+		return nil
+	}
+	if s.retryWholeJob != nil {
+		return s.retryWholeJob
+	}
+	return permanentTranscriptionFailure("transcription provider returned no text")
 }
 
 func (h *Handler) recordClaimedTranscriptionJobFailure(ctx context.Context, job *store.TranscriptionJob, err error) error {
@@ -737,6 +776,18 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		}
 		pageItems = append(preserveNonOCRAnnotations(pageItems), segmentedItems...)
 		pageDocument["items"] = pageItems
+
+		// Segmentation annotations start with provider-local URNs. Canonicalize
+		// them before publishing task progress or recording successful line IDs,
+		// so those IDs remain identical in the final page and OCR provenance.
+		pageDocument, pageItems, err = canonicalizeSegmentedTranscriptionPage(pageDocument, iiif.PageIdentity{
+			PublicBaseURL: h.publicAnnotationBaseURL(),
+			ItemImageID:   job.ItemImageID,
+			CanvasURI:     img.CanvasURI,
+		})
+		if err != nil {
+			return permanentTranscriptionFailure("segmentation produced invalid annotations")
+		}
 	}
 
 	type annotationEntry struct {
@@ -803,13 +854,14 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	if err := h.transcriptionJobs.SetTotalSegments(ctx, fence, total); err != nil {
 		return fmt.Errorf("set total segments: %w", err)
 	}
-	// Results are committed only as a full page. A retry therefore starts from
-	// the newly loaded canonical revision instead of pretending prior counters
-	// represent durable per-segment output. Claiming the attempt atomically
-	// clears its mutable progress, so the first worker update always represents
-	// actual work rather than an idempotent reset that MySQL can report as zero
-	// affected rows.
+	// Results are committed as one full-page revision. Claiming an attempt
+	// atomically clears mutable progress, so the first worker update always
+	// represents actual work rather than an idempotent reset that MySQL can
+	// report as zero affected rows. A wholly transient attempt may retry from
+	// the canonical base; once any line succeeds, the partial page commits once.
 	completed, failed := 0, 0
+	var segmentFailures transcriptionSegmentFailureState
+	successfulLineIDs := make(map[string]struct{}, total)
 	for i, entry := range lines {
 		select {
 		case <-ctx.Done():
@@ -840,7 +892,7 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		enriched, err := h.enrichSingleAnnotationInWorkspace(ctx, job.ItemImageID, entry.payload, pctx, workspaceID, nil)
 		if err != nil {
 			slog.Warn("Segment transcription failed", "job_id", job.ID, "annotation_id", entry.id, "failure", store.SafeTranscriptionFailureMessage(err))
-			if jobFailure := transcriptionJobFailureForSegment(err); jobFailure != nil {
+			if jobFailure := segmentFailures.record(err); jobFailure != nil {
 				return jobFailure
 			}
 			failed++
@@ -859,6 +911,7 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 			return fmt.Errorf("decode enriched annotation %q: %w", entry.id, err)
 		}
 		pageItems[entry.position] = enrichedAnno
+		successfulLineIDs[entry.id] = struct{}{}
 
 		completed++
 		if err := h.transcriptionJobs.UpdateProgress(ctx, fence,
@@ -880,11 +933,13 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 			"persisted":         false,
 		})
 	}
-	if failed > 0 {
-		return fmt.Errorf("transcription failed for %d of %d segments", failed, total)
+	if jobFailure := segmentFailures.finish(completed, failed); jobFailure != nil {
+		return jobFailure
 	}
-
-	pageItems = reconcileTranscribedWords(pageItems)
+	// Explicitly unreadable lines retain their complete canonical subtree.
+	// Reconcile word children only beneath lines that this attempt successfully
+	// transcribed, so failed-line text and word provenance remain unchanged.
+	pageItems = reconcileTranscribedLineWords(pageItems, successfulLineIDs)
 	pageDocument["items"] = pageItems
 	pageJSON, err := json.Marshal(pageDocument)
 	if err != nil {
@@ -923,7 +978,7 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	if err != nil {
 		return fmt.Errorf("marshal completion event: %w", err)
 	}
-	provenance, err := h.transcriptionJobOCRRun(ctx, job, pctx, img, page, completed)
+	provenance, err := h.transcriptionJobOCRRun(ctx, job, pctx, img, page, successfulLineIDs)
 	if err != nil {
 		return fmt.Errorf("build transcription OCR provenance: %w", err)
 	}
@@ -947,6 +1002,29 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	slog.Info("Transcription job complete", "job_id", job.ID, "completed", completed, "failed", failed)
 	h.publishCloudEvent(evt, false)
 	return nil
+}
+
+func canonicalizeSegmentedTranscriptionPage(
+	pageDocument map[string]any,
+	identity iiif.PageIdentity,
+) (map[string]any, []any, error) {
+	segmentedPageJSON, err := json.Marshal(pageDocument)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode segmented annotation page: %w", err)
+	}
+	canonicalSegmentedPage, err := iiif.NormalizeAnnotationPage(segmentedPageJSON, identity)
+	if err != nil {
+		return nil, nil, fmt.Errorf("normalize segmented annotation page: %w", err)
+	}
+	var canonicalDocument map[string]any
+	if err := iiif.DecodeJSON(canonicalSegmentedPage, &canonicalDocument); err != nil {
+		return nil, nil, fmt.Errorf("decode canonical segmented annotation page: %w", err)
+	}
+	items, ok := canonicalDocument["items"].([]any)
+	if !ok {
+		return nil, nil, errors.New("canonical segmented annotation page items are not an array")
+	}
+	return canonicalDocument, items, nil
 }
 
 func containsLineAnnotation(items []any) bool {
@@ -1249,7 +1327,11 @@ func compactSortedInts(values []int) []int {
 // an editor draft would allow a moved or overlapping line to steal words.
 func reconcileTranscribedLineWords(items []any, authoritative map[string]struct{}) []any {
 	remove := make(map[int]struct{})
-	wordsByLine := assignSpatialWordsToLines(items, authoritative)
+	// Establish ownership against the complete canonical line layout first.
+	// Filtering the candidate lines to only successful transcriptions would let
+	// an overlapping successful line steal and mutate a word owned by an
+	// unreadable line that must remain unchanged.
+	wordsByLine := assignSpatialWordsToLines(items, nil)
 
 	for _, value := range items {
 		line, ok := value.(map[string]any)
@@ -1272,7 +1354,13 @@ func reconcileTranscribedLineWords(items []any, authoritative map[string]struct{
 		}
 		for index, wordPosition := range words {
 			word := items[wordPosition.index].(map[string]any)
+			if extractAnnotationText(word) == strings.TrimSpace(tokens[index]) {
+				continue
+			}
 			setAnnotationText(word, tokens[index])
+			// A changed textual value cannot retain the old embedded RDF
+			// resource identity. Other body properties remain intact.
+			clearFirstTextualBodyIdentity(word["body"])
 		}
 	}
 
@@ -1320,11 +1408,18 @@ func setAnnotationText(annotation map[string]any, value string) {
 	}}
 }
 
-func (h *Handler) transcriptionJobOCRRun(ctx context.Context, job *store.TranscriptionJob, pctx store.Context, img store.ItemImage, page store.AnnotationPage, completed int) (*store.OCRRun, error) {
+func (h *Handler) transcriptionJobOCRRun(
+	ctx context.Context,
+	job *store.TranscriptionJob,
+	pctx store.Context,
+	img store.ItemImage,
+	page store.AnnotationPage,
+	successfulLineIDs map[string]struct{},
+) (*store.OCRRun, error) {
 	if h.ocrRuns == nil {
 		return nil, nil
 	}
-	if completed == 0 {
+	if len(successfulLineIDs) == 0 {
 		return nil, nil
 	}
 	if _, err := h.ocrRuns.GetByItemImageID(ctx, job.ItemImageID); err == nil {
@@ -1333,7 +1428,15 @@ func (h *Handler) transcriptionJobOCRRun(ctx context.Context, job *store.Transcr
 		return nil, err
 	}
 
-	lines, pageW, pageH, err := annotationPageToHOCRLinesWithDimensions(page.Payload, int(img.Width), int(img.Height))
+	// A partially successful job leaves unreadable lines unchanged in the
+	// canonical page. Its immutable provider baseline must therefore contain
+	// only lines actually produced by this attempt; otherwise the run would
+	// falsely attribute retained human or prior-provider text to this provider.
+	provenancePage, err := annotationPageLineProjection(page.Payload, successfulLineIDs)
+	if err != nil {
+		return nil, fmt.Errorf("project successful annotations: %w", err)
+	}
+	lines, pageW, pageH, err := annotationPageToHOCRLinesWithDimensions(provenancePage, int(img.Width), int(img.Height))
 	if err != nil {
 		return nil, fmt.Errorf("crosswalk completed annotations: %w", err)
 	}
@@ -1351,6 +1454,41 @@ func (h *Handler) transcriptionJobOCRRun(ctx context.Context, job *store.Transcr
 		OriginalHOCR: hocrXML,
 		OriginalText: plainText,
 	}, nil
+}
+
+// annotationPageLineProjection derives an OCR-run baseline from only the line
+// results owned by one provider attempt. Word annotations are intentionally
+// omitted: their provenance may belong to an unchanged failed line, while the
+// crosswalk can deterministically derive word geometry from each successful
+// line's provider text.
+func annotationPageLineProjection(pageJSON string, lineIDs map[string]struct{}) (string, error) {
+	var page map[string]any
+	if err := iiif.DecodeJSON([]byte(pageJSON), &page); err != nil {
+		return "", fmt.Errorf("decode annotation page: %w", err)
+	}
+	items, ok := page["items"].([]any)
+	if !ok {
+		return "", fmt.Errorf("annotation page items are not an array")
+	}
+	projected := make([]any, 0, len(lineIDs))
+	for _, value := range items {
+		annotation, ok := value.(map[string]any)
+		if !ok || !strings.EqualFold(strings.TrimSpace(annStringValue(annotation, "textGranularity")), "line") {
+			continue
+		}
+		if _, include := lineIDs[annStringValue(annotation, "id")]; include {
+			projected = append(projected, annotation)
+		}
+	}
+	if len(projected) != len(lineIDs) {
+		return "", fmt.Errorf("found %d of %d successful line annotations", len(projected), len(lineIDs))
+	}
+	page["items"] = projected
+	encoded, err := json.Marshal(page)
+	if err != nil {
+		return "", fmt.Errorf("encode annotation page: %w", err)
+	}
+	return string(encoded), nil
 }
 
 // --- proto conversion ---

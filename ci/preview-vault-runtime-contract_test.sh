@@ -184,9 +184,9 @@ rg -Fq 'VAULT_BOOTSTRAP_MODE: root-token' <<<"$normalize_step" ||
 rg -Fq "group: \${{ inputs.environment_name == 'preview' && 'terraform-preview-dev-shared' || format('terraform-deploy-{0}', inputs.site_name) }}" <<<"$trusted_deploy_job" ||
   fail "the entire shared preview reconciliation and deployment path is not serialized"
 
-[[ "$(rg -c '^[[:space:]]*- ' .github/actionlint.yaml)" -eq 2 ]] ||
-  fail "the actionlint compatibility exception is not limited to the two queue uses"
-for workflow in terraform-deploy.yaml terraform-preview.yaml; do
+[[ "$(rg -c '^[[:space:]]*- ' .github/actionlint.yaml)" -eq 3 ]] ||
+  fail "the actionlint compatibility exception is not limited to the three queue uses"
+for workflow in terraform-deploy.yaml terraform-drift.yaml terraform-preview.yaml; do
   rg -Fq ".github/workflows/${workflow}:" .github/actionlint.yaml ||
     fail "the actionlint queue exception is not scoped to ${workflow}"
 done
