@@ -102,12 +102,14 @@ require_pattern 'readiness_network_resource_name = regex\(' terraform/readiness.
 require_pattern 'projects/\[\^/\]\+/global/networks/\[\^/\]\+\$' terraform/readiness.tf
 require_pattern 'readiness_subnetwork_resource_name = regex\(' terraform/readiness.tf
 require_pattern 'projects/\[\^/\]\+/regions/\[\^/\]\+/subnetworks/\[\^/\]\+\$' terraform/readiness.tf
-test "$(rg -c 'network    = local\.readiness_network_resource_name' terraform/readiness.tf)" -eq 3 ||
-  fail "all three readiness jobs must use the canonical Cloud Run network resource name"
+test "$(rg -c 'network    = local\.readiness_network_resource_name' terraform/readiness.tf)" -eq 2 ||
+  fail "backend and OCR readiness must use the canonical application network resource name"
 test "$(rg -c 'subnetwork = local\.readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 2 ||
   fail "backend and OCR readiness jobs must use the canonical application subnetwork resource name"
-test "$(rg -c 'subnetwork = local\.browser_readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 1 ||
-  fail "browser readiness must use only its dedicated NATed subnetwork resource name"
+test "$(rg -c 'network    = local\.browser_readiness_ipv6_network_resource_name' terraform/readiness.tf)" -eq 1 ||
+  fail "browser readiness must use only its isolated dual-stack network resource name"
+test "$(rg -c 'subnetwork = local\.browser_readiness_ipv6_subnetwork_resource_name' terraform/readiness.tf)" -eq 1 ||
+  fail "browser readiness must use only its isolated dual-stack subnetwork resource name"
 forbid_pattern 'network    = module\.scribe\.network\.self_link' terraform/readiness.tf
 forbid_pattern 'subnetwork = module\.scribe\.network\.subnetwork' terraform/readiness.tf
 require_pattern 'readiness_jobs = \{' terraform/monitoring.tf

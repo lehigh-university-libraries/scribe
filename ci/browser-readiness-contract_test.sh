@@ -49,11 +49,14 @@ require_fixed 'ENTRYPOINT ["node", "/app/deployed-readiness.mjs"]' Dockerfile.br
 require_fixed 'COPY web/package.json web/package-lock.json ./' Dockerfile.browser-readiness
 require_fixed 'RUN npm ci --ignore-scripts --prefer-offline --no-audit' Dockerfile.browser-readiness
 require_fixed 'COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs' Dockerfile.browser-readiness
+require_fixed 'COPY --chown=pwuser:pwuser web/e2e/deployed-readiness-routing.mjs ./deployed-readiness-routing.mjs' Dockerfile.browser-readiness
 forbid_pattern 'readiness-smoke\.png\.base64' Dockerfile.browser-readiness
 require_fixed 'gha-creds-*.json' .dockerignore
 forbid_pattern 'latest|curl|wget|apt-get' Dockerfile.browser-readiness
 [ "$(rg -c -F 'COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs' Dockerfile.browser-readiness)" -eq 1 ] ||
   fail "the protected Dockerfile must copy the PR-head script exactly once"
+[ "$(rg -c -F 'COPY --chown=pwuser:pwuser web/e2e/deployed-readiness-routing.mjs ./deployed-readiness-routing.mjs' Dockerfile.browser-readiness)" -eq 1 ] ||
+  fail "the protected Dockerfile must copy the IPv6 routing helper exactly once"
 assert_before Dockerfile.browser-readiness '^RUN npm ci --ignore-scripts' '^COPY --chown=pwuser:pwuser web/e2e/deployed-readiness\.mjs'
 final_image_stage="$(awk '/^FROM / { stage += 1 } stage == 2 { print }' Dockerfile.browser-readiness)"
 if rg -q '^RUN[[:space:]]' <<<"$final_image_stage"; then
@@ -64,6 +67,19 @@ bash ci/prepare-browser-readiness-source_test.sh
 forbid_pattern 'readiness-smoke\.png\.base64' ci/prepare-browser-readiness-source.sh
 
 node --check web/e2e/deployed-readiness.mjs
+node --test web/e2e/deployed-readiness-routing_test.mjs
+require_fixed 'configureCanonicalIPv6Routing(baseURL.hostname)' web/e2e/deployed-readiness.mjs
+require_fixed 'args: [chromiumIPv6Argument]' web/e2e/deployed-readiness.mjs
+require_fixed 'options.setResultOrder ?? setDefaultResultOrder' web/e2e/deployed-readiness-routing.mjs
+require_fixed 'setResultOrder("ipv6first")' web/e2e/deployed-readiness-routing.mjs
+require_fixed 'options.setAutoSelectFamily ?? setDefaultAutoSelectFamily' web/e2e/deployed-readiness-routing.mjs
+require_fixed 'setAutoSelectFamily(false)' web/e2e/deployed-readiness-routing.mjs
+require_fixed 'Object.freeze(["8.8.8.8", "8.8.4.4"])' web/e2e/deployed-readiness-routing.mjs
+require_fixed 'resolver.setServers([...publicDNSResolvers])' web/e2e/deployed-readiness-routing.mjs
+require_fixed 'const defaultResolutionTimeoutMs = 120_000;' web/e2e/deployed-readiness-routing.mjs
+require_fixed 'const defaultResolutionAttemptTimeoutMs = 10_000;' web/e2e/deployed-readiness-routing.mjs
+require_fixed 'const defaultResolutionRetryIntervalMs = 2_000;' web/e2e/deployed-readiness-routing.mjs
+require_fixed 'if (!address) throw new Error("canonical IPv6 resolution timed out");' web/e2e/deployed-readiness-routing.mjs
 require_fixed 'import { createHash, randomUUID } from "node:crypto";' web/e2e/deployed-readiness.mjs
 require_fixed 'const readinessSmokeFixtureSHA256 = "e3f3bb2b5ade3c15af262a76ad58b720e7eb3b3d079802df04f1dd50be917b2d";' web/e2e/deployed-readiness.mjs
 require_fixed 'const fixture = Buffer.from(readinessSmokeFixtureBase64, "base64");' web/e2e/deployed-readiness.mjs
@@ -483,6 +499,9 @@ require_fixed 'substr("probe-browser-${local.workspace_slug}", 0, 21)' terraform
 for resource in google_compute_address google_compute_router google_compute_router_nat google_compute_subnetwork google_cloud_run_v2_job google_service_account; do
   require_pattern "resource \"${resource}\" \"browser_readiness\"" terraform/readiness.tf
 done
+for resource in google_compute_address google_compute_network google_compute_router google_compute_router_nat google_compute_subnetwork; do
+  require_pattern "resource \"${resource}\" \"browser_readiness_ipv6\"" terraform/readiness.tf
+done
 for required in \
   'nat_ip_allocate_option             = "MANUAL_ONLY"' \
   'nat_ips                            = [google_compute_address.browser_readiness[0].self_link]' \
@@ -491,21 +510,54 @@ for required in \
   'source_ip_ranges_to_nat = ["ALL_IP_RANGES"]' \
   'service_account = google_service_account.browser_readiness[0].email' \
   'egress = "ALL_TRAFFIC"' \
-  'subnetwork = local.browser_readiness_subnetwork_resource_name' \
   'value = local.public_base_url'; do
   require_fixed "$required" terraform/readiness.tf
 done
+require_fixed 'value = "--dns-result-order=ipv6first --no-network-family-autoselection"' terraform/readiness.tf
+for required in \
+  'auto_create_subnetworks = false' \
+  'routing_mode            = "REGIONAL"' \
+  'mtu                     = 1460' \
+  'network                  = google_compute_network.browser_readiness_ipv6[0].self_link' \
+  'stack_type               = "IPV4_IPV6"' \
+  'ipv6_access_type         = "EXTERNAL"' \
+  'strcontains(self.external_ipv6_prefix, ":")' \
+  'nat_ips                            = [google_compute_address.browser_readiness_ipv6[0].self_link]' \
+  'name                    = google_compute_subnetwork.browser_readiness_ipv6[0].self_link' \
+  'network    = local.browser_readiness_ipv6_network_resource_name' \
+  'subnetwork = local.browser_readiness_ipv6_subnetwork_resource_name' \
+  'google_compute_router_nat.browser_readiness_ipv6'; do
+  require_fixed "$required" terraform/readiness.tf
+done
+require_fixed 'google_compute_subnetwork.browser_readiness_ipv6[0].external_ipv6_prefix' terraform/readiness.tf
+browser_readiness_allowlist="$(sed -n \
+  '/browser_readiness_allowed_ips =/,/] : \[\]/p' terraform/readiness.tf)"
+[ "$(rg -c -F 'google_compute_subnetwork.browser_readiness_ipv6[0].external_ipv6_prefix' \
+  <<<"$browser_readiness_allowlist")" -eq 1 ] ||
+  fail "the preview PPB allowlist must contain exactly the dedicated external IPv6 prefix"
+if rg -q 'google_compute_address' <<<"$browser_readiness_allowlist"; then
+  fail "a browser NAT IPv4 address still grants preview PPB ingress"
+fi
+preview_ipv6_resources="$(sed -n \
+  '/^resource "google_compute_network" "browser_readiness_ipv6"/,/^resource "google_service_account" "backend_readiness"/p' \
+  terraform/readiness.tf)"
+forbid_pattern 'module\.scribe' /dev/stdin <<<"$preview_ipv6_resources"
 require_fixed 'ip_cidr_range = var.browser_readiness_subnet_cidr' terraform/readiness.tf
 require_fixed 'private_ip_google_access = false' terraform/readiness.tf
+[ "$(rg -c -F 'private_ip_google_access = false' terraform/readiness.tf)" -eq 2 ] ||
+  fail "both the legacy and dual-stack browser subnets must keep explicit Private Google Access settings"
 require_fixed 'check "browser_readiness_subnet_isolated"' terraform/readiness.tf
 require_fixed 'setintersection(' terraform/readiness.tf
 [ "$(rg -c -F 'subnetwork = local.readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 2 ] ||
   fail "only the backend and OCR probes may use the application subnet"
-[ "$(rg -c -F 'subnetwork = local.browser_readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 1 ] ||
-  fail "only the browser probe may use the NATed browser subnet"
+if rg -Fq 'subnetwork = local.browser_readiness_subnetwork_resource_name' terraform/readiness.tf; then
+  fail "the browser job still attaches to the legacy browser subnet"
+fi
+[ "$(rg -c -F 'subnetwork = local.browser_readiness_ipv6_subnetwork_resource_name' terraform/readiness.tf)" -eq 1 ] ||
+  fail "only the browser probe may use the isolated dual-stack subnet"
 require_fixed 'power_button_allowed_ips = distinct(concat(var.allowed_ips, local.browser_readiness_allowed_ips))' terraform/main.tf
 [ "$(rg -l 'browser_readiness_allowed_ips' terraform/*.tf | wc -l)" -eq 2 ] ||
-  fail "the derived browser /32 must be consumed only by readiness and this preview's PPB allowlist"
+  fail "the derived browser /64 must be consumed only by readiness and this preview's PPB allowlist"
 for iam_file in terraform/backup.tf terraform/iam.tf terraform/kraken.tf terraform/pubsub.tf terraform/storage.tf terraform/vault.tf; do
   [ ! -f "$iam_file" ] || forbid_pattern 'browser_readiness' "$iam_file"
 done

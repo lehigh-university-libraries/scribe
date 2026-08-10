@@ -917,11 +917,15 @@ if [[ ! "$data_generation" =~ ^canonical-v(1|2)$ ]]; then
 fi
 
 browser_readiness_subnet_name=""
+browser_readiness_ipv6_subnet_name=""
 if [ "$environment" = "preview" ] && [[ "$browser_readiness_image" =~ [^[:space:]] ]]; then
   browser_readiness_name_hash="$(sha256_text "${TF_VAR_name}:${target_workspace}")"
   browser_readiness_name_prefix="${TF_VAR_name:0:46}"
   browser_readiness_name_prefix="${browser_readiness_name_prefix%-}"
   browser_readiness_subnet_name="${browser_readiness_name_prefix}-browser-${browser_readiness_name_hash:0:8}"
+  browser_readiness_ipv6_name_prefix="${TF_VAR_name:0:43}"
+  browser_readiness_ipv6_name_prefix="${browser_readiness_ipv6_name_prefix%-}"
+  browser_readiness_ipv6_subnet_name="${browser_readiness_ipv6_name_prefix}-browser-v6-${browser_readiness_name_hash:0:8}"
 fi
 
 if [ -n "$dev_external_ocr_impersonators" ]; then
@@ -1076,11 +1080,19 @@ case "$action" in
           serverless_error_seen=true
           app_subnet_marker="/subnetworks/${TF_VAR_name}'"
           browser_subnet_marker="/subnetworks/${browser_readiness_subnet_name}'"
+          browser_ipv6_subnet_marker="/subnetworks/${browser_readiness_ipv6_subnet_name}'"
+          known_serverless_subnet=false
+          if [[ "$destroy_diagnostic_line" == *"$app_subnet_marker"* ]] \
+            || { [ -n "$browser_readiness_subnet_name" ] \
+              && [[ "$destroy_diagnostic_line" == *"$browser_subnet_marker"* ]]; } \
+            || { [ -n "$browser_readiness_ipv6_subnet_name" ] \
+              && [[ "$destroy_diagnostic_line" == *"$browser_ipv6_subnet_marker"* ]]; }; then
+            known_serverless_subnet=true
+          fi
           if [[ "$destroy_diagnostic_line" != *resourceInUseByAnotherResource* ]] \
-            || { [[ "$destroy_diagnostic_line" != *"$app_subnet_marker"* ]] \
-              && { [ -z "$browser_readiness_subnet_name" ] \
-                || [[ "$destroy_diagnostic_line" != *"$browser_subnet_marker"* ]]; }; } \
-            || [[ "$destroy_diagnostic_line" != *'/addresses/serverless-ipv4-'* ]]; then
+            || [ "$known_serverless_subnet" != "true" ] \
+            || { [[ "$destroy_diagnostic_line" != *'/addresses/serverless-ipv4-'* ]] \
+              && [[ "$destroy_diagnostic_line" != *'/addresses/serverless-ipv6-'* ]]; }; then
             serverless_subnet_delay=false
             break
           fi
@@ -1091,10 +1103,10 @@ case "$action" in
       fi
       if [ "$serverless_subnet_delay" = "true" ]; then
         if [ "$destroy_attempt" -ge "$serverless_destroy_attempt_limit" ]; then
-          echo "Terraform preview destroy still has a Google-managed serverless-ipv4 subnet reservation after ${serverless_destroy_attempt_limit} bounded attempts over two hours; leaving the workspace in place for operator recovery." >&2
+          echo "Terraform preview destroy still has a Google-managed serverless IPv4/IPv6 subnet reservation after ${serverless_destroy_attempt_limit} bounded attempts over two hours; leaving the workspace in place for operator recovery." >&2
           exit 1
         fi
-        echo "Terraform preview destroy attempt ${destroy_attempt}/${serverless_destroy_attempt_limit} is waiting for Google to release its serverless-ipv4 subnet reservation; retrying in ${serverless_retry_delay_seconds}s with the same state-derived inputs." >&2
+        echo "Terraform preview destroy attempt ${destroy_attempt}/${serverless_destroy_attempt_limit} is waiting for Google to release its serverless IPv4/IPv6 subnet reservation; retrying in ${serverless_retry_delay_seconds}s with the same state-derived inputs." >&2
         sleep "$serverless_retry_delay_seconds"
       else
         if [ "$destroy_attempt" -ge "$destroy_attempt_limit" ]; then

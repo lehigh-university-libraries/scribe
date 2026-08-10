@@ -132,18 +132,20 @@ recovery is required. The workspace is deleted only after a successful destroy.
 
 A preview that uses Cloud Run Direct VPC can fail after its services are gone
 with `resourceInUseByAnotherResource` and an
-`/addresses/serverless-ipv4-...` reservation still holding the preview subnet.
+`/addresses/serverless-ipv4-...` or `/addresses/serverless-ipv6-...`
+reservation still holding the preview subnet.
 This is a Google-managed cleanup delay, not permission to edit Terraform state
 or delete the reservation: Google documents a **one-to-two-hour wait** after
 removing the Cloud Run resources before deleting the subnet. When Terraform's
-preview-destroy diagnostic contains both the managed `serverless-ipv4-*`
-address and `resourceInUseByAnotherResource`, the protected job retries every
-five minutes for up to two hours using the same already-validated deployment
-inputs. Every Terraform error in that attempt must identify either the exact
-current preview application subnet or its exact deterministic browser subnet,
-plus a managed address; mixed or differently scoped failures retain the
-ordinary bound. The wait retains the shared preview serialization lock and the
-job-scoped deploy identity so no other preview can replace shared runtime
+preview-destroy diagnostic contains either exact managed `serverless-ipv4-*`
+or `serverless-ipv6-*` address and `resourceInUseByAnotherResource`, the
+protected job retries every five minutes for up to two hours using the same
+already-validated deployment inputs. Every Terraform error in that attempt
+must identify either the exact current preview application subnet, its exact
+deterministic legacy browser subnet, or its exact deterministic dual-stack
+browser subnet, plus a managed address; mixed or differently scoped failures
+retain the ordinary bound. The wait retains the shared preview serialization
+lock and the job-scoped deploy identity so no other preview can replace shared runtime
 bindings during a partial teardown. Its preview-only timeout leaves a one-hour
 execution and cleanup margin beyond the two-hour sleep budget; other deploy
 modes retain their shorter timeout. After Terraform succeeds, the workflow
@@ -154,7 +156,8 @@ released the address after the longer bound, let the run fail closed and rerun
 **Terraform Preview** from protected `main` later. Use ordinary `destroy` while
 the current state still has a readable `deployment_inputs` output. If ordinary
 destroy instead reports that the output is absent, use `recover-destroy` as
-described below. Never manually delete a `serverless-ipv4-*` reservation. See
+described below. Never manually delete a `serverless-ipv4-*` or
+`serverless-ipv6-*` reservation. See
 Google's
 [Direct VPC subnet deletion guidance](https://cloud.google.com/run/docs/configuring/vpc-direct-vpc#ip-address-allocation).
 
@@ -467,10 +470,25 @@ runtime and browser are digest-pinned, run as `pwuser`, and receive only the
 preview's canonical HTTPS origin. A dedicated Cloud Run job uses a dedicated
 service account with no project, storage, Vault, Pub/Sub, or OCR IAM grants.
 Direct VPC egress attaches only this job to a dedicated, non-overlapping preview
-`/26`; Cloud NAT covers only that subnet and a reserved regional address. The
-VM, backend probe, OCR probe, and application subnet cannot use that NAT path.
-Terraform derives one `/32` from the address and appends it only to that
-preview's PPB ingress allowlist. Production and other previews are not widened.
+`/26` in an independent custom VPC. The subnet is dual stack and receives one
+external IPv6 `/64`; Terraform appends only that dedicated `/64` to this
+preview's PPB ingress allowlist. The standalone project foundation owns the
+documented `roles/compute.publicIpAdmin` grant for Google's Cloud Run service
+agent. It is never recreated by a preview workspace, and no human, deploy, or
+application identity receives that role. Cloud NAT and a reserved regional
+IPv4 address cover the same subnet only for fixed public DNS and reviewed
+IPv4-only fixture origins. Public Cloud NAT automatically uses Private Google
+Access rather than translating
+`run.app`, so the exact-head runner must force the canonical preview host over
+AAAA and fail closed if that path is unavailable. The protected routing helper
+accepts at most 32 public-global AAAA answers, maps only the exact canonical
+host in Chromium, and disables Node's IPv4 family race for Playwright API
+requests. The VM, backend probe, OCR
+probe, application subnet, production, and other previews cannot use the
+dedicated `/64`. The original application-VPC browser subnet, address, router,
+and NAT stay state-managed during this additive migration to avoid blocking an
+apply on delayed Direct VPC address release; the job is detached from that
+subnet and its former `/32` is no longer allowlisted.
 
 The job authenticates through the existing isolated
 `AUTH_PREVIEW_ANONYMOUS` workspace. It leaves context selection on `Default`
@@ -641,7 +659,11 @@ Management with `disable_on_destroy = false` and
 `deletion_policy = "ABANDON"`, so removing them from state leaves both APIs
 enabled. The manual plan path does not perform that bootstrap or any other API
 mutation. Dev, production, and previews only consume the foundation outputs.
-The foundation also grants the protected preview deploy identity a custom role
+The foundation also owns the one project-wide
+`roles/compute.publicIpAdmin` binding that Google requires for its managed
+Cloud Run service agent to use external-IPv6 Direct VPC subnets. Application
+workspaces do not manage that singleton binding. The foundation also grants
+the protected preview deploy identity a custom role
 containing only `artifactregistry.repositories.getIamPolicy` and
 `artifactregistry.repositories.setIamPolicy`, and binds it only on the
 reviewed `us/internal` repository. The built-in repository administrator role

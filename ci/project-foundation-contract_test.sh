@@ -11,6 +11,10 @@ fail() {
 }
 
 [ -f terraform/foundation/main.tf ] || fail "standalone foundation root is missing"
+grep -Fq 'terraform -chdir=terraform/foundation init -backend=false -input=false -lockfile=readonly' ci/terraform-check.sh ||
+  fail "the repository Terraform gate does not initialize the singleton foundation"
+grep -Fq 'terraform -chdir=terraform/foundation validate' ci/terraform-check.sh ||
+  fail "the repository Terraform gate does not validate the singleton foundation"
 grep -Eq 'source[[:space:]]*=[[:space:]]*"https://github.com/libops/cloud-compose/archive/[0-9a-f]{40}\.tar\.gz//cloud-compose-[0-9a-f]{40}/modules/gcp-foundation\?archive=tar\.gz"' terraform/foundation/main.tf ||
   fail "foundation does not pin libops/cloud-compose by immutable commit"
 grep -q 'resource "google_artifact_registry_repository" "internal"' terraform/foundation/main.tf ||
@@ -23,6 +27,8 @@ grep -q 'resource "google_project_iam_custom_role" "vault_gcp_auth_key_verifier"
   fail "foundation does not own the Vault verifier role"
 grep -q 'resource "google_project_iam_custom_role" "cloud_compose_observe"' terraform/foundation/main.tf ||
   fail "foundation does not own the production no-suspend role"
+grep -q 'resource "google_project_iam_member" "cloud_run_external_ipv6"' terraform/foundation/main.tf ||
+  fail "foundation does not own the Cloud Run external IPv6 service-agent grant"
 grep -q 'resource "google_project_service" "control_plane"' terraform/foundation/main.tf ||
   fail "foundation does not own its control-plane APIs"
 for service in servicemanagement.googleapis.com serviceusage.googleapis.com; do
@@ -56,6 +62,16 @@ printf '%s\n' "$preview_policy_binding" | grep -Eq 'role[[:space:]]*=[[:space:]]
 # shellcheck disable=SC2016 # Match the literal Terraform interpolation.
 printf '%s\n' "$preview_policy_binding" | grep -Fq 'member     = "serviceAccount:${local.preview_deploy_service_account_email}"' ||
   fail "preview repository-policy role is not bound to the deterministic preview deploy identity"
+
+cloud_run_external_ipv6_binding="$(sed -n '/^resource "google_project_iam_member" "cloud_run_external_ipv6" {/,/^}/p' terraform/foundation/main.tf)"
+printf '%s\n' "$cloud_run_external_ipv6_binding" | grep -Eq 'role[[:space:]]*=[[:space:]]*"roles/compute\.publicIpAdmin"' ||
+  fail "the Cloud Run service agent lacks the required Compute Public IP Admin role"
+printf '%s\n' "$cloud_run_external_ipv6_binding" | grep -Eq 'member[[:space:]]*=[[:space:]]*module\.cloud_compose\.cloud_run_service_agent_member' ||
+  fail "the external IPv6 role is not bound only to the Google-managed Cloud Run service agent"
+printf '%s\n' "$cloud_run_external_ipv6_binding" | grep -Eq 'prevent_destroy[[:space:]]*=[[:space:]]*true' ||
+  fail "the required external IPv6 service-agent grant can be removed with foundation state"
+[ "$(rg -l 'roles/compute\.publicIpAdmin' terraform --glob '*.tf')" = "terraform/foundation/main.tf" ] ||
+  fail "the external IPv6 service-agent role must be singleton foundation state"
 
 foundation_state="$(sed -n '/^data "terraform_remote_state" "shared_foundation" {/,/^}/p' terraform/main.tf)"
 printf '%s\n' "$foundation_state" | grep -Eq 'prefix[[:space:]]*=[[:space:]]*local\.foundation_state_prefix' ||

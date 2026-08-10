@@ -80,7 +80,7 @@ case "${1:-}" in
   destroy)
     case "${TF_TEST_DESTROY_MODE:-success}" in
       success) ;;
-      fail-once|always-fail|serverless-fail-once|serverless-browser-fail-once|serverless-always-fail|serverless-mixed|serverless-wrong-subnet)
+      fail-once|always-fail|serverless-fail-once|serverless-browser-fail-once|serverless-browser-ipv6-fail-once|serverless-browser-ipv6-wrong-subnet|serverless-always-fail|serverless-mixed|serverless-wrong-subnet)
         attempts=0
         if [ -f "${TF_TEST_DESTROY_ATTEMPTS_FILE}" ]; then
           read -r attempts <"${TF_TEST_DESTROY_ATTEMPTS_FILE}" || true
@@ -99,6 +99,14 @@ case "${1:-}" in
         fi
         if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-fail-once" ] && [ "$attempts" -eq 1 ]; then
           echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-9aac94f3': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-pr-75-browser-9aac94f3', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-ipv6-fail-once" ] && [ "$attempts" -eq 1 ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-v6-9aac94f3': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-pr-75-browser-v6-9aac94f3', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-ipv6-wrong-subnet" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-76-browser-v6-9aac94f3': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-pr-76-browser-v6-9aac94f3', resourceInUseByAnotherResource" >&2
           exit 1
         fi
         if [ "${TF_TEST_DESTROY_MODE}" = "serverless-wrong-subnet" ]; then
@@ -340,7 +348,7 @@ fi
 [ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
 [ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
 grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
-grep -F 'waiting for Google to release its serverless-ipv4 subnet reservation' \
+grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservation' \
   "${TEST_DIR}/destroy-serverless-retry.err" >/dev/null
 grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 
@@ -356,8 +364,24 @@ fi
 [ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
 [ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
 grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
-grep -F 'waiting for Google to release its serverless-ipv4 subnet reservation' \
+grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservation' \
   "${TEST_DIR}/destroy-browser-serverless-retry.err" >/dev/null
+grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
+
+# The additive dual-stack network has its own deterministic subnet. Either a
+# provider-managed IPv4 or IPv6 reservation receives the same bounded wait.
+rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+: >"${terraform_log}"
+if ! TF_TEST_DESTROY_MODE=serverless-browser-ipv6-fail-once run_destroy valid \
+  "${TEST_DIR}/destroy-browser-ipv6-serverless-retry.out" "${TEST_DIR}/destroy-browser-ipv6-serverless-retry.err"; then
+  echo "Google-managed dual-stack browser subnet cleanup delay was not retried" >&2
+  exit 1
+fi
+[ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
+[ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
+grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
+grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservation' \
+  "${TEST_DIR}/destroy-browser-ipv6-serverless-retry.err" >/dev/null
 grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 
 rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
@@ -370,14 +394,14 @@ fi
 [ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 25 ]
 [ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
 [ "$(grep -Fxc 'sleep 300' "${TEST_DIR}/sleep.log")" -eq 24 ]
-grep -F 'serverless-ipv4 subnet reservation after 25 bounded attempts over two hours' \
+grep -F 'serverless IPv4/IPv6 subnet reservation after 25 bounded attempts over two hours' \
   "${TEST_DIR}/destroy-serverless-failed.err" >/dev/null
 if grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null; then
   echo "failed serverless subnet destroy deleted its workspace" >&2
   exit 1
 fi
 
-for destroy_mode in serverless-mixed serverless-wrong-subnet; do
+for destroy_mode in serverless-mixed serverless-wrong-subnet serverless-browser-ipv6-wrong-subnet; do
   rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
   : >"${terraform_log}"
   if TF_TEST_DESTROY_MODE="$destroy_mode" run_destroy valid \

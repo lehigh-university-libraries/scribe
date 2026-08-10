@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chromium } from "@playwright/test";
 
+import { configureCanonicalIPv6Routing } from "./deployed-readiness-routing.mjs";
+
 const scriptStartedAt = Date.now();
 const readinessSmokeFixtureBase64 = "iVBORw0KGgoAAAANSUhEUgAAAoAAAACgAQAAAAC0heCRAAAEJElEQVRo3u3ZTW7jNhQH8CdwMMyiCGeZRWBO0QtkmUVhoTdJb+DuvDAsqVpkOVeiposeoyx6gHJJoILY/yNpx2oKS2mnm4IGDMRO9LOp90E8hsIXflABC1jAAhawgAUs4P8abJtQTaT9lrSjOowyTGLkH6jGa1d7Cu6grCdt9SiWwYmUpyNJgJJBh+tpJAVQ4bXVkDLYCkfNIhiv25IAKBi01Fg6kMQvZAaVO0gGSdh1oL0EDdXmAjQA5ZtArz+Z41YBVL3Dn3dOt+NhA3Aj8doovxXuIKyvJ/mbGVeAdWjDpHqAHYPC6yqMWvIzgXWVQRWGFVEG2GUwfkMxKnEB/giwc4fqDaAO/SUoJyUvwF76esigDGYNWEUwB6XJYL6H1DBo3OEDgrKlxqhlEPkrkIych8ifZpLTLUc452EjX8Aa+VAtg0hsEbM7JvYZ1PxksI/g3RPAdYkd2gjqvOQTmEtvBlqU5ArQyz4tOaVNuod5yQ1Hi8H7j8iGqQqmXgYnBm8ZHF7Ae8VPgFTFKN8TQOSXWwEG2aUoJzDl4alSRgaRh5sIDpy1S+AfQZ4qZXhdKSNRrBQGpzD8sgL0R8m13J3uYaplzdUiEsi1rBnU3U8rluxjt1EDoly9dBvdA+wdPWobuw1A2pAwa7pN7IfKzPuh7gB2AGu7536o2zeA6HhHdORZx9YDwIFBt+eOnUBpXsf0b97hPUXZ/WlPEbynaAPQOHpgEHuKNvhgNNsVe8q/fRSwgAUsYAELWMACFrCABfwvwQGzAyZ/HudrTGWTCG0QmNUqDJ6Y7PIBUDDC4G0b/BYzEAbV6yDmCAZlwHQhMDj3DGI6vgTJrgW96gFWPEZFEENyPwF0GZQZfDrKCIoF0AL0CcQaaRQY7LpJvQZ3W7UerAImTtVG0G3FgFk32GMC+QAIC3H7bxOISVeHdaBpAu2FbcQwMhjCDHy80+tA96l330HaKpvBzmCuPYNVBg83dQRpAXS7Z+meIojhm3bChsFGsJmDR3oT+O4RYB3ePfQM+roVViYwHgAhKEfMrAze7A6kr4E/PEtrL0DDAYgnPjOw4utWgd//LK1r3t9F8H11Bk+JHQ+A8A1P4FcPC+DXn9UrcNe0qJg52HTrQA9wcI28SaDge+gfmh5X6wjGEyV8SJ3B2w/Xg+K/+awM1ZJilOUF6DOYDoD8GaQFUFjVAmxjHjLYdP5jADgmcPMXUC2DuiXNICpFPgNEfwD4+z8ExwyaWMsAUcsR/DUvWdP8Hqp2GRQjg9xtZOjRbcYqtJWNsU0nStxtIsgF1V7vNqN0Wo5K2tgPAaIfTjOwTWBzAs0KcIqgjCA6dgabGRhWgpN0WwZd3FMA8v8usLFUWHcCTdpTzqC9Dn6BRwELWMACFrCABSxgAQtYwAIWsIAFLCAefwL3udqwYaAJQwAAAABJRU5ErkJggg==";
 const readinessSmokeFixtureSHA256 = "e3f3bb2b5ade3c15af262a76ad58b720e7eb3b3d079802df04f1dd50be917b2d";
@@ -1126,7 +1128,11 @@ try {
   baseURL = previewBaseURL();
   if (!baseURL) throw new Error("invalid target");
 
-  browser = await chromium.launch({ headless: true });
+  const chromiumIPv6Argument = await configureCanonicalIPv6Routing(baseURL.hostname);
+  browser = await chromium.launch({
+    args: [chromiumIPv6Argument],
+    headless: true,
+  });
   if (mainScenarioTimedOut) {
     await browser.close().catch(() => undefined);
     throw new Error("main scenario deadline exceeded");

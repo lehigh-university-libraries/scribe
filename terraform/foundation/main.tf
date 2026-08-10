@@ -40,6 +40,20 @@ module "cloud_compose" {
   depends_on = [google_project_service.control_plane]
 }
 
+# Cloud Run's ordinary service-agent role covers Direct VPC egress, but Google
+# requires this additional role when the selected subnet uses external IPv6.
+# Own the project-wide grant once in foundation state; preview workspaces must
+# never race each other by managing the same IAM member independently.
+resource "google_project_iam_member" "cloud_run_external_ipv6" {
+  project = var.project_id
+  role    = "roles/compute.publicIpAdmin"
+  member  = module.cloud_compose.cloud_run_service_agent_member
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "google_project_service" "artifact_registry" {
   project            = var.project_id
   service            = "artifactregistry.googleapis.com"

@@ -62,8 +62,11 @@ the missing image reference.
 | Preview | `pr-<number>` | `scribe-pr-<number>` | immutable protected base SHA | consumes dev Vault and production Ollama state |
 
 Application workspaces read singleton foundation state and never recreate its
-resources. Initialize that state with the default workspace and isolated
-prefix:
+resources. That foundation also binds Google's managed Cloud Run service agent
+to `roles/compute.publicIpAdmin`, which external-IPv6 Direct VPC subnets
+require; per-preview states and application identities never own that
+project-wide grant. Initialize the foundation state with the default workspace
+and isolated prefix:
 
 The protected foundation apply enables `serviceusage.googleapis.com` after
 verifying the production WIF boundary and before Terraform initialization.
@@ -144,10 +147,11 @@ image resolution, pull, or build tooling; remote-state, provider, backup-policy,
 and Vault authentication prerequisites may still be required. Refresh and
 ordinary destroy require an existing selected workspace and never create one.
 Destroy retains its one validated input snapshot across at most three attempts
-for ordinary failures. A Google-managed `serverless-ipv4-*` dependency on
-either the exact preview application subnet or the exact deterministic browser
-subnet receives up to 25 attempts, five minutes apart, because Cloud Run Direct
-VPC address release can take two hours; it does not authorize deletion of the
+for ordinary failures. A Google-managed `serverless-ipv4-*` or
+`serverless-ipv6-*` dependency on the exact preview application subnet, exact
+legacy browser subnet, or exact independent dual-stack browser subnet receives
+up to 25 attempts, five minutes apart, because Cloud Run Direct VPC address
+release can take two hours; it does not authorize deletion of the
 provider-managed address. Only preview destroy
 receives the extended workflow timeout; other deployment modes keep the
 ordinary bound. A preview workspace is deleted only after destroy succeeds. If
