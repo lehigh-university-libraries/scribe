@@ -106,10 +106,13 @@ test "$(rg -c 'network    = local\.readiness_network_resource_name' terraform/re
   fail "backend and OCR readiness must use the canonical application network resource name"
 test "$(rg -c 'subnetwork = local\.readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 2 ||
   fail "backend and OCR readiness jobs must use the canonical application subnetwork resource name"
-test "$(rg -c 'network    = local\.browser_readiness_ipv6_network_resource_name' terraform/readiness.tf)" -eq 1 ||
-  fail "browser readiness must use only its isolated dual-stack network resource name"
-test "$(rg -c 'subnetwork = local\.browser_readiness_ipv6_subnetwork_resource_name' terraform/readiness.tf)" -eq 1 ||
+test "$(rg -c 'network    = local\.browser_readiness_network_resource_name' terraform/readiness.tf)" -eq 1 ||
+  fail "browser readiness must use only its environment application network resource name"
+test "$(rg -c 'subnetwork = local\.browser_readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 1 ||
   fail "browser readiness must use only its isolated dual-stack subnetwork resource name"
+require_pattern 'tags       = \[local\.browser_readiness_network_tag\]' terraform/readiness.tf
+require_pattern 'resource "google_compute_firewall" "browser_readiness_isolation"' terraform/readiness.tf
+require_pattern 'destination_ranges = \[var\.network_ip_cidr_range\]' terraform/readiness.tf
 forbid_pattern 'network    = module\.scribe\.network\.self_link' terraform/readiness.tf
 forbid_pattern 'subnetwork = module\.scribe\.network\.subnetwork' terraform/readiness.tf
 require_pattern 'readiness_jobs = \{' terraform/monitoring.tf

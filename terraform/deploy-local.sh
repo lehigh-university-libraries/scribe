@@ -917,15 +917,18 @@ if [[ ! "$data_generation" =~ ^canonical-v(1|2)$ ]]; then
 fi
 
 browser_readiness_subnet_name=""
-browser_readiness_ipv6_subnet_name=""
-if [ "$environment" = "preview" ] && [[ "$browser_readiness_image" =~ [^[:space:]] ]]; then
+historical_browser_readiness_ipv6_subnet_name=""
+if [ "$action" = "destroy" ] && [ "$environment" = "preview" ]; then
   browser_readiness_name_hash="$(sha256_text "${TF_VAR_name}:${target_workspace}")"
   browser_readiness_name_prefix="${TF_VAR_name:0:46}"
   browser_readiness_name_prefix="${browser_readiness_name_prefix%-}"
   browser_readiness_subnet_name="${browser_readiness_name_prefix}-browser-${browser_readiness_name_hash:0:8}"
-  browser_readiness_ipv6_name_prefix="${TF_VAR_name:0:43}"
-  browser_readiness_ipv6_name_prefix="${browser_readiness_ipv6_name_prefix%-}"
-  browser_readiness_ipv6_subnet_name="${browser_readiness_ipv6_name_prefix}-browser-v6-${browser_readiness_name_hash:0:8}"
+  # Retain only the deterministic name of the retired dedicated-IPv6 subnet.
+  # A partially deployed historical workspace can still be waiting for a
+  # Google-managed Direct VPC address to release it during destroy.
+  historical_browser_readiness_ipv6_name_prefix="${TF_VAR_name:0:43}"
+  historical_browser_readiness_ipv6_name_prefix="${historical_browser_readiness_ipv6_name_prefix%-}"
+  historical_browser_readiness_ipv6_subnet_name="${historical_browser_readiness_ipv6_name_prefix}-browser-v6-${browser_readiness_name_hash:0:8}"
 fi
 
 if [ -n "$dev_external_ocr_impersonators" ]; then
@@ -1080,13 +1083,13 @@ case "$action" in
           serverless_error_seen=true
           app_subnet_marker="/subnetworks/${TF_VAR_name}'"
           browser_subnet_marker="/subnetworks/${browser_readiness_subnet_name}'"
-          browser_ipv6_subnet_marker="/subnetworks/${browser_readiness_ipv6_subnet_name}'"
+          historical_browser_ipv6_subnet_marker="/subnetworks/${historical_browser_readiness_ipv6_subnet_name}'"
           known_serverless_subnet=false
           if [[ "$destroy_diagnostic_line" == *"$app_subnet_marker"* ]] \
             || { [ -n "$browser_readiness_subnet_name" ] \
               && [[ "$destroy_diagnostic_line" == *"$browser_subnet_marker"* ]]; } \
-            || { [ -n "$browser_readiness_ipv6_subnet_name" ] \
-              && [[ "$destroy_diagnostic_line" == *"$browser_ipv6_subnet_marker"* ]]; }; then
+            || { [ -n "$historical_browser_readiness_ipv6_subnet_name" ] \
+              && [[ "$destroy_diagnostic_line" == *"$historical_browser_ipv6_subnet_marker"* ]]; }; then
             known_serverless_subnet=true
           fi
           if [[ "$destroy_diagnostic_line" != *resourceInUseByAnotherResource* ]] \

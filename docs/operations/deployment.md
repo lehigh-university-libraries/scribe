@@ -142,13 +142,16 @@ or `serverless-ipv6-*` address and `resourceInUseByAnotherResource`, the
 protected job retries every five minutes for up to two hours using the same
 already-validated deployment inputs. Every Terraform error in that attempt
 must identify either the exact current preview application subnet, its exact
-deterministic legacy browser subnet, or its exact deterministic dual-stack
-browser subnet, plus a managed address; mixed or differently scoped failures
-retain the ordinary bound. The wait retains the shared preview serialization
-lock and the job-scoped deploy identity so no other preview can replace shared runtime
-bindings during a partial teardown. Its preview-only timeout leaves a one-hour
-execution and cleanup margin beyond the two-hour sleep budget; other deploy
-modes retain their shorter timeout. After Terraform succeeds, the workflow
+deterministic dual-stack browser subnet, or its exact deterministic retired
+`browser-v6` subnet from the previous independent-network design, plus a
+managed address. The retired name is accepted only by this bounded teardown
+classifier; no active job attaches to it and it grants no PPB access. Mixed or
+differently scoped failures retain the ordinary bound. The wait retains the
+shared preview serialization lock and the job-scoped deploy identity so no
+other preview can replace shared runtime bindings during a partial teardown.
+Its preview-only timeout leaves a one-hour execution and cleanup margin beyond
+the two-hour sleep budget; other deploy modes retain their shorter timeout.
+After Terraform succeeds, the workflow
 mints new short-lived Vault proxy, identity, and client tokens before removing
 the preview namespace, rather than reusing credentials created before the wait.
 Other errors retain the ordinary three-attempt bound. If Google still has not
@@ -213,6 +216,11 @@ backup policy, then applies only the transitive address changes declared by
 Scribe and the pinned cloud-compose module with `terraform state mv`. It does
 not refresh providers or plan/apply infrastructure, is retry-idempotent, and
 fails if both sides of a move are populated.
+
+Protected preview apply performs this state-only normalization for the shared
+`dev` workspace, after the state-backup audit and before its targeted Vault
+runtime reconciliation. The production and preview workspace applies remain
+full-graph operations, so Terraform persists their declared moves natively.
 
 The trusted `pull_request_target` workflow initially belongs to the protected
 base revision, so GitHub's automatic environment record is not evidence for the
@@ -469,26 +477,32 @@ The PR-head script runs only later in the preview-only Playwright job. The
 runtime and browser are digest-pinned, run as `pwuser`, and receive only the
 preview's canonical HTTPS origin. A dedicated Cloud Run job uses a dedicated
 service account with no project, storage, Vault, Pub/Sub, or OCR IAM grants.
-Direct VPC egress attaches only this job to a dedicated, non-overlapping preview
-`/26` in an independent custom VPC. The subnet is dual stack and receives one
-external IPv6 `/64`; Terraform appends only that dedicated `/64` to this
-preview's PPB ingress allowlist. The standalone project foundation owns the
-documented `roles/compute.publicIpAdmin` grant for Google's Cloud Run service
-agent. It is never recreated by a preview workspace, and no human, deploy, or
-application identity receives that role. Cloud NAT and a reserved regional
-IPv4 address cover the same subnet only for fixed public DNS and reviewed
-IPv4-only fixture origins. Public Cloud NAT automatically uses Private Google
-Access rather than translating
-`run.app`, so the exact-head runner must force the canonical preview host over
-AAAA and fail closed if that path is unavailable. The protected routing helper
-accepts at most 32 public-global AAAA answers, maps only the exact canonical
-host in Chromium, and disables Node's IPv4 family race for Playwright API
-requests. The VM, backend probe, OCR
-probe, application subnet, production, and other previews cannot use the
-dedicated `/64`. The original application-VPC browser subnet, address, router,
-and NAT stay state-managed during this additive migration to avoid blocking an
-apply on delayed Direct VPC address release; the job is detached from that
-subnet and its former `/32` is no longer allowlisted.
+The preview's existing application VPC and application subnet are root-owned
+Terraform resources. Reviewed `moved` blocks transfer their addresses from the
+nested Cloud Compose module without recreating either object, and the module
+consumes their exact self-links with network creation disabled. This
+quota-neutral ownership allows the browser job to use a dedicated,
+non-overlapping dual-stack `/26` in the same preview VPC. The job's Direct VPC
+interface carries an isolation tag, and an egress firewall deny targeted to
+that tag blocks the exact private application subnet CIDR. The browser subnet
+receives one external IPv6 `/64`; Terraform appends only that preview-owned
+`/64` to this preview's PPB ingress allowlist, so production and other previews
+are not widened. The standalone project foundation owns the documented
+`roles/compute.publicIpAdmin` grant for Google's Cloud Run service agent. It is
+never recreated by a preview workspace, and no human, deploy, or application
+identity receives that role. A reserved regional IPv4 address and
+subnet-scoped Cloud NAT cover only the browser subnet for fixed public DNS and
+reviewed IPv4-only fixture origins. The canonical `run.app` host is forced over
+AAAA because Public Cloud NAT does not translate it. The protected routing
+helper accepts at most 32 public-global AAAA answers, maps only the exact
+canonical host in Chromium, and disables Node's IPv4 family race for Playwright
+API requests. The VM, backend probe, OCR probe, and application subnet cannot
+use a browser `/64`; production and other previews cannot use this preview's
+range. A retired deterministic `browser-v6` subnet name remains recognized
+only by the bounded destroy classifier so an interrupted rollout of the
+earlier independent-network design can wait for Google-managed Direct VPC
+address release. No active job attaches to that retired subnet and it grants
+no PPB access.
 
 The job authenticates through the existing isolated
 `AUTH_PREVIEW_ANONYMOUS` workspace. It leaves context selection on `Default`

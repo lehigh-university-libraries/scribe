@@ -323,6 +323,15 @@ jobs:
           ./ci/verify-cloud-backups.sh
           echo "TF_VAR_terraform_state_backup_audited=true" >> "$GITHUB_ENV"
 
+      - name: Normalize shared dev Terraform moved state
+        if: inputs.mode == 'apply' && inputs.pr_number != ''
+        shell: bash
+        env:
+          DEPLOY_BRANCH: ${{ inputs.checkout_ref }}
+          VAULT_BOOTSTRAP_MODE: root-token
+        run: |
+          ./ci/capture-command-log.sh ".github-artifacts/terraform/dev-moved-state.log" make tf-dev BRANCH="$DEPLOY_BRANCH" ACTION=normalize-moves
+
       - name: Reconcile shared preview Vault runtime access
         if: inputs.mode == 'apply' && inputs.pr_number != ''
         shell: bash

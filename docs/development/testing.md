@@ -118,23 +118,32 @@ staged PR-head fixture. The source SHA tags the image and Terraform records its
 resolved digest. The script runs only after the preview apply in a no-IAM,
 preview-only Playwright job with digest-pinned runtime and browser dependencies.
 Its dedicated service account has no project, storage, Vault, Pub/Sub, or OCR
-IAM grants. An independent browser-only VPC gives its dual-stack `/26` one
-external IPv6 `/64`; that dedicated `/64` is the sole browser range added to
-the preview's PPB policy. The singleton project foundation grants
+IAM grants. Each preview reuses its root-owned application VPC instead of
+consuming a second project-wide network quota slot. Cloud Compose consumes that
+VPC and its application subnet as existing resources; reviewed `moved` blocks
+transfer their Terraform ownership from the nested module to the root without
+recreating either object. The browser job attaches to a dedicated,
+non-overlapping dual-stack `/26` in that VPC. Its network-interface tag selects
+an egress firewall deny for the exact application subnet CIDR, so the untrusted
+preview runner cannot use the common preview VPC to reach private application
+addresses. The browser subnet receives one external IPv6 `/64`; that
+preview-owned `/64` is the sole browser range added to the preview's PPB policy,
+so production and other previews are not widened. The singleton project
+foundation grants
 `roles/compute.publicIpAdmin` only to Google's Cloud Run service agent, as
-required for external-IPv6 Direct VPC addresses; no preview workspace or
-application identity owns that project-wide grant. Cloud NAT exists only for
-fixed public DNS and reviewed IPv4-only fixture origins. The exact-head runner
-must force the canonical `scribe-pr-*` host over AAAA and fail closed if it
-cannot, because Public Cloud NAT does not translate
-`run.app` traffic. A protected helper retries fixed public AAAA resolution for
-at most two minutes, accepts at most 32 public-global answers, selects one
-deterministic address for Chromium's exact-host resolver rule, and disables
-Node's IPv4 family race for Playwright API requests. Production and other
-previews are not widened. The former
-application-VPC browser subnet and NAT remain state-managed during the
-additive migration, but the job is detached from them and their `/32` is no
-longer allowlisted.
+required for external-IPv6 Direct VPC addresses; no preview workspace, human,
+deploy, or application identity owns that project-wide grant. A subnet-scoped
+Cloud NAT and reserved regional IPv4 address exist only for fixed public DNS
+and reviewed IPv4-only fixture origins. The exact-head runner must force the
+canonical `scribe-pr-*` host over AAAA and fail closed if it cannot, because
+Public Cloud NAT does not translate `run.app` traffic. A protected helper
+retries fixed public AAAA resolution for at most two minutes, accepts at most
+32 public-global answers, selects one deterministic address for Chromium's
+exact-host resolver rule, and disables Node's IPv4 family race for Playwright
+API requests. Direct VPC plus Cloud NAT does not destination-filter arbitrary
+public IPv4 browser egress, so the additional boundaries are the runner's exact
+configured HTTPS origin, host-only session cookie, no-data identity, and
+bounded product script.
 
 The scenario uses preview-anonymous auth and leaves the upload selector on
 resolver-backed `Default` (`0`), then verifies the resulting durable

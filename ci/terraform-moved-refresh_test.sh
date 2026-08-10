@@ -8,14 +8,21 @@ TEST_DIR="$(mktemp -d)"
 trap 'rm -rf "${TEST_DIR}"' EXIT HUP INT TERM
 
 cp "${FIXTURE_DIR}/before/main.tf" "${TEST_DIR}/main.tf"
+cp -R "${FIXTURE_DIR}/modules" "${TEST_DIR}/modules"
 
 terraform -chdir="${TEST_DIR}" init -backend=false -input=false >/dev/null
 terraform -chdir="${TEST_DIR}" apply -auto-approve -input=false >/dev/null
 
-if ! terraform -chdir="${TEST_DIR}" state list | grep -Fx 'terraform_data.legacy' >/dev/null; then
-  echo "Moved-resource fixture did not create the legacy state address." >&2
-  exit 1
-fi
+initial_state_list="$(terraform -chdir="${TEST_DIR}" state list)"
+for legacy_address in \
+  'terraform_data.legacy' \
+  'module.scribe.module.gcp[0].terraform_data.application_network[0]' \
+  'module.scribe.module.gcp[0].terraform_data.application_subnetwork[0]'; do
+  if ! printf '%s\n' "${initial_state_list}" | grep -Fx "${legacy_address}" >/dev/null; then
+    echo "Moved-resource fixture did not create ${legacy_address}." >&2
+    exit 1
+  fi
+done
 
 cp "${FIXTURE_DIR}/after/main.tf" "${TEST_DIR}/main.tf"
 
@@ -42,21 +49,45 @@ terraform -chdir="${TEST_DIR}" plan \
   -out="${refresh_plan}" >/dev/null
 
 terraform -chdir="${TEST_DIR}" show -no-color "${refresh_plan}" >"${TEST_DIR}/refresh-plan.out"
-if ! grep -F 'terraform_data.legacy has moved to terraform_data.normalized' "${TEST_DIR}/refresh-plan.out" >/dev/null; then
-  echo "Saved refresh-only plan did not contain the expected state-address move." >&2
-  sed -n '1,80p' "${TEST_DIR}/refresh-plan.out" >&2
-  exit 1
-fi
+for expected_move in \
+  'terraform_data.legacy has moved to terraform_data.normalized' \
+  'module.scribe.module.gcp[0].terraform_data.application_network[0] has moved to terraform_data.application_network' \
+  'module.scribe.module.gcp[0].terraform_data.application_subnetwork[0] has moved to terraform_data.application_subnetwork'; do
+  if ! grep -F "${expected_move}" "${TEST_DIR}/refresh-plan.out" >/dev/null; then
+    echo "Saved refresh-only plan did not contain the expected move: ${expected_move}" >&2
+    sed -n '1,120p' "${TEST_DIR}/refresh-plan.out" >&2
+    exit 1
+  fi
+done
 
 terraform -chdir="${TEST_DIR}" apply -input=false "${refresh_plan}" >/dev/null
 
 state_list="$(terraform -chdir="${TEST_DIR}" state list)"
-if ! printf '%s\n' "${state_list}" | grep -Fx 'terraform_data.normalized' >/dev/null; then
-  echo "Refresh-only apply did not persist the normalized resource address." >&2
-  exit 1
-fi
-if printf '%s\n' "${state_list}" | grep -Fx 'terraform_data.legacy' >/dev/null; then
-  echo "Refresh-only apply left the legacy resource address in state." >&2
+for normalized_address in \
+  'terraform_data.normalized' \
+  'terraform_data.application_network' \
+  'terraform_data.application_subnetwork'; do
+  if ! printf '%s\n' "${state_list}" | grep -Fx "${normalized_address}" >/dev/null; then
+    echo "Refresh-only apply did not persist ${normalized_address}." >&2
+    exit 1
+  fi
+done
+for legacy_address in \
+  'terraform_data.legacy' \
+  'module.scribe.module.gcp[0].terraform_data.application_network[0]' \
+  'module.scribe.module.gcp[0].terraform_data.application_subnetwork[0]'; do
+  if printf '%s\n' "${state_list}" | grep -Fx "${legacy_address}" >/dev/null; then
+    echo "Refresh-only apply left ${legacy_address} in state." >&2
+    exit 1
+  fi
+done
+
+if ! terraform -chdir="${TEST_DIR}" plan \
+  -detailed-exitcode \
+  -input=false \
+  >"${TEST_DIR}/full-after.out" 2>&1; then
+  echo "Full plan found drift after refresh-only moved-resource normalization." >&2
+  sed -n '1,120p' "${TEST_DIR}/full-after.out" >&2
   exit 1
 fi
 

@@ -171,10 +171,16 @@ for required in \
   'go-version-file: \.go-version' \
   '\./ci/resolve-shared-vault\.sh "\$vault_workspace"' \
   'VAULT_BOOTSTRAP_MODE: root-token' \
+  'make tf-dev BRANCH="[$]DEPLOY_BRANCH" ACTION=normalize-moves' \
   'make tf-dev-vault-preview-runtime BRANCH="[$]DEPLOY_BRANCH" ACTION=apply'; do
   rg -q "$required" <<<"$trusted_deploy_job" ||
     fail "trusted deploy job is missing preview Vault control: ${required}"
 done
+normalize_step="$(sed -n \
+  '/name: Normalize shared dev Terraform moved state/,/name: Reconcile shared preview Vault runtime access/p' \
+  .github/workflows/terraform-deploy.yaml)"
+rg -Fq 'VAULT_BOOTSTRAP_MODE: root-token' <<<"$normalize_step" ||
+  fail "shared dev moved-state normalization does not use the reviewed root-token bootstrap path"
 rg -Fq "group: \${{ inputs.environment_name == 'preview' && 'terraform-preview-dev-shared' || format('terraform-deploy-{0}', inputs.site_name) }}" <<<"$trusted_deploy_job" ||
   fail "the entire shared preview reconciliation and deployment path is not serialized"
 
@@ -188,12 +194,13 @@ rg -Fq 'unexpected key "queue" for "concurrency" section' .github/actionlint.yam
   fail "the actionlint compatibility exception does not match only its unsupported queue syntax"
 
 go_setup_line="$(rg -n 'name: Set up Go for preview Vault reconciliation' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
+normalize_line="$(rg -n 'name: Normalize shared dev Terraform moved state' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
 reconcile_line="$(rg -n 'name: Reconcile shared preview Vault runtime access' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
 vault_login_line="$(rg -n 'name: Login to Vault' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
 preview_apply_line="$(rg -n 'name: Run preview Terraform$' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
 readiness_line="$(rg -n 'name: Verify frontend, backend, and OCR readiness' .github/workflows/terraform-deploy.yaml | cut -d: -f1)"
-((go_setup_line < reconcile_line && reconcile_line < vault_login_line && vault_login_line < preview_apply_line && preview_apply_line < readiness_line)) ||
-  fail "shared preview Vault reconciliation is not inside the locked deploy/readiness critical section"
+((go_setup_line < normalize_line && normalize_line < reconcile_line && reconcile_line < vault_login_line && vault_login_line < preview_apply_line && preview_apply_line < readiness_line)) ||
+  fail "shared dev state normalization and preview Vault reconciliation are not inside the locked deploy/readiness critical section"
 
 preview_deploy_call="$(sed -n '/^  deploy:/,/^  destroy:/p' .github/workflows/terraform-preview.yaml)"
 rg -q 'checkout_ref: \$\{\{ needs\.prepare\.outputs\.base_sha \}\}' <<<"$preview_deploy_call" ||

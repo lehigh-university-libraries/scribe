@@ -14,6 +14,16 @@ moved {
 }
 
 moved {
+  from = terraform_data.application_network
+  to   = module.gcp.terraform_data.application_network
+}
+
+moved {
+  from = terraform_data.application_subnetwork
+  to   = module.gcp.terraform_data.application_subnetwork
+}
+
+moved {
   from = module.ppb
   to   = module.gcp.module.ppb
 }

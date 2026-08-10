@@ -10,6 +10,14 @@ resource "terraform_data" "repository_counted" {
   input = "repository-counted"
 }
 
+resource "terraform_data" "application_network" {
+  input = "application-network"
+}
+
+resource "terraform_data" "application_subnetwork" {
+  input = "application-subnetwork"
+}
+
 module "ppb" {
   source = "./ppb"
 }

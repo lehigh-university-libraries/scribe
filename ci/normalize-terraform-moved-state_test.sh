@@ -16,6 +16,7 @@ prepare_work_dir() {
   cp -- "$build_dir/terraform.tfstate" "$destination/terraform.tfstate"
   cp -- "$fixture/cloud_compose_moved.tf" "$destination/cloud_compose_moved.tf"
   cp -- "$fixture/scribe_root_moved.tf" "$destination/scribe_root_moved.tf"
+  cp -- "$fixture/application_network_moved.tf" "$destination/application_network_moved.tf"
   cp -R -- "$fixture/installed/." "$destination/.terraform/modules/cloud-compose-fixture/"
   cp -- "$fixture/modules.json" "$destination/.terraform/modules/modules.json"
 }
@@ -51,6 +52,8 @@ terraform -chdir="$work_dir" state rm \
 
 mapfile -t actual < <(terraform -chdir="$work_dir" state list)
 expected=(
+  'terraform_data.application_network'
+  'terraform_data.application_subnetwork'
   'terraform_data.root_app_policy[0]'
   'terraform_data.root_app_role[0]'
   'terraform_data.root_app_viewer'
@@ -74,6 +77,75 @@ after=$(terraform -chdir="$work_dir" state pull)
   exit 1
 }
 grep -q 'Already normalized' "$work_dir/second.log"
+
+# A workspace may already have completed the historical root-module and
+# counted-module hops before this root-ownership phase is introduced. Prove
+# those exact current cloud-compose addresses still converge to the same root
+# destinations without a provider refresh.
+counted_dir="$test_root/counted-current"
+prepare_work_dir "$counted_dir"
+terraform -chdir="$counted_dir" state rm \
+  terraform_data.root_unindexed_conflict_seed \
+  'terraform_data.root_indexed_conflict_seed[0]' >/dev/null
+"$repo_root/ci/normalize-terraform-moved-state.sh" "$counted_dir" >"$counted_dir/historical-normalize.log"
+terraform -chdir="$counted_dir" state mv \
+  terraform_data.application_network \
+  'module.scribe.module.gcp[0].terraform_data.application_network[0]' >/dev/null
+terraform -chdir="$counted_dir" state mv \
+  terraform_data.application_subnetwork \
+  'module.scribe.module.gcp[0].terraform_data.application_subnetwork[0]' >/dev/null
+"$repo_root/ci/normalize-terraform-moved-state.sh" "$counted_dir" >"$counted_dir/normalize.log"
+mapfile -t counted_actual < <(terraform -chdir="$counted_dir" state list)
+if [[ "${counted_actual[*]}" != "${expected[*]}" ]]; then
+  printf 'unexpected current-counted normalized state:\n' >&2
+  printf '  %s\n' "${counted_actual[@]}" >&2
+  exit 1
+fi
+
+# A destination collision must fail before any historical address is changed.
+# Exercise every source layer that can feed the final root-owned network move;
+# assert_conflict_is_safe compares the complete state byte-for-byte.
+for lineage in legacy uncounted counted-pre-inner counted-final; do
+  conflict_dir="$test_root/application-network-${lineage}-conflict"
+  prepare_work_dir "$conflict_dir"
+  terraform -chdir="$conflict_dir" state rm \
+    'terraform_data.root_indexed_conflict_seed[0]' >/dev/null
+  terraform -chdir="$conflict_dir" state mv \
+    terraform_data.root_unindexed_conflict_seed \
+    terraform_data.application_network >/dev/null
+  case "$lineage" in
+    legacy) ;;
+    uncounted)
+      terraform -chdir="$conflict_dir" state mv \
+        module.scribe.terraform_data.application_network \
+        module.scribe.module.gcp.terraform_data.application_network >/dev/null
+      ;;
+    counted-pre-inner)
+      terraform -chdir="$conflict_dir" state mv \
+        module.scribe.terraform_data.application_network \
+        'module.scribe.module.gcp[0].terraform_data.application_network' >/dev/null
+      ;;
+    counted-final)
+      terraform -chdir="$conflict_dir" state mv \
+        module.scribe.terraform_data.application_network \
+        'module.scribe.module.gcp[0].terraform_data.application_network[0]' >/dev/null
+      ;;
+  esac
+  assert_conflict_is_safe "$conflict_dir" \
+    'application-network preflight conflict: source lineage'
+done
+
+# Multiple historical aliases are equally unsafe even when the root
+# destination is absent. Reject the mixed lineage before normalizing either.
+alias_conflict_dir="$test_root/application-network-alias-conflict"
+prepare_work_dir "$alias_conflict_dir"
+terraform -chdir="$alias_conflict_dir" state rm \
+  'terraform_data.root_indexed_conflict_seed[0]' >/dev/null
+terraform -chdir="$alias_conflict_dir" state mv \
+  terraform_data.root_unindexed_conflict_seed \
+  module.scribe.module.gcp.terraform_data.application_network >/dev/null
+assert_conflict_is_safe "$alias_conflict_dir" \
+  'application-network preflight conflict: source aliases'
 
 viewer_conflict_dir="$test_root/viewer-conflict"
 prepare_work_dir "$viewer_conflict_dir"

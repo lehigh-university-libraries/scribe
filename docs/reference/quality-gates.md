@@ -189,20 +189,25 @@ production default Ollama OCR request. Fixture contracts require authenticated
 requests, real image bytes, JPEG validation, non-empty model output, and Ollama
 `done=true`; a health-only response is not deployment evidence.
 
-Preview readiness also runs a digest-pinned Playwright image in an independent
-custom VPC. Its non-overlapping dual-stack `/26` receives one external IPv6
-`/64`, and only that environment-owned `/64` is added to the preview PPB
-policy. A static Cloud NAT address remains available only for fixed public DNS
-and reviewed IPv4-only fixture origins; `run.app` is forced over AAAA because
-Public Cloud NAT does not translate Google service traffic. A protected,
-unit-tested helper bounds and validates public-global AAAA answers, supplies
-Chromium's exact-host
+Preview readiness also runs a digest-pinned Playwright image in the preview's
+root-owned application VPC, avoiding an additional project-wide network quota
+slot. Reviewed state moves transfer the existing VPC and application subnet
+from nested-module ownership to the root without resource replacement, and
+Cloud Compose consumes their exact self-links. The browser job uses a
+dedicated, non-overlapping dual-stack `/26`; its interface tag selects an
+egress firewall deny for the exact private application subnet CIDR. The browser
+subnet receives one external IPv6 `/64`, and only that preview-owned `/64` is
+added to the preview's PPB policy. Its reserved IPv4 address and subnet-scoped
+Cloud NAT remain available only for fixed public DNS and reviewed IPv4-only
+fixture origins; `run.app` is forced over AAAA because Public Cloud NAT does
+not translate Google service traffic. A protected, unit-tested helper bounds
+and validates public-global AAAA answers, supplies Chromium's exact-host
 mapping, and disables Node IPv4 racing for Playwright API requests. The
 singleton foundation binds Google's required `roles/compute.publicIpAdmin`
-only to the managed Cloud Run service agent, never to preview state or an
-application identity. The detached legacy browser subnet and NAT remain
-state-managed during the additive migration but grant no PPB access. Trusted
-orchestration fetches only the
+only to the managed Cloud Run service agent, never to preview state, deploy
+identities, or application identities. The retired deterministic `browser-v6`
+subnet is recognized only by bounded teardown recovery and grants no active
+job attachment or PPB access. Trusted orchestration fetches only the
 readiness script at the exact resolved same-repository PR-head SHA before cloud
 authentication, walks its exact commit tree, requires unique tree parents and a
 `100644` source blob, and reconciles the bounded Contents payload with that blob

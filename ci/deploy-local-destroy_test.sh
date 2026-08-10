@@ -80,7 +80,9 @@ case "${1:-}" in
   destroy)
     case "${TF_TEST_DESTROY_MODE:-success}" in
       success) ;;
-      fail-once|always-fail|serverless-fail-once|serverless-browser-fail-once|serverless-browser-ipv6-fail-once|serverless-browser-ipv6-wrong-subnet|serverless-always-fail|serverless-mixed|serverless-wrong-subnet)
+      fail-once|always-fail|serverless-fail-once|serverless-always-fail|serverless-mixed|serverless-wrong-subnet|\
+      serverless-browser-fail-once|serverless-browser-ipv6-fail-once|serverless-browser-wrong-subnet|serverless-browser-ipv6-wrong-subnet|\
+      serverless-browser-v6-fail-once|serverless-browser-v6-ipv6-fail-once|serverless-browser-v6-wrong-subnet|serverless-browser-v6-ipv6-wrong-subnet)
         attempts=0
         if [ -f "${TF_TEST_DESTROY_ATTEMPTS_FILE}" ]; then
           read -r attempts <"${TF_TEST_DESTROY_ATTEMPTS_FILE}" || true
@@ -102,11 +104,31 @@ case "${1:-}" in
           exit 1
         fi
         if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-ipv6-fail-once" ] && [ "$attempts" -eq 1 ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-9aac94f3': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-pr-75-browser-9aac94f3', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-v6-fail-once" ] && [ "$attempts" -eq 1 ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-v6-9aac94f3': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-pr-75-browser-v6-9aac94f3', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-v6-ipv6-fail-once" ] && [ "$attempts" -eq 1 ]; then
           echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-v6-9aac94f3': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-pr-75-browser-v6-9aac94f3', resourceInUseByAnotherResource" >&2
           exit 1
         fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-wrong-subnet" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-deadbeef': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-pr-75-browser-deadbeef', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
         if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-ipv6-wrong-subnet" ]; then
-          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-76-browser-v6-9aac94f3': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-pr-76-browser-v6-9aac94f3', resourceInUseByAnotherResource" >&2
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-deadbeef': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-pr-75-browser-deadbeef', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-v6-wrong-subnet" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-v6-deadbeef': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-pr-75-browser-v6-deadbeef', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-v6-ipv6-wrong-subnet" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-v6-deadbeef': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-pr-75-browser-v6-deadbeef', resourceInUseByAnotherResource" >&2
           exit 1
         fi
         if [ "${TF_TEST_DESTROY_MODE}" = "serverless-wrong-subnet" ]; then
@@ -368,8 +390,8 @@ grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservati
   "${TEST_DIR}/destroy-browser-serverless-retry.err" >/dev/null
 grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 
-# The additive dual-stack network has its own deterministic subnet. Either a
-# provider-managed IPv4 or IPv6 reservation receives the same bounded wait.
+# The same dual-stack browser subnet can be held by the provider's IPv6
+# reservation. Address family never broadens the exact-subnet classifier.
 rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
 : >"${terraform_log}"
 if ! TF_TEST_DESTROY_MODE=serverless-browser-ipv6-fail-once run_destroy valid \
@@ -384,6 +406,32 @@ grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservati
   "${TEST_DIR}/destroy-browser-ipv6-serverless-retry.err" >/dev/null
 grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 
+# Workspaces that reached the retired additive network rollout can still own a
+# deterministic `-browser-v6-` subnet. Keep that exact historical name on the
+# bounded cleanup path for either managed address family, without making it a
+# current resource name again. A partial rollout can predate the recorded
+# browser image, so teardown classification must not depend on that output.
+historical_empty_browser_state="${TEST_DIR}/deployment-inputs-empty-browser.json"
+jq '.browser_readiness_image = ""' "${state_file}" >"${historical_empty_browser_state}"
+for historical_route in ipv4 ipv6; do
+  rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+  : >"${terraform_log}"
+  historical_mode=serverless-browser-v6-fail-once
+  [ "$historical_route" = ipv4 ] || historical_mode=serverless-browser-v6-ipv6-fail-once
+  historical_error="${TEST_DIR}/destroy-historical-preview-browser-${historical_route}.err"
+  TF_TEST_STATE_FILE="$historical_empty_browser_state" \
+    TF_TEST_DESTROY_MODE="$historical_mode" run_destroy valid \
+      "${TEST_DIR}/destroy-historical-preview-browser-${historical_route}.out" \
+      "$historical_error" || {
+    echo "historical preview ${historical_route} browser-v6 subnet cleanup delay was not classified" >&2
+    exit 1
+  }
+  [ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
+  [ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
+  grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
+  grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservation' \
+    "$historical_error" >/dev/null
+done
 rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
 : >"${terraform_log}"
 if TF_TEST_DESTROY_MODE=serverless-always-fail run_destroy valid \
@@ -401,7 +449,13 @@ if grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null; then
   exit 1
 fi
 
-for destroy_mode in serverless-mixed serverless-wrong-subnet serverless-browser-ipv6-wrong-subnet; do
+for destroy_mode in \
+  serverless-mixed \
+  serverless-wrong-subnet \
+  serverless-browser-wrong-subnet \
+  serverless-browser-ipv6-wrong-subnet \
+  serverless-browser-v6-wrong-subnet \
+  serverless-browser-v6-ipv6-wrong-subnet; do
   rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
   : >"${terraform_log}"
   if TF_TEST_DESTROY_MODE="$destroy_mode" run_destroy valid \

@@ -157,7 +157,7 @@ variable "network_ip_cidr_range" {
 }
 
 variable "browser_readiness_subnet_cidr" {
-  description = "Dedicated /26 subnet used only by the preview browser-readiness Cloud Run job and its static-egress Cloud NAT."
+  description = "Dedicated, non-overlapping /26 inside the environment application VPC, used only by the protected preview browser-readiness job and its subnet-scoped Cloud NAT."
   type        = string
   default     = "10.43.0.0/26"
 

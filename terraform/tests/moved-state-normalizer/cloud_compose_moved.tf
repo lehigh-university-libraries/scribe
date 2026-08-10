@@ -9,6 +9,16 @@ moved {
 }
 
 moved {
+  from = module.scribe.module.gcp.terraform_data.application_network
+  to   = module.scribe.module.gcp[0].terraform_data.application_network[0]
+}
+
+moved {
+  from = module.scribe.module.gcp.terraform_data.application_subnetwork
+  to   = module.scribe.module.gcp[0].terraform_data.application_subnetwork[0]
+}
+
+moved {
   from = module.scribe.module.gcp.module.ppb
   to   = module.scribe.module.gcp[0].module.ppb[0]
 }

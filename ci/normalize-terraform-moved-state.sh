@@ -85,8 +85,9 @@ esac
 root_moved="$scribe_dir/moved.tf"
 repo_moved="$terraform_dir/cloud_compose_moved.tf"
 repo_root_moved="$terraform_dir/scribe_root_moved.tf"
+repo_application_network_moved="$terraform_dir/application_network_moved.tf"
 gcp_moved="$gcp_dir/moved.tf"
-for moved_file in "$root_moved" "$repo_moved" "$repo_root_moved" "$gcp_moved"; do
+for moved_file in "$root_moved" "$repo_moved" "$repo_root_moved" "$gcp_moved" "$repo_application_network_moved"; do
   [[ -f "$moved_file" ]] || die "required moved declaration file is missing: $moved_file"
 done
 
@@ -303,6 +304,147 @@ preflight_moved_file() {
   rm -f -- "$parsed_file"
 }
 
+declare -a application_network_lineage_aliases=()
+
+append_application_network_lineage_alias() {
+  local candidate=$1
+  local existing
+
+  [[ -n "$candidate" ]] || die "application-network lineage contains an empty address"
+  for existing in "${application_network_lineage_aliases[@]}"; do
+    [[ "$existing" == "$candidate" ]] && return 0
+  done
+  application_network_lineage_aliases+=("$candidate")
+}
+
+# The application network and subnet finish outside module.scribe, but an old
+# workspace can still hold either object at the original module root, the
+# intermediate uncounted GCP module, or the current counted GCP module. Detect
+# every conflicting source/destination combination before the first state mv;
+# otherwise discovering a root destination only in the final phase would leave
+# the earlier lineage hops partially committed.
+preflight_application_network_moves() {
+  local uncounted_module='module.scribe.module.gcp'
+  local counted_module='module.scribe.module.gcp[0]'
+  local uncounted_prefix="$uncounted_module."
+  local counted_prefix="$counted_module."
+  local upstream_records repository_records gcp_records application_records
+  local record_phase move_source move_destination
+  local final_source final_destination alias alias_index
+  local repository_inner_source repository_execution_source
+  local candidate candidate_is_source
+  local lineage_source_count lineage_destination_count
+  local lineage_source_sample lineage_second_source_sample lineage_destination_sample
+
+  upstream_records=$(mktemp)
+  repository_records=$(mktemp)
+  gcp_records=$(mktemp)
+  application_records=$(mktemp)
+  temporary_files+=("$upstream_records" "$repository_records" "$gcp_records" "$application_records")
+
+  parse_moved_file upstream-root module.scribe "$root_moved" >"$upstream_records" ||
+    die "could not safely parse moved declarations in $root_moved"
+  parse_moved_file repository-inner '' "$repo_moved" >"$repository_records" ||
+    die "could not safely parse moved declarations in $repo_moved"
+  parse_moved_file upstream-gcp "$counted_module" "$gcp_moved" >"$gcp_records" ||
+    die "could not safely parse moved declarations in $gcp_moved"
+  parse_moved_file application-network '' "$repo_application_network_moved" >"$application_records" ||
+    die "could not safely parse moved declarations in $repo_application_network_moved"
+
+  while IFS=$'\t' read -r record_phase final_source final_destination; do
+    [[ "$record_phase" == application-network \
+      && "$final_source" == "$counted_prefix"* \
+      && "$final_destination" != module.* ]] || {
+      die "application-network moved declaration must move one counted GCP-module object to the root: $final_source -> $final_destination"
+    }
+
+    application_network_lineage_aliases=()
+    append_application_network_lineage_alias "$final_source"
+    alias_index=0
+    while (( alias_index < ${#application_network_lineage_aliases[@]} )); do
+      alias=${application_network_lineage_aliases[$alias_index]}
+
+      # process_repository_hop first moves the whole uncounted module. Include
+      # the same inner address before that hop even when no repository-specific
+      # count/for_each declaration exists for this resource.
+      if [[ "$alias" == "$counted_prefix"* ]]; then
+        append_application_network_lineage_alias "$uncounted_prefix${alias#"$counted_prefix"}"
+      fi
+
+      while IFS=$'\t' read -r record_phase move_source move_destination; do
+        [[ "$record_phase" == upstream-root ]] ||
+          die "invalid parsed upstream-root declaration in $root_moved"
+        if address_matches "$move_destination" "$alias"; then
+          append_application_network_lineage_alias "$move_source"
+        fi
+      done <"$upstream_records"
+
+      while IFS=$'\t' read -r record_phase move_source move_destination; do
+        [[ "$record_phase" == repository-inner \
+          && "$move_source" == "$uncounted_prefix"* \
+          && "$move_destination" == "$counted_prefix"* ]] || {
+          die "repository moved declaration does not describe the expected counted GCP module hop: $move_source -> $move_destination"
+        }
+        if address_matches "$move_destination" "$alias"; then
+          repository_inner_source=${move_source#"$uncounted_prefix"}
+          repository_execution_source="$counted_prefix$repository_inner_source"
+          append_application_network_lineage_alias "$repository_execution_source"
+          append_application_network_lineage_alias "$move_source"
+        fi
+      done <"$repository_records"
+
+      while IFS=$'\t' read -r record_phase move_source move_destination; do
+        [[ "$record_phase" == upstream-gcp ]] ||
+          die "invalid parsed upstream-gcp declaration in $gcp_moved"
+        if address_matches "$move_destination" "$alias"; then
+          append_application_network_lineage_alias "$move_source"
+        fi
+      done <"$gcp_records"
+
+      (( alias_index += 1 ))
+    done
+
+    lineage_source_count=0
+    lineage_destination_count=0
+    lineage_source_sample=''
+    lineage_second_source_sample=''
+    lineage_destination_sample=''
+    for candidate in "${state_addresses[@]}"; do
+      candidate_is_source=false
+      for alias in "${application_network_lineage_aliases[@]}"; do
+        if address_matches "$alias" "$candidate"; then
+          candidate_is_source=true
+          break
+        fi
+      done
+      if [[ "$candidate_is_source" == true ]]; then
+        (( lineage_source_count += 1 ))
+        if [[ -z "$lineage_source_sample" ]]; then
+          lineage_source_sample=$candidate
+        elif [[ -z "$lineage_second_source_sample" ]]; then
+          lineage_second_source_sample=$candidate
+        fi
+      fi
+      if address_matches "$final_destination" "$candidate"; then
+        (( lineage_destination_count += 1 ))
+        [[ -n "$lineage_destination_sample" ]] || lineage_destination_sample=$candidate
+      fi
+    done
+
+    if (( lineage_source_count > 0 && lineage_destination_count > 0 )); then
+      die "application-network preflight conflict: source lineage $lineage_source_sample and root destination $lineage_destination_sample both exist"
+    fi
+    if (( lineage_source_count > 1 )); then
+      die "application-network preflight conflict: source aliases $lineage_source_sample and $lineage_second_source_sample both exist for root destination $final_destination"
+    fi
+    if (( lineage_destination_count > 1 )); then
+      die "application-network preflight conflict: root destination $final_destination has multiple state objects"
+    fi
+  done <"$application_records"
+
+  rm -f -- "$upstream_records" "$repository_records" "$gcp_records" "$application_records"
+}
+
 process_repository_hop() {
   local uncounted_module='module.scribe.module.gcp'
   local counted_module='module.scribe.module.gcp[0]'
@@ -345,9 +487,11 @@ process_repository_hop() {
 
 load_state
 preflight_moved_file repository-root '' "$repo_root_moved"
+preflight_application_network_moves
 process_moved_file repository-root '' "$repo_root_moved"
 process_moved_file upstream-root module.scribe "$root_moved"
 process_repository_hop
 process_moved_file upstream-gcp 'module.scribe.module.gcp[0]' "$gcp_moved"
+process_moved_file application-network '' "$repo_application_network_moved"
 
 printf 'Terraform moved-state normalization completed without provider refresh or apply.\n'

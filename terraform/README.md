@@ -146,17 +146,26 @@ verified plan before auto-applying that exact saved plan. It does not invoke
 image resolution, pull, or build tooling; remote-state, provider, backup-policy,
 and Vault authentication prerequisites may still be required. Refresh and
 ordinary destroy require an existing selected workspace and never create one.
+The final Scribe move phase transfers the existing application VPC and subnet
+from the counted Cloud Compose module addresses to root ownership only after
+the module's historical address moves have converged. Cloud Compose then
+consumes those exact resources with network creation disabled; normalization
+does not recreate either object. Protected preview orchestration normalizes the
+shared `dev` state after its backup audit and before targeted Vault maintenance;
+production and preview workspace applies retain the full Terraform graph.
 Destroy retains its one validated input snapshot across at most three attempts
 for ordinary failures. A Google-managed `serverless-ipv4-*` or
 `serverless-ipv6-*` dependency on the exact preview application subnet, exact
-legacy browser subnet, or exact independent dual-stack browser subnet receives
-up to 25 attempts, five minutes apart, because Cloud Run Direct VPC address
+deterministic dual-stack browser subnet, or exact deterministic retired
+`browser-v6` subnet from the previous independent-network design receives up
+to 25 attempts, five minutes apart, because Cloud Run Direct VPC address
 release can take two hours; it does not authorize deletion of the
-provider-managed address. Only preview destroy
-receives the extended workflow timeout; other deployment modes keep the
-ordinary bound. A preview workspace is deleted only after destroy succeeds. If
-an interrupted teardown already removed the current output, the protected
-preview workflow's explicit
+provider-managed address. The retired name is a teardown-only classifier and
+grants no active job attachment or PPB access. Only preview destroy receives
+the extended workflow timeout; other deployment modes keep the ordinary bound.
+A preview workspace is deleted only after destroy succeeds. If an interrupted
+teardown already removed the current output, the protected preview workflow's
+explicit
 `recover-destroy` action can read the newest valid lower-serial, same-lineage
 output from the versioned state object's history. It does not restore or
 overwrite state and is not available for production. When a prior protected
@@ -283,6 +292,15 @@ from the four documented additive legacy defaults.
   the recorded production source and runtime inputs.
 - [backup-verification.yaml](../.github/workflows/backup-verification.yaml)
   exercises the independent production recovery boundary.
+
+Protected preview workspaces retain one root-owned per-environment application
+VPC. The managed browser job attaches to a dedicated, non-overlapping
+dual-stack `/26` in that VPC, and its interface tag selects an egress firewall
+deny for the exact private application subnet CIDR. Only the browser subnet's
+external IPv6 `/64` enters that preview's PPB allowlist. A reserved IPv4 address
+and subnet-scoped Cloud NAT serve fixed DNS and reviewed IPv4-only fixture
+origins without widening PPB or another environment. This topology adds no
+browser-only VPC to the project's network quota.
 
 A manual protected production `mode=plan` reuses current runtime image digests
 and does not build, publish, promote, or apply. Production destroy is not

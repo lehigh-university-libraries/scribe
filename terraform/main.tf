@@ -828,7 +828,12 @@ module "scribe" {
     }
 
     network = {
+      create                   = false
+      project_id               = var.project_id
+      name                     = google_compute_network.application.self_link
+      subnetwork               = google_compute_subnetwork.application.self_link
       ip_cidr_range            = var.network_ip_cidr_range
+      mtu                      = google_compute_network.application.mtu
       power_button_allowed_ips = distinct(concat(var.allowed_ips, local.browser_readiness_allowed_ips))
       power_button_ip_depth    = 0
       ssh_ipv4                 = var.allowed_ssh_ipv4

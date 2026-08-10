@@ -17,27 +17,27 @@ locals {
   )
   normalized_browser_readiness_image = trimspace(var.browser_readiness_image)
   browser_readiness_enabled          = local.is_preview_workspace && local.normalized_browser_readiness_image != ""
-  browser_readiness_ipv6_network_resource_name = try(regex(
+  browser_readiness_network_resource_name = try(regex(
     "projects/[^/]+/global/networks/[^/]+$",
-    google_compute_network.browser_readiness_ipv6[0].self_link,
+    google_compute_network.application.self_link,
   ), "")
-  browser_readiness_ipv6_subnetwork_resource_name = try(regex(
+  browser_readiness_subnetwork_resource_name = try(regex(
     "projects/[^/]+/regions/[^/]+/subnetworks/[^/]+$",
-    google_compute_subnetwork.browser_readiness_ipv6[0].self_link,
+    google_compute_subnetwork.browser_readiness[0].self_link,
   ), "")
-  browser_readiness_name_hash          = substr(sha256("${var.name}:${local.workspace_slug}"), 0, 8)
-  browser_readiness_resource_name      = "${trimsuffix(substr(var.name, 0, 46), "-")}-browser-${local.browser_readiness_name_hash}"
-  browser_readiness_ipv6_resource_name = "${trimsuffix(substr(var.name, 0, 43), "-")}-browser-v6-${local.browser_readiness_name_hash}"
-  browser_readiness_job_name           = "${trimsuffix(substr(var.name, 0, 32), "-")}-browser-${local.browser_readiness_name_hash}"
-  browser_readiness_account_id         = "${trimsuffix(substr("probe-browser-${local.workspace_slug}", 0, 21), "-")}-${local.browser_readiness_name_hash}"
+  browser_readiness_name_hash     = substr(sha256("${var.name}:${local.workspace_slug}"), 0, 8)
+  browser_readiness_resource_name = "${trimsuffix(substr(var.name, 0, 46), "-")}-browser-${local.browser_readiness_name_hash}"
+  browser_readiness_job_name      = "${trimsuffix(substr(var.name, 0, 32), "-")}-browser-${local.browser_readiness_name_hash}"
+  browser_readiness_account_id    = "${trimsuffix(substr("probe-browser-${local.workspace_slug}", 0, 21), "-")}-${local.browser_readiness_name_hash}"
+  browser_readiness_network_tag   = "${local.browser_readiness_job_name}-isolated"
   browser_readiness_allowed_ips = local.browser_readiness_enabled ? [
-    google_compute_subnetwork.browser_readiness_ipv6[0].external_ipv6_prefix,
+    google_compute_subnetwork.browser_readiness[0].external_ipv6_prefix,
   ] : []
 }
 
-# Direct VPC egress requires at least a /26. Keep the browser runner outside the
-# application subnet so its public NAT address cannot become an outbound path
-# for the VM, frontend-to-backend probe, or OCR probe.
+# Direct VPC egress requires at least a /26. The browser receives a dedicated
+# dual-stack subnet inside this environment's already-counted VPC, so protected
+# previews do not consume one additional project-wide network quota each.
 check "browser_readiness_subnet_isolated" {
   assert {
     condition = !local.browser_readiness_enabled || try(length(setintersection(
@@ -54,19 +54,33 @@ check "browser_readiness_subnet_isolated" {
 resource "google_compute_subnetwork" "browser_readiness" {
   count = local.browser_readiness_enabled ? 1 : 0
 
-  project       = var.project_id
-  region        = var.region
-  name          = local.browser_readiness_resource_name
-  network       = module.scribe.network.self_link
-  ip_cidr_range = var.browser_readiness_subnet_cidr
-  # Retained unchanged until previews created before the external-IPv6
-  # migration have been destroyed. The browser job no longer attaches here.
+  project                  = var.project_id
+  region                   = var.region
+  name                     = local.browser_readiness_resource_name
+  network                  = google_compute_network.application.self_link
+  ip_cidr_range            = var.browser_readiness_subnet_cidr
+  stack_type               = "IPV4_IPV6"
+  ipv6_access_type         = "EXTERNAL"
   private_ip_google_access = false
+
+  lifecycle {
+    postcondition {
+      condition = (
+        can(cidrhost(self.external_ipv6_prefix, 0)) &&
+        strcontains(self.external_ipv6_prefix, ":") &&
+        endswith(self.external_ipv6_prefix, "/64")
+      )
+      error_message = "The preview browser readiness subnet must receive one canonical external IPv6 /64."
+    }
+  }
 }
 
-# Retain the original address/router/NAT resource addresses during the additive
-# migration so applying the prerequisite never waits for a detached Direct VPC
-# subnet to become deletable. This /32 is no longer in the preview PPB policy.
+# Public Cloud NAT does not translate traffic to run.app: it automatically
+# enables Private Google Access for covered IPv4 ranges, and Cloud Run can then
+# observe 0.0.0.0 instead of the reserved NAT address. The browser therefore
+# forces canonical Scribe traffic over its environment-owned external IPv6
+# /64. This IPv4 address remains only for fixed DNS and reviewed IPv4-only
+# origins and is never included in a PPB policy.
 resource "google_compute_address" "browser_readiness" {
   count = local.browser_readiness_enabled ? 1 : 0
 
@@ -83,7 +97,7 @@ resource "google_compute_router" "browser_readiness" {
   project = var.project_id
   region  = var.region
   name    = local.browser_readiness_resource_name
-  network = module.scribe.network.self_link
+  network = google_compute_network.application.self_link
 }
 
 resource "google_compute_router_nat" "browser_readiness" {
@@ -103,84 +117,22 @@ resource "google_compute_router_nat" "browser_readiness" {
   }
 }
 
-# Public Cloud NAT does not translate traffic to run.app: it automatically
-# enables Private Google Access for covered IPv4 ranges, and Cloud Run can then
-# observe 0.0.0.0 instead of the reserved NAT address. Keep the legacy preview
-# resources above state-addressable during this additive migration, but run the
-# browser in its own dual-stack VPC. The dedicated external /64 is stable for
-# the subnet lifetime and is the only browser range added to this preview's PPB
-# policy. No application, shared, or production subnet can use that range.
-resource "google_compute_network" "browser_readiness_ipv6" {
+# The PR-head preview runner is untrusted. Its network tag and exact egress deny
+# prevent direct access to the environment's private application subnet while
+# preserving public DNS, canonical IPv6, and reviewed fixture traffic.
+resource "google_compute_firewall" "browser_readiness_isolation" {
   count = local.browser_readiness_enabled ? 1 : 0
 
-  project                 = var.project_id
-  name                    = local.browser_readiness_ipv6_resource_name
-  auto_create_subnetworks = false
-  routing_mode            = "REGIONAL"
-  mtu                     = 1460
-}
+  project            = var.project_id
+  name               = "${local.browser_readiness_job_name}-egress"
+  network            = google_compute_network.application.self_link
+  direction          = "EGRESS"
+  priority           = 100
+  destination_ranges = [var.network_ip_cidr_range]
+  target_tags        = [local.browser_readiness_network_tag]
 
-resource "google_compute_subnetwork" "browser_readiness_ipv6" {
-  count = local.browser_readiness_enabled ? 1 : 0
-
-  project                  = var.project_id
-  region                   = var.region
-  name                     = local.browser_readiness_ipv6_resource_name
-  network                  = google_compute_network.browser_readiness_ipv6[0].self_link
-  ip_cidr_range            = var.browser_readiness_subnet_cidr
-  stack_type               = "IPV4_IPV6"
-  ipv6_access_type         = "EXTERNAL"
-  private_ip_google_access = false
-
-  lifecycle {
-    postcondition {
-      condition = (
-        can(cidrhost(self.external_ipv6_prefix, 0)) &&
-        strcontains(self.external_ipv6_prefix, ":") &&
-        endswith(self.external_ipv6_prefix, "/64")
-      )
-      error_message = "The preview browser readiness subnet must receive one canonical external IPv6 /64."
-    }
-  }
-}
-
-# The browser still needs IPv4 egress for fixed public DNS and reviewed
-# cross-origin fixtures that do not publish AAAA records. This NAT is not an
-# ingress credential: canonical Scribe traffic is explicitly forced over IPv6
-# by the PR-head runner.
-resource "google_compute_address" "browser_readiness_ipv6" {
-  count = local.browser_readiness_enabled ? 1 : 0
-
-  project      = var.project_id
-  region       = var.region
-  name         = local.browser_readiness_ipv6_resource_name
-  address_type = "EXTERNAL"
-  network_tier = "PREMIUM"
-}
-
-resource "google_compute_router" "browser_readiness_ipv6" {
-  count = local.browser_readiness_enabled ? 1 : 0
-
-  project = var.project_id
-  region  = var.region
-  name    = local.browser_readiness_ipv6_resource_name
-  network = google_compute_network.browser_readiness_ipv6[0].self_link
-}
-
-resource "google_compute_router_nat" "browser_readiness_ipv6" {
-  count = local.browser_readiness_enabled ? 1 : 0
-
-  project                            = var.project_id
-  region                             = var.region
-  name                               = local.browser_readiness_ipv6_resource_name
-  router                             = google_compute_router.browser_readiness_ipv6[0].name
-  nat_ip_allocate_option             = "MANUAL_ONLY"
-  nat_ips                            = [google_compute_address.browser_readiness_ipv6[0].self_link]
-  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
-
-  subnetwork {
-    name                    = google_compute_subnetwork.browser_readiness_ipv6[0].self_link
-    source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+  deny {
+    protocol = "all"
   }
 }
 
@@ -266,16 +218,17 @@ resource "google_cloud_run_v2_job" "browser_readiness" {
       vpc_access {
         egress = "ALL_TRAFFIC"
         network_interfaces {
-          network    = local.browser_readiness_ipv6_network_resource_name
-          subnetwork = local.browser_readiness_ipv6_subnetwork_resource_name
+          network    = local.browser_readiness_network_resource_name
+          subnetwork = local.browser_readiness_subnetwork_resource_name
+          tags       = [local.browser_readiness_network_tag]
         }
       }
     }
   }
 
   depends_on = [
+    google_compute_firewall.browser_readiness_isolation,
     google_compute_router_nat.browser_readiness,
-    google_compute_router_nat.browser_readiness_ipv6,
     google_service_account.browser_readiness,
     module.scribe,
   ]

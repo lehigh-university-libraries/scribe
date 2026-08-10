@@ -59,9 +59,10 @@ frontend_gar_image     = "us-docker.pkg.dev/your-gcp-project-id/internal/scribe-
 # Use a canonical /24 through /28: Terraform reserves .1 for the bridge
 # gateway, .2 for Traefik, and the upper half for dynamic containers.
 network_ip_cidr_range = "10.42.0.0/24"
-# Keep the preview-only browser runner on a non-overlapping dedicated /26.
+# Keep the protected preview browser runner on a non-overlapping dedicated /26
+# inside that environment's root-owned application VPC.
 browser_readiness_subnet_cidr = "10.43.0.0/26"
-compose_network_cidr  = "172.30.0.0/24"
+compose_network_cidr          = "172.30.0.0/24"
 
 # Runtime admission defaults come from ../config.yaml. Omit them here so a
 # copied tfvars file follows reviewed application-default changes. An operator

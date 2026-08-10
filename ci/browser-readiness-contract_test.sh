@@ -489,6 +489,17 @@ require_fixed 'rejects timeout configurations outside the frontend platform boun
 
 require_fixed 'normalized_browser_readiness_image = trimspace(var.browser_readiness_image)' terraform/readiness.tf
 require_pattern 'browser_readiness_enabled[[:space:]]+= local\.is_preview_workspace && local\.normalized_browser_readiness_image != ""' terraform/readiness.tf
+require_fixed 'resource "google_compute_network" "application"' terraform/application_network.tf
+require_fixed 'resource "google_compute_subnetwork" "application"' terraform/application_network.tf
+require_fixed 'from = module.scribe.module.gcp[0].google_compute_network.cloud-compose[0]' terraform/application_network_moved.tf
+require_fixed 'to   = google_compute_network.application' terraform/application_network_moved.tf
+require_fixed 'from = module.scribe.module.gcp[0].google_compute_subnetwork.cloud-compose[0]' terraform/application_network_moved.tf
+require_fixed 'to   = google_compute_subnetwork.application' terraform/application_network_moved.tf
+require_fixed 'create                   = false' terraform/main.tf
+require_fixed 'name                     = google_compute_network.application.self_link' terraform/main.tf
+require_fixed 'subnetwork               = google_compute_subnetwork.application.self_link' terraform/main.tf
+forbid_pattern 'resource "google_compute_network" "browser_readiness' terraform/readiness.tf
+forbid_pattern 'resource "google_compute_(address|router|router_nat|subnetwork)" "browser_readiness_ipv6"' terraform/readiness.tf
 require_fixed 'browser_readiness_image = local.normalized_browser_readiness_image' terraform/outputs.tf
 require_fixed 'image = local.normalized_browser_readiness_image' terraform/readiness.tf
 require_pattern 'browser_readiness_name_hash[[:space:]]+= substr\(sha256\("\$\{var\.name\}:\$\{local\.workspace_slug\}"\), 0, 8\)' terraform/readiness.tf
@@ -499,9 +510,7 @@ require_fixed 'substr("probe-browser-${local.workspace_slug}", 0, 21)' terraform
 for resource in google_compute_address google_compute_router google_compute_router_nat google_compute_subnetwork google_cloud_run_v2_job google_service_account; do
   require_pattern "resource \"${resource}\" \"browser_readiness\"" terraform/readiness.tf
 done
-for resource in google_compute_address google_compute_network google_compute_router google_compute_router_nat google_compute_subnetwork; do
-  require_pattern "resource \"${resource}\" \"browser_readiness_ipv6\"" terraform/readiness.tf
-done
+require_pattern 'resource "google_compute_firewall" "browser_readiness_isolation"' terraform/readiness.tf
 for required in \
   'nat_ip_allocate_option             = "MANUAL_ONLY"' \
   'nat_ips                            = [google_compute_address.browser_readiness[0].self_link]' \
@@ -515,45 +524,54 @@ for required in \
 done
 require_fixed 'value = "--dns-result-order=ipv6first --no-network-family-autoselection"' terraform/readiness.tf
 for required in \
-  'auto_create_subnetworks = false' \
-  'routing_mode            = "REGIONAL"' \
-  'mtu                     = 1460' \
-  'network                  = google_compute_network.browser_readiness_ipv6[0].self_link' \
+  'network                  = google_compute_network.application.self_link' \
   'stack_type               = "IPV4_IPV6"' \
   'ipv6_access_type         = "EXTERNAL"' \
   'strcontains(self.external_ipv6_prefix, ":")' \
-  'nat_ips                            = [google_compute_address.browser_readiness_ipv6[0].self_link]' \
-  'name                    = google_compute_subnetwork.browser_readiness_ipv6[0].self_link' \
-  'network    = local.browser_readiness_ipv6_network_resource_name' \
-  'subnetwork = local.browser_readiness_ipv6_subnetwork_resource_name' \
-  'google_compute_router_nat.browser_readiness_ipv6'; do
+  'network    = local.browser_readiness_network_resource_name' \
+  'subnetwork = local.browser_readiness_subnetwork_resource_name' \
+  'tags       = [local.browser_readiness_network_tag]'; do
   require_fixed "$required" terraform/readiness.tf
 done
-require_fixed 'google_compute_subnetwork.browser_readiness_ipv6[0].external_ipv6_prefix' terraform/readiness.tf
+require_fixed 'google_compute_subnetwork.browser_readiness[0].external_ipv6_prefix' terraform/readiness.tf
 browser_readiness_allowlist="$(sed -n \
   '/browser_readiness_allowed_ips =/,/] : \[\]/p' terraform/readiness.tf)"
-[ "$(rg -c -F 'google_compute_subnetwork.browser_readiness_ipv6[0].external_ipv6_prefix' \
+[ "$(rg -c -F 'google_compute_subnetwork.browser_readiness[0].external_ipv6_prefix' \
   <<<"$browser_readiness_allowlist")" -eq 1 ] ||
   fail "the preview PPB allowlist must contain exactly the dedicated external IPv6 prefix"
 if rg -q 'google_compute_address' <<<"$browser_readiness_allowlist"; then
   fail "a browser NAT IPv4 address still grants preview PPB ingress"
 fi
-preview_ipv6_resources="$(sed -n \
-  '/^resource "google_compute_network" "browser_readiness_ipv6"/,/^resource "google_service_account" "backend_readiness"/p' \
+protected_browser_resources="$(sed -n \
+  '/^resource "google_compute_subnetwork" "browser_readiness"/,/^resource "google_service_account" "backend_readiness"/p' \
   terraform/readiness.tf)"
-forbid_pattern 'module\.scribe' /dev/stdin <<<"$preview_ipv6_resources"
-require_fixed 'ip_cidr_range = var.browser_readiness_subnet_cidr' terraform/readiness.tf
+forbid_pattern 'module\.scribe' /dev/stdin <<<"$protected_browser_resources"
+require_fixed 'ip_cidr_range            = var.browser_readiness_subnet_cidr' terraform/readiness.tf
 require_fixed 'private_ip_google_access = false' terraform/readiness.tf
-[ "$(rg -c -F 'private_ip_google_access = false' terraform/readiness.tf)" -eq 2 ] ||
-  fail "both the legacy and dual-stack browser subnets must keep explicit Private Google Access settings"
+[ "$(rg -c -F 'private_ip_google_access = false' terraform/readiness.tf)" -eq 1 ] ||
+  fail "the dedicated dual-stack browser subnet must keep Private Google Access disabled"
+require_fixed 'private_ip_google_access = true' terraform/application_network.tf
 require_fixed 'check "browser_readiness_subnet_isolated"' terraform/readiness.tf
 require_fixed 'setintersection(' terraform/readiness.tf
+for required in \
+  'direction          = "EGRESS"' \
+  'priority           = 100' \
+  'destination_ranges = [var.network_ip_cidr_range]' \
+  'target_tags        = [local.browser_readiness_network_tag]' \
+  'protocol = "all"'; do
+  require_fixed "$required" terraform/readiness.tf
+done
+browser_readiness_job="$(sed -n \
+  '/^resource "google_cloud_run_v2_job" "browser_readiness"/,/^resource "google_cloud_run_v2_job" "backend_readiness"/p' \
+  terraform/readiness.tf)"
+for required in \
+  'google_compute_firewall.browser_readiness_isolation,' \
+  'google_compute_router_nat.browser_readiness,'; do
+  require_fixed "$required" /dev/stdin <<<"$browser_readiness_job"
+done
 [ "$(rg -c -F 'subnetwork = local.readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 2 ] ||
   fail "only the backend and OCR probes may use the application subnet"
-if rg -Fq 'subnetwork = local.browser_readiness_subnetwork_resource_name' terraform/readiness.tf; then
-  fail "the browser job still attaches to the legacy browser subnet"
-fi
-[ "$(rg -c -F 'subnetwork = local.browser_readiness_ipv6_subnetwork_resource_name' terraform/readiness.tf)" -eq 1 ] ||
+[ "$(rg -c -F 'subnetwork = local.browser_readiness_subnetwork_resource_name' terraform/readiness.tf)" -eq 1 ] ||
   fail "only the browser probe may use the isolated dual-stack subnet"
 require_fixed 'power_button_allowed_ips = distinct(concat(var.allowed_ips, local.browser_readiness_allowed_ips))' terraform/main.tf
 [ "$(rg -l 'browser_readiness_allowed_ips' terraform/*.tf | wc -l)" -eq 2 ] ||

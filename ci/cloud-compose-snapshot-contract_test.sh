@@ -33,6 +33,12 @@ printf '%s\n' "$scribe_module" | grep -Eq 'production[[:space:]]*=[[:space:]]*lo
   fail "Scribe does not pass its production workspace decision to cloud-compose"
 printf '%s\n' "$scribe_module" | grep -Eq 'enabled[[:space:]]*=[[:space:]]*var\.run_snapshots' ||
   fail "Scribe does not pass the reviewed snapshot flag to cloud-compose"
+printf '%s\n' "$scribe_module" | grep -Eq 'create[[:space:]]*=[[:space:]]*false' ||
+  fail "Scribe still asks cloud-compose to create the root-owned application network"
+printf '%s\n' "$scribe_module" | grep -Eq 'name[[:space:]]*=[[:space:]]*google_compute_network\.application\.self_link' ||
+  fail "Scribe does not pass the root-owned application VPC to cloud-compose"
+printf '%s\n' "$scribe_module" | grep -Eq 'subnetwork[[:space:]]*=[[:space:]]*google_compute_subnetwork\.application\.self_link' ||
+  fail "Scribe does not pass the root-owned application subnet to cloud-compose"
 grep -Eq 'is_prod_workspace[[:space:]]*=[[:space:]]*terraform\.workspace[[:space:]]*==[[:space:]]*"prod"' terraform/main.tf ||
   fail "the production workspace predicate is not exact"
 grep -Eq 'cloud_compose_machine_type[[:space:]]*=[[:space:]]*local\.is_preview_workspace[[:space:]]*\?[[:space:]]*var\.preview_machine_type[[:space:]]*:[[:space:]]*var\.machine_type' terraform/main.tf ||
@@ -53,6 +59,26 @@ for machine_type_variables in "$module_variables" "$provider_variables" "$module
   grep -Eq '^[[:space:]]*"n2d-standard-2",[[:space:]]*$' "$machine_type_variables" ||
     fail "the initialized cloud-compose machine allowlist does not accept n2d-standard-2: ${machine_type_variables}"
 done
+
+# The browser's external /64 is a PPB input, so Scribe must own the physical
+# application VPC above the module. Guard the pinned module's reviewed
+# existing-network lookup path before a future dependency update can silently
+# recreate the VPC or broaden application ingress to the browser subnet.
+grep -Eq 'create[[:space:]]*=[[:space:]]*optional\(bool,[[:space:]]*true\)' "$provider_variables" ||
+  fail "the initialized cloud-compose provider no longer exposes existing-network mode"
+grep -Eq 'create_network[[:space:]]*=[[:space:]]*local\.gcp_network\.create' "$provider_main" ||
+  fail "cloud-compose no longer forwards existing-network mode to its GCP module"
+grep -Eq '^data "google_compute_network" "selected"' "$module_main" ||
+  fail "the initialized cloud-compose module no longer resolves a caller-owned network"
+grep -Eq '^data "google_compute_subnetwork" "selected"' "$module_main" ||
+  fail "the initialized cloud-compose module no longer resolves a caller-owned subnet"
+grep -Eq 'local\.create_network[[:space:]]*\?[[:space:]]*google_compute_network\.cloud-compose\[0\]\.self_link[[:space:]]*:' "$module_main" ||
+  fail "cloud-compose no longer selects the resolved caller-owned network self link"
+grep -Eq 'local\.create_network[[:space:]]*\?[[:space:]]*google_compute_subnetwork\.cloud-compose\[0\]\.self_link[[:space:]]*:' "$module_main" ||
+  fail "cloud-compose no longer selects the resolved caller-owned subnet self link"
+cloud_run_ingress="$(sed -n '/^resource "google_compute_firewall" "allow-cloud-run-ingress"/,/^}/p' "$module_main")"
+printf '%s\n' "$cloud_run_ingress" | grep -Fq 'source_ranges = [local.cloud_run_subnetwork_cidr]' ||
+  fail "cloud-compose no longer limits VM ingress from Cloud Run to the application subnet"
 n2d_disk_precondition="$(
   sed -n \
     '/startswith(var\.machine_type, "e2").*startswith(var\.machine_type, "n2d")/,/error_message = "E2 and N2D/p' \
