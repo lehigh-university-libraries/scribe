@@ -428,6 +428,46 @@ Optional `ALLOWED_SSH_IPV4` and `ALLOWED_SSH_IPV6` variables are JSON arrays of
 the exact administrator CIDRs permitted to reach the VM; an empty array keeps
 that address family closed.
 
+### Trusted browser smoke session
+
+Production browser readiness must not depend on an operator's Google OAuth
+session. The reviewed backend image includes `/app/scribe-browser-session` for
+a protected deploy job that already has administrator SSH access to the Cloud
+Compose VM. Run it inside the API container with one new, direct child of
+`/tmp`; the basename must start with `scribe-browser-session-` and end with
+`.json`:
+
+```bash
+docker compose exec -T api /app/scribe-browser-session \
+  --output "/tmp/scribe-browser-session-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+```
+
+The command emits no credential or success message. It verifies that reserved
+user 1 is not a system administrator or OAuth identity, owns only reserved
+personal workspace 1, and is that workspace's administrator. It then creates
+an ordinary session with a fixed five-minute lifetime and writes a
+Playwright-compatible storage-state document to a new mode-`0600` file on the
+API container's private `/tmp` tmpfs. There are no user, workspace, role, or
+lifetime override flags. Any drift in the reserved identity, an existing
+output file, a non-HTTPS public origin, or a cookie-domain mismatch fails
+closed.
+
+The protected SSH step must copy the file into a job-private mode-`0700`
+directory without printing its contents, remove the container copy
+immediately, load it directly through Playwright's `storageState` option, and
+remove the host copy as soon as the browser context is created. On successful
+readiness, POST `/logout` from that context to revoke the database session;
+abandoned sessions expire after five minutes. Never put the file contents in a
+shell command substitution, process argument, URL, GitHub output/environment
+file, log, trace, screenshot, video, or artifact.
+
+This helper deliberately relies on the existing host-administrator trust
+boundary: anyone able to execute commands in the API container can already
+reach its database and Vault bootstrap material. Do not expose the binary
+through an HTTP route or copy it into the public frontend image. Preview auth
+continues to use its isolated `AUTH_PREVIEW_ANONYMOUS` principal and does not
+need this credential.
+
 Set repository variables `SCRIBE_REGION` and `SCRIBE_ZONE` together (defaults
 `us-east5` and `us-east5-b`). The workflow passes that exact pair to the
 frontend build, Vault lookup, Terraform, and output lookup so the frontend
