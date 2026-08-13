@@ -35,7 +35,7 @@ variable "zone" {
 variable "preview_zone" {
   description = "GCP zone used only by pull-request preview workspaces, kept independent of the production zone so preview VM creation never competes with production for capacity in the same zone."
   type        = string
-  default     = "us-east5-b"
+  default     = "us-east5-a"
 
   validation {
     condition     = contains(["us-east5-a", "us-east5-b", "us-east5-c"], var.preview_zone)
