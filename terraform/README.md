@@ -299,8 +299,11 @@ dual-stack `/26` in that VPC, and its interface tag selects an egress firewall
 deny for the exact private application subnet CIDR. Only the browser subnet's
 external IPv6 `/64` enters that preview's PPB allowlist. A reserved IPv4 address
 and subnet-scoped Cloud NAT serve fixed DNS and reviewed IPv4-only fixture
-origins without widening PPB or another environment. This topology adds no
-browser-only VPC to the project's network quota.
+origins without widening PPB or another environment. A dependent subnet read is
+deferred across the one-time in-place dual-stack transition, so the saved plan
+consumes and validates the newly allocated `/64` after the update instead of
+the stale empty IPv4-only state. This topology adds no browser-only VPC to the
+project's network quota.
 
 A manual protected production `mode=plan` reuses current runtime image digests
 and does not build, publish, promote, or apply. Production destroy is not

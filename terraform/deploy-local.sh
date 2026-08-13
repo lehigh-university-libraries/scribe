@@ -499,70 +499,6 @@ bootstrap_vault_token() {
   return 1
 }
 
-bootstrap_browser_readiness_ipv6() {
-  local target_workspace="$1"
-  local action="$2"
-
-  # Scoped to preview workspaces only: prod's browser_readiness subnet
-  # already completed this transition in an earlier apply, and prod's apply
-  # sequence is covered by a strict mocked-terraform invocation-order
-  # contract (ci/vault-first-bootstrap-contract_test.sh) that a prod-scoped
-  # extra targeted apply here would need to be taught about.
-  case "$target_workspace" in
-    pr-*) ;;
-    *) return 0 ;;
-  esac
-
-  if [ "$action" != "apply" ] \
-    && { [ "$action" != "plan" ] || [ "${TF_APPLY_PENDING:-}" != "true" ]; }; then
-    return 0
-  fi
-
-  if [ -n "$target_set" ]; then
-    return 0
-  fi
-
-  # The Google provider does not mark external_ipv6_prefix as pending
-  # recomputation when stack_type/ipv6_access_type change in place, so the
-  # postcondition guarding it in readiness.tf evaluates against stale
-  # (pre-transition) state during planning itself -- on every Terraform
-  # invocation, targeted or not, plan or apply, since Terraform always halts
-  # on a failing plan-time postcondition before ever calling the provider's
-  # real update. There is no way to reach a genuine post-apply read through
-  # Terraform alone on an environment's first IPV4_ONLY -> IPV4_IPV6
-  # transition. Instead, read the subnet's existing recorded name straight
-  # from state (a plain state read; no plan, no provider call, no
-  # postcondition) and, only when it still needs the transition, apply it
-  # directly via gcloud so real infrastructure is already migrated by the
-  # time Terraform's own plan runs and refreshes. A no-op once the subnet has
-  # already transitioned, and a no-op when the subnet doesn't exist in state
-  # yet (a brand-new resource is created with the right stack_type/
-  # ipv6_access_type from the start; only the in-place update path hits this
-  # provider gap). TF_APPLY_PENDING scopes this to plan calls CI knows are
-  # immediately followed by a real apply, so a standalone review-only plan
-  # never mutates infrastructure.
-  local subnet_state existing_name existing_stack_type region
-
-  subnet_state="$(terraform show -json 2>/dev/null | jq -r '
-    .values.root_module.resources[]? |
-    select(.address == "google_compute_subnetwork.browser_readiness[0]") |
-    [.values.name, .values.stack_type] | @tsv
-  ')"
-  [ -n "$subnet_state" ] || return 0
-
-  existing_name="$(cut -f1 <<<"$subnet_state")"
-  existing_stack_type="$(cut -f2 <<<"$subnet_state")"
-  [ "$existing_stack_type" != "IPV4_IPV6" ] || return 0
-
-  region="$(resolve_terraform_region)"
-  echo "Transitioning ${existing_name} to dual-stack external IPv6 directly via gcloud before Terraform plans it..." >&2
-  gcloud compute networks subnets update "$existing_name" \
-    --project="$GCLOUD_PROJECT" \
-    --region="$region" \
-    --stack-type=IPV4_IPV6 \
-    --ipv6-access-type=EXTERNAL
-}
-
 vault_token_ready_once() {
   local vault_addr="$1"
   local access_token="$2"
@@ -1083,10 +1019,6 @@ fi
 
 if [ "$action" != "destroy" ]; then
   terraform validate
-fi
-
-if [ "$action" = "plan" ] || [ "$action" = "apply" ]; then
-  bootstrap_browser_readiness_ipv6 "$target_workspace" "$action"
 fi
 
 case "$action" in

@@ -533,19 +533,48 @@ for required in \
   'tags       = [local.browser_readiness_network_tag]'; do
   require_fixed "$required" terraform/readiness.tf
 done
-require_fixed 'google_compute_subnetwork.browser_readiness[0].external_ipv6_prefix' terraform/readiness.tf
+require_fixed 'data.google_compute_subnetwork.browser_readiness[0].external_ipv6_prefix' terraform/readiness.tf
 browser_readiness_allowlist="$(sed -n \
   '/browser_readiness_allowed_ips =/,/] : \[\]/p' terraform/readiness.tf)"
-[ "$(rg -c -F 'google_compute_subnetwork.browser_readiness[0].external_ipv6_prefix' \
+[ "$(rg -c -F 'data.google_compute_subnetwork.browser_readiness[0].external_ipv6_prefix' \
   <<<"$browser_readiness_allowlist")" -eq 1 ] ||
   fail "the preview PPB allowlist must contain exactly the dedicated external IPv6 prefix"
 if rg -q 'google_compute_address' <<<"$browser_readiness_allowlist"; then
   fail "a browser NAT IPv4 address still grants preview PPB ingress"
 fi
+if rg -q 'try\(' <<<"$browser_readiness_allowlist"; then
+  fail "the preview PPB allowlist must not fall back around the verified external IPv6 prefix"
+fi
 protected_browser_resources="$(sed -n \
   '/^resource "google_compute_subnetwork" "browser_readiness"/,/^resource "google_service_account" "backend_readiness"/p' \
   terraform/readiness.tf)"
 forbid_pattern 'module\.scribe' /dev/stdin <<<"$protected_browser_resources"
+browser_readiness_prefix_read="$(sed -n \
+  '/^data "google_compute_subnetwork" "browser_readiness"/,/^}/p' \
+  terraform/readiness.tf)"
+for required in \
+  'count = local.browser_readiness_enabled ? 1 : 0' \
+  'project = var.project_id' \
+  'region  = var.region' \
+  'name    = google_compute_subnetwork.browser_readiness[0].name' \
+  'depends_on = [google_compute_subnetwork.browser_readiness]' \
+  'self.stack_type == "IPV4_IPV6"' \
+  'self.ipv6_access_type == "EXTERNAL"' \
+  'can(cidrhost(self.external_ipv6_prefix, 0))' \
+  'strcontains(self.external_ipv6_prefix, ":")' \
+  'endswith(self.external_ipv6_prefix, "/64")'; do
+  require_fixed "$required" /dev/stdin <<<"$browser_readiness_prefix_read"
+done
+managed_browser_subnet="$(sed -n \
+  '/^resource "google_compute_subnetwork" "browser_readiness"/,/^}/p' \
+  terraform/readiness.tf)"
+if rg -q 'postcondition' <<<"$managed_browser_subnet"; then
+  fail "the external IPv6 proof must use a deferred post-apply subnet read rather than stale planned state"
+fi
+forbid_pattern 'bootstrap_browser_readiness_ipv6' terraform/deploy-local.sh
+forbid_pattern 'gcloud[[:space:]]+compute[[:space:]]+networks[[:space:]]+subnets[[:space:]]+update' terraform/deploy-local.sh
+forbid_pattern 'TF_APPLY_PENDING' terraform/deploy-local.sh
+forbid_pattern 'TF_APPLY_PENDING' .github/workflows/terraform-deploy.yaml
 require_fixed 'ip_cidr_range            = var.browser_readiness_subnet_cidr' terraform/readiness.tf
 require_fixed 'private_ip_google_access = false' terraform/readiness.tf
 [ "$(rg -c -F 'private_ip_google_access = false' terraform/readiness.tf)" -eq 1 ] ||

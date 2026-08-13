@@ -31,7 +31,7 @@ locals {
   browser_readiness_account_id    = "${trimsuffix(substr("probe-browser-${local.workspace_slug}", 0, 21), "-")}-${local.browser_readiness_name_hash}"
   browser_readiness_network_tag   = "${local.browser_readiness_job_name}-isolated"
   browser_readiness_allowed_ips = local.browser_readiness_enabled ? [
-    google_compute_subnetwork.browser_readiness[0].external_ipv6_prefix,
+    data.google_compute_subnetwork.browser_readiness[0].external_ipv6_prefix,
   ] : []
 }
 
@@ -62,10 +62,27 @@ resource "google_compute_subnetwork" "browser_readiness" {
   stack_type               = "IPV4_IPV6"
   ipv6_access_type         = "EXTERNAL"
   private_ip_google_access = false
+}
+
+# The Google provider preserves the prior empty computed prefix while planning
+# an in-place IPV4_ONLY -> IPV4_IPV6 transition. An explicit dependent read is
+# therefore deferred until apply whenever the subnet changes. Consumers receive
+# an unknown value in the saved plan, then the freshly allocated prefix after
+# the update; the postcondition remains strict on both fresh and stable runs.
+data "google_compute_subnetwork" "browser_readiness" {
+  count = local.browser_readiness_enabled ? 1 : 0
+
+  project = var.project_id
+  region  = var.region
+  name    = google_compute_subnetwork.browser_readiness[0].name
+
+  depends_on = [google_compute_subnetwork.browser_readiness]
 
   lifecycle {
     postcondition {
       condition = (
+        self.stack_type == "IPV4_IPV6" &&
+        self.ipv6_access_type == "EXTERNAL" &&
         can(cidrhost(self.external_ipv6_prefix, 0)) &&
         strcontains(self.external_ipv6_prefix, ":") &&
         endswith(self.external_ipv6_prefix, "/64")
