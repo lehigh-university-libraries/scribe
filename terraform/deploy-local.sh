@@ -124,6 +124,28 @@ resolve_terraform_zone() {
   printf 'us-east5-b\n'
 }
 
+apply_preview_terraform_with_capacity_retry() {
+  local max_attempts=3
+  local retry_delay_seconds=30
+  local attempt=1
+  local tmp_log
+  tmp_log="$(mktemp)"
+  while true; do
+    if terraform apply -auto-approve "$@" 2>&1 | tee "$tmp_log"; then
+      rm -f "$tmp_log"
+      return 0
+    fi
+    local status=${PIPESTATUS[0]}
+    if [ "$attempt" -ge "$max_attempts" ] || ! grep -q "does not have enough resources available" "$tmp_log"; then
+      rm -f "$tmp_log"
+      return "$status"
+    fi
+    echo "Preview zone is temporarily out of GCP capacity (attempt ${attempt}/${max_attempts}); retrying in ${retry_delay_seconds}s..." >&2
+    attempt=$((attempt + 1))
+    sleep "$retry_delay_seconds"
+  done
+}
+
 build_frontend_gar_image() {
   local image_ref="$1"
   local zone backend_origin
@@ -1114,7 +1136,7 @@ case "$action" in
       rm -f "$apply_plan_path" "$apply_plan_json"
       trap - EXIT
     else
-      terraform apply -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"
+      apply_preview_terraform_with_capacity_retry "${terraform_vars[@]}" "${terraform_targets[@]}"
     fi
     ;;
   refresh)
