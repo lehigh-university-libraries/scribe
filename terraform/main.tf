@@ -28,6 +28,7 @@ locals {
   is_prod_workspace          = terraform.workspace == "prod"
   is_preview_workspace       = startswith(terraform.workspace, "pr-")
   cloud_compose_machine_type = local.is_preview_workspace ? var.preview_machine_type : var.machine_type
+  cloud_compose_zone         = local.is_preview_workspace ? var.preview_zone : var.zone
   cloud_compose_disk_type    = local.is_preview_workspace ? "pd-standard" : "hyperdisk-balanced"
   foundation_state_prefix    = "scribe-foundation"
   shared_vault_workspace     = local.is_prod_workspace ? "prod" : "dev"
@@ -804,7 +805,7 @@ module "scribe" {
     project_id     = var.project_id
     project_number = local.project_number
     region         = var.region
-    zone           = var.zone
+    zone           = local.cloud_compose_zone
 
     identity = {
       # cloud-compose 1.8.1 mints and rotates the scribe app SA key into
