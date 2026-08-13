@@ -129,8 +129,8 @@ apply_preview_terraform_with_capacity_retry() {
   # before this apply ever runs) is a static http://host.<zone>.c.<project>
   # URL derived from SCRIBE_PREVIEW_ZONE; retrying into a different zone here
   # would leave that URL pointing at the wrong zone and the VM unreachable.
-  local max_attempts=3
-  local retry_delay_seconds=30
+  local max_attempts=6
+  local retry_delay_seconds=60
   local attempt=1
   local tmp_log
   tmp_log="$(mktemp)"
