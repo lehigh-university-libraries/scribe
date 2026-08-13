@@ -125,13 +125,19 @@ resolve_terraform_zone() {
 }
 
 apply_preview_terraform_with_capacity_retry() {
-  local max_attempts=3
+  # Reviewed preview_zone allowlist from terraform/variables.tf. A single
+  # zone can run out of capacity for whole minutes at a time, so cycle
+  # through all of them on retry instead of repeatedly hammering the same
+  # exhausted one.
+  local zone_candidates=(us-east5-a us-east5-b us-east5-c)
   local retry_delay_seconds=30
   local attempt=1
-  local tmp_log
+  local max_attempts="${#zone_candidates[@]}"
+  local tmp_log zone_for_attempt
   tmp_log="$(mktemp)"
   while true; do
-    if terraform apply -auto-approve "$@" 2>&1 | tee "$tmp_log"; then
+    zone_for_attempt="${zone_candidates[$(((attempt - 1) % ${#zone_candidates[@]}))]}"
+    if terraform apply -auto-approve "$@" "-var=preview_zone=${zone_for_attempt}" 2>&1 | tee "$tmp_log"; then
       rm -f "$tmp_log"
       return 0
     fi
@@ -140,7 +146,7 @@ apply_preview_terraform_with_capacity_retry() {
       rm -f "$tmp_log"
       return "$status"
     fi
-    echo "Preview zone is temporarily out of GCP capacity (attempt ${attempt}/${max_attempts}); retrying in ${retry_delay_seconds}s..." >&2
+    echo "Preview zone ${zone_for_attempt} is temporarily out of GCP capacity (attempt ${attempt}/${max_attempts}); retrying in the next reviewed zone in ${retry_delay_seconds}s..." >&2
     attempt=$((attempt + 1))
     sleep "$retry_delay_seconds"
   done
