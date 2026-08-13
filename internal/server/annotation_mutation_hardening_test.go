@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
+	"github.com/lehigh-university-libraries/scribe/internal/config"
 	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -251,6 +252,12 @@ func TestExternalCanvasResolutionDuringEnrichmentIsTenantScoped(t *testing.T) {
 }
 
 func TestLocalAnnotationCRUDSavedAsWholePagesPreservesCanonicalProperties(t *testing.T) {
+	previous := config.Get()
+	configured := previous
+	configured.Config.LLM.Ollama.Models = []string{"test-model"}
+	config.Init(configured)
+	t.Cleanup(func() { config.Init(previous) })
+
 	database := openTestDB(t)
 	ctx := context.Background()
 	canvasURI := "https://source.example/canvas/" + uuid.NewString()

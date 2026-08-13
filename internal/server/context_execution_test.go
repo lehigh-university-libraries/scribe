@@ -70,7 +70,7 @@ func (*contextExecutionOCR) StoreUploadedImage(context.Context, string, []byte) 
 }
 
 func (o *contextExecutionOCR) TranscribeImageFileWithContext(ctx context.Context, imagePath, provider, model string) (string, error) {
-	return o.Service.TranscribeImageWithContext(ctx, imagePath, provider, model)
+	return o.TranscribeImageWithContext(ctx, imagePath, provider, model)
 }
 
 func TestNormalizeContextForExecutionDropsOnlyLegacyGemini3Temperature(t *testing.T) {
@@ -160,7 +160,7 @@ func TestForegroundAndBackgroundExecutePersistedGemini3ContextWithModelDefaultSa
 
 	canvasURI := "https://source.example/canvas/" + uniqueName("legacy-gemini-enrichment")
 	itemImage := createServerTestItemImage(t, database, workspaceID, userID, canvasURI)
-	pageID, err := iiif.CanonicalPageID(configured.Config.PublicBaseURL, itemImage.ID)
+	pageID, err := iiif.CanonicalPageID(configured.Config.Annotation.TripletPresentationBase, itemImage.ID)
 	if err != nil {
 		t.Fatalf("canonical page id: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestForegroundAndBackgroundExecutePersistedGemini3ContextWithModelDefaultSa
 		models.BBox{X1: 0, Y1: 0, X2: 50, Y2: 20},
 	)
 	pageJSON, err := iiif.NewAnnotationPage(iiif.PageIdentity{
-		PublicBaseURL: configured.Config.PublicBaseURL,
+		PublicBaseURL: configured.Config.Annotation.TripletPresentationBase,
 		ItemImageID:   itemImage.ID,
 		CanvasURI:     canvasURI,
 	}, []any{annotation})
