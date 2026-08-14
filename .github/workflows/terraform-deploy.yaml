@@ -530,6 +530,11 @@ jobs:
         shell: bash
         env:
           DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
+          # A real apply immediately follows this preliminary plan in the same
+          # job whenever mode == 'apply', so it's safe for the browser
+          # readiness IPv6 bootstrap to run here too. A standalone mode ==
+          # 'plan' review never sets this and stays a pure dry run.
+          TF_APPLY_PENDING: ${{ inputs.mode == 'apply' }}
         run: |
           ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-plan.log" make tf-prod BRANCH="$DEPLOY_BRANCH" ACTION=plan
 
@@ -540,6 +545,7 @@ jobs:
         env:
           DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
           PR_NUMBER: ${{ inputs.pr_number }}
+          TF_APPLY_PENDING: ${{ inputs.mode == 'apply' }}
         run: |
           ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-plan.log" make tf-preview PR="$PR_NUMBER" BRANCH="$DEPLOY_BRANCH" ACTION=plan
 
