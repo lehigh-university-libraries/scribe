@@ -1,35 +1,135 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readFile, unlink } from "node:fs/promises";
 import { chromium } from "@playwright/test";
 
+import {
+  productionSessionUserIsNonAdmin,
+  protoJSONRepeatedField,
+} from "./deployed-readiness-protojson.mjs";
+import { waitForActionByValue } from "./deployed-readiness-dom.mjs";
+import { exactStructuralSnapshot } from "./deployed-readiness-structure.mjs";
+import {
+  classifyDurableUploadFailure,
+  classifyRetryableUploadResponse,
+  classifyUploadFailure,
+  cleanupCommitHorizonMs,
+  remainingUploadSequenceTimeoutMs,
+  uploadDurableFailureMarker,
+  uploadFailureMarker,
+  uploadRequestTimeoutMs,
+  uploadRetryableResponseMarker,
+} from "./deployed-readiness-budget.mjs";
 import { configureCanonicalIPv6Routing } from "./deployed-readiness-routing.mjs";
 
 const scriptStartedAt = Date.now();
 const readinessSmokeFixtureBase64 = "iVBORw0KGgoAAAANSUhEUgAAAoAAAACgAQAAAAC0heCRAAAEJElEQVRo3u3ZTW7jNhQH8CdwMMyiCGeZRWBO0QtkmUVhoTdJb+DuvDAsqVpkOVeiposeoyx6gHJJoILY/yNpx2oKS2mnm4IGDMRO9LOp90E8hsIXflABC1jAAhawgAUs4P8abJtQTaT9lrSjOowyTGLkH6jGa1d7Cu6grCdt9SiWwYmUpyNJgJJBh+tpJAVQ4bXVkDLYCkfNIhiv25IAKBi01Fg6kMQvZAaVO0gGSdh1oL0EDdXmAjQA5ZtArz+Z41YBVL3Dn3dOt+NhA3Aj8doovxXuIKyvJ/mbGVeAdWjDpHqAHYPC6yqMWvIzgXWVQRWGFVEG2GUwfkMxKnEB/giwc4fqDaAO/SUoJyUvwF76esigDGYNWEUwB6XJYL6H1DBo3OEDgrKlxqhlEPkrkIych8ifZpLTLUc452EjX8Aa+VAtg0hsEbM7JvYZ1PxksI/g3RPAdYkd2gjqvOQTmEtvBlqU5ArQyz4tOaVNuod5yQ1Hi8H7j8iGqQqmXgYnBm8ZHF7Ae8VPgFTFKN8TQOSXWwEG2aUoJzDl4alSRgaRh5sIDpy1S+AfQZ4qZXhdKSNRrBQGpzD8sgL0R8m13J3uYaplzdUiEsi1rBnU3U8rluxjt1EDoly9dBvdA+wdPWobuw1A2pAwa7pN7IfKzPuh7gB2AGu7536o2zeA6HhHdORZx9YDwIFBt+eOnUBpXsf0b97hPUXZ/WlPEbynaAPQOHpgEHuKNvhgNNsVe8q/fRSwgAUsYAELWMACFrCABfwvwQGzAyZ/HudrTGWTCG0QmNUqDJ6Y7PIBUDDC4G0b/BYzEAbV6yDmCAZlwHQhMDj3DGI6vgTJrgW96gFWPEZFEENyPwF0GZQZfDrKCIoF0AL0CcQaaRQY7LpJvQZ3W7UerAImTtVG0G3FgFk32GMC+QAIC3H7bxOISVeHdaBpAu2FbcQwMhjCDHy80+tA96l330HaKpvBzmCuPYNVBg83dQRpAXS7Z+meIojhm3bChsFGsJmDR3oT+O4RYB3ePfQM+roVViYwHgAhKEfMrAze7A6kr4E/PEtrL0DDAYgnPjOw4utWgd//LK1r3t9F8H11Bk+JHQ+A8A1P4FcPC+DXn9UrcNe0qJg52HTrQA9wcI28SaDge+gfmh5X6wjGEyV8SJ3B2w/Xg+K/+awM1ZJilOUF6DOYDoD8GaQFUFjVAmxjHjLYdP5jADgmcPMXUC2DuiXNICpFPgNEfwD4+z8ExwyaWMsAUcsR/DUvWdP8Hqp2GRQjg9xtZOjRbcYqtJWNsU0nStxtIsgF1V7vNqN0Wo5K2tgPAaIfTjOwTWBzAs0KcIqgjCA6dgabGRhWgpN0WwZd3FMA8v8usLFUWHcCTdpTzqC9Dn6BRwELWMACFrCABSxgAQtYwAIWsIAFLCAefwL3udqwYaAJQwAAAABJRU5ErkJggg==";
 const readinessSmokeFixtureSHA256 = "e3f3bb2b5ade3c15af262a76ad58b720e7eb3b3d079802df04f1dd50be917b2d";
 const stageTimeoutMs = 180_000;
-// Upload segmentation may consume the application's full 240-second
-// scale-to-zero inference budget plus the backend's commit tail.
-const uploadTimeoutMs = 300_000;
+// Direct VPC egress can need more than one minute to establish a first
+// connection. Keep the initial PPB readiness allowance bounded while leaving
+// the rest of the scenario fail closed.
+const initialIngressWarmupBudgetMs = 300_000;
+const initialIngressAttemptTimeoutMs = 10_000;
+const initialIngressRetryIntervalMs = 2_000;
 const transcriptionTimeoutMs = 360_000;
 const wandVisualProofGraceMs = 5_000;
-const mainScenarioBudgetMs = 1_800_000;
-const cleanupReserveMs = 600_000;
-const cleanupPlatformHeadroomMs = 120_000;
+const browserTaskBudgetMs = 2_400_000;
+const mainScenarioBudgetMs = 1_620_000;
+const cleanupReserveMs = 780_000;
+const sessionRevocationBudgetMs = 180_000;
+const browserCloseBudgetMs = 30_000;
+const cleanupPlatformHeadroomMs = 90_000;
 const mainScenarioDeadline = scriptStartedAt + mainScenarioBudgetMs;
-// The managed task is capped at 2,400 seconds. Stop reconciliation at
-// start+2,280 seconds so process shutdown retains two minutes of headroom.
-const globalCleanupDeadline = mainScenarioDeadline + cleanupReserveMs - cleanupPlatformHeadroomMs;
-const cleanupCommitHorizonMs = uploadTimeoutMs;
+// The managed task is capped at 2,400 seconds. Reconciliation stops early
+// enough to retain the full logout budget, a bounded browser close, and final
+// platform shutdown headroom inside that absolute cap.
+const browserTaskDeadline = scriptStartedAt + browserTaskBudgetMs;
+const browserShutdownDeadline = browserTaskDeadline - cleanupPlatformHeadroomMs;
+const sessionRevocationDeadline = browserShutdownDeadline - browserCloseBudgetMs;
+const globalCleanupDeadline = sessionRevocationDeadline - sessionRevocationBudgetMs;
 const cleanupPollIntervalMs = 5_000;
 const cleanupStablePasses = 2;
 const cleanupRecoveryTailMs = stageTimeoutMs;
 const cleanupMaxItemPages = 100;
 const cleanupMaxItems = 10_000;
+const productionJanitorWorkspaceID = "1";
+const productionJanitorMaxItemPages = 10;
+const productionJanitorMaxItems = 1_000;
+const productionJanitorMaxItemVerifications = 100;
+const productionJanitorMaxAPIKeys = 1_000;
+const productionJanitorMaxDeletes = 100;
 const maxObservedImageResponses = 100;
 const maxReadinessImageBytes = 64 * 1024 * 1024;
 const manifestURL = "https://preserve.lehigh.edu/node/38817/book-manifest";
+const productionStorageStatePath = "/tmp/scribe-browser-session-state.json";
 const centeredLineAccessibleName = "Add a line at the viewport center and focus its keyboard resize handle";
 const deterministicLineText = "browser readiness alpha beta gamma";
+const deterministicWordTexts = Object.freeze([...deterministicLineText.split(" "), "epsilon"]);
+const deterministicJoinedLineText = deterministicWordTexts.join(" ");
+const readinessUploadNamePattern = /^browser-readiness-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.png$/;
+const readinessAPIKeyNamePattern = /^browser-readiness-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const readinessManifestReferencePattern = /^browser-readiness-manifest-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const presentationAnnotationPathPattern = /^\/presentation\/v3\/item-image-[1-9][0-9]*\/canvas\/page-1\/annotations(?:\/.*)?$/;
+const maxManifestImportRequestBytes = 65_536;
+// Cloud Logging can be temporarily unavailable to the protected deploy
+// runner even though the Cloud Run task status is readable. Keep every
+// allowlisted failure category recoverable from the task's bounded exit code
+// without persisting raw browser output.
+const readinessFailureExitCodes = new Map([
+  ["home", 21],
+  ["context", 22],
+  ["upload", 23],
+  ["handoff", 24],
+  ["transcription", 25],
+  ["annotations", 26],
+  ["editor", 27],
+  ["overlay", 28],
+  ["retranscribe", 29],
+  ["structure", 30],
+  ["save", 31],
+  ["publish", 32],
+  ["responsive", 33],
+  ["token", 34],
+  ["manifest", 35],
+  ["cleanup", 36],
+  ["network", 37],
+  ["csp", 38],
+  ["rate", 39],
+  ["network-document-client", 40],
+  ["network-document-server", 41],
+  ["network-auth-client", 42],
+  ["network-auth-server", 43],
+  ["network-workspace-client", 44],
+  ["network-workspace-server", 45],
+  ["network-item-client", 46],
+  ["network-item-server", 47],
+  ["network-context-client", 48],
+  ["network-context-server", 49],
+  ["network-annotation-client", 50],
+  ["network-annotation-server", 51],
+  ["network-processing-client", 52],
+  ["network-processing-server", 53],
+  ["network-transcription-client", 54],
+  ["network-transcription-server", 55],
+  ["network-events-client", 56],
+  ["network-events-server", 57],
+  ["network-presentation-client", 58],
+  ["network-presentation-server", 59],
+  ["network-iiif-client", 60],
+  ["network-iiif-server", 61],
+  ["network-asset-client", 62],
+  ["network-asset-server", 63],
+  ["network-other-client", 64],
+  ["network-other-server", 65],
+  ["network-document-transport", 66],
+  ["network-api-transport", 67],
+  ["network-events-transport", 68],
+  ["network-image-transport", 69],
+  ["network-asset-transport", 70],
+  ["network-other-transport", 71],
+  ["initial-ingress-forbidden", 72],
+  ["initial-ingress-not-found", 73],
+]);
 
 function bottomPaneHeightForViewport({ height, width }) {
   const viewportHeight = Number.isFinite(height) ? Math.max(0, Math.floor(height)) : 0;
@@ -43,7 +143,14 @@ function bottomPaneHeightForViewport({ height, width }) {
   );
 }
 
-function previewBaseURL() {
+function configuredBrowserMode() {
+  const mode = String(process.env.SCRIBE_BROWSER_MODE ?? "").trim();
+  if (mode === "" || mode === "preview") return "preview";
+  if (mode === "production") return "production";
+  return undefined;
+}
+
+function configuredBaseURL(mode) {
   const raw = process.env.SCRIBE_BROWSER_BASE_URL ?? "";
   let parsed;
   try {
@@ -58,20 +165,267 @@ function previewBaseURL() {
     || parsed.pathname !== "/"
     || parsed.search !== ""
     || parsed.hash !== ""
-    || !/^scribe-pr-[1-9][0-9]*-[0-9]+\.[a-z]+-[a-z]+[0-9]+\.run\.app$/.test(parsed.hostname)
+    || (mode === "preview" && !/^scribe-pr-[1-9][0-9]*-[0-9]+\.[a-z]+-[a-z]+[0-9]+\.run\.app$/.test(parsed.hostname))
+    || (mode === "production" && !/^scribe-[1-9][0-9]*\.[a-z]+-[a-z]+[0-9]+\.run\.app$/.test(parsed.hostname))
   ) {
     return undefined;
   }
   return parsed;
 }
 
+function isTargetHTTPSURL(candidate, target) {
+  return candidate.protocol === "https:" && candidate.origin === target.origin;
+}
+
+const networkServiceFamilies = new Map([
+  ["AuthService", "auth"],
+  ["WorkspaceService", "workspace"],
+  ["ItemService", "item"],
+  ["ContextService", "context"],
+  ["AnnotationService", "annotation"],
+  ["ImageProcessingService", "processing"],
+  ["TranscriptionService", "transcription"],
+]);
+
+function networkPathFamily(pathname, resourceType) {
+  if (resourceType === "document") return "document";
+  if (pathname === "/v1/events") return "events";
+  const connectService = /^\/scribe\.v1\.([A-Za-z]+Service)\//.exec(pathname)?.[1];
+  const serviceFamily = networkServiceFamilies.get(connectService);
+  if (serviceFamily) return serviceFamily;
+  if (pathname === "/presentation" || pathname.startsWith("/presentation/")) {
+    return "presentation";
+  }
+  if (pathname === "/iiif" || pathname.startsWith("/iiif/")) return "iiif";
+  if (
+    pathname === "/static/uploads"
+    || pathname.startsWith("/static/uploads/")
+    || pathname === "/assets"
+    || pathname.startsWith("/assets/")
+    || ["font", "image", "media", "script", "stylesheet"].includes(resourceType)
+  ) {
+    return "asset";
+  }
+  return "other";
+}
+
+function responseNetworkFaultCategory(responseURL, response, target) {
+  const status = response.status();
+  if (!isTargetHTTPSURL(responseURL, target) || status < 400) return undefined;
+  const family = networkPathFamily(
+    responseURL.pathname,
+    response.request().resourceType(),
+  );
+  const statusClass = status < 500 ? "client" : "server";
+  return `network-${family}-${statusClass}`;
+}
+
+function rateLimitFamily(responseURL, resourceType, target) {
+  if (!isTargetHTTPSURL(responseURL, target)) return undefined;
+  return networkPathFamily(responseURL.pathname, resourceType);
+}
+
+function requestNetworkFaultCategory(requestURL, request, target) {
+  if (!isTargetHTTPSURL(requestURL, target)) return undefined;
+  const family = networkPathFamily(requestURL.pathname, request.resourceType());
+  if (family === "document") return "network-document-transport";
+  if (family === "events") return "network-events-transport";
+  if (family === "presentation" || family === "iiif") return "network-image-transport";
+  if (family === "asset") return "network-asset-transport";
+  if (networkServiceFamilies.has(/^\/scribe\.v1\.([A-Za-z]+Service)\//.exec(requestURL.pathname)?.[1])) {
+    return "network-api-transport";
+  }
+  return "network-other-transport";
+}
+
+function initialIngressResponseIsRetryable(responseURL, status, target) {
+  return isTargetHTTPSURL(responseURL, target)
+    && responseURL.pathname === "/"
+    && responseURL.search === ""
+    && responseURL.hash === ""
+    && (status === 403 || status === 404);
+}
+
+function assertInitialIngressRetryClassifier() {
+  const target = new URL("https://readiness.invalid/");
+  if (
+    !initialIngressResponseIsRetryable(new URL("/", target), 403, target)
+    || !initialIngressResponseIsRetryable(new URL("/", target), 404, target)
+    || [400, 401, 429, 500].some((status) => (
+      initialIngressResponseIsRetryable(new URL("/", target), status, target)
+    ))
+    || initialIngressResponseIsRetryable(new URL("/editor", target), 403, target)
+    || initialIngressResponseIsRetryable(new URL("/?retry=1", target), 403, target)
+    || initialIngressResponseIsRetryable(new URL("/#retry", target), 403, target)
+    || initialIngressResponseIsRetryable(new URL("https://other.invalid/"), 403, target)
+  ) {
+    throw new Error("initial ingress retry classifier failed");
+  }
+}
+
+function assertNetworkFaultClassifiers() {
+  const target = new URL("https://readiness.invalid/");
+  const response = (path, status, resourceType = "fetch") => responseNetworkFaultCategory(
+    new URL(path, target),
+    {
+      status: () => status,
+      request: () => ({ resourceType: () => resourceType }),
+    },
+    target,
+  );
+  const request = (path, resourceType = "fetch") => requestNetworkFaultCategory(
+    new URL(path, target),
+    { resourceType: () => resourceType },
+    target,
+  );
+  const responseCases = [
+    ["/", "document", "document"],
+    ["/scribe.v1.AuthService/GetAuthMe", "fetch", "auth"],
+    ["/scribe.v1.WorkspaceService/ListWorkspaces", "fetch", "workspace"],
+    ["/scribe.v1.ItemService/ListItems", "fetch", "item"],
+    ["/scribe.v1.ContextService/ListContexts", "fetch", "context"],
+    ["/scribe.v1.AnnotationService/GetAnnotationPage", "fetch", "annotation"],
+    ["/scribe.v1.ImageProcessingService/GetOCRRun", "fetch", "processing"],
+    ["/scribe.v1.TranscriptionService/GetTranscriptionJob", "fetch", "transcription"],
+    ["/v1/events", "eventsource", "events"],
+    ["/presentation/v3/item-image-1", "fetch", "presentation"],
+    ["/iiif/3/image/info.json", "image", "iiif"],
+    ["/assets/app.js", "script", "asset"],
+    ["/healthz", "fetch", "other"],
+  ];
+  if (
+    responseCases.some(([path, resourceType, family]) => (
+      response(path, 404, resourceType) !== `network-${family}-client`
+      || response(path, 503, resourceType) !== `network-${family}-server`
+    ))
+    || response("/healthz", 200) !== undefined
+    || responseNetworkFaultCategory(
+      new URL("https://other.invalid/healthz"),
+      { status: () => 500, request: () => ({ resourceType: () => "fetch" }) },
+      target,
+    ) !== undefined
+    || responseNetworkFaultCategory(
+      new URL("blob:https://readiness.invalid/private-manifest"),
+      { status: () => 500, request: () => ({ resourceType: () => "fetch" }) },
+      target,
+    ) !== undefined
+    || responseCases.some(([path, resourceType, family]) => (
+      rateLimitFamily(new URL(path, target), resourceType, target) !== family
+    ))
+    || rateLimitFamily(new URL("https://other.invalid/v1/events"), "eventsource", target) !== undefined
+    || request("/", "document") !== "network-document-transport"
+    || request("/scribe.v1.ItemService/ListItems") !== "network-api-transport"
+    || request("/v1/events") !== "network-events-transport"
+    || request("/iiif/3/image/info.json", "image") !== "network-image-transport"
+    || request("/assets/app.js", "script") !== "network-asset-transport"
+    || request("/healthz") !== "network-other-transport"
+    || requestNetworkFaultCategory(
+      new URL("https://other.invalid/healthz"),
+      { resourceType: () => "fetch" },
+      target,
+    ) !== undefined
+    || requestNetworkFaultCategory(
+      new URL("blob:https://readiness.invalid/private-manifest"),
+      { resourceType: () => "fetch" },
+      target,
+    ) !== undefined
+  ) {
+    throw new Error("network fault classifier failed");
+  }
+}
+
+function assertTargetHTTPSURLClassifier() {
+  const target = new URL("https://readiness.invalid/");
+  if (
+    !isTargetHTTPSURL(new URL("https://readiness.invalid/healthz"), target)
+    || isTargetHTTPSURL(new URL("https://other.invalid/healthz"), target)
+    || isTargetHTTPSURL(new URL("blob:https://readiness.invalid/private-manifest"), target)
+  ) {
+    throw new Error("target HTTPS URL classifier failed");
+  }
+}
+
+assertTargetHTTPSURLClassifier();
+assertNetworkFaultClassifiers();
+assertInitialIngressRetryClassifier();
+
+async function consumeProductionStorageState(targetURL) {
+  const expectedVersion = String(process.env.SCRIBE_BROWSER_EXPECTED_SECRET_VERSION ?? "").trim();
+  const expectedDigest = String(process.env.SCRIBE_BROWSER_EXPECTED_STORAGE_STATE_SHA256 ?? "").trim();
+  if (!/^([2-9]|[1-9][0-9]{1,19})$/.test(expectedVersion) || !/^[0-9a-f]{64}$/.test(expectedDigest)) {
+    throw new Error("invalid production browser session metadata");
+  }
+
+  let encoded;
+  try {
+    encoded = await readFile(productionStorageStatePath);
+  } finally {
+    try {
+      await unlink(productionStorageStatePath);
+      productionStorageStateRemoved = true;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      productionStorageStateRemoved = true;
+    }
+  }
+  if (encoded.length === 0 || encoded.length > 65_536) {
+    throw new Error("production browser session payload failed its digest contract");
+  }
+  const digestMatches = createHash("sha256").update(encoded).digest("hex") === expectedDigest;
+
+  let state;
+  try {
+    state = JSON.parse(encoded.toString("utf8"));
+  } catch {
+    throw new Error("production browser session payload was not JSON");
+  }
+  const stateKeys = state && typeof state === "object" ? Object.keys(state).sort() : [];
+  const cookie = Array.isArray(state?.cookies) && state.cookies.length === 1
+    ? state.cookies[0]
+    : undefined;
+  const cookieKeys = cookie && typeof cookie === "object" ? Object.keys(cookie).sort() : [];
+  const minimumRequiredExpiry = scriptStartedAt
+    + mainScenarioBudgetMs
+    + cleanupReserveMs
+    + 60_000;
+  if (
+    stateKeys.join(",") !== "cookies,origins"
+    || !Array.isArray(state.origins)
+    || state.origins.length !== 0
+    || cookieKeys.join(",") !== "domain,expires,httpOnly,name,path,sameSite,secure,value"
+    || cookie.name !== "scribe_session"
+    || !/^[A-Za-z0-9_-]{64}$/.test(String(cookie.value ?? ""))
+    || cookie.domain !== targetURL.hostname
+    || cookie.path !== "/"
+    || !Number.isSafeInteger(cookie.expires)
+    || cookie.expires * 1_000 < minimumRequiredExpiry
+    || cookie.httpOnly !== true
+    || cookie.secure !== true
+    || cookie.sameSite !== "Lax"
+  ) {
+    throw new Error("production browser session payload failed its cookie contract");
+  }
+  // Retain only the validated cookie needed for fail-closed revocation. This
+  // lives independently of Chromium so a launch/newContext failure after the
+  // one-time state file is consumed can still revoke the database session.
+  productionSessionCookie = { name: cookie.name, value: cookie.value };
+  if (!digestMatches) {
+    throw new Error("production browser session payload failed its digest contract");
+  }
+  return state;
+}
+
 function annotationHasText(annotation) {
+  return annotationTextValue(annotation) !== "";
+}
+
+function annotationTextValue(annotation) {
   const bodies = Array.isArray(annotation?.body) ? annotation.body : [annotation?.body];
-  return bodies.some((body) => (
-    typeof body === "string"
-      ? body.trim() !== ""
-      : typeof body?.value === "string" && body.value.trim() !== ""
-  ));
+  for (const body of bodies) {
+    const value = typeof body === "string" ? body : body?.value;
+    if (typeof value === "string" && value.trim() !== "") return value.trim();
+  }
+  return "";
 }
 
 function exactReadinessSmokeFixture() {
@@ -83,6 +437,59 @@ function exactReadinessSmokeFixture() {
   return fixture;
 }
 
+function newReadinessManifestIdentity() {
+  const externalReferenceID = `browser-readiness-manifest-${randomUUID()}`;
+  const idempotencyKey = createHash("sha256")
+    .update(JSON.stringify(["browser-readiness-manifest", manifestURL, externalReferenceID]))
+    .digest("hex");
+  if (
+    !readinessManifestReferencePattern.test(externalReferenceID)
+    || !/^[0-9a-f]{64}$/.test(idempotencyKey)
+  ) {
+    throw new Error("manifest import identity generation failed");
+  }
+  return { externalReferenceID, idempotencyKey };
+}
+
+function exactManifestImportPostData(request) {
+  if (
+    !readinessManifestReferencePattern.test(String(manifestExternalReferenceID ?? ""))
+    || !/^[0-9a-f]{64}$/.test(String(manifestIdempotencyKey ?? ""))
+  ) {
+    throw new Error("manifest import identity was not initialized");
+  }
+  const encoded = request.postDataBuffer();
+  if (
+    !encoded
+    || encoded.byteLength === 0
+    || encoded.byteLength > maxManifestImportRequestBytes
+  ) {
+    throw new Error("manifest import request body failed its size contract");
+  }
+  let payload;
+  try {
+    payload = JSON.parse(encoded.toString("utf8"));
+  } catch {
+    throw new Error("manifest import request body was not JSON");
+  }
+  if (
+    !payload
+    || typeof payload !== "object"
+    || Array.isArray(payload)
+    || payload.manifestUrl !== manifestURL
+    || !/^[0-9a-f]{64}$/.test(String(payload.idempotencyKey ?? ""))
+    || String(payload.externalReferenceId ?? "") !== ""
+  ) {
+    throw new Error("manifest import request identity failed");
+  }
+  manifestRequestIdentityInjected = true;
+  return JSON.stringify({
+    ...payload,
+    externalReferenceId: manifestExternalReferenceID,
+    idempotencyKey: manifestIdempotencyKey,
+  });
+}
+
 function assertTextualAnnotationPage(annotationPage) {
   if (
     annotationPage?.type !== "AnnotationPage"
@@ -91,6 +498,103 @@ function assertTextualAnnotationPage(annotationPage) {
     || !annotationPage.items.some(annotationHasText)
   ) {
     throw new Error("missing annotations");
+  }
+}
+
+function stableJSONValue(value) {
+  if (value === undefined) return "undefined";
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJSONValue).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => (
+    `${JSON.stringify(key)}:${stableJSONValue(value[key])}`
+  )).join(",")}}`;
+}
+
+function annotationTargetGeometry(annotation) {
+  const target = annotation?.target;
+  let canvasID = "";
+  let selectorValues = [];
+  if (typeof target === "string") {
+    const hashIndex = target.indexOf("#");
+    canvasID = hashIndex < 0 ? target : target.slice(0, hashIndex);
+    selectorValues = hashIndex < 0 ? [] : [target.slice(hashIndex + 1)];
+  } else if (target && typeof target === "object") {
+    canvasID = typeof target.source === "string"
+      ? target.source
+      : String(target.source?.id ?? "").trim();
+    const selectors = Array.isArray(target.selector) ? target.selector : [target.selector];
+    selectorValues = selectors.filter((selector) => (
+      String(selector?.type ?? "").trim().toLowerCase() === "fragmentselector"
+    )).map((selector) => String(selector?.value ?? "").trim());
+  }
+  const xywhValues = selectorValues.flatMap((value) => value.replace(/^#/u, "").split("&"))
+    .filter((parameter) => parameter.startsWith("xywh="))
+    .map((parameter) => parameter.slice("xywh=".length));
+  const match = xywhValues.length === 1
+    ? xywhValues[0].match(/^(?:pixel:)?(-?[0-9]+),(-?[0-9]+),([1-9][0-9]*),([1-9][0-9]*)$/u)
+    : null;
+  if (!canvasID || !match) throw new Error("saved structural annotation geometry was invalid");
+  const [x, y, w, h] = match.slice(1).map(Number);
+  return { canvasID, x, y, w, h };
+}
+
+function assertSavedStructuralPage(annotationPage, expectedStructure) {
+  const expectedLine = expectedStructure?.line;
+  const expectedWords = Array.isArray(expectedStructure?.words) ? expectedStructure.words : [];
+  const lines = annotationPage.items.filter((annotation) => (
+    String(annotation?.textGranularity ?? "").toLowerCase() === "line"
+  ));
+  const words = annotationPage.items.filter((annotation) => (
+    String(annotation?.textGranularity ?? "").toLowerCase() === "word"
+  ));
+  const savedLine = lines.find((annotation) => annotation?.id === expectedLine?.id);
+  const expectedOrder = new Map(expectedWords.map((annotation, index) => [annotation?.id, index]));
+  const savedWordsByID = new Map(words.map((annotation) => [annotation?.id, annotation]));
+  const expectedTargetsMatch = expectedWords.every((annotation) => {
+    const saved = savedWordsByID.get(annotation?.id);
+    return saved
+      && annotationTextValue(saved) === annotationTextValue(annotation)
+      && stableJSONValue(saved.target) === stableJSONValue(annotation.target);
+  });
+  const lineGeometry = savedLine ? annotationTargetGeometry(savedLine) : null;
+  const orderedWords = expectedWords.map((annotation) => savedWordsByID.get(annotation?.id));
+  const wordsAreOwned = lineGeometry && orderedWords.every((annotation) => {
+    if (!annotation) return false;
+    const geometry = annotationTargetGeometry(annotation);
+    const centerX = geometry.x + Math.floor(geometry.w / 2);
+    const centerY = geometry.y + Math.floor(geometry.h / 2);
+    return geometry.canvasID === lineGeometry.canvasID
+      && centerX >= lineGeometry.x
+      && centerX <= lineGeometry.x + lineGeometry.w
+      && centerY >= lineGeometry.y
+      && centerY <= lineGeometry.y + lineGeometry.h;
+  });
+  if (orderedWords.every(Boolean)) {
+    orderedWords.sort((left, right) => {
+      const leftGeometry = annotationTargetGeometry(left);
+      const rightGeometry = annotationTargetGeometry(right);
+      if (leftGeometry.x !== rightGeometry.x) return leftGeometry.x - rightGeometry.x;
+      if (leftGeometry.y !== rightGeometry.y) return leftGeometry.y - rightGeometry.y;
+      return expectedOrder.get(left?.id) - expectedOrder.get(right?.id);
+    });
+  }
+  if (
+    !expectedLine?.id
+    || annotationTextValue(expectedLine) !== deterministicJoinedLineText
+    || expectedWords.length !== deterministicWordTexts.length
+    || new Set(expectedWords.map((annotation) => annotation?.id)).size !== expectedWords.length
+    || !savedLine
+    || annotationTextValue(savedLine) !== deterministicJoinedLineText
+    || stableJSONValue(savedLine.target) !== stableJSONValue(expectedLine.target)
+    || words.length !== deterministicWordTexts.length
+    || savedWordsByID.size !== words.length
+    || !expectedTargetsMatch
+    || !wordsAreOwned
+    || orderedWords.some((annotation, index) => (
+      annotationTextValue(annotation) !== deterministicWordTexts[index]
+    ))
+  ) {
+    throw new Error("saved structural edits were not canonical");
   }
 }
 
@@ -127,9 +631,90 @@ function workspaceHeaders(workspaceID) {
 }
 
 function remainingCleanupTimeMs(recoveryDeadline) {
-  const remaining = Math.floor(recoveryDeadline - Date.now());
-  if (remaining <= 0) throw new Error("cleanup reconciliation deadline exceeded");
+  return remainingDeadlineTimeMs(recoveryDeadline, "cleanup reconciliation deadline exceeded");
+}
+
+function remainingDeadlineTimeMs(deadline, failureMessage) {
+  const remaining = Math.floor(deadline - Date.now());
+  if (remaining <= 0) throw new Error(failureMessage);
   return remaining;
+}
+
+async function warmInitialBrowserIngress() {
+  const deadline = Math.min(
+    mainScenarioDeadline,
+    Date.now() + initialIngressWarmupBudgetMs,
+  );
+  while (true) {
+    let response;
+    try {
+      response = await browserContext.request.get(baseURL.href, {
+        failOnStatusCode: false,
+        maxRedirects: 0,
+        maxRetries: 0,
+        timeout: Math.min(
+          initialIngressAttemptTimeoutMs,
+          remainingDeadlineTimeMs(deadline, "initial ingress warm-up deadline exceeded"),
+        ),
+      });
+    } catch {
+      recordBrowserFault("network-document-transport");
+      throw new Error("initial ingress warm-up transport failed");
+    }
+
+    let responseURL;
+    try {
+      responseURL = new URL(response.url());
+    } catch {
+      await response.dispose();
+      recordBrowserFault("network-document-client");
+      throw new Error("initial ingress warm-up returned an invalid URL");
+    }
+    const status = response.status();
+    const contentType = String(response.headers()["content-type"] ?? "").trim();
+    await response.dispose();
+    if (
+      isTargetHTTPSURL(responseURL, baseURL)
+      && responseURL.pathname === "/"
+      && responseURL.search === ""
+      && responseURL.hash === ""
+      && status === 200
+      && /^text\/html(?:\s*;|$)/iu.test(contentType)
+    ) return;
+
+    if (initialIngressResponseIsRetryable(responseURL, status, baseURL)) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs > initialIngressRetryIntervalMs) {
+        await new Promise((resolve) => setTimeout(resolve, initialIngressRetryIntervalMs));
+        continue;
+      }
+    }
+    if (initialIngressResponseIsRetryable(responseURL, status, baseURL)) {
+      if (status === 403) recordBrowserFault("initial-ingress-forbidden");
+      else if (status === 404) recordBrowserFault("initial-ingress-not-found");
+    } else if (status === 429) recordBrowserRateFault(responseURL, "document");
+    else if (isTargetHTTPSURL(responseURL, baseURL) && status >= 500) {
+      recordBrowserFault("network-document-server");
+    } else {
+      recordBrowserFault("network-document-client");
+    }
+    throw new Error("initial ingress warm-up failed");
+  }
+}
+
+async function waitForOperationBeforeDeadline(operation, deadline, failureMessage) {
+  const timeoutMs = remainingDeadlineTimeMs(deadline, failureMessage);
+  let timeout;
+  try {
+    await Promise.race([
+      operation,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(failureMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 async function connectPOST(path, data, workspaceID, recoveryDeadline) {
@@ -142,6 +727,114 @@ async function connectPOST(path, data, workspaceID, recoveryDeadline) {
     options.timeout = remainingCleanupTimeMs(recoveryDeadline);
   }
   return browserContext.request.post(new URL(path, baseURL).href, options);
+}
+
+async function requireProductionSession() {
+  if (browserMode !== "production") return;
+  const response = await browserContext.request.post(
+    new URL("/scribe.v1.AuthService/GetAuthMe", baseURL).href,
+    {
+      data: {},
+      headers: workspaceHeaders("1"),
+      timeout: stageTimeoutMs,
+    },
+  );
+  if (!response.ok()) throw new Error("production browser session was rejected");
+  const payload = await responseJSON(response, "invalid production browser session response");
+  if (
+    payload?.authenticated !== true
+    || payload?.authType !== "session"
+    || positiveID(payload?.user?.id) !== "1"
+    || positiveID(payload?.user?.defaultWorkspaceId) !== "1"
+    || !productionSessionUserIsNonAdmin(payload?.user)
+    || positiveID(payload?.workspace?.id) !== "1"
+    || payload?.workspace?.role !== "admin"
+  ) {
+    throw new Error("production browser session identity failed");
+  }
+}
+
+async function productionSessionFetch(path, options, revocationDeadline) {
+  if (!productionSessionCookie) {
+    throw new Error("production browser session revocation state is unavailable");
+  }
+  const timeoutMs = Math.min(
+    30_000,
+    remainingDeadlineTimeMs(
+      revocationDeadline,
+      "production browser session revocation deadline exceeded",
+    ),
+  );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(new URL(path, baseURL), {
+      ...options,
+      redirect: "manual",
+      signal: controller.signal,
+      headers: {
+        ...options.headers,
+        Cookie: `${productionSessionCookie.name}=${productionSessionCookie.value}`,
+      },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function productionSessionIsRevoked(revocationDeadline) {
+  const response = await productionSessionFetch(
+    "/scribe.v1.WorkspaceService/ListWorkspaces",
+    {
+      method: "POST",
+      body: "{}",
+      headers: {
+        Accept: "application/json",
+        "Connect-Protocol-Version": "1",
+        "Content-Type": "application/json",
+        Origin: baseURL.origin,
+        "X-Scribe-Workspace-ID": "1",
+      },
+    },
+    revocationDeadline,
+  );
+  const rejected = response.status === 401;
+  await response.body?.cancel();
+  return rejected;
+}
+
+async function revokeProductionSession(revocationDeadline) {
+  if (browserMode !== "production" || !productionSessionCookie) return;
+  while (Date.now() < revocationDeadline) {
+    try {
+      const response = await productionSessionFetch(
+        "/logout",
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            Origin: baseURL.origin,
+          },
+        },
+        revocationDeadline,
+      );
+      const logoutAccepted = response.ok;
+      await response.body?.cancel();
+      if (logoutAccepted && await productionSessionIsRevoked(revocationDeadline)) {
+        productionSessionCookie = undefined;
+        return;
+      }
+    } catch {
+      // Retry only inside the fixed revocation budget. The final categorical
+      // failure remains red if deletion or its original-cookie proof never
+      // succeeds.
+    }
+    const retryDelayMs = Math.min(2_000, revocationDeadline - Date.now());
+    if (retryDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+  }
+  throw new Error("production browser session revocation was not verified");
 }
 
 const responseJSONSnapshots = new WeakMap();
@@ -203,14 +896,22 @@ async function responseJSON(response, failureMessage) {
   }
 }
 
-async function listItemSummaries(workspaceID, query = "", recoveryDeadline) {
+async function listItemSummaries(
+  workspaceID,
+  query = "",
+  recoveryDeadline,
+  {
+    maxPages = cleanupMaxItemPages,
+    maxItems = cleanupMaxItems,
+  } = {},
+) {
   const items = [];
   const seenTokens = new Set();
   let pageToken = "";
   let pageCount = 0;
   do {
     pageCount += 1;
-    if (pageCount > cleanupMaxItemPages) throw new Error("item reconciliation page bound exceeded");
+    if (pageCount > maxPages) throw new Error("item reconciliation page bound exceeded");
     const response = await connectPOST(
       "/scribe.v1.ItemService/ListItems",
       { pageSize: 100, pageToken, query },
@@ -219,9 +920,9 @@ async function listItemSummaries(workspaceID, query = "", recoveryDeadline) {
     );
     if (!response.ok()) throw new Error("item reconciliation request failed");
     const payload = await responseJSON(response, "invalid item reconciliation response");
-    if (!Array.isArray(payload?.items)) throw new Error("invalid item reconciliation response");
-    items.push(...payload.items);
-    if (items.length > cleanupMaxItems) throw new Error("item reconciliation result bound exceeded");
+    const pageItems = protoJSONRepeatedField(payload, "items");
+    items.push(...pageItems);
+    if (items.length > maxItems) throw new Error("item reconciliation result bound exceeded");
     const nextPageToken = String(payload.nextPageToken ?? "");
     if (nextPageToken && seenTokens.has(nextPageToken)) {
       throw new Error("item reconciliation pagination repeated");
@@ -260,23 +961,39 @@ async function exactUploadItems(fixtureName, workspaceID, recoveryDeadline) {
   return summaries.filter((item) => item?.name === fixtureName);
 }
 
-async function exactManifestItems(workspaceID, protectedItemIDs = new Set(), recoveryDeadline) {
-  // A lost ImportManifest response may leave no usable display-name clue.
-  // Scan the capped workspace inventory, then verify the full source tuple.
-  const summaries = await listItemSummaries(workspaceID, "", recoveryDeadline);
+async function exactManifestItems(workspaceID, externalReferenceID, recoveryDeadline) {
+  if (!readinessManifestReferencePattern.test(String(externalReferenceID ?? ""))) {
+    throw new Error("manifest cleanup marker failed its identity contract");
+  }
+  // The run-unique external reference survives a lost ImportManifest response.
+  // Query by that marker, then verify the complete persisted source tuple.
+  const summaries = await listItemSummaries(
+    workspaceID,
+    externalReferenceID,
+    recoveryDeadline,
+  );
   const matches = [];
   for (const summary of summaries) {
     const summaryID = String(summary?.id ?? "").trim();
     if (
       summary?.sourceType !== "manifest"
       || !summaryID
-      || protectedItemIDs.has(summaryID)
+      || summary?.externalReferenceId !== externalReferenceID
     ) continue;
-    // Deliberately sequential: this bounded cleanup reconciliation must verify
-    // each full Item's source URL before any destructive request is issued.
+    // Deliberately sequential: this bounded cleanup reconciliation verifies
+    // the exact persisted marker and source URL before any deletion.
     // eslint-disable-next-line no-await-in-loop
     const item = await getItemForCleanup(summaryID, workspaceID, recoveryDeadline);
-    if (item?.sourceType === "manifest" && item?.sourceUrl === manifestURL) matches.push(item);
+    if (!item) continue;
+    if (
+      String(item?.id ?? "").trim() !== summaryID
+      || item?.sourceType !== "manifest"
+      || item?.sourceUrl !== manifestURL
+      || item?.externalReferenceId !== externalReferenceID
+    ) {
+      throw new Error("manifest cleanup source tuple changed");
+    }
+    matches.push(item);
   }
   return matches;
 }
@@ -388,19 +1105,15 @@ async function cleanupExactUploadItems(
 
 async function cleanupExactManifestItems(
   workspaceID,
+  externalReferenceID,
   knownItemID,
   observation,
-  protectedItemIDs,
   cleanupDeadline,
 ) {
   await reconcileExactResources(observation, cleanupDeadline, async (recoveryDeadline) => {
-    const matches = await exactManifestItems(workspaceID, protectedItemIDs, recoveryDeadline);
+    const matches = await exactManifestItems(workspaceID, externalReferenceID, recoveryDeadline);
     const candidates = new Map(matches.map((item) => [String(item.id ?? ""), item]));
-    if (
-      knownItemID
-      && !protectedItemIDs.has(knownItemID)
-      && !candidates.has(knownItemID)
-    ) {
+    if (knownItemID && !candidates.has(knownItemID)) {
       const item = await getItemForCleanup(knownItemID, workspaceID, recoveryDeadline);
       if (item) candidates.set(knownItemID, item);
     }
@@ -409,9 +1122,9 @@ async function cleanupExactManifestItems(
     const itemID = String(item?.id ?? "");
     if (
       !itemID
-      || protectedItemIDs.has(itemID)
       || item?.sourceType !== "manifest"
       || item?.sourceUrl !== manifestURL
+      || item?.externalReferenceId !== externalReferenceID
     ) {
       throw new Error("manifest cleanup identity mismatch");
     }
@@ -428,8 +1141,7 @@ async function exactAPIKeys(keyName, workspaceID, recoveryDeadline) {
   );
   if (!response.ok()) throw new Error("token reconciliation request failed");
   const payload = await responseJSON(response, "invalid token reconciliation response");
-  if (!Array.isArray(payload?.apiKeys)) throw new Error("invalid token reconciliation response");
-  return payload.apiKeys.filter((key) => key?.name === keyName);
+  return protoJSONRepeatedField(payload, "apiKeys").filter((key) => key?.name === keyName);
 }
 
 async function deleteAPIKeyDirect(keyID, workspaceID, recoveryDeadline) {
@@ -457,34 +1169,208 @@ async function cleanupExactAPIKeys(keyName, workspaceID, observation, cleanupDea
   );
 }
 
-const retryableUploadConnectCodes = new Set([
-  "aborted",
-  "already_exists",
-  "deadline_exceeded",
-  "internal",
-  "resource_exhausted",
-  "unavailable",
-  "unknown",
-]);
-const retryableUploadGatewayStatuses = new Set([0, 408, 409, 425, 429, 500, 502, 503, 504]);
+function productionReadinessItemKind(fullItem) {
+  if (
+    fullItem?.sourceType === "upload"
+    && readinessUploadNamePattern.test(String(fullItem?.name ?? ""))
+  ) return "upload";
+  if (
+    fullItem?.sourceType === "manifest"
+    && fullItem?.sourceUrl === manifestURL
+    && readinessManifestReferencePattern.test(String(fullItem?.externalReferenceId ?? ""))
+  ) return "manifest";
+  return "";
+}
+
+function assertProductionManifestCleanupClassifier() {
+  const markedReferenceID = "browser-readiness-manifest-00000000-0000-4000-8000-000000000000";
+  const ordinarySameURLManifest = {
+    externalReferenceId: "ordinary-library-manifest",
+    sourceType: "manifest",
+    sourceUrl: manifestURL,
+  };
+  if (productionReadinessItemKind(ordinarySameURLManifest) !== "") {
+    throw new Error("ordinary same-URL manifest matched the readiness janitor");
+  }
+  if (productionReadinessItemKind({
+    ...ordinarySameURLManifest,
+    externalReferenceId: markedReferenceID,
+  }) !== "manifest") {
+    throw new Error("marked readiness manifest missed the readiness janitor");
+  }
+}
+
+assertProductionManifestCleanupClassifier();
+
+async function findProductionReadinessOrphans(workspaceID, recoveryDeadline) {
+  if (workspaceID !== productionJanitorWorkspaceID) {
+    throw new Error("production janitor workspace identity failed");
+  }
+  const summaries = await listItemSummaries(
+    workspaceID,
+    "",
+    recoveryDeadline,
+    {
+      maxPages: productionJanitorMaxItemPages,
+      maxItems: productionJanitorMaxItems,
+    },
+  );
+  const candidateSummaries = summaries.filter((summary) => (
+    (summary?.sourceType === "upload" && readinessUploadNamePattern.test(String(summary?.name ?? "")))
+    || (
+      summary?.sourceType === "manifest"
+      && readinessManifestReferencePattern.test(String(summary?.externalReferenceId ?? ""))
+    )
+  ));
+  if (candidateSummaries.length > productionJanitorMaxItemVerifications) {
+    throw new Error("production janitor item verification bound exceeded");
+  }
+
+  const orphans = [];
+  const seenItemIDs = new Set();
+  for (const summary of candidateSummaries) {
+    const summaryID = String(summary?.id ?? "").trim();
+    if (!summaryID || seenItemIDs.has(summaryID)) {
+      throw new Error("production janitor item inventory identity failed");
+    }
+    seenItemIDs.add(summaryID);
+    // A ListItems summary intentionally omits source_url. Always load and
+    // verify the complete Item source tuple before considering deletion.
+    // eslint-disable-next-line no-await-in-loop
+    const fullItem = await getItemForCleanup(summaryID, workspaceID, recoveryDeadline);
+    if (!fullItem) continue;
+    if (
+      String(fullItem?.id ?? "").trim() !== summaryID
+      || fullItem?.name !== summary?.name
+      || fullItem?.sourceType !== summary?.sourceType
+      || fullItem?.externalReferenceId !== summary?.externalReferenceId
+    ) {
+      throw new Error("production janitor item source tuple changed");
+    }
+    const kind = productionReadinessItemKind(fullItem);
+    if (summary?.sourceType === "upload" && kind !== "upload") {
+      throw new Error("production janitor upload identity failed");
+    }
+    if (kind) orphans.push({ kind, item: fullItem });
+  }
+
+  const keyResponse = await connectPOST(
+    "/scribe.v1.AuthService/ListAPIKeys",
+    {},
+    workspaceID,
+    recoveryDeadline,
+  );
+  if (!keyResponse.ok()) throw new Error("production janitor token inventory failed");
+  const keyPayload = await responseJSON(
+    keyResponse,
+    "invalid production janitor token inventory",
+  );
+  const apiKeys = protoJSONRepeatedField(keyPayload, "apiKeys");
+  if (apiKeys.length > productionJanitorMaxAPIKeys) {
+    throw new Error("production janitor token inventory bound exceeded");
+  }
+  const seenKeyIDs = new Set();
+  for (const key of apiKeys) {
+    if (
+      !readinessAPIKeyNamePattern.test(String(key?.name ?? ""))
+      || positiveID(key?.workspaceId) !== productionJanitorWorkspaceID
+    ) continue;
+    const keyID = positiveID(key?.id);
+    if (!keyID || seenKeyIDs.has(keyID)) {
+      throw new Error("production janitor token identity failed");
+    }
+    seenKeyIDs.add(keyID);
+    orphans.push({ key, kind: "api-key" });
+  }
+  return orphans;
+}
+
+async function reconcileProductionReadinessOrphans() {
+  if (browserMode !== "production") {
+    throw new Error("production janitor cannot run outside production");
+  }
+  const workspaceID = productionJanitorWorkspaceID;
+  const observation = newMutationObservation();
+  observation.validated = true;
+  const janitorDeadline = Math.min(mainScenarioDeadline, Date.now() + stageTimeoutMs);
+  let deleteCount = 0;
+  await reconcileExactResources(
+    observation,
+    janitorDeadline,
+    async (recoveryDeadline) => {
+      const orphans = await findProductionReadinessOrphans(workspaceID, recoveryDeadline);
+      if (orphans.length > productionJanitorMaxDeletes - deleteCount) {
+        throw new Error("production janitor delete bound exceeded");
+      }
+      return orphans;
+    },
+    async (orphan, recoveryDeadline) => {
+      if (orphan?.kind === "api-key") {
+        const keyID = positiveID(orphan?.key?.id);
+        if (
+          !keyID
+          || !readinessAPIKeyNamePattern.test(String(orphan?.key?.name ?? ""))
+          || positiveID(orphan?.key?.workspaceId) !== workspaceID
+        ) {
+          throw new Error("production janitor token identity changed");
+        }
+        await deleteAPIKeyDirect(keyID, workspaceID, recoveryDeadline);
+        deleteCount += 1;
+        return;
+      }
+
+      const expectedItem = orphan?.item;
+      const itemID = String(expectedItem?.id ?? "").trim();
+      if (!itemID || !["upload", "manifest"].includes(orphan?.kind)) {
+        throw new Error("production janitor item identity failed");
+      }
+      const fullItem = await getItemForCleanup(itemID, workspaceID, recoveryDeadline);
+      if (!fullItem) return;
+      if (
+        String(fullItem?.id ?? "").trim() !== itemID
+        || fullItem?.name !== expectedItem?.name
+        || fullItem?.sourceType !== expectedItem?.sourceType
+        || fullItem?.sourceUrl !== expectedItem?.sourceUrl
+        || fullItem?.externalReferenceId !== expectedItem?.externalReferenceId
+        || productionReadinessItemKind(fullItem) !== orphan.kind
+      ) {
+        throw new Error("production janitor item source tuple changed");
+      }
+      await deleteItemDirect(itemID, workspaceID, recoveryDeadline);
+      deleteCount += 1;
+    },
+  );
+}
+
+async function uploadAttemptRetryableResponseKind(attempt) {
+  const outcome = attempt?.outcome;
+  if (outcome?.kind !== "response" || outcome.response?.ok()) return undefined;
+  let connectCode;
+  let snapshotValid = false;
+  const snapshot = responseJSONSnapshots.get(outcome.response);
+  if (snapshot) {
+    try {
+      const result = await snapshot;
+      if (result.ok) {
+        snapshotValid = true;
+        connectCode = result.payload?.code;
+      }
+    } catch {
+      // The fixed HTTP status remains usable when the capped JSON snapshot is
+      // absent, malformed, oversized, or otherwise unreadable.
+    }
+  }
+  return classifyRetryableUploadResponse({ connectCode, snapshotValid, status: outcome.status });
+}
 
 async function uploadAttemptIsRetryable(attempt) {
   const outcome = attempt?.outcome;
   if (!outcome || outcome.kind === "transport") return outcome?.status === 0;
-  if (outcome.response?.ok()) return false;
-  let code = "";
-  try {
-    const payload = await responseJSON(outcome.response, "invalid retryable upload response");
-    code = String(payload?.code ?? "").toLowerCase();
-  } catch {
-    // A proxy-generated retryable status may not carry a Connect error body.
-  }
-  return retryableUploadConnectCodes.has(code)
-    || (code === "" && retryableUploadGatewayStatuses.has(outcome.status));
+  return Boolean(await uploadAttemptRetryableResponseKind(attempt));
 }
 
 async function requireUploadAttemptEvidence() {
-  if (uploadImageAttempts.length < 1 || uploadImageAttempts.length > 3) {
+  if (uploadImageAttempts.length < 1 || uploadImageAttempts.length > 5) {
     throw new Error("upload retry bound failed");
   }
   for (const attempt of uploadImageAttempts.slice(0, -1)) {
@@ -507,6 +1393,17 @@ async function loadTranscriptionJob(jobID, workspaceID) {
   if (!response.ok()) throw new Error("transcription job request failed");
   const payload = await responseJSON(response, "invalid transcription job response");
   return payload?.job;
+}
+
+async function loadContext(contextID, workspaceID) {
+  const response = await connectPOST(
+    "/scribe.v1.ContextService/GetContext",
+    { contextId: contextID },
+    workspaceID,
+  );
+  if (!response.ok()) throw new Error("processing context request failed");
+  const payload = await responseJSON(response, "invalid processing context response");
+  return payload?.context;
 }
 
 async function createTranscriptionJob(itemImageID, contextID, workspaceID) {
@@ -797,24 +1694,18 @@ async function waitForPublishedAnnotationPage(annotationPath) {
   throw new Error("published annotation page did not become available");
 }
 
-async function findActionByValue(page, attribute, value) {
-  const candidates = page.locator(`[${attribute}]`);
-  const count = await candidates.count();
-  for (let index = 0; index < count; index += 1) {
-    const candidate = candidates.nth(index);
-    if (await candidate.getAttribute(attribute) === value) return candidate;
-  }
-  return undefined;
-}
-
 async function assertItemDeletePresentation(rootSelector, itemID, itemName) {
   const root = page.locator(rootSelector);
-  const itemDelete = await findActionByValue(root, "data-item-delete", itemID);
+  const itemDelete = await waitForActionByValue(root, "data-item-delete", itemID, {
+    timeoutMs: stageTimeoutMs,
+    wait: (delayMs) => page.waitForTimeout(delayMs),
+  });
   if (!itemDelete) throw new Error("missing item delete action");
-  const presentation = await itemDelete.evaluate((button, expectedLabel) => {
+  const presentation = await itemDelete.evaluate((button, expected) => {
     const svg = button.querySelector("svg");
     return {
       ariaLabel: button.getAttribute("aria-label") ?? "",
+      deleteIdentity: button.getAttribute("data-item-delete") ?? "",
       destructive: button.classList.contains("bg-destructive"),
       exactText: button.textContent?.trim() === "Delete",
       finalAction: button.parentElement?.lastElementChild === button,
@@ -822,11 +1713,12 @@ async function assertItemDeletePresentation(rootSelector, itemID, itemName) {
         && button.querySelectorAll("svg").length === 1
         && svg?.querySelector("path")?.getAttribute("d")
           === "M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m4 4v6m6-6v6",
-      expectedLabel,
+      expected,
     };
-  }, `Delete item ${itemName}`);
+  }, { deleteIdentity: itemID, label: `Delete item ${itemName}` });
   if (
-    presentation.ariaLabel !== presentation.expectedLabel
+    presentation.ariaLabel !== presentation.expected.label
+    || presentation.deleteIdentity !== presentation.expected.deleteIdentity
     || !presentation.destructive
     || !presentation.exactText
     || !presentation.finalAction
@@ -834,6 +1726,7 @@ async function assertItemDeletePresentation(rootSelector, itemID, itemName) {
   ) {
     throw new Error("item delete action presentation failed");
   }
+  return itemDelete;
 }
 
 function armItemDeleteDialog(itemID) {
@@ -854,14 +1747,7 @@ function armItemDeleteDialog(itemID) {
 
 async function deleteItemThroughLibrary(rootSelector, itemID, itemName) {
   if (!itemID || !itemName) throw new Error("missing item delete identity");
-  await page.waitForFunction(({ attributeValue, root }) => (
-    Array.from(document.querySelectorAll(`${root} [data-item-delete]`)).some((button) => (
-      button.getAttribute("data-item-delete") === attributeValue
-    ))
-  ), { attributeValue: itemID, root: rootSelector }, { timeout: stageTimeoutMs });
-  await assertItemDeletePresentation(rootSelector, itemID, itemName);
-  const itemDelete = await findActionByValue(page.locator(rootSelector), "data-item-delete", itemID);
-  if (!itemDelete) throw new Error("missing item delete action");
+  const itemDelete = await assertItemDeletePresentation(rootSelector, itemID, itemName);
   const dialogAccepted = armItemDeleteDialog(itemID);
   const deleteResponse = page.waitForResponse((response) => {
     if (!sameOriginConnectResponse(response, "/scribe.v1.ItemService/DeleteItem")) return false;
@@ -925,6 +1811,69 @@ async function waitForEditorAnnotationCount(expected) {
   ), expected);
 }
 
+async function currentEditorSelectedAnnotationID() {
+  await page.waitForFunction(() => (
+    typeof globalThis.__scribeReadinessEditorState?.selectedAnnotationId === "string"
+  ));
+  return page.evaluate(() => globalThis.__scribeReadinessEditorState.selectedAnnotationId);
+}
+
+async function selectedEditorAnnotationIDAtCount(expectedCount, previousAnnotationID) {
+  const handle = await page.waitForFunction(({ annotationCount, priorAnnotationID }) => {
+    const state = globalThis.__scribeReadinessEditorState;
+    const selectedAnnotationID = String(state?.selectedAnnotationId ?? "");
+    if (
+      state?.annotationCount !== annotationCount
+      || !selectedAnnotationID
+      || selectedAnnotationID === priorAnnotationID
+    ) return undefined;
+    return selectedAnnotationID;
+  }, { annotationCount: expectedCount, priorAnnotationID: previousAnnotationID });
+  return handle.jsonValue();
+}
+
+async function waitForEditorSelection(annotationCount, annotationID) {
+  if (!annotationID) throw new Error("missing editor selection identity");
+  await page.waitForFunction(({ expectedAnnotationCount, expectedAnnotationID }) => {
+    const state = globalThis.__scribeReadinessEditorState;
+    return state?.annotationCount === expectedAnnotationCount
+      && state?.selectedAnnotationId === expectedAnnotationID;
+  }, {
+    expectedAnnotationCount: annotationCount,
+    expectedAnnotationID: annotationID,
+  });
+}
+
+async function waitForEditorAnnotationState(expected) {
+  await page.waitForFunction(({ annotationCount, statusMessage, wordAnnotationIds }) => {
+    const state = globalThis.__scribeReadinessEditorState;
+    return state?.annotationCount === annotationCount
+      && state?.statusMessage === statusMessage
+      && Array.isArray(state?.wordAnnotationIds)
+      && state.wordAnnotationIds.length === wordAnnotationIds.length
+      && state.wordAnnotationIds.every((annotationId, index) => (
+        annotationId === wordAnnotationIds[index]
+      ));
+  }, expected);
+}
+
+async function currentEditorWordAnnotationIds() {
+  await page.waitForFunction(() => (
+    Array.isArray(globalThis.__scribeReadinessEditorState?.wordAnnotationIds)
+  ));
+  return page.evaluate(() => globalThis.__scribeReadinessEditorState.wordAnnotationIds);
+}
+
+async function currentEditorStructuralSnapshot() {
+  const annotations = await page.evaluate(() => (
+    globalThis.__scribeReadinessEditorState?.annotations
+  ));
+  return exactStructuralSnapshot(annotations, {
+    lineText: deterministicJoinedLineText,
+    wordTexts: deterministicWordTexts,
+  });
+}
+
 async function waitForEditorAnnotationCountDirection(previous, direction) {
   const handle = await page.waitForFunction(({ count, expectedDirection }) => {
     const current = globalThis.__scribeReadinessEditorState?.annotationCount;
@@ -934,6 +1883,14 @@ async function waitForEditorAnnotationCountDirection(previous, direction) {
     return undefined;
   }, { count: previous, expectedDirection: direction });
   return handle.jsonValue();
+}
+
+async function waitForOverlayLineMarkers() {
+  await page.locator('[data-scribe-granularity="line"]').first().waitFor({ state: "visible" });
+}
+
+async function waitForOverlayMarkersDisabled() {
+  await page.waitForFunction(() => document.querySelector("[data-scribe-granularity]") === null);
 }
 
 async function selectAllAdditionalCandidates(dialog, candidatePattern) {
@@ -967,18 +1924,31 @@ async function selectFirstAdditionalCandidate(dialog, candidatePattern) {
 let category = "home";
 let failureCategory;
 let browserFaultCategory;
+let browserFaultUploadSubstage;
+let browserFaultRateFamily;
+let uploadFailureSubstage = "response-contract";
+let uploadDurableFailureCategory;
+let uploadRetryableResponseCategory;
+let structureFailureSubstage = "draw-mode";
+let browserFaultMonitoringActive = true;
 let browser;
 let browserContext;
 let page;
 let baseURL;
+let browserMode;
+let productionStorageStateRemoved = false;
+let productionSessionCookie;
 let createdItemID;
 let createdManifestItemID;
 let createdManifestItemName;
+let manifestExternalReferenceID;
+let manifestIdempotencyKey;
 let createdWorkspaceID;
 let fixtureName;
 let createdAPIKeyName;
 let createdAPIKeyID;
 let manifestImportAttempted = false;
+let manifestRequestIdentityInjected = false;
 let manifestReprocessRequestCount = 0;
 let enrichAnnotationRequestCount = 0;
 let editorAssetDelayObserved = false;
@@ -988,7 +1958,6 @@ let mainScenarioWatchdogTimer;
 let mainScenarioTimedOut = false;
 let watchdogPageClose;
 let expectedItemDeleteDialog;
-const manifestBaselineItemIDs = new Set();
 const successfulImageResponses = [];
 const startUploadResponses = [];
 const uploadImageAttempts = [];
@@ -999,6 +1968,20 @@ const tokenMutation = newMutationObservation();
 
 function assertBrowserHealthy() {
   if (browserFaultCategory) throw new Error("browser fault");
+}
+
+function recordBrowserFault(faultCategory, uploadSubstage) {
+  if (browserFaultMonitoringActive && !browserFaultCategory) {
+    browserFaultCategory = faultCategory;
+    if (faultCategory === "upload") browserFaultUploadSubstage = uploadSubstage;
+  }
+}
+
+function recordBrowserRateFault(responseURL, resourceType) {
+  if (browserFaultMonitoringActive && !browserFaultCategory) {
+    browserFaultRateFamily = rateLimitFamily(responseURL, resourceType, baseURL);
+    recordBrowserFault("rate");
+  }
 }
 
 function assertMainScenarioActive() {
@@ -1118,6 +2101,7 @@ try {
     const watchdogDelayMs = Math.max(0, mainScenarioDeadline - Date.now());
     mainScenarioWatchdogTimer = setTimeout(() => {
       mainScenarioTimedOut = true;
+      browserFaultMonitoringActive = false;
       if (page && !page.isClosed()) {
         watchdogPageClose = page.close({ runBeforeUnload: false }).catch(() => undefined);
       }
@@ -1125,22 +2109,45 @@ try {
     }, watchdogDelayMs);
   });
   const mainScenario = (async () => {
-  baseURL = previewBaseURL();
-  if (!baseURL) throw new Error("invalid target");
+  browserMode = configuredBrowserMode();
+  baseURL = configuredBaseURL(browserMode);
+  if (!browserMode || !baseURL) throw new Error("invalid target");
 
+  let productionState;
+  if (browserMode === "production") {
+    category = "token";
+    productionState = await consumeProductionStorageState(baseURL);
+  }
+
+  category = "network";
   const chromiumIPv6Argument = await configureCanonicalIPv6Routing(baseURL.hostname);
+  category = "home";
   browser = await chromium.launch({
     args: [chromiumIPv6Argument],
     headless: true,
   });
   if (mainScenarioTimedOut) {
-    await browser.close().catch(() => undefined);
     throw new Error("main scenario deadline exceeded");
   }
-  browserContext = await browser.newContext({
+  let contextOptions = {
     baseURL: baseURL.href,
     acceptDownloads: false,
-  });
+  };
+  if (browserMode === "production") {
+    contextOptions.storageState = productionState;
+  }
+  browserContext = await browser.newContext(contextOptions);
+  contextOptions = undefined;
+  productionState = undefined;
+  category = "home";
+  await warmInitialBrowserIngress();
+  category = "token";
+  await requireProductionSession();
+  if (browserMode === "production") {
+    category = "cleanup";
+    await reconcileProductionReadinessOrphans();
+  }
+  category = "home";
   assertMainScenarioActive();
   await browserContext.grantPermissions(
     ["clipboard-read", "clipboard-write"],
@@ -1156,6 +2163,7 @@ try {
       overlayReady: false,
       results: [],
       segments: [],
+      streamReady: undefined,
     };
     const recordTranscriptionEvent = (kind, event) => {
       const detail = event.detail ?? {};
@@ -1245,10 +2253,33 @@ try {
         globalThis.__scribeReadinessAutomaticTranscription.overlayReady = event.detail?.ready === true;
       }
     });
+    document.addEventListener("scribe:transcription-stream-ready", (event) => {
+      const detail = event.detail ?? {};
+      if (globalThis.__scribeReadinessAutomaticTranscription) {
+        globalThis.__scribeReadinessAutomaticTranscription.streamReady = {
+          canvasId: String(detail.canvasId ?? ""),
+          itemImageId: String(detail.itemImageId ?? ""),
+          windowId: String(detail.windowId ?? ""),
+        };
+      }
+    });
     document.addEventListener("scribe:editor-state", (event) => {
       const annotationPage = event.detail?.annotationPage;
       globalThis.__scribeReadinessEditorState = {
+        annotations: Array.isArray(annotationPage?.items)
+          ? structuredClone(annotationPage.items)
+          : [],
         annotationCount: Array.isArray(annotationPage?.items) ? annotationPage.items.length : -1,
+        focusedWordAnnotationId: String(event.detail?.focusedWordAnnotationId ?? ""),
+        selectedAnnotationId: String(event.detail?.selectedAnnotationId ?? ""),
+        statusMessage: String(event.detail?.statusMessage ?? ""),
+        wordAnnotationIds: Array.isArray(annotationPage?.items)
+          ? annotationPage.items
+            .filter((annotation) => String(annotation?.textGranularity ?? "").toLowerCase() === "word")
+            .map((annotation) => String(annotation?.id ?? "").trim())
+            .filter(Boolean)
+            .sort()
+          : [],
       };
     });
     document.addEventListener("scribe:active-canvas", (event) => {
@@ -1282,11 +2313,18 @@ try {
       return;
     }
     try {
-      const upstreamResponse = await route.fetch({
+      const fetchOptions = {
         maxRedirects: 0,
         maxRetries: 0,
-        timeout: uploadTimeoutMs,
-      });
+        timeout: uploadRequestTimeoutMs,
+      };
+      if (requestURL.pathname === "/scribe.v1.ItemService/ImportManifest") {
+        const headers = { ...request.headers() };
+        delete headers["content-length"];
+        fetchOptions.headers = headers;
+        fetchOptions.postData = exactManifestImportPostData(request);
+      }
+      const upstreamResponse = await route.fetch(fetchOptions);
       const snapshot = await snapshotNavigationResponseJSON(upstreamResponse);
       navigationResponseJSONSnapshots.set(request, Promise.resolve(snapshot));
       await route.fulfill({ response: upstreamResponse });
@@ -1382,23 +2420,43 @@ try {
     }
     const isUploadImageResponse = sameOriginPOST
       && responseURL.pathname === "/scribe.v1.ItemService/UploadItemImage";
+    const isStartUploadBatchResponse = sameOriginPOST
+      && responseURL.pathname === "/scribe.v1.ItemService/StartUploadBatch";
+    const isManifestImportResponse = sameOriginPOST
+      && responseURL.pathname === "/scribe.v1.ItemService/ImportManifest";
     if (isUploadImageResponse) {
       const attempt = uploadImageAttemptByRequest.get(response.request());
       if (attempt) {
         attempt.outcome = { kind: "response", response, status: response.status() };
       } else {
-        browserFaultCategory ??= "upload";
+        recordBrowserFault("upload", "response-contract");
       }
       return;
     }
-    if (
-      sameOriginPOST
-      && responseURL.pathname === "/scribe.v1.ItemService/StartUploadBatch"
-    ) {
+    if (isStartUploadBatchResponse) {
       startUploadResponses.push(response);
+      if (response.status() >= 400) recordBrowserFault("upload", "start-response");
+      return;
     }
-    if (responseURL.origin === baseURL.origin && response.status() >= 400) {
-      browserFaultCategory ??= "network";
+    if (isManifestImportResponse && response.status() >= 400) {
+      recordBrowserFault("manifest");
+      return;
+    }
+    if (isTargetHTTPSURL(responseURL, baseURL) && response.status() === 429) {
+      recordBrowserRateFault(responseURL, response.request().resourceType());
+      return;
+    }
+    if (
+      isTargetHTTPSURL(responseURL, baseURL)
+      && response.status() === 404
+      && presentationAnnotationPathPattern.test(responseURL.pathname)
+    ) {
+      recordBrowserFault("annotations");
+      return;
+    }
+    if (isTargetHTTPSURL(responseURL, baseURL) && response.status() >= 400) {
+      const networkFaultCategory = responseNetworkFaultCategory(responseURL, response, baseURL);
+      if (networkFaultCategory) recordBrowserFault(networkFaultCategory);
     }
   });
   page.on("requestfinished", (request) => {
@@ -1436,12 +2494,27 @@ try {
       if (attempt) {
         attempt.outcome = { kind: "transport", status: 0 };
       } else {
-        browserFaultCategory ??= "upload";
+        recordBrowserFault("upload", "response-contract");
       }
       return;
     }
-    if (requestURL.origin === baseURL.origin && !clientCancellation) {
-      browserFaultCategory ??= "network";
+    if (
+      sameOriginPOST
+      && requestURL.pathname === "/scribe.v1.ItemService/StartUploadBatch"
+    ) {
+      recordBrowserFault("upload", "start-transport");
+      return;
+    }
+    if (
+      sameOriginPOST
+      && requestURL.pathname === "/scribe.v1.ItemService/ImportManifest"
+    ) {
+      recordBrowserFault("manifest");
+      return;
+    }
+    if (isTargetHTTPSURL(requestURL, baseURL) && !clientCancellation) {
+      const networkFaultCategory = requestNetworkFaultCategory(requestURL, request, baseURL);
+      if (networkFaultCategory) recordBrowserFault(networkFaultCategory);
     }
   });
   page.on("console", (message) => {
@@ -1449,7 +2522,7 @@ try {
       message.type() === "error"
       && /content security policy|violates.*(?:csp|policy)|refused to (?:connect|load).*policy/i.test(message.text())
     ) {
-      browserFaultCategory ??= "csp";
+      recordBrowserFault("csp");
     }
   });
   page.on("dialog", (dialog) => {
@@ -1461,7 +2534,7 @@ try {
       const expectedDialog = expectedItemDeleteDialog;
       expectedItemDeleteDialog = undefined;
       void dialog.accept().then(expectedDialog.resolve).catch((error) => {
-        browserFaultCategory ??= "token";
+        recordBrowserFault("token");
         expectedDialog.reject(error);
       });
       return;
@@ -1471,9 +2544,9 @@ try {
       expectedItemDeleteDialog = undefined;
       expectedDialog.reject(new Error("unexpected item delete confirmation"));
     }
-    browserFaultCategory ??= "token";
+    recordBrowserFault("token");
     void dialog.dismiss().catch(() => {
-      browserFaultCategory ??= "token";
+      recordBrowserFault("token");
     });
   });
 
@@ -1486,6 +2559,9 @@ try {
   if (await contextSelect.inputValue() !== "0") throw new Error("default context was not selected");
   createdWorkspaceID = positiveID(await page.locator("#sidebar-workspace-select").inputValue());
   if (!createdWorkspaceID) throw new Error("missing workspace identity");
+  if (browserMode === "production" && createdWorkspaceID !== "1") {
+    throw new Error("production workspace identity failed");
+  }
   assertBrowserHealthy();
 
   category = "upload";
@@ -1497,24 +2573,58 @@ try {
     buffer: fixture,
   });
   await page.locator("#shell-upload-dialog").waitFor({ state: "visible" });
-  const uploadOutcome = await page.waitForFunction(() => {
-    const currentURL = new URL(window.location.href);
-    if (
-      currentURL.pathname === "/editor"
-      && /^[1-9][0-9]*$/.test(currentURL.searchParams.get("itemImageId") ?? "")
-      && /^[1-9][0-9]*$/.test(currentURL.searchParams.get("jobId") ?? "")
-    ) return "handoff";
-    const dialog = document.getElementById("shell-upload-dialog");
-    const closeAction = document.getElementById("shell-upload-cancel");
-    if (
-      dialog?.getAttribute("aria-hidden") === "false"
-      && closeAction?.textContent?.trim() === "Close"
-    ) return "terminal";
-    return "";
-  }, undefined, { timeout: uploadTimeoutMs });
-  if (await uploadOutcome.jsonValue() !== "handoff") throw new Error("upload did not reach editor handoff");
+  let uploadOutcome;
+  try {
+    uploadOutcome = await page.waitForFunction(() => {
+      const currentURL = new URL(window.location.href);
+      if (
+        currentURL.pathname === "/editor"
+        && /^[1-9][0-9]*$/.test(currentURL.searchParams.get("itemImageId") ?? "")
+        && /^[1-9][0-9]*$/.test(currentURL.searchParams.get("jobId") ?? "")
+      ) return "handoff";
+      const dialog = document.getElementById("shell-upload-dialog");
+      const closeAction = document.getElementById("shell-upload-cancel");
+      if (
+        dialog?.getAttribute("aria-hidden") === "false"
+        && closeAction?.textContent?.trim() === "Close"
+      ) return "terminal";
+      return "";
+    }, undefined, {
+      timeout: remainingUploadSequenceTimeoutMs(mainScenarioDeadline),
+    });
+  } catch (error) {
+    uploadFailureSubstage = classifyUploadFailure({
+      handoffTimedOut: mainScenarioTimedOut
+        || Date.now() >= mainScenarioDeadline
+        || error?.name === "TimeoutError",
+    });
+    throw error;
+  }
+  if (await uploadOutcome.jsonValue() !== "handoff") {
+    uploadDurableFailureCategory = classifyDurableUploadFailure(
+      await page.locator("#shell-upload-status").textContent(),
+      fixtureName,
+    );
+    const finalAttemptOutcome = uploadImageAttempts.at(-1)?.outcome;
+    const attemptSucceeded = finalAttemptOutcome?.kind === "response"
+      && finalAttemptOutcome.response?.ok() === true;
+    uploadRetryableResponseCategory = finalAttemptOutcome?.kind === "response"
+      ? await uploadAttemptRetryableResponseKind({ outcome: finalAttemptOutcome })
+      : undefined;
+    let attemptRetryable = Boolean(uploadRetryableResponseCategory);
+    if (finalAttemptOutcome?.kind !== "response" && finalAttemptOutcome) {
+      attemptRetryable = await uploadAttemptIsRetryable({ outcome: finalAttemptOutcome });
+    }
+    uploadFailureSubstage = classifyUploadFailure({
+      terminal: true,
+      attemptKind: finalAttemptOutcome?.kind,
+      attemptSucceeded,
+      attemptRetryable,
+    });
+    throw new Error("upload did not reach editor handoff");
+  }
 
-  category = "handoff";
+  uploadFailureSubstage = "response-contract";
   const editorURL = new URL(page.url());
   const itemImageID = positiveID(editorURL.searchParams.get("itemImageId"));
   const jobID = positiveID(editorURL.searchParams.get("jobId"));
@@ -1550,13 +2660,27 @@ try {
     throw new Error("upload response identity mismatch");
   }
 
+  category = "handoff";
   const durableJob = await loadTranscriptionJob(jobID, workspaceID);
+  const durableContextID = positiveID(durableJob?.contextId);
   if (
     positiveID(durableJob?.id) !== jobID
     || positiveID(durableJob?.itemImageId) !== itemImageID
-    || !positiveID(durableJob?.contextId)
+    || !durableContextID
   ) {
     throw new Error("default context did not resolve durably");
+  }
+  const durableContext = await loadContext(durableContextID, workspaceID);
+  if (
+    positiveID(durableContext?.id) !== durableContextID
+    || String(durableContext?.userId ?? "0") !== "0"
+    || durableContext?.name !== "Tesseract OCR"
+    || durableContext?.isDefault !== true
+    || durableContext?.segmentationModel !== "scribe"
+    || durableContext?.transcriptionProvider !== "tesseract"
+    || durableContext?.transcriptionModel !== "tesseract"
+  ) {
+    throw new Error("durable default context did not match Scribe segmentation with Tesseract transcription");
   }
   assertMainScenarioActive();
   uploadMutation.validated = true;
@@ -1607,6 +2731,7 @@ try {
   const automaticTranscriptionProof = await page.waitForFunction((expected) => {
     const evidence = globalThis.__scribeReadinessAutomaticTranscription;
     const status = document.getElementById("editor-transcription-status")?.textContent?.trim() ?? "";
+    const statusComplete = status === "Batch transcription complete. Updated text is now available in the editor.";
     if (status.startsWith("Batch transcription failed")) return "failed";
     if (status.startsWith("The completed transcription could not")) return "blocked";
     if (status === "Automatic transcription was canceled.") return "canceled";
@@ -1666,15 +2791,14 @@ try {
       progressesExactlyInOrder(segments)
       && progressesExactlyInOrder(results)
       && badgeMovesExactlyInOrder
+      && statusComplete
     ) return "proved";
-    if (status === "Batch transcription complete. Updated text is now available in the editor.") {
-      if (Date.now() < expected.visualDeadline) return "";
-      if (!progressesExactlyInOrder(segments)) return "completed-without-segments";
-      if (!progressesExactlyInOrder(results)) return "completed-without-results";
-      if (badges.length === 0) return "completed-without-visible-badges";
-      return "completed-without-badge-order";
-    }
-    return "";
+    if (Date.now() < expected.visualDeadline) return "";
+    if (!statusComplete) return "completed-without-terminal-status";
+    if (!progressesExactlyInOrder(segments)) return "completed-without-segments";
+    if (!progressesExactlyInOrder(results)) return "completed-without-results";
+    if (badges.length === 0) return "completed-without-visible-badges";
+    return "completed-without-badge-order";
   }, {
     canvasID: canonicalSnapshot.canvasURI,
     attemptNumber: Number(completedDurableJob.attemptCount),
@@ -1685,20 +2809,14 @@ try {
   if (await automaticTranscriptionProof.jsonValue() !== "proved") {
     throw new Error("automatic transcription omitted visible line-by-line wand progress");
   }
-  const transcriptionOutcome = await page.waitForFunction(() => {
-    const text = document.getElementById("editor-transcription-status")?.textContent?.trim() ?? "";
-    if (text === "Batch transcription complete. Updated text is now available in the editor.") return "complete";
-    if (text.startsWith("Batch transcription failed")) return "failed";
-    if (text === "Automatic transcription was canceled.") return "canceled";
-    return "";
-  }, undefined, { timeout: transcriptionTimeoutMs });
-  if (await transcriptionOutcome.jsonValue() !== "complete") throw new Error("transcription failed");
   assertBrowserHealthy();
 
   // Mount a fresh editor without pinning it to the completed upload job, then
   // enqueue a second durable job. This makes the overlay and SSE bridge ready
   // before any task progress, exercising the real in-flight line-by-line path
   // separately from the deliberately late-loaded catch-up path above.
+  const liveEditorPath = `/editor?itemId=${encodeURIComponent(createdItemID)}&itemImageId=${itemImageID}&workspace_id=${workspaceID}`;
+  const liveEditorURL = new URL(liveEditorPath, baseURL);
   const liveEventStreamReady = page.waitForResponse((response) => {
     let url;
     try {
@@ -1710,20 +2828,31 @@ try {
       && response.request().method() === "GET"
       && url.origin === baseURL.origin
       && url.pathname === "/v1/events"
+      && response.request().headers()["referer"] === liveEditorURL.href
       && url.searchParams.get("item_image_id") === itemImageID;
   }, { timeout: stageTimeoutMs });
-  await navigate(`/editor?itemId=${encodeURIComponent(createdItemID)}&itemImageId=${itemImageID}&workspace_id=${workspaceID}`);
+  await navigate(liveEditorPath);
   await page.locator("#editor-transcription-status").waitFor({ state: "attached" });
   await page.getByRole("heading", { name: "Editor", exact: true }).waitFor({ state: "visible" });
-  await page.waitForFunction(() => (
-    globalThis.__scribeReadinessAutomaticTranscription?.overlayReady === true
-    && document.getElementById("editor-transcription-status")?.textContent?.trim()
-      === "Batch transcription complete. Updated text is now available in the editor."
-  ), undefined, { timeout: transcriptionTimeoutMs });
   // The server captures the outbox high-water mark before flushing this SSE
-  // response. Waiting for it guarantees the live job cannot start before the
-  // new editor subscription is established.
+  // response. The correlated application marker below is emitted only after
+  // that stream-ready signal has reconciled the durable job snapshot.
   await liveEventStreamReady;
+  await page.waitForFunction(() => {
+    const evidence = globalThis.__scribeReadinessAutomaticTranscription;
+    const activeCanvas = globalThis.__scribeReadinessActiveCanvas;
+    const routeItemImageID = new URL(window.location.href).searchParams.get("itemImageId");
+    return globalThis.__scribeReadinessAutomaticTranscription?.overlayReady === true
+      && Boolean(routeItemImageID)
+      && activeCanvas?.itemImageId === routeItemImageID
+      && Boolean(activeCanvas?.canvasId)
+      && Boolean(activeCanvas?.windowId)
+      && evidence?.streamReady?.itemImageId === routeItemImageID
+      && evidence?.streamReady?.canvasId === activeCanvas.canvasId
+      && evidence?.streamReady?.windowId === activeCanvas.windowId
+      && document.getElementById("editor-transcription-status")?.textContent?.trim()
+        === "Batch transcription complete. Updated text is now available in the editor.";
+  }, undefined, { timeout: transcriptionTimeoutMs });
   await page.evaluate(() => {
     const evidence = globalThis.__scribeReadinessAutomaticTranscription;
     if (!evidence) return;
@@ -1738,9 +2867,20 @@ try {
   );
   if (liveJobID === jobID) throw new Error("live transcription job reused the completed upload job");
 
+  const liveCompletedJob = await waitForTerminalTranscriptionJob(liveJobID, workspaceID);
+  if (
+    !transcriptionJobCompleted(liveCompletedJob)
+    || Number(liveCompletedJob?.attemptCount ?? -1) !== 1
+    || Number(liveCompletedJob?.failedSegments ?? 0) !== 0
+    || Number(liveCompletedJob?.completedSegments ?? -1) !== 2
+    || Number(liveCompletedJob?.totalSegments ?? -1) !== 2
+  ) {
+    throw new Error("live transcription job did not complete all segments in one attempt");
+  }
   const liveAutomaticTranscriptionProof = await page.waitForFunction((expected) => {
     const evidence = globalThis.__scribeReadinessAutomaticTranscription;
     const status = document.getElementById("editor-transcription-status")?.textContent?.trim() ?? "";
+    const statusComplete = status === "Batch transcription complete. Updated text is now available in the editor.";
     if (status.startsWith("Batch transcription failed")) return "failed";
     if (status.startsWith("The completed transcription could not")) return "blocked";
     if (status === "Automatic transcription was canceled.") return "canceled";
@@ -1796,15 +2936,14 @@ try {
       ));
     if (progressesExactlyInOrder(segments)
       && progressesExactlyInOrder(results)
-      && badgeMovesExactlyInOrder) return "proved";
-    if (status === "Batch transcription complete. Updated text is now available in the editor.") {
-      if (Date.now() < expected.visualDeadline) return "";
-      if (!progressesExactlyInOrder(segments)) return "completed-without-segments";
-      if (!progressesExactlyInOrder(results)) return "completed-without-results";
-      if (badges.length === 0) return "completed-without-visible-badges";
-      return "completed-without-badge-order";
-    }
-    return "";
+      && badgeMovesExactlyInOrder
+      && statusComplete) return "proved";
+    if (Date.now() < expected.visualDeadline) return "";
+    if (!statusComplete) return "completed-without-terminal-status";
+    if (!progressesExactlyInOrder(segments)) return "completed-without-segments";
+    if (!progressesExactlyInOrder(results)) return "completed-without-results";
+    if (badges.length === 0) return "completed-without-visible-badges";
+    return "completed-without-badge-order";
   }, {
     canvasID: canonicalSnapshot.canvasURI,
     jobID: liveJobID,
@@ -1815,7 +2954,6 @@ try {
   if (liveAutomaticTranscriptionOutcome !== "proved") {
     throw new Error(`in-flight automatic transcription omitted live wand progress: ${liveAutomaticTranscriptionOutcome}`);
   }
-  const liveCompletedJob = await waitForTerminalTranscriptionJob(liveJobID, workspaceID);
   const liveCompletedRevision = exactCompletedAttemptResultRevision(liveCompletedJob, liveJobID);
   const liveCanonicalSnapshot = await loadCanonicalAnnotationSnapshot(itemImageID, workspaceID);
   assertTextualAnnotationPage(liveCanonicalSnapshot.page);
@@ -1840,10 +2978,6 @@ try {
   ) {
     throw new Error("in-flight automatic transcription did not commit its exact successful attempt");
   }
-  await page.waitForFunction(() => (
-    document.getElementById("editor-transcription-status")?.textContent?.trim()
-      === "Batch transcription complete. Updated text is now available in the editor."
-  ), undefined, { timeout: transcriptionTimeoutMs });
   if (enrichAnnotationRequestCount !== 0) {
     throw new Error("automatic transcription used the foreground enrichment path");
   }
@@ -1878,16 +3012,12 @@ try {
   await page.getByRole("button", { name: "Overlay off", exact: true }).click();
   await page.getByRole("button", { name: "Edit overlay", exact: true }).waitFor({ state: "visible" });
   await page.locator(".scribe-text-overlay").waitFor({ state: "visible" });
-  if (await page.locator('[data-scribe-granularity="line"]').count() < 1) {
-    throw new Error("overlay omitted line markers");
-  }
+  await waitForOverlayLineMarkers();
   await page.getByRole("button", { name: "Edit overlay", exact: true }).click();
   await page.getByRole("button", { name: "Read overlay", exact: true }).click();
   await page.getByRole("button", { name: "Outline overlay", exact: true }).click();
   await page.getByRole("button", { name: "Overlay off", exact: true }).waitFor({ state: "visible" });
-  if (await page.locator("[data-scribe-granularity]").count() !== 0) {
-    throw new Error("overlay markers remained enabled");
-  }
+  await waitForOverlayMarkersDisabled();
   assertBrowserHealthy();
 
   category = "retranscribe";
@@ -1903,6 +3033,7 @@ try {
   assertBrowserHealthy();
 
   category = "structure";
+  structureFailureSubstage = "draw-mode";
   const initialDraftCount = await currentEditorAnnotationCount();
   const drawLineButton = page.getByRole("button", { name: "Draw New Line", exact: true });
   if (await drawLineButton.getAttribute("aria-pressed") === "true") {
@@ -1917,28 +3048,41 @@ try {
     document.querySelector('button[aria-label="Draw New Line"]')?.getAttribute("aria-pressed") !== "true"
   ));
 
+  structureFailureSubstage = "centered-line";
+  const selectedAnnotationIDBeforeCenteredLine = await currentEditorSelectedAnnotationID();
   const centeredLineButton = page.getByRole("button", {
     name: centeredLineAccessibleName,
     exact: true,
   });
   await centeredLineButton.click();
   await page.getByRole("status").filter({ hasText: "Draft line created." }).waitFor({ state: "visible" });
-  await waitForEditorAnnotationCount(initialDraftCount + 1);
+  const centeredLineAnnotationID = await selectedEditorAnnotationIDAtCount(
+    initialDraftCount + 1,
+    selectedAnnotationIDBeforeCenteredLine,
+  );
   await waitForSaveEnabled();
 
+  structureFailureSubstage = "undo-redo";
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await waitForEditorAnnotationCount(initialDraftCount);
   await page.getByRole("button", { name: "Redo", exact: true }).click();
-  await waitForEditorAnnotationCount(initialDraftCount + 1);
+  await waitForEditorSelection(initialDraftCount + 1, centeredLineAnnotationID);
 
-  const emptyCenteredLine = page.getByRole("button", {
-    name: "Edit line: empty text",
-    exact: true,
-  }).last();
-  await emptyCenteredLine.click();
-  const lineToken = page.getByRole("textbox", { name: "Edit line token 1", exact: true });
-  await lineToken.waitFor({ state: "visible" });
-  if (await lineToken.inputValue() !== "") throw new Error("centered line was not selected");
+  structureFailureSubstage = "delete-line";
+  await editorDelete.click();
+  await waitForEditorAnnotationCount(initialDraftCount);
+
+  structureFailureSubstage = "line-edit";
+  const lineTokenInputs = page.getByRole("textbox", { name: /^Edit line token [1-9][0-9]*$/ });
+  await lineTokenInputs.first().waitFor({ state: "visible" });
+  while (await lineTokenInputs.count() > 1) {
+    const previousLineTokenCount = await lineTokenInputs.count();
+    await lineTokenInputs.last().fill("");
+    await page.waitForFunction((previousCount) => (
+      document.querySelectorAll('input[aria-label^="Edit line token "]').length < previousCount
+    ), previousLineTokenCount);
+  }
+  const lineToken = lineTokenInputs.first();
   await lineToken.fill(deterministicLineText);
   const expectedTokens = deterministicLineText.split(" ");
   await page.waitForFunction((tokens) => {
@@ -1947,6 +3091,7 @@ try {
       && inputs.every((input, index) => input.value === tokens[index]);
   }, expectedTokens);
 
+  structureFailureSubstage = "split-words";
   const beforeSplitWordsCount = await currentEditorAnnotationCount();
   await requireConnectAction(
     "/scribe.v1.AnnotationService/SplitLineIntoWords",
@@ -1955,12 +3100,21 @@ try {
   await page.getByRole("status").filter({ hasText: "Words created." }).waitFor({ state: "visible" });
   const splitWordsCount = await waitForEditorAnnotationCountDirection(beforeSplitWordsCount, "increase");
 
+  structureFailureSubstage = "add-word";
+  await page.getByRole("textbox", { name: "Edit word gamma", exact: true }).focus();
+  await page.waitForFunction(() => {
+    const state = globalThis.__scribeReadinessEditorState;
+    return Boolean(state?.focusedWordAnnotationId)
+      && state.focusedWordAnnotationId === state.selectedAnnotationId;
+  });
   await page.getByRole("button", {
     name: "Add a word annotation beside the selection",
     exact: true,
   }).click();
   await page.getByRole("status").filter({ hasText: "Draft word created." }).waitFor({ state: "visible" });
   await waitForEditorAnnotationCount(splitWordsCount + 1);
+
+  structureFailureSubstage = "word-history";
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await waitForEditorAnnotationCount(splitWordsCount);
   await page.getByRole("button", { name: "Redo", exact: true }).click();
@@ -1970,7 +3124,9 @@ try {
   await addedWord.fill("epsilon");
   await page.getByRole("textbox", { name: "Edit word epsilon", exact: true }).waitFor({ state: "visible" });
 
+  structureFailureSubstage = "join-words";
   const beforeJoinWordsCount = await currentEditorAnnotationCount();
+  const beforeJoinWordAnnotationIds = await currentEditorWordAnnotationIds();
   await page.getByRole("button", { name: "Join Words", exact: true }).click();
   const joinWordsDialog = page.getByRole("dialog", { name: "Choose words to join", exact: true });
   await joinWordsDialog.waitFor({ state: "visible" });
@@ -1980,11 +3136,17 @@ try {
     () => joinWordsDialog.getByRole("button", { name: "Join selected words", exact: true }).click(),
   );
   await page.getByRole("status").filter({ hasText: "Words joined." }).waitFor({ state: "visible" });
-  const joinedWordsCount = await waitForEditorAnnotationCountDirection(beforeJoinWordsCount, "decrease");
+  await waitForEditorAnnotationState({
+    annotationCount: beforeJoinWordsCount, statusMessage: "Words joined.",
+    wordAnnotationIds: beforeJoinWordAnnotationIds,
+  });
+  const joinedWordsCount = beforeJoinWordsCount;
 
+  structureFailureSubstage = "split-line";
   await page.getByRole("button", { name: "Split Line", exact: true }).click();
   const splitLineDialog = page.getByRole("dialog", { name: "Choose a split boundary", exact: true });
   await splitLineDialog.waitFor({ state: "visible" });
+  await splitLineDialog.getByText("beta gamma epsilon", { exact: true }).waitFor({ state: "visible" });
   await requireConnectAction(
     "/scribe.v1.AnnotationService/SplitLineIntoTwoLines",
     () => splitLineDialog.getByRole("button", { name: "Split at boundary", exact: true }).click(),
@@ -1992,10 +3154,14 @@ try {
   await page.getByRole("status").filter({ hasText: "Line split." }).waitFor({ state: "visible" });
   await waitForEditorAnnotationCount(joinedWordsCount + 1);
 
+  structureFailureSubstage = "join-lines";
   await page.getByRole("button", { name: "Join Lines", exact: true }).click();
   const joinLinesDialog = page.getByRole("dialog", { name: "Choose lines to join", exact: true });
   await joinLinesDialog.waitFor({ state: "visible" });
-  await selectFirstAdditionalCandidate(joinLinesDialog, /^Line [0-9]+:/);
+  await selectFirstAdditionalCandidate(
+    joinLinesDialog,
+    /^Line [0-9]+: (?:browser readiness alpha|beta gamma epsilon)$/,
+  );
   const beforeJoinLinesCount = await currentEditorAnnotationCount();
   await requireConnectAction(
     "/scribe.v1.AnnotationService/JoinLines",
@@ -2004,9 +3170,8 @@ try {
   await page.getByRole("status").filter({ hasText: "Lines joined." }).waitFor({ state: "visible" });
   await waitForEditorAnnotationCount(beforeJoinLinesCount - 1);
 
-  const beforeDeleteCount = await currentEditorAnnotationCount();
-  await page.getByRole("button", { name: "Delete", exact: true }).click();
-  await waitForEditorAnnotationCount(beforeDeleteCount - 1);
+  structureFailureSubstage = "snapshot";
+  const expectedSavedStructure = await currentEditorStructuralSnapshot();
   assertBrowserHealthy();
 
   category = "save";
@@ -2019,6 +3184,7 @@ try {
   await page.getByText("Saved page.", { exact: true }).waitFor({ state: "visible" });
   const savedAnnotationSnapshot = await loadCanonicalAnnotationSnapshot(itemImageID, workspaceID);
   assertTextualAnnotationPage(savedAnnotationSnapshot.page);
+  assertSavedStructuralPage(savedAnnotationSnapshot.page, expectedSavedStructure);
   assertBrowserHealthy();
 
   category = "publish";
@@ -2027,6 +3193,7 @@ try {
   const publishedAnnotationPath = `/presentation/v3/item-image-${itemImageID}/canvas/page-1/annotations`;
   const publishedAnnotationPage = await waitForPublishedAnnotationPage(publishedAnnotationPath);
   assertTextualAnnotationPage(publishedAnnotationPage);
+  assertSavedStructuralPage(publishedAnnotationPage, expectedSavedStructure);
   assertBrowserHealthy();
 
   category = "responsive";
@@ -2073,10 +3240,11 @@ try {
   }
   assertBrowserHealthy();
 
-  category = "token";
+  category = "home";
   await navigate("/");
   await assertItemDeletePresentation("#shell-content", createdItemID, fixtureName);
   await assertItemDeletePresentation("#shell-sidebar", createdItemID, fixtureName);
+  category = "token";
   await page.locator("#shell-account-button").click();
   await page.getByRole("heading", { name: "Workspace and account settings", exact: true }).waitFor({ state: "visible" });
   await page.locator("#settings-api-key-form").waitFor({ state: "visible" });
@@ -2138,18 +3306,15 @@ try {
   if (!await importMode.isChecked() || await reprocessMode.isChecked()) {
     throw new Error("manifest import mode was not the default");
   }
-  const baselineManifestItems = await exactManifestItems(workspaceID);
-  for (const baselineItem of baselineManifestItems) {
-    const baselineItemID = String(baselineItem?.id ?? "").trim();
-    if (!baselineItemID) throw new Error("manifest baseline identity failed");
-    manifestBaselineItemIDs.add(baselineItemID);
-  }
+  const manifestIdentity = newReadinessManifestIdentity();
+  manifestExternalReferenceID = manifestIdentity.externalReferenceID;
+  manifestIdempotencyKey = manifestIdentity.idempotencyKey;
   assertMainScenarioActive();
   await page.getByLabel("IIIF manifest URL", { exact: true }).fill(manifestURL);
   manifestImportAttempted = true;
   const manifestResponsePromise = page.waitForResponse((response) => (
     sameOriginConnectResponse(response, "/scribe.v1.ItemService/ImportManifest")
-  ), { timeout: uploadTimeoutMs });
+  ), { timeout: uploadRequestTimeoutMs });
   await page.getByRole("button", { name: "Ingest manifest", exact: true }).click();
   const manifestResponse = await manifestResponsePromise;
   if (!manifestResponse.ok()) throw new Error("manifest import failed");
@@ -2169,12 +3334,13 @@ try {
   if (
     manifestMutation.requestCount !== 1
     || !manifestMutation.responseSettled
+    || !manifestRequestIdentityInjected
     || manifestReprocessRequestCount !== 0
     || !createdManifestItemID
     || !createdManifestItemName
-    || manifestBaselineItemIDs.has(createdManifestItemID)
     || manifestItem?.sourceType !== "manifest"
     || manifestItem?.sourceUrl !== manifestURL
+    || manifestItem?.externalReferenceId !== manifestExternalReferenceID
     || manifestImageIDs.length !== 6
     || manifestImageIDs.some((imageID) => !imageID)
     || new Set(manifestImageIDs).size !== 6
@@ -2190,7 +3356,7 @@ try {
     && url.searchParams.get("itemId") === createdManifestItemID
     && url.searchParams.get("itemImageId") === manifestFirstImageID
     && url.searchParams.get("workspace_id") === workspaceID
-  ), { timeout: uploadTimeoutMs });
+  ), { timeout: uploadRequestTimeoutMs });
   await page.locator("#mirador-viewer").waitFor({ state: "visible" });
   const manifestActionPanel = page.locator('[data-scribe-action-panel="true"]');
   await manifestActionPanel.waitFor({ state: "visible" });
@@ -2299,13 +3465,12 @@ try {
   await page.getByRole("button", { name: "Overlay off", exact: true }).click();
   await page.getByRole("button", { name: "Edit overlay", exact: true }).waitFor({ state: "visible" });
   await page.locator(".scribe-text-overlay").waitFor({ state: "visible" });
-  if (await page.locator('[data-scribe-granularity="line"]').count() < 1) {
-    throw new Error("second manifest Canvas overlay omitted line markers");
-  }
+  await waitForOverlayLineMarkers();
   await page.getByRole("button", { name: "Edit overlay", exact: true }).click();
   await page.getByRole("button", { name: "Read overlay", exact: true }).click();
   await page.getByRole("button", { name: "Outline overlay", exact: true }).click();
   await page.getByRole("button", { name: "Overlay off", exact: true }).waitFor({ state: "visible" });
+  await waitForOverlayMarkersDisabled();
   if (!await manifestRetranscribe.isEnabled()) {
     throw new Error("manifest editor action was unusable after overlay cycling");
   }
@@ -2333,13 +3498,36 @@ try {
   })();
   await Promise.race([mainScenario, mainScenarioWatchdog]);
 } catch {
+  if (mainScenarioTimedOut && category === "upload") {
+    uploadFailureSubstage = "handoff-timeout";
+  }
   failureCategory = browserFaultCategory ?? category;
 } finally {
+  failureCategory ??= browserFaultCategory;
+  browserFaultMonitoringActive = false;
+  if (browserMode === "production" && !productionStorageStateRemoved) {
+    try {
+      await unlink(productionStorageStatePath);
+      productionStorageStateRemoved = true;
+    } catch (error) {
+      if (error?.code !== "ENOENT") failureCategory ??= "token";
+    }
+  }
   if (mainScenarioWatchdogTimer !== undefined) {
     clearTimeout(mainScenarioWatchdogTimer);
     mainScenarioWatchdogTimer = undefined;
   }
-  if (watchdogPageClose) await watchdogPageClose;
+  if (watchdogPageClose) {
+    try {
+      await waitForOperationBeforeDeadline(
+        watchdogPageClose,
+        globalCleanupDeadline,
+        "watchdog page close deadline exceeded",
+      );
+    } catch {
+      failureCategory ??= "cleanup";
+    }
+  }
   if (
     browserContext
     && createdWorkspaceID
@@ -2352,7 +3540,11 @@ try {
     // mutation horizon. Direct API reconciliation keeps the session cookie.
     if (page && !page.isClosed()) {
       try {
-        await page.close({ runBeforeUnload: false });
+        await waitForOperationBeforeDeadline(
+          page.close({ runBeforeUnload: false }),
+          Math.min(globalCleanupDeadline, Date.now() + browserCloseBudgetMs),
+          "cleanup page close deadline exceeded",
+        );
       } catch {
         cleanupFailed = true;
       }
@@ -2362,9 +3554,9 @@ try {
       try {
         await cleanupExactManifestItems(
           createdWorkspaceID,
+          manifestExternalReferenceID,
           createdManifestItemID,
           manifestMutation,
-          manifestBaselineItemIDs,
           globalCleanupDeadline,
         );
       } catch {
@@ -2399,15 +3591,48 @@ try {
       }
     }
 
-    if (cleanupFailed) failureCategory ??= browserFaultCategory ?? category;
+    if (cleanupFailed) failureCategory ??= category;
   }
-  if (browser) await browser.close().catch(() => {});
+  if (browserMode === "production" && productionSessionCookie) {
+    try {
+      await revokeProductionSession(sessionRevocationDeadline);
+    } catch {
+      failureCategory ??= "token";
+    }
+  }
+  if (browser) {
+    try {
+      await waitForOperationBeforeDeadline(
+        browser.close(),
+        browserShutdownDeadline,
+        "browser close deadline exceeded",
+      );
+    } catch {
+      failureCategory ??= "cleanup";
+    }
+  }
 }
 
-failureCategory = browserFaultCategory ?? failureCategory;
 if (failureCategory) {
   process.stderr.write(`browser readiness failed: ${failureCategory}\n`);
-  process.exitCode = 1;
+  if (failureCategory === "upload") {
+    process.stderr.write(`${uploadFailureMarker(
+      browserFaultUploadSubstage ?? uploadFailureSubstage,
+    )}\n`);
+    if (uploadRetryableResponseCategory) {
+      process.stderr.write(`${uploadRetryableResponseMarker(uploadRetryableResponseCategory)}\n`);
+    }
+    if (uploadDurableFailureCategory) {
+      process.stderr.write(`${uploadDurableFailureMarker(uploadDurableFailureCategory)}\n`);
+    }
+  }
+  if (failureCategory === "structure") {
+    process.stderr.write(`browser readiness structure substage: ${structureFailureSubstage}\n`);
+  }
+  if (failureCategory === "rate" && browserFaultRateFamily) {
+    process.stderr.write(`browser readiness rate limit: ${browserFaultRateFamily}\n`);
+  }
+  process.exitCode = readinessFailureExitCodes.get(failureCategory) ?? 1;
 } else {
   process.stdout.write("browser readiness passed\n");
 }

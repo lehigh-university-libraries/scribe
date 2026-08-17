@@ -17,6 +17,7 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/app"
 	"github.com/lehigh-university-libraries/scribe/internal/deployauth"
 	"github.com/lehigh-university-libraries/scribe/internal/safelog"
+	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
 func main() {
@@ -35,25 +36,80 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, args []string) (returnErr error) {
-	outputPath, err := parseArguments(args)
+type browserSessionMinter func(
+	context.Context,
+	*store.IdentityStore,
+	string,
+	string,
+	string,
+	string,
+) error
+
+type commandRuntime struct {
+	newDependencies func(context.Context) (*app.BrowserSessionDependencies, error)
+	mint            browserSessionMinter
+	mintReserved    browserSessionMinter
+	reserve         func(context.Context, string) error
+	export          func(context.Context, string, io.Writer) error
+	cleanup         func(context.Context, string) error
+	cleanupAll      func(context.Context) error
+	stdout          io.Writer
+}
+
+func defaultCommandRuntime() commandRuntime {
+	return commandRuntime{
+		newDependencies: app.NewBrowserSessionDependencies,
+		mint:            deployauth.MintBrowserSessionFile,
+		mintReserved:    deployauth.MintReservedBrowserSessionFile,
+		reserve:         deployauth.ReserveBrowserSessionFile,
+		export:          deployauth.ExportBrowserSessionFile,
+		cleanup:         deployauth.CleanupBrowserSessionFile,
+		cleanupAll:      deployauth.CleanupBrowserSessionFiles,
+		stdout:          os.Stdout,
+	}
+}
+
+func run(ctx context.Context, args []string) error {
+	return runWithRuntime(ctx, args, defaultCommandRuntime())
+}
+
+func runWithRuntime(ctx context.Context, args []string, runtime commandRuntime) (returnErr error) {
+	request, err := parseArguments(args)
 	if err != nil {
 		return err
 	}
-	deps, err := app.NewDependencies(ctx, app.BootstrapOptions{
-		TelemetryServiceName: "scribe-browser-session",
-	})
+	if request.cleanupAll {
+		return runtime.cleanupAll(ctx)
+	}
+	if request.cleanupPath != "" {
+		return runtime.cleanup(ctx, request.cleanupPath)
+	}
+	if request.reservePath != "" {
+		return runtime.reserve(ctx, request.reservePath)
+	}
+	if request.exportPath != "" {
+		return runtime.export(ctx, request.exportPath, runtime.stdout)
+	}
+	deps, err := runtime.newDependencies(ctx)
 	if err != nil {
 		return fmt.Errorf("bootstrap browser session dependencies: %w", err)
 	}
 	defer func() { returnErr = errors.Join(returnErr, deps.Close()) }()
 
-	if err := deployauth.MintBrowserSessionFile(
+	mint := runtime.mint
+	if request.reservedOutputPath != "" {
+		mint = runtime.mintReserved
+	}
+	outputPath := request.outputPath
+	if request.reservedOutputPath != "" {
+		outputPath = request.reservedOutputPath
+	}
+	if err := mint(
 		ctx,
 		deps.IdentityStore,
-		deps.Config.PublicBaseURL,
-		deps.Config.Auth.CookieName,
-		deps.Config.Auth.CookieDomain,
+		deps.PublicBaseURL,
+		deps.CookieName,
+		deps.CookieDomain,
 		outputPath,
 	); err != nil {
 		return fmt.Errorf("mint browser session file: %w", err)
@@ -61,16 +117,49 @@ func run(ctx context.Context, args []string) (returnErr error) {
 	return nil
 }
 
-func parseArguments(args []string) (string, error) {
+type commandRequest struct {
+	outputPath         string
+	reservedOutputPath string
+	reservePath        string
+	exportPath         string
+	cleanupPath        string
+	cleanupAll         bool
+}
+
+func parseArguments(args []string) (commandRequest, error) {
 	flags := flag.NewFlagSet("browser-session", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var outputPath string
-	flags.StringVar(&outputPath, "output", "", "new /tmp storage-state path")
+	var request commandRequest
+	flags.StringVar(&request.outputPath, "output", "", "new /tmp storage-state path")
+	flags.StringVar(&request.reservedOutputPath, "reserved-output", "", "reserved /tmp storage-state path")
+	flags.StringVar(&request.reservePath, "reserve", "", "exact /tmp storage-state path to reserve")
+	flags.StringVar(&request.exportPath, "export", "", "exact /tmp storage-state path to export")
+	flags.StringVar(&request.cleanupPath, "cleanup", "", "exact /tmp storage-state path to remove")
+	flags.BoolVar(&request.cleanupAll, "cleanup-all", false, "remove all valid /tmp storage-state paths")
 	if err := flags.Parse(args); err != nil {
-		return "", fmt.Errorf("parse browser session arguments")
+		return commandRequest{}, fmt.Errorf("parse browser session arguments")
 	}
-	if flags.NArg() != 0 || strings.TrimSpace(outputPath) == "" {
-		return "", fmt.Errorf("browser session requires exactly --output /tmp/scribe-browser-session-<run-id>.json")
+	selected := 0
+	if strings.TrimSpace(request.outputPath) != "" {
+		selected++
 	}
-	return outputPath, nil
+	if strings.TrimSpace(request.cleanupPath) != "" {
+		selected++
+	}
+	if strings.TrimSpace(request.reservedOutputPath) != "" {
+		selected++
+	}
+	if strings.TrimSpace(request.reservePath) != "" {
+		selected++
+	}
+	if strings.TrimSpace(request.exportPath) != "" {
+		selected++
+	}
+	if request.cleanupAll {
+		selected++
+	}
+	if flags.NArg() != 0 || selected != 1 {
+		return commandRequest{}, fmt.Errorf("browser session requires exactly one operation")
+	}
+	return request, nil
 }

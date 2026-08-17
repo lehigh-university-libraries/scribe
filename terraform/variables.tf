@@ -32,17 +32,6 @@ variable "zone" {
   default     = "us-east5-b"
 }
 
-variable "preview_zone" {
-  description = "GCP zone used only by pull-request preview workspaces, kept independent of the production zone so preview VM creation never competes with production for capacity in the same zone."
-  type        = string
-  default     = "us-east5-a"
-
-  validation {
-    condition     = contains(["us-east5-a", "us-east5-b", "us-east5-c"], var.preview_zone)
-    error_message = "preview_zone must be a reviewed zone within the us-east5 region: us-east5-a, us-east5-b, or us-east5-c."
-  }
-}
-
 variable "machine_type" {
   description = "Compute Engine machine type."
   type        = string
@@ -106,7 +95,7 @@ variable "frontend_gar_image" {
 }
 
 variable "browser_readiness_image" {
-  description = "Protected, digest-pinned Playwright image used only by preview readiness jobs. Leave empty outside protected preview apply workflows."
+  description = "Protected, digest-pinned Playwright image used by hosted preview and production readiness jobs."
   type        = string
   default     = ""
 
@@ -168,7 +157,7 @@ variable "network_ip_cidr_range" {
 }
 
 variable "browser_readiness_subnet_cidr" {
-  description = "Dedicated, non-overlapping /26 inside the environment application VPC, used only by the protected preview browser-readiness job and its subnet-scoped Cloud NAT."
+  description = "Dedicated, non-overlapping /26 inside the environment application VPC, used only by protected browser-readiness Cloud Run jobs and their subnet-scoped Cloud NAT."
   type        = string
   default     = "10.43.0.0/26"
 

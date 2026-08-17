@@ -16,9 +16,9 @@
   frontend GHCR digest is a delivery-only source: protected apply promotes it
   to GAR, and Terraform receives and records only the GAR digest actually run
   by the Cloud Run sidecar.
-- Backend, frontend, OCR, and Vault images are digest-pinned, emit provenance
-  and SBOM attestations where the build path supports them, and must pass their
-  packaged-runtime smoke tests. Runtime image vulnerability scanning is
+- Backend, frontend, browser-readiness, OCR, and Vault images are digest-pinned,
+  emit provenance and SBOM attestations where the build path supports them, and
+  must pass their packaged-runtime smoke tests. Runtime image vulnerability scanning is
   deferred and is not a CI, deployment, or release gate.
 - Production apply requires the protected `production` environment.
 
@@ -77,6 +77,42 @@ published plan/apply/readiness/rollback status precedence. The
 entrypoints so workflows and operators use the unit-tested Go contract rather
 than separate shell implementations.
 
+The stateful Cloud Run readiness lifecycle is separately owned by
+`cmd/cloud-run-readiness` and `internal/cloudrunreadiness`. The typed Go
+implementation fences prior executions, recovers an interrupted launch
+identity, waits for terminal settlement, and renders bounded diagnostics. The
+`ci/run-cloud-run-readiness.sh` entrypoint is only a thin binary launcher; it
+contains no lifecycle state machine or readiness policy.
+
+Production browser session transport is likewise owned by
+`cmd/production-browser-readiness` and
+`internal/productionbrowserreadiness`. That typed boundary restores and
+attests the inert job binding, validates bounded Secret Manager API metadata,
+reconciles exact credential versions, stages its restricted remote-session
+mode over IAP, and settles cleanup on every handled exit.
+`ci/run-production-browser-readiness.sh` is only a validated binary launcher.
+No Bash helper is copied to the VM; the controller stages the same CGO-disabled
+Go executable and invokes its restricted remote-session mode. Because
+Container-Optimized OS mounts `/tmp` non-executable, the executable and its lock
+use an exact hidden mode-`0700` stage below `/mnt/disks/data/scribe/prod`.
+Credential material instead uses a separately derived mode-`0700`
+`/tmp/scribe-production-browser-state-<run>-<attempt>.<suffix>` directory that
+contains only mode-`0600` `storage-state.json`; the shared suffix binds it to
+the executable stage without placing a credential on persistent disk. Docker
+Compose always reads its fixed managed configuration from
+`/mnt/disks/data/docker-config`. Docker's archive-copy API cannot read the API
+service's tmpfs state, so a dependency-free, exact-path helper exports it over
+`docker compose exec` directly into a pre-created mode-`0600` host file. The Go
+transport writes at most 8 KiB plus one overflow sentinel and never retains the
+credential stream in command output or diagnostics. Typed cleanup removes
+container and VM credential state before returning success, after which the
+controller removes the inert executable and lock. An ambiguous cleanup
+therefore remains safe to retry. Prepare also performs bounded recovery of
+orphaned state directories, current executable stages, and the former strict
+`/tmp` executable-stage layout. If final reconciliation also fails after an
+earlier phase failure, the final result remains `cleanup-unconfirmed` while a
+separate fixed, redacted diagnostic retains the primary phase category.
+
 Preview ingress is already restricted by the protected `ALLOWED_IPS` policy,
 so preview application auth deliberately uses its isolated anonymous workspace
 instead of a reusable Google OAuth client. `AUTH_PREVIEW_ANONYMOUS` is accepted
@@ -126,41 +162,45 @@ remain governed by the exact preview/production image contract. Terraform
 destroy makes at most three bounded attempts with the same validated
 state-derived inputs for ordinary failures, so short-lived
 cloud dependency cleanup can converge without rereading partially changed
-state. The exact preview-only Google-managed subnet delay described below gets
-a separate two-hour bound. After either bound, a later protected run or operator
-recovery is required. The workspace is deleted only after a successful destroy.
+state. The exact Google-managed subnet delay described below gets a separate
+two-hour bound for protected preview or explicitly confirmed production
+destroy. After either bound, a later protected run or operator recovery is
+required. The workspace is deleted only after a successful destroy.
 
-A preview that uses Cloud Run Direct VPC can fail after its services are gone
-with `resourceInUseByAnotherResource` and an
+A managed preview or production destroy that uses Cloud Run Direct VPC can fail
+after its services are gone with `resourceInUseByAnotherResource` and an
 `/addresses/serverless-ipv4-...` or `/addresses/serverless-ipv6-...`
-reservation still holding the preview subnet.
-This is a Google-managed cleanup delay, not permission to edit Terraform state
-or delete the reservation: Google documents a **one-to-two-hour wait** after
+reservation still holding an application or dedicated browser subnet. This is
+a Google-managed cleanup delay, not permission to edit Terraform state or
+delete the reservation: Google documents a **one-to-two-hour wait** after
 removing the Cloud Run resources before deleting the subnet. When Terraform's
-preview-destroy diagnostic contains either exact managed `serverless-ipv4-*`
-or `serverless-ipv6-*` address and `resourceInUseByAnotherResource`, the
-protected job retries every five minutes for up to two hours using the same
+destroy diagnostic contains either exact managed `serverless-ipv4-*` or
+`serverless-ipv6-*` address and `resourceInUseByAnotherResource`, the protected
+job retries every five minutes for up to two hours using the same
 already-validated deployment inputs. Every Terraform error in that attempt
-must identify either the exact current preview application subnet, its exact
-deterministic dual-stack browser subnet, or its exact deterministic retired
-`browser-v6` subnet from the previous independent-network design, plus a
-managed address. The retired name is accepted only by this bounded teardown
-classifier; no active job attaches to it and it grants no PPB access. Mixed or
-differently scoped failures retain the ordinary bound. The wait retains the
-shared preview serialization lock and the job-scoped deploy identity so no
-other preview can replace shared runtime bindings during a partial teardown.
-Its preview-only timeout leaves a one-hour execution and cleanup margin beyond
-the two-hour sleep budget; other deploy modes retain their shorter timeout.
-After Terraform succeeds, the workflow
-mints new short-lived Vault proxy, identity, and client tokens before removing
+must identify the exact current application subnet, exact deterministic
+dual-stack browser subnet, or exact deterministic retired `browser-v6` subnet
+from the previous independent-network design, plus a managed address. The
+retired name is accepted only by this bounded teardown classifier; no active
+job attaches to it and it grants no PPB access. Mixed or differently scoped
+failures retain the ordinary bound. The wait retains the protected deployment
+serialization lock and job-scoped deploy identity so another run cannot
+replace runtime bindings
+during a partial teardown. Managed preview and explicitly confirmed production
+destroy timeouts leave a one-hour execution and cleanup margin beyond the
+two-hour sleep budget; other deploy modes retain their shorter timeout. After
+preview Terraform succeeds, the workflow mints new short-lived Vault proxy,
+identity, and client tokens before removing
 the preview namespace, rather than reusing credentials created before the wait.
 Other errors retain the ordinary three-attempt bound. If Google still has not
-released the address after the longer bound, let the run fail closed and rerun
-**Terraform Preview** from protected `main` later. Use ordinary `destroy` while
-the current state still has a readable `deployment_inputs` output. If ordinary
-destroy instead reports that the output is absent, use `recover-destroy` as
-described below. Never manually delete a `serverless-ipv4-*` or
-`serverless-ipv6-*` reservation. See
+released the address after the longer bound, let the run fail closed. For a
+preview, rerun **Terraform Preview** from protected `main` later. Repeat a
+production destroy only through the same explicitly approved, confirmed
+recovery procedure. Use ordinary preview `destroy` while the current state
+still has a readable `deployment_inputs` output. If ordinary preview destroy
+instead reports that the output is absent, use `recover-destroy` as described
+below. Never manually delete a `serverless-ipv4-*` or `serverless-ipv6-*`
+reservation. See
 Google's
 [Direct VPC subnet deletion guidance](https://cloud.google.com/run/docs/configuring/vpc-direct-vpc#ip-address-allocation).
 
@@ -275,8 +315,9 @@ external bootstrap boundary: application Terraform cannot safely create the
 provider that authenticates its own first run. Each protected job therefore
 runs `ci/verify-gcp-wif.sh` immediately after authentication and before any
 publish, plan, apply, restore, or Vault operation. A missing inspection grant
-or a broader live policy fails the job. A successful local/static check is not
-release evidence; the protected workflow preflight must pass against GCP.
+or a broader live policy fails the job. A successful fake-backed behavior test
+is not release evidence; the protected workflow preflight must pass against
+GCP.
 
 Configure one active provider per dedicated pool with no custom audience, the
 issuer `https://token.actions.githubusercontent.com`, and exactly these
@@ -446,7 +487,7 @@ Optional `ALLOWED_SSH_IPV4` and `ALLOWED_SSH_IPV6` variables are JSON arrays of
 the exact administrator CIDRs permitted to reach the VM; an empty array keeps
 that address family closed.
 
-### Managed preview browser readiness
+### Managed browser readiness
 
 Every protected preview apply checks out the exact protected base SHA for its
 workflow, source-preparation helper, Dockerfile, package manifests, and locked
@@ -473,49 +514,66 @@ pull request onto that protected commit before running its preview. Do not stage
 or execute pull-request Terraform with cloud credentials to collapse the two
 reviews into one run.
 
-The PR-head script runs only later in the preview-only Playwright job. The
-runtime and browser are digest-pinned, run as `pwuser`, and receive only the
-preview's canonical HTTPS origin. A dedicated Cloud Run job uses a dedicated
-service account with no project, storage, Vault, Pub/Sub, or OCR IAM grants.
-The preview's existing application VPC and application subnet are root-owned
-Terraform resources. Reviewed `moved` blocks transfer their addresses from the
-nested Cloud Compose module without recreating either object, and the module
-consumes their exact self-links with network creation disabled. This
-quota-neutral ownership allows the browser job to use a dedicated,
-non-overlapping dual-stack `/26` in the same preview VPC. The job's Direct VPC
-interface carries an isolation tag, and an egress firewall deny targeted to
-that tag blocks the exact private application subnet CIDR. The browser subnet
-receives one external IPv6 `/64`; Terraform appends only that preview-owned
-`/64` to this preview's PPB ingress allowlist, so production and other previews
-are not widened. The standalone project foundation owns the documented
-`roles/compute.publicIpAdmin` grant for Google's Cloud Run service agent. It is
-never recreated by a preview workspace, and no human, deploy, or application
-identity receives that role. A reserved regional IPv4 address and
-subnet-scoped Cloud NAT cover only the browser subnet for fixed public DNS and
-reviewed IPv4-only fixture origins. The canonical `run.app` host is forced over
-AAAA because Public Cloud NAT does not translate it. The protected routing
-helper accepts at most 32 public-global AAAA answers, maps only the exact
-canonical host in Chromium, and disables Node's IPv4 family race for Playwright
-API requests. The VM, backend probe, OCR probe, and application subnet cannot
-use a browser `/64`; production and other previews cannot use this preview's
-range. A retired deterministic `browser-v6` subnet name remains recognized
-only by the bounded destroy classifier so an interrupted rollout of the
-earlier independent-network design can wait for Google-managed Direct VPC
+The PR-head script runs only later in the preview Playwright job. Production
+instead builds the same protected runner from the exact reviewed `main` SHA;
+untrusted source is never combined with production credentials. Both runtimes
+and browsers are digest-pinned, run as `pwuser`, and receive only their exact
+canonical HTTPS origin. Each environment has a dedicated Cloud Run job and
+dedicated service account. Its existing application VPC and application subnet
+are root-owned Terraform resources; reviewed `moved` blocks transfer their
+addresses from the nested Cloud Compose module without recreating either
+object, and the module consumes their exact self-links with network creation
+disabled. This quota-neutral ownership allows the browser job to use a
+dedicated, non-overlapping dual-stack `/26` in the same per-environment VPC.
+The job's Direct VPC interface carries an isolation tag, and an egress firewall
+deny targeted to that tag blocks the exact private application subnet CIDR.
+The browser subnet receives one external IPv6 `/64`. Terraform appends only
+that environment-owned `/64` to the same environment's PPB ingress allowlist;
+other environments are not widened. During the one-time IPv4-only to
+dual-stack transition, Terraform defers an explicit subnet read until after the
+in-place update, validates the freshly allocated canonical `/64`, and only then
+resolves the PPB and browser-job changes in the saved plan. A missing or
+malformed prefix stops the apply before browser execution. The singleton
+project foundation owns the documented `roles/compute.publicIpAdmin` grant for
+Google's Cloud Run service
+agent. It is never recreated by a preview or production workspace, and no
+human, deploy, or application identity receives that role. A reserved regional
+IPv4 address and subnet-scoped Cloud NAT cover only the browser subnet for
+fixed public DNS and reviewed IPv4-only fixture origins. The canonical
+`run.app` host is forced over AAAA because Public Cloud NAT does not translate
+it. The protected routing helper accepts at most 32 public-global AAAA answers,
+maps only the exact canonical host in Chromium, and disables Node's IPv4 family
+race for Playwright API requests. The VM, backend probe, OCR probe, and
+application subnet cannot use a browser `/64`; production and previews cannot
+use one another's. A retired deterministic `browser-v6` subnet name remains
+recognized only by the bounded destroy classifier so an interrupted rollout of
+the earlier independent-network design can wait for Google-managed Direct VPC
 address release. No active job attaches to that retired subnet and it grants
-no PPB access.
+no PPB access. Immediately after browser-context creation and before production
+authentication or orphan cleanup, the runner gives only the initial root
+document a bounded five-minute warm-up for PPB `403` or `404` responses while
+the initial route becomes ready; every later browser response remains fail
+closed.
 
-The job authenticates through the existing isolated
-`AUTH_PREVIEW_ANONYMOUS` workspace. It leaves context selection on `Default`
-and proves the durable job resolved a concrete context, uploads the reviewed
-two-line image fixture through the frontend retry path, and intentionally holds
-the editor bundle until the exact durable job has completed. The loaded editor
+Preview authenticates through the existing isolated `AUTH_PREVIEW_ANONYMOUS`
+workspace. Production consumes the one-time reserved-user session described
+below, verifies the exact user, workspace, and administrator role before
+product work, and otherwise runs the same scenario. Neither mode needs a user's
+cookie or an interactive Google OAuth login. The runner leaves context
+selection on `Default` and proves the durable job resolved a concrete context,
+uploads the reviewed two-line image fixture through the frontend retry path,
+and intentionally holds the editor bundle until the exact durable job has
+completed. The loaded editor
 must catch up from that completed job and its canonical revision: the visible
 magic-wand badge must move between two distinct line annotations in increasing
 order, and both lines must emit matched start and result events for the exact
 job and successful attempt. The runner then reloads an unpinned editor, waits
 for its overlay and event bridge to mount, and enqueues a distinct durable job.
-It waits for the item-scoped SSE response before enqueueing so no task event can
-race ahead of the new stream's outbox high-water mark. That in-flight path must
+It waits for the item-scoped SSE response and a correlated application marker
+emitted only after stream-ready reconciliation completes, so no task event can
+race the new stream boundary and stale completion text cannot stand in for the
+new job. The runner waits for that exact job to become durably terminal before
+starting its bounded visual-drain grace. That in-flight path must
 emit live (not reconstructed catch-up) events and move the visible wand through
 both lines before completion. The editor does not
 publish its terminal available state or re-enable
@@ -541,11 +599,15 @@ identity/image/page checks, cycles every overlay mode, and proves an editor
 action remains usable.
 
 Retryable `UploadItemImage` responses do not independently fail the browser's
-global network sentinel. The runner requires one to three attempts, permits
+global network sentinel. The runner requires one to five attempts, matching the
+durable server retry budget, and permits
 only retryable Connect/transport outcomes before the last attempt, validates
 the last response's item/image/job identities, and requires the exact editor
-handoff before any terminal upload result. The manifest path observes exactly
-one import request, no reprocess request, and six positive unique image IDs.
+handoff before any terminal upload result. Every intercepted upload request
+retains a 300-second timeout, while the complete retry-to-editor wait is bounded
+by the time remaining before the 27-minute main-scenario deadline. The manifest
+path observes exactly one import request, no reprocess request, and six positive
+unique image IDs.
 Expected image evidence is capped at 100 responses, rejects empty or
 larger-than-64-MiB bodies, and shares the bounded stage timeout. Its two local
 publications are removed with the exact disposable manifest item during normal
@@ -569,26 +631,66 @@ diagnostics accept only these exact browser categories: `home`, `context`,
 `upload`, `handoff`,
 `transcription`, `annotations`, `editor`, `overlay`, `structure`, `manifest`,
 `retranscribe`, `save`, `publish`, `responsive`, `token`, `cleanup`, `network`,
-and `csp`; free-form or suffixed messages are discarded. The runner stores no
-browser state and uploads no browser output.
+`csp`, and `rate`. A generic network failure is further bounded to a fixed
+document, API-service, event-stream, Presentation, Image API, asset, or other
+family plus client, server, or transport class. These fixed variants make the
+task exit code actionable even when Cloud Logging is unavailable; they never
+include a URL, query, method body, or browser error string. Free-form or
+unrecognized messages are discarded. The top-level `upload` category retains
+exit code 23 and is accompanied in Cloud Logging by one separately allowlisted
+fixed substage: start response/transport, image terminal/retry/transport,
+handoff timeout/terminal, or response contract. Terminal upload text is reduced
+through an exact safe-message allowlist to fixed provider/segmentation
+failures; admission, upload-storage, segmentation-output, quota-resize,
+lease-renewal, image-commit, OCR-run-commit, annotation-commit,
+transcription-enqueue, item-reload, or batch-commit stages; or unknown. Lease
+renewal recurs before fenced side effects and overrides an interrupted
+operation rather than occupying one position in a linear sequence. A final
+retryable upload-image response adds only a fixed marker for its exact
+canonical lowercase Connect code. If its capped JSON snapshot is unavailable
+or invalid, the marker may instead contain one fixed observed HTTP status;
+that status does not attribute the responder. Valid JSON with a missing,
+non-string, or unrecognized code is not classified through HTTP status. The
+response text, body, and fixture name are not rendered. The runner freezes
+browser-fault monitoring before deadline-driven or final teardown so a closing
+page cannot replace the original product-stage failure. It stores no browser
+state and uploads no browser output.
 
-A 30-minute scenario deadline measured from process startup closes the browser
+A 27-minute scenario deadline measured from process startup closes the browser
 page and enters normal cleanup before the platform boundary. The Cloud Run task
-has a 40-minute timeout and reserves its final 10 minutes for deadline-aware
-reconciliation: 300 seconds for a late mutation to commit, a 180-second
-recovery tail, and bounded request/control overhead. The protected 120-minute
-deploy workflow covers the sequential 300-second backend, 1,800-second OCR,
-and 2,400-second browser job bounds plus 1,800 seconds of control-plane
-headroom.
+has a 40-minute timeout and partitions the remaining 13 minutes into eight
+minutes of deadline-aware reconciliation (a 300-second late-mutation commit
+horizon plus a 180-second recovery tail), three minutes for session revocation,
+30 seconds for browser shutdown, and 90 seconds of platform headroom. Preview
+apply retains its 120-minute ceiling. Production apply has a 240-minute ceiling
+covering the initial backend, OCR, and browser bounds, terminal fencing of the
+browser execution, restoration of the prior reviewed release, a second
+backend/OCR readiness pass, and 1,800 seconds of Terraform and control-plane
+headroom. The explicit production allocation is twelve 300-second backend
+executions across the forward and rollback passes, two 1,800-second OCR runs,
+two 2,400-second browser task bounds, and 1,800 seconds of Terraform and
+control-plane headroom: 13,800 seconds (230 minutes), leaving ten minutes under
+the workflow ceiling. Each production backend pass may use up to five
+additional owned executions only when every failed nonfinal execution has the
+exact allowlisted guest-startup-lag marker set. Protected previews retain one
+such retry. All attempts in a pass share its 45-minute typed-runner deadline.
+Backend and OCR readiness complete before the production browser session is
+minted, so startup retries do not consume its 50-minute lifetime.
 
 Terraform records the exact runner digest and dedicated subnet in
-`deployment_inputs`, so
-refresh and destroy replay the same graph. The protected apply workflow always
-supplies a non-empty digest and requires the resulting browser job to pass
-before preview success. Terraform permits an empty runner value only so
-non-preview and pre-runner lifecycle state can be planned or destroyed;
-historical absence normalizes to that empty value. Explicit null, mutable,
-cross-project, or placeholder values fail closed.
+`deployment_inputs`, so refresh, ordinary rollback, and destroy replay the
+same graph except that rollback always retains the already applied reviewed
+browser subnet CIDR. Replacing that Direct VPC subnet while Google may still
+hold its managed serverless address can block recovery for up to two hours; an
+older runner is safe on the retained isolated subnet. On the one rollout whose
+prior record predates production browser readiness, rollback also retains the
+exact reviewed forward runner digest and its no-idle-credential safety graph.
+The next successful deployment records these retained inputs normally.
+The protected preview and production apply workflows always supply a non-empty
+digest and require the resulting browser job to pass before success. Terraform
+permits an empty runner value only for development and historical pre-runner
+lifecycle state; historical absence normalizes to that empty value. Explicit
+null, mutable, cross-project, or placeholder values fail closed.
 
 ### Trusted browser smoke session
 
@@ -607,21 +709,73 @@ docker compose exec -T api /app/scribe-browser-session \
 The command emits no credential or success message. It verifies that reserved
 user 1 is not a system administrator or OAuth identity, owns only reserved
 personal workspace 1, and is that workspace's administrator. It then creates
-an ordinary session with a fixed five-minute lifetime and writes a
+an ordinary session with a fixed 50-minute fallback lifetime and writes a
 Playwright-compatible storage-state document to a new mode-`0600` file in the
 API container's private `/tmp` directory. There are no user, workspace, role, or
 lifetime override flags. Any drift in the reserved identity, an existing
 output file, a non-HTTPS public origin, or a cookie-domain mismatch fails
 closed.
 
-The protected SSH step must copy the file into a job-private mode-`0700`
-directory without printing its contents, remove the container copy
-immediately, load it directly through Playwright's `storageState` option, and
-remove the host copy as soon as the browser context is created. On successful
-readiness, POST `/logout` from that context to revoke the database session;
-abandoned sessions expire after five minutes. Never put the file contents in a
-shell command substitution, process argument, URL, GitHub output/environment
-file, log, trace, screenshot, video, or artifact.
+Mint mode uses a 90-second narrow bootstrap: it loads and validates only its
+public origin, cookie, database, and database-Vault-path configuration, reads
+only that exact path from Vault, and opens only the database-backed identity
+store. It does not request Google
+OAuth or provider secrets and does not initialize service identity, Pub/Sub,
+application auth, telemetry, or upload/runtime stores. Reservation, export,
+and cleanup modes do not bootstrap Vault or the database.
+
+The protected workflow uses an ephemeral 50-minute SSH key and IAP tunnel to
+run that helper on the exact production VM. It copies the state through
+mode-`0600` files in private mode-`0700` directories, removes the container and
+VM copies immediately, and validates the bounded schema, cookie fields, expiry,
+mode, size, and digest before transport. The VM credential directory is the
+ephemeral `/tmp` directory described above and is distinct from the persistent,
+non-secret executable stage. Explicit prepare, mint, and cleanup controller
+deadlines contain their VM-side command budgets; storage-state lifetime is
+validated only after mint, transfer, and remote cleanup, so a slow remote phase
+fails closed rather than shortening the protected browser run. The controller
+creates one temporary Secret Manager version from the validated file, deletes
+the local copy, and updates the isolated Cloud Run browser job from Terraform's
+exact inert version 1 to that exact numeric credential version. It attests the
+job reference before starting the execution with the expected version and
+digest.
+
+Secret-version reconciliation allows up to eight minutes for a newly applied
+secret, version, and secret-scoped IAM binding to become observable. The Go
+controller retries only an unavailable list or a structurally valid inventory
+that is still missing version 1 or still reports a just-destroyed version.
+Malformed API metadata, a wrong resource scope, duplicate or unknown records,
+and the bounded-list overflow sentinel fail immediately; version 1 is never
+mutated. Inventory uses the authenticated Secret Manager API directly; secret
+payload creation remains file-only and never enters argv, stdout, or logs.
+
+The job entrypoint materializes the injected value once in a mode-`0600` file,
+unsets the secret environment variable before starting Node, and refuses to
+overwrite an existing path. The runner reads and removes that file before its
+first request, verifies its digest and complete cookie contract in memory, then
+passes the parsed object directly to Playwright's `storageState` option. Before
+Chromium starts, it separately retains only the validated cookie required for
+revocation. Final cleanup retries the fail-closed `/logout` route within its
+absolute budget, then replays that original cookie against a protected API and
+requires HTTP 401 before clearing it from runner state. This path still runs if
+Chromium launch or context creation failed. Transport then restores
+the job's exact version-1 reference before destroying and directly verifying
+the known credential version; it never treats an eventually consistent
+`latest` alias or version listing as proof. An ambiguous version creation keeps
+the deployment failed while bounded best-effort cleanup and the fixed expiry
+contain the unknown version. Browser executions are never platform-cancelled by
+orchestration; failure and signal paths wait for their natural terminal state
+so the bounded
+in-process cleanup can run. Before a later production apply changes Terraform,
+the workflow fences any recorded nonterminal browser execution. The next
+production run also sweeps bounded stale VM state, reconciles secret versions,
+and deletes only stranded UUID-namespaced readiness uploads/keys and manifest
+items carrying both the strict readiness marker and reviewed source URL in
+reserved workspace 1. The fixed 50-minute session
+lifetime is the final fallback after hard platform or runner termination. Never
+put the state or session value in a shell command substitution, process
+argument, URL, GitHub output/environment file, log, trace, screenshot, video,
+or artifact.
 
 This helper deliberately relies on the existing host-administrator trust
 boundary: anyone able to execute commands in the API container can already
@@ -629,6 +783,26 @@ reach its database and Vault bootstrap material. Do not expose the binary
 through an HTTP route or copy it into the public frontend image. Preview auth
 continues to use its isolated `AUTH_PREVIEW_ANONYMOUS` principal and does not
 need this credential.
+
+Preview-anonymous and production-session browser runs traverse the same edge
+admission policy as an ordinary editor. The RPC bucket refills at two requests
+per second and retains a 40-request cold-start burst so one shell-to-editor
+handoff can converge its workspace, transcription, Manifest, and canonical-page
+reads. The independent per-IP aggregate remains 12 requests per second with a
+120-request burst, and the authenticated inner, body-size, processing, and
+canonical-read concurrency limits still apply. A readiness HTTP 429 remains a
+deployment failure; do not hide mutation throttling with generic browser-side
+retries.
+
+The production workspace adds Google's `35.235.240.0/20` IAP TCP forwarding
+range to the VM's port-22 firewall rule; development and preview SSH allowlists
+are unchanged. Terraform grants the single protected deploy service account
+from `vault_ci_service_account_emails` `roles/iap.tunnelResourceAccessor` on
+the exact production `var.name` instance, with an IAM condition limited to
+`destination.port == 22`. It does not grant project-wide or all-tunnel access,
+and removing the deployment from state does not disable the IAP API. The same
+identity can add and destroy versions only on the exact production browser
+secret; the Cloud Run identity can only access that secret.
 
 Set repository variables `SCRIBE_REGION` and `SCRIBE_ZONE` together (defaults
 `us-east5` and `us-east5-b`). The workflow passes that exact pair to the
@@ -701,16 +875,24 @@ VPC egress and polls its proxied `/healthz`. The second submits the deterministi
 `SCRIBE TEST` image to the private image normalizer, segmentation, and Kraken
 transcription endpoints, validates the JPEG and non-empty model outputs, and in
 production requires the default Ollama OCR model to finish a non-streaming
-image request. Protected preview applies then pass the separate browser job
-described above. All three use separate no-data probe identities so PR-built
-frontend code never inherits the OCR probe's invoker grants. If Terraform
-partially applies, or attestation/readiness fails after a production apply, the
-workflow checks out the previously recorded reviewed commit, verifies that it
-is an ancestor of the deploying `main` commit, and reapplies its persistence
-generation, image digests, network/auth settings, and runtime limits. It then
-reattests the restored frontend digest and both readiness jobs; a rollback
-failure is reported distinctly. A nonzero apply can still have committed cloud
-changes, so reaching the apply step is sufficient to trigger rollback. State
+image request. Protected preview and production applies then pass the separate
+browser job described above. All three use separate no-data probe identities;
+the production browser identity's sole data permission is access to its exact
+one-time session secret, so browser code never inherits the OCR probe's invoker
+grants. Before applying, the workflow checks out the previously recorded
+reviewed commit and normally requires it to be an ancestor of the deploying
+`main` commit. The only non-ancestor exception is an exact forced-push amend
+retry: the push `after` SHA must equal the reviewed deployment source, and the
+recorded commit, push `before` commit, and current commit must each have one
+identical parent and the same subject. Every mismatched event, parent, subject,
+or commit shape fails closed before apply. If Terraform partially applies, or
+attestation/readiness fails after a production apply, the workflow reapplies
+the recorded persistence generation, image digests, network/auth settings, and
+runtime limits. It then retests the restored frontend digest and the
+backend/OCR readiness jobs; a rollback failure is reported distinctly. A
+nonzero apply can still have
+committed cloud changes, so reaching the apply step is sufficient to trigger
+rollback. State
 written before the complete source and
 configuration record exists has no automatic rollback target and fails closed.
 
@@ -1000,6 +1182,13 @@ the provider-managed stop/update/start while retaining its persistent disks.
 Refresh and destroy always replay the region, zone, and preview machine profile
 recorded in that workspace's deployment inputs instead of guessing from the
 current defaults.
+
+Preview apply retries only the frozen zone when Terraform reports the exact GCP
+`does not have enough resources available` capacity diagnostic. It makes at
+most six total attempts, one minute apart, and never changes placement within a
+run because the frontend backend origin was frozen before apply. After the
+attempts are exhausted, select another reviewed zone with the protected
+`SCRIBE_PREVIEW_ZONE` repository variable and rerun the preview.
 
 The Compose checkout is workspace-stable at
 `/mnt/disks/data/scribe/<workspace>`, even though every deployment fetches,

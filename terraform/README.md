@@ -64,9 +64,9 @@ the missing image reference.
 Application workspaces read singleton foundation state and never recreate its
 resources. That foundation also binds Google's managed Cloud Run service agent
 to `roles/compute.publicIpAdmin`, which external-IPv6 Direct VPC subnets
-require; per-preview states and application identities never own that
-project-wide grant. Initialize the foundation state with the default workspace
-and isolated prefix:
+require; application workspace states and application identities never own
+that project-wide grant. Initialize the foundation state with the default
+workspace and isolated prefix:
 
 The protected foundation apply enables `serviceusage.googleapis.com` after
 verifying the production WIF boundary and before Terraform initialization.
@@ -139,7 +139,9 @@ schema. Additive legacy state has four unambiguous defaults: a missing
 `preview_machine_type` is the former `e2-medium` preview default and is ignored
 outside preview workspaces. Explicit null or malformed values still fail
 closed, and non-empty browser images remain subject to the exact
-environment/image contract.
+environment/image contract. Protected preview and production applies always
+provide the reviewed digest; the empty value remains only for development and
+historical pre-runner replay.
 Refresh creates a full-graph saved `terraform plan -refresh-only` and rejects
 non-move drift or any non-no-op resource/output action. The wrapper prints the
 verified plan before auto-applying that exact saved plan. It does not invoke
@@ -154,18 +156,19 @@ does not recreate either object. Protected preview orchestration normalizes the
 shared `dev` state after its backup audit and before targeted Vault maintenance;
 production and preview workspace applies retain the full Terraform graph.
 Destroy retains its one validated input snapshot across at most three attempts
-for ordinary failures. A Google-managed `serverless-ipv4-*` or
-`serverless-ipv6-*` dependency on the exact preview application subnet, exact
+for ordinary failures. During a managed preview or explicitly confirmed
+production destroy, a Google-managed `serverless-ipv4-*` or
+`serverless-ipv6-*` dependency on the exact application subnet, exact
 deterministic dual-stack browser subnet, or exact deterministic retired
 `browser-v6` subnet from the previous independent-network design receives up
 to 25 attempts, five minutes apart, because Cloud Run Direct VPC address
 release can take two hours; it does not authorize deletion of the
 provider-managed address. The retired name is a teardown-only classifier and
-grants no active job attachment or PPB access. Only preview destroy receives
-the extended workflow timeout; other deployment modes keep the ordinary bound.
-A preview workspace is deleted only after destroy succeeds. If an interrupted
-teardown already removed the current output, the protected preview workflow's
-explicit
+grants no active job attachment or PPB access. Managed preview and
+production destroy receive the extended workflow timeout; other deployment
+modes keep the ordinary bound. A preview workspace is deleted only after
+destroy succeeds. If an interrupted teardown already removed the current
+output, the protected preview workflow's explicit
 `recover-destroy` action can read the newest valid lower-serial, same-lineage
 output from the versioned state object's history. It does not restore or
 overwrite state and is not available for production. When a prior protected
@@ -190,7 +193,7 @@ examples are in [variables.tf](variables.tf) and
   preview-only `preview_machine_type` (`n2d-standard-2` or `e2-medium`);
 - `allowed_ips`, exact SSH CIDRs, and the managed/Compose network CIDRs;
 - `data_generation`, which scopes every persistent store and queue;
-- the API, frontend GAR, and model-service image digests;
+- the API, frontend GAR, browser-readiness, and model-service image digests;
 - workspace/global storage and transcription admission limits;
 - Vault administrator and CI service-account identities; and
 - production monitoring channels, backup identity, snapshot, and retention
@@ -200,6 +203,7 @@ examples are in [variables.tf](variables.tf) and
 
 - `TF_STATE_BUCKET`
 - `SCRIBE_API_IMAGE`
+- `SCRIBE_BROWSER_READINESS_IMAGE`
 - `SCRIBE_FRONTEND_GAR_IMAGE`
 - `SCRIBE_OCR_IMAGES_JSON`
 - `SCRIBE_DATA_GENERATION`
@@ -249,6 +253,8 @@ before applying any impersonator change.
 Terraform receives only images consumed by deployed resources:
 
 - `api_image` is the digest-pinned GHCR backend image run by Compose;
+- `browser_readiness_image` is the digest-pinned GAR image run by the protected
+  preview and production browser-readiness jobs;
 - `frontend_gar_image` is the digest-pinned GAR image run by the Cloud Run
   frontend sidecar; and
 - `ocr_service_images` maps every configured OCR service key to its
@@ -283,24 +289,46 @@ from the four documented additive legacy defaults.
   the exact current `main` SHA, and applies or destroys `pr-*` workspaces.
 - [terraform-apply.yaml](../.github/workflows/terraform-apply.yaml) reconciles
   the foundation, builds and scans immutable artifacts, rebuilds OCR only when
-  its image inputs changed or reuse is ambiguous, and calls the protected
-  production deployment workflow.
+  its image inputs changed or reuse is ambiguous, builds the exact-main browser
+  runner, and calls the protected production deployment workflow.
 - [terraform-deploy.yaml](../.github/workflows/terraform-deploy.yaml) plans,
-  applies, attests the deployed frontend digest, runs backend/OCR readiness,
-  and restores the prior recorded release after a failed production rollout.
+  applies, attests the deployed frontend digest, runs backend/OCR/browser
+  readiness, and restores the prior recorded release after a failed production
+  rollout.
 - [terraform-drift.yaml](../.github/workflows/terraform-drift.yaml) plans from
   the recorded production source and runtime inputs.
 - [backup-verification.yaml](../.github/workflows/backup-verification.yaml)
   exercises the independent production recovery boundary.
 
-Protected preview workspaces retain one root-owned per-environment application
-VPC. The managed browser job attaches to a dedicated, non-overlapping
-dual-stack `/26` in that VPC, and its interface tag selects an egress firewall
-deny for the exact private application subnet CIDR. Only the browser subnet's
-external IPv6 `/64` enters that preview's PPB allowlist. A reserved IPv4 address
-and subnet-scoped Cloud NAT serve fixed DNS and reviewed IPv4-only fixture
-origins without widening PPB or another environment. This topology adds no
-browser-only VPC to the project's network quota.
+Protected preview and production workspaces retain one root-owned
+per-environment application VPC. The managed browser job attaches to a
+dedicated, non-overlapping dual-stack `/26` in that VPC, and its interface tag
+selects an egress firewall deny for the exact private application subnet CIDR.
+Only the browser subnet's external IPv6 `/64` enters that environment's PPB
+allowlist. A reserved IPv4 address and subnet-scoped Cloud NAT serve fixed DNS
+and reviewed IPv4-only fixture origins without widening PPB or another
+environment. A dependent subnet read is deferred across the one-time in-place
+dual-stack transition, so the saved plan consumes and validates the newly
+allocated `/64` after the update instead of the stale empty IPv4-only state.
+This topology adds no browser-only VPC to the project's network quota.
+
+Production browser readiness requires no user cookie or Google OAuth flow. The
+single protected deploy identity receives port-22-only IAP access to the exact
+production VM and version-manager access to the exact browser-session secret.
+It mints a fixed 50-minute fallback session for reserved user/workspace 1,
+validates the state in a private temporary directory, and creates one temporary
+Secret Manager version for the isolated browser job. The browser identity can
+only read that secret. The runner validates the version-bound state in memory,
+removes its transient file before its first request, and logs out during
+cleanup. Terraform pins the idle job to inert secret version 1. Browser
+executions reach natural terminal state; handled exits restore that exact job
+reference, destroy and verify the known numeric credential version directly,
+or keep the deployment failed. Ambiguous version creation is never accepted as
+success and remains bounded by best-effort cleanup plus the fixed expiry. A
+subsequent protected apply fences work left by hard termination before rollout,
+and the next run reconciles bounded stale VM, secret, and readiness-owned
+application state. The fixed 50-minute session lifetime is the final revocation
+fallback.
 
 A manual protected production `mode=plan` reuses current runtime image digests
 and does not build, publish, promote, or apply. Production destroy is not

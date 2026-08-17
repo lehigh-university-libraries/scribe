@@ -3,13 +3,64 @@ package server
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/lehigh-university-libraries/htr/pkg/providers"
+	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
+
+func TestUploadBatchFailureStagesExposeOnlyFixedCategories(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		stage uploadBatchFailureStage
+		err   error
+		want  string
+	}{
+		{name: "admission", stage: uploadBatchFailureAdmission, want: "admission failed"},
+		{name: "storage override", stage: uploadBatchFailureSegmentationOutput, err: ocrhandlers.ErrUploadStorageFailure, want: "upload storage failed"},
+		{name: "provider override", stage: uploadBatchFailureImageCommit, err: providers.NewError(providers.ErrorAuthentication, http.StatusForbidden, false, nil), want: "provider request failed with HTTP status 403"},
+		{name: "provider override wins over joined processing error", stage: uploadBatchFailureAnnotationCommit, err: errors.Join(ocrhandlers.ErrSegmentationOutputFailure, providers.NewError(providers.ErrorAuthentication, http.StatusForbidden, false, nil)), want: "provider request failed with HTTP status 403"},
+		{name: "segmentation output", stage: uploadBatchFailureSegmentationOutput, want: "segmentation output failed"},
+		{name: "typed segmentation override", stage: uploadBatchFailureAdmission, err: ocrhandlers.ErrSegmentationOutputFailure, want: "segmentation output failed"},
+		{name: "quota resize", stage: uploadBatchFailureQuotaResize, want: "quota resize failed"},
+		{name: "lease renewal", stage: uploadBatchFailureLeaseRenewal, want: "lease renewal failed"},
+		{name: "image commit", stage: uploadBatchFailureImageCommit, want: "image commit failed"},
+		{name: "ocr run commit", stage: uploadBatchFailureOCRRunCommit, want: "ocr run commit failed"},
+		{name: "annotation commit", stage: uploadBatchFailureAnnotationCommit, want: "annotation commit failed"},
+		{name: "transcription enqueue", stage: uploadBatchFailureTranscriptionEnqueue, want: "transcription enqueue failed"},
+		{name: "item reload", stage: uploadBatchFailureItemReload, want: "item reload failed"},
+		{name: "batch commit", stage: uploadBatchFailureBatchCommit, want: "batch commit failed"},
+		{name: "unknown stage fails closed", stage: uploadBatchFailureStage(255), err: errors.New("private database detail"), want: "admission failed"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := uploadBatchFailureMessage(test.stage, test.err); got != test.want {
+				t.Fatalf("uploadBatchFailureMessage() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestUploadBatchLeaseFailureOverridesCurrentOperationStage(t *testing.T) {
+	t.Parallel()
+
+	const current = "annotation commit failed"
+	if got := uploadBatchFailureAfterLeaseRenewal(current, nil); got != current {
+		t.Fatalf("successful lease renewal changed failure stage to %q", got)
+	}
+	if got := uploadBatchFailureAfterLeaseRenewal(current, errors.New("private lease diagnostic")); got != "lease renewal failed" {
+		t.Fatalf("lease renewal failure stage = %q, want lease renewal failed", got)
+	}
+}
 
 func TestItemNameAndMetadataAdmissionLimits(t *testing.T) {
 	t.Parallel()

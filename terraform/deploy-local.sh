@@ -24,7 +24,7 @@ Optional environment:
   SCRIBE_RECOVER_PREVIEW_DESTROY_INPUTS  Set to true only for the protected recover-destroy workflow after an interrupted preview teardown removed deployment_inputs.
   SCRIBE_API_IMAGE    Exact backend image to inject into Terraform api_image
   SCRIBE_FRONTEND_GAR_IMAGE  Exact frontend image to inject into Terraform frontend_gar_image (GAR, used by the Cloud Run sidecar). When unset, local apply resolves the default tag and auto-builds it if missing.
-  SCRIBE_BROWSER_READINESS_IMAGE  Protected digest-pinned preview browser readiness image. Empty outside managed preview applies.
+  SCRIBE_BROWSER_READINESS_IMAGE  Protected digest-pinned browser readiness image for managed preview and production applies. Empty for development and historical pre-runner replay.
   SCRIBE_OCR_IMAGES_JSON  Pre-resolved JSON map of OCR service_key -> GAR digest ref. For plan/apply only; refresh and destroy reload the recorded map from Terraform state.
   SCRIBE_PREVIEW_MACHINE_TYPE  Preview-only reviewed machine profile: n2d-standard-2 (default) or e2-medium. Refresh and destroy reload the recorded value from Terraform state.
   SCRIBE_DATA_GENERATION  Reviewed persistence generation. Defaults to canonical-v2; refresh and destroy always reload the recorded value from Terraform state.
@@ -72,7 +72,7 @@ sha256_text() {
     printf '%s' "$value" | shasum -a 256 | awk '{print $1}'
     return 0
   fi
-  echo "sha256sum or shasum is required to identify the protected preview browser subnet." >&2
+  echo "sha256sum or shasum is required to identify the protected browser subnet." >&2
   return 1
 }
 
@@ -532,7 +532,7 @@ bootstrap_browser_readiness_ipv6() {
   # Scoped to preview workspaces only: prod's browser_readiness subnet
   # already completed this transition in an earlier apply, and prod's apply
   # sequence is covered by a strict mocked-terraform invocation-order
-  # contract (ci/vault-first-bootstrap-contract_test.sh) that a prod-scoped
+  # behavior test (ci/vault-first-bootstrap_test.sh) that a prod-scoped
   # extra targeted apply here would need to be taught about.
   case "$target_workspace" in
     pr-*) ;;
@@ -851,6 +851,16 @@ case "$action" in
     ;;
 esac
 
+if { [ "$environment" = "prod" ] || [ "$environment" = "preview" ]; } \
+  && { [ "$action" = "plan" ] || [ "$action" = "apply" ]; } \
+  && [ -z "$target_set" ]; then
+  [[ "$browser_readiness_image" =~ ^us-docker\.pkg\.dev/${GCLOUD_PROJECT}/internal/scribe-browser-readiness@sha256:[0-9a-f]{64}$ ]] \
+    && [[ ! "$browser_readiness_image" =~ @sha256:0{64}$ ]] || {
+    echo "Protected production and preview plan/apply require SCRIBE_BROWSER_READINESS_IMAGE at the exact project-owned digest." >&2
+    exit 1
+  }
+fi
+
 if [ "$recover_preview_destroy_inputs" = "true" ] && {
   [ "$environment" != "preview" ] || [ "$action" != "destroy" ] || [ -n "$target_set" ];
 }; then
@@ -1008,7 +1018,8 @@ fi
 
 browser_readiness_subnet_name=""
 historical_browser_readiness_ipv6_subnet_name=""
-if [ "$action" = "destroy" ] && [ "$environment" = "preview" ]; then
+if [ "$action" = "destroy" ] \
+  && { [ "$environment" = "prod" ] || [ "$environment" = "preview" ]; }; then
   browser_readiness_name_hash="$(sha256_text "${TF_VAR_name}:${target_workspace}")"
   browser_readiness_name_prefix="${TF_VAR_name:0:46}"
   browser_readiness_name_prefix="${browser_readiness_name_prefix%-}"
@@ -1139,8 +1150,10 @@ case "$action" in
       terraform apply -auto-approve "$apply_plan_path"
       rm -f "$apply_plan_path" "$apply_plan_json"
       trap - EXIT
-    else
+    elif [ "$environment" = "preview" ]; then
       apply_preview_terraform_with_capacity_retry "${terraform_vars[@]}" "${terraform_targets[@]}"
+    else
+      terraform apply -auto-approve "${terraform_vars[@]}" "${terraform_targets[@]}"
     fi
     ;;
   refresh)
@@ -1169,7 +1182,7 @@ case "$action" in
       cat "$destroy_diagnostics_file" >&2
       destroy_diagnostics="$(<"$destroy_diagnostics_file")"
       serverless_subnet_delay=false
-      if [ "$environment" = "preview" ]; then
+      if [ "$environment" = "prod" ] || [ "$environment" = "preview" ]; then
         serverless_subnet_delay=true
         serverless_error_seen=false
         while IFS= read -r destroy_diagnostic_line; do
@@ -1200,10 +1213,10 @@ case "$action" in
       fi
       if [ "$serverless_subnet_delay" = "true" ]; then
         if [ "$destroy_attempt" -ge "$serverless_destroy_attempt_limit" ]; then
-          echo "Terraform preview destroy still has a Google-managed serverless IPv4/IPv6 subnet reservation after ${serverless_destroy_attempt_limit} bounded attempts over two hours; leaving the workspace in place for operator recovery." >&2
+          echo "Terraform ${environment} destroy still has a Google-managed serverless IPv4/IPv6 subnet reservation after ${serverless_destroy_attempt_limit} bounded attempts over two hours; leaving the workspace in place for operator recovery." >&2
           exit 1
         fi
-        echo "Terraform preview destroy attempt ${destroy_attempt}/${serverless_destroy_attempt_limit} is waiting for Google to release its serverless IPv4/IPv6 subnet reservation; retrying in ${serverless_retry_delay_seconds}s with the same state-derived inputs." >&2
+        echo "Terraform ${environment} destroy attempt ${destroy_attempt}/${serverless_destroy_attempt_limit} is waiting for Google to release its serverless IPv4/IPv6 subnet reservation; retrying in ${serverless_retry_delay_seconds}s with the same state-derived inputs." >&2
         sleep "$serverless_retry_delay_seconds"
       else
         if [ "$destroy_attempt" -ge "$destroy_attempt_limit" ]; then

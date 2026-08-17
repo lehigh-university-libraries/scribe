@@ -560,7 +560,7 @@ func TestJoinDraftLinesRejectsMixedWordCoverageWithoutMutation(t *testing.T) {
 	}
 }
 
-func TestJoinDraftWordsUsesLineReadingOrderAndRetainsWords(t *testing.T) {
+func TestJoinDraftWordsUsesFinalLineOwnershipOrderAndRetainsWords(t *testing.T) {
 	t.Parallel()
 	draft, _, wordIDs := readingOrderDraft(t)
 	wordSnapshots := snapshotDraftAnnotations(t, draft, wordIDs)
@@ -571,17 +571,187 @@ func TestJoinDraftWordsUsesLineReadingOrderAndRetainsWords(t *testing.T) {
 	}
 	assertCanonicalDraft(t, draft)
 	lines := draftAnnotationsByGranularity(draft, "line")
-	if len(lines) != 1 || extractAnnotationText(lines[0]) != "one two three four" {
+	if len(lines) != 1 || extractAnnotationText(lines[0]) != "one three two four" {
 		t.Fatalf("joined word line = %#v", lines)
 	}
-	expectedID, err := iiif.AnnotationID(testAnnotationPage, strings.Join(wordIDs, "\x00"))
+	finalOrderIDs := []string{wordIDs[0], wordIDs[2], wordIDs[1], wordIDs[3]}
+	expectedID, err := iiif.AnnotationID(testAnnotationPage, strings.Join(finalOrderIDs, "\x00"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if annStringValue(lines[0], "id") != expectedID {
 		t.Fatalf("joined word line id = %q, want %q", annStringValue(lines[0], "id"), expectedID)
 	}
+	ownedWords := locatedWords(assignSpatialWordsToLines(draft.items, nil)[annStringValue(lines[0], "id")])
+	if got := normalizedAnnotationTexts(ownedWords); got != extractAnnotationText(lines[0]) {
+		t.Fatalf("joined line text %q does not match word ownership %q", extractAnnotationText(lines[0]), got)
+	}
 	assertDraftAnnotationsUnchanged(t, draft, wordSnapshots)
+}
+
+func TestJoinDraftWordsAcceptsSelectedLooseWordAfterCompleteLine(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "append-line", "line", "alpha beta gamma", 0, 0, 300, 20)
+	alpha := structuralAnnotation(t, "append-word-alpha", "word", "alpha", 0, 0, 100, 20)
+	beta := structuralAnnotation(t, "append-word-beta", "word", "beta", 100, 0, 100, 20)
+	gamma := structuralAnnotation(t, "append-word-gamma", "word", "gamma", 200, 0, 100, 20)
+	epsilon := structuralAnnotation(t, "append-word-epsilon", "word", "epsilon", 300, 0, 100, 20)
+	words := []map[string]any{alpha, beta, gamma, epsilon}
+	wordIDs := make([]string, 0, len(words))
+	for _, word := range words {
+		wordIDs = append(wordIDs, annStringValue(word, "id"))
+	}
+	draft := canonicalAnnotationDraft(t, nil, line, alpha, beta, gamma, epsilon)
+	wordSnapshots := snapshotDraftAnnotations(t, draft, wordIDs)
+	lineID := annStringValue(line, "id")
+
+	if err := joinDraftWordsIntoLine(draft, wordIDs); err != nil {
+		t.Fatalf("join complete line with appended loose word: %v", err)
+	}
+	assertCanonicalDraft(t, draft)
+	lines := draftAnnotationsByGranularity(draft, "line")
+	if len(lines) != 1 || annStringValue(lines[0], "id") != lineID || extractAnnotationText(lines[0]) != "alpha beta gamma epsilon" {
+		t.Fatalf("joined appended word line = %#v", lines)
+	}
+	x1, y1, x2, y2, err := parseXYWH(extractFragment(lines[0]))
+	if err != nil {
+		t.Fatalf("parse joined line geometry: %v", err)
+	}
+	if x1 != 0 || y1 != 0 || x2 != 400 || y2 != 20 {
+		t.Fatalf("joined line geometry = (%d,%d)-(%d,%d), want (0,0)-(400,20)", x1, y1, x2, y2)
+	}
+	ownedWords := locatedWords(assignSpatialWordsToLines(draft.items, nil)[lineID])
+	if got := normalizedAnnotationTexts(ownedWords); got != "alpha beta gamma epsilon" {
+		t.Fatalf("joined line word ownership = %q", got)
+	}
+	assertDraftAnnotationsUnchanged(t, draft, wordSnapshots)
+}
+
+func TestJoinDraftWordsOrdersSelectedLoosePrefixAfterLineExpansion(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "prefix-line", "line", "alpha beta", 100, 0, 200, 20)
+	alpha := structuralAnnotation(t, "prefix-word-alpha", "word", "alpha", 100, 0, 100, 20)
+	beta := structuralAnnotation(t, "prefix-word-beta", "word", "beta", 200, 0, 100, 20)
+	prefix := structuralAnnotation(t, "prefix-word-prefix", "word", "prefix", 0, 0, 100, 20)
+	wordIDs := []string{
+		annStringValue(alpha, "id"),
+		annStringValue(beta, "id"),
+		annStringValue(prefix, "id"),
+	}
+	draft := canonicalAnnotationDraft(t, nil, line, alpha, beta, prefix)
+	wordSnapshots := snapshotDraftAnnotations(t, draft, wordIDs)
+	lineID := annStringValue(line, "id")
+
+	if err := joinDraftWordsIntoLine(draft, wordIDs); err != nil {
+		t.Fatalf("join complete line with loose prefix: %v", err)
+	}
+	assertCanonicalDraft(t, draft)
+	lines := draftAnnotationsByGranularity(draft, "line")
+	if len(lines) != 1 || annStringValue(lines[0], "id") != lineID || extractAnnotationText(lines[0]) != "prefix alpha beta" {
+		t.Fatalf("joined prefixed word line = %#v", lines)
+	}
+	ownedWords := locatedWords(assignSpatialWordsToLines(draft.items, nil)[lineID])
+	if got := normalizedAnnotationTexts(ownedWords); got != extractAnnotationText(lines[0]) {
+		t.Fatalf("joined line text %q does not match word ownership %q", extractAnnotationText(lines[0]), got)
+	}
+	assertDraftAnnotationsUnchanged(t, draft, wordSnapshots)
+}
+
+func TestJoinDraftWordsRejectsUnselectedWordCapturedByExpansion(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "capture-line", "line", "alpha", 0, 0, 100, 20)
+	alpha := structuralAnnotation(t, "capture-word-alpha", "word", "alpha", 0, 0, 100, 20)
+	unselected := structuralAnnotation(t, "capture-word-unselected", "word", "unselected", 120, 0, 60, 20)
+	suffix := structuralAnnotation(t, "capture-word-suffix", "word", "suffix", 200, 0, 100, 20)
+	draft := canonicalAnnotationDraft(t, nil, line, alpha, unselected, suffix)
+	before := assertCanonicalDraft(t, draft)
+
+	err := joinDraftWordsIntoLine(draft, []string{
+		annStringValue(alpha, "id"),
+		annStringValue(suffix, "id"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "exactly the selected words") {
+		t.Fatalf("captured unselected word error = %v", err)
+	}
+	if after := assertCanonicalDraft(t, draft); after != before {
+		t.Fatal("captured unselected word rejection mutated the draft")
+	}
+}
+
+func TestJoinDraftLooseWordsWithIdenticalGeometryUsesCanonicalItemOrder(t *testing.T) {
+	t.Parallel()
+	alpha := structuralAnnotation(t, "tie-word-alpha", "word", "alpha", 0, 0, 100, 20)
+	beta := structuralAnnotation(t, "tie-word-beta", "word", "beta", 0, 0, 100, 20)
+	alphaID := annStringValue(alpha, "id")
+	betaID := annStringValue(beta, "id")
+	draft := canonicalAnnotationDraft(t, nil, alpha, beta)
+	wordSnapshots := snapshotDraftAnnotations(t, draft, []string{alphaID, betaID})
+
+	if err := joinDraftWordsIntoLine(draft, []string{betaID, alphaID}); err != nil {
+		t.Fatalf("join reversed identical loose words: %v", err)
+	}
+	assertCanonicalDraft(t, draft)
+	lines := draftAnnotationsByGranularity(draft, "line")
+	expectedID, err := iiif.AnnotationID(testAnnotationPage, alphaID+"\x00"+betaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || annStringValue(lines[0], "id") != expectedID || extractAnnotationText(lines[0]) != "alpha beta" {
+		t.Fatalf("joined identical loose words = %#v, want id %q and canonical text", lines, expectedID)
+	}
+	assertDraftAnnotationsUnchanged(t, draft, wordSnapshots)
+}
+
+func TestJoinDraftWordsRejectsNonTokenTextWithoutMutation(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		text string
+	}{
+		{name: "blank", text: ""},
+		{name: "multiple tokens", text: "two tokens"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			alpha := structuralAnnotation(t, "token-word-alpha-"+test.name, "word", "alpha", 0, 0, 100, 20)
+			invalid := structuralAnnotation(t, "token-word-invalid-"+test.name, "word", test.text, 100, 0, 100, 20)
+			draft := canonicalAnnotationDraft(t, nil, alpha, invalid)
+			before := assertCanonicalDraft(t, draft)
+
+			err := joinDraftWordsIntoLine(draft, []string{
+				annStringValue(alpha, "id"),
+				annStringValue(invalid, "id"),
+			})
+			if err == nil || !strings.Contains(err.Error(), "exactly one text token") {
+				t.Fatalf("non-token word error = %v", err)
+			}
+			if after := assertCanonicalDraft(t, draft); after != before {
+				t.Fatal("non-token word rejection mutated the draft")
+			}
+		})
+	}
+}
+
+func TestJoinDraftWordsRejectsIncompleteAffectedLineWithLooseWord(t *testing.T) {
+	t.Parallel()
+	line := structuralAnnotation(t, "partial-line", "line", "alpha beta", 0, 0, 200, 20)
+	alpha := structuralAnnotation(t, "partial-word-alpha", "word", "alpha", 0, 0, 100, 20)
+	beta := structuralAnnotation(t, "partial-word-beta", "word", "beta", 100, 0, 100, 20)
+	epsilon := structuralAnnotation(t, "partial-word-epsilon", "word", "epsilon", 200, 0, 100, 20)
+	draft := canonicalAnnotationDraft(t, nil, line, alpha, beta, epsilon)
+	before := assertCanonicalDraft(t, draft)
+
+	err := joinDraftWordsIntoLine(draft, []string{
+		annStringValue(alpha, "id"),
+		annStringValue(epsilon, "id"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "all words in an affected line must be selected") {
+		t.Fatalf("incomplete affected line error = %v", err)
+	}
+	if after := assertCanonicalDraft(t, draft); after != before {
+		t.Fatal("incomplete affected line rejection mutated the draft")
+	}
 }
 
 func TestJoinDraftLinesRejectsConflictingNonspatialFragments(t *testing.T) {

@@ -145,9 +145,10 @@ func sortLocatedAnnotations(values []locatedAnnotation) {
 
 func (draft *annotationDraft) sortWordsInReadingOrder(values []locatedAnnotation) {
 	type wordOrder struct {
-		line int
-		x    int
-		y    int
+		index int
+		line  int
+		x     int
+		y     int
 	}
 	orders := make(map[string]wordOrder, len(values))
 	lines := make([]locatedAnnotation, 0)
@@ -167,7 +168,7 @@ func (draft *annotationDraft) sortWordsInReadingOrder(values []locatedAnnotation
 		for _, word := range assigned[annStringValue(line.annotation, "id")] {
 			x1, y1, _, _, err := parseXYWH(extractFragment(word.annotation))
 			if err == nil {
-				orders[annStringValue(word.annotation, "id")] = wordOrder{line: lineRank, x: x1, y: y1}
+				orders[annStringValue(word.annotation, "id")] = wordOrder{index: word.index, line: lineRank, x: x1, y: y1}
 			}
 		}
 	}
@@ -181,7 +182,10 @@ func (draft *annotationDraft) sortWordsInReadingOrder(values []locatedAnnotation
 			if left.x != right.x {
 				return left.x < right.x
 			}
-			return left.y < right.y
+			if left.y != right.y {
+				return left.y < right.y
+			}
+			return left.index < right.index
 		}
 		if leftAssigned != rightAssigned {
 			return leftAssigned
@@ -191,7 +195,13 @@ func (draft *annotationDraft) sortWordsInReadingOrder(values []locatedAnnotation
 		if centerI != centerJ {
 			return centerI < centerJ
 		}
-		return values[i].x1 < values[j].x1
+		if values[i].x1 != values[j].x1 {
+			return values[i].x1 < values[j].x1
+		}
+		if values[i].y1 != values[j].y1 {
+			return values[i].y1 < values[j].y1
+		}
+		return values[i].index < values[j].index
 	})
 }
 
@@ -216,13 +226,20 @@ func locatedWords(positioned []positionedAnnotationWord) []locatedAnnotation {
 			y2:         y2,
 		})
 	}
+	sortLocatedWordsWithinLine(words)
+	return words
+}
+
+func sortLocatedWordsWithinLine(words []locatedAnnotation) {
 	sort.SliceStable(words, func(i, j int) bool {
 		if words[i].x1 != words[j].x1 {
 			return words[i].x1 < words[j].x1
 		}
-		return words[i].y1 < words[j].y1
+		if words[i].y1 != words[j].y1 {
+			return words[i].y1 < words[j].y1
+		}
+		return words[i].index < words[j].index
 	})
-	return words
 }
 
 func normalizedAnnotationTexts(values []locatedAnnotation) string {
@@ -605,6 +622,11 @@ func joinDraftWordsIntoLine(draft *annotationDraft, annotationIDs []string) erro
 	if err != nil {
 		return err
 	}
+	for _, word := range words {
+		if len(strings.Fields(extractAnnotationText(word.annotation))) != 1 {
+			return fmt.Errorf("word annotations must each contain exactly one text token")
+		}
+	}
 	selected := make(map[string]struct{}, len(words))
 	for _, word := range words {
 		selected[annStringValue(word.annotation, "id")] = struct{}{}
@@ -612,14 +634,12 @@ func joinDraftWordsIntoLine(draft *annotationDraft, annotationIDs []string) erro
 
 	wordsByLine := assignSpatialWordsToLines(draft.items, nil)
 	affectedIDs := make(map[string]struct{})
-	assignedSelected := make(map[string]struct{}, len(words))
 	for lineID, assigned := range wordsByLine {
 		containsSelected := false
 		for _, word := range assigned {
 			wordID := annStringValue(word.annotation, "id")
 			if _, ok := selected[wordID]; ok {
 				containsSelected = true
-				assignedSelected[wordID] = struct{}{}
 			}
 		}
 		if !containsSelected {
@@ -632,9 +652,12 @@ func joinDraftWordsIntoLine(draft *annotationDraft, annotationIDs []string) erro
 		}
 		affectedIDs[lineID] = struct{}{}
 	}
-	if len(affectedIDs) > 0 && len(assignedSelected) != len(selected) {
-		return fmt.Errorf("selected words must belong to the same affected line set")
-	}
+	// Explicitly selected loose words may extend an affected line. Requiring
+	// complete selection of every owned word above prevents an implicit partial
+	// line rewrite while leaving the join responsible for the union geometry.
+	// The returned line exposes all of its words in x/y/item order, regardless
+	// of their prior line ownership. Use the same order for its text and ID.
+	sortLocatedWordsWithinLine(words)
 
 	remove := make(map[int]struct{})
 	insertAt := words[0].index
@@ -674,7 +697,18 @@ func joinDraftWordsIntoLine(draft *annotationDraft, annotationIDs []string) erro
 	if draft.hasIDOutside(annStringValue(merged, "id"), remove) {
 		return fmt.Errorf("joined annotation id already exists")
 	}
-	draft.items = replaceDraftItems(draft.items, remove, insertAt, []any{merged})
+	candidateItems := replaceDraftItems(draft.items, remove, insertAt, []any{merged})
+	ownedWords := locatedWords(assignSpatialWordsToLines(candidateItems, nil)[annStringValue(merged, "id")])
+	if len(ownedWords) != len(selected) {
+		return fmt.Errorf("joined line must own exactly the selected words")
+	}
+	for _, word := range ownedWords {
+		if _, ok := selected[annStringValue(word.annotation, "id")]; !ok {
+			return fmt.Errorf("joined line must own exactly the selected words")
+		}
+	}
+	setAnnotationText(merged, normalizedAnnotationTexts(ownedWords))
+	draft.items = candidateItems
 	return nil
 }
 

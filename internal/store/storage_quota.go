@@ -179,13 +179,16 @@ func (s *ItemStore) ResizeStorageQuotaReservation(ctx context.Context, reservati
 		return StorageQuotaReservation{}, err
 	}
 	if resourceKey.Valid {
-		result, resizeErr := queries.ResizeStagedUploadCleanup(ctx, db.ResizeStagedUploadCleanupParams{
+		resizeErr := queries.ResizeStagedUploadCleanup(ctx, db.ResizeStagedUploadCleanupParams{
 			WorkspaceID:   reservation.WorkspaceID,
 			StorageBytes:  request.Bytes,
 			NextAttemptAt: now.Add(limits.ReservationTTL),
 			ResourceKey:   resourceKey.String,
 		})
-		if resizeErr := requireOneAffected(result, resizeErr); resizeErr != nil {
+		// The exact cleanup row is locked above. MySQL reports changed rather
+		// than matched rows, so an idempotent same-size resize within the same
+		// DATETIME second legitimately reports zero affected rows.
+		if resizeErr != nil {
 			return StorageQuotaReservation{}, fmt.Errorf("resize staged upload accounting: %w", resizeErr)
 		}
 	}
@@ -564,6 +567,66 @@ func replaceStorageQuotaReservationAccounting(ctx context.Context, queries *db.Q
 		if err := addStorageQuotaUsed(ctx, queries, workspaceID, usedAddition); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// transferStorageQuotaReservationToUsed moves already-admitted capacity from
+// one live reservation into canonical usage. Callers must hold the workspace
+// quota guard and the reservation row in the surrounding transaction.
+func transferStorageQuotaReservationToUsed(ctx context.Context, queries *db.Queries, reservation db.WorkspaceStorageReservation, consumed StorageQuotaRequest) error {
+	if queries == nil || reservation.ID == "" || reservation.WorkspaceID == 0 || storageQuotaRequestEmpty(consumed) {
+		return fmt.Errorf("transfer storage quota reservation: reservation and capacity are required")
+	}
+	if err := validateStorageQuotaRequest(consumed); err != nil {
+		return fmt.Errorf("transfer storage quota reservation: %w", err)
+	}
+	current := storageQuotaRequestFromReservation(reservation)
+	if current.Bytes < consumed.Bytes || current.DurableBytes < consumed.DurableBytes ||
+		current.Items < consumed.Items || current.Images < consumed.Images {
+		return fmt.Errorf("transfer storage quota reservation: reserved capacity does not cover committed usage")
+	}
+	remaining := StorageQuotaRequest{
+		Bytes:        current.Bytes - consumed.Bytes,
+		DurableBytes: current.DurableBytes - consumed.DurableBytes,
+		Items:        current.Items - consumed.Items,
+		Images:       current.Images - consumed.Images,
+	}
+	workspaceRow, err := queries.LockStorageQuotaUsage(ctx, reservation.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("transfer storage quota reservation: lock workspace usage: %w", err)
+	}
+	globalRow, err := queries.LockStorageQuotaUsage(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("transfer storage quota reservation: lock global usage: %w", err)
+	}
+	// A transfer adds no capacity. Unbounded limits preserve an already-admitted
+	// operation if configuration was lowered while still detecting counter drift
+	// and arithmetic overflow.
+	if err := checkStorageQuotaReplacement(
+		storageQuotaUsageFromRow(globalRow),
+		storageQuotaUsageFromRow(workspaceRow),
+		current,
+		remaining,
+		consumed,
+		unboundedStorageQuotaLimits(),
+	); err != nil {
+		return fmt.Errorf("transfer storage quota reservation: %w", err)
+	}
+	if err := replaceStorageQuotaReservationAccounting(ctx, queries, reservation.WorkspaceID, current, remaining, consumed); err != nil {
+		return fmt.Errorf("transfer storage quota reservation: account committed usage: %w", err)
+	}
+	params, err := storageReservationUpdateParams(StorageQuotaReservation{
+		ID:          reservation.ID,
+		WorkspaceID: reservation.WorkspaceID,
+		ExpiresAt:   reservation.ExpiresAt,
+	}, remaining, reservation.ResourceKey)
+	if err != nil {
+		return fmt.Errorf("transfer storage quota reservation: update reservation: %w", err)
+	}
+	result, err := queries.UpdateStorageQuotaReservation(ctx, params)
+	if err := requireOneAffected(result, err); err != nil {
+		return fmt.Errorf("transfer storage quota reservation: update reservation: %w", err)
 	}
 	return nil
 }

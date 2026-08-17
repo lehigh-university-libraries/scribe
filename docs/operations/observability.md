@@ -69,17 +69,18 @@ dashboards that imply those signals exist.
 
 Terraform supplies the release-blocking platform alerts: Pub/Sub dead-letter
 depth, oldest unacked transcription age, frontend 5xx responses, and failed
-backend/OCR readiness executions. Production refuses to plan without at least
-one configured notification channel. The daily protected backup workflow owns
+backend/browser/OCR readiness executions. Production refuses to plan without
+at least one configured notification channel. The daily protected backup workflow owns
 backup-policy and 36-hour freshness alerting and opens a GitHub issue on
 failure. Application metrics listed above still belong on the operator
 dashboard; absence of a dashboard is not evidence that a platform alert fired.
 
-After every deploy, inspect the backend and OCR readiness job executions. Use
-the [production troubleshooting](troubleshooting.md#cloud-run-readiness)
+After every deploy, inspect the backend, browser, and OCR readiness job
+executions. Use the [production troubleshooting](troubleshooting.md#cloud-run-readiness)
 runbook to download the bounded diagnostics or rerun a probe safely. OCR
-readiness includes image normalization, Tesseract segmentation, Kraken
-transcription, and the production default Ollama request. Segmentation and
+readiness includes image normalization, the default Scribe segmentation, Kraken
+transcription, and the production default Ollama request, using the same
+deterministic image bytes as browser upload. Segmentation and
 transcription each use a 240-second request budget so a scale-to-zero CPU
 inference service can load its model and complete useful work; handler and write
 deadlines retain
@@ -88,20 +89,48 @@ The frontend proxy caps upstream inactivity at 270 seconds while charging
 backend wake time and upstream work to one 285-second request budget below the
 platform cutoff. Startup rejects custom values unless the upstream cap is below
 the frontend budget and the frontend budget remains below the 300-second
-platform boundary. Managed browser readiness allows 300 seconds for the
-upload/editor handoff. An upload marker covers the frontend's bounded retry
-sequence and requires its last `UploadItemImage` response to succeed;
-individual retryable attempts are not promoted to the generic network marker.
-Structure and manifest markers separately isolate live editor-transform and
-preserve-hOCR import failures.
+platform boundary. Managed browser readiness retains a 300-second timeout for
+each intercepted upload request. Its complete retry-to-editor wait instead uses
+the time remaining before the 27-minute main-scenario deadline, so one slow
+attempt cannot consume the entire sequence allowance. An `upload` marker covers
+that bounded retry sequence and requires its last `UploadItemImage` response to
+succeed; individual retryable attempts are not promoted to the generic network
+marker. A second allowlisted marker classifies only the fixed start-response,
+start-transport, image-terminal, image-retry, image-transport, handoff-timeout,
+handoff-terminal, or response-contract substage. A terminal dialog may add one
+exact durable-failure marker for segmentation cancellation/timeout/failure,
+provider authentication/failure, admission, upload storage, segmentation
+output, quota resize, lease renewal, image commit, OCR-run commit, annotation
+commit, transcription enqueue, item reload, batch commit, or unknown. Lease
+renewal recurs before fenced side effects and takes precedence over the
+operation it interrupts. When the final upload-image response is retryable,
+another fixed marker records its exact canonical lowercase Connect `aborted`,
+`already_exists`, `deadline_exceeded`, `internal`, `resource_exhausted`,
+`unavailable`, or `unknown` code. Only when the already capped JSON snapshot is
+unavailable or invalid may it instead record the observed HTTP 408, 409, 425,
+429, 500, 502, 503, or 504 status. A valid JSON snapshot without an exact
+string code fails closed, and an HTTP-only marker does not identify the
+responder. The fixture name, Connect message, response body, and raw status
+text are never rendered. `StartUploadBatch`, upload-image, and manifest
+responses retain their stage-specific attribution.
+Other same-origin HTTP 429 responses use the distinct bounded `rate` marker instead
+of the generic network marker, while canonical Presentation AnnotationPage 404
+responses remain attributed to `annotations`. Structure and manifest markers
+separately isolate live editor-transform and preserve-hOCR import failures.
+Other same-origin failures use only fixed endpoint-family and
+client/server/transport network variants; their exact task exit codes remain
+available when the allowlisted Cloud Logging query is unavailable. Browser
+fault collection stops before deadline-driven or direct cleanup so teardown
+traffic cannot mask the original stage.
 
-The cleanup marker can remain active through the 300-second mutation commit
-horizon and a 180-second recovery tail when an upload, manifest import, or token
-creation loses its response; this is bounded recovery, not an unbounded browser
-retry. The runner stops product work after 30 minutes and reserves the final 10
-minutes of its 40-minute Cloud Run task for deadline-aware reconciliation and
-request/control overhead. A platform `deadline` before the categorical browser
-marker therefore indicates runner/job budget drift and must fail deployment.
+The cleanup marker can remain active through the separate 300-second mutation
+commit horizon and a 180-second recovery tail when an upload, manifest import,
+or token creation loses its response; this is bounded recovery, not an unbounded
+browser retry. The runner stops product work after 27 minutes. Its remaining 13
+minutes are bounded as eight minutes of resource reconciliation, three minutes
+of session revocation, 30 seconds of browser shutdown, and 90 seconds of
+platform headroom. A platform `deadline` before the categorical browser marker
+therefore indicates runner/job budget drift and must fail deployment.
 Reconciliation logs no resource name, URL, response body, or token secret.
 A failed production Terraform apply or readiness failure initiates automatic
 rollback to the prior recorded reviewed source, configuration, generation, and
@@ -127,4 +156,7 @@ Use the generated Connect APIs for diagnostic data:
 `ItemService.ListItemProviderCallAudits` reports per-item provider calls.
 Provider audits contain bounded metadata and categorical errors, never prompts
 or provider request/response bodies. Neither capability has a parallel REST
-route.
+route. Remote layout detection emits `operation=segment_image` with the
+registered segmentation selection, duration, and (on failure) only a redacted
+provider category and HTTP status. It never records the endpoint, image path,
+response body, or detected document text.

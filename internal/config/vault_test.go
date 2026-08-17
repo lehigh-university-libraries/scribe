@@ -155,3 +155,39 @@ func TestLoadSecretsPreviewModeRequiresOnlyItsDatabaseBootstrap(t *testing.T) {
 		t.Fatalf("preview secrets = %+v", secrets)
 	}
 }
+
+func TestLoadDatabasePasswordReadsOnlyExactDatabasePath(t *testing.T) {
+	t.Setenv("VAULT_ADDRESS", "")
+	t.Setenv("VAULT_TOKEN", "test-token")
+
+	const databasePath = "/v1/secret/data/scribe/prod/database/app"
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodGet || r.URL.Path != databasePath {
+			t.Fatalf("database bootstrap requested %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{
+				"data": map[string]string{"password": "database-password"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	cfg := BrowserSessionVaultConfig{
+		Address:      srv.URL,
+		KVMount:      "secret",
+		DatabasePath: "scribe/prod/database/app",
+	}
+	password, err := LoadDatabasePassword(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("LoadDatabasePassword returned error: %v", err)
+	}
+	if password != "database-password" {
+		t.Fatalf("LoadDatabasePassword = %q, want database-password", password)
+	}
+	if requests != 1 {
+		t.Fatalf("Vault requests = %d, want exactly one database read", requests)
+	}
+}

@@ -41,8 +41,11 @@ const ACTION_BAR_HEIGHT_PX = 104;
 const INLINE_EDITOR_HANDLE_PX = 5;
 const INLINE_EDITOR_CONTENT_INSET_PX = 10;
 const TRANSCRIPTION_SEGMENT_MAX_DISPLAY_MS = 400;
-const TRANSCRIPTION_SEGMENT_MIN_DISPLAY_MS = 40;
-const TRANSCRIPTION_SEGMENT_MAX_TOTAL_DISPLAY_MS = 20_000;
+const TRANSCRIPTION_SEGMENT_MIN_DISPLAY_MS = 10;
+// Completed-job catch-up is emitted over the shell's five-second replay
+// window. Drain live bursts within that same bound so a terminal clear cannot
+// leave the wand visibly working through stale lines after the job is done.
+const TRANSCRIPTION_SEGMENT_MAX_TOTAL_DISPLAY_MS = 5_000;
 const TRANSCRIPTION_SEGMENT_QUEUE_LIMIT = 500;
 
 /** @typedef {import('../types/scribe').ImageBBox} Rect */

@@ -244,10 +244,9 @@ async function initializePlugin(structural = false) {
     },
     async joinWordsIntoLine(_itemImageId, annotationPageJson, selectedAnnotationIds) {
       pluginStructuralCalls.joinWordIds = [...selectedAnnotationIds];
-      return joinPluginAnnotations(
+      return joinPluginWordsIntoLine(
         parseIIIFJSON(annotationPageJson),
         selectedAnnotationIds,
-        "line",
       );
     },
   };
@@ -488,6 +487,25 @@ function joinPluginAnnotations(pageValue, selectedAnnotationIds, granularity) {
   const insertAt = Math.min(...selectedIndexes);
   next.items = next.items.filter(({ id }) => !selectedIdSet.has(id));
   next.items.splice(insertAt, 0, merged);
+  return next;
+}
+
+function joinPluginWordsIntoLine(pageValue, selectedAnnotationIds) {
+  const next = structuredClone(pageValue);
+  const selectedIdSet = new Set(selectedAnnotationIds);
+  const selected = next.items.filter(({ id }) => selectedIdSet.has(id));
+  if (selected.length < 2) throw new Error("at least two annotations are required");
+  const selectedIndexes = selected.map(({ id }) => next.items.findIndex((item) => item.id === id));
+  const boxes = selected.map(annotationTargetBox);
+  const left = Math.min(...boxes.map(({ x }) => x));
+  const top = Math.min(...boxes.map(({ y }) => y));
+  const right = Math.max(...boxes.map(({ x, w }) => x + w));
+  const bottom = Math.max(...boxes.map(({ y, h }) => y + h));
+  let merged = withAnnotationValue(selected[0], selected.map(annotationValue).join(" "));
+  merged = withAnnotationTargetBox(merged, { h: bottom - top, w: right - left, x: left, y: top });
+  merged.id = `${next.id}/items/00000000000000000000000000000093`;
+  merged.textGranularity = "line";
+  next.items.splice(Math.min(...selectedIndexes), 0, merged);
   return next;
 }
 

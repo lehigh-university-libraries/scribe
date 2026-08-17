@@ -494,6 +494,48 @@ describe("uploadItemImages", () => {
     expect(progress).toContainEqual(expect.objectContaining({ completed: 2, sequence: 2, status: "completed" }));
   });
 
+  it("uses the full durable five-attempt budget by default", async () => {
+    const singleFile = [files()[0]];
+    const progress: UploadBatchProgress[] = [];
+    apiClient.startUploadBatch.mockResolvedValueOnce({
+      item,
+      batch: batch([UploadBatchFileStatus.PENDING]),
+    });
+    apiClient.uploadItemImage
+      .mockRejectedValueOnce(new ConnectError("temporarily unavailable", Code.Unavailable))
+      .mockRejectedValueOnce(new ConnectError("temporarily unavailable", Code.Unavailable))
+      .mockRejectedValueOnce(new ConnectError("temporarily unavailable", Code.Unavailable))
+      .mockRejectedValueOnce(new ConnectError("temporarily unavailable", Code.Unavailable))
+      .mockResolvedValueOnce({
+        item,
+        image: uploadedImage(1),
+        batch: batch([UploadBatchFileStatus.COMPLETED]),
+        transcriptionJobId: 200n,
+      });
+
+    await uploadItemImages(singleFile, {
+      contextId: 7n,
+      retryDelayMs: 0,
+      onProgress: (entry) => progress.push(entry),
+    });
+
+    expect(apiClient.uploadItemImage).toHaveBeenCalledTimes(5);
+    expect(apiClient.uploadItemImage.mock.calls.map(([request]) => request)).toEqual(
+      Array.from({ length: 5 }, () => expect.objectContaining({
+        batchId: testBatchID,
+        sequence: 1,
+      })),
+    );
+    expect(progress.filter(({ status }) => status === "retrying").map(({ attempt }) => attempt))
+      .toEqual([1, 2, 3, 4]);
+    expect(progress.at(-1)).toEqual(expect.objectContaining({
+      attempt: 5,
+      completed: 1,
+      sequence: 1,
+      status: "completed",
+    }));
+  });
+
   it("cancels the durable batch after abort so response-loss jobs are fenced", async () => {
     const controller = new AbortController();
     apiClient.uploadItemImage.mockResolvedValueOnce({
@@ -600,10 +642,19 @@ describe("uploadItemImages", () => {
 
   it("reports partial failure without discarding the resumable batch", async () => {
     apiClient.uploadItemImage.mockRejectedValueOnce(new ConnectError("invalid image", Code.InvalidArgument));
+    const durableFailure = batch([
+      UploadBatchFileStatus.FAILED,
+      UploadBatchFileStatus.PENDING,
+    ]);
+    durableFailure.files[0].errorMessage = "provider request failed with HTTP status 403";
+    apiClient.getUploadBatch.mockResolvedValueOnce({ item, batch: durableFailure });
 
     const promise = uploadItemImages(files(), { contextId: 7n, maxAttempts: 1 });
     await expect(promise).rejects.toBeInstanceOf(UploadBatchError);
-    await expect(promise).rejects.toMatchObject({ failedSequence: 1 });
+    await expect(promise).rejects.toMatchObject({
+      failedSequence: 1,
+      message: "upload failed for page-1.png: provider request failed with HTTP status 403",
+    });
     expect(apiClient.cancelUploadBatch).not.toHaveBeenCalled();
     expect(window.localStorage.length).toBe(1);
   });

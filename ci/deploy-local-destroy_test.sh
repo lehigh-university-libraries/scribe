@@ -82,7 +82,9 @@ case "${1:-}" in
       success) ;;
       fail-once|always-fail|serverless-fail-once|serverless-always-fail|serverless-mixed|serverless-wrong-subnet|\
       serverless-browser-fail-once|serverless-browser-ipv6-fail-once|serverless-browser-wrong-subnet|serverless-browser-ipv6-wrong-subnet|\
-      serverless-browser-v6-fail-once|serverless-browser-v6-ipv6-fail-once|serverless-browser-v6-wrong-subnet|serverless-browser-v6-ipv6-wrong-subnet)
+      serverless-browser-v6-fail-once|serverless-browser-v6-ipv6-fail-once|serverless-browser-v6-wrong-subnet|serverless-browser-v6-ipv6-wrong-subnet|\
+      serverless-prod-browser-fail-once|serverless-prod-browser-ipv6-fail-once|serverless-prod-browser-wrong-subnet|serverless-prod-browser-ipv6-wrong-subnet|\
+      serverless-prod-browser-v6-fail-once|serverless-prod-browser-v6-ipv6-fail-once|serverless-prod-browser-v6-wrong-subnet|serverless-prod-browser-v6-ipv6-wrong-subnet)
         attempts=0
         if [ -f "${TF_TEST_DESTROY_ATTEMPTS_FILE}" ]; then
           read -r attempts <"${TF_TEST_DESTROY_ATTEMPTS_FILE}" || true
@@ -129,6 +131,38 @@ case "${1:-}" in
         fi
         if [ "${TF_TEST_DESTROY_MODE}" = "serverless-browser-v6-ipv6-wrong-subnet" ]; then
           echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-pr-75-browser-v6-deadbeef': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-pr-75-browser-v6-deadbeef', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-prod-browser-fail-once" ] && [ "$attempts" -eq 1 ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-browser-4a3bef0b': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-browser-4a3bef0b', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-prod-browser-ipv6-fail-once" ] && [ "$attempts" -eq 1 ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-browser-4a3bef0b': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-browser-4a3bef0b', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-prod-browser-v6-fail-once" ] && [ "$attempts" -eq 1 ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-browser-v6-4a3bef0b': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-browser-v6-4a3bef0b', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-prod-browser-v6-ipv6-fail-once" ] && [ "$attempts" -eq 1 ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-browser-v6-4a3bef0b': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-browser-v6-4a3bef0b', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-prod-browser-wrong-subnet" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-browser-deadbeef': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-browser-deadbeef', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-prod-browser-ipv6-wrong-subnet" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-browser-deadbeef': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-browser-deadbeef', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-prod-browser-v6-wrong-subnet" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-browser-v6-deadbeef': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv4-scribe-browser-v6-deadbeef', resourceInUseByAnotherResource" >&2
+          exit 1
+        fi
+        if [ "${TF_TEST_DESTROY_MODE}" = "serverless-prod-browser-v6-ipv6-wrong-subnet" ]; then
+          echo "Error: Error when reading or editing Subnetwork 'projects/example-project/regions/us-east5/subnetworks/scribe-browser-v6-deadbeef': googleapi: Error 400: already used by 'projects/example-project/regions/us-east5/addresses/serverless-ipv6-scribe-browser-v6-deadbeef', resourceInUseByAnotherResource" >&2
           exit 1
         fi
         if [ "${TF_TEST_DESTROY_MODE}" = "serverless-wrong-subnet" ]; then
@@ -250,6 +284,31 @@ run_destroy() {
     "${ROOT_DIR}/terraform/deploy-local.sh" preview destroy \
       --branch bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
       --pr-number 75 >"${stdout_file}" 2>"${stderr_file}"
+}
+
+run_prod_destroy() {
+  local mode="$1"
+  local stdout_file="$2"
+  local stderr_file="$3"
+  PATH="${TEST_DIR}/bin" \
+    GCLOUD_PROJECT=example-project \
+    TF_STATE_BUCKET=example-state \
+    ALLOWED_IPS='["127.0.0.1/32"]' \
+    CONFIRM_PRODUCTION_DESTROY=scribe-prod-destroy \
+    SCRIBE_REGION=caller-region1 \
+    SCRIBE_ZONE=caller-region1-a \
+    VAULT_TOKEN=test-only-token \
+    TF_TEST_COMMAND_LOG="${command_log}" \
+    TF_TEST_LOG="${terraform_log}" \
+    TF_TEST_STATE_FILE="${TF_TEST_STATE_FILE:-$state_file}" \
+    TF_TEST_STATE_MODE="${mode}" \
+    TF_TEST_WORKSPACE_MODE=existing \
+    TF_TEST_DESTROY_MODE="${TF_TEST_DESTROY_MODE:-success}" \
+    TF_TEST_DESTROY_ATTEMPTS_FILE="${TEST_DIR}/destroy-attempts" \
+    TF_TEST_SLEEP_LOG="${TEST_DIR}/sleep.log" \
+    "${ROOT_DIR}/terraform/deploy-local.sh" prod destroy \
+      --branch bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
+      >"${stdout_file}" 2>"${stderr_file}"
 }
 
 run_refresh() {
@@ -374,7 +433,7 @@ grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservati
   "${TEST_DIR}/destroy-serverless-retry.err" >/dev/null
 grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 
-# The preview-only browser job has a second exact Direct VPC subnet. Its
+# The protected browser job has a second exact Direct VPC subnet. Its
 # deterministic hashed name receives the same bounded provider-cleanup path.
 rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
 : >"${terraform_log}"
@@ -406,6 +465,41 @@ grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservati
   "${TEST_DIR}/destroy-browser-ipv6-serverless-retry.err" >/dev/null
 grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 
+# Production has the same dedicated browser Direct VPC subnet. An explicitly
+# confirmed production destroy must classify only its deterministic subnet and
+# retain the same state-derived retry behavior.
+rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+: >"${terraform_log}"
+if ! TF_TEST_DESTROY_MODE=serverless-prod-browser-fail-once run_prod_destroy valid \
+  "${TEST_DIR}/destroy-prod-browser-serverless-retry.out" \
+  "${TEST_DIR}/destroy-prod-browser-serverless-retry.err"; then
+  echo "Google-managed production browser subnet cleanup delay was not retried" >&2
+  sed -n '1,20p' "${TEST_DIR}/destroy-prod-browser-serverless-retry.err" >&2
+  exit 1
+fi
+[ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
+[ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
+grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
+grep -F 'Terraform prod destroy attempt 1/25 is waiting for Google to release' \
+  "${TEST_DIR}/destroy-prod-browser-serverless-retry.err" >/dev/null
+
+# Production's same deterministic dual-stack subnet receives the matching IPv6
+# cleanup classification.
+rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+: >"${terraform_log}"
+if ! TF_TEST_DESTROY_MODE=serverless-prod-browser-ipv6-fail-once run_prod_destroy valid \
+  "${TEST_DIR}/destroy-prod-browser-ipv6-serverless-retry.out" \
+  "${TEST_DIR}/destroy-prod-browser-ipv6-serverless-retry.err"; then
+  echo "Google-managed production dual-stack browser subnet cleanup delay was not retried" >&2
+  sed -n '1,20p' "${TEST_DIR}/destroy-prod-browser-ipv6-serverless-retry.err" >&2
+  exit 1
+fi
+[ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
+[ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
+grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
+grep -F 'Terraform prod destroy attempt 1/25 is waiting for Google to release its serverless IPv4/IPv6 subnet reservation' \
+  "${TEST_DIR}/destroy-prod-browser-ipv6-serverless-retry.err" >/dev/null
+
 # Workspaces that reached the retired additive network rollout can still own a
 # deterministic `-browser-v6-` subnet. Keep that exact historical name on the
 # bounded cleanup path for either managed address family, without making it a
@@ -413,25 +507,78 @@ grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null
 # browser image, so teardown classification must not depend on that output.
 historical_empty_browser_state="${TEST_DIR}/deployment-inputs-empty-browser.json"
 jq '.browser_readiness_image = ""' "${state_file}" >"${historical_empty_browser_state}"
-for historical_route in ipv4 ipv6; do
-  rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
-  : >"${terraform_log}"
-  historical_mode=serverless-browser-v6-fail-once
-  [ "$historical_route" = ipv4 ] || historical_mode=serverless-browser-v6-ipv6-fail-once
-  historical_error="${TEST_DIR}/destroy-historical-preview-browser-${historical_route}.err"
-  TF_TEST_STATE_FILE="$historical_empty_browser_state" \
-    TF_TEST_DESTROY_MODE="$historical_mode" run_destroy valid \
-      "${TEST_DIR}/destroy-historical-preview-browser-${historical_route}.out" \
-      "$historical_error" || {
-    echo "historical preview ${historical_route} browser-v6 subnet cleanup delay was not classified" >&2
-    exit 1
-  }
-  [ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
-  [ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
-  grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
-  grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservation' \
-    "$historical_error" >/dev/null
+for historical_environment in preview prod; do
+  for historical_route in ipv4 ipv6; do
+    rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+    : >"${terraform_log}"
+    if [ "$historical_environment" = preview ]; then
+      historical_mode=serverless-browser-v6-fail-once
+      [ "$historical_route" = ipv4 ] || historical_mode=serverless-browser-v6-ipv6-fail-once
+      historical_error="${TEST_DIR}/destroy-historical-preview-browser-${historical_route}.err"
+      TF_TEST_STATE_FILE="$historical_empty_browser_state" \
+        TF_TEST_DESTROY_MODE="$historical_mode" run_destroy valid \
+          "${TEST_DIR}/destroy-historical-preview-browser-${historical_route}.out" \
+          "$historical_error" || {
+        echo "historical preview ${historical_route} browser-v6 subnet cleanup delay was not classified" >&2
+        exit 1
+      }
+    else
+      historical_mode=serverless-prod-browser-v6-fail-once
+      [ "$historical_route" = ipv4 ] || historical_mode=serverless-prod-browser-v6-ipv6-fail-once
+      historical_error="${TEST_DIR}/destroy-historical-prod-browser-${historical_route}.err"
+      TF_TEST_STATE_FILE="$historical_empty_browser_state" \
+        TF_TEST_DESTROY_MODE="$historical_mode" run_prod_destroy valid \
+          "${TEST_DIR}/destroy-historical-prod-browser-${historical_route}.out" \
+          "$historical_error" || {
+        echo "historical production ${historical_route} browser-v6 subnet cleanup delay was not classified" >&2
+        exit 1
+      }
+    fi
+    [ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
+    [ "$(grep -Fc 'output -json deployment_inputs' "${terraform_log}")" -eq 1 ]
+    grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
+    grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservation' \
+      "$historical_error" >/dev/null
+  done
 done
+
+# A partial first browser rollout can create the deterministic Direct VPC graph
+# before the additive lifecycle output records its image. Historical empty
+# image state must still classify that exact managed-subnet release delay.
+for partial_environment in preview prod; do
+  for partial_route in ipv4 ipv6; do
+    rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+    : >"${terraform_log}"
+    if [ "$partial_environment" = preview ]; then
+      partial_mode=serverless-browser-fail-once
+      [ "$partial_route" = ipv4 ] || partial_mode=serverless-browser-ipv6-fail-once
+      partial_error="${TEST_DIR}/destroy-partial-preview-browser-${partial_route}.err"
+      TF_TEST_STATE_FILE="$historical_empty_browser_state" \
+        TF_TEST_DESTROY_MODE="$partial_mode" run_destroy valid \
+          "${TEST_DIR}/destroy-partial-preview-browser-${partial_route}.out" \
+          "$partial_error" || {
+        echo "partial preview ${partial_route} browser subnet cleanup delay was not classified" >&2
+        exit 1
+      }
+    else
+      partial_mode=serverless-prod-browser-fail-once
+      [ "$partial_route" = ipv4 ] || partial_mode=serverless-prod-browser-ipv6-fail-once
+      partial_error="${TEST_DIR}/destroy-partial-prod-browser-${partial_route}.err"
+      TF_TEST_STATE_FILE="$historical_empty_browser_state" \
+        TF_TEST_DESTROY_MODE="$partial_mode" run_prod_destroy valid \
+          "${TEST_DIR}/destroy-partial-prod-browser-${partial_route}.out" \
+          "$partial_error" || {
+        echo "partial production ${partial_route} browser subnet cleanup delay was not classified" >&2
+        exit 1
+      }
+    fi
+    [ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 2 ]
+    grep -Fx 'sleep 300' "${TEST_DIR}/sleep.log" >/dev/null
+    grep -F 'waiting for Google to release its serverless IPv4/IPv6 subnet reservation' \
+      "$partial_error" >/dev/null
+  done
+done
+
 rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
 : >"${terraform_log}"
 if TF_TEST_DESTROY_MODE=serverless-always-fail run_destroy valid \
@@ -475,6 +622,34 @@ for destroy_mode in \
   fi
 done
 
+# A production reservation with the wrong deterministic hash must remain on
+# the ordinary retry path for current and retired subnet names and for either
+# address family.
+for destroy_mode in \
+  serverless-prod-browser-wrong-subnet \
+  serverless-prod-browser-ipv6-wrong-subnet \
+  serverless-prod-browser-v6-wrong-subnet \
+  serverless-prod-browser-v6-ipv6-wrong-subnet; do
+  rm -f "${TEST_DIR}/destroy-attempts" "${TEST_DIR}/sleep.log"
+  : >"${terraform_log}"
+  if TF_TEST_DESTROY_MODE="$destroy_mode" run_prod_destroy valid \
+    "${TEST_DIR}/destroy-${destroy_mode}.out" \
+    "${TEST_DIR}/destroy-${destroy_mode}.err"; then
+    echo "wrong production browser subnet received the extended retry path: ${destroy_mode}" >&2
+    exit 1
+  fi
+  [ "$(grep -Fc 'destroy -auto-approve' "${terraform_log}")" -eq 3 ]
+  [ "$(grep -Fxc 'sleep 15' "${TEST_DIR}/sleep.log")" -eq 1 ]
+  [ "$(grep -Fxc 'sleep 30' "${TEST_DIR}/sleep.log")" -eq 1 ]
+  grep -F 'Terraform destroy failed after 3 bounded attempts' \
+    "${TEST_DIR}/destroy-${destroy_mode}.err" >/dev/null
+  if grep -F 'waiting for Google to release' \
+    "${TEST_DIR}/destroy-${destroy_mode}.err" >/dev/null; then
+    echo "wrong production browser subnet used unsafe cleanup behavior: ${destroy_mode}" >&2
+    exit 1
+  fi
+done
+
 rm -f "${TEST_DIR}/destroy-attempts"
 : >"${terraform_log}"
 if TF_TEST_DESTROY_MODE=always-fail run_destroy valid \
@@ -489,24 +664,6 @@ if grep -F 'workspace delete pr-75' "${terraform_log}" >/dev/null; then
   echo "failed Terraform destroy deleted its workspace" >&2
   exit 1
 fi
-
-deploy_job_header="$(sed -n '/^  deploy:$/,/^    permissions:$/p' "${ROOT_DIR}/.github/workflows/terraform-deploy.yaml")"
-grep -F "timeout-minutes: \${{ inputs.mode == 'destroy' && inputs.environment_name == 'preview' && 180 || 120 }}" \
-  <<<"$deploy_job_header" >/dev/null || {
-  echo "Terraform deploy job timeout does not isolate the extended preview destroy window" >&2
-  exit 1
-}
-serverless_attempt_limit="$(sed -nE 's/^    serverless_destroy_attempt_limit=([0-9]+)$/\1/p' "${ROOT_DIR}/terraform/deploy-local.sh")"
-serverless_delay_seconds="$(sed -nE 's/^    serverless_retry_delay_seconds=([0-9]+)$/\1/p' "${ROOT_DIR}/terraform/deploy-local.sh")"
-[ "$serverless_attempt_limit" -eq 25 ]
-[ "$serverless_delay_seconds" -eq 300 ]
-serverless_wait_seconds=$(((serverless_attempt_limit - 1) * serverless_delay_seconds))
-preview_destroy_timeout_seconds=$((180 * 60))
-[ "$serverless_wait_seconds" -eq 7200 ]
-[ $((preview_destroy_timeout_seconds - serverless_wait_seconds)) -ge 3600 ] || {
-  echo "Terraform deploy job timeout lacks a one-hour execution and cleanup margin" >&2
-  exit 1
-}
 
 # Protected previews are applied from the trusted base branch. A preview made
 # before the dev-only OCR IAM output was added therefore has no such state key,

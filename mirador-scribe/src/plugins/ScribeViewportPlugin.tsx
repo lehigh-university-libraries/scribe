@@ -178,12 +178,18 @@ function ScribeViewportPlugin({ canvasId, viewer, windowId }: ScribeViewportProp
     const handleCenteredLine = (event: Event) => {
       const detail = eventDetail(event);
       if (detail?.windowId !== windowId || detail.canvasId !== canvasId) return;
-      const bounds = currentImageBounds(viewer);
       const size = viewer?.world?.getItemAt(0)?.getContentSize?.();
-      const bbox = initialLineBBoxForViewport(bounds, size ? {
-        height: size.y,
-        width: size.x,
-      } : null);
+      const imageSize = size ? { height: size.y, width: size.x } : null;
+      const bounds = currentImageBounds(viewer);
+      // The current viewport can be too small or transiently unavailable
+      // (e.g. immediately after a full-page retranscription remounts the
+      // viewer). Centering on the whole image keeps this action from
+      // silently doing nothing whenever that happens.
+      const fallbackBounds = imageSize
+        ? { h: imageSize.height, w: imageSize.width, x: 0, y: 0 }
+        : null;
+      const bbox = initialLineBBoxForViewport(bounds, imageSize)
+        || initialLineBBoxForViewport(fallbackBounds, imageSize);
       if (!bbox) return;
       document.dispatchEvent(new CustomEvent('scribe:create-annotation', {
         detail: {
@@ -207,6 +213,7 @@ function ScribeViewportPlugin({ canvasId, viewer, windowId }: ScribeViewportProp
 
     viewer.setMouseNavEnabled(!drawMode);
     if (!drawMode) {
+      viewer.element.removeAttribute('data-scribe-draw-ready');
       setDraftRect(null);
       dragStartRef.current = null;
       return undefined;
@@ -244,9 +251,11 @@ function ScribeViewportPlugin({ canvasId, viewer, windowId }: ScribeViewportProp
 
     tracker.setTracking(true);
     trackerRef.current = tracker;
+    viewer.element.setAttribute('data-scribe-draw-ready', 'true');
 
     return () => {
       viewer.setMouseNavEnabled(true);
+      viewer.element.removeAttribute('data-scribe-draw-ready');
       tracker.destroy();
       trackerRef.current = null;
       setDraftRect(null);

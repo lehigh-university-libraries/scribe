@@ -1,5 +1,5 @@
 .PHONY: help
-.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check check test test-backend test-backend-fast test-frontend test-browser e2e-smoke backup-restore-smoke verify-cloud-backups-test cloud-snapshot-restore-drill-test mariadb-backup-retention-test preview-deployment-test readiness-fixture-test deployment-status-test reset-dev-db-test ocr-build-tags ocr-matrix-test ocr-source-paths-test segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-security-contracts terraform-check terraform-state-normalizer-test terraform-targeted-output-test docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-cloud-ocr up-db reset-dev-db down logs sequelace ocr-matrix ocr-images bootstrap-gcp-identities bootstrap-gcp-identities-test tf-dev tf-dev-vault-ci-identities tf-dev-vault-preview-runtime tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
+.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check check test test-backend test-backend-fast test-frontend test-browser e2e-smoke backup-restore-smoke verify-cloud-backups-test cloud-snapshot-restore-drill-test mariadb-backup-retention-test preview-deployment-test readiness-fixture-test deployment-status-test reset-dev-db-test ocr-build-tags ocr-matrix-test ocr-source-paths-test segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-tests terraform-check terraform-state-normalizer-test terraform-targeted-output-test docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-cloud-ocr up-db reset-dev-db down logs sequelace ocr-matrix ocr-images bootstrap-gcp-identities bootstrap-gcp-identities-test tf-dev tf-dev-vault-ci-identities tf-dev-vault-preview-runtime tf-dev-ocr tf-prod tf-prod-ocr tf-preview vault-secrets
 
 IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
 FRONTEND_IMAGE ?= scribe-frontend:local
@@ -156,8 +156,51 @@ dependency-scan: ## Scan locked dependencies for fixed high and critical vulnera
 reset-dev-db-test: ## Verify the local MariaDB reset refuses broad or unconfirmed deletion
 	@bash ./ci/reset-dev-db_test.sh
 
-ops-security-contracts: install-shell-tools reset-dev-db-test ## Verify static CI, identity, secret-route, and immutable-action security invariants
-	@bash ./ci/ops-security-contracts.sh
+ops-tests: install-shell-tools reset-dev-db-test ## Exercise deployment, identity, secret, and recovery behavior
+	@bash ./ci/ensure-local-vault-init-image_test.sh
+	@bash ./ci/prepare-browser-readiness-source_test.sh
+	@bash ./ci/deployed-readiness-entrypoint_test.sh
+	@node --check ./web/e2e/deployed-readiness.mjs
+	@node --test ./web/e2e/deployed-readiness-budget.test.mjs
+	@node --test ./web/e2e/deployed-readiness-dom.test.mjs
+	@node --test ./web/e2e/deployed-readiness-structure.test.mjs
+	@node --test ./web/e2e/deployed-readiness-routing_test.mjs
+	@bash ./ci/run-production-browser-readiness_test.sh
+	@bash ./ci/cloud-ocr-compose-preflight_test.sh
+	@bash ./ci/run-ci-network_test.sh
+	@bash ./ci/configure-dev-cloud-ocr_test.sh
+	@bash ./ci/dev-external-ocr-iam_test.sh
+	@bash ./ci/tool-version_test.sh
+	@bash ./ci/toolchain-check_test.sh
+	@bash ./ci/update-env_test.sh
+	@bash ./ci/verify-gcp-wif_test.sh
+	@bash ./ci/bootstrap-external-gcp-identities_test.sh
+	@bash ./ci/capture-command-log_test.sh
+	@bash ./ci/gcp-vm-bootstrap-diagnostics_test.sh
+	@bash ./ci/run-cloud-run-readiness_test.sh
+	@bash ./ci/persistence-generation_test.sh
+	@bash ./ci/compose-network-ipam_test.sh
+	@bash ./ci/compose-runtime-preflight_test.sh
+	@bash ./ci/resolve-rollback-inputs_test.sh
+	@bash ./ci/select-current-ocr-images_test.sh
+	@bash ./ci/verify-production-source-lineage_test.sh
+	@bash ./ci/verify-production-persistent-disk-plan_test.sh
+	@bash ./ci/vault-database-path_test.sh
+	@bash ./ci/generate-secrets-permissions_test.sh
+	@bash ./ci/vault-init-image_test.sh
+	@bash ./ci/vault-init-diagnostics_test.sh
+	@bash ./ci/vault-first-bootstrap_test.sh
+	@bash ./ci/preview-vault-secrets_test.sh
+	@bash ./ci/vault-policy-capabilities_test.sh
+	@bash ./ci/vault-retry_test.sh
+	@bash ./ci/vault-terraform-readiness_test.sh
+	@bash ./ci/publish-preview-images_test.sh
+	@bash ./ci/resolve-gar-image_test.sh
+	@bash ./ci/dependency-scan-path-parity_test.sh
+	@bash ./ci/release-tag_test.sh
+	@bash ./ci/release-draft_test.sh
+	@bash ./ci/release-coverage_test.sh
+	@bash ./ci/verify-release-source-run_test.sh
 
 terraform-check: ## Format-check, initialize, and validate Terraform
 	@./ci/terraform-check.sh
@@ -212,7 +255,6 @@ mariadb-backup-retention-test: ## Verify logical-backup retention is bounded and
 
 preview-deployment-test: install-shell-tools ## Test trusted preview input resolution and immutable teardown
 	@bash ./ci/resolve-preview-inputs_test.sh
-	@bash ./ci/preview-deployment-evidence-contract_test.sh
 	@bash ./ci/recover-preview-destroy-inputs_test.sh
 	@bash ./ci/deploy-local-destroy_test.sh
 

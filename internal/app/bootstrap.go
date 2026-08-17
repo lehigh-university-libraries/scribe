@@ -147,31 +147,66 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 }
 
 func loadSecretsWithRetry(ctx context.Context, cfg config.Config) (config.Secrets, error) {
-	delay := 250 * time.Millisecond
+	return loadVaultValueWithRetry(ctx, func(loadCtx context.Context) (config.Secrets, error) {
+		return config.LoadSecrets(loadCtx, cfg)
+	})
+}
+
+func loadDatabasePasswordWithRetry(ctx context.Context, cfg config.BrowserSessionVaultConfig) (string, error) {
+	return loadVaultValueWithRetry(ctx, func(loadCtx context.Context) (string, error) {
+		return config.LoadDatabasePassword(loadCtx, cfg)
+	})
+}
+
+const (
+	vaultLoadMaximumAttempts = 5
+	vaultLoadInitialDelay    = 250 * time.Millisecond
+	vaultLoadMaximumDelay    = 4 * time.Second
+)
+
+func loadVaultValueWithRetry[T any](ctx context.Context, load func(context.Context) (T, error)) (T, error) {
+	return loadVaultValueWithRetryPolicy(ctx, load, vaultkv.IsRetryable, waitForVaultRetry)
+}
+
+func loadVaultValueWithRetryPolicy[T any](
+	ctx context.Context,
+	load func(context.Context) (T, error),
+	retryable func(error) bool,
+	wait func(context.Context, time.Duration) error,
+) (T, error) {
+	delay := vaultLoadInitialDelay
+	var zero T
 	var lastErr error
-	for attempt := 1; attempt <= 5; attempt++ {
-		secrets, err := config.LoadSecrets(ctx, cfg)
+	for attempt := 1; attempt <= vaultLoadMaximumAttempts; attempt++ {
+		value, err := load(ctx)
 		if err == nil {
-			return secrets, nil
+			return value, nil
 		}
 		lastErr = err
-		if !vaultkv.IsRetryable(err) || attempt == 5 {
+		if !retryable(err) || attempt == vaultLoadMaximumAttempts {
 			break
 		}
 		slog.Warn("vault secrets load failed; retrying", "attempt", attempt, "error_type", safelog.ErrorType(err), "category", safelog.ErrorCategory(err))
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return config.Secrets{}, ctx.Err()
-		case <-timer.C:
+		if err := wait(ctx, delay); err != nil {
+			return zero, err
 		}
 		delay *= 2
-		if delay > 4*time.Second {
-			delay = 4 * time.Second
+		if delay > vaultLoadMaximumDelay {
+			delay = vaultLoadMaximumDelay
 		}
 	}
-	return config.Secrets{}, lastErr
+	return zero, lastErr
+}
+
+func waitForVaultRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (d *Dependencies) Close() error {

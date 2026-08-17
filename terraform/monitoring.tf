@@ -1,6 +1,7 @@
 locals {
   readiness_jobs = {
     backend = try(google_cloud_run_v2_job.backend_readiness[0].name, "")
+    browser = try(google_cloud_run_v2_job.browser_readiness[0].name, "")
     ocr     = try(google_cloud_run_v2_job.ocr_readiness[0].name, "")
   }
 }
@@ -74,7 +75,7 @@ resource "google_monitoring_alert_policy" "frontend_server_errors" {
   notification_channels = var.monitoring_notification_channels
 
   documentation {
-    content   = "The public Cloud Run ingress is returning server errors. Execute both readiness jobs and inspect the frontend proxy, VM, API, and database health."
+    content   = "The public Cloud Run ingress is returning server errors. Execute the backend, browser, and OCR readiness jobs and inspect the frontend proxy, VM, API, and database health."
     mime_type = "text/markdown"
   }
 
@@ -96,14 +97,16 @@ resource "google_monitoring_alert_policy" "frontend_server_errors" {
 }
 
 resource "google_monitoring_alert_policy" "readiness_job_failures" {
-  for_each = local.is_prod_workspace ? local.readiness_jobs : {}
+  for_each = local.is_prod_workspace ? {
+    for kind, job in local.readiness_jobs : kind => job if trimspace(job) != ""
+  } : {}
 
   display_name          = "${each.value} failed"
   combiner              = "OR"
   notification_channels = var.monitoring_notification_channels
 
   documentation {
-    content   = "A Scribe private deep-readiness job failed. Treat this as an unavailable backend or OCR path until a successful execution is recorded."
+    content   = "A Scribe protected deep-readiness job failed. Treat its backend, browser, or OCR path as unavailable until a successful execution is recorded."
     mime_type = "text/markdown"
   }
 

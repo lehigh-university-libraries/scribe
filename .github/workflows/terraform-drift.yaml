@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     environment: production
+    concurrency:
+      group: terraform-deploy-scribe
+      queue: max
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -100,6 +104,7 @@ jobs:
           {
             echo "DEPLOY_BRANCH=$(jq -r '.docker_compose_sha' <<<"$deployed")"
             echo "SCRIBE_API_IMAGE=$(jq -r '.api_image' <<<"$deployed")"
+            echo "SCRIBE_BROWSER_READINESS_IMAGE=$(jq -r '.browser_readiness_image' <<<"$deployed")"
             echo "SCRIBE_DATA_GENERATION=$(jq -r '.data_generation' <<<"$deployed")"
             echo "SCRIBE_FRONTEND_GAR_IMAGE=$(jq -r '.frontend_gar_image' <<<"$deployed")"
             echo "SCRIBE_OCR_IMAGES_JSON=$(jq -c '.ocr_service_images' <<<"$deployed")"

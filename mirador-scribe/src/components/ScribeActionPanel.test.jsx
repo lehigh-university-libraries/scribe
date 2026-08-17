@@ -127,7 +127,7 @@ describe('ScribeActionPanel', () => {
     });
     expect(shortcutLegendSx).toMatchObject({
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(164px, 1fr))',
       width: '100%',
     });
     expect(actionPanelRootSx['@media (max-width: 480px), (max-height: 500px)']).toMatchObject({
@@ -146,7 +146,7 @@ describe('ScribeActionPanel', () => {
     });
     expect(shortcutLegendSx['@media (max-height: 500px)']).toEqual({ display: 'none' });
     expect(shortcutLegendSx['@media (max-width: 480px)']).toMatchObject({
-      gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(148px, 1fr))',
     });
   });
 
@@ -164,6 +164,20 @@ describe('ScribeActionPanel', () => {
     expect(document.querySelector('button[aria-label="scribeEditorJoinWords"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+W');
     expect(document.querySelector('button[aria-label="Retranscribe"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+R');
     expect(document.querySelector('button[aria-label="Publish edits"]')?.getAttribute('aria-keyshortcuts')).toBe('Alt+P');
+  });
+
+  it('renders shortcut keys as readable semantic keycaps without decorative bullets', async () => {
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => root.render(<ScribeActionPanel {...props()} />));
+
+    const legend = document.querySelector('[aria-label="Keyboard shortcuts"]');
+    expect(legend?.querySelectorAll('li')).toHaveLength(11);
+    expect(legend?.querySelectorAll('kbd')).toHaveLength(11);
+    expect(legend?.textContent).not.toContain('•');
+    expect(legend?.textContent).toContain('Shift+TabPrev row');
+    expect(legend?.textContent).toContain('Alt+PPublish');
   });
 
   it('disables foreground retranscription while the durable job is active', async () => {

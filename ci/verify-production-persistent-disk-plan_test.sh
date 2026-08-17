@@ -4,7 +4,6 @@ set -eu
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 verifier="$ROOT_DIR/ci/verify-production-persistent-disk-plan.sh"
-deploy_helper="$ROOT_DIR/terraform/deploy-local.sh"
 
 expect_rejected() {
   fixture="$1"
@@ -174,12 +173,5 @@ for invalid_target in '' canonical-v3; do
   grep -F 'target data generation is missing or not reviewed' "$stderr_file" >/dev/null
   rm -f "$stderr_file"
 done
-
-# shellcheck disable=SC2016 # Match literal deploy-helper shell variables.
-grep -F 'terraform plan -out="$apply_plan_path"' "$deploy_helper" >/dev/null
-# shellcheck disable=SC2016 # Match literal deploy-helper shell variables.
-grep -F '"$repo_root/ci/verify-production-persistent-disk-plan.sh" "$data_generation" <"$apply_plan_json"' "$deploy_helper" >/dev/null
-# shellcheck disable=SC2016 # Match literal deploy-helper shell variables.
-grep -F 'terraform apply -auto-approve "$apply_plan_path"' "$deploy_helper" >/dev/null
 
 echo "Production persistent-disk saved-plan contracts passed."

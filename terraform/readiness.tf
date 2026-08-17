@@ -16,7 +16,7 @@ locals {
     module.scribe.network.subnetwork,
   )
   normalized_browser_readiness_image = trimspace(var.browser_readiness_image)
-  browser_readiness_enabled          = local.is_preview_workspace && local.normalized_browser_readiness_image != ""
+  browser_readiness_enabled          = (local.is_prod_workspace || local.is_preview_workspace) && local.normalized_browser_readiness_image != ""
   browser_readiness_network_resource_name = try(regex(
     "projects/[^/]+/global/networks/[^/]+$",
     google_compute_network.application.self_link,
@@ -35,6 +35,13 @@ locals {
   ] : []
 }
 
+check "browser_readiness_workspace_scope" {
+  assert {
+    condition     = local.normalized_browser_readiness_image == "" || local.is_prod_workspace || local.is_preview_workspace
+    error_message = "browser_readiness_image is restricted to protected production and preview workspaces."
+  }
+}
+
 # Direct VPC egress requires at least a /26. The browser receives a dedicated
 # dual-stack subnet inside this environment's already-counted VPC, so protected
 # previews do not consume one additional project-wide network quota each.
@@ -47,7 +54,7 @@ check "browser_readiness_subnet_isolated" {
         cidrhost(var.network_ip_cidr_range, offset)
       ]),
     )) == 0, false)
-    error_message = "browser_readiness_subnet_cidr must not overlap network_ip_cidr_range when protected preview browser readiness is enabled."
+    error_message = "browser_readiness_subnet_cidr must not overlap network_ip_cidr_range when protected browser readiness is enabled."
   }
 }
 
@@ -63,14 +70,21 @@ resource "google_compute_subnetwork" "browser_readiness" {
   ipv6_access_type         = "EXTERNAL"
   private_ip_google_access = false
 
+  # A separate data source reads real infrastructure at plan time, so on the
+  # initial IPV4_ONLY -> IPV4_IPV6 transition it would observe the not-yet-applied
+  # empty prefix and fail the plan. Asserting on the resource's own computed
+  # attribute instead lets Terraform treat it as unknown until apply, deferring
+  # this check to apply on that transition while remaining strict afterward.
   lifecycle {
     postcondition {
       condition = (
+        self.stack_type == "IPV4_IPV6" &&
+        self.ipv6_access_type == "EXTERNAL" &&
         can(cidrhost(self.external_ipv6_prefix, 0)) &&
         strcontains(self.external_ipv6_prefix, ":") &&
         endswith(self.external_ipv6_prefix, "/64")
       )
-      error_message = "The preview browser readiness subnet must receive one canonical external IPv6 /64."
+      error_message = "The protected browser readiness subnet must receive one canonical external IPv6 /64."
     }
   }
 }
@@ -156,7 +170,7 @@ resource "google_service_account" "browser_readiness" {
   project      = var.project_id
   account_id   = local.browser_readiness_account_id
   display_name = substr("Scribe ${local.workspace_slug} browser readiness", 0, 100)
-  description  = substr("Preview-only, no-data identity for canonical browser ingress in ${local.workspace_slug}.", 0, 256)
+  description  = substr("No-data identity for canonical protected browser ingress in ${local.workspace_slug}.", 0, 256)
 }
 
 check "readiness_identity_isolated" {
@@ -187,8 +201,8 @@ resource "google_cloud_run_v2_job" "browser_readiness" {
     template {
       service_account = google_service_account.browser_readiness[0].email
       max_retries     = 0
-      # The deployed browser runner stops product work after 30 minutes and
-      # reserves its final 10 minutes for bounded cleanup and reconciliation.
+      # The deployed browser runner stops product work after 27 minutes and
+      # reserves its final 13 minutes for bounded cleanup and reconciliation.
       timeout = "2400s"
 
       containers {
@@ -213,6 +227,26 @@ resource "google_cloud_run_v2_job" "browser_readiness" {
           name  = "NODE_OPTIONS"
           value = "--dns-result-order=ipv6first --no-network-family-autoselection"
         }
+
+        env {
+          name  = "SCRIBE_BROWSER_MODE"
+          value = local.is_prod_workspace ? "production" : "preview"
+        }
+
+        dynamic "env" {
+          for_each = local.is_prod_workspace ? [1] : []
+
+          content {
+            name = "SCRIBE_BROWSER_STORAGE_STATE_JSON"
+
+            value_source {
+              secret_key_ref {
+                secret  = google_secret_manager_secret.browser_session[0].secret_id
+                version = google_secret_manager_secret_version.browser_session_placeholder[0].version
+              }
+            }
+          }
+        }
       }
 
       vpc_access {
@@ -229,6 +263,8 @@ resource "google_cloud_run_v2_job" "browser_readiness" {
   depends_on = [
     google_compute_firewall.browser_readiness_isolation,
     google_compute_router_nat.browser_readiness,
+    google_secret_manager_secret_iam_member.browser_session_accessor,
+    google_secret_manager_secret_version.browser_session_placeholder,
     google_service_account.browser_readiness,
     module.scribe,
   ]
@@ -337,7 +373,7 @@ resource "google_cloud_run_v2_job" "ocr_readiness" {
         }
         env {
           name  = "SEGMENTATION_MODEL"
-          value = "tesseract"
+          value = "scribe"
         }
         env {
           name  = "TRANSCRIPTION_MODEL"

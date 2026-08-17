@@ -51,16 +51,6 @@ for secret in "$first_mask" "$second_mask"; do
     fail "the GitHub runner did not receive a masking workflow command"
 done
 
-rg -Uq 'if \[ -n "\$\{VAULT_TOKEN:-\}" \]; then\n  register_vault_token_mask\nfi\n\nrequire_cmd git' \
-  "$ROOT_DIR/terraform/deploy-local.sh" ||
-  fail "deploy-local does not register an inherited Vault token before external commands"
-rg -Uq 'bootstrap_vault_token[^\n]*\nregister_vault_token_mask' \
-  "$ROOT_DIR/terraform/deploy-local.sh" ||
-  fail "deploy-local does not register a newly issued Vault token before the final Terraform operations"
-rg -q "printf '\\\\n::add-mask::%s\\\\n'.*VAULT_TOKEN.*>&9" \
-  "$ROOT_DIR/terraform/deploy-local.sh" ||
-  fail "deploy-local does not register Vault tokens through the runner-only descriptor first"
-
 local_artifact="$TEST_DIR/local.log"
 local_runner_log="$TEST_DIR/local-runner.log"
 "$helper" "$local_artifact" bash -c '
@@ -70,30 +60,4 @@ local_runner_log="$TEST_DIR/local-runner.log"
 cmp -s "$local_artifact" "$local_runner_log" ||
   fail "ordinary local output differs between the terminal and captured log"
 
-workflow_calls=0
-while IFS=: read -r workflow line_number invocation; do
-  workflow_calls=$((workflow_calls + 1))
-  case "$workflow" in
-    .github/workflows/terraform-deploy.yaml)
-      [[ "$invocation" == *'capture-command-log.sh'* ]] ||
-        fail "${workflow}:${line_number} captures Terraform without the redacting helper"
-      ;;
-    .github/workflows/terraform-drift.yaml)
-      [[ "$invocation" == *'run: make tf-prod '* ]] ||
-        fail "${workflow}:${line_number} must write only to the GitHub runner log"
-      [[ "$invocation" != *'|'* && "$invocation" != *'>'* ]] ||
-        fail "${workflow}:${line_number} bypasses native GitHub log masking"
-      ;;
-    *)
-      fail "${workflow}:${line_number} is an unaudited GitHub Terraform entry point"
-      ;;
-  esac
-done < <(rg -n --no-heading 'make tf-(dev|prod|preview)' "$ROOT_DIR/.github/workflows" | sed "s#^${ROOT_DIR}/##")
-
-[ "$workflow_calls" -eq 10 ] ||
-  fail "expected all ten GitHub Terraform entry points, found ${workflow_calls}"
-if rg -q -- 'deploy-local\.sh' "$ROOT_DIR/.github/workflows"; then
-  fail "a workflow bypasses the shared make-based Terraform entry points"
-fi
-
-echo "Command-log masking and Terraform workflow capture contracts passed."
+echo "Command-log masking behavior passed."

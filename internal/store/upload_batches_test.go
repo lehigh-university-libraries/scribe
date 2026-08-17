@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
+	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
 )
 
 func TestUploadBatchJobAdmissionUsesImmutableBatchContext(t *testing.T) {
@@ -63,9 +66,11 @@ func TestUploadBatchJobAdmissionUsesImmutableBatchContext(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim first file = %+v/%t/%v", firstFile, claimed, err)
 	}
+	firstImageURL := "https://images.example/immutable-context-one.png"
+	firstReservation := reserveUploadBatchImage(t, itemStore, workspaceID, firstImageURL, 0)
 	firstImage, err := itemStore.EnsureUploadBatchImage(
-		ctx, workspaceID, batchID, 1, firstFile.LeaseOwner,
-		"https://images.example/immutable-context-one.png", 0, 100, 100, "https://scribe.example",
+		ctx, workspaceID, firstReservation, batchID, 1, firstFile.LeaseOwner,
+		firstImageURL, 0, 100, 100, "https://scribe.example",
 	)
 	if err != nil {
 		t.Fatalf("ensure first image: %v", err)
@@ -90,9 +95,11 @@ func TestUploadBatchJobAdmissionUsesImmutableBatchContext(t *testing.T) {
 	if err != nil || !claimed {
 		t.Fatalf("claim second file = %+v/%t/%v", secondFile, claimed, err)
 	}
+	secondImageURL := "https://images.example/immutable-context-two.png"
+	secondReservation := reserveUploadBatchImage(t, itemStore, workspaceID, secondImageURL, 0)
 	secondImage, err := itemStore.EnsureUploadBatchImage(
-		ctx, workspaceID, batchID, 2, secondFile.LeaseOwner,
-		"https://images.example/immutable-context-two.png", 0, 100, 100, "https://scribe.example",
+		ctx, workspaceID, secondReservation, batchID, 2, secondFile.LeaseOwner,
+		secondImageURL, 0, 100, 100, "https://scribe.example",
 	)
 	if err != nil {
 		t.Fatalf("ensure second image: %v", err)
@@ -124,6 +131,340 @@ func assertUploadBatchJobContext(t *testing.T, jobs *store.TranscriptionJobStore
 		t.Fatalf("upload batch job %d context = %+v, want immutable %+v", jobID, snapshot, want)
 	}
 	return job
+}
+
+func TestUploadBatchImageReservationTransfersAtExactCapacityAndCleansFullGraph(t *testing.T) {
+	databasePool := annotationTestDB(t)
+	ctx := context.Background()
+	userID, workspaceID := createUploadBatchIdentity(t, databasePool)
+	processingContext, err := store.NewContextStore(databasePool).Create(ctx, store.Context{
+		UserID:                &userID,
+		WorkspaceID:           &workspaceID,
+		Name:                  "reservation-transfer-context-" + uuid.NewString(),
+		SegmentationModel:     "tesseract",
+		TranscriptionProvider: "tesseract",
+		TranscriptionModel:    "eng",
+	})
+	if err != nil {
+		t.Fatalf("create processing context: %v", err)
+	}
+	itemStore := store.NewItemStore(databasePool)
+	batchID := "reservation-transfer-batch-" + uuid.NewString()
+	digest := fmt.Sprintf("%064x", 81)
+	batch, err := itemStore.StartUploadBatch(ctx, store.StartUploadBatchParams{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		BatchID:     batchID,
+		ItemID:      "item_" + uuid.NewString(),
+		Name:        "Reservation transfer batch",
+		Context:     processingContext,
+		RequestHash: fmt.Sprintf("%064x", 82),
+		Files:       []store.UploadBatchFileInput{{Filename: "page.png", Size: 5, ContentSHA256: digest}},
+	})
+	if err != nil {
+		t.Fatalf("StartUploadBatch: %v", err)
+	}
+	_, file, claimed, err := itemStore.ClaimUploadBatchFile(ctx, workspaceID, batchID, 1, 5, digest)
+	if err != nil || !claimed {
+		t.Fatalf("ClaimUploadBatchFile = %+v/%t/%v", file, claimed, err)
+	}
+
+	beforeWorkspace, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("load workspace quota before reservation: %v", err)
+	}
+	beforeGlobal, err := itemStore.GetStorageQuotaUsage(ctx, 0)
+	if err != nil {
+		t.Fatalf("load global quota before reservation: %v", err)
+	}
+	limits := storageQuotaTestLimits()
+	limits.MaxImagesPerWorkspace = beforeWorkspace.Images + beforeWorkspace.ReservedImages + 1
+	limits.MaxImagesTotal = beforeGlobal.Images + beforeGlobal.ReservedImages + 1
+	uploadName := immutableUploadTestName(digest)
+	imageURL := "/static/uploads/" + uploadName
+	reservation := reserveUploadBatchImageWithLimits(t, itemStore, workspaceID, imageURL, 5, limits)
+
+	stagedWorkspace, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("load workspace quota after staging: %v", err)
+	}
+	if stagedWorkspace.UploadBlobBytes != beforeWorkspace.UploadBlobBytes+5 ||
+		stagedWorkspace.Images != beforeWorkspace.Images ||
+		stagedWorkspace.ReservedImages != beforeWorkspace.ReservedImages+1 {
+		t.Fatalf("staged workspace quota = %+v, want blob bytes +5 and one reserved image over %+v", stagedWorkspace, beforeWorkspace)
+	}
+
+	image, err := itemStore.EnsureUploadBatchImage(
+		ctx, workspaceID, reservation, batchID, 1, file.LeaseOwner,
+		imageURL, 5, 100, 100, "https://scribe.example",
+	)
+	if err != nil {
+		t.Fatalf("EnsureUploadBatchImage at exact capacity: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = databasePool.Exec(`DELETE FROM resource_cleanup_outbox WHERE resource_key IN (?, ?)`, uploadName, fmt.Sprint(image.ID))
+	})
+	transferredWorkspace, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("load workspace quota after image commit: %v", err)
+	}
+	transferredGlobal, err := itemStore.GetStorageQuotaUsage(ctx, 0)
+	if err != nil {
+		t.Fatalf("load global quota after image commit: %v", err)
+	}
+	if transferredWorkspace.Images != beforeWorkspace.Images+1 || transferredWorkspace.ReservedImages != beforeWorkspace.ReservedImages {
+		t.Fatalf("workspace image reservation transfer = %+v, want one used and no additional reserved image over %+v", transferredWorkspace, beforeWorkspace)
+	}
+	if transferredGlobal.Images != beforeGlobal.Images+1 || transferredGlobal.ReservedImages != beforeGlobal.ReservedImages {
+		t.Fatalf("global image reservation transfer = %+v, want one used and no additional reserved image over %+v", transferredGlobal, beforeGlobal)
+	}
+
+	ocrRuns := store.NewOCRRunStore(databasePool)
+	if err := ocrRuns.SetStorageQuotaLimits(limits); err != nil {
+		t.Fatalf("set OCR run quota limits: %v", err)
+	}
+	sessionID := batch.ItemID + "-seq1"
+	contextID := processingContext.ID
+	if err := ocrRuns.Create(ctx, store.OCRRun{
+		SessionID:    sessionID,
+		ItemImageID:  &image.ID,
+		ContextID:    &contextID,
+		ImageURL:     imageURL,
+		Provider:     "tesseract",
+		Model:        "eng",
+		OriginalHOCR: `<div class="ocr_page">exact capacity</div>`,
+		OriginalText: "exact capacity",
+	}); err != nil {
+		t.Fatalf("create OCR run at exact image capacity: %v", err)
+	}
+	annotations := store.NewAnnotationStore(databasePool)
+	if err := annotations.SetStorageQuotaLimits(limits); err != nil {
+		t.Fatalf("set annotation quota limits: %v", err)
+	}
+	if _, err := annotations.SavePage(ctx, canonicalTestPage(t, workspaceID, image.ID, image.CanvasURI, "exact capacity"), 0); err != nil {
+		t.Fatalf("save canonical page at exact image capacity: %v", err)
+	}
+	jobs := store.NewTranscriptionJobStore(databasePool)
+	jobID, err := jobs.CreateForUploadBatchFile(ctx, workspaceID, batchID, 1, file.LeaseOwner, image.ID)
+	if err != nil {
+		t.Fatalf("create upload batch transcription job: %v", err)
+	}
+	if _, err := ocrRuns.Get(ctx, sessionID); err != nil {
+		t.Fatalf("load OCR baseline before abort: %v", err)
+	}
+	if _, err := ocrRuns.GetByItemImageID(ctx, image.ID); err != nil {
+		t.Fatalf("load current OCR pointer before abort: %v", err)
+	}
+	if _, err := annotations.LoadPage(ctx, workspaceID, image.ID); err != nil {
+		t.Fatalf("load canonical page before abort: %v", err)
+	}
+	if index, err := annotations.SearchIndex(ctx, workspaceID, image.ID); err != nil || len(index) != 1 {
+		t.Fatalf("annotation index before abort = %+v/%v, want one entry", index, err)
+	}
+	if _, err := jobs.Get(ctx, jobID); err != nil {
+		t.Fatalf("load transcription job before abort: %v", err)
+	}
+
+	if err := itemStore.ReleaseStorageQuotaReservation(ctx, reservation); err != nil {
+		t.Fatalf("release transferred reservation: %v", err)
+	}
+	assertCleanupCount(t, databasePool, uploadName, 0)
+	if err := itemStore.AbortUploadBatchFileAttempt(ctx, workspaceID, batchID, 1, file.LeaseOwner, "downstream failure"); err != nil {
+		t.Fatalf("AbortUploadBatchFileAttempt: %v", err)
+	}
+	if _, err := itemStore.GetImageForWorkspace(ctx, image.ID, workspaceID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("image after abort error = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := ocrRuns.Get(ctx, sessionID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("OCR baseline after abort error = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := ocrRuns.GetByItemImageID(ctx, image.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("current OCR pointer after abort error = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := annotations.LoadPage(ctx, workspaceID, image.ID); !errors.Is(err, store.ErrAnnotationPageNotFound) {
+		t.Fatalf("canonical page after abort error = %v, want ErrAnnotationPageNotFound", err)
+	}
+	if index, err := annotations.SearchIndex(ctx, workspaceID, image.ID); err != nil || len(index) != 0 {
+		t.Fatalf("annotation index after abort = %+v/%v, want empty", index, err)
+	}
+	if _, err := jobs.Get(ctx, jobID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("transcription job after abort error = %v, want sql.ErrNoRows", err)
+	}
+	assertCleanupCount(t, databasePool, uploadName, 1)
+	assertCleanupCount(t, databasePool, fmt.Sprint(image.ID), 1)
+
+	afterAbortWorkspace, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("load workspace quota after abort: %v", err)
+	}
+	afterAbortGlobal, err := itemStore.GetStorageQuotaUsage(ctx, 0)
+	if err != nil {
+		t.Fatalf("load global quota after abort: %v", err)
+	}
+	if afterAbortWorkspace.Images != beforeWorkspace.Images ||
+		afterAbortWorkspace.ReservedImages != beforeWorkspace.ReservedImages ||
+		afterAbortWorkspace.DatabaseBytes != beforeWorkspace.DatabaseBytes ||
+		afterAbortWorkspace.UploadBlobBytes != beforeWorkspace.UploadBlobBytes+5 {
+		t.Fatalf("workspace quota after graph cleanup = %+v, want canonical counters restored and blob pending over %+v", afterAbortWorkspace, beforeWorkspace)
+	}
+	if afterAbortGlobal.Images != beforeGlobal.Images ||
+		afterAbortGlobal.ReservedImages != beforeGlobal.ReservedImages ||
+		afterAbortGlobal.DatabaseBytes != beforeGlobal.DatabaseBytes ||
+		afterAbortGlobal.UploadBlobBytes != beforeGlobal.UploadBlobBytes+5 {
+		t.Fatalf("global quota after graph cleanup = %+v, want canonical counters restored and blob pending over %+v", afterAbortGlobal, beforeGlobal)
+	}
+
+	makeCleanupsOldest(t, databasePool, uploadName)
+	delivery, err := itemStore.ClaimResourceCleanup(ctx, time.Minute)
+	if err != nil || delivery == nil || delivery.Kind != store.ResourceCleanupUploadBlob || delivery.ResourceKey != uploadName {
+		t.Fatalf("claim upload cleanup = %+v/%v, want upload %q", delivery, err, uploadName)
+	}
+	fenceUploadCleanupForTest(t, ctx, itemStore, *delivery)
+	if err := itemStore.CompleteResourceCleanup(ctx, *delivery); err != nil {
+		t.Fatalf("complete upload cleanup: %v", err)
+	}
+	physicallyCleanWorkspace, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("load workspace quota after physical cleanup: %v", err)
+	}
+	physicallyCleanGlobal, err := itemStore.GetStorageQuotaUsage(ctx, 0)
+	if err != nil {
+		t.Fatalf("load global quota after physical cleanup: %v", err)
+	}
+	if physicallyCleanWorkspace.UploadBlobBytes != beforeWorkspace.UploadBlobBytes || physicallyCleanGlobal.UploadBlobBytes != beforeGlobal.UploadBlobBytes {
+		t.Fatalf("upload bytes after physical cleanup = workspace:%d global:%d, want %d/%d", physicallyCleanWorkspace.UploadBlobBytes, physicallyCleanGlobal.UploadBlobBytes, beforeWorkspace.UploadBlobBytes, beforeGlobal.UploadBlobBytes)
+	}
+}
+
+func TestUploadBatchImageReservationTransferRollsBackAndCleansStagedUpload(t *testing.T) {
+	databasePool := annotationTestDB(t)
+	ctx := context.Background()
+	userID, workspaceID := createUploadBatchIdentity(t, databasePool)
+	processingContext, err := store.NewContextStore(databasePool).Create(ctx, store.Context{
+		UserID:                &userID,
+		WorkspaceID:           &workspaceID,
+		Name:                  "reservation-rollback-context-" + uuid.NewString(),
+		SegmentationModel:     "tesseract",
+		TranscriptionProvider: "tesseract",
+		TranscriptionModel:    "eng",
+	})
+	if err != nil {
+		t.Fatalf("create processing context: %v", err)
+	}
+	itemStore := store.NewItemStore(databasePool)
+	batchID := "reservation-rollback-batch-" + uuid.NewString()
+	digest := fmt.Sprintf("%064x", 83)
+	batch, err := itemStore.StartUploadBatch(ctx, store.StartUploadBatchParams{
+		WorkspaceID: workspaceID,
+		UserID:      userID,
+		BatchID:     batchID,
+		ItemID:      "item_" + uuid.NewString(),
+		Name:        "Reservation rollback batch",
+		Context:     processingContext,
+		RequestHash: fmt.Sprintf("%064x", 84),
+		Files:       []store.UploadBatchFileInput{{Filename: "page.png", Size: 7, ContentSHA256: digest}},
+	})
+	if err != nil {
+		t.Fatalf("StartUploadBatch: %v", err)
+	}
+	_, file, claimed, err := itemStore.ClaimUploadBatchFile(ctx, workspaceID, batchID, 1, 7, digest)
+	if err != nil || !claimed {
+		t.Fatalf("ClaimUploadBatchFile = %+v/%t/%v", file, claimed, err)
+	}
+	beforeWorkspace, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("load workspace quota before reservation: %v", err)
+	}
+	beforeGlobal, err := itemStore.GetStorageQuotaUsage(ctx, 0)
+	if err != nil {
+		t.Fatalf("load global quota before reservation: %v", err)
+	}
+	uploadName := immutableUploadTestName(digest)
+	imageURL := "/static/uploads/" + uploadName
+	reservation := reserveUploadBatchImage(t, itemStore, workspaceID, imageURL, 7)
+
+	_, err = itemStore.EnsureUploadBatchImage(
+		ctx, workspaceID, reservation, batchID, 1, file.LeaseOwner,
+		imageURL, 7, 100, 100, "not-a-public-base",
+	)
+	if err == nil || !strings.Contains(err.Error(), "construct Canvas identity") {
+		t.Fatalf("EnsureUploadBatchImage rollback error = %v, want Canvas identity failure", err)
+	}
+	var imageCount int
+	if err := databasePool.QueryRow(`SELECT COUNT(*) FROM item_images WHERE workspace_id = ? AND item_id = ?`, workspaceID, batch.ItemID).Scan(&imageCount); err != nil {
+		t.Fatalf("count rolled-back images: %v", err)
+	}
+	if imageCount != 0 {
+		t.Fatalf("rolled-back image count = %d, want 0", imageCount)
+	}
+	var reservedBytes uint64
+	var reservedImages uint32
+	var resourceKey sql.NullString
+	if err := databasePool.QueryRow(`
+SELECT reserved_bytes, reserved_images, resource_key
+FROM workspace_storage_reservations
+WHERE id = ? AND workspace_id = ?`, reservation.ID, workspaceID).Scan(&reservedBytes, &reservedImages, &resourceKey); err != nil {
+		t.Fatalf("load rolled-back reservation: %v", err)
+	}
+	if reservedBytes != 0 || reservedImages != 1 || !resourceKey.Valid || resourceKey.String != uploadName {
+		t.Fatalf("rolled-back reservation = bytes:%d images:%d key:%+v, want 0/1/%q", reservedBytes, reservedImages, resourceKey, uploadName)
+	}
+	afterFailureWorkspace, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("load workspace quota after rollback: %v", err)
+	}
+	afterFailureGlobal, err := itemStore.GetStorageQuotaUsage(ctx, 0)
+	if err != nil {
+		t.Fatalf("load global quota after rollback: %v", err)
+	}
+	if afterFailureWorkspace.Images != beforeWorkspace.Images ||
+		afterFailureWorkspace.ReservedImages != beforeWorkspace.ReservedImages+1 ||
+		afterFailureWorkspace.UploadBlobBytes != beforeWorkspace.UploadBlobBytes+7 {
+		t.Fatalf("workspace quota after rollback = %+v, want used image unchanged, reservation live, and blob staged over %+v", afterFailureWorkspace, beforeWorkspace)
+	}
+	if afterFailureGlobal.Images != beforeGlobal.Images ||
+		afterFailureGlobal.ReservedImages != beforeGlobal.ReservedImages+1 ||
+		afterFailureGlobal.UploadBlobBytes != beforeGlobal.UploadBlobBytes+7 {
+		t.Fatalf("global quota after rollback = %+v, want used image unchanged, reservation live, and blob staged over %+v", afterFailureGlobal, beforeGlobal)
+	}
+
+	if err := itemStore.ReleaseStorageQuotaReservation(ctx, reservation); err != nil {
+		t.Fatalf("release rolled-back reservation: %v", err)
+	}
+	if err := itemStore.AbortUploadBatchFileAttempt(ctx, workspaceID, batchID, 1, file.LeaseOwner, "image commit failed"); err != nil {
+		t.Fatalf("abort rolled-back upload attempt: %v", err)
+	}
+	assertCleanupCount(t, databasePool, uploadName, 1)
+	afterReleaseWorkspace, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("load workspace quota after reservation release: %v", err)
+	}
+	if afterReleaseWorkspace.Images != beforeWorkspace.Images ||
+		afterReleaseWorkspace.ReservedImages != beforeWorkspace.ReservedImages ||
+		afterReleaseWorkspace.UploadBlobBytes != beforeWorkspace.UploadBlobBytes+7 {
+		t.Fatalf("workspace quota after reservation release = %+v, want only staged blob over %+v", afterReleaseWorkspace, beforeWorkspace)
+	}
+
+	makeCleanupsOldest(t, databasePool, uploadName)
+	delivery, err := itemStore.ClaimResourceCleanup(ctx, time.Minute)
+	if err != nil || delivery == nil || delivery.Kind != store.ResourceCleanupUploadBlob || delivery.ResourceKey != uploadName {
+		t.Fatalf("claim rolled-back upload cleanup = %+v/%v, want upload %q", delivery, err, uploadName)
+	}
+	fenceUploadCleanupForTest(t, ctx, itemStore, *delivery)
+	if err := itemStore.CompleteResourceCleanup(ctx, *delivery); err != nil {
+		t.Fatalf("complete rolled-back upload cleanup: %v", err)
+	}
+	afterCleanupWorkspace, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("load workspace quota after rolled-back cleanup: %v", err)
+	}
+	afterCleanupGlobal, err := itemStore.GetStorageQuotaUsage(ctx, 0)
+	if err != nil {
+		t.Fatalf("load global quota after rolled-back cleanup: %v", err)
+	}
+	if afterCleanupWorkspace.UploadBlobBytes != beforeWorkspace.UploadBlobBytes || afterCleanupGlobal.UploadBlobBytes != beforeGlobal.UploadBlobBytes {
+		t.Fatalf("rolled-back upload bytes after cleanup = workspace:%d global:%d, want %d/%d", afterCleanupWorkspace.UploadBlobBytes, afterCleanupGlobal.UploadBlobBytes, beforeWorkspace.UploadBlobBytes, beforeGlobal.UploadBlobBytes)
+	}
 }
 
 func TestUploadBatchDurableResumeRetryAndCancellationFence(t *testing.T) {
@@ -188,7 +529,9 @@ func TestUploadBatchDurableResumeRetryAndCancellationFence(t *testing.T) {
 		t.Fatalf("first ClaimUploadBatchFile = %+v/%t/%v", claimedFile, claimed, err)
 	}
 	failedUploadName := immutableUploadTestName(fmt.Sprintf("%064x", 1))
-	failedImage, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, batchID, 1, claimedFile.LeaseOwner, "/static/uploads/"+failedUploadName, 5, 100, 100, "https://scribe.example")
+	failedImageURL := "/static/uploads/" + failedUploadName
+	failedReservation := reserveUploadBatchImage(t, itemStore, workspaceID, failedImageURL, 5)
+	failedImage, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, failedReservation, batchID, 1, claimedFile.LeaseOwner, failedImageURL, 5, 100, 100, "https://scribe.example")
 	if err != nil {
 		t.Fatalf("ensure failed attempt image: %v", err)
 	}
@@ -215,7 +558,9 @@ func TestUploadBatchDurableResumeRetryAndCancellationFence(t *testing.T) {
 	}
 
 	completedUploadName := immutableUploadTestName(fmt.Sprintf("%064x", 1))
-	image, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, batchID, 1, retriedFile.LeaseOwner, "/static/uploads/"+completedUploadName, 5, 100, 100, "https://scribe.example")
+	completedImageURL := "/static/uploads/" + completedUploadName
+	completedReservation := reserveUploadBatchImage(t, itemStore, workspaceID, completedImageURL, 5)
+	image, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, completedReservation, batchID, 1, retriedFile.LeaseOwner, completedImageURL, 5, 100, 100, "https://scribe.example")
 	if err != nil {
 		t.Fatalf("AddImage: %v", err)
 	}
@@ -242,7 +587,9 @@ func TestUploadBatchDurableResumeRetryAndCancellationFence(t *testing.T) {
 		t.Fatalf("claim second file = %+v/%t/%v", inFlight, claimed, err)
 	}
 	incompleteUploadName := immutableUploadTestName(fmt.Sprintf("%064x", 2))
-	incompleteImage, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, batchID, 2, inFlight.LeaseOwner, "/static/uploads/"+incompleteUploadName, 6, 100, 100, "https://scribe.example")
+	incompleteImageURL := "/static/uploads/" + incompleteUploadName
+	incompleteReservation := reserveUploadBatchImage(t, itemStore, workspaceID, incompleteImageURL, 6)
+	incompleteImage, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, incompleteReservation, batchID, 2, inFlight.LeaseOwner, incompleteImageURL, 6, 100, 100, "https://scribe.example")
 	if err != nil {
 		t.Fatalf("ensure incomplete second image: %v", err)
 	}
@@ -352,9 +699,11 @@ func TestUploadBatchCancellationAtomicallyReleasesProvisionalQuotaWithinTenant(t
 	if err != nil || !claimed {
 		t.Fatalf("claim workspace A file = %+v/%t/%v", fileA, claimed, err)
 	}
+	imageAURL := "https://images.example/cancel-quota-" + uuid.NewString() + ".png"
+	imageAReservation := reserveUploadBatchImage(t, itemStore, workspaceA, imageAURL, 0)
 	imageA, err := itemStore.EnsureUploadBatchImage(
-		ctx, workspaceA, batchA, 1, fileA.LeaseOwner,
-		"https://images.example/cancel-quota-"+uuid.NewString()+".png", 0, 100, 100, "https://scribe.example",
+		ctx, workspaceA, imageAReservation, batchA, 1, fileA.LeaseOwner,
+		imageAURL, 0, 100, 100, "https://scribe.example",
 	)
 	if err != nil {
 		t.Fatalf("ensure workspace A provisional image: %v", err)
@@ -452,7 +801,9 @@ func TestUploadBatchExpiredLeaseReclaimFencesStaleCleanup(t *testing.T) {
 		t.Fatalf("claim first attempt = %+v/%t/%v", firstAttempt, claimed, err)
 	}
 	firstUploadName := immutableUploadTestName(digest)
-	firstImage, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, batchID, 1, firstAttempt.LeaseOwner, "/static/uploads/"+firstUploadName, 4, 100, 100, "https://scribe.example")
+	firstImageURL := "/static/uploads/" + firstUploadName
+	firstReservation := reserveUploadBatchImage(t, itemStore, workspaceID, firstImageURL, 4)
+	firstImage, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, firstReservation, batchID, 1, firstAttempt.LeaseOwner, firstImageURL, 4, 100, 100, "https://scribe.example")
 	if err != nil {
 		t.Fatalf("ensure first attempt image: %v", err)
 	}
@@ -486,7 +837,9 @@ func TestUploadBatchExpiredLeaseReclaimFencesStaleCleanup(t *testing.T) {
 	}
 
 	secondUploadName := immutableUploadTestName(digest)
-	secondImage, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, batchID, 1, secondAttempt.LeaseOwner, "/static/uploads/"+secondUploadName, 4, 100, 100, "https://scribe.example")
+	secondImageURL := "/static/uploads/" + secondUploadName
+	secondReservation := reserveUploadBatchImage(t, itemStore, workspaceID, secondImageURL, 4)
+	secondImage, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, secondReservation, batchID, 1, secondAttempt.LeaseOwner, secondImageURL, 4, 100, 100, "https://scribe.example")
 	if err != nil {
 		t.Fatalf("ensure second attempt image: %v", err)
 	}
@@ -618,7 +971,9 @@ func TestCancelCompletedUploadBatchIsRejectedAndLeavesJobUntouched(t *testing.T)
 	if err != nil || !claimed {
 		t.Fatalf("ClaimUploadBatchFile = %+v/%t/%v", file, claimed, err)
 	}
-	image, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, batchID, 1, file.LeaseOwner, "https://images.example/lost-response.png", 0, 100, 100, "https://scribe.example")
+	imageURL := "https://images.example/lost-response.png"
+	reservation := reserveUploadBatchImage(t, itemStore, workspaceID, imageURL, 0)
+	image, err := itemStore.EnsureUploadBatchImage(ctx, workspaceID, reservation, batchID, 1, file.LeaseOwner, imageURL, 0, 100, 100, "https://scribe.example")
 	if err != nil {
 		t.Fatalf("AddImage: %v", err)
 	}
@@ -695,6 +1050,42 @@ func TestExternalRequestReservationIsConcurrentAndPayloadBound(t *testing.T) {
 	if err != nil || created || replayed.Status != store.ExternalRequestStatusCompleted {
 		t.Fatalf("completed reservation replay = %+v/%t/%v", replayed, created, err)
 	}
+}
+
+func reserveUploadBatchImage(t *testing.T, itemStore *store.ItemStore, workspaceID uint64, imageURL string, storageBytes uint64) store.StorageQuotaReservation {
+	t.Helper()
+	return reserveUploadBatchImageWithLimits(t, itemStore, workspaceID, imageURL, storageBytes, storageQuotaTestLimits())
+}
+
+func reserveUploadBatchImageWithLimits(
+	t *testing.T,
+	itemStore *store.ItemStore,
+	workspaceID uint64,
+	imageURL string,
+	storageBytes uint64,
+	limits store.StorageQuotaLimits,
+) store.StorageQuotaReservation {
+	t.Helper()
+	request := store.StorageQuotaRequest{Images: 1}
+	_, localUpload := uploadref.ImmutableNameFromURL(imageURL)
+	if localUpload {
+		request.Bytes = storageBytes
+	}
+	reservation, err := itemStore.ReserveStorageQuota(context.Background(), workspaceID, request, limits)
+	if err != nil {
+		t.Fatalf("reserve upload batch image quota: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := itemStore.ReleaseStorageQuotaReservation(context.Background(), reservation); err != nil {
+			t.Errorf("release upload batch image reservation: %v", err)
+		}
+	})
+	if localUpload {
+		if err := itemStore.StageStorageQuotaUpload(context.Background(), reservation, imageURL, storageBytes, limits); err != nil {
+			t.Fatalf("stage upload batch image quota: %v", err)
+		}
+	}
+	return reservation
 }
 
 func createUploadBatchTestJob(t *testing.T, databasePool *sql.DB, workspaceID, imageID uint64, processingContext store.Context) uint64 {

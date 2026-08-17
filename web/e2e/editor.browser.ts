@@ -515,6 +515,7 @@ test("a mounted editor reallocates the bottom pane after an in-place viewport re
   const assertResizedGeometry = async (viewport: {
     height: number;
     minimumImageHeight: number;
+    shortcutLegendVisible: boolean;
     width: number;
   }) => expect.poll(async () => {
     const metrics = await panel.evaluate((element, expectedViewport) => {
@@ -522,6 +523,11 @@ test("a mounted editor reallocates the bottom pane after an in-place viewport re
       const viewer = document.getElementById("mirador-viewer");
       const image = document.querySelector(".openseadragon-container")?.getBoundingClientRect();
       const panelRect = element.getBoundingClientRect();
+      const shortcutLegend = element.querySelector<HTMLElement>('[aria-label="Keyboard shortcuts"]');
+      const shortcutItems = Array.from(shortcutLegend?.querySelectorAll<HTMLElement>('li') ?? []);
+      const shortcutLegendIsVisible = Boolean(
+        shortcutLegend && getComputedStyle(shortcutLegend).display !== 'none',
+      );
       const actions = Array.from(element.querySelectorAll<HTMLButtonElement>(
         '[role="group"][aria-label="View and modes"] button[aria-label], [role="group"][aria-label="Text and page actions"] button[aria-label]',
       ));
@@ -539,6 +545,19 @@ test("a mounted editor reallocates the bottom pane after an in-place viewport re
           && document.body.scrollWidth <= document.body.clientWidth,
         paneHeight: companion?.height ?? 0,
         panelDoesNotOverflowHorizontally: element.scrollWidth <= element.clientWidth + 1,
+        shortcutLegendMatches: expectedViewport.shortcutLegendVisible
+          ? shortcutLegendIsVisible
+            && shortcutItems.length === 11
+            && shortcutLegend?.querySelectorAll('kbd').length === 11
+            && shortcutItems.every((item) => {
+              const rect = item.getBoundingClientRect();
+              const label = item.querySelector<HTMLElement>('span');
+              return Boolean(label?.textContent?.trim())
+                && getComputedStyle(label as HTMLElement).display !== 'none'
+                && rect.left >= panelRect.left - 1
+                && rect.right <= panelRect.right + 1;
+            })
+          : !shortcutLegendIsVisible,
         viewerHeight: viewer?.clientHeight ?? 0,
         viewerWidth: viewer?.clientWidth ?? 0,
       };
@@ -554,6 +573,7 @@ test("a mounted editor reallocates the bottom pane after an in-place viewport re
       pageDoesNotOverflow: metrics.pageDoesNotOverflow,
       paneMatchesCurrentViewport: Math.abs(metrics.paneHeight - expectedPaneHeight) <= 1,
       panelDoesNotOverflowHorizontally: metrics.panelDoesNotOverflowHorizontally,
+      shortcutLegendMatches: metrics.shortcutLegendMatches,
     };
   }, { timeout: 10_000 }).toEqual({
     actionCount: 14,
@@ -562,13 +582,24 @@ test("a mounted editor reallocates the bottom pane after an in-place viewport re
     pageDoesNotOverflow: true,
     paneMatchesCurrentViewport: true,
     panelDoesNotOverflowHorizontally: true,
+    shortcutLegendMatches: true,
   });
 
-  const portrait = { width: 360, height: 640, minimumImageHeight: 168 };
+  const portrait = {
+    width: 360,
+    height: 640,
+    minimumImageHeight: 168,
+    shortcutLegendVisible: true,
+  };
   await page.setViewportSize(portrait);
   await assertResizedGeometry(portrait);
 
-  const landscape = { width: 667, height: 375, minimumImageHeight: 70 };
+  const landscape = {
+    width: 667,
+    height: 375,
+    minimumImageHeight: 70,
+    shortcutLegendVisible: false,
+  };
   await page.setViewportSize(landscape);
   await assertResizedGeometry(landscape);
 });
@@ -593,6 +624,41 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
       && snapshot.loadItemImageIds.includes("1001")
       && snapshot.loadItemImageIds.includes("2002");
   }), pluginPollOptions).toBe(true);
+
+  const drawLine = page.getByRole("button", { name: "Draw New Line", exact: true });
+  await drawLine.click();
+  await expect(drawLine).toHaveAttribute("aria-pressed", "true");
+  const drawSurface = page.locator('[data-scribe-draw-ready="true"]');
+  await expect(drawSurface).toBeVisible();
+  const imageCanvas = drawSurface.locator(".openseadragon-canvas").first();
+  await expect(imageCanvas).toBeVisible();
+  const imageCanvasBox = await imageCanvas.boundingBox();
+  if (!imageCanvasBox) throw new Error("OpenSeadragon canvas has no drawable bounds");
+  const drawStart = {
+    x: imageCanvasBox.x + (imageCanvasBox.width * 0.25),
+    y: imageCanvasBox.y + (imageCanvasBox.height * 0.3),
+  };
+  await page.mouse.move(drawStart.x, drawStart.y);
+  await page.mouse.down();
+  await page.mouse.move(drawStart.x + 120, drawStart.y + 55, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => page.evaluate(() => {
+    const snapshot = window.__scribeBrowserHarness.pluginSnapshot();
+    return {
+      draftCount: snapshot.pageB.draftCount,
+      selectedAnnotationId: snapshot.selectedAnnotationId,
+      statusMessage: snapshot.statusMessage,
+    };
+  }), pluginPollOptions).toMatchObject({
+    draftCount: 2,
+    selectedAnnotationId: expect.stringMatching(/\/items\/[0-9a-f]{32}$/),
+    statusMessage: "Draft line created. Save to persist it.",
+  });
+  await expect(drawLine).not.toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect.poll(async () => page.evaluate(() => (
+    window.__scribeBrowserHarness.pluginSnapshot().pageB.draftCount
+  )), pluginPollOptions).toBe(1);
 
   const retranscribe = page.getByRole("button", { name: "Retranscribe", exact: true });
   await expect(retranscribe).toBeEnabled();
@@ -658,6 +724,31 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
   await expect.poll(async () => JSON.stringify(await page.evaluate(() => (
     window.__scribeBrowserHarness.pluginSnapshot().selectedDraftTarget
   ))), pluginPollOptions).not.toBe(JSON.stringify(initialKeyboardTarget));
+  const createdAnnotationId = await page.evaluate(() => (
+    window.__scribeBrowserHarness.pluginSnapshot().selectedAnnotationId
+  ));
+  expect(createdAnnotationId).not.toBe("");
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect.poll(async () => JSON.stringify(await page.evaluate(() => (
+    window.__scribeBrowserHarness.pluginSnapshot().selectedDraftTarget
+  ))), pluginPollOptions).toBe(JSON.stringify(initialKeyboardTarget));
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect.poll(async () => page.evaluate(() => (
+    window.__scribeBrowserHarness.pluginSnapshot().pageB.draftCount
+  )), pluginPollOptions).toBe(1);
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect.poll(async () => page.evaluate(() => {
+    const snapshot = window.__scribeBrowserHarness.pluginSnapshot();
+    return {
+      draftCount: snapshot.pageB.draftCount,
+      selectedAnnotationId: snapshot.selectedAnnotationId,
+    };
+  }), pluginPollOptions).toEqual({
+    draftCount: 2,
+    selectedAnnotationId: createdAnnotationId,
+  });
+  await expect(page.getByRole("textbox", { name: "Edit line token 1", exact: true })).toHaveValue("");
+  await southeastResize.focus();
   await page.keyboard.press("Control+Backspace");
   await expect.poll(async () => page.evaluate(() => (
     window.__scribeBrowserHarness.pluginSnapshot().pageB.draftCount
@@ -795,7 +886,7 @@ test("mounted Mirador/Scribe keeps edits and events scoped across two real Canva
   });
 });
 
-test("structural edit pickers split at the chosen boundary and join explicit subsets", async ({ page }) => {
+test("structural edit pickers split, join lines, and retain words when forming a line", async ({ page }) => {
   test.setTimeout(300_000);
   const pluginPollOptions = { timeout: 60_000 };
   await page.goto("/e2e/harness.html?mode=structural");
@@ -867,11 +958,19 @@ test("structural edit pickers split at the chosen boundary and join explicit sub
   await expect.poll(async () => page.evaluate(() => {
     const { structural } = window.__scribeBrowserHarness.pluginSnapshot();
     return {
+      count: structural.draft.length,
       joined: structural.calls.joinWordIds.length,
       rows: structural.draft.map(({ granularity, text }) => `${granularity}:${text}`),
     };
   }), pluginPollOptions).toEqual({
+    count: 9,
     joined: 2,
-    rows: expect.arrayContaining(["line:red blue", "word:green", "word:gold"]),
+    rows: expect.arrayContaining([
+      "line:red blue",
+      "word:red",
+      "word:green",
+      "word:blue",
+      "word:gold",
+    ]),
   });
 });

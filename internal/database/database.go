@@ -28,6 +28,12 @@ func DefaultConfig() *Config {
 }
 
 func NewPool(dsn string, cfg *Config) (*sql.DB, error) {
+	return NewPoolContext(context.Background(), dsn, cfg)
+}
+
+// NewPoolContext opens and verifies a database pool while honoring the caller's
+// cancellation in addition to the configured ping timeout.
+func NewPoolContext(ctx context.Context, dsn string, cfg *Config) (*sql.DB, error) {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
@@ -42,9 +48,9 @@ func NewPool(dsn string, cfg *Config) (*sql.DB, error) {
 	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
 
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.PingTimeout)
+	pingCtx, cancel := context.WithTimeout(ctx, cfg.PingTimeout)
 	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
+	if err := db.PingContext(pingCtx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping mysql: %w", err)
 	}

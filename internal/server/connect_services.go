@@ -153,8 +153,8 @@ func processingLimitSegmentor(c store.Context) string {
 	return "segmentor:" + selection
 }
 
-func (h *Handler) acquireProcessingSlot(ctx context.Context, workspaceID uint64, processingContext store.Context) (func(), error) {
-	release, err := h.processingLimiter.Acquire(ctx, workspaceID, processingLimitProvider(processingContext))
+func (h *Handler) acquireProcessingCapabilitySlot(ctx context.Context, workspaceID uint64, capability string) (func(), error) {
+	release, err := h.processingLimiter.Acquire(ctx, workspaceID, capability)
 	if err == nil {
 		return release, nil
 	}
@@ -166,6 +166,18 @@ func (h *Handler) acquireProcessingSlot(ctx context.Context, workspaceID uint64,
 	default:
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("acquire processing capacity: %w", err))
 	}
+}
+
+// Segmentation-only work shares capacity by the installed segmentor. Its
+// transcription choice is not invoked and must not partition this quota.
+func (h *Handler) acquireSegmentationProcessingSlot(ctx context.Context, workspaceID uint64, processingContext store.Context) (func(), error) {
+	return h.acquireProcessingCapabilitySlot(ctx, workspaceID, processingLimitSegmentor(processingContext))
+}
+
+// Transcription work shares capacity by the installed provider. Segmentor and
+// model choices must not create independent provider buckets.
+func (h *Handler) acquireTranscriptionProcessingSlot(ctx context.Context, workspaceID uint64, processingContext store.Context) (func(), error) {
+	return h.acquireProcessingCapabilitySlot(ctx, workspaceID, processingLimitProvider(processingContext))
 }
 
 func imageProcessingConnectError(operation string, err error) error {
@@ -274,7 +286,7 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *connect.Request[scri
 	pctx.SegmentOnly = true
 	callCtx := withStorageQuotaReservation(ctx, storageReservation)
 	callCtx = hocr.WithProviderCallMetadata(callCtx, h.currentWorkspaceID(ctx), "", nil, contextID)
-	releaseProcessing, err := h.acquireProcessingSlot(ctx, h.currentWorkspaceID(ctx), resolvedCtx)
+	releaseProcessing, err := h.acquireSegmentationProcessingSlot(ctx, h.currentWorkspaceID(ctx), resolvedCtx)
 	if err != nil {
 		failExternal(err)
 		return nil, err
@@ -694,7 +706,7 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *connect.Request[s
 	pctx := processingContextFromStore(resolvedCtx)
 	pctx.SegmentOnly = true
 	callCtx := hocr.WithProviderCallMetadata(ctx, workspaceID, "", &img.ID, contextID)
-	releaseProcessing, err := h.acquireProcessingSlot(ctx, workspaceID, resolvedCtx)
+	releaseProcessing, err := h.acquireSegmentationProcessingSlot(ctx, workspaceID, resolvedCtx)
 	if err != nil {
 		return nil, err
 	}

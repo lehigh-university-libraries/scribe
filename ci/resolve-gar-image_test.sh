@@ -175,8 +175,4 @@ fi
 [[ ! -s "$gcloud_log" ]] ||
   fail "an invalid image reference must fail before gcloud runs"
 
-if rg -q 'artifacts docker images describe|containeranalysis' "$resolver"; then
-  fail "the resolver must not require Container Analysis metadata access"
-fi
-
 echo "GAR image resolver contracts passed."

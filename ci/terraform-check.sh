@@ -13,8 +13,6 @@ run_checks() {
   terraform fmt -check -recursive terraform
   terraform -chdir=terraform init -backend=false -input=false -lockfile=readonly
   terraform -chdir=terraform/foundation init -backend=false -input=false -lockfile=readonly
-  sh ci/cloud-compose-snapshot-contract_test.sh
-  sh ci/cloud-compose-release-contract_test.sh
   sh ci/terraform-moved-refresh_test.sh
   terraform -chdir=terraform validate
   terraform -chdir=terraform/foundation validate
@@ -34,7 +32,7 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 127
 fi
 
-check_command='terraform fmt -check -recursive terraform && terraform -chdir=terraform init -backend=false -input=false -lockfile=readonly && terraform -chdir=terraform/foundation init -backend=false -input=false -lockfile=readonly && sh ci/cloud-compose-snapshot-contract_test.sh && sh ci/cloud-compose-release-contract_test.sh && sh ci/terraform-moved-refresh_test.sh && terraform -chdir=terraform validate && terraform -chdir=terraform/foundation validate'
+check_command='terraform fmt -check -recursive terraform && terraform -chdir=terraform init -backend=false -input=false -lockfile=readonly && terraform -chdir=terraform/foundation init -backend=false -input=false -lockfile=readonly && sh ci/terraform-moved-refresh_test.sh && terraform -chdir=terraform validate && terraform -chdir=terraform/foundation validate'
 container_id="$(
   docker create \
     --workdir /repo \

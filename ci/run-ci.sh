@@ -75,7 +75,7 @@ run_infrastructure_group() {
   run_make terraform-check
   run_make terraform-state-normalizer-test
   run_make terraform-targeted-output-test
-  run_make ops-security-contracts
+  run_make ops-tests
   run_make docs-build
 }
 

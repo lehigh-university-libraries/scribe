@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+
+set -eu
+
+ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+cd "$ROOT_DIR"
+
+fail() {
+  echo "Vault first-bootstrap test failed: $*" >&2
+  exit 1
+}
+
+# Exercise the real deploy helper with an empty owner state. Fakes reject any
+# Vault address/login/root-token access before the targeted module apply has
+# returned, so reordering bootstrap ahead of init fails this test.
+TEST_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEST_DIR"' EXIT
+mkdir -p "$TEST_DIR/bin" "$TEST_DIR/backups"
+TERRAFORM_LOG="$TEST_DIR/terraform.log"
+BOOTSTRAP_READY="$TEST_DIR/vault-init-complete"
+
+cat >"$TEST_DIR/bin/terraform" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$TF_TEST_LOG"
+case "${1:-}" in
+  init|validate) exit 0 ;;
+  workspace) exit 0 ;;
+  state)
+    [ "${2:-}" = "list" ] || exit 2
+    # An empty owner workspace is the contract under test.
+    exit 0
+    ;;
+  plan)
+    [ -s "$TF_BOOTSTRAP_READY" ] || { echo "full plan preceded Vault init" >&2; exit 91; }
+    [ "${VAULT_TOKEN:-}" = "test-root-token" ] || { echo "full plan did not receive recovered root token" >&2; exit 92; }
+    for argument in "$@"; do
+      case "$argument" in
+        -out=*)
+          printf 'saved-plan\n' >"${argument#-out=}"
+          printf '%s\n' "${argument#-out=}" >"$TF_SAVED_PLAN_RECORD"
+          ;;
+      esac
+    done
+    printf 'full-plan-complete\n' >>"$TF_TEST_LOG"
+    exit 0
+    ;;
+  show)
+    [ "${2:-}" = "-json" ] || { echo "unexpected terraform show: $*" >&2; exit 2; }
+    [ "${3:-}" = "$(cat "$TF_SAVED_PLAN_RECORD")" ] || { echo "guard inspected a different plan" >&2; exit 93; }
+    printf '%s\n' '{"format_version":"1.2","variables":{"data_generation":{"value":"canonical-v2"}},"resource_changes":[{"address":"module.scribe.module.gcp[0].google_compute_disk.data","change":{"actions":["update"]}}]}'
+    ;;
+  apply)
+    if [[ " $* " == *" -target=module.vault "* ]]; then
+      [ -z "${VAULT_TOKEN:-}" ] || { echo "root token existed before Vault init" >&2; exit 90; }
+      printf 'complete\n' >"$TF_BOOTSTRAP_READY"
+      printf 'target-apply-complete\n' >>"$TF_TEST_LOG"
+      exit 0
+    fi
+    [ -s "$TF_BOOTSTRAP_READY" ] || { echo "full apply preceded Vault init" >&2; exit 91; }
+    [ "${VAULT_TOKEN:-}" = "test-root-token" ] || { echo "full apply did not receive recovered root token" >&2; exit 92; }
+    [ "${!#}" = "$(cat "$TF_SAVED_PLAN_RECORD")" ] || { echo "full apply did not consume the guarded saved plan" >&2; exit 93; }
+    printf 'full-apply-complete\n' >>"$TF_TEST_LOG"
+    exit 0
+    ;;
+  *) echo "unexpected terraform invocation: $*" >&2; exit 2 ;;
+esac
+EOF
+
+cat >"$TEST_DIR/bin/gcloud" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ -s "$TF_BOOTSTRAP_READY" ] || { echo "Vault access preceded the initialized service shell: $*" >&2; exit 93; }
+case "${1:-} ${2:-}" in
+  "projects describe")
+    printf '%s\n' '{"projectId":"example-project","projectNumber":"123456789012"}'
+    ;;
+  "run services")
+    # Service discovery is token-independent. JWT auth is not configured until
+    # the full owner apply, so the later auth-token request forces protected
+    # stored-root recovery after initialization.
+    printf '%s\n' '{"metadata":{"name":"vault-server-prod"},"status":{"url":"https://vault-server-prod-legacy-hash-ue.a.run.app"},"spec":{"template":{"spec":{"serviceAccountName":"vault-server-prod@example-project.iam.gserviceaccount.com"}}}}'
+    ;;
+  "auth print-access-token")
+    printf 'test-admin-access-token\n'
+    ;;
+  "storage cp")
+    printf 'dGVzdC1yb290LXRva2Vu\n' >"${4}"
+    ;;
+  "kms decrypt")
+    ciphertext=""
+    plaintext=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --ciphertext-file) ciphertext="$2"; shift 2 ;;
+        --plaintext-file) plaintext="$2"; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    cp "$ciphertext" "$plaintext"
+    ;;
+  *) echo "unexpected gcloud invocation: $*" >&2; exit 2 ;;
+esac
+EOF
+
+cat >"$TEST_DIR/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "symbolic-ref" ]; then
+  printf 'main\n'
+  exit 0
+fi
+echo "unexpected git invocation: $*" >&2
+exit 2
+EOF
+
+cat >"$TEST_DIR/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+echo "Docker must not resolve an already digest-pinned bootstrap image" >&2
+exit 94
+EOF
+
+cat >"$TEST_DIR/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ -s "$TF_BOOTSTRAP_READY" ] || exit 95
+[ "${VAULT_TOKEN:-}" = "test-root-token" ] || exit 96
+args=" $* "
+[[ "$args" == *" -H X-Vault-Token: test-root-token "* ]] || exit 97
+[[ "$args" == *" -H X-Admin-Token: test-admin-access-token "* ]] || exit 98
+[[ "$args" == *" https://vault-server-prod-123456789012.us-east5.run.app/v1/auth/token/lookup-self "* ]] || exit 99
+exit 0
+EOF
+
+for command in terraform gcloud git docker curl; do
+  chmod +x "$TEST_DIR/bin/$command"
+done
+for command in bash base64 cat cp dirname env grep jq mktemp rm sed awk tail tr; do
+  ln -s "$(command -v "$command")" "$TEST_DIR/bin/$command"
+done
+
+cat >"$TEST_DIR/backups/bootstrap-state.json" <<'EOF'
+{
+  "versioning": {"enabled": true},
+  "softDeletePolicy": {"retentionDurationSeconds": "1209600s"}
+}
+EOF
+
+digest_a="$(printf 'a%.0s' $(seq 1 64))"
+digest_b="$(printf 'b%.0s' $(seq 1 64))"
+: >"$TERRAFORM_LOG"
+if PATH="$TEST_DIR/bin" \
+  GCLOUD_PROJECT=example-project \
+  TF_STATE_BUCKET=bootstrap-state \
+  "$ROOT_DIR/terraform/deploy-local.sh" prod apply \
+    --branch aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+    >"$TEST_DIR/missing-browser-image.out" 2>"$TEST_DIR/missing-browser-image.err"; then
+  fail "production apply accepted a missing browser readiness digest"
+fi
+grep -Fq 'plan/apply require SCRIBE_BROWSER_READINESS_IMAGE at the exact project-owned digest' \
+  "$TEST_DIR/missing-browser-image.err" ||
+  fail "production apply did not fail with the browser readiness digest contract"
+[ ! -s "$TERRAFORM_LOG" ] ||
+  fail "production apply reached Terraform before rejecting a missing browser readiness digest"
+
+PATH="$TEST_DIR/bin" \
+  GCLOUD_PROJECT=example-project \
+  TF_STATE_BUCKET=bootstrap-state \
+  BACKUP_AUDIT_FIXTURE_DIR="$TEST_DIR/backups" \
+  SCRIBE_API_IMAGE="ghcr.io/example/scribe@sha256:${digest_a}" \
+  SCRIBE_BROWSER_READINESS_IMAGE="us-docker.pkg.dev/example-project/internal/scribe-browser-readiness@sha256:${digest_b}" \
+  SCRIBE_FRONTEND_GAR_IMAGE="us-docker.pkg.dev/example-project/internal/scribe-frontend@sha256:${digest_a}" \
+  SCRIBE_OCR_IMAGES_JSON="{\"segmentor\":\"us-docker.pkg.dev/example-project/internal/segmentor@sha256:${digest_b}\"}" \
+  VAULT_BOOTSTRAP_MODE=jwt-or-root-token \
+  TF_TEST_LOG="$TERRAFORM_LOG" \
+  TF_BOOTSTRAP_READY="$BOOTSTRAP_READY" \
+  TF_SAVED_PLAN_RECORD="$TEST_DIR/saved-plan-path" \
+  "$ROOT_DIR/terraform/deploy-local.sh" prod apply \
+    --branch aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa >/dev/null
+
+target_line="$(grep -n '^target-apply-complete$' "$TERRAFORM_LOG" | cut -d: -f1)"
+plan_line="$(grep -n '^full-plan-complete$' "$TERRAFORM_LOG" | cut -d: -f1)"
+full_line="$(grep -n '^full-apply-complete$' "$TERRAFORM_LOG" | cut -d: -f1)"
+[ -n "$target_line" ] && [ -n "$plan_line" ] && [ -n "$full_line" ] \
+  && [ "$target_line" -lt "$plan_line" ] && [ "$plan_line" -lt "$full_line" ] ||
+  fail "deploy helper did not complete target/init/root-token/saved-plan/full-apply in order"
+
+# The narrow preview-runtime path is not an owner bootstrap path. An empty dev
+# owner must fail before the helper can apply the Vault module outside the
+# reviewed typed reconciliation boundary.
+rm -f "$BOOTSTRAP_READY"
+: >"$TERRAFORM_LOG"
+if PATH="$TEST_DIR/bin" \
+  GCLOUD_PROJECT=example-project \
+  TF_STATE_BUCKET=bootstrap-state \
+  TF_TARGET_SET=vault-preview-runtime \
+  BACKUP_AUDIT_FIXTURE_DIR="$TEST_DIR/backups" \
+  VAULT_BOOTSTRAP_MODE=root-token \
+  TF_TEST_LOG="$TERRAFORM_LOG" \
+  TF_BOOTSTRAP_READY="$BOOTSTRAP_READY" \
+  TF_SAVED_PLAN_RECORD="$TEST_DIR/saved-plan-path" \
+  "$ROOT_DIR/terraform/deploy-local.sh" dev apply --branch main \
+    >"$TEST_DIR/preview-runtime.out" 2>"$TEST_DIR/preview-runtime.err"; then
+  fail "preview-runtime maintenance bootstrapped an empty shared Vault owner"
+fi
+grep -Fq 'preview-runtime maintenance cannot bootstrap it outside its reviewed reconciliation boundary' \
+  "$TEST_DIR/preview-runtime.err" ||
+  fail "preview-runtime empty-owner refusal was not explicit"
+if grep -Fq -- '-target=module.vault' "$TERRAFORM_LOG"; then
+  fail "preview-runtime maintenance bypassed its verified plan with a module.vault apply"
+fi
+
+echo "Vault first-bootstrap behavior passed."

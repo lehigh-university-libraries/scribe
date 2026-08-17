@@ -83,6 +83,13 @@ same correlation spine in `data`:
 
 `dev.scribe.transcription.completed` also includes `jobId`, `attemptNumber`,
 `completedSegments`, `failedSegments`, and `totalSegments`.
+Completion may be partial after any individual line is unreadable or has a
+retryable or unclassified provider, image-pipeline, or validation failure,
+provided at least one other line succeeds. `completedSegments + failedSegments`
+then equals `totalSegments`, and each failed line remains unchanged in the new
+canonical revision. A wholly unsuccessful retryable or unclassified attempt
+retries the fenced job; cancellation and permanent provider failures stop
+immediately without committing partial output.
 `dev.scribe.transcription.failed` includes the job and claimed-attempt IDs plus
 a bounded, redacted `error`; cancellation includes the current attempt number.
 The transient `dev.scribe.transcription.task.started` and `.task.completed`

@@ -17,6 +17,13 @@ attempt number, lease token, and input revision so a delayed attempt cannot
 overwrite newer human corrections or silently pick up an edited model
 configuration.
 
+Line transcription attempts every segment before deciding whether a
+retryable or unclassified line failure should retry the page. If at least one
+line succeeds, the worker commits the partial page once, records the failed
+line count, and leaves each failed line's canonical subtree unchanged. A
+whole-page retry is reserved for attempts in which no line succeeded;
+cancellation and permanent provider failures still stop immediately.
+
 Batch cancellation uses that same boundary: the batch, its active jobs, and
 their current attempt outcomes change in one transaction. A worker holding a
 pre-cancellation token is fenced from progress and canonical-page writes.
@@ -35,10 +42,12 @@ twice. The item image is read transiently from its canonical painting resource;
 reprocessing never creates a second durable upload.
 
 Every expensive foreground operation enters a global, per-workspace, and
-per-provider concurrency gate before decoding images or invoking a model. The
-gate is cancellable and acquired atomically across all three quotas. Reprocess
-idempotency records are bound to the item image from the moment they are
-reserved, are deleted explicitly with that resource by the application
+per-capability concurrency gate before decoding images or invoking a model.
+Segmentation-only work is keyed to its installed segmentor; transcription work
+is keyed to its installed provider, even when the selected context names both.
+The gate is cancellable and acquired atomically across all three quotas.
+Reprocess idempotency records are bound to the item image from the moment they
+are reserved, are deleted explicitly with that resource by the application
 transaction, and are retained only for the configured audit/retry window after
 they become terminal or abandoned.
 

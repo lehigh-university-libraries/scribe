@@ -11,22 +11,22 @@ cp "${ROOT_DIR}/ci/toolchain-check.sh" "${TEST_DIR}/fixture/ci/toolchain-check.s
 chmod +x "${TEST_DIR}/fixture/ci/toolchain-check.sh"
 
 cat >"${TEST_DIR}/fixture/.go-version" <<'EOF'
-1.26.5
+1.26.6
 EOF
 cat >"${TEST_DIR}/fixture/.nvmrc" <<'EOF'
 24.18.0
 EOF
 cat >"${TEST_DIR}/fixture/.tool-versions" <<'EOF'
-golang 1.26.5
+golang 1.26.6
 nodejs 24.18.0
 python 3.14.2
 terraform 1.15.8
 EOF
 cat >"${TEST_DIR}/fixture/Dockerfile" <<'EOF'
-FROM golang:1.26.5-alpine
+FROM golang:1.26.6-alpine
 EOF
 cat >"${TEST_DIR}/fixture/Dockerfile.segmentor" <<'EOF'
-FROM golang:1.26.5-alpine AS helper
+FROM golang:1.26.6-alpine AS helper
 FROM python:3.14.2-slim
 EOF
 cat >"${TEST_DIR}/fixture/Dockerfile.frontend" <<'EOF'
@@ -42,7 +42,7 @@ cat >"${TEST_DIR}/fixture/ci/test-frontend.sh" <<'EOF'
 FRONTEND_TEST_IMAGE="node:24.18.0-alpine"
 EOF
 cat >"${TEST_DIR}/fixture/ci/nested/version with spaces.sh" <<'EOF'
-GO_TEST_IMAGE="golang:1.26.5-alpine"
+GO_TEST_IMAGE="golang:1.26.6-alpine"
 EOF
 cat >"${TEST_DIR}/fixture/.github/workflows/toolchain.yml" <<'EOF'
 jobs:

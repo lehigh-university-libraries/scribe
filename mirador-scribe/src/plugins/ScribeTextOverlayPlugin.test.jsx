@@ -209,6 +209,45 @@ describe('ScribeTextOverlayPlugin', () => {
     expect(badge()).toBeNull();
   });
 
+  it('clears the wand when the shell finishes its bounded completed-job replay', async () => {
+    vi.useFakeTimers();
+    const total = 500;
+    const replayDelay = 10;
+    const annotation = line('line-1', '20,30,240,24');
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => root.render(<ScribeTextOverlayPlugin
+      annotationPage={{ id: 'page-1', items: [annotation], type: 'AnnotationPage' }}
+      canvasId={canvasId}
+      selectedAnnotationId=""
+      viewer={viewer()}
+      windowId={windowId}
+    />));
+
+    await act(async () => {
+      for (let done = 1; done <= total; done += 1) {
+        document.dispatchEvent(new CustomEvent('scribe:transcription-segment', {
+          detail: {
+            annotation: line(`line-${done}`, `20,${30 + done},240,24`),
+            canvasId,
+            done,
+            jobId: '91',
+            total,
+            windowId,
+          },
+        }));
+        await vi.advanceTimersByTimeAsync(replayDelay);
+      }
+      document.dispatchEvent(new CustomEvent('scribe:transcription-segment', {
+        detail: { annotation: null, canvasId, jobId: '91', windowId },
+      }));
+    });
+
+    expect(viewerCanvas.querySelector('[data-scribe-transcription-active="true"]')).toBeNull();
+  });
+
   it('focuses a far-away active wand line without moving an already visible line', async () => {
     vi.useFakeTimers();
     const visibleLine = line('line-visible', '20,30,240,24');

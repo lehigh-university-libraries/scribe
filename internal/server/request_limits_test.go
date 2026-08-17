@@ -107,6 +107,49 @@ func TestExportRequestLimitClassCoversEveryExportAdapter(t *testing.T) {
 	}
 }
 
+func TestAuthServiceRequestLimitClassHasDedicatedBucket(t *testing.T) {
+	for _, path := range []string{
+		"/auth/google",
+		"/scribe.v1.AuthService/GetAuthMe",
+		"/scribe.v1.AuthService/ListAPIKeys",
+		"/scribe.v1.AuthService/CreateAPIKey",
+		"/scribe.v1.AuthService/DeleteAPIKey",
+	} {
+		if got := requestLimitClass(path); got != "auth" {
+			t.Fatalf("request limit class for %s = %q, want auth", path, got)
+		}
+	}
+	if got := requestLimitClass("/scribe.v1.ItemService/ListItems"); got != "rpc" {
+		t.Fatalf("item service request limit class = %q, want rpc", got)
+	}
+}
+
+func TestAuthServiceDoesNotConsumeEditorRateBucket(t *testing.T) {
+	limiter := newRequestLimiterWithPolicy(0.000001, 1)
+	handler := &Handler{requestLimiter: limiter}
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	limited := handler.requestLimitMiddleware(next)
+
+	request := func(path string) int {
+		req := httptest.NewRequest(http.MethodPost, "https://scribe.example"+path, nil)
+		req = req.WithContext(auth.WithPrincipal(req.Context(), auth.Principal{
+			Authenticated: true, UserID: 7, WorkspaceID: 42, WorkspaceRole: "write",
+		}))
+		response := httptest.NewRecorder()
+		limited.ServeHTTP(response, req)
+		return response.Code
+	}
+
+	if status := request("/scribe.v1.ItemService/ListItems"); status != http.StatusNoContent {
+		t.Fatalf("editor request status = %d, want %d", status, http.StatusNoContent)
+	}
+	if status := request("/scribe.v1.AuthService/GetAuthMe"); status != http.StatusNoContent {
+		t.Fatalf("auth request status = %d, want %d", status, http.StatusNoContent)
+	}
+}
+
 func TestRequestLimitMiddlewareRejectsCompressedRPCBodiesBeforeDispatch(t *testing.T) {
 	for _, header := range []string{"Content-Encoding", "Connect-Content-Encoding", "Grpc-Encoding"} {
 		t.Run(header, func(t *testing.T) {
@@ -184,6 +227,54 @@ func TestRequestAdmissionRateLimitsInvalidCredentialsBeforeAuthentication(t *tes
 	}
 	if authenticationCalls != 2 {
 		t.Fatalf("authentication calls = %d, want 2 before edge rejection", authenticationCalls)
+	}
+}
+
+func TestRequestAdmissionFitsEditorGoldenPathBurstAndRetainsBound(t *testing.T) {
+	limiter := newEdgeRequestLimiter()
+	now := time.Date(2026, time.August, 7, 14, 23, 0, 0, time.UTC)
+	limiter.now = func() time.Time { return now }
+	handler := &Handler{edgeRequestLimiter: limiter}
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	admission := handler.requestAdmissionMiddleware(next)
+	paths := []string{
+		"/scribe.v1.ImageProcessingService/GetOCRRun",
+		"/scribe.v1.TranscriptionService/GetTranscriptionJob",
+		"/scribe.v1.ItemService/GetEditorManifest",
+		"/scribe.v1.AnnotationService/GetAnnotationPage",
+		"/scribe.v1.ContextService/GetContext",
+	}
+	request := func(attempt int) int {
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"https://scribe.example"+paths[(attempt-1)%len(paths)],
+			bytes.NewReader([]byte(`{}`)),
+		)
+		req.RemoteAddr = "192.0.2.44:1234"
+		req.AddCookie(&http.Cookie{Name: "scribe_session", Value: "editor-golden-path"})
+		response := httptest.NewRecorder()
+		admission.ServeHTTP(response, req)
+		return response.Code
+	}
+
+	const editorGoldenPathBurst = 40
+	for attempt := 1; attempt <= editorGoldenPathBurst; attempt++ {
+		if status := request(attempt); status != http.StatusNoContent {
+			t.Fatalf("editor request %d status = %d, want %d", attempt, status, http.StatusNoContent)
+		}
+	}
+	if status := request(editorGoldenPathBurst + 1); status != http.StatusTooManyRequests {
+		t.Fatalf("request beyond editor burst status = %d, want %d", status, http.StatusTooManyRequests)
+	}
+
+	now = now.Add(500 * time.Millisecond)
+	if status := request(editorGoldenPathBurst + 2); status != http.StatusNoContent {
+		t.Fatalf("request after one-token refill status = %d, want %d", status, http.StatusNoContent)
+	}
+	if status := request(editorGoldenPathBurst + 3); status != http.StatusTooManyRequests {
+		t.Fatalf("second request after one-token refill status = %d, want %d", status, http.StatusTooManyRequests)
 	}
 }
 

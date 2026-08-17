@@ -342,7 +342,7 @@ func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scr
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("processing context is not executable"))
 	}
 
-	releaseProcessing, err := h.acquireProcessingSlot(ctx, h.currentWorkspaceID(ctx), processingContext)
+	releaseProcessing, err := h.acquireTranscriptionProcessingSlot(ctx, h.currentWorkspaceID(ctx), processingContext)
 	if err != nil {
 		return nil, err
 	}

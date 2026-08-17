@@ -10,12 +10,14 @@ import (
 	"image/color"
 	"image/png"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
+	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -42,6 +44,7 @@ type uploadBatchAcceptanceOCR struct {
 	calls             []uploadBatchAcceptanceCall
 	successfulUploads []string
 	failOnceFilename  string
+	failOnceError     error
 	failedOnce        bool
 	block             *uploadBatchAcceptanceBlock
 }
@@ -91,6 +94,9 @@ func (f *uploadBatchAcceptanceOCR) ProcessImageUploadWithContext(ctx context.Con
 	f.mu.Unlock()
 
 	if shouldFail {
+		if f.failOnceError != nil {
+			return nil, f.failOnceError
+		}
 		return nil, fmt.Errorf("temporary segmentation failure")
 	}
 	if block != nil {
@@ -162,6 +168,92 @@ func cloneUploadBatchProcessingContext(value hocr.ProcessingContext) hocr.Proces
 	return cloned
 }
 
+func TestUploadBatchProcessingFailuresPersistOnlyFixedStage(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "upload storage",
+			err:  fmt.Errorf("private object-store diagnostic: %w", ocrhandlers.ErrUploadStorageFailure),
+			want: "upload storage failed",
+		},
+		{
+			name: "segmentation output",
+			err:  fmt.Errorf("private segmentation parser diagnostic"),
+			want: "segmentation output failed",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			database := openTestDB(t)
+			ctx := context.Background()
+			workspaceID, userID := createServerTestWorkspace(t, database)
+			contextStore := store.NewContextStore(database)
+			selectedContext, err := contextStore.Create(ctx, store.Context{
+				UserID:                &userID,
+				WorkspaceID:           &workspaceID,
+				Name:                  "upload-failure-stage-" + uuid.NewString(),
+				SegmentationModel:     "tesseract",
+				TranscriptionProvider: "tesseract",
+				TranscriptionModel:    "tesseract",
+			})
+			if err != nil {
+				t.Fatalf("create selected context: %v", err)
+			}
+
+			const filename = "failure-stage.png"
+			fakeOCR := &uploadBatchAcceptanceOCR{failOnceFilename: filename, failOnceError: test.err}
+			items := store.NewItemStore(database)
+			handler := NewHandler(
+				store.NewOCRRunStore(database),
+				items,
+				contextStore,
+				store.NewAnnotationStore(database),
+				store.NewTranscriptionJobStore(database),
+				nil,
+				nil,
+				nil,
+			)
+			handler.ocr = fakeOCR
+			appServer := newTenantScopedServer(t, handler, map[string]testTenantIdentity{
+				"workspace": {workspaceID: workspaceID, userID: userID},
+			})
+			itemClient := scribev1connect.NewItemServiceClient(http.DefaultClient, appServer.URL)
+
+			imageData := uploadBatchAcceptancePNG(t, color.RGBA{R: 0x20, G: 0x40, B: 0x60, A: 0xff})
+			batchID := "failure-stage-" + uuid.NewString()
+			_, err = itemClient.StartUploadBatch(ctx, tenantConnectRequest("workspace", &scribev1.StartUploadBatchRequest{
+				BatchId:   batchID,
+				Name:      "Upload failure stage",
+				ContextId: selectedContext.ID,
+				Files:     []*scribev1.UploadBatchFileInput{uploadBatchAcceptanceInput(filename, imageData)},
+			}))
+			if err != nil {
+				t.Fatalf("StartUploadBatch: %v", err)
+			}
+			_, err = itemClient.UploadItemImage(ctx, tenantConnectRequest("workspace", &scribev1.UploadItemImageRequest{
+				BatchId: batchID, Sequence: 1, ImageData: imageData,
+			}))
+			assertConnectCode(t, err, connect.CodeInternal)
+
+			failed, err := itemClient.GetUploadBatch(ctx, tenantConnectRequest("workspace", &scribev1.GetUploadBatchRequest{BatchId: batchID}))
+			if err != nil {
+				t.Fatalf("GetUploadBatch: %v", err)
+			}
+			file := uploadBatchAcceptanceFile(t, failed.Msg.GetBatch(), 1)
+			if file.GetStatus() != scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_FAILED || file.GetErrorMessage() != test.want {
+				t.Fatalf("failed upload file = %#v, want fixed error %q", file, test.want)
+			}
+			if strings.Contains(file.GetErrorMessage(), "private") {
+				t.Fatalf("failed upload exposed private diagnostic: %q", file.GetErrorMessage())
+			}
+		})
+	}
+}
+
 func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing.T) {
 	database := openTestDB(t)
 	ctx := context.Background()
@@ -186,7 +278,15 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 	items := store.NewItemStore(database)
 	annotations := store.NewAnnotationStore(database)
 	jobs := store.NewTranscriptionJobStore(database)
-	fakeOCR := &uploadBatchAcceptanceOCR{failOnceFilename: "resume-page-2.png"}
+	fakeOCR := &uploadBatchAcceptanceOCR{
+		failOnceFilename: "resume-page-2.png",
+		failOnceError: providers.NewError(
+			providers.ErrorAuthentication,
+			http.StatusForbidden,
+			false,
+			nil,
+		),
+	}
 	handler := NewHandler(ocrRuns, items, contextStore, annotations, jobs, nil, nil, nil)
 	handler.ocr = fakeOCR
 	appServer := newTenantScopedServer(t, handler, map[string]testTenantIdentity{
@@ -271,7 +371,8 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 	failedFile := uploadBatchAcceptanceFile(t, partialBatch, 2)
 	if partialBatch.GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_IN_PROGRESS ||
 		partialBatch.GetCompletedFiles() != 1 || partialBatch.GetFailedFiles() != 1 ||
-		failedFile.GetStatus() != scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_FAILED || failedFile.GetAttemptCount() != 1 {
+		failedFile.GetStatus() != scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_FAILED || failedFile.GetAttemptCount() != 1 ||
+		failedFile.GetErrorMessage() != "provider request failed with HTTP status 403" {
 		t.Fatalf("partial upload batch = %#v", partialBatch)
 	}
 

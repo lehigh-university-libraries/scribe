@@ -27,7 +27,7 @@ type ProcessResult struct {
 
 func (h *Handler) StoreUploadedImage(ctx context.Context, _ string, fileData []byte) (string, error) {
 	if err := h.ensureUploadsDir(); err != nil {
-		return "", fmt.Errorf("create uploads dir: %w", err)
+		return "", markUploadProcessingFailure(ErrUploadStorageFailure, fmt.Errorf("create uploads dir: %w", err))
 	}
 	if err := validateUploadedImageData(fileData); err != nil {
 		return "", err
@@ -41,17 +41,17 @@ func (h *Handler) StoreUploadedImage(ctx context.Context, _ string, fileData []b
 	imageFilename := immutableUploadName(fileData, ext)
 	imagePath, err := h.saveUploadedImageBytes(ctx, imageFilename, fileData, contentType)
 	if err != nil {
-		return "", fmt.Errorf("save uploaded image: %w", err)
+		return "", markUploadProcessingFailure(ErrUploadStorageFailure, fmt.Errorf("save uploaded image: %w", err))
 	}
 	if err := removeLocalUploadAfterSharedCommit(imagePath); err != nil {
 		cleanupCtx, cancel := uploadCleanupContext(ctx)
 		cleanupErr := h.deleteUploadedImage(cleanupCtx, imageFilename)
 		cancel()
-		return "", &StoredUploadError{
+		return "", markUploadProcessingFailure(ErrUploadStorageFailure, &StoredUploadError{
 			ImageURL:    "/static/uploads/" + imageFilename,
 			StoredBytes: uint64(len(fileData)),
 			Err:         errors.Join(err, cleanupErr),
-		}
+		})
 	}
 
 	return "/static/uploads/" + imageFilename, nil

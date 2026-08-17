@@ -13,9 +13,14 @@ FROM mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425d
 WORKDIR /app
 
 COPY --from=dependencies --chown=pwuser:pwuser /app/node_modules ./node_modules
+COPY --chown=pwuser:pwuser web/e2e/deployed-readiness-budget.mjs ./deployed-readiness-budget.mjs
+COPY --chown=pwuser:pwuser web/e2e/deployed-readiness-dom.mjs ./deployed-readiness-dom.mjs
 COPY --chown=pwuser:pwuser web/e2e/deployed-readiness-routing.mjs ./deployed-readiness-routing.mjs
+COPY --chown=pwuser:pwuser web/e2e/deployed-readiness-protojson.mjs ./deployed-readiness-protojson.mjs
+COPY --chown=pwuser:pwuser web/e2e/deployed-readiness-structure.mjs ./deployed-readiness-structure.mjs
 COPY --chown=pwuser:pwuser web/e2e/deployed-readiness.mjs ./deployed-readiness.mjs
+COPY --chown=pwuser:pwuser --chmod=0555 web/e2e/deployed-readiness-entrypoint.sh ./deployed-readiness-entrypoint.sh
 
 USER pwuser
 
-ENTRYPOINT ["node", "/app/deployed-readiness.mjs"]
+ENTRYPOINT ["/app/deployed-readiness-entrypoint.sh"]

@@ -60,7 +60,7 @@ WHERE kind = sqlc.arg(kind)
   AND resource_key = sqlc.arg(resource_key)
 FOR UPDATE;
 
--- name: ResizeStagedUploadCleanup :execresult
+-- name: ResizeStagedUploadCleanup :exec
 UPDATE resource_cleanup_outbox
 SET workspace_id = sqlc.arg(workspace_id),
     storage_bytes = GREATEST(storage_bytes, sqlc.arg(storage_bytes)),

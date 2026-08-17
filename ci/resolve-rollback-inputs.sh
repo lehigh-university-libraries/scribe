@@ -104,7 +104,9 @@ normalized="$(
         (.docker_compose_sha | type == "string" and test("^[0-9a-f]{40}$") and test("^0{40}$") == false) and
         (.data_generation | type == "string" and test("^canonical-v(1|2)$")) and
         (.api_image | digest and startswith("ghcr.io/lehigh-university-libraries/scribe@sha256:")) and
-        (.browser_readiness_image == "") and
+        (.browser_readiness_image |
+          . == "" or
+          (digest and startswith("us-docker.pkg.dev/\($project)/internal/scribe-browser-readiness@sha256:"))) and
         ($project | type == "string" and test("^[a-z][a-z0-9-]{4,28}[a-z0-9]$")) and
         (.frontend_gar_image | digest and startswith("us-docker.pkg.dev/\($project)/internal/scribe-frontend@sha256:")) and
         (.ocr_service_images | type == "object" and length > 0 and all(to_entries[];

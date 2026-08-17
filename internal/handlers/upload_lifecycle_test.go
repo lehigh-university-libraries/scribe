@@ -237,6 +237,9 @@ func TestAmbiguousSharedStoreFailureCompensatesLocalAndRemoteWrites(t *testing.T
 	if !errors.Is(err, putErr) {
 		t.Fatalf("StoreUploadedImage error = %v, want put failure", err)
 	}
+	if message, ok := SafeUploadProcessingFailureMessage(err); !ok || message != "upload storage failed" {
+		t.Fatalf("SafeUploadProcessingFailureMessage() = %q, %t; want fixed storage category", message, ok)
+	}
 	imageURL, storedBytes, ok := StoredUploadDetails(err)
 	if !ok {
 		t.Fatalf("failure did not retain durable cleanup identity: %v", err)
@@ -270,6 +273,12 @@ func TestPostWriteProcessingFailureCompensatesBothStores(t *testing.T) {
 	_, err := handler.ProcessImageUploadWithContext(context.Background(), "page.png", payload, hocr.ProcessingContext{})
 	if !errors.Is(err, processingErr) {
 		t.Fatalf("ProcessImageUploadWithContext error = %v, want processing failure", err)
+	}
+	if message, ok := SafeUploadProcessingFailureMessage(err); !ok || message != "segmentation output failed" {
+		t.Fatalf("SafeUploadProcessingFailureMessage() = %q, %t; want fixed segmentation-output category", message, ok)
+	}
+	if message, ok := SafeUploadProcessingFailureMessage(errors.New("private parser detail")); ok || message != "" {
+		t.Fatalf("unclassified error exposed as %q, %t", message, ok)
 	}
 	imageURL, storedBytes, ok := StoredUploadDetails(err)
 	if !ok {

@@ -28,7 +28,7 @@ to a workflow.
 3. Link it from the relevant section index and update stale cross-links.
 4. Prefer relative links between documentation pages and repository-relative
    code paths in prose.
-5. Run `make docs-build` and the focused docs workflow contract.
+5. Run `make docs-build`; run actionlint when the publication workflow changes.
 
 Keep operational procedures executable: name the exact command, precondition,
 safe scope, success evidence, and recovery path. Do not copy a script into a
@@ -47,4 +47,4 @@ commit. The generated site is never committed.
 
 When changing the docs toolchain, update the Docker base tag/digest,
 `requirements-docs.txt` versions/hashes, `ci/docs.sh` expected version,
-toolchain contracts, and this page together.
+toolchain behavior tests, and this page together.

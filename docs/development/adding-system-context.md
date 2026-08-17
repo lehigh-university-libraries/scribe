@@ -36,7 +36,8 @@ catalog lifecycle change with an acceptance test.
 
 There is exactly one system default. Change the recipe produced by
 `defaultContext`; do not add a second system context with `IsDefault: true`.
-The built-in **Tesseract OCR** default is deterministic and credential-free.
+The built-in **Tesseract OCR** default uses the established Scribe segmentor
+with credential-free local Tesseract line transcription.
 Provider-specific presets such as **Gemini Pro** remain explicit selections,
 while **Kraken BLLA** continues to use the administrator-configured
 `llm.provider`, that provider's default model, and its supported

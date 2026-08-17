@@ -28,7 +28,6 @@ locals {
   is_prod_workspace          = terraform.workspace == "prod"
   is_preview_workspace       = startswith(terraform.workspace, "pr-")
   cloud_compose_machine_type = local.is_preview_workspace ? var.preview_machine_type : var.machine_type
-  cloud_compose_zone         = local.is_preview_workspace ? var.preview_zone : var.zone
   cloud_compose_disk_type    = local.is_preview_workspace ? "pd-standard" : "hyperdisk-balanced"
   foundation_state_prefix    = "scribe-foundation"
   shared_vault_workspace     = local.is_prod_workspace ? "prod" : "dev"
@@ -805,10 +804,10 @@ module "scribe" {
     project_id     = var.project_id
     project_number = local.project_number
     region         = var.region
-    zone           = local.cloud_compose_zone
+    zone           = var.zone
 
     identity = {
-      # cloud-compose 1.7.2 mints and rotates the scribe app SA key into
+      # cloud-compose 1.8.1 mints and rotates the scribe app SA key into
       # secrets/GOOGLE_APPLICATION_CREDENTIALS. The app requires that file to
       # sign its Vault GCP-IAM login JWT (metadata signJwt is blocked on the VM),
       # so managed credentials must stay enabled.
@@ -837,7 +836,7 @@ module "scribe" {
       mtu                      = google_compute_network.application.mtu
       power_button_allowed_ips = distinct(concat(var.allowed_ips, local.browser_readiness_allowed_ips))
       power_button_ip_depth    = 0
-      ssh_ipv4                 = var.allowed_ssh_ipv4
+      ssh_ipv4                 = local.effective_allowed_ssh_ipv4
       ssh_ipv6                 = var.allowed_ssh_ipv6
     }
 

@@ -45,6 +45,21 @@ const (
 	maxConcurrentManifestHOCRFetches        = 4
 )
 
+type uploadBatchFailureStage uint8
+
+const (
+	uploadBatchFailureAdmission uploadBatchFailureStage = iota
+	uploadBatchFailureSegmentationOutput
+	uploadBatchFailureQuotaResize
+	uploadBatchFailureLeaseRenewal
+	uploadBatchFailureImageCommit
+	uploadBatchFailureOCRRunCommit
+	uploadBatchFailureAnnotationCommit
+	uploadBatchFailureTranscriptionEnqueue
+	uploadBatchFailureItemReload
+	uploadBatchFailureBatchCommit
+)
+
 var errManifestImportBudgetExceeded = errors.New("manifest import byte budget exceeded")
 
 // --- ItemService Connect handlers ---
@@ -511,13 +526,18 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		}), nil
 	}
 	attemptCommitted := false
+	attemptPublicError := uploadBatchFailureMessage(uploadBatchFailureAdmission, nil)
+	markLeaseFailure := func(err error) error {
+		attemptPublicError = uploadBatchFailureAfterLeaseRenewal(attemptPublicError, err)
+		return err
+	}
 	defer func() {
 		if attemptCommitted {
 			return
 		}
 		failureCtx, cancel := context.WithTimeout(h.backgroundContext(), 15*time.Second)
 		defer cancel()
-		if abortErr := h.items.AbortUploadBatchFileAttempt(failureCtx, workspaceID, batchID, batchFile.Sequence, batchFile.LeaseOwner, "processing failed"); abortErr != nil &&
+		if abortErr := h.items.AbortUploadBatchFileAttempt(failureCtx, workspaceID, batchID, batchFile.Sequence, batchFile.LeaseOwner, attemptPublicError); abortErr != nil &&
 			!errors.Is(abortErr, store.ErrUploadBatchFileFence) && !errors.Is(abortErr, store.ErrUploadBatchNotFound) {
 			slog.Warn("failed to abort upload batch file attempt", "batch_id", batchID, "sequence", batchFile.Sequence, "error_type", safeLogErrorType(abortErr))
 		}
@@ -530,15 +550,13 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 	renewLease := func(renewCtx context.Context) error {
 		return h.items.RenewUploadBatchFileLease(renewCtx, workspaceID, batchID, batchFile.Sequence, batchFile.LeaseOwner)
 	}
-	if err := renewLease(ctx); err != nil {
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureLeaseRenewal, nil)
+	if err := markLeaseFailure(renewLease(ctx)); err != nil {
 		return nil, uploadBatchConnectError(err)
 	}
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureAdmission, nil)
 	ticker := time.NewTicker(uploadBatchLeaseHeartbeatEvery)
 	leaseCtx, stopHeartbeat, leaseFailures := newUploadBatchLeaseHeartbeat(ctx, ticker.C, renewLease)
-	defer func() {
-		ticker.Stop()
-		stopHeartbeat()
-	}()
 	leaseFailure := func() error {
 		select {
 		case leaseErr := <-leaseFailures:
@@ -547,14 +565,24 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 			return nil
 		}
 	}
+	// This defer is registered after the abort defer so LIFO cleanup records a
+	// late heartbeat failure before the abort persists the fixed public stage.
+	defer func() {
+		ticker.Stop()
+		stopHeartbeat()
+		_ = markLeaseFailure(leaseFailure())
+	}()
 	renewBeforeSideEffect := func() error {
-		if err := leaseFailure(); err != nil {
+		if err := markLeaseFailure(leaseFailure()); err != nil {
 			return err
 		}
-		return renewLease(leaseCtx)
+		return markLeaseFailure(renewLease(leaseCtx))
 	}
 	processingContext, err := batch.Context()
 	if err != nil {
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
+			return nil, uploadBatchConnectError(leaseErr)
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	contextID := processingContext.ID
@@ -562,17 +590,22 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 	pctx.SegmentOnly = true
 	callCtx := withStorageQuotaReservation(leaseCtx, storageReservation)
 	callCtx = hocr.WithProviderCallMetadata(callCtx, workspaceID, "", nil, &contextID)
-	releaseProcessing, err := h.acquireProcessingSlot(leaseCtx, workspaceID, processingContext)
+	releaseProcessing, err := h.acquireSegmentationProcessingSlot(leaseCtx, workspaceID, processingContext)
 	if err != nil {
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
+			return nil, uploadBatchConnectError(leaseErr)
+		}
 		return nil, err
 	}
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureSegmentationOutput, nil)
 	result, err := func() (*ocrhandlers.ProcessResult, error) {
 		defer releaseProcessing()
 		return h.ocr.ProcessImageUploadWithContext(callCtx, batchFile.Filename, imageData, pctx)
 	}()
 	if err != nil {
+		attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureSegmentationOutput, err)
 		h.queueUploadFromProcessingError(ctx, err)
-		if leaseErr := leaseFailure(); leaseErr != nil {
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
 		return nil, imageProcessingConnectError("process upload batch file", err)
@@ -581,22 +614,27 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 	if storedBytes == 0 {
 		storedBytes = uint64(len(imageData))
 	}
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureQuotaResize, nil)
 	storageReservation, err = h.resizeStorageQuota(leaseCtx, storageReservation, store.StorageQuotaRequest{Bytes: storedBytes, Images: 1})
 	if err != nil {
 		h.queueUnreferencedUploads(h.backgroundContext(), workspaceID, []store.ItemImage{{ImageURL: result.ImageURL, StorageBytes: storedBytes}})
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
+			return nil, uploadBatchConnectError(leaseErr)
+		}
 		return nil, err
 	}
 	if err := renewBeforeSideEffect(); err != nil {
 		h.queueUnreferencedUploads(h.backgroundContext(), workspaceID, []store.ItemImage{{ImageURL: result.ImageURL, StorageBytes: storedBytes}})
 		return nil, uploadBatchConnectError(err)
 	}
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureImageCommit, nil)
 	img, err := h.items.EnsureUploadBatchImage(
-		leaseCtx, workspaceID, batchID, batchFile.Sequence, batchFile.LeaseOwner,
+		leaseCtx, workspaceID, storageReservation, batchID, batchFile.Sequence, batchFile.LeaseOwner,
 		result.ImageURL, storedBytes, imageWidth, imageHeight, h.publicAnnotationBaseURL(),
 	)
 	if err != nil {
 		h.queueUnreferencedUploads(h.backgroundContext(), workspaceID, []store.ItemImage{{ImageURL: result.ImageURL, StorageBytes: storedBytes}})
-		if leaseErr := leaseFailure(); leaseErr != nil {
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
 		return nil, uploadBatchConnectError(err)
@@ -605,6 +643,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 	if err := renewBeforeSideEffect(); err != nil {
 		return nil, uploadBatchConnectError(err)
 	}
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureOCRRunCommit, nil)
 	if err := h.ocrRuns.Create(leaseCtx, store.OCRRun{
 		SessionID:    sessionID,
 		ItemImageID:  &img.ID,
@@ -615,7 +654,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		OriginalHOCR: result.HOCR,
 		OriginalText: result.PlainText,
 	}); err != nil {
-		if leaseErr := leaseFailure(); leaseErr != nil {
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -623,8 +662,9 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 	if err := renewBeforeSideEffect(); err != nil {
 		return nil, uploadBatchConnectError(err)
 	}
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureAnnotationCommit, nil)
 	if err := h.ensureItemImageCanvasAndAnnotations(leaseCtx, store.OCRRun{SessionID: sessionID, ItemImageID: &img.ID, OriginalHOCR: result.HOCR}, img.ID, result.ParsedHOCR); err != nil {
-		if leaseErr := leaseFailure(); leaseErr != nil {
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("initialize annotations: %w", err))
@@ -632,26 +672,35 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 	if err := renewBeforeSideEffect(); err != nil {
 		return nil, uploadBatchConnectError(err)
 	}
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureTranscriptionEnqueue, nil)
 	jobID, err := h.transcriptionJobs.CreateForUploadBatchFile(
 		leaseCtx, workspaceID, batchID, batchFile.Sequence, batchFile.LeaseOwner, img.ID,
 	)
 	if err != nil {
-		if leaseErr := leaseFailure(); leaseErr != nil {
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
 		return nil, transcriptionJobConnectError("enqueue transcription", err)
 	}
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureItemReload, nil)
 	item, err := h.itemForRequest(leaseCtx, batch.ItemID)
 	if err != nil {
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
+			return nil, uploadBatchConnectError(leaseErr)
+		}
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload uploaded item: %w", err))
 	}
 	if err := renewBeforeSideEffect(); err != nil {
 		return nil, uploadBatchConnectError(err)
 	}
+	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureBatchCommit, nil)
 	completionCtx, cancel := context.WithTimeout(h.backgroundContext(), 15*time.Second)
 	batch, err = h.items.CompleteUploadBatchFile(completionCtx, workspaceID, batchID, batchFile.Sequence, batchFile.LeaseOwner, img.ID, jobID)
 	cancel()
 	if err != nil {
+		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
+			return nil, uploadBatchConnectError(leaseErr)
+		}
 		return nil, uploadBatchConnectError(err)
 	}
 	attemptCommitted = true
@@ -662,6 +711,46 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		TranscriptionJobId: jobID,
 		Batch:              storeUploadBatchToProto(batch),
 	}), nil
+}
+
+func uploadBatchFailureMessage(stage uploadBatchFailureStage, err error) string {
+	if providerFailure, ok := hocr.SafeProviderFailureMessage(err); ok {
+		return providerFailure
+	}
+	if processingFailure, ok := ocrhandlers.SafeUploadProcessingFailureMessage(err); ok {
+		return processingFailure
+	}
+	switch stage {
+	case uploadBatchFailureSegmentationOutput:
+		return "segmentation output failed"
+	case uploadBatchFailureQuotaResize:
+		return "quota resize failed"
+	case uploadBatchFailureLeaseRenewal:
+		return "lease renewal failed"
+	case uploadBatchFailureImageCommit:
+		return "image commit failed"
+	case uploadBatchFailureOCRRunCommit:
+		return "ocr run commit failed"
+	case uploadBatchFailureAnnotationCommit:
+		return "annotation commit failed"
+	case uploadBatchFailureTranscriptionEnqueue:
+		return "transcription enqueue failed"
+	case uploadBatchFailureItemReload:
+		return "item reload failed"
+	case uploadBatchFailureBatchCommit:
+		return "batch commit failed"
+	case uploadBatchFailureAdmission:
+		fallthrough
+	default:
+		return "admission failed"
+	}
+}
+
+func uploadBatchFailureAfterLeaseRenewal(current string, err error) string {
+	if err == nil {
+		return current
+	}
+	return uploadBatchFailureMessage(uploadBatchFailureLeaseRenewal, nil)
 }
 
 func normalizeUploadBatchRequest(req *scribev1.StartUploadBatchRequest) ([]store.UploadBatchFileInput, string, error) {

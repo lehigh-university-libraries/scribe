@@ -107,6 +107,23 @@ type lifecycleProviderSecretRepository struct {
 	activationResponseError error
 }
 
+type logoutSessionStoreStub struct {
+	deleteSessionErr             error
+	deleteEditorReviewSessionErr error
+	deletedSessionTokens         []string
+	deletedReviewSessionTokens   []string
+}
+
+func (s *logoutSessionStoreStub) DeleteSession(_ context.Context, rawToken string) error {
+	s.deletedSessionTokens = append(s.deletedSessionTokens, rawToken)
+	return s.deleteSessionErr
+}
+
+func (s *logoutSessionStoreStub) DeleteEditorReviewSession(_ context.Context, rawToken string) error {
+	s.deletedReviewSessionTokens = append(s.deletedReviewSessionTokens, rawToken)
+	return s.deleteEditorReviewSessionErr
+}
+
 func (r *lifecycleProviderSecretRepository) Create(_ context.Context, secret store.ProviderSecret) (store.ProviderSecret, error) {
 	secret.ID = 41
 	secret.LifecycleState = store.ProviderSecretPendingWrite
@@ -513,6 +530,93 @@ func TestLogoutIsPOSTOnlyAndRejectsCrossOriginBrowsers(t *testing.T) {
 	mux.ServeHTTP(sameResponse, sameOrigin)
 	if sameResponse.Code != http.StatusOK {
 		t.Fatalf("same-origin POST /logout status = %d, want %d", sameResponse.Code, http.StatusOK)
+	}
+}
+
+func TestLogoutFailsClosedWhenSessionRevocationFails(t *testing.T) {
+	t.Parallel()
+
+	const rawToken = "sensitive-session-token"
+	for _, test := range []struct {
+		name                         string
+		deleteSessionErr             error
+		deleteEditorReviewSessionErr error
+	}{
+		{
+			name:             "browser session deletion fails",
+			deleteSessionErr: errors.New("database rejected sensitive-session-token"),
+		},
+		{
+			name:                         "editor review session deletion fails",
+			deleteEditorReviewSessionErr: errors.New("database rejected sensitive-session-token"),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			sessions := &logoutSessionStoreStub{
+				deleteSessionErr:             test.deleteSessionErr,
+				deleteEditorReviewSessionErr: test.deleteEditorReviewSessionErr,
+			}
+			manager := &Manager{
+				auth:           config.AuthConfig{CookieName: "scribe_session"},
+				publicBaseURL:  "https://scribe.example",
+				logoutSessions: sessions,
+			}
+
+			request := httptest.NewRequest(http.MethodPost, "https://scribe.example/logout", nil)
+			request.Header.Set("Origin", "https://scribe.example")
+			request.Header.Set("Accept", "application/json")
+			request.AddCookie(&http.Cookie{Name: "scribe_session", Value: rawToken})
+			response := httptest.NewRecorder()
+			manager.handleLogout(response, request)
+
+			if response.Code != http.StatusInternalServerError {
+				t.Fatalf("POST /logout status = %d, want %d", response.Code, http.StatusInternalServerError)
+			}
+			if got := response.Header().Get("Location"); got != "" {
+				t.Fatalf("POST /logout Location = %q, want empty", got)
+			}
+			if cookies := response.Header().Values("Set-Cookie"); len(cookies) != 0 {
+				t.Fatalf("POST /logout cleared the cookie after failed revocation: %v", cookies)
+			}
+			if body := response.Body.String(); body != "logout service unavailable\n" || strings.Contains(body, rawToken) {
+				t.Fatalf("POST /logout body = %q, want categorical error without token", body)
+			}
+			if len(sessions.deletedSessionTokens) != 1 || sessions.deletedSessionTokens[0] != rawToken {
+				t.Fatalf("browser session delete calls = %v, want [%q]", sessions.deletedSessionTokens, rawToken)
+			}
+			if len(sessions.deletedReviewSessionTokens) != 1 || sessions.deletedReviewSessionTokens[0] != rawToken {
+				t.Fatalf("review session delete calls = %v, want [%q]", sessions.deletedReviewSessionTokens, rawToken)
+			}
+		})
+	}
+}
+
+func TestLogoutClearsCookieAndSucceedsAfterAllSessionRevocationsSucceed(t *testing.T) {
+	t.Parallel()
+
+	const rawToken = "session-token"
+	sessions := &logoutSessionStoreStub{}
+	manager := &Manager{
+		auth:           config.AuthConfig{CookieName: "scribe_session"},
+		publicBaseURL:  "https://scribe.example",
+		logoutSessions: sessions,
+	}
+	request := httptest.NewRequest(http.MethodPost, "https://scribe.example/logout", nil)
+	request.Header.Set("Origin", "https://scribe.example")
+	request.AddCookie(&http.Cookie{Name: "scribe_session", Value: rawToken})
+	response := httptest.NewRecorder()
+	manager.handleLogout(response, request)
+
+	if response.Code != http.StatusFound || response.Header().Get("Location") != "/" {
+		t.Fatalf("POST /logout response = %d/%q, want %d/%q", response.Code, response.Header().Get("Location"), http.StatusFound, "/")
+	}
+	if len(sessions.deletedSessionTokens) != 1 || len(sessions.deletedReviewSessionTokens) != 1 {
+		t.Fatalf("POST /logout delete calls = %v/%v, want one each", sessions.deletedSessionTokens, sessions.deletedReviewSessionTokens)
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "scribe_session" || cookies[0].MaxAge >= 0 || cookies[0].Value != "" {
+		t.Fatalf("POST /logout cookies = %+v, want one expired empty session cookie", cookies)
 	}
 }
 

@@ -99,6 +99,9 @@ operations page, and the executable acceptance contract in the same review.
   or Zensical, but does not embed Python with `-c`, standard input, or a
   heredoc. Repository helpers are Go or Bash; Node is limited to frontend
   packages.
+- Do not add or expand lifecycle state machines in Bash. New stateful
+  deployment orchestration belongs in typed Go; shell entrypoints for those
+  components remain thin binary launchers without lifecycle or policy logic.
 - `make generate-check` covers Go, Connect, TypeScript, sqlc, and OpenAPI
   output.
 - Zensical source under `docs/` owns quickstart, architecture, extension, API,

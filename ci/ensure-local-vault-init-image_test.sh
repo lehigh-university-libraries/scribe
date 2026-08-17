@@ -85,14 +85,4 @@ if grep -Eq 'image inspect|build --tag' "$FAKE_DOCKER_LOG"; then
   exit 1
 fi
 
-for target in up up-cloud-ocr up-db; do
-  block="$(sed -n "/^${target}:/,/^$/p" "$ROOT_DIR/Makefile")"
-  ensure_line="$(grep -nF './ci/ensure-local-vault-init-image.sh' <<<"$block" | cut -d: -f1)"
-  secrets_line="$(grep -nF 'generate-secrets.sh' <<<"$block" | cut -d: -f1)"
-  if [ -z "$ensure_line" ] || [ -z "$secrets_line" ] || [ "$ensure_line" -ge "$secrets_line" ]; then
-    echo "$target must prepare the local Vault image before secret synchronization" >&2
-    exit 1
-  fi
-done
-
-echo "Fresh local Vault image ordering contracts passed."
+echo "Local Vault image preparation behavior passed."

@@ -49,6 +49,59 @@ func (packageUploadObjectStore) Delete(ctx context.Context, name string) error {
 	return uploadblob.Delete(ctx, name)
 }
 
+var (
+	// ErrUploadStorageFailure marks a failure to durably store or finalize the
+	// immutable upload bytes. Callers may expose only this fixed category, not
+	// the wrapped filesystem or object-store diagnostic.
+	ErrUploadStorageFailure = errors.New("upload storage failed")
+	// ErrSegmentationOutputFailure marks a non-provider failure while producing
+	// or validating canonical segmentation output. Provider failures retain
+	// their separately redacted hOCR categories.
+	ErrSegmentationOutputFailure = errors.New("segmentation output failed")
+)
+
+type uploadProcessingFailure struct {
+	category error
+	cause    error
+}
+
+func (e *uploadProcessingFailure) Error() string {
+	if e == nil || e.cause == nil {
+		return "upload processing failed"
+	}
+	return e.cause.Error()
+}
+
+func (e *uploadProcessingFailure) Unwrap() []error {
+	if e == nil {
+		return nil
+	}
+	return []error{e.category, e.cause}
+}
+
+func markUploadProcessingFailure(category, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return &uploadProcessingFailure{category: category, cause: cause}
+}
+
+// SafeUploadProcessingFailureMessage returns only a fixed upload-processing
+// category. It never returns the wrapped storage, parser, model, or path detail.
+func SafeUploadProcessingFailureMessage(err error) (string, bool) {
+	if _, providerFailure := hocr.SafeProviderFailureMessage(err); providerFailure {
+		return "", false
+	}
+	switch {
+	case errors.Is(err, ErrUploadStorageFailure):
+		return ErrUploadStorageFailure.Error(), true
+	case errors.Is(err, ErrSegmentationOutputFailure):
+		return ErrSegmentationOutputFailure.Error(), true
+	default:
+		return "", false
+	}
+}
+
 // StoredUploadError identifies a private upload that was created before an
 // ingest operation failed. API boundaries use ImageURL to durably schedule a
 // retry when the immediate storage compensation is unsuccessful or ambiguous.
@@ -369,7 +422,7 @@ func (h *Handler) loadExistingImage(ctx context.Context, imageURL string) ([]byt
 // with complete hOCR.
 func (h *Handler) ProcessImageUploadWithContext(ctx context.Context, filename string, fileData []byte, pctx hocr.ProcessingContext) (*ProcessResult, error) {
 	if err := h.ensureUploadsDir(); err != nil {
-		return nil, fmt.Errorf("create uploads dir: %w", err)
+		return nil, markUploadProcessingFailure(ErrUploadStorageFailure, fmt.Errorf("create uploads dir: %w", err))
 	}
 	return h.processDataWithContext(ctx, fileData, pctx)
 }
@@ -403,7 +456,7 @@ func (h *Handler) processDataWithContext(ctx context.Context, imageData []byte, 
 	imageFilename := immutableUploadName(imageData, ext)
 	imageFilePath, err := h.saveUploadedImageBytes(ctx, imageFilename, imageData, contentType)
 	if err != nil {
-		return nil, err
+		return nil, markUploadProcessingFailure(ErrUploadStorageFailure, err)
 	}
 
 	imageLocalURL := "/static/uploads/" + imageFilename
@@ -418,16 +471,18 @@ func (h *Handler) processDataWithContext(ctx context.Context, imageData []byte, 
 
 	hocrXML, provider, model, err := h.hocrService.ProcessImageWithContext(ctx, imageFilePath, pctx)
 	if err != nil {
-		return nil, cleanupOnFailure(fmt.Errorf("process image with context: %w", err))
+		processingErr := markUploadProcessingFailure(ErrSegmentationOutputFailure, fmt.Errorf("process image with context: %w", err))
+		return nil, cleanupOnFailure(processingErr)
 	}
 
 	parsedHOCR, err := hocr.ParseDocument(hocrXML)
 	if err != nil {
-		return nil, cleanupOnFailure(fmt.Errorf("hocr to plain text: %w", err))
+		processingErr := markUploadProcessingFailure(ErrSegmentationOutputFailure, fmt.Errorf("hocr to plain text: %w", err))
+		return nil, cleanupOnFailure(processingErr)
 	}
 	plainText := hocr.PlainText(parsedHOCR.Lines)
 	if err := removeLocalUploadAfterSharedCommit(imageFilePath); err != nil {
-		return nil, cleanupOnFailure(err)
+		return nil, cleanupOnFailure(markUploadProcessingFailure(ErrUploadStorageFailure, err))
 	}
 
 	return &ProcessResult{

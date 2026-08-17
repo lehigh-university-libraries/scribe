@@ -31,9 +31,13 @@ const (
 	maxConcurrentCanonicalReads       = 4
 	maxConcurrentCanonicalReadsPerKey = 2
 	edgeRequestRatePerSecond          = 2.0
-	edgeRequestBurst                  = 20.0
-	edgeAggregateRatePerSecond        = 12.0
-	edgeAggregateBurst                = 120.0
+	// One first-party editor handoff performs a bounded RPC burst while the
+	// shell, transcription catch-up, Mirador adapter, and status UI converge.
+	// Keep that cold-start path below the per-key ceiling without changing the
+	// sustained edge rate or the independent aggregate-IP admission boundary.
+	edgeRequestBurst           = 40.0
+	edgeAggregateRatePerSecond = 12.0
+	edgeAggregateBurst         = 120.0
 )
 
 func newProcessingLimiter(cfg config.ProcessingConfig) *worklimit.HierarchicalLimiter {
@@ -335,7 +339,7 @@ func requestLimitKey(r *http.Request) string {
 
 func requestLimitClass(path string) string {
 	switch {
-	case strings.HasPrefix(path, "/auth/"):
+	case strings.HasPrefix(path, "/auth/"), strings.HasPrefix(path, "/scribe.v1.AuthService/"):
 		return "auth"
 	case path == "/scribe.v1.ImageProcessingService/ProcessHOCR", path == "/scribe.v1.ItemService/UploadItemImage":
 		return "upload"

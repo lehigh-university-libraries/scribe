@@ -854,13 +854,27 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       );
       return;
     }
+    const failedSegments = job.failedSegments ?? 0;
     if (
-      job.completedSegments !== job.totalSegments
-      || (job.failedSegments ?? 0) !== 0
+      job.completedSegments < 0
+      || failedSegments < 0
+      || job.completedSegments + failedSegments !== job.totalSegments
       || job.totalSegments < 0
       || job.totalSegments > COMPLETED_REPLAY_MAX_SEGMENTS
     ) {
       rejectCompletedJob(
+        job,
+        targetItemImageID,
+        targetCanvasID,
+        targetWindowID,
+      );
+      return;
+    }
+    // A partial completion has no durable per-line success identity yet. Load
+    // the atomically committed page without synthesizing result events that
+    // could falsely attribute an unchanged line to this provider.
+    if (failedSegments > 0) {
+      finalizeCompletedJob(
         job,
         targetItemImageID,
         targetCanvasID,
@@ -1174,6 +1188,17 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       return;
     }
     if (isCompletedStatus(job.status)) {
+      const failedSegments = Math.max(0, job.failedSegments ?? 0);
+      if (failedSegments > 0) {
+        const successfulSegments = Math.max(0, job.completedSegments);
+        const lineLabel = failedSegments === 1 ? "line" : "lines";
+        publishBatchState(
+          `Automatic transcription finished: ${successfulSegments}/${job.totalSegments} lines transcribed; ${failedSegments} ${lineLabel} left unchanged.`,
+          false,
+        );
+        setBatchBanner("", "", false);
+        return;
+      }
       publishBatchState(
         "Batch transcription complete. Updated text is now available in the editor.",
         false,
@@ -1323,11 +1348,12 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   function subscribeToItemImageEvents(
     targetItemImageID: string,
     reconcile: () => void,
+    onReady: () => void,
   ) {
     return subscribeToEvents(
       {
         itemImageId: targetItemImageID,
-        onReady: reconcile,
+        onReady,
         types: [
           "dev.scribe.transcription.task.started",
           "dev.scribe.transcription.task.completed",
@@ -1560,9 +1586,51 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
           }
         });
       };
+      const reconcileAfterStreamReady = async () => {
+        const targetCanvasID = activeCanvasID;
+        const targetWindowID = activeWindowID;
+        try {
+          await reconcile();
+          if (
+            !targetCanvasID
+            || !targetWindowID
+            || editorDisposed
+            || sequence !== activationSequence
+            || activeItemImageID !== targetItemImageID
+            || monitoredItemImageID !== targetItemImageID
+            || activeCanvasID !== targetCanvasID
+            || activeWindowID !== targetWindowID
+          ) return;
+          document.dispatchEvent(new CustomEvent(
+            "scribe:transcription-stream-ready",
+            {
+              detail: {
+                canvasId: targetCanvasID,
+                itemImageId: targetItemImageID,
+                windowId: targetWindowID,
+              },
+            },
+          ));
+        } catch {
+          if (
+            !editorDisposed
+            && sequence === activationSequence
+            && activeItemImageID === targetItemImageID
+            && monitoredItemImageID === targetItemImageID
+            && activeCanvasID === targetCanvasID
+            && activeWindowID === targetWindowID
+          ) {
+            publishBatchState(
+              "Failed to refresh transcription status; the event stream will retry.",
+              true,
+            );
+          }
+        }
+      };
       eventSubscription = subscribeToItemImageEvents(
         targetItemImageID,
         reconcileAfterStreamSignal,
+        reconcileAfterStreamReady,
       );
       monitoredItemImageID = targetItemImageID;
       await reconcile();

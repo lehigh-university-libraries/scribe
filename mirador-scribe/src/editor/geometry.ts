@@ -1,4 +1,4 @@
-import OpenSeadragon from 'openseadragon';
+import type OpenSeadragon from 'openseadragon';
 import type { ImageBBox, Point2D } from '../types/scribe';
 
 interface ImageSize {
@@ -9,6 +9,28 @@ interface ImageSize {
 function tiledImage(viewer: OpenSeadragon.Viewer | null | undefined): OpenSeadragon.TiledImage | null {
   if (!viewer?.viewport || !viewer.world?.getItemCount()) return null;
   return viewer.world.getItemAt(0) || null;
+}
+
+/**
+ * Build a point with the same OpenSeadragon class identity as the mounted
+ * viewer. Mirador and this plugin may bundle separate OpenSeadragon copies;
+ * conversion APIs reject a structurally identical Point from the other copy.
+ */
+function viewerOwnedPoint(
+  viewer: OpenSeadragon.Viewer | null | undefined,
+  x: number,
+  y: number,
+): OpenSeadragon.Point | null {
+  const center = viewer?.viewport?.getCenter?.(true);
+  if (!center) return null;
+  const point = typeof center.clone === 'function' ? center.clone() : center;
+  point.x = x;
+  point.y = y;
+  return point;
+}
+
+function finitePoint(point: OpenSeadragon.Point | null | undefined): OpenSeadragon.Point | null {
+  return point && Number.isFinite(point.x) && Number.isFinite(point.y) ? point : null;
 }
 
 /** Convert browser client coordinates to image coordinates exactly once. */
@@ -24,10 +46,12 @@ export function clientPointToImage(
     x: globalThis.window?.scrollX || 0,
     y: globalThis.window?.scrollY || 0,
   };
-  return image.windowToImageCoordinates(new OpenSeadragon.Point(
+  const point = viewerOwnedPoint(
+    viewer,
     clientX + pageScroll.x,
     clientY + pageScroll.y,
-  ));
+  );
+  return point ? finitePoint(image.windowToImageCoordinates(point)) : null;
 }
 
 /** Convert an OpenSeadragon MouseTracker element-relative point to image space. */
@@ -37,7 +61,8 @@ export function viewerElementPointToImage(
 ): OpenSeadragon.Point | null {
   const image = tiledImage(viewer);
   if (!image?.viewerElementToImageCoordinates || !point) return null;
-  return image.viewerElementToImageCoordinates(new OpenSeadragon.Point(point.x, point.y));
+  const viewerPoint = viewerOwnedPoint(viewer, point.x, point.y);
+  return viewerPoint ? finitePoint(image.viewerElementToImageCoordinates(viewerPoint)) : null;
 }
 
 /** Convert image coordinates to coordinates relative to the viewer element. */
@@ -48,7 +73,8 @@ export function imagePointToViewerElement(
 ): OpenSeadragon.Point | null {
   const image = tiledImage(viewer);
   if (!image?.imageToViewerElementCoordinates) return null;
-  return image.imageToViewerElementCoordinates(new OpenSeadragon.Point(x, y));
+  const imagePoint = viewerOwnedPoint(viewer, x, y);
+  return imagePoint ? finitePoint(image.imageToViewerElementCoordinates(imagePoint)) : null;
 }
 
 export function normalizeImageBBox({ x, y, w, h }: ImageBBox): ImageBBox {
@@ -70,6 +96,50 @@ export function normalizeImageBBox({ x, y, w, h }: ImageBBox): ImageBBox {
     w: Math.max(1, Math.round(width)),
     h: Math.max(1, Math.round(height)),
   };
+}
+
+/**
+ * Places a new word after the selected word without leaving its containing
+ * line. When the selection already reaches the right edge, retain a visible
+ * one-pixel box at that edge so the draft stays inside the canonical image.
+ */
+export function wordBBoxBesideSelection(
+  selection: ImageBBox,
+  containingLine: ImageBBox,
+): ImageBBox {
+  const selected = normalizeImageBBox(selection);
+  const container = normalizeImageBBox(containingLine);
+  const containerRight = container.x + container.w;
+  const containerBottom = container.y + container.h;
+  const y = Math.max(container.y, Math.min(selected.y, containerBottom - 1));
+  const h = Math.max(1, Math.min(selected.h, containerBottom - y));
+  const adjacentX = Math.max(container.x, selected.x + selected.w);
+  if (adjacentX < containerRight) {
+    return {
+      x: adjacentX,
+      y,
+      w: Math.max(1, Math.min(selected.w, containerRight - adjacentX)),
+      h,
+    };
+  }
+  return {
+    x: Math.max(container.x, containerRight - 1),
+    y,
+    w: 1,
+    h,
+  };
+}
+
+/** Match the backend's integer word-center containment rule. */
+export function imageBBoxContainsCenter(containerBBox: ImageBBox, itemBBox: ImageBBox): boolean {
+  const container = normalizeImageBBox(containerBBox);
+  const item = normalizeImageBBox(itemBBox);
+  const centerX = item.x + Math.floor(item.w / 2);
+  const centerY = item.y + Math.floor(item.h / 2);
+  return centerX >= container.x
+    && centerX <= container.x + container.w
+    && centerY >= container.y
+    && centerY <= container.y + container.h;
 }
 
 /**

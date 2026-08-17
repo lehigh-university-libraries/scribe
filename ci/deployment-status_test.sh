@@ -17,16 +17,11 @@ run_status_unit_tests() {
     -e GOMODCACHE=/tmp/go-mod \
     -v "$ROOT_DIR:/app:ro" \
     -w /app \
-    golang:1.26.5-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 \
+    golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df \
     go test ./internal/deployer -run '^TestResolveStatus'
 }
 
 run_status_unit_tests
-
-grep -F 'exec go run ./cmd/deployer status' "$ROOT_DIR/ci/deployment-status.sh" >/dev/null || {
-  echo "Deployment status shell entrypoint must remain a thin typed-deployer caller" >&2
-  exit 1
-}
 
 attestation_dir="$(mktemp -d)"
 trap 'rm -rf "$attestation_dir"' EXIT

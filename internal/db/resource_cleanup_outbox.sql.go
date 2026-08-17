@@ -195,7 +195,7 @@ func (q *Queries) MarkResourceCleanupProcessing(ctx context.Context, arg MarkRes
 	)
 }
 
-const resizeStagedUploadCleanup = `-- name: ResizeStagedUploadCleanup :execresult
+const resizeStagedUploadCleanup = `-- name: ResizeStagedUploadCleanup :exec
 UPDATE resource_cleanup_outbox
 SET workspace_id = ?,
     storage_bytes = GREATEST(storage_bytes, ?),
@@ -212,13 +212,14 @@ type ResizeStagedUploadCleanupParams struct {
 	ResourceKey   string      `json:"resource_key"`
 }
 
-func (q *Queries) ResizeStagedUploadCleanup(ctx context.Context, arg ResizeStagedUploadCleanupParams) (sql.Result, error) {
-	return q.db.ExecContext(ctx, resizeStagedUploadCleanup,
+func (q *Queries) ResizeStagedUploadCleanup(ctx context.Context, arg ResizeStagedUploadCleanupParams) error {
+	_, err := q.db.ExecContext(ctx, resizeStagedUploadCleanup,
 		arg.WorkspaceID,
 		arg.StorageBytes,
 		arg.NextAttemptAt,
 		arg.ResourceKey,
 	)
+	return err
 }
 
 const retryResourceCleanup = `-- name: RetryResourceCleanup :execresult

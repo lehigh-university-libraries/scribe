@@ -398,6 +398,84 @@ func TestStorageQuotaReservationResizeAndExpiry(t *testing.T) {
 	}
 }
 
+func TestStorageQuotaStagedSameSizeResizeAcceptsNoopCleanupUpdate(t *testing.T) {
+	database := annotationTestDB(t)
+	// Pin the test to one connection so MySQL's session timestamp makes the
+	// cleanup update deterministically idempotent. The production DSN reports
+	// changed, not matched, rows.
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+	ctx := context.Background()
+	workspaceID, _ := createAnnotationTestResource(t, database, uuid.NewString()+"-storage-staged-resize", "https://source.example/canvas/staged-resize")
+	itemStore := store.NewItemStore(database)
+	limits := storageQuotaTestLimits()
+	uploadName := immutableUploadTestName(strings.Repeat("9", 64))
+	imageURL := "/static/uploads/" + uploadName
+
+	reservation, err := itemStore.ReserveStorageQuota(ctx, workspaceID, store.StorageQuotaRequest{Bytes: 80, Images: 1}, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := itemStore.StageStorageQuotaUpload(ctx, reservation, imageURL, 80, limits); err != nil {
+		t.Fatalf("stage immutable upload: %v", err)
+	}
+
+	var fixedTimestamp int64
+	if err := database.QueryRow("SELECT UNIX_TIMESTAMP()").Scan(&fixedTimestamp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec("SET timestamp = ?", fixedTimestamp); err != nil {
+		t.Fatalf("freeze database timestamp: %v", err)
+	}
+	timestampReset := false
+	t.Cleanup(func() {
+		if !timestampReset {
+			_, _ = database.Exec("SET timestamp = 0")
+		}
+	})
+	if _, err := database.Exec(`
+		UPDATE resource_cleanup_outbox
+		SET storage_bytes = 80,
+		    next_attempt_at = DATE_ADD(NOW(), INTERVAL 1 DAY),
+		    updated_at = NOW()
+		WHERE kind = 'upload_blob' AND resource_key = ?
+	`, uploadName); err != nil {
+		t.Fatalf("prepare idempotent cleanup resize: %v", err)
+	}
+
+	resized, err := itemStore.ResizeStorageQuotaReservation(ctx, reservation, store.StorageQuotaRequest{Bytes: 80, Images: 1}, limits)
+	if err != nil {
+		t.Fatalf("resize staged upload without accounting change: %v", err)
+	}
+	if resized.Request.Bytes != 80 || resized.Request.Images != 1 {
+		t.Fatalf("resized request = %+v, want 80 bytes and one image", resized.Request)
+	}
+	usage, err := itemStore.GetStorageQuotaUsage(ctx, workspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.UploadBlobBytes != 80 || usage.ReservedUploadBlobBytes != 0 || usage.ReservedImages != 1 {
+		t.Fatalf("staged resize quota usage = %+v, want 80 used upload bytes and one reserved image", usage)
+	}
+	if _, err := database.Exec("SET timestamp = 0"); err != nil {
+		t.Fatalf("reset database timestamp: %v", err)
+	}
+	timestampReset = true
+
+	if err := itemStore.ReleaseStorageQuotaReservation(ctx, resized); err != nil {
+		t.Fatalf("release resized reservation: %v", err)
+	}
+	makeCleanupsOldest(t, database, uploadName)
+	delivery, err := itemStore.ClaimResourceCleanup(ctx, time.Minute)
+	if err != nil || delivery == nil || delivery.ResourceKey != uploadName {
+		t.Fatalf("claim staged upload cleanup = %+v, %v", delivery, err)
+	}
+	fenceUploadCleanupForTest(t, ctx, itemStore, *delivery)
+	if err := itemStore.CompleteResourceCleanup(ctx, *delivery); err != nil {
+		t.Fatalf("complete staged upload cleanup: %v", err)
+	}
+}
+
 func TestStorageQuotaCountsUploadBytesUntilDurableCleanupCompletes(t *testing.T) {
 	database := annotationTestDB(t)
 	ctx := context.Background()

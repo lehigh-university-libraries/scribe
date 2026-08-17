@@ -299,7 +299,7 @@ type Querier interface {
 	ReleaseIdentityConvergenceLockManual(ctx context.Context, lockName string) (bool, error)
 	RenewUploadBatchFileManual(ctx context.Context, arg RenewUploadBatchFileManualParams) (int64, error)
 	ReplaceStorageQuotaUsage(ctx context.Context, arg ReplaceStorageQuotaUsageParams) error
-	ResizeStagedUploadCleanup(ctx context.Context, arg ResizeStagedUploadCleanupParams) (sql.Result, error)
+	ResizeStagedUploadCleanup(ctx context.Context, arg ResizeStagedUploadCleanupParams) error
 	RetryAnnotationMirror(ctx context.Context, arg RetryAnnotationMirrorParams) (sql.Result, error)
 	RetryOrFailTranscriptionJobManual(ctx context.Context, arg RetryOrFailTranscriptionJobManualParams) (sql.Result, error)
 	RetryResourceCleanup(ctx context.Context, arg RetryResourceCleanupParams) (sql.Result, error)

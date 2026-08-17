@@ -264,6 +264,9 @@ func (h *Handler) enrichSingleAnnotationInWorkspace(
 		pctx.TranscriptionProvider, pctx.TranscriptionModel,
 	)
 	if err != nil {
+		if errors.Is(err, hocr.ErrNoTranscription) {
+			return "", fmt.Errorf("transcribe region: %w", errEmptyAnnotationTranscription)
+		}
 		return "", fmt.Errorf("transcribe region: %w", err)
 	}
 	text = strings.TrimSpace(text)

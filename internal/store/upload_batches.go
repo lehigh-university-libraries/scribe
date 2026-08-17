@@ -492,11 +492,15 @@ func (s *ItemStore) AbortUploadBatchFileAttempt(ctx context.Context, workspaceID
 }
 
 // EnsureUploadBatchImage creates the provisional item image while atomically
-// checking the active file lease. Reclaim removes any prior attempt's image
-// before assigning the new owner.
-func (s *ItemStore) EnsureUploadBatchImage(ctx context.Context, workspaceID uint64, batchID string, sequence uint32, leaseOwner, imageURL string, storageBytes uint64, width, height uint32, publicBaseURL string) (ItemImage, error) {
+// checking the active file lease and transferring its admitted image capacity
+// from reserved to used. Reclaim removes any prior attempt's image before
+// assigning the new owner.
+func (s *ItemStore) EnsureUploadBatchImage(ctx context.Context, workspaceID uint64, reservation StorageQuotaReservation, batchID string, sequence uint32, leaseOwner, imageURL string, storageBytes uint64, width, height uint32, publicBaseURL string) (ItemImage, error) {
 	if s == nil || s.pool == nil {
 		return ItemImage{}, fmt.Errorf("ensure upload batch image: store is not configured")
+	}
+	if reservation.ID == "" || reservation.WorkspaceID != workspaceID {
+		return ItemImage{}, fmt.Errorf("ensure upload batch image: matching storage reservation is required")
 	}
 	if width == 0 || height == 0 {
 		return ItemImage{}, fmt.Errorf("ensure upload batch image: image dimensions are required")
@@ -524,14 +528,33 @@ func (s *ItemStore) EnsureUploadBatchImage(ctx context.Context, workspaceID uint
 		return ItemImage{}, fmt.Errorf("ensure upload batch image: lock item: %w", err)
 	}
 	uploadBytes := uint64(0)
+	stagedUploadName := ""
 	if name, isUpload := uploadref.ImmutableNameFromURL(imageURL); isUpload {
-		_, staged, cleanupErr := lockUploadCleanupForReference(ctx, queries, workspaceID, name)
+		cleanup, staged, cleanupErr := lockUploadCleanupForReference(ctx, queries, workspaceID, name)
 		if cleanupErr != nil {
 			return ItemImage{}, fmt.Errorf("ensure upload batch image: inspect staged upload: %w", cleanupErr)
 		}
-		if !staged {
+		if staged {
+			if cleanup.StorageBytes != storageBytes {
+				return ItemImage{}, fmt.Errorf("ensure upload batch image: staged upload accounting does not match image")
+			}
+			stagedUploadName = name
+		} else {
 			uploadBytes = storageBytes
 		}
+	}
+	lockedReservation, err := queries.LockLiveStorageQuotaReservation(ctx, db.LockLiveStorageQuotaReservationParams{
+		ID: reservation.ID, WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		return ItemImage{}, fmt.Errorf("ensure upload batch image: lock storage reservation: %w", err)
+	}
+	if stagedUploadName != "" {
+		if !lockedReservation.ResourceKey.Valid || lockedReservation.ResourceKey.String != stagedUploadName {
+			return ItemImage{}, fmt.Errorf("ensure upload batch image: staged upload reservation does not match image")
+		}
+	} else if lockedReservation.ResourceKey.Valid {
+		return ItemImage{}, fmt.Errorf("ensure upload batch image: storage reservation is bound to another upload")
 	}
 	result, err := queries.EnsureUploadBatchImageManual(ctx, db.EnsureUploadBatchImageManualParams{
 		ImageUrl:     strings.TrimSpace(imageURL),
@@ -553,21 +576,21 @@ func (s *ItemStore) EnsureUploadBatchImage(ctx context.Context, workspaceID uint
 	if imageID <= 0 {
 		return ItemImage{}, ErrUploadBatchFileFence
 	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ItemImage{}, fmt.Errorf("ensure upload batch image: inspect insert result: %w", err)
+	}
+	if rowsAffected == 1 {
+		if err := transferStorageQuotaReservationToUsed(ctx, queries, lockedReservation, StorageQuotaRequest{Bytes: uploadBytes, Images: 1}); err != nil {
+			return ItemImage{}, fmt.Errorf("ensure upload batch image: account image: %w", err)
+		}
+	}
 	canvasURI, err := iiif.ItemImageCanvasID(publicBaseURL, uint64(imageID)) // #nosec G115 -- positive database identifier.
 	if err != nil {
 		return ItemImage{}, fmt.Errorf("ensure upload batch image: construct Canvas identity: %w", err)
 	}
 	if err := queries.UpdateItemImageCanvasURI(ctx, uint64(imageID), canvasURI); err != nil { // #nosec G115 -- positive database identifier.
 		return ItemImage{}, fmt.Errorf("ensure upload batch image: persist Canvas identity: %w", err)
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ItemImage{}, fmt.Errorf("ensure upload batch image: inspect insert result: %w", err)
-	}
-	if rowsAffected == 1 {
-		if err := addStorageQuotaUsed(ctx, queries, workspaceID, StorageQuotaRequest{Bytes: uploadBytes, Images: 1}); err != nil {
-			return ItemImage{}, fmt.Errorf("ensure upload batch image: account image: %w", err)
-		}
 	}
 	if err := tx.Commit(); err != nil {
 		return ItemImage{}, fmt.Errorf("ensure upload batch image: commit: %w", err)

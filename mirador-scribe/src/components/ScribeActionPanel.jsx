@@ -74,20 +74,19 @@ export const shortcutLegendSx = {
   alignSelf: 'stretch',
   display: 'grid',
   flex: '1 1 280px',
-  gap: 0.5,
-  gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))',
+  gap: 0.75,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(164px, 1fr))',
   listStyle: 'none',
   m: 0,
   maxWidth: 560,
   minWidth: 0,
   p: 0,
-  pl: 0.5,
   width: '100%',
   '@media (max-height: 500px)': {
     display: 'none',
   },
   '@media (max-width: 480px)': {
-    gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(148px, 1fr))',
   },
 };
 
@@ -270,39 +269,43 @@ function ShortcutLegend() {
           component="li"
           sx={{
             alignItems: 'center',
-            display: 'flex',
+            display: 'grid',
             gap: 0.75,
+            gridTemplateColumns: 'minmax(52px, max-content) minmax(0, 1fr)',
             minWidth: 0,
           }}
         >
-          <Typography component="span" sx={{ color: 'text.disabled', fontSize: 10, lineHeight: 1 }}>
-            •
-          </Typography>
-          <Chip
-            label={shortcut.key}
-            size="small"
-            variant="outlined"
+          <Box
+            component="kbd"
             sx={{
+              alignItems: 'center',
               backgroundColor: scribeTheme.surface,
+              border: '1px solid',
+              borderBottomWidth: 2,
               borderColor: scribeTheme.border,
-              fontSize: 10,
-              height: 18,
-              '@media (max-width: 480px)': {
-                fontSize: 9,
-                height: 16,
-                '& .MuiChip-label': { px: 0.5 },
-              },
+              borderRadius: 1,
+              boxShadow: `0 1px 2px ${scribeTheme.shadowSoft}`,
+              color: scribeTheme.foreground,
+              display: 'inline-flex',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              fontSize: 12,
+              fontWeight: 700,
+              justifyContent: 'center',
+              lineHeight: 1,
+              minHeight: 22,
+              px: 0.75,
+              whiteSpace: 'nowrap',
             }}
-          />
+          >
+            {shortcut.key}
+          </Box>
           <Typography
             component="span"
-            noWrap
             sx={{
               color: 'text.secondary',
-              fontSize: 11,
-              lineHeight: 1,
+              fontSize: 12,
+              lineHeight: 1.25,
               minWidth: 0,
-              '@media (max-width: 480px)': { display: 'none' },
             }}
           >
             {shortcut.label}
@@ -601,7 +604,7 @@ export default function ScribeActionPanel({
             </Stack>
           </Box>
 
-          {/* Keyboard shortcuts — bulleted list to the right */}
+            {/* Keyboard shortcut keycaps */}
           <ShortcutLegend />
         </Box>
 

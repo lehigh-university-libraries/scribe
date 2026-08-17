@@ -57,14 +57,18 @@ Useful starting points:
 - **Automatic** segmentation runs the built-in detectors and keeps the result
   with more words. Use it as an experiment rather than assuming the larger
   region count is the better layout.
-- **Tesseract** segmentation uses the local deterministic detector. Choose the
-  Tesseract transcription provider separately when both stages should use it.
-  The built-in **Tesseract OCR** preset is the credential-free system default
-  when a workspace has not selected its own default.
+- **Tesseract** segmentation uses the local deterministic detector. The
+  built-in **Tesseract OCR** preset is the credential-free system default; it
+  preserves the established Scribe segmentation path and uses Tesseract for
+  line transcription.
 - **Scribe** segmentation pairs the built-in detector with the chosen
-  transcription provider. The built-in **Gemini Pro** preset combines it with
-  the configured Gemini model and model-default sampling; select it explicitly
-  when Gemini is configured for the workspace.
+  transcription provider. The built-in **Gemini Pro** preset combines Scribe
+  segmentation with the configured Gemini model and model-default sampling;
+  select it explicitly when Gemini is configured for the workspace. The preset
+  name does not independently select a Pro-family model: it follows the Gemini
+  default registered by the administrator. Check the model shown in the
+  context catalog, and create a workspace context with a registered Pro model
+  when that distinction matters.
 - **Kraken** choices use administrator-built, digest-pinned model services.
 
 The context library displays run counts. Integrations can use
@@ -77,6 +81,17 @@ it the workspace default.
 
 Providers marked as requiring an API key need a credential under **Settings →
 Provider secrets**.
+
+To enable Gemini for a new upload:
+
+1. Open the workspace/account **Settings** panel.
+2. Under **Provider secrets**, choose **Google Gemini** and enter a name for the
+   credential.
+3. Choose **Workspace (queued processing)**. This option requires workspace
+   administrator access.
+4. Paste the key into **Provider API key**, then select **Save provider key**.
+5. Return to the Library, choose the intended Gemini context above the upload
+   form, and then upload the document.
 
 - A **workspace** key powers durable automatic transcription for image-URL
   ingest, uploaded files, reprocessing, and other queued jobs, and requires
@@ -98,6 +113,12 @@ the request with a workspace credential.
 A queued job that selects a provider without its required workspace key fails
 immediately with an actionable job error; it does not fall back to a personal
 or deployment-wide credential.
+
+Do not put a Gemini key in `.env` or `GEMINI_API_KEY`; Scribe does not consume
+that variable for provider credentials. The deployment-wide secret written by
+`make vault-secrets` is also not eligible for durable workspace jobs. Store the
+key through **Provider secrets** so queued work resolves the workspace-scoped
+Vault locator.
 
 Scribe never copies a provider key into the context. Deleting or rotating a key
 therefore does not require recreating contexts.

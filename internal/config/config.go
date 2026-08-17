@@ -452,13 +452,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.PublicBaseURL = strings.TrimRight(strings.TrimSpace(cfg.PublicBaseURL), "/")
-	publicBase, err := url.Parse(cfg.PublicBaseURL)
-	if err != nil || publicBase.Host == "" || (publicBase.Scheme != "http" && publicBase.Scheme != "https") || publicBase.User != nil || publicBase.RawQuery != "" || publicBase.Fragment != "" {
-		return Config{}, fmt.Errorf("public_base_url must be an absolute HTTP(S) URL without credentials, query, or fragment")
-	}
-	if err := iiif.ValidatePublicBaseURL(cfg.PublicBaseURL); err != nil {
-		return Config{}, fmt.Errorf("public_base_url cannot produce persisted IIIF resource IDs: %w", err)
+	var publicBase *url.URL
+	cfg.PublicBaseURL, publicBase, err = normalizePublicBaseURL(cfg.PublicBaseURL)
+	if err != nil {
+		return Config{}, err
 	}
 	cfg.Pagination.SigningKey, err = normalizePageTokenSigningKey(cfg.Pagination.SigningKey)
 	if err != nil {
@@ -585,6 +582,18 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func normalizePublicBaseURL(raw string) (string, *url.URL, error) {
+	normalized := strings.TrimRight(strings.TrimSpace(raw), "/")
+	publicBase, err := url.Parse(normalized)
+	if err != nil || publicBase.Host == "" || (publicBase.Scheme != "http" && publicBase.Scheme != "https") || publicBase.User != nil || publicBase.RawQuery != "" || publicBase.Fragment != "" {
+		return "", nil, fmt.Errorf("public_base_url must be an absolute HTTP(S) URL without credentials, query, or fragment")
+	}
+	if err := iiif.ValidatePublicBaseURL(normalized); err != nil {
+		return "", nil, fmt.Errorf("public_base_url cannot produce persisted IIIF resource IDs: %w", err)
+	}
+	return normalized, publicBase, nil
 }
 
 func normalizeObservabilityConfig(value ObservabilityConfig) (ObservabilityConfig, error) {

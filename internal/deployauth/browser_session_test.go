@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,9 @@ func (f *fakeBrowserSessionIdentities) DeleteSession(_ context.Context, token st
 }
 
 func TestMintBrowserSessionFileWritesBoundedPlaywrightState(t *testing.T) {
+	if BrowserSessionTTL != 50*time.Minute {
+		t.Fatalf("browser session TTL = %s, want 50m", BrowserSessionTTL)
+	}
 	outputPath := newBrowserSessionOutputPath(t)
 	now := time.Date(2026, time.August, 4, 12, 0, 0, 0, time.UTC)
 	identities := reservedBrowserSessionIdentities()
@@ -219,6 +223,327 @@ func TestMintBrowserSessionFileRemovesOutputWhenSessionCreationFails(t *testing.
 	}
 }
 
+func TestCleanupBrowserSessionFileWaitsForLateMintWrite(t *testing.T) {
+	outputPath := newProductionBrowserSessionOutputPath(t)
+	started := make(chan struct{})
+	allowWrite := make(chan struct{})
+	writerDone := make(chan error, 1)
+	go func() {
+		writerDone <- withBrowserSessionLock(context.Background(), func() error {
+			close(started)
+			<-allowWrite
+			return os.WriteFile(outputPath, []byte("late credential material"), 0o600)
+		})
+	}()
+	<-started
+
+	cleanupDone := make(chan error, 1)
+	go func() {
+		cleanupDone <- CleanupBrowserSessionFile(context.Background(), outputPath)
+	}()
+	select {
+	case err := <-cleanupDone:
+		t.Fatalf("cleanup returned before in-flight mint settled: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(allowWrite)
+	if err := <-writerDone; err != nil {
+		t.Fatalf("late writer failed: %v", err)
+	}
+	if err := <-cleanupDone; err != nil {
+		t.Fatalf("cleanup failed: %v", err)
+	}
+	if _, err := os.Lstat(outputPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("late-written credential remained after cleanup: %v", err)
+	}
+}
+
+func TestCleanupBrowserSessionFileHonorsLockCancellation(t *testing.T) {
+	outputPath := newProductionBrowserSessionOutputPath(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	holderDone := make(chan error, 1)
+	go func() {
+		holderDone <- withBrowserSessionLock(context.Background(), func() error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	err := CleanupBrowserSessionFile(ctx, outputPath)
+	cancel()
+	if err == nil {
+		t.Fatal("cleanup ignored lock cancellation")
+	}
+	close(release)
+	if err := <-holderDone; err != nil {
+		t.Fatalf("lock holder failed: %v", err)
+	}
+}
+
+func TestReservedMintCannotWriteAfterCleanupFence(t *testing.T) {
+	outputPath := newProductionBrowserSessionOutputPath(t)
+	if err := ReserveBrowserSessionFile(context.Background(), outputPath); err != nil {
+		t.Fatalf("reserve browser session output: %v", err)
+	}
+	if err := CleanupBrowserSessionFile(context.Background(), outputPath); err != nil {
+		t.Fatalf("cleanup browser session reservation: %v", err)
+	}
+	identities := reservedBrowserSessionIdentities()
+	minter := browserSessionMinter{
+		identities:         identities,
+		random:             bytes.NewReader(bytes.Repeat([]byte{0x5a}, 48)),
+		now:                time.Now,
+		requireReservation: true,
+	}
+	err := withBrowserSessionLock(context.Background(), func() error {
+		return minter.mintFile(context.Background(), "https://scribe.example", "scribe_session", "", outputPath)
+	})
+	if err == nil {
+		t.Fatal("late reserved mint recreated material after cleanup")
+	}
+	if identities.createCalls != 0 {
+		t.Fatalf("late reserved mint created %d sessions", identities.createCalls)
+	}
+	if _, statErr := os.Lstat(outputPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("late reserved mint left output: %v", statErr)
+	}
+}
+
+func TestReservedMintHoldsCleanupUntilCredentialWriteCompletes(t *testing.T) {
+	outputPath := newProductionBrowserSessionOutputPath(t)
+	if err := ReserveBrowserSessionFile(context.Background(), outputPath); err != nil {
+		t.Fatalf("reserve browser session output: %v", err)
+	}
+	reader := &gatedReader{started: make(chan struct{}), release: make(chan struct{}), data: bytes.Repeat([]byte{0x5a}, 48)}
+	identities := reservedBrowserSessionIdentities()
+	minter := browserSessionMinter{
+		identities:         identities,
+		random:             reader,
+		now:                time.Now,
+		requireReservation: true,
+	}
+	mintDone := make(chan error, 1)
+	go func() {
+		mintDone <- withBrowserSessionLock(context.Background(), func() error {
+			return minter.mintFile(context.Background(), "https://scribe.example", "scribe_session", "", outputPath)
+		})
+	}()
+	<-reader.started
+	cleanupDone := make(chan error, 1)
+	go func() { cleanupDone <- CleanupBrowserSessionFile(context.Background(), outputPath) }()
+	select {
+	case err := <-cleanupDone:
+		t.Fatalf("cleanup returned before credential write settled: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(reader.release)
+	if err := <-mintDone; err != nil {
+		t.Fatalf("reserved mint failed: %v", err)
+	}
+	if err := <-cleanupDone; err != nil {
+		t.Fatalf("cleanup failed: %v", err)
+	}
+	if _, err := os.Lstat(outputPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("credential remained after serialized cleanup: %v", err)
+	}
+}
+
+func TestExportBrowserSessionFileStreamsOnlyExactPrivateProductionState(t *testing.T) {
+	outputPath := newProductionBrowserSessionOutputPath(t)
+	want := bytes.Repeat([]byte("x"), minimumBrowserSessionBytes)
+	if err := os.WriteFile(outputPath, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(outputPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var destination bytes.Buffer
+	if err := ExportBrowserSessionFile(context.Background(), outputPath, &destination); err != nil {
+		t.Fatalf("export browser session: %v", err)
+	}
+	if !bytes.Equal(destination.Bytes(), want) {
+		t.Fatalf("exported browser session bytes = %q", destination.Bytes())
+	}
+	if info, err := os.Lstat(outputPath); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("export removed the cleanup-owned source: %v, %v", info, err)
+	}
+
+	if err := os.Chmod(outputPath, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	destination.Reset()
+	if err := ExportBrowserSessionFile(context.Background(), outputPath, &destination); err == nil {
+		t.Fatal("export accepted a non-private source")
+	}
+	if destination.Len() != 0 {
+		t.Fatal("rejected export wrote credential bytes")
+	}
+}
+
+func TestExportBrowserSessionFileEnforcesStateSizeBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		size    int
+		wantErr bool
+	}{
+		{name: "below minimum", size: minimumBrowserSessionBytes - 1, wantErr: true},
+		{name: "minimum", size: minimumBrowserSessionBytes},
+		{name: "maximum", size: maximumBrowserSessionBytes},
+		{name: "above maximum", size: maximumBrowserSessionBytes + 1, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			outputPath := newProductionBrowserSessionOutputPath(t)
+			contents := bytes.Repeat([]byte("x"), test.size)
+			if err := os.WriteFile(outputPath, contents, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(outputPath, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var destination bytes.Buffer
+			err := ExportBrowserSessionFile(context.Background(), outputPath, &destination)
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("export accepted an out-of-bounds state")
+				}
+				if destination.Len() != 0 {
+					t.Fatal("rejected state wrote credential bytes")
+				}
+				return
+			}
+			if err != nil || !bytes.Equal(destination.Bytes(), contents) {
+				t.Fatalf("boundary export = bytes:%d error:%v", destination.Len(), err)
+			}
+		})
+	}
+}
+
+func TestExportBrowserSessionFileRejectsNoncanonicalAndSymlinkSources(t *testing.T) {
+	var destination bytes.Buffer
+	if err := ExportBrowserSessionFile(
+		context.Background(),
+		"/tmp/scribe-browser-session-test.json",
+		&destination,
+	); err == nil {
+		t.Fatal("export accepted a non-production path")
+	}
+
+	outputPath := newProductionBrowserSessionOutputPath(t)
+	target := newBrowserSessionOutputPath(t)
+	if err := os.WriteFile(target, []byte("credential"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(target) })
+	if err := os.Symlink(target, outputPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExportBrowserSessionFile(context.Background(), outputPath, &destination); err == nil {
+		t.Fatal("export followed a planted symlink")
+	}
+	if destination.Len() != 0 {
+		t.Fatal("rejected symlink export wrote credential bytes")
+	}
+}
+
+func TestProductionReservationRejectsPlantedMaterialAndReuse(t *testing.T) {
+	outputPath := newProductionBrowserSessionOutputPath(t)
+	if err := os.WriteFile(outputPath, []byte("planted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReserveBrowserSessionFile(context.Background(), outputPath); err == nil {
+		t.Fatal("reservation replaced a planted regular file")
+	}
+	if raw, err := os.ReadFile(outputPath); err != nil || string(raw) != "planted" {
+		t.Fatalf("planted file changed: %q, %v", raw, err)
+	}
+	if err := os.Remove(outputPath); err != nil {
+		t.Fatal(err)
+	}
+	target := newBrowserSessionOutputPath(t)
+	if err := os.WriteFile(target, []byte("target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(target) })
+	if err := os.Symlink(target, outputPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReserveBrowserSessionFile(context.Background(), outputPath); err == nil {
+		t.Fatal("reservation replaced a planted symlink")
+	}
+	if err := os.Remove(outputPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReserveBrowserSessionFile(context.Background(), outputPath); err != nil {
+		t.Fatalf("first reservation failed: %v", err)
+	}
+	if err := ReserveBrowserSessionFile(context.Background(), outputPath); err == nil {
+		t.Fatal("duplicate reservation was accepted")
+	}
+	if err := CleanupBrowserSessionFile(context.Background(), outputPath); err != nil {
+		t.Fatalf("reservation cleanup failed: %v", err)
+	}
+}
+
+func TestProductionCleanupUsesCanonicalBoundedNamespace(t *testing.T) {
+	for _, path := range []string{
+		"/tmp/scribe-browser-session-test.json",
+		"/tmp/scribe-browser-session-01-1.json",
+		"/tmp/scribe-browser-session-1-01.json",
+		" /tmp/scribe-browser-session-1-1.json",
+	} {
+		if err := CleanupBrowserSessionFile(context.Background(), path); err == nil {
+			t.Fatalf("CleanupBrowserSessionFile(%q) accepted noncanonical path", path)
+		}
+	}
+
+	paths := make([]string, 0, maximumBrowserSessionFiles+1)
+	seed := time.Now().UnixNano()
+	for index := 0; index <= maximumBrowserSessionFiles; index++ {
+		path := fmt.Sprintf("/tmp/%s%d-1%s", browserSessionOutputPrefix, seed+int64(index), browserSessionOutputSuffix)
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, path)
+	}
+	t.Cleanup(func() {
+		for _, path := range paths {
+			_ = os.Remove(path)
+		}
+	})
+	if err := CleanupBrowserSessionFiles(context.Background()); err == nil {
+		t.Fatal("CleanupBrowserSessionFiles accepted more than its bounded inventory")
+	}
+	for _, path := range paths {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("bounded failure partially removed %s: %v", path, err)
+		}
+	}
+}
+
+type gatedReader struct {
+	started chan struct{}
+	release chan struct{}
+	data    []byte
+	once    bool
+}
+
+func (reader *gatedReader) Read(target []byte) (int, error) {
+	if !reader.once {
+		reader.once = true
+		close(reader.started)
+		<-reader.release
+	}
+	if len(reader.data) == 0 {
+		return 0, io.EOF
+	}
+	count := copy(target, reader.data)
+	reader.data = reader.data[count:]
+	return count, nil
+}
+
 func TestBrowserCookieDomainRequiresMatchingHTTPSOrigin(t *testing.T) {
 	tests := []struct {
 		origin string
@@ -304,7 +629,7 @@ func TestMintBrowserSessionFileAuthenticatesReservedIdentity(t *testing.T) {
 		t.Fatalf("load persisted browser session expiry: %v", err)
 	}
 	remaining := time.Until(expiresAt)
-	if remaining < 4*time.Minute+50*time.Second || remaining > BrowserSessionTTL+5*time.Second {
+	if remaining < BrowserSessionTTL-10*time.Second || remaining > BrowserSessionTTL+5*time.Second {
 		t.Fatalf("persisted browser session remaining lifetime = %s", remaining)
 	}
 }
@@ -339,5 +664,13 @@ func newBrowserSessionOutputPath(t *testing.T) string {
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("release browser session output name: %v", err)
 	}
+	return path
+}
+
+func newProductionBrowserSessionOutputPath(t *testing.T) string {
+	t.Helper()
+	path := fmt.Sprintf("/tmp/%s%d-1%s", browserSessionOutputPrefix, time.Now().UnixNano(), browserSessionOutputSuffix)
+	_ = os.Remove(path)
+	t.Cleanup(func() { _ = os.Remove(path) })
 	return path
 }

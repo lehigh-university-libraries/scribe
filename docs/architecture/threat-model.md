@@ -10,8 +10,9 @@ boundaries.
 
 Protected assets are workspace membership, canonical AnnotationPages and their
 revision integrity, unpublished documents and uploads, provider credentials,
-OAuth and API credentials, audit records, deployment identities, backups, and
-the integrity of derived exports and public resources.
+OAuth and API credentials, one-time production browser sessions, audit records,
+deployment identities, backups, and the integrity of derived exports and public
+resources.
 
 Expected actors are interactive workspace members, scoped API clients,
 registered external JWT issuers, operators, and anonymous readers of explicitly
@@ -33,6 +34,7 @@ credential or content.
 | Canonical state → derived/public data | Divergent exports or stale/accidental publication | Revision-bound derivation, one canonical repository, explicit publication snapshots, libops IIIF validation, public-image gate, rebuildable indexes/mirrors |
 | Process → MariaDB/Vault/blob/Triplet | Partial cross-system writes, leaked or orphaned secrets/blobs | Child-first application transactions without foreign keys, idempotency keys, durable outboxes/cleanup states, provider-secret reconciliation, bounded retry and retention |
 | GitHub PR → cloud deployment | Unreviewed code using cloud credentials, mutable artifacts, identity confusion | Uncredentialed PR checks, protected preview/production environments, exact-SHA inputs and digest promotion, claim-restricted WIF, pinned actions/tools/images/modules, deployment attestation |
+| Protected deploy/VM → isolated production browser job | Session leakage or reuse, wrong VM/job/secret binding, orphaned credentials | Exact-instance port-22 IAP, reserved identity validation, 50-minute session bound, mode-`0600` one-time materialization, exact secret-version and digest attestation, no-data runner IAM, logout plus protected-API 401 proof, inert-version restoration and exact-version destruction, next-apply execution fence |
 | Failure or operator error → durable data | Undetected loss, unrecoverable jobs, backup compromise | Versioned migrations, isolated restore drills, immutable job attempts and recovery, independent least-privilege backup verification, documented recovery procedures |
 
 Public IIIF endpoints intentionally allow cross-origin anonymous reads only

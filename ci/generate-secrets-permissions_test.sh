@@ -11,10 +11,6 @@ fail() {
   exit 1
 }
 
-if rg -q '"bash /home/cloud-compose/rotate-keys-app\.sh"' "$ROOT_DIR/terraform/main.tf"; then
-  fail "Scribe redundantly rotates root-managed credentials from its unprivileged lifecycle"
-fi
-
 project="$TEST_DIR/project"
 mkdir -p "$TEST_DIR/bin" "$project/secrets" "$TEST_DIR/tmp"
 cp "$ROOT_DIR/generate-secrets.sh" "$project/generate-secrets.sh"

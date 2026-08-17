@@ -14,7 +14,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -23,13 +25,20 @@ import (
 const (
 	// BrowserSessionTTL is deliberately fixed so the trusted deployment helper
 	// cannot create a durable interactive credential.
-	BrowserSessionTTL = 5 * time.Minute
+	BrowserSessionTTL = 50 * time.Minute
 
 	browserSessionOutputPrefix = "scribe-browser-session-"
 	browserSessionOutputSuffix = ".json"
 	browserSessionUserAgent    = "scribe-deployment-browser-smoke/v1"
 	browserSessionCleanupTTL   = 5 * time.Second
+	browserSessionLockPath     = "/tmp/scribe-browser-session.lock"
+	browserSessionLockPoll     = 100 * time.Millisecond
+	maximumBrowserSessionFiles = 64
+	minimumBrowserSessionBytes = 128
+	maximumBrowserSessionBytes = 8192
 )
+
+var productionBrowserSessionOutputPattern = regexp.MustCompile(`^scribe-browser-session-[1-9][0-9]{0,19}-[1-9][0-9]{0,4}\.json$`)
 
 type browserSessionIdentityStore interface {
 	GetUser(context.Context, uint64) (store.User, error)
@@ -39,9 +48,10 @@ type browserSessionIdentityStore interface {
 }
 
 type browserSessionMinter struct {
-	identities browserSessionIdentityStore
-	random     io.Reader
-	now        func() time.Time
+	identities         browserSessionIdentityStore
+	random             io.Reader
+	now                func() time.Time
+	requireReservation bool
 }
 
 type playwrightStorageState struct {
@@ -60,7 +70,7 @@ type playwrightCookie struct {
 	SameSite string `json:"sameSite"`
 }
 
-// MintBrowserSessionFile creates one five-minute session for the reserved
+// MintBrowserSessionFile creates one fixed-lifetime session for the reserved
 // user/workspace pair and writes a Playwright storage-state document to a new
 // mode-0600 file in /tmp. It deliberately returns no credential-bearing value.
 // Callers must delete the file as soon as the browser context has loaded it.
@@ -72,11 +82,234 @@ func MintBrowserSessionFile(
 	cookieDomain string,
 	outputPath string,
 ) error {
-	return browserSessionMinter{
-		identities: identities,
-		random:     rand.Reader,
-		now:        time.Now,
-	}.mintFile(ctx, publicBaseURL, cookieName, cookieDomain, outputPath)
+	return withBrowserSessionLock(ctx, func() error {
+		return browserSessionMinter{
+			identities: identities,
+			random:     rand.Reader,
+			now:        time.Now,
+		}.mintFile(ctx, publicBaseURL, cookieName, cookieDomain, outputPath)
+	})
+}
+
+// ReserveBrowserSessionFile creates the exact empty output fence required by
+// MintReservedBrowserSessionFile. Cleanup removes the same fence, so a mint
+// that reaches the lock after cleanup cannot recreate credential material.
+func ReserveBrowserSessionFile(ctx context.Context, outputPath string) error {
+	outputName, err := validateProductionBrowserSessionOutputPath(outputPath)
+	if err != nil {
+		return err
+	}
+	return withBrowserSessionLock(ctx, func() error {
+		root, err := os.OpenRoot("/tmp")
+		if err != nil {
+			return fmt.Errorf("open browser session reservation root: %w", err)
+		}
+		defer root.Close()
+		reservation, err := root.OpenFile(outputName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return fmt.Errorf("create browser session reservation: %w", err)
+		}
+		if err := reservation.Sync(); err != nil {
+			_ = reservation.Close()
+			_ = root.Remove(outputName)
+			return fmt.Errorf("sync browser session reservation: %w", err)
+		}
+		if err := reservation.Close(); err != nil {
+			_ = root.Remove(outputName)
+			return fmt.Errorf("close browser session reservation: %w", err)
+		}
+		return validateBrowserSessionReservation(root, outputName)
+	})
+}
+
+// MintReservedBrowserSessionFile consumes a still-present exact reservation
+// while holding the shared lock, then creates the fixed-lifetime session.
+func MintReservedBrowserSessionFile(
+	ctx context.Context,
+	identities *store.IdentityStore,
+	publicBaseURL string,
+	cookieName string,
+	cookieDomain string,
+	outputPath string,
+) error {
+	if _, err := validateProductionBrowserSessionOutputPath(outputPath); err != nil {
+		return err
+	}
+	return withBrowserSessionLock(ctx, func() error {
+		return browserSessionMinter{
+			identities:         identities,
+			random:             rand.Reader,
+			now:                time.Now,
+			requireReservation: true,
+		}.mintFile(ctx, publicBaseURL, cookieName, cookieDomain, outputPath)
+	})
+}
+
+// ExportBrowserSessionFile writes one exact production storage-state file to
+// destination while holding the same lock as mint and cleanup. The caller must
+// connect destination directly to private credential storage; this function
+// deliberately returns no credential-bearing value.
+func ExportBrowserSessionFile(ctx context.Context, outputPath string, destination io.Writer) error {
+	if destination == nil {
+		return fmt.Errorf("export browser session: destination is required")
+	}
+	outputName, err := validateProductionBrowserSessionOutputPath(outputPath)
+	if err != nil {
+		return err
+	}
+	return withBrowserSessionLock(ctx, func() error {
+		root, err := os.OpenRoot("/tmp")
+		if err != nil {
+			return fmt.Errorf("open browser session export root: %w", err)
+		}
+		defer root.Close()
+
+		info, err := root.Lstat(outputName)
+		if err != nil {
+			return fmt.Errorf("inspect browser session export: %w", err)
+		}
+		stat, statOK := info.Sys().(*syscall.Stat_t)
+		if !statOK || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+			info.Mode().Perm() != 0o600 || int(stat.Uid) != os.Geteuid() ||
+			info.Size() < minimumBrowserSessionBytes || info.Size() > maximumBrowserSessionBytes {
+			return fmt.Errorf("inspect browser session export: unsafe file")
+		}
+
+		file, err := root.Open(outputName)
+		if err != nil {
+			return fmt.Errorf("open browser session export: %w", err)
+		}
+		defer file.Close()
+		openedInfo, err := file.Stat()
+		if err != nil || !os.SameFile(info, openedInfo) {
+			return fmt.Errorf("attest browser session export")
+		}
+		if _, err := io.Copy(destination, file); err != nil {
+			return fmt.Errorf("stream browser session export: %w", err)
+		}
+		return nil
+	})
+}
+
+// CleanupBrowserSessionFile serializes behind any in-flight mint and removes
+// one exact run-scoped storage-state file without following symbolic links.
+func CleanupBrowserSessionFile(ctx context.Context, outputPath string) error {
+	outputName, err := validateProductionBrowserSessionOutputPath(outputPath)
+	if err != nil {
+		return err
+	}
+	return withBrowserSessionLock(ctx, func() error {
+		return removeBrowserSessionOutput(outputName)
+	})
+}
+
+// CleanupBrowserSessionFiles serializes behind every in-flight mint and
+// removes the bounded set of valid run-scoped storage-state files in /tmp.
+func CleanupBrowserSessionFiles(ctx context.Context) error {
+	return withBrowserSessionLock(ctx, func() error {
+		entries, err := os.ReadDir("/tmp")
+		if err != nil {
+			return fmt.Errorf("list browser session outputs: %w", err)
+		}
+		names := make([]string, 0)
+		for _, entry := range entries {
+			name := entry.Name()
+			if !strings.HasPrefix(name, browserSessionOutputPrefix) || !strings.HasSuffix(name, browserSessionOutputSuffix) {
+				continue
+			}
+			if _, err := validateProductionBrowserSessionOutputPath(filepath.Join("/tmp", name)); err != nil {
+				continue
+			}
+			names = append(names, name)
+			if len(names) > maximumBrowserSessionFiles {
+				return fmt.Errorf("cleanup browser sessions: output bound exceeded")
+			}
+		}
+		for _, name := range names {
+			if err := removeBrowserSessionOutput(name); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func withBrowserSessionLock(ctx context.Context, operation func() error) (returnErr error) {
+	if ctx == nil || operation == nil {
+		return fmt.Errorf("browser session lock: invalid operation")
+	}
+	// #nosec G302 -- the lock is deliberately private to the API process user.
+	descriptor, err := syscall.Open(
+		browserSessionLockPath,
+		syscall.O_RDWR|syscall.O_CREAT|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,
+		0o600,
+	)
+	if err != nil {
+		return fmt.Errorf("open browser session lock: %w", err)
+	}
+	lock := os.NewFile(uintptr(descriptor), browserSessionLockPath)
+	if lock == nil {
+		_ = syscall.Close(descriptor)
+		return fmt.Errorf("open browser session lock: invalid descriptor")
+	}
+	info, err := lock.Stat()
+	if err != nil {
+		return errors.Join(fmt.Errorf("validate browser session lock"), lock.Close())
+	}
+	stat, statOK := info.Sys().(*syscall.Stat_t)
+	if !statOK || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || int(stat.Uid) != os.Geteuid() {
+		return errors.Join(fmt.Errorf("validate browser session lock"), lock.Close())
+	}
+	for {
+		err = syscall.Flock(descriptor, syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return errors.Join(fmt.Errorf("lock browser session: %w", err), lock.Close())
+		}
+		timer := time.NewTimer(browserSessionLockPoll)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return errors.Join(fmt.Errorf("lock browser session: %w", ctx.Err()), lock.Close())
+		case <-timer.C:
+		}
+	}
+	defer func() {
+		unlockErr := syscall.Flock(descriptor, syscall.LOCK_UN)
+		closeErr := lock.Close()
+		returnErr = errors.Join(returnErr, unlockErr, closeErr)
+	}()
+	return operation()
+}
+
+func removeBrowserSessionOutput(outputName string) error {
+	root, err := os.OpenRoot("/tmp")
+	if err != nil {
+		return fmt.Errorf("open browser session cleanup root: %w", err)
+	}
+	defer root.Close()
+	info, err := root.Lstat(outputName)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect browser session output: %w", err)
+	}
+	stat, statOK := info.Sys().(*syscall.Stat_t)
+	if !statOK || (!info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0) || int(stat.Uid) != os.Geteuid() {
+		return fmt.Errorf("inspect browser session output: unsafe file")
+	}
+	if err := root.Remove(outputName); err != nil {
+		return fmt.Errorf("remove browser session output: %w", err)
+	}
+	if _, err := root.Lstat(outputName); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("attest browser session output removal")
+	}
+	return nil
 }
 
 func (m browserSessionMinter) mintFile(
@@ -114,6 +347,14 @@ func (m browserSessionMinter) mintFile(
 			returnErr = errors.Join(returnErr, closeErr)
 		}
 	}()
+	if m.requireReservation {
+		if err := validateBrowserSessionReservation(outputRoot, outputName); err != nil {
+			return err
+		}
+		if err := outputRoot.Remove(outputName); err != nil {
+			return fmt.Errorf("consume browser session reservation: %w", err)
+		}
+	}
 	output, err := outputRoot.OpenFile(outputName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create browser session output: %w", err)
@@ -183,6 +424,18 @@ func (m browserSessionMinter) mintFile(
 	output = nil
 	removeOutput = false
 	sessionCreated = false
+	return nil
+}
+
+func validateBrowserSessionReservation(root *os.Root, outputName string) error {
+	info, err := root.Lstat(outputName)
+	if err != nil {
+		return fmt.Errorf("validate browser session reservation: %w", err)
+	}
+	stat, statOK := info.Sys().(*syscall.Stat_t)
+	if !statOK || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() != 0 || int(stat.Uid) != os.Geteuid() {
+		return fmt.Errorf("validate browser session reservation: invalid file")
+	}
 	return nil
 }
 
@@ -260,6 +513,17 @@ func validateBrowserSessionOutputPath(raw string) (string, error) {
 		!strings.HasSuffix(base, browserSessionOutputSuffix) ||
 		len(runID) == 0 || len(runID) > 128 || !isBrowserSessionRunID(runID) {
 		return "", fmt.Errorf("configure browser session output: use a new /tmp/%s<run-id>%s path", browserSessionOutputPrefix, browserSessionOutputSuffix)
+	}
+	return base, nil
+}
+
+func validateProductionBrowserSessionOutputPath(raw string) (string, error) {
+	if raw == "" || raw != filepath.Clean(raw) || !filepath.IsAbs(raw) || filepath.Dir(raw) != "/tmp" {
+		return "", fmt.Errorf("configure production browser session output: invalid path")
+	}
+	base := filepath.Base(raw)
+	if !productionBrowserSessionOutputPattern.MatchString(base) {
+		return "", fmt.Errorf("configure production browser session output: invalid run identity")
 	}
 	return base, nil
 }
