@@ -79,6 +79,7 @@ const readinessFailureExitCodes = new Map([
   ["home", 21],
   ["context", 22],
   ["upload", 23],
+  ["upload-multi", 74],
   ["handoff", 24],
   ["transcription", 25],
   ["annotations", 26],
@@ -1930,6 +1931,7 @@ let uploadFailureSubstage = "response-contract";
 let uploadDurableFailureCategory;
 let uploadRetryableResponseCategory;
 let structureFailureSubstage = "draw-mode";
+let tokenFailureSubstage = "post-home-presentation";
 let browserFaultMonitoringActive = true;
 let browser;
 let browserContext;
@@ -1945,6 +1947,8 @@ let manifestExternalReferenceID;
 let manifestIdempotencyKey;
 let createdWorkspaceID;
 let fixtureName;
+let multiUploadItemID;
+let multiUploadItemName;
 let createdAPIKeyName;
 let createdAPIKeyID;
 let manifestImportAttempted = false;
@@ -3245,9 +3249,12 @@ try {
   await assertItemDeletePresentation("#shell-content", createdItemID, fixtureName);
   await assertItemDeletePresentation("#shell-sidebar", createdItemID, fixtureName);
   category = "token";
+  tokenFailureSubstage = "post-home-presentation";
   await page.locator("#shell-account-button").click();
+  tokenFailureSubstage = "settings-open";
   await page.getByRole("heading", { name: "Workspace and account settings", exact: true }).waitFor({ state: "visible" });
   await page.locator("#settings-api-key-form").waitFor({ state: "visible" });
+  tokenFailureSubstage = "key-creation";
   createdAPIKeyName = `browser-readiness-${randomUUID()}`;
   await page.getByLabel("Workspace token name").fill(createdAPIKeyName);
   await page.getByLabel("Workspace token role").selectOption("read");
@@ -3278,6 +3285,7 @@ try {
   assertMainScenarioActive();
   tokenMutation.validated = true;
 
+  tokenFailureSubstage = "key-display";
   const tokenDialog = page.getByRole("dialog", { name: "Copy workspace token", exact: true });
   await tokenDialog.waitFor({ state: "visible" });
   const tokenField = tokenDialog.getByRole("textbox", { name: "Workspace token", exact: true });
@@ -3488,12 +3496,63 @@ try {
   );
   assertBrowserHealthy();
 
+  category = "upload-multi";
+  await navigate("/");
+  await page.locator('[data-library-tab="multi"]').click();
+  const multiUploadFixture = exactReadinessSmokeFixture();
+  const multiUploadFixtureNames = [
+    `browser-readiness-${randomUUID()}.png`,
+    `browser-readiness-${randomUUID()}.png`,
+  ];
+  multiUploadItemName = multiUploadFixtureNames[0];
+  assertMainScenarioActive();
+  await page.locator("#library-multi-files").setInputFiles(multiUploadFixtureNames.map((name) => ({
+    name,
+    mimeType: "image/png",
+    buffer: multiUploadFixture,
+  })));
+  const multiUploadStartResponsePromise = page.waitForResponse((response) => (
+    sameOriginConnectResponse(response, "/scribe.v1.ItemService/StartUploadBatch")
+  ), { timeout: uploadRequestTimeoutMs });
+  await page.getByRole("button", { name: "Upload or resume batch", exact: true }).click();
+  const multiUploadStartResponse = await multiUploadStartResponsePromise;
+  if (!multiUploadStartResponse.ok()) throw new Error("multi upload start failed");
+  const multiUploadStartPayload = await responseJSON(multiUploadStartResponse, "invalid multi upload start response");
+  multiUploadItemID = String(multiUploadStartPayload?.item?.id ?? "").trim();
+  if (
+    !multiUploadItemID
+    || multiUploadStartPayload?.item?.name !== multiUploadItemName
+    || multiUploadStartPayload?.item?.sourceType !== "upload"
+  ) {
+    throw new Error("multi upload item identity mismatch");
+  }
+  await page.waitForFunction((expectedFilename) => {
+    const text = document.getElementById("library-multi-status")?.textContent?.trim() ?? "";
+    return text === `Uploaded 2/2: ${expectedFilename}`;
+  }, multiUploadFixtureNames[1], { timeout: uploadRequestTimeoutMs });
+  assertMainScenarioActive();
+  const multiUploadedItem = await getItemForCleanup(multiUploadItemID, createdWorkspaceID, mainScenarioDeadline);
+  const multiUploadedImages = Array.isArray(multiUploadedItem?.images) ? multiUploadedItem.images : [];
+  const multiUploadedImageIDs = new Set(multiUploadedImages.map((image) => positiveID(image?.id)));
+  if (
+    multiUploadedItem?.name !== multiUploadItemName
+    || multiUploadedItem?.sourceType !== "upload"
+    || multiUploadedImages.length !== 2
+    || multiUploadedImageIDs.size !== 2
+    || [...multiUploadedImageIDs].some((imageID) => !imageID)
+  ) {
+    throw new Error("multi upload item did not retain the exact declared image set");
+  }
+  assertBrowserHealthy();
+
   category = "cleanup";
   await navigate("/");
   await deleteItemThroughLibrary("#shell-content", createdItemID, fixtureName);
   createdItemID = undefined;
   await deleteItemThroughLibrary("#shell-sidebar", createdManifestItemID, createdManifestItemName);
   createdManifestItemID = undefined;
+  await deleteItemThroughLibrary("#shell-content", multiUploadItemID, multiUploadItemName);
+  multiUploadItemID = undefined;
   assertBrowserHealthy();
   })();
   await Promise.race([mainScenario, mainScenarioWatchdog]);
@@ -3510,7 +3569,10 @@ try {
       await unlink(productionStorageStatePath);
       productionStorageStateRemoved = true;
     } catch (error) {
-      if (error?.code !== "ENOENT") failureCategory ??= "token";
+      if (error?.code !== "ENOENT") {
+        tokenFailureSubstage = "final-cleanup";
+        failureCategory ??= "token";
+      }
     }
   }
   if (mainScenarioWatchdogTimer !== undefined) {
@@ -3531,7 +3593,7 @@ try {
   if (
     browserContext
     && createdWorkspaceID
-    && (createdAPIKeyName || createdAPIKeyID || fixtureName || manifestImportAttempted)
+    && (createdAPIKeyName || createdAPIKeyID || fixtureName || multiUploadItemName || manifestImportAttempted)
   ) {
     category = "cleanup";
     let cleanupFailed = false;
@@ -3573,6 +3635,7 @@ try {
           globalCleanupDeadline,
         );
       } catch {
+        tokenFailureSubstage = "key-deletion";
         cleanupFailed = true;
       }
     }
@@ -3591,12 +3654,27 @@ try {
       }
     }
 
+    if (multiUploadItemName) {
+      try {
+        await cleanupExactUploadItems(
+          multiUploadItemName,
+          createdWorkspaceID,
+          multiUploadItemID,
+          uploadMutation,
+          globalCleanupDeadline,
+        );
+      } catch {
+        cleanupFailed = true;
+      }
+    }
+
     if (cleanupFailed) failureCategory ??= category;
   }
   if (browserMode === "production" && productionSessionCookie) {
     try {
       await revokeProductionSession(sessionRevocationDeadline);
     } catch {
+      tokenFailureSubstage = "logout-proof";
       failureCategory ??= "token";
     }
   }
@@ -3628,6 +3706,9 @@ if (failureCategory) {
   }
   if (failureCategory === "structure") {
     process.stderr.write(`browser readiness structure substage: ${structureFailureSubstage}\n`);
+  }
+  if (failureCategory === "token") {
+    process.stderr.write(`browser readiness token substage: ${tokenFailureSubstage}\n`);
   }
   if (failureCategory === "rate" && browserFaultRateFamily) {
     process.stderr.write(`browser readiness rate limit: ${browserFaultRateFamily}\n`);

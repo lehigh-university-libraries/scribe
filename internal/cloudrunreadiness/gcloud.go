@@ -496,7 +496,7 @@ var (
 	backendNetworkKind   = `((dns-match|dns-mismatch|dns-empty|dns-timeout|dns-error); (tcp-open|tcp-refused|tcp-timeout|tcp-unreachable|tcp-error); ` + backendHTTPKind + `|dns-invalid-origin; tcp-skipped; http-skipped)`
 	backendMarkerPattern = regexp.MustCompile(`^(frontend readiness failed: (frontend-server-exited|frontend did not respond|HTTP [1-5][0-9]{2} \(` + readinessPayloadKind + `\)|transport-` + readinessErrorKind + `|internal-` + readinessErrorKind + `)|frontend proxy request failed \[` + readinessErrorKind + `\]|frontend backend startup gate failed \[` + readinessErrorKind + `; (readiness-contract; HTTP [1-5][0-9]{2} \((invalid-json|invalid-payload|invalid-public-origin|missing-status|ready-payload-with-non-success-http)\)|startup-deadline; (backend did not report ready|HTTP [1-5][0-9]{2} \(` + backendPayloadKind + `\)|transport-` + readinessErrorKind + `))\]|frontend backend network probe \[` + backendNetworkKind + `\])$`)
 	ocrMarkerPattern     = regexp.MustCompile(`^ocr readiness failed: (image-contract|(segment|transcribe|ollama)-(token|request|timeout|contract))$`)
-	browserMarkerPattern = regexp.MustCompile(`^browser readiness failed: (home|context|upload|handoff|transcription|annotations|editor|overlay|retranscribe|structure|save|publish|responsive|token|manifest|cleanup|network|network-(document|auth|workspace|item|context|annotation|processing|transcription|events|presentation|iiif|asset|other)-(client|server)|network-(document|api|events|image|asset|other)-transport|initial-ingress-(forbidden|not-found)|csp|rate)$`)
+	browserMarkerPattern = regexp.MustCompile(`^browser readiness failed: (home|context|upload|upload-multi|handoff|transcription|annotations|editor|overlay|retranscribe|structure|save|publish|responsive|token|manifest|cleanup|network|network-(document|auth|workspace|item|context|annotation|processing|transcription|events|presentation|iiif|asset|other)-(client|server)|network-(document|api|events|image|asset|other)-transport|initial-ingress-(forbidden|not-found)|csp|rate)$`)
 )
 
 var (
@@ -504,6 +504,7 @@ var (
 	browserUploadDurableFailureMarkerPattern    = regexp.MustCompile(`^browser readiness upload durable failure: (segmentation-canceled|segmentation-timeout|segmentation-failed|provider-authentication|provider-failed|admission-failed|upload-storage-failed|segmentation-output-failed|quota-resize-failed|lease-renewal-failed|image-commit-failed|ocr-run-commit-failed|annotation-commit-failed|transcription-enqueue-failed|item-reload-failed|batch-commit-failed|unknown)$`)
 	browserUploadRetryableResponseMarkerPattern = regexp.MustCompile(`^browser readiness upload retryable response: (connect-(aborted|already-exists|deadline-exceeded|internal|resource-exhausted|unavailable|unknown)|http-(408|409|425|429|500|502|503|504))$`)
 	browserStructureSubstageMarkerPattern       = regexp.MustCompile(`^browser readiness structure substage: (draw-mode|centered-line|undo-redo|delete-line|line-edit|split-words|add-word|word-history|join-words|split-line|join-lines|snapshot)$`)
+	browserTokenSubstageMarkerPattern           = regexp.MustCompile(`^browser readiness token substage: (post-home-presentation|settings-open|key-creation|key-display|key-deletion|logout-proof|final-cleanup)$`)
 	browserRateLimitMarkerPattern               = regexp.MustCompile(`^browser readiness rate limit: (document|auth|workspace|item|context|annotation|processing|transcription|events|presentation|iiif|asset|other)$`)
 )
 
@@ -524,6 +525,7 @@ func ReadinessMarkerAllowed(kind Kind, line string) bool {
 			browserUploadDurableFailureMarkerPattern.MatchString(line) ||
 			browserUploadRetryableResponseMarkerPattern.MatchString(line) ||
 			browserStructureSubstageMarkerPattern.MatchString(line) ||
+			browserTokenSubstageMarkerPattern.MatchString(line) ||
 			browserRateLimitMarkerPattern.MatchString(line)
 	default:
 		return false

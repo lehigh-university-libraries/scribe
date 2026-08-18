@@ -118,6 +118,23 @@ func TestBrowserStructureSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 	}
 }
 
+func TestBrowserTokenSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
+	t.Parallel()
+	substages := []string{
+		"post-home-presentation", "settings-open", "key-creation", "key-display",
+		"key-deletion", "logout-proof", "final-cleanup",
+	}
+	for _, substage := range substages {
+		line := "browser readiness token substage: " + substage
+		if !ReadinessMarkerAllowed(KindBrowser, line) {
+			t.Errorf("browser token substage %q was rejected", substage)
+		}
+		if ReadinessMarkerAllowed(KindBackend, line) || ReadinessMarkerAllowed(KindOCR, line) {
+			t.Errorf("browser token substage %q crossed kind boundary", substage)
+		}
+	}
+}
+
 func TestBrowserRateLimitMarkerVocabularyIsExhaustive(t *testing.T) {
 	t.Parallel()
 	families := []string{
