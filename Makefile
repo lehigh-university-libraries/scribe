@@ -261,7 +261,7 @@ preview-deployment-test: install-shell-tools ## Test trusted preview input resol
 readiness-fixture-test: ## Verify the deterministic non-empty OCR deployment smoke fixture and assertions
 	@bash ./ci/readiness-fixture-test.sh
 
-deployment-status-test: ## Exercise plan/apply/readiness/rollback status precedence
+deployment-status-test: ## Exercise plan/apply/readiness status precedence
 	@bash ./ci/deployment-status_test.sh
 
 ocr-build-tags: ocr-matrix-test ## Validate the OCR model matrix, then build/test default, remoteocr, and localocr modes

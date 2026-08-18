@@ -35,7 +35,6 @@ const (
 	StepRevision            Step = "REVISION_OUTCOME"
 	StepURL                 Step = "URL_OUTCOME"
 	StepReadiness           Step = "READINESS_OUTCOME"
-	StepRollback            Step = "ROLLBACK_OUTCOME"
 	StepBackup              Step = "BACKUP_OUTCOME"
 	StepDestroy             Step = "DESTROY_OUTCOME"
 	StepDestroyPreview      Step = "DESTROY_PREVIEW_OUTCOME"
@@ -50,9 +49,7 @@ type StatusInput struct {
 	Outcomes map[Step]Outcome
 }
 
-// ResolveStatus applies the deployment result precedence contract. Rollback
-// failures always win after a production apply has begun; preview deploys have
-// no automatic rollback path.
+// ResolveStatus applies the deployment result precedence contract.
 func ResolveStatus(input StatusInput) (string, error) {
 	outcome := func(step Step) (Outcome, error) {
 		value := input.Outcomes[step]
@@ -64,21 +61,6 @@ func ResolveStatus(input StatusInput) (string, error) {
 			return value, nil
 		default:
 			return "", fmt.Errorf("invalid step outcome for %s", step)
-		}
-	}
-
-	rollbackStatus := func(failedStatus string) (string, error) {
-		rollback, err := outcome(StepRollback)
-		if err != nil {
-			return "", err
-		}
-		switch rollback {
-		case OutcomeFailure:
-			return "rollback-failed", nil
-		case OutcomeSuccess:
-			return failedStatus + "-failed-rolled-back", nil
-		default:
-			return "", nil
 		}
 	}
 
@@ -104,15 +86,6 @@ func ResolveStatus(input StatusInput) (string, error) {
 			return "", err
 		}
 		if apply != OutcomeSuccess {
-			if !input.Preview {
-				status, rollbackErr := rollbackStatus("apply")
-				if rollbackErr != nil {
-					return "", rollbackErr
-				}
-				if status != "" {
-					return status, nil
-				}
-			}
 			return string(apply), nil
 		}
 
@@ -121,15 +94,6 @@ func ResolveStatus(input StatusInput) (string, error) {
 			return "", err
 		}
 		if revision != OutcomeSuccess {
-			if !input.Preview {
-				status, rollbackErr := rollbackStatus("attestation")
-				if rollbackErr != nil {
-					return "", rollbackErr
-				}
-				if status != "" {
-					return status, nil
-				}
-			}
 			return "attestation-" + string(revision), nil
 		}
 
@@ -138,15 +102,6 @@ func ResolveStatus(input StatusInput) (string, error) {
 			return "", err
 		}
 		if readiness != OutcomeSuccess {
-			if !input.Preview {
-				status, rollbackErr := rollbackStatus("readiness")
-				if rollbackErr != nil {
-					return "", rollbackErr
-				}
-				if status != "" {
-					return status, nil
-				}
-			}
 			return string(readiness), nil
 		}
 
@@ -155,15 +110,6 @@ func ResolveStatus(input StatusInput) (string, error) {
 			return "", err
 		}
 		if url != OutcomeSuccess {
-			if !input.Preview {
-				status, rollbackErr := rollbackStatus("url")
-				if rollbackErr != nil {
-					return "", rollbackErr
-				}
-				if status != "" {
-					return status, nil
-				}
-			}
 			return "url-" + string(url), nil
 		}
 		if !input.Preview {

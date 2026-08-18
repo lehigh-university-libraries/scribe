@@ -75,7 +75,6 @@ func run(ctx context.Context, args []string, stdout io.Writer, deps dependencies
 				deployer.StepRevision:            deployer.Outcome(deps.getenv(string(deployer.StepRevision))),
 				deployer.StepURL:                 deployer.Outcome(deps.getenv(string(deployer.StepURL))),
 				deployer.StepReadiness:           deployer.Outcome(deps.getenv(string(deployer.StepReadiness))),
-				deployer.StepRollback:            deployer.Outcome(deps.getenv(string(deployer.StepRollback))),
 				deployer.StepBackup:              deployer.Outcome(deps.getenv(string(deployer.StepBackup))),
 				deployer.StepDestroy:             deployer.Outcome(deps.getenv(string(deployer.StepDestroy))),
 				deployer.StepDestroyPreview:      deployer.Outcome(deps.getenv(string(deployer.StepDestroyPreview))),

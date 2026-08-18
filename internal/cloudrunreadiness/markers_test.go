@@ -122,7 +122,8 @@ func TestBrowserTokenSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 	t.Parallel()
 	substages := []string{
 		"post-home-presentation", "settings-open", "key-creation", "key-display",
-		"key-deletion", "logout-proof", "final-cleanup",
+		"key-display-copy", "key-display-done", "key-display-clear", "key-deletion",
+		"logout-proof", "final-cleanup",
 	}
 	for _, substage := range substages {
 		line := "browser readiness token substage: " + substage

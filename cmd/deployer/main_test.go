@@ -22,7 +22,6 @@ func TestRunStatus(t *testing.T) {
 		"APPLY_OUTCOME":     "success",
 		"REVISION_OUTCOME":  "success",
 		"READINESS_OUTCOME": "failure",
-		"ROLLBACK_OUTCOME":  "success",
 	}
 	var stdout bytes.Buffer
 	if err := run(context.Background(), []string{"status"}, &stdout, dependencies{
@@ -30,7 +29,7 @@ func TestRunStatus(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("run returned error: %v", err)
 	}
-	if got, want := stdout.String(), "readiness-failed-rolled-back\n"; got != want {
+	if got, want := stdout.String(), "failure\n"; got != want {
 		t.Fatalf("stdout = %q, want %q", got, want)
 	}
 }

@@ -3292,13 +3292,21 @@ try {
   if (await tokenField.getAttribute("readonly") === null) throw new Error("token is editable");
   const tokenValue = await tokenField.inputValue();
   if (!tokenValue.startsWith("scribe_") || tokenValue.length < 24) throw new Error("invalid token");
+  tokenFailureSubstage = "key-display-copy";
+  // navigator.clipboard.writeText() throws NotAllowedError in Chromium unless
+  // the document has focus; a headless single-page execution does not
+  // guarantee that on its own.
+  await page.bringToFront();
   await tokenDialog.getByRole("button", { name: "Copy token", exact: true }).click();
   await tokenDialog.getByText("Copied to clipboard.", { exact: true }).waitFor({ state: "visible" });
   const copiedValue = await page.evaluate(() => navigator.clipboard.readText());
   if (copiedValue !== tokenValue) throw new Error("token copy failed");
+  tokenFailureSubstage = "key-display-done";
   await tokenDialog.getByRole("button", { name: "Done", exact: true }).click();
   await tokenDialog.waitFor({ state: "hidden" });
   if (await tokenField.inputValue() !== "") throw new Error("token remained in document");
+  tokenFailureSubstage = "key-display-clear";
+  await page.bringToFront();
   await page.evaluate(() => navigator.clipboard.writeText(""));
   assertBrowserHealthy();
 

@@ -504,7 +504,7 @@ var (
 	browserUploadDurableFailureMarkerPattern    = regexp.MustCompile(`^browser readiness upload durable failure: (segmentation-canceled|segmentation-timeout|segmentation-failed|provider-authentication|provider-failed|admission-failed|upload-storage-failed|segmentation-output-failed|quota-resize-failed|lease-renewal-failed|image-commit-failed|ocr-run-commit-failed|annotation-commit-failed|transcription-enqueue-failed|item-reload-failed|batch-commit-failed|unknown)$`)
 	browserUploadRetryableResponseMarkerPattern = regexp.MustCompile(`^browser readiness upload retryable response: (connect-(aborted|already-exists|deadline-exceeded|internal|resource-exhausted|unavailable|unknown)|http-(408|409|425|429|500|502|503|504))$`)
 	browserStructureSubstageMarkerPattern       = regexp.MustCompile(`^browser readiness structure substage: (draw-mode|centered-line|undo-redo|delete-line|line-edit|split-words|add-word|word-history|join-words|split-line|join-lines|snapshot)$`)
-	browserTokenSubstageMarkerPattern           = regexp.MustCompile(`^browser readiness token substage: (post-home-presentation|settings-open|key-creation|key-display|key-deletion|logout-proof|final-cleanup)$`)
+	browserTokenSubstageMarkerPattern           = regexp.MustCompile(`^browser readiness token substage: (post-home-presentation|settings-open|key-creation|key-display|key-display-copy|key-display-done|key-display-clear|key-deletion|logout-proof|final-cleanup)$`)
 	browserRateLimitMarkerPattern               = regexp.MustCompile(`^browser readiness rate limit: (document|auth|workspace|item|context|annotation|processing|transcription|events|presentation|iiif|asset|other)$`)
 )
 
