@@ -793,7 +793,7 @@ provider "vault" {
 }
 
 module "scribe" {
-  source = "https://github.com/libops/cloud-compose/archive/889335d615fc3f32db2c66a604f14a3b1a3e8189.tar.gz//cloud-compose-889335d615fc3f32db2c66a604f14a3b1a3e8189?archive=tar.gz"
+  source = "https://github.com/libops/cloud-compose/archive/refs/tags/1.9.1.tar.gz//cloud-compose-1.9.1?archive=tar.gz"
   providers = {
     google = google
   }
