@@ -208,8 +208,11 @@ locals {
   }
   default_kraken_url      = try(local.kraken_transcription_services[local.kraken_default_transcription_key].primary_url, "")
   default_kraken_audience = try(local.kraken_transcription_services[local.kraken_default_transcription_key].audience, "")
-  docker_compose_services = ["mariadb", "triplet", "api", "worker", "traefik"]
-  compose_traefik_ip      = cidrhost(var.compose_network_cidr, 2)
+  # The compose service list (mariadb, triplet, api, worker, traefik) is baked
+  # directly into terraform/rootfs/etc/cloud-compose/lifecycle.d/scribe-compose-pull.sh
+  # and scribe-compose-up.sh, since checked lifecycle programs cannot take
+  # arguments and this list rarely changes. Update both scripts together.
+  compose_traefik_ip = cidrhost(var.compose_network_cidr, 2)
   # Allocate ordinary containers only from the upper half. Traefik's fixed
   # host-2 address remains in the parent subnet but outside Docker's dynamic
   # pool, so parallel Compose startup cannot assign it to another service.
@@ -427,54 +430,50 @@ locals {
       value = var.api_image
     },
     {
-      name  = "VAULT_ADDRESS"
+      # cloud-compose reserves the VAULT_ prefix in extra_env for its own
+      # Vault Agent control-plane keys. scribe-remap-vault-env.sh re-emits
+      # these under the plain VAULT_ names the application expects.
+      name  = "SCRIBE_VAULT_ADDRESS"
       value = local.vault_url
     },
     {
-      name  = "VAULT_WORKSPACE"
+      name  = "SCRIBE_VAULT_WORKSPACE"
       value = local.workspace_slug
     },
     {
-      name  = "VAULT_SECRET_PREFIX"
+      name  = "SCRIBE_VAULT_SECRET_PREFIX"
       value = local.vault_secret_prefix
     },
     {
-      name  = "VAULT_DATABASE_APP_PATH"
+      name  = "SCRIBE_VAULT_DATABASE_APP_PATH"
       value = "${local.vault_secret_prefix}/database/app"
     },
     {
-      name  = "VAULT_GCP_AUTH_ROLE"
+      name  = "SCRIBE_VAULT_GCP_AUTH_ROLE"
       value = local.vault_app_role_name
     },
   ]
-  compose_env_update_commands = [
-    for env in local.compose_env_vars :
-    format(
-      "bash scripts/update-env.sh .env %s --base64 '%s'",
-      env.name,
-      base64encode(env.value),
-    )
+  # cloud-compose >= 1.9.1 rejects lifecycle entries that carry inline shell
+  # commands or arguments; each entry must name one argument-free, root-owned
+  # checked program immediately below /etc/cloud-compose/lifecycle.d (staged
+  # by terraform/rootfs/etc/cloud-compose/lifecycle.d via the rootfs overlay).
+  # Data flows in through extra_env/application-env.json instead of argv.
+  docker_compose_init = [
+    "/etc/cloud-compose/lifecycle.d/scribe-preflight.sh",
   ]
-  docker_compose_init = concat(
-    local.compose_env_update_commands,
-    [
-      "SCRIBE_EXPECTED_DOCKER_ROOT=/mnt/disks/data/docker bash /home/cloud-compose/scribe-compose-runtime-preflight.sh \"$PWD\" \"$PWD/docker-compose.yaml\" /home/cloud-compose/scribe-runtime.compose.yaml",
-    ]
-  )
-  docker_compose_up = concat(
-    local.compose_env_update_commands,
-    [
-      "SCRIBE_EXPECTED_DOCKER_ROOT=/mnt/disks/data/docker bash /home/cloud-compose/scribe-compose-runtime-preflight.sh \"$PWD\" \"$PWD/docker-compose.yaml\" /home/cloud-compose/scribe-runtime.compose.yaml",
-      format("source /home/cloud-compose/profile.sh && retry_until_success docker compose -f docker-compose.yaml -f /home/cloud-compose/scribe-runtime.compose.yaml pull %s", join(" ", local.docker_compose_services)),
-      "SCRIBE_REPAIR_LOCAL_TOKENS=true bash generate-secrets.sh",
-      "SCRIBE_EXPECTED_DOCKER_ROOT=/mnt/disks/data/docker bash /home/cloud-compose/scribe-compose-runtime-preflight.sh --converge \"$PWD\" \"$PWD/docker-compose.yaml\" /home/cloud-compose/scribe-runtime.compose.yaml",
-      format("docker compose -f docker-compose.yaml -f /home/cloud-compose/scribe-runtime.compose.yaml up --no-build --wait --wait-timeout 180 %s", join(" ", local.docker_compose_services)),
-      "curl --noproxy '*' --fail --silent --show-error --connect-timeout 2 --max-time 10 --output /dev/null http://127.0.0.1/readyz",
-    ]
-  )
-  docker_compose_down = concat(local.compose_env_update_commands, [
-    "docker compose -f docker-compose.yaml -f /home/cloud-compose/scribe-runtime.compose.yaml down",
-  ])
+  docker_compose_up = [
+    "/etc/cloud-compose/lifecycle.d/scribe-sync-env.sh",
+    "/etc/cloud-compose/lifecycle.d/scribe-remap-vault-env.sh",
+    "/etc/cloud-compose/lifecycle.d/scribe-preflight.sh",
+    "/etc/cloud-compose/lifecycle.d/scribe-compose-pull.sh",
+    "/etc/cloud-compose/lifecycle.d/scribe-generate-secrets.sh",
+    "/etc/cloud-compose/lifecycle.d/scribe-preflight-converge.sh",
+    "/etc/cloud-compose/lifecycle.d/scribe-compose-up.sh",
+    "/etc/cloud-compose/lifecycle.d/scribe-readyz.sh",
+  ]
+  docker_compose_down = [
+    "/etc/cloud-compose/lifecycle.d/scribe-compose-down.sh",
+  ]
   cloud_compose_power_start_role = try(
     data.terraform_remote_state.shared_foundation.outputs.cloud_compose_power_start_role,
     "",
@@ -874,9 +873,12 @@ module "scribe" {
   runtime = {
     rootfs = "${path.module}/rootfs"
     users  = var.users
-    extra_env = local.is_prod_workspace ? {
-      SCRIBE_MARIADB_BACKUP_MIN_FREE_BYTES = tostring(var.disk_size_gb * 1073741824)
-    } : {}
+    extra_env = merge(
+      { for env in local.compose_env_vars : env.name => env.value },
+      local.is_prod_workspace ? {
+        SCRIBE_MARIADB_BACKUP_MIN_FREE_BYTES = tostring(var.disk_size_gb * 1073741824)
+      } : {},
+    )
 
     compose = {
       primary = "primary"
