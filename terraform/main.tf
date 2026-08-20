@@ -459,6 +459,13 @@ locals {
   # by terraform/rootfs/etc/cloud-compose/lifecycle.d via the rootfs overlay).
   # Data flows in through extra_env/application-env.json instead of argv.
   docker_compose_init = [
+    # The literal default-lifecycle sentinel is the only way to keep
+    # cloud-compose's own sitectl context registration (`sitectl config
+    # set-context`) once docker_compose_init is otherwise overridden; without
+    # it, later `sitectl set ingress ...`/healthcheck calls fail with
+    # "context not found" because no context named after this compose
+    # project was ever created.
+    "/home/cloud-compose/default-lifecycle.sh init",
     "/etc/cloud-compose/lifecycle.d/scribe-preflight.sh",
   ]
   docker_compose_up = [
