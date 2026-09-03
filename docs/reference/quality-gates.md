@@ -66,7 +66,7 @@ the digest-pinned Python image with an exact `pip-tools` version. Release images
 install it with both `--require-hashes` and `--only-binary=:all:`.
 
 The code-generation, documentation, and security entrypoints also inspect host
-tool versions before execution: Buf 1.72.0, sqlc v1.31.1, Zensical 0.0.51,
+tool versions before execution: Buf 1.72.0, sqlc v1.31.1, Zensical 0.0.58,
 gosec module v2.28.0, and govulncheck module v1.6.0. Fixture tests independently
 prove that each unreviewed version fails before the tool can operate.
 

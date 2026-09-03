@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FRONTEND_TEST_IMAGE="${FRONTEND_TEST_IMAGE:-node:24.18.0-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd}"
+FRONTEND_TEST_IMAGE="${FRONTEND_TEST_IMAGE:-node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Error: docker is required to run frontend tests." >&2

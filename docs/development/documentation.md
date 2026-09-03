@@ -16,7 +16,7 @@ make docs-serve  # live reload at http://localhost:8000
 ```
 
 `make docs-build` builds the digest-pinned `Dockerfile.docs` image, installs
-the hash-locked Zensical 0.0.51 dependency graph, and calls `ci/docs.sh`.
+the hash-locked Zensical 0.0.58 dependency graph, and calls `ci/docs.sh`.
 Strict mode turns warnings such as broken internal links or missing navigation
 entries into failures. Do not add a separate package-install or build sequence
 to a workflow.

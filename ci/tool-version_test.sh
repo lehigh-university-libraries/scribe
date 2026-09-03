@@ -119,8 +119,8 @@ if PATH="$TEST_DIR/bin:$PATH" FAKE_ZENSICAL_VERSION=0.0.50 FAKE_TOOL_LOG="$tool_
   echo "documentation build accepted an unreviewed Zensical version" >&2
   exit 1
 fi
-grep -F 'Zensical 0.0.51 is required' "$TEST_DIR/zensical.err" >/dev/null
-PATH="$TEST_DIR/bin:$PATH" FAKE_ZENSICAL_VERSION=0.0.51 FAKE_TOOL_LOG="$tool_log" \
+grep -F 'Zensical 0.0.58 is required' "$TEST_DIR/zensical.err" >/dev/null
+PATH="$TEST_DIR/bin:$PATH" FAKE_ZENSICAL_VERSION=0.0.58 FAKE_TOOL_LOG="$tool_log" \
   "$ROOT_DIR/ci/docs.sh" build >/dev/null
 grep -F 'zensical build --clean' "$tool_log" >/dev/null
 

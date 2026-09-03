@@ -747,7 +747,8 @@ func (d localDetector) DetectWords(ctx context.Context, imagePath string) ([]wor
 type autoDetector struct{}
 
 func (autoDetector) DetectWords(ctx context.Context, imagePath string) ([]worddetection.WordBox, string, error) {
-	tesseractWords, tesseractErr := worddetection.NewTesseract().DetectWords(ctx, imagePath)
+	var tesseractProvider worddetection.Provider = worddetection.NewTesseract()
+	tesseractWords, tesseractErr := tesseractProvider.DetectWords(ctx, imagePath)
 	customWords, customErr := worddetection.NewCustom().DetectWords(ctx, imagePath)
 	if tesseractErr != nil && customErr != nil {
 		return nil, "", fmt.Errorf("both detection methods failed - tesseract: %v, custom: %v", tesseractErr, customErr)

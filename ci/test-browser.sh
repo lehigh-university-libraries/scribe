@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Keep this image version identical to web's @playwright/test dependency.
 # renovate: datasource=docker depName=mcr.microsoft.com/playwright
 PLAYWRIGHT_TEST_IMAGE="${PLAYWRIGHT_TEST_IMAGE:-mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07}"
-GO_TEST_IMAGE="${GO_TEST_IMAGE:-golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df}"
+GO_TEST_IMAGE="${GO_TEST_IMAGE:-golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Error: Docker is required to run Chromium acceptance tests." >&2

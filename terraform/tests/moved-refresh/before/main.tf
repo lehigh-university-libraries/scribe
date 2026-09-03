@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.15.0, < 1.16.0"
+  required_version = ">= 1.16.0, < 1.17.0"
 }
 
 resource "terraform_data" "legacy" {

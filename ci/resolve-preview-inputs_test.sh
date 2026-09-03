@@ -17,7 +17,7 @@ run_preview_unit_tests() {
     -e GOMODCACHE=/tmp/go-mod \
     -v "$ROOT_DIR:/app:ro" \
     -w /app \
-    golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df \
+    golang:1.27.1-alpine@sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125 \
     go test ./internal/deployer -run '^TestResolvePreview|^TestPreviewInputs'
 }
 

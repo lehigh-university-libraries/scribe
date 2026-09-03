@@ -11,26 +11,26 @@ cp "${ROOT_DIR}/ci/toolchain-check.sh" "${TEST_DIR}/fixture/ci/toolchain-check.s
 chmod +x "${TEST_DIR}/fixture/ci/toolchain-check.sh"
 
 cat >"${TEST_DIR}/fixture/.go-version" <<'EOF'
-1.26.6
+1.27.1
 EOF
 cat >"${TEST_DIR}/fixture/.nvmrc" <<'EOF'
-24.18.0
+24.20.0
 EOF
 cat >"${TEST_DIR}/fixture/.tool-versions" <<'EOF'
-golang 1.26.6
-nodejs 24.18.0
+golang 1.27.1
+nodejs 24.20.0
 python 3.14.2
-terraform 1.15.8
+terraform 1.16.1
 EOF
 cat >"${TEST_DIR}/fixture/Dockerfile" <<'EOF'
-FROM golang:1.26.6-alpine
+FROM golang:1.27.1-alpine
 EOF
 cat >"${TEST_DIR}/fixture/Dockerfile.segmentor" <<'EOF'
-FROM golang:1.26.6-alpine AS helper
+FROM golang:1.27.1-alpine AS helper
 FROM python:3.14.2-slim
 EOF
 cat >"${TEST_DIR}/fixture/Dockerfile.frontend" <<'EOF'
-FROM node:24.18.0-alpine
+FROM node:24.20.0-alpine
 EOF
 cat >"${TEST_DIR}/fixture/Dockerfile.docs" <<'EOF'
 FROM python:3.14.2-slim
@@ -39,16 +39,16 @@ cat >"${TEST_DIR}/fixture/ci/segmentor-lock.sh" <<'EOF'
 python_image="python:3.14.2-slim"
 EOF
 cat >"${TEST_DIR}/fixture/ci/test-frontend.sh" <<'EOF'
-FRONTEND_TEST_IMAGE="node:24.18.0-alpine"
+FRONTEND_TEST_IMAGE="node:24.20.0-alpine"
 EOF
 cat >"${TEST_DIR}/fixture/ci/nested/version with spaces.sh" <<'EOF'
-GO_TEST_IMAGE="golang:1.26.6-alpine"
+GO_TEST_IMAGE="golang:1.27.1-alpine"
 EOF
 cat >"${TEST_DIR}/fixture/.github/workflows/toolchain.yml" <<'EOF'
 jobs:
   test:
     with:
-      terraform_version: 1.15.8
+      terraform_version: 1.16.1
 EOF
 
 for command_name in bash dirname tr awk grep find sed; do
@@ -74,13 +74,13 @@ fi
 grep -Fq 'has a Go image that differs from .go-version' "${TEST_DIR}/go-mismatch.err"
 rm "${TEST_DIR}/fixture/ci/nested/many-stale-images.sh"
 
-sed -i.bak 's/terraform_version: 1\.15\.8/terraform_version: 1.15.7/' \
+sed -i.bak 's/terraform_version: 1\.16\.1/terraform_version: 1.16.0/' \
   "${TEST_DIR}/fixture/.github/workflows/toolchain.yml"
 if PATH="${TEST_DIR}/bin" "${TEST_DIR}/fixture/ci/toolchain-check.sh" \
   >"${TEST_DIR}/mismatch.out" 2>"${TEST_DIR}/mismatch.err"; then
   echo "toolchain check accepted a stale Terraform version in a .yml workflow" >&2
   exit 1
 fi
-grep -Fq 'does not use Terraform 1.15.8' "${TEST_DIR}/mismatch.err"
+grep -Fq 'does not use Terraform 1.16.1' "${TEST_DIR}/mismatch.err"
 
 echo "Toolchain contracts bootstrap without ripgrep and reject stale versions."

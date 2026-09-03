@@ -143,7 +143,7 @@ jobs:
           cache: true
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: 1.15.8
+          terraform_version: 1.16.1
           terraform_wrapper: false
       - name: Run infrastructure and documentation group
         run: ./ci/run-ci.sh infrastructure

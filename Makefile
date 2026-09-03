@@ -6,7 +6,7 @@ FRONTEND_IMAGE ?= scribe-frontend:local
 COMPOSE_UP_FLAGS ?= -d
 REBUILD ?= false
 # renovate: datasource=docker depName=golangci/golangci-lint
-GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.12.2-alpine@sha256:91b27804074a0bacea298707f016911e60cf0cdbc6c7bf5ccacb5f0606d18d60
+GOLANGCI_IMAGE ?= golangci/golangci-lint:v2.13.2-alpine@sha256:da1f79b184ff1d98781648407d05a99b9cba7b282aa3416b0a0eac102a3b0557
 TOOLS_BIN ?= $(CURDIR)/.tools/bin
 export PATH := $(TOOLS_BIN):$(PATH)
 GO_CMD ?= $(shell command -v go 2>/dev/null || { test -x /usr/local/go/bin/go && printf '%s' /usr/local/go/bin/go; })

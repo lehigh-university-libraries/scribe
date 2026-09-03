@@ -16,7 +16,7 @@ func (p *autoProvider) Name() string {
 }
 
 func (p *autoProvider) DetectWords(ctx context.Context, imagePath string) ([]WordBox, error) {
-	tesseractProvider := NewTesseract()
+	var tesseractProvider Provider = NewTesseract()
 	customProvider := NewCustom()
 
 	tesseractWords, tesseractErr := tesseractProvider.DetectWords(ctx, imagePath)

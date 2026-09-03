@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly EXPECTED_ZENSICAL_VERSION="0.0.51"
+readonly EXPECTED_ZENSICAL_VERSION="0.0.58"
 cd "${ROOT_DIR}"
 mode="${1:-build}"
 if [ "${mode}" != "build" ] && [ "${mode}" != "serve" ]; then

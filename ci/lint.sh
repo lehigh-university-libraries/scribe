@@ -7,7 +7,7 @@ cd "${ROOT_DIR}"
 
 readonly EXPECTED_SHELLCHECK_VERSION="0.11.0"
 readonly EXPECTED_ACTIONLINT_VERSION="1.7.12"
-readonly EXPECTED_GOLANGCI_LINT_VERSION="2.12.2"
+readonly EXPECTED_GOLANGCI_LINT_VERSION="2.13.2"
 readonly ACTIONLINT_CONFIG=".github/actionlint.yaml"
 
 host_shellcheck_is_pinned() {

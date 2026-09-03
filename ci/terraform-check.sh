@@ -7,7 +7,7 @@ cd "${ROOT_DIR}"
 
 REQUIRED_TERRAFORM_VERSION="$(awk '$1 == "terraform" { print $2 }' .tool-versions)"
 # renovate: datasource=docker depName=hashicorp/terraform
-TERRAFORM_IMAGE="${TERRAFORM_IMAGE:-hashicorp/terraform:1.15.8@sha256:7ae513256f7ce67879e218ae8593d6fbe216ec9e123abe6c94e4e10704857963}"
+TERRAFORM_IMAGE="${TERRAFORM_IMAGE:-hashicorp/terraform:1.16.1@sha256:f4d9594d2c8010c03f0149352682166410c58c21d46344cf256fd5a4b721a011}"
 
 run_checks() {
   terraform fmt -check -recursive terraform

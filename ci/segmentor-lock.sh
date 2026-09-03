@@ -5,7 +5,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Keep lock generation on the same interpreter image as Dockerfile.segmentor.
 # renovate: datasource=docker depName=python
-readonly python_image="python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64"
+readonly python_image="python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f"
 
 command -v docker >/dev/null 2>&1 || {
   echo "Docker is required to regenerate config/segmentor-requirements.lock." >&2
