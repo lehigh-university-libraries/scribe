@@ -13,7 +13,7 @@
     "serve": "node server.mjs"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "2.13.0",
+    "@bufbuild/protobuf": "2.14.0",
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-web": "2.1.2",
     "@emotion/react": "11.14.0",
@@ -21,32 +21,32 @@
     "@mui/icons-material": "7.3.11",
     "@mui/material": "7.3.11",
     "@mui/system": "7.3.11",
-    "i18next": "26.3.6",
+    "i18next": "26.4.0",
     "lodash": "4.18.1",
-    "mirador": "4.1.0",
-    "openseadragon": "6.0.2",
+    "mirador": "4.2.3",
+    "openseadragon": "6.1.0",
     "prop-types": "15.8.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-i18next": "15.7.4",
-    "uuid": "14.0.1"
+    "uuid": "14.0.2"
   },
   "overrides": {
-    "esbuild": "0.28.1",
+    "esbuild": "0.28.2",
     "lodash": "4.18.1",
-    "uuid": "14.0.1"
+    "uuid": "14.0.2"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.0",
+    "@playwright/test": "1.62.1",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "24.13.3",
     "@vitejs/plugin-react": "5.2.0",
     "autoprefixer": "10.5.4",
-    "happy-dom": "20.11.1",
-    "postcss": "8.5.23",
+    "happy-dom": "20.12.0",
+    "postcss": "8.5.26",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "7.3.6",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }
