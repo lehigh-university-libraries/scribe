@@ -3304,7 +3304,9 @@ try {
   tokenFailureSubstage = "key-display-done";
   await tokenDialog.getByRole("button", { name: "Done", exact: true }).click();
   await tokenDialog.waitFor({ state: "hidden" });
-  if (await tokenField.inputValue() !== "") throw new Error("token remained in document");
+  if (await page.locator("#shell-api-key-value").inputValue() !== "") {
+    throw new Error("token remained in document");
+  }
   tokenFailureSubstage = "key-display-clear";
   await page.bringToFront();
   await page.evaluate(() => navigator.clipboard.writeText(""));
