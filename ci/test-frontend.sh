@@ -10,6 +10,7 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 run_tests="
+    set -eu
     cd /app/web
     npm ci --ignore-scripts --no-audit --progress=false
     npm test

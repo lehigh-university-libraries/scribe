@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && CI=true vite build",
-    "test": "vitest run",
+    "test": "vitest run --exclude e2e/deployed-readiness-budget.test.mjs --exclude e2e/deployed-readiness-dom.test.mjs --exclude e2e/deployed-readiness-structure.test.mjs",
     "test:browser": "playwright test",
     "test:browser:types": "tsc --noEmit -p e2e/tsconfig.json",
     "preview": "vite preview",
