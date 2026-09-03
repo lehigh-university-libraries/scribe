@@ -31,9 +31,9 @@ FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec4
 WORKDIR /app
 RUN apk add --no-cache \
     ca-certificates=20260611-r0 \
-    curl=8.21.0-r0 \
-    jq=1.8.1-r0 \
-    openssl=3.5.7-r0
+    curl=8.22.0-r0 \
+    jq=1.8.2-r0 \
+    openssl=3.5.8-r0
 RUN adduser -D -u 10001 appuser
 COPY --from=builder /out/scribe-api /app/scribe-api
 COPY --from=builder /out/scribe-worker /app/scribe-worker
