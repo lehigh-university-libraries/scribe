@@ -139,7 +139,9 @@ func TestBrowserTokenSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 func TestBrowserManifestSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 	t.Parallel()
 	substages := []string{
-		"library-navigation", "import-form", "import-request", "import-contract",
+		"library-navigation", "import-form", "import-request", "import-request-body",
+		"import-upstream-request", "import-upstream-response", "import-response-delivery",
+		"import-response-status", "import-response-settlement", "import-contract",
 		"editor-navigation", "editor-mount", "first-canvas", "first-image",
 		"first-annotations", "first-publication", "second-image", "second-canvas",
 		"second-annotations", "second-overlay", "second-publication",

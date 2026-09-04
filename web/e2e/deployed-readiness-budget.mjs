@@ -19,6 +19,12 @@ const manifestFailureExitCodes = new Map([
   ["second-annotations", 87],
   ["second-overlay", 88],
   ["second-publication", 89],
+  ["import-request-body", 90],
+  ["import-upstream-request", 91],
+  ["import-upstream-response", 92],
+  ["import-response-delivery", 93],
+  ["import-response-status", 94],
+  ["import-response-settlement", 95],
 ]);
 
 export function manifestFailureExitCode(substage) {

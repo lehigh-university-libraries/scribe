@@ -2337,14 +2337,22 @@ try {
         timeout: uploadRequestTimeoutMs,
       };
       if (requestURL.pathname === "/scribe.v1.ItemService/ImportManifest") {
+        manifestFailureSubstage = "import-request-body";
         const headers = { ...request.headers() };
         delete headers["content-length"];
         fetchOptions.headers = headers;
         fetchOptions.postData = exactManifestImportPostData(request);
+        manifestFailureSubstage = "import-upstream-request";
       }
       const upstreamResponse = await route.fetch(fetchOptions);
+      if (requestURL.pathname === "/scribe.v1.ItemService/ImportManifest") {
+        manifestFailureSubstage = "import-upstream-response";
+      }
       const snapshot = await snapshotNavigationResponseJSON(upstreamResponse);
       navigationResponseJSONSnapshots.set(request, Promise.resolve(snapshot));
+      if (requestURL.pathname === "/scribe.v1.ItemService/ImportManifest") {
+        manifestFailureSubstage = "import-response-delivery";
+      }
       await route.fulfill({ response: upstreamResponse });
     } catch {
       navigationResponseJSONSnapshots.set(
@@ -3352,7 +3360,9 @@ try {
   ), { timeout: uploadRequestTimeoutMs });
   await page.getByRole("button", { name: "Ingest manifest", exact: true }).click();
   const manifestResponse = await manifestResponsePromise;
+  manifestFailureSubstage = "import-response-status";
   if (!manifestResponse.ok()) throw new Error("manifest import failed");
+  manifestFailureSubstage = "import-response-settlement";
   await waitForMutationResponsesToSettle(manifestMutation);
   requireTerminalRequestSuccess(manifestResponse, "manifest import request failed");
   manifestFailureSubstage = "import-contract";
