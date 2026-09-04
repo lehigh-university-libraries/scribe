@@ -46,6 +46,10 @@ removes its containers and volumes on success, failure, or interruption. It
 does not reuse or stop the normal development stack, so integration tests
 cannot silently skip on a clean checkout.
 
+Each npm advisory request has a 60-second transport timeout and at most three
+attempts. A nonzero result on every attempt still fails the security gate, so a
+registry outage is bounded without allowing a real advisory finding to pass.
+
 `make ocr-build-tags` cross-compiles both GoReleaser binaries for `linux/386`
 with the release build tag in the same pinned Go container used for its native
 build checks. Hosted CI and the local entrypoint therefore reject constants and
