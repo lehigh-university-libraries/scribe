@@ -17,7 +17,7 @@ func systemContextTestConfig() config.Config {
 	cfg.LLM.Gemini.Model = "gemini-3.5-configured"
 	cfg.LLM.Gemini.Models = []string{"gemini-3.5-configured"}
 	cfg.LLM.Kraken.Model = "catmus-configured.mlmodel"
-	cfg.LLM.Kraken.Models = []string{"catmus-configured.mlmodel"}
+	cfg.LLM.Kraken.Models = []string{"catmus-configured.mlmodel", "catmus-medieval-1.6.0.mlmodel"}
 	return cfg
 }
 
@@ -81,8 +81,9 @@ func TestSystemContextsUseConfiguredModelsAndSupportedCapabilities(t *testing.T)
 	if krakenBLLA.provider != cfg.LLM.Provider || krakenBLLA.model != cfg.LLM.Ollama.Model || krakenBLLA.prompt != cfg.LLM.DefaultSystemPrompt {
 		t.Fatalf("Kraken BLLA configured-LLM selection = %+v", krakenBLLA)
 	}
-	if got := byName["Kraken CATMuS"].prompt; got != "" {
-		t.Fatalf("Kraken CATMuS prompt = %q; Kraken does not support prompts", got)
+	krakenCATMuS := byName["Kraken CATMuS"]
+	if krakenCATMuS.provider != "kraken" || krakenCATMuS.model != "catmus-medieval-1.6.0.mlmodel" || krakenCATMuS.segmentation != "kraken" || krakenCATMuS.prompt != "" {
+		t.Fatalf("Kraken CATMuS preset = %+v; want Kraken BLLA segmentation with CATMuS Medieval transcription and no prompt", krakenCATMuS)
 	}
 }
 
