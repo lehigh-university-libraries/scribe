@@ -441,7 +441,7 @@ func Load() (Config, error) {
 		cfg.LLM.Kraken.Audience = cfg.Segmentation.Audience
 	}
 	if cfg.LLM.Kraken.Model == "" {
-		cfg.LLM.Kraken.Model = "catmus-print-fondue-large.mlmodel"
+		cfg.LLM.Kraken.Model = "catmus-medieval-1.6.0.mlmodel"
 	}
 
 	cfg.Server.TrustedProxyCIDRs, err = normalizeTrustedProxyCIDRs(cfg.Server.TrustedProxyCIDRs)

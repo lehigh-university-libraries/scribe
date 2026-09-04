@@ -58,6 +58,22 @@ publish_model() {
   fi
 }
 
+download_zenodo_model() {
+  local record_id="$1"
+  local filename="$2"
+  local destination="$3"
+
+  curl --fail --silent --show-error --location \
+    --proto '=https' \
+    --proto-redir '=https' \
+    --max-redirs 3 \
+    --connect-timeout 10 \
+    --max-time 60 \
+    --retry 0 \
+    --output "${destination}" \
+    "https://zenodo.org/records/${record_id}/files/${filename}?download=1"
+}
+
 install_model() {
   local label="$1"
   local model_id="$2"
@@ -96,6 +112,11 @@ install_model() {
     echo "A lowercase SHA-256 digest is required for Kraken model ${filename}" >&2
     return 1
   fi
+  if [[ ! "${doi}" =~ ^10\.5281/zenodo\.([1-9][0-9]{0,18})$ ]]; then
+    echo "Kraken model DOI must identify an exact Zenodo record: ${doi}" >&2
+    return 1
+  fi
+  local zenodo_record_id="${BASH_REMATCH[1]}"
 
   local destination="${KRAKEN_MODEL_DIR}/${filename}"
   if model_matches_checksum "${destination}" "${expected_sha256}"; then
@@ -149,6 +170,32 @@ install_model() {
         fi
         return 0
       fi
+    fi
+
+    # Some reviewed Zenodo model records are not indexed by HTRMoPo and
+    # therefore cannot be resolved by `kraken get`. Fall back only to the
+    # validated record and basename from the server-owned build configuration.
+    # The downloaded bytes still must match the pinned digest before publish.
+    local direct_source="${model_data_root}/direct/${filename}"
+    if ! mkdir -p "${model_data_root}/direct"; then
+      echo "Failed to create Kraken model direct-download directory" >&2
+      rm -rf -- "${model_data_root}"
+      return 1
+    fi
+    if ! download_zenodo_model "${zenodo_record_id}" "${filename}" "${direct_source}"; then
+      failure_reason="${failure_reason}; direct Zenodo download failed"
+    elif ! model_matches_checksum "${direct_source}" "${expected_sha256}"; then
+      failure_reason="${failure_reason}; direct ${filename} failed SHA-256 verification"
+    elif ! publish_model "${direct_source}" "${destination}" "${filename}"; then
+      echo "Failed to publish verified Kraken model ${filename}" >&2
+      rm -rf -- "${model_data_root}"
+      return 1
+    else
+      if ! rm -rf -- "${model_data_root}"; then
+        echo "Failed to clean Kraken model scratch directory: ${model_data_root}" >&2
+        return 1
+      fi
+      return 0
     fi
 
     echo "Kraken model DOI ${doi} attempt ${attempt} failed: ${failure_reason}" >&2

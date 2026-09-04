@@ -10,13 +10,17 @@ artifact_registry:
 kraken:
   pip_spec: "kraken==7.0.2"
   default_segmentation_model: kraken
-  default_transcription_model: catmus-print-fondue-large.mlmodel
+  default_transcription_model: catmus-medieval-1.6.0.mlmodel
   segmentation_models:
     kraken:
       file: blla.mlmodel
       doi: "10.5281/zenodo.14602569"
       sha256: "77a638a83c9e535620827a09e410ed36391e9e8e8126d5796a0f15b978186056"
   transcription_models:
+    catmus-medieval-1.6.0.mlmodel:
+      file: catmus-medieval-1.6.0.mlmodel
+      doi: "10.5281/zenodo.21488839"
+      sha256: "227d10f15a936c2492105b7796a6152647c742f248af117856f417008eadbc9c"
     catmus-print-fondue-large.mlmodel:
       file: catmus-print-fondue-large.mlmodel
       doi: "10.5281/zenodo.10592716"

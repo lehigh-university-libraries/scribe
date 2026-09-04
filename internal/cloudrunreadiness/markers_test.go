@@ -136,6 +136,25 @@ func TestBrowserTokenSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 	}
 }
 
+func TestBrowserManifestSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
+	t.Parallel()
+	substages := []string{
+		"library-navigation", "import-form", "import-request", "import-contract",
+		"editor-navigation", "editor-mount", "first-canvas", "first-image",
+		"first-annotations", "first-publication", "second-image", "second-canvas",
+		"second-annotations", "second-overlay", "second-publication",
+	}
+	for _, substage := range substages {
+		line := "browser readiness manifest substage: " + substage
+		if !ReadinessMarkerAllowed(KindBrowser, line) {
+			t.Errorf("browser manifest substage %q was rejected", substage)
+		}
+		if ReadinessMarkerAllowed(KindBackend, line) || ReadinessMarkerAllowed(KindOCR, line) {
+			t.Errorf("browser manifest substage %q crossed kind boundary", substage)
+		}
+	}
+}
+
 func TestBrowserRateLimitMarkerVocabularyIsExhaustive(t *testing.T) {
 	t.Parallel()
 	families := []string{

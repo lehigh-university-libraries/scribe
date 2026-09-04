@@ -43,8 +43,8 @@ llm:
   kraken:
     url: "${KRAKEN_URL:-}"
     audience: "${KRAKEN_AUDIENCE:-}"
-    model: "${KRAKEN_MODEL:-catmus-print-fondue-large.mlmodel}"
-    models: ["catmus-print-fondue-large.mlmodel"]
+    model: "${KRAKEN_MODEL:-catmus-medieval-1.6.0.mlmodel}"
+    models: ["catmus-medieval-1.6.0.mlmodel", "catmus-print-fondue-large.mlmodel"]
   openai:
     model: "gpt-4o"
     models: ["gpt-4o", "gpt-4.1"]

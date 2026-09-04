@@ -24,6 +24,12 @@ construct and verify model images. It is not part of the embedded Go runtime
 configuration; runtime provider and segmentor capabilities come from their
 registered descriptors and endpoint policy.
 
+The Kraken registry keeps recognition domains explicit. CATMuS Medieval 1.6 is
+the recognition model used by the built-in **Kraken CATMuS** handwritten-
+manuscript preset; CATMuS Print remains a separate registered model for printed
+material. Production builds and routes each recognition artifact independently,
+and contexts select only its stable server-registered key.
+
 `generate-secrets.sh` creates high-entropy values for every locally owned
 Compose secret that does not exist. The externally managed Google credential
 mount is initialized only as an empty `{}` placeholder. Generated secrets
