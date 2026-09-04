@@ -1944,6 +1944,7 @@ let uploadDurableFailureCategory;
 let uploadRetryableResponseCategory;
 let structureFailureSubstage = "draw-mode";
 let tokenFailureSubstage = "post-home-presentation";
+let manifestFailureSubstage = "library-navigation";
 let browserFaultMonitoringActive = true;
 let browser;
 let browserContext;
@@ -3325,8 +3326,10 @@ try {
   assertBrowserHealthy();
 
   category = "manifest";
+  manifestFailureSubstage = "library-navigation";
   successfulImageResponses.length = 0;
   await navigate("/");
+  manifestFailureSubstage = "import-form";
   await page.locator('[data-library-tab="manifest"]').click();
   if (await page.locator("#library-context-select").inputValue() !== "0") {
     throw new Error("manifest import did not retain default context");
@@ -3342,6 +3345,7 @@ try {
   assertMainScenarioActive();
   await page.getByLabel("IIIF manifest URL", { exact: true }).fill(manifestURL);
   manifestImportAttempted = true;
+  manifestFailureSubstage = "import-request";
   const manifestResponsePromise = page.waitForResponse((response) => (
     sameOriginConnectResponse(response, "/scribe.v1.ItemService/ImportManifest")
   ), { timeout: uploadRequestTimeoutMs });
@@ -3350,6 +3354,7 @@ try {
   if (!manifestResponse.ok()) throw new Error("manifest import failed");
   await waitForMutationResponsesToSettle(manifestMutation);
   requireTerminalRequestSuccess(manifestResponse, "manifest import request failed");
+  manifestFailureSubstage = "import-contract";
   const manifestPayload = await responseJSON(manifestResponse, "invalid manifest import response");
   const manifestItem = manifestPayload?.item;
   createdManifestItemID = String(manifestItem?.id ?? "").trim() || undefined;
@@ -3381,18 +3386,21 @@ try {
   }
   assertMainScenarioActive();
   manifestMutation.validated = true;
+  manifestFailureSubstage = "editor-navigation";
   await page.waitForURL((url) => (
     url.pathname === "/editor"
     && url.searchParams.get("itemId") === createdManifestItemID
     && url.searchParams.get("itemImageId") === manifestFirstImageID
     && url.searchParams.get("workspace_id") === workspaceID
   ), { timeout: uploadRequestTimeoutMs });
+  manifestFailureSubstage = "editor-mount";
   await page.locator("#mirador-viewer").waitFor({ state: "visible" });
   const manifestActionPanel = page.locator('[data-scribe-action-panel="true"]');
   await manifestActionPanel.waitFor({ state: "visible" });
   if (await manifestActionPanel.count() !== 1) {
     throw new Error("manifest editor action panel did not mount exactly once");
   }
+  manifestFailureSubstage = "first-canvas";
   await waitForActiveCanvasIdentity({
     canvasID: manifestFirstCanvasID,
     itemID: createdManifestItemID,
@@ -3421,8 +3429,10 @@ try {
     manifestEditorManifest.manifest,
     manifestSecondCanvasID,
   );
+  manifestFailureSubstage = "first-image";
   await requireLoadedOpenSeadragonImage(manifestFirstImageResource);
 
+  manifestFailureSubstage = "first-annotations";
   const manifestFirstAnnotationPath = `/presentation/v3/item-image-${manifestFirstImageID}/canvas/page-1/annotations`;
   const manifestAnnotationSnapshot = await loadCanonicalAnnotationSnapshot(
     manifestFirstImageID,
@@ -3441,6 +3451,7 @@ try {
   // Publication is scoped to this disposable imported item and is removed by
   // the exact manifest cleanup below. It proves the canonical page reaches the
   // sole public Presentation surface without modifying the external source.
+  manifestFailureSubstage = "first-publication";
   await requireConnectAction(
     "/scribe.v1.AnnotationService/PublishAnnotationPage",
     () => page.getByRole("button", { name: "Publish edits", exact: true }).click(),
@@ -3457,10 +3468,12 @@ try {
   const nextCanvas = page.getByRole("button", { name: "Next item", exact: true });
   await nextCanvas.waitFor({ state: "visible" });
   if (!await nextCanvas.isEnabled()) throw new Error("next manifest Canvas action was disabled");
+  manifestFailureSubstage = "second-image";
   await requireLoadedOpenSeadragonImage(
     manifestSecondImageResource,
     () => nextCanvas.click(),
   );
+  manifestFailureSubstage = "second-canvas";
   await waitForActiveCanvasIdentity({
     canvasID: manifestSecondCanvasID,
     itemID: createdManifestItemID,
@@ -3469,6 +3482,7 @@ try {
   });
   await assertOpenSeadragonCanvas();
 
+  manifestFailureSubstage = "second-annotations";
   const manifestSecondAnnotationPath = `/presentation/v3/item-image-${manifestSecondImageID}/canvas/page-1/annotations`;
   const manifestSecondAnnotationSnapshot = await loadCanonicalAnnotationSnapshot(
     manifestSecondImageID,
@@ -3486,6 +3500,7 @@ try {
     throw new Error("second manifest canonical page identity mismatch");
   }
 
+  manifestFailureSubstage = "second-overlay";
   const manifestRetranscribe = page.getByRole("button", { name: "Retranscribe", exact: true });
   await manifestRetranscribe.waitFor({ state: "visible" });
   await page.waitForFunction(() => {
@@ -3505,6 +3520,7 @@ try {
     throw new Error("manifest editor action was unusable after overlay cycling");
   }
 
+  manifestFailureSubstage = "second-publication";
   await requireConnectAction(
     "/scribe.v1.AnnotationService/PublishAnnotationPage",
     () => page.getByRole("button", { name: "Publish edits", exact: true }).click(),
@@ -3731,6 +3747,9 @@ if (failureCategory) {
   }
   if (failureCategory === "token") {
     process.stderr.write(`browser readiness token substage: ${tokenFailureSubstage}\n`);
+  }
+  if (failureCategory === "manifest") {
+    process.stderr.write(`browser readiness manifest substage: ${manifestFailureSubstage}\n`);
   }
   if (failureCategory === "rate" && browserFaultRateFamily) {
     process.stderr.write(`browser readiness rate limit: ${browserFaultRateFamily}\n`);

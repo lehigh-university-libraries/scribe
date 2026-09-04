@@ -117,6 +117,10 @@ Other same-origin HTTP 429 responses use the distinct bounded `rate` marker inst
 of the generic network marker, while canonical Presentation AnnotationPage 404
 responses remain attributed to `annotations`. Structure and manifest markers
 separately isolate live editor-transform and preserve-hOCR import failures.
+Manifest failures add one fixed substage spanning library navigation, import,
+editor mount, both Canvas/image/annotation checks, overlay cycling, and both
+publication checks; no URL, item identity, response, or source payload is
+logged.
 Other same-origin failures use only fixed endpoint-family and
 client/server/transport network variants; their exact task exit codes remain
 available when the allowlisted Cloud Logging query is unavailable. Browser

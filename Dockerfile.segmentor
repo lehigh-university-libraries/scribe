@@ -53,6 +53,7 @@ RUN sed -ri \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates=20230311+deb12u1 \
+    curl=7.88.1-10+deb12u15 \
     imagemagick=8:6.9.11.60+dfsg-1.6+deb12u12 \
     libgomp1=12.2.0-14+deb12u1 \
     libleptonica-dev=1.82.0-3+b3 \

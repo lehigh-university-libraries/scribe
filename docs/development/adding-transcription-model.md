@@ -87,6 +87,10 @@ For Kraken transcription:
 3. Run the `make ocr-matrix` command shown above and verify it emits
    `kraken-ocr/<key>`. The build must fail when the DOI download does not
    contain the exact basename or its bytes do not match the configured digest.
+   The installer first resolves the DOI through Kraken/HTRMoPo. If that catalog
+   does not index the reviewed model, it downloads only the configured basename
+   from the exact `10.5281/zenodo.<record>` record over HTTPS. Both paths must
+   pass the same pinned SHA-256 check before the artifact is published.
    The image bakes the public key and filename as separate values and accepts
    only that exact transcription key at runtime. The dedicated route fetches
    only its selected recognition artifact and does not configure a segmentation
