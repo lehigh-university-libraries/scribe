@@ -25,6 +25,21 @@ const manifestFailureExitCodes = new Map([
   ["import-response-delivery", 93],
   ["import-response-status", 94],
   ["import-response-settlement", 95],
+  ["import-response-connect-aborted", 96],
+  ["import-response-connect-already-exists", 97],
+  ["import-response-connect-deadline-exceeded", 98],
+  ["import-response-connect-internal", 99],
+  ["import-response-connect-resource-exhausted", 100],
+  ["import-response-connect-unavailable", 101],
+  ["import-response-connect-unknown", 102],
+  ["import-response-http-408", 103],
+  ["import-response-http-409", 104],
+  ["import-response-http-425", 105],
+  ["import-response-http-429", 106],
+  ["import-response-http-500", 107],
+  ["import-response-http-502", 108],
+  ["import-response-http-503", 109],
+  ["import-response-http-504", 110],
 ]);
 
 export function manifestFailureExitCode(substage) {

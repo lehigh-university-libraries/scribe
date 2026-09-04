@@ -60,12 +60,27 @@ var manifestTaskFailureCategories = [...]string{
 }
 
 var manifestRequestTaskFailureCategories = map[int]string{
-	90: "import-request-body",
-	91: "import-upstream-request",
-	92: "import-upstream-response",
-	93: "import-response-delivery",
-	94: "import-response-status",
-	95: "import-response-settlement",
+	90:  "import-request-body",
+	91:  "import-upstream-request",
+	92:  "import-upstream-response",
+	93:  "import-response-delivery",
+	94:  "import-response-status",
+	95:  "import-response-settlement",
+	96:  "import-response-connect-aborted",
+	97:  "import-response-connect-already-exists",
+	98:  "import-response-connect-deadline-exceeded",
+	99:  "import-response-connect-internal",
+	100: "import-response-connect-resource-exhausted",
+	101: "import-response-connect-unavailable",
+	102: "import-response-connect-unknown",
+	103: "import-response-http-408",
+	104: "import-response-http-409",
+	105: "import-response-http-425",
+	106: "import-response-http-429",
+	107: "import-response-http-500",
+	108: "import-response-http-502",
+	109: "import-response-http-503",
+	110: "import-response-http-504",
 }
 
 type browserReadinessFailure struct {

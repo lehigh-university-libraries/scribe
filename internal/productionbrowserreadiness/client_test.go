@@ -22,7 +22,9 @@ func TestBrowserTaskFailureCategoryAcceptsOnlyReservedTypedStatuses(t *testing.T
 		"second publication":  {exitCode: "89", want: "manifest-second-publication"},
 		"upstream request":    {exitCode: "91", want: "manifest-import-upstream-request"},
 		"response settlement": {exitCode: "95", want: "manifest-import-response-settlement"},
-		"unreserved":          {exitCode: "96", want: ""},
+		"gateway response":    {exitCode: "108", want: "manifest-import-response-http-502"},
+		"connect response":    {exitCode: "98", want: "manifest-import-response-connect-deadline-exceeded"},
+		"unreserved":          {exitCode: "111", want: ""},
 		"unknown":             {exitCode: "unknown", want: ""},
 	}
 	for name, test := range tests {

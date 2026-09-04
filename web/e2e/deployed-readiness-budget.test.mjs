@@ -23,10 +23,17 @@ test("manifest substages have distinct task-status exit codes", () => {
     "second-annotations", "second-overlay", "second-publication",
     "import-request-body", "import-upstream-request", "import-upstream-response",
     "import-response-delivery", "import-response-status", "import-response-settlement",
+    "import-response-connect-aborted", "import-response-connect-already-exists",
+    "import-response-connect-deadline-exceeded", "import-response-connect-internal",
+    "import-response-connect-resource-exhausted", "import-response-connect-unavailable",
+    "import-response-connect-unknown", "import-response-http-408", "import-response-http-409",
+    "import-response-http-425", "import-response-http-429", "import-response-http-500",
+    "import-response-http-502", "import-response-http-503", "import-response-http-504",
   ];
   assert.deepEqual(substages.map(manifestFailureExitCode), [
     75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
     90, 91, 92, 93, 94, 95,
+    96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
   ]);
   assert.throws(() => manifestFailureExitCode("raw-error"), /invalid manifest failure substage/);
 });
