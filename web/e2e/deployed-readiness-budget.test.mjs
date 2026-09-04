@@ -21,9 +21,12 @@ test("manifest substages have distinct task-status exit codes", () => {
     "editor-navigation", "editor-mount", "first-canvas", "first-image",
     "first-annotations", "first-publication", "second-image", "second-canvas",
     "second-annotations", "second-overlay", "second-publication",
+    "import-request-body", "import-upstream-request", "import-upstream-response",
+    "import-response-delivery", "import-response-status", "import-response-settlement",
   ];
   assert.deepEqual(substages.map(manifestFailureExitCode), [
     75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
+    90, 91, 92, 93, 94, 95,
   ]);
   assert.throws(() => manifestFailureExitCode("raw-error"), /invalid manifest failure substage/);
 });

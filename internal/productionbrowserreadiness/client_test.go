@@ -17,11 +17,13 @@ func TestBrowserTaskFailureCategoryAcceptsOnlyReservedTypedStatuses(t *testing.T
 		exitCode string
 		want     string
 	}{
-		"legacy manifest":    {exitCode: "35", want: "manifest"},
-		"library navigation": {exitCode: "75", want: "manifest-library-navigation"},
-		"second publication": {exitCode: "89", want: "manifest-second-publication"},
-		"unreserved":         {exitCode: "90", want: ""},
-		"unknown":            {exitCode: "unknown", want: ""},
+		"legacy manifest":     {exitCode: "35", want: "manifest"},
+		"library navigation":  {exitCode: "75", want: "manifest-library-navigation"},
+		"second publication":  {exitCode: "89", want: "manifest-second-publication"},
+		"upstream request":    {exitCode: "91", want: "manifest-import-upstream-request"},
+		"response settlement": {exitCode: "95", want: "manifest-import-response-settlement"},
+		"unreserved":          {exitCode: "96", want: ""},
+		"unknown":             {exitCode: "unknown", want: ""},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {

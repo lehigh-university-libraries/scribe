@@ -59,6 +59,15 @@ var manifestTaskFailureCategories = [...]string{
 	"second-publication",
 }
 
+var manifestRequestTaskFailureCategories = map[int]string{
+	90: "import-request-body",
+	91: "import-upstream-request",
+	92: "import-upstream-response",
+	93: "import-response-delivery",
+	94: "import-response-status",
+	95: "import-response-settlement",
+}
+
 type browserReadinessFailure struct {
 	category string
 }
@@ -220,6 +229,8 @@ func browserTaskFailureCategory(path string) string {
 			candidate = "manifest"
 		case exitCode >= 75 && exitCode < 75+len(manifestTaskFailureCategories):
 			candidate = "manifest-" + manifestTaskFailureCategories[exitCode-75]
+		case manifestRequestTaskFailureCategories[exitCode] != "":
+			candidate = "manifest-" + manifestRequestTaskFailureCategories[exitCode]
 		}
 		if candidate == "" {
 			continue
