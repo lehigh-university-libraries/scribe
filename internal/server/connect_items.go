@@ -23,7 +23,6 @@ import (
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
-	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadlimits"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
@@ -60,7 +59,11 @@ const (
 	uploadBatchFailureBatchCommit
 )
 
-var errManifestImportBudgetExceeded = errors.New("manifest import byte budget exceeded")
+var (
+	errManifestImportBudgetExceeded = errors.New("manifest import byte budget exceeded")
+	errManifestSourceRejected       = errors.New("manifest source rejected")
+	errManifestSourceUnavailable    = errors.New("manifest source unavailable")
+)
 
 // --- ItemService Connect handlers ---
 
@@ -1080,6 +1083,10 @@ func manifestImportConnectError(err error) error {
 		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("manifest import timed out"))
 	case errors.Is(err, errManifestImportBudgetExceeded):
 		return connect.NewError(connect.CodeResourceExhausted, err)
+	case errors.Is(err, errManifestSourceUnavailable):
+		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("manifest source is temporarily unavailable"))
+	case errors.Is(err, errManifestSourceRejected):
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("manifest source rejected the import request"))
 	default:
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -1168,7 +1175,7 @@ func prefetchManifestHOCR(ctx context.Context, canvases []canvasInfo, maxTotalBy
 				}
 				parsedHOCR, parseErr := hocr.ParseDocument(hocrXML)
 				if parseErr != nil {
-					return fmt.Errorf("parse hOCR for canvas %d: invalid document", index+1)
+					return fmt.Errorf("%w: parse hOCR for canvas %d: invalid document", errManifestSourceRejected, index+1)
 				}
 				plainText := hocr.PlainText(parsedHOCR.Lines)
 				hocrBytes := uint64(len(hocrXML))
@@ -1208,13 +1215,16 @@ func fetchHOCRContent(ctx context.Context, hocrURL string, maxBytes int64, aggre
 	if aggregateBudget == nil {
 		return "", 0, fmt.Errorf("%w: aggregate response budget is required", errManifestImportBudgetExceeded)
 	}
-	resp, err := safehttp.Get(ctx, hocrURL)
+	resp, err := fetchIIIFUpstreamResponse(ctx, hocrURL, iiifHOCRAccept)
 	if err != nil {
-		return "", 0, err
+		if errors.Is(err, errManifestSourceRejected) {
+			return "", 0, err
+		}
+		return "", 0, fmt.Errorf("%w: fetch hOCR: %w", errManifestSourceUnavailable, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, fmt.Errorf("fetch hocr: status %d", resp.StatusCode)
+		return "", 0, manifestSourceStatusError("fetch hOCR", resp.StatusCode)
 	}
 	if resp.ContentLength > maxBytes {
 		return "", 0, fmt.Errorf("%w: response exceeds %d bytes", errManifestImportBudgetExceeded, maxBytes)
