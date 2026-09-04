@@ -124,9 +124,12 @@ publication checks. A failed import response is further reduced through the
 retryable response vocabulary used for uploads, the remaining standard
 terminal Connect codes, or fixed HTTP client/server classes when no valid
 Connect response is available. Any unrecognized response remains the generic
-response-status substage. The request boundary distinguishes only fixed phases
-and response categories; no URL, item identity, response body, error string,
-or source payload is logged. Each manifest substage also has a distinct
+response-status substage. An exact redacted server code/message pair may add a
+fixed `document-unavailable`, `hocr-unavailable`, `document-rejected`, or
+`hocr-rejected` source marker; free-form Connect messages are never rendered.
+The request boundary distinguishes only fixed phases and response categories;
+no URL, item identity, response body, error string, or source payload is logged.
+Each manifest substage also has a distinct
 reserved task exit code.
 The production transport recovers only that fixed mapping from typed task
 status when Cloud Logging is unavailable, so the protected workflow retains

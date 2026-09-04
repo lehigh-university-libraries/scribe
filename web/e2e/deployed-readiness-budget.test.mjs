@@ -4,11 +4,13 @@ import test from "node:test";
 import {
   classifyDurableUploadFailure,
   classifyManifestResponseFailure,
+  classifyManifestSourceFailure,
   classifyRetryableUploadResponse,
   classifyUploadFailure,
   cleanupCommitHorizonMs,
   initialIngressRetryDelayMs,
   manifestFailureExitCode,
+  manifestSourceFailureMarker,
   remainingUploadSequenceTimeoutMs,
   uploadDurableFailureMarker,
   uploadFailureMarker,
@@ -241,6 +243,47 @@ test("manifest response classifier safely identifies terminal Connect and HTTP f
   );
   assert.equal(classifyManifestResponseFailure({ status: 399 }), undefined);
   assert.equal(classifyManifestResponseFailure({ status: "403" }), undefined);
+});
+
+test("manifest source classifier accepts only exact redacted Connect responses", () => {
+  const cases = [
+    ["unavailable", "manifest document source is temporarily unavailable", "document-unavailable"],
+    ["unavailable", "manifest hOCR source is temporarily unavailable", "hocr-unavailable"],
+    ["failed_precondition", "manifest document source rejected the import request", "document-rejected"],
+    ["failed_precondition", "manifest hOCR source rejected the import request", "hocr-rejected"],
+  ];
+
+  for (const [connectCode, connectMessage, expected] of cases) {
+    const category = classifyManifestSourceFailure({ connectCode, connectMessage, snapshotValid: true });
+    assert.equal(category, expected);
+    assert.equal(manifestSourceFailureMarker(category), `browser readiness manifest source: ${expected}`);
+  }
+
+  assert.equal(classifyManifestSourceFailure({
+    connectCode: "UNAVAILABLE",
+    connectMessage: "manifest document source is temporarily unavailable",
+    snapshotValid: true,
+  }), undefined);
+  assert.equal(classifyManifestSourceFailure({
+    connectCode: "unavailable",
+    connectMessage: "Manifest document source is temporarily unavailable",
+    snapshotValid: true,
+  }), undefined);
+  assert.equal(classifyManifestSourceFailure({
+    connectCode: 14,
+    connectMessage: "manifest document source is temporarily unavailable",
+    snapshotValid: true,
+  }), undefined);
+  assert.equal(classifyManifestSourceFailure({
+    connectCode: "unavailable",
+    connectMessage: "private upstream detail",
+    snapshotValid: true,
+  }), undefined);
+  assert.equal(classifyManifestSourceFailure({
+    connectCode: "unavailable",
+    connectMessage: "manifest document source is temporarily unavailable",
+  }), undefined);
+  assert.throws(() => manifestSourceFailureMarker("private"), TypeError);
 });
 
 test("upload failure classifier emits only fixed request and handoff substages", () => {

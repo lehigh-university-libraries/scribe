@@ -170,6 +170,31 @@ func TestBrowserManifestSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 	}
 }
 
+func TestBrowserManifestSourceMarkerVocabularyIsExhaustive(t *testing.T) {
+	t.Parallel()
+	categories := []string{
+		"document-unavailable", "hocr-unavailable", "document-rejected", "hocr-rejected",
+	}
+	for _, category := range categories {
+		line := "browser readiness manifest source: " + category
+		if !ReadinessMarkerAllowed(KindBrowser, line) {
+			t.Errorf("browser manifest source %q was rejected", category)
+		}
+		if ReadinessMarkerAllowed(KindBackend, line) || ReadinessMarkerAllowed(KindOCR, line) {
+			t.Errorf("browser manifest source %q crossed kind boundary", category)
+		}
+	}
+	for _, line := range []string{
+		"browser readiness manifest source: document",
+		"browser readiness manifest source: document-unavailable private",
+		"browser readiness manifest source: DOCUMENT-UNAVAILABLE",
+	} {
+		if ReadinessMarkerAllowed(KindBrowser, line) {
+			t.Errorf("unsafe browser manifest source marker %q was accepted", line)
+		}
+	}
+}
+
 func TestBrowserRateLimitMarkerVocabularyIsExhaustive(t *testing.T) {
 	t.Parallel()
 	families := []string{

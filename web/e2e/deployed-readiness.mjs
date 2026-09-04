@@ -11,11 +11,13 @@ import { exactStructuralSnapshot } from "./deployed-readiness-structure.mjs";
 import {
   classifyDurableUploadFailure,
   classifyManifestResponseFailure,
+  classifyManifestSourceFailure,
   classifyRetryableUploadResponse,
   classifyUploadFailure,
   cleanupCommitHorizonMs,
   initialIngressRetryDelayMs,
   manifestFailureExitCode,
+  manifestSourceFailureMarker,
   remainingUploadSequenceTimeoutMs,
   uploadDurableFailureMarker,
   uploadFailureMarker,
@@ -1380,6 +1382,7 @@ async function uploadAttemptRetryableResponseKind(attempt) {
 
 async function manifestResponseFailureSubstage(response) {
   let connectCode;
+  let connectMessage;
   let snapshotValid = false;
   const snapshot = responseJSONSnapshots.get(response);
   if (snapshot) {
@@ -1388,6 +1391,7 @@ async function manifestResponseFailureSubstage(response) {
       if (result.ok) {
         snapshotValid = true;
         connectCode = result.payload?.code;
+        connectMessage = result.payload?.message;
       }
     } catch {
       // The fixed HTTP status remains usable when the capped JSON snapshot is
@@ -1398,6 +1402,11 @@ async function manifestResponseFailureSubstage(response) {
     connectCode,
     snapshotValid,
     status: response.status(),
+  });
+  manifestFailureSourceCategory = classifyManifestSourceFailure({
+    connectCode,
+    connectMessage,
+    snapshotValid,
   });
   return responseKind ? `import-response-${responseKind}` : "import-response-status";
 }
@@ -1971,6 +1980,7 @@ let uploadRetryableResponseCategory;
 let structureFailureSubstage = "draw-mode";
 let tokenFailureSubstage = "post-home-presentation";
 let manifestFailureSubstage = "library-navigation";
+let manifestFailureSourceCategory;
 let browserFaultMonitoringActive = true;
 let browser;
 let browserContext;
@@ -3789,6 +3799,9 @@ if (failureCategory) {
   }
   if (failureCategory === "manifest") {
     process.stderr.write(`browser readiness manifest substage: ${manifestFailureSubstage}\n`);
+    if (manifestFailureSourceCategory) {
+      process.stderr.write(`${manifestSourceFailureMarker(manifestFailureSourceCategory)}\n`);
+    }
   }
   if (failureCategory === "rate" && browserFaultRateFamily) {
     process.stderr.write(`browser readiness rate limit: ${browserFaultRateFamily}\n`);

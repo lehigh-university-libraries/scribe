@@ -45,14 +45,19 @@ type canvasInfo struct {
 func fetchIIIFManifest(ctx context.Context, manifestURL string, maxCanvases int) (map[string]any, []byte, error) {
 	resp, err := fetchIIIFManifestResponse(ctx, manifestURL)
 	if err != nil {
-		if errors.Is(err, errManifestSourceRejected) {
+		if errors.Is(err, errManifestDocumentSourceRejected) {
 			return nil, nil, err
 		}
-		return nil, nil, fmt.Errorf("%w: fetch manifest: %w", errManifestSourceUnavailable, err)
+		return nil, nil, fmt.Errorf("%w: fetch manifest: %w", errManifestDocumentUnavailable, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, nil, manifestSourceStatusError("fetch manifest", resp.StatusCode)
+		return nil, nil, manifestSourceStatusError(
+			"fetch manifest",
+			resp.StatusCode,
+			errManifestDocumentUnavailable,
+			errManifestDocumentSourceRejected,
+		)
 	}
 	payload, err := safehttp.ReadAllLimit(resp.Body, maxRemoteManifestBytes)
 	if err != nil {
@@ -78,16 +83,22 @@ func fetchIIIFManifest(ctx context.Context, manifestURL string, maxCanvases int)
 }
 
 func fetchIIIFManifestResponse(ctx context.Context, manifestURL string) (*http.Response, error) {
-	return fetchIIIFUpstreamResponse(ctx, manifestURL, iiifManifestAccept)
+	return fetchIIIFUpstreamResponse(
+		ctx,
+		manifestURL,
+		iiifManifestAccept,
+		errManifestDocumentUnavailable,
+		errManifestDocumentSourceRejected,
+	)
 }
 
-func fetchIIIFUpstreamResponse(ctx context.Context, rawURL, accept string) (*http.Response, error) {
+func fetchIIIFUpstreamResponse(ctx context.Context, rawURL, accept string, unavailableError, rejectedError error) (*http.Response, error) {
 	requestTemplate, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid IIIF source URL", errManifestSourceRejected)
+		return nil, fmt.Errorf("%w: invalid IIIF source URL", rejectedError)
 	}
 	if err := safehttp.ValidateURL(requestTemplate.URL); err != nil {
-		return nil, fmt.Errorf("%w: IIIF source URL violates public-fetch policy", errManifestSourceRejected)
+		return nil, fmt.Errorf("%w: IIIF source URL violates public-fetch policy", rejectedError)
 	}
 	requestTemplate.Header.Set("Accept", accept)
 	requestTemplate.Header.Set("User-Agent", iiifImporterUserAgent)
@@ -132,11 +143,11 @@ func iiifUpstreamStatusRetryable(status int) bool {
 	}
 }
 
-func manifestSourceStatusError(operation string, status int) error {
+func manifestSourceStatusError(operation string, status int, unavailableError, rejectedError error) error {
 	if iiifUpstreamStatusRetryable(status) || status >= http.StatusInternalServerError {
-		return fmt.Errorf("%w: %s: status %d", errManifestSourceUnavailable, operation, status)
+		return fmt.Errorf("%w: %s: status %d", unavailableError, operation, status)
 	}
-	return fmt.Errorf("%w: %s: status %d", errManifestSourceRejected, operation, status)
+	return fmt.Errorf("%w: %s: status %d", rejectedError, operation, status)
 }
 
 func waitForIIIFUpstreamRetry(ctx context.Context, delay time.Duration) error {

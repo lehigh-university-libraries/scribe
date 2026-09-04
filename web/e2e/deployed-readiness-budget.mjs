@@ -118,6 +118,13 @@ const retryableUploadHTTPResponseKinds = new Map([
   [503, "http-503"],
   [504, "http-504"],
 ]);
+const manifestSourceFailureKinds = new Map([
+  ["unavailable\0manifest document source is temporarily unavailable", "document-unavailable"],
+  ["unavailable\0manifest hOCR source is temporarily unavailable", "hocr-unavailable"],
+  ["failed_precondition\0manifest document source rejected the import request", "document-rejected"],
+  ["failed_precondition\0manifest hOCR source rejected the import request", "hocr-rejected"],
+]);
+const manifestSourceFailureCategories = new Set(manifestSourceFailureKinds.values());
 const retryableUploadResponseKinds = new Set([
   ...retryableUploadConnectResponseKinds.values(),
   ...retryableUploadHTTPResponseKinds.values(),
@@ -264,6 +271,20 @@ export function classifyManifestResponseFailure(args = {}) {
   if (status >= 400 && status <= 499) return "http-other-4xx";
   if (status >= 500 && status <= 599) return "http-other-5xx";
   return undefined;
+}
+
+export function classifyManifestSourceFailure({ connectCode, connectMessage, snapshotValid = false } = {}) {
+  if (!snapshotValid || typeof connectCode !== "string" || typeof connectMessage !== "string") {
+    return undefined;
+  }
+  return manifestSourceFailureKinds.get(`${connectCode}\0${connectMessage}`);
+}
+
+export function manifestSourceFailureMarker(category) {
+  if (!manifestSourceFailureCategories.has(category)) {
+    throw new TypeError("invalid manifest source failure category");
+  }
+  return `browser readiness manifest source: ${category}`;
 }
 
 export function uploadRetryableResponseMarker(kind) {
