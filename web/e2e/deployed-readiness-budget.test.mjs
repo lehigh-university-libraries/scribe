@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   classifyDurableUploadFailure,
+  classifyManifestResponseFailure,
   classifyRetryableUploadResponse,
   classifyUploadFailure,
   cleanupCommitHorizonMs,
@@ -29,11 +30,19 @@ test("manifest substages have distinct task-status exit codes", () => {
     "import-response-connect-unknown", "import-response-http-408", "import-response-http-409",
     "import-response-http-425", "import-response-http-429", "import-response-http-500",
     "import-response-http-502", "import-response-http-503", "import-response-http-504",
+    "import-response-connect-canceled", "import-response-connect-invalid-argument",
+    "import-response-connect-not-found", "import-response-connect-permission-denied",
+    "import-response-connect-failed-precondition", "import-response-connect-out-of-range",
+    "import-response-connect-unimplemented", "import-response-connect-data-loss",
+    "import-response-connect-unauthenticated", "import-response-http-400",
+    "import-response-http-401", "import-response-http-403", "import-response-http-404",
+    "import-response-http-other-4xx", "import-response-http-other-5xx",
   ];
   assert.deepEqual(substages.map(manifestFailureExitCode), [
     75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
     90, 91, 92, 93, 94, 95,
     96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
+    111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
   ]);
   assert.throws(() => manifestFailureExitCode("raw-error"), /invalid manifest failure substage/);
 });
@@ -176,6 +185,62 @@ test("retryable upload response classifier uses exact Connect codes before fixed
     () => uploadRetryableResponseMarker("gateway-private"),
     /invalid upload retryable response kind/,
   );
+});
+
+test("manifest response classifier safely identifies terminal Connect and HTTP failures", () => {
+  const connectCases = [
+    ["canceled", "connect-canceled"],
+    ["invalid_argument", "connect-invalid-argument"],
+    ["not_found", "connect-not-found"],
+    ["permission_denied", "connect-permission-denied"],
+    ["failed_precondition", "connect-failed-precondition"],
+    ["out_of_range", "connect-out-of-range"],
+    ["unimplemented", "connect-unimplemented"],
+    ["data_loss", "connect-data-loss"],
+    ["unauthenticated", "connect-unauthenticated"],
+  ];
+  const httpCases = [
+    [400, "http-400"],
+    [401, "http-401"],
+    [403, "http-403"],
+    [404, "http-404"],
+    [418, "http-other-4xx"],
+    [501, "http-other-5xx"],
+  ];
+
+  for (const [connectCode, expected] of connectCases) {
+    assert.equal(
+      classifyManifestResponseFailure({ connectCode, snapshotValid: true, status: 503 }),
+      expected,
+    );
+  }
+  for (const [status, expected] of httpCases) {
+    assert.equal(classifyManifestResponseFailure({ status }), expected);
+  }
+
+  assert.equal(
+    classifyManifestResponseFailure({ connectCode: "internal", snapshotValid: true, status: 403 }),
+    "connect-internal",
+  );
+  assert.equal(classifyManifestResponseFailure({ status: 503 }), "http-503");
+  assert.equal(
+    classifyManifestResponseFailure({ connectCode: "private", snapshotValid: true, status: 403 }),
+    undefined,
+  );
+  assert.equal(
+    classifyManifestResponseFailure({ snapshotValid: true, status: 403 }),
+    undefined,
+  );
+  assert.equal(
+    classifyManifestResponseFailure({ connectCode: "INVALID_ARGUMENT", snapshotValid: true }),
+    undefined,
+  );
+  assert.equal(
+    classifyManifestResponseFailure({ connectCode: 3, snapshotValid: true }),
+    undefined,
+  );
+  assert.equal(classifyManifestResponseFailure({ status: 399 }), undefined);
+  assert.equal(classifyManifestResponseFailure({ status: "403" }), undefined);
 });
 
 test("upload failure classifier emits only fixed request and handoff substages", () => {
