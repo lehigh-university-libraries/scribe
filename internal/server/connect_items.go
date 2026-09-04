@@ -60,9 +60,13 @@ const (
 )
 
 var (
-	errManifestImportBudgetExceeded = errors.New("manifest import byte budget exceeded")
-	errManifestSourceRejected       = errors.New("manifest source rejected")
-	errManifestSourceUnavailable    = errors.New("manifest source unavailable")
+	errManifestImportBudgetExceeded   = errors.New("manifest import byte budget exceeded")
+	errManifestSourceRejected         = errors.New("manifest source rejected")
+	errManifestSourceUnavailable      = errors.New("manifest source unavailable")
+	errManifestDocumentSourceRejected = fmt.Errorf("manifest document: %w", errManifestSourceRejected)
+	errManifestDocumentUnavailable    = fmt.Errorf("manifest document: %w", errManifestSourceUnavailable)
+	errManifestHOCRSourceRejected     = fmt.Errorf("manifest hOCR: %w", errManifestSourceRejected)
+	errManifestHOCRSourceUnavailable  = fmt.Errorf("manifest hOCR: %w", errManifestSourceUnavailable)
 )
 
 // --- ItemService Connect handlers ---
@@ -1083,6 +1087,14 @@ func manifestImportConnectError(err error) error {
 		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("manifest import timed out"))
 	case errors.Is(err, errManifestImportBudgetExceeded):
 		return connect.NewError(connect.CodeResourceExhausted, err)
+	case errors.Is(err, errManifestDocumentUnavailable):
+		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("manifest document source is temporarily unavailable"))
+	case errors.Is(err, errManifestHOCRSourceUnavailable):
+		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("manifest hOCR source is temporarily unavailable"))
+	case errors.Is(err, errManifestDocumentSourceRejected):
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("manifest document source rejected the import request"))
+	case errors.Is(err, errManifestHOCRSourceRejected):
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("manifest hOCR source rejected the import request"))
 	case errors.Is(err, errManifestSourceUnavailable):
 		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("manifest source is temporarily unavailable"))
 	case errors.Is(err, errManifestSourceRejected):
@@ -1175,7 +1187,7 @@ func prefetchManifestHOCR(ctx context.Context, canvases []canvasInfo, maxTotalBy
 				}
 				parsedHOCR, parseErr := hocr.ParseDocument(hocrXML)
 				if parseErr != nil {
-					return fmt.Errorf("%w: parse hOCR for canvas %d: invalid document", errManifestSourceRejected, index+1)
+					return fmt.Errorf("%w: parse hOCR for canvas %d: invalid document", errManifestHOCRSourceRejected, index+1)
 				}
 				plainText := hocr.PlainText(parsedHOCR.Lines)
 				hocrBytes := uint64(len(hocrXML))
@@ -1215,16 +1227,27 @@ func fetchHOCRContent(ctx context.Context, hocrURL string, maxBytes int64, aggre
 	if aggregateBudget == nil {
 		return "", 0, fmt.Errorf("%w: aggregate response budget is required", errManifestImportBudgetExceeded)
 	}
-	resp, err := fetchIIIFUpstreamResponse(ctx, hocrURL, iiifHOCRAccept)
+	resp, err := fetchIIIFUpstreamResponse(
+		ctx,
+		hocrURL,
+		iiifHOCRAccept,
+		errManifestHOCRSourceUnavailable,
+		errManifestHOCRSourceRejected,
+	)
 	if err != nil {
-		if errors.Is(err, errManifestSourceRejected) {
+		if errors.Is(err, errManifestHOCRSourceRejected) {
 			return "", 0, err
 		}
-		return "", 0, fmt.Errorf("%w: fetch hOCR: %w", errManifestSourceUnavailable, err)
+		return "", 0, fmt.Errorf("%w: fetch hOCR: %w", errManifestHOCRSourceUnavailable, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", 0, manifestSourceStatusError("fetch hOCR", resp.StatusCode)
+		return "", 0, manifestSourceStatusError(
+			"fetch hOCR",
+			resp.StatusCode,
+			errManifestHOCRSourceUnavailable,
+			errManifestHOCRSourceRejected,
+		)
 	}
 	if resp.ContentLength > maxBytes {
 		return "", 0, fmt.Errorf("%w: response exceeds %d bytes", errManifestImportBudgetExceeded, maxBytes)

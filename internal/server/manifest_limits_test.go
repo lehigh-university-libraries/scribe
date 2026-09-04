@@ -116,7 +116,7 @@ func TestFetchIIIFManifestBoundsPersistentRateLimit(t *testing.T) {
 	t.Cleanup(source.Close)
 
 	_, _, err := fetchIIIFManifest(context.Background(), source.URL, 1)
-	if err == nil || !errors.Is(err, errManifestSourceUnavailable) || !strings.Contains(err.Error(), "status 429") {
+	if err == nil || !errors.Is(err, errManifestDocumentUnavailable) || !strings.Contains(err.Error(), "status 429") {
 		t.Fatalf("persistent rate-limit error = %v, want status 429", err)
 	}
 	if got := requests.Load(); got != 3 {
@@ -133,7 +133,7 @@ func TestFetchIIIFManifestDoesNotRetryTerminalStatus(t *testing.T) {
 	t.Cleanup(source.Close)
 
 	_, _, err := fetchIIIFManifest(context.Background(), source.URL, 1)
-	if err == nil || !errors.Is(err, errManifestSourceRejected) || !strings.Contains(err.Error(), "status 403") {
+	if err == nil || !errors.Is(err, errManifestDocumentSourceRejected) || !strings.Contains(err.Error(), "status 403") {
 		t.Fatalf("terminal status error = %v, want rejected status 403", err)
 	}
 	if got := requests.Load(); got != 1 {
@@ -262,7 +262,13 @@ func TestFetchIIIFUpstreamResponseRetriesTransportFailures(t *testing.T) {
 	}))
 	t.Cleanup(source.Close)
 
-	resp, err := fetchIIIFUpstreamResponse(context.Background(), source.URL, iiifHOCRAccept)
+	resp, err := fetchIIIFUpstreamResponse(
+		context.Background(),
+		source.URL,
+		iiifHOCRAccept,
+		errManifestHOCRSourceUnavailable,
+		errManifestHOCRSourceRejected,
+	)
 	if err != nil {
 		t.Fatalf("fetchIIIFUpstreamResponse after transport failures: %v", err)
 	}
@@ -281,6 +287,10 @@ func TestManifestImportConnectErrorClassifiesSourceAvailabilityWithoutDetails(t 
 	}{
 		{name: "transient upstream", err: fmt.Errorf("%w: private detail", errManifestSourceUnavailable), code: connect.CodeUnavailable, want: "manifest source is temporarily unavailable"},
 		{name: "terminal upstream", err: fmt.Errorf("%w: private detail", errManifestSourceRejected), code: connect.CodeFailedPrecondition, want: "manifest source rejected the import request"},
+		{name: "document unavailable", err: fmt.Errorf("%w: private detail", errManifestDocumentUnavailable), code: connect.CodeUnavailable, want: "manifest document source is temporarily unavailable"},
+		{name: "hOCR unavailable", err: fmt.Errorf("%w: private detail", errManifestHOCRSourceUnavailable), code: connect.CodeUnavailable, want: "manifest hOCR source is temporarily unavailable"},
+		{name: "document rejected", err: fmt.Errorf("%w: private detail", errManifestDocumentSourceRejected), code: connect.CodeFailedPrecondition, want: "manifest document source rejected the import request"},
+		{name: "hOCR rejected", err: fmt.Errorf("%w: private detail", errManifestHOCRSourceRejected), code: connect.CodeFailedPrecondition, want: "manifest hOCR source rejected the import request"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
