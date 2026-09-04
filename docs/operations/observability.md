@@ -120,7 +120,10 @@ separately isolate live editor-transform and preserve-hOCR import failures.
 Manifest failures add one fixed substage spanning library navigation, import,
 editor mount, both Canvas/image/annotation checks, overlay cycling, and both
 publication checks; no URL, item identity, response, or source payload is
-logged.
+logged. Each manifest substage also has a distinct reserved task exit code.
+The production transport recovers only that fixed mapping from typed task
+status when Cloud Logging is unavailable, so the protected workflow retains
+the substage without reading or rendering raw browser output.
 Other same-origin failures use only fixed endpoint-family and
 client/server/transport network variants; their exact task exit codes remain
 available when the allowlisted Cloud Logging query is unavailable. Browser

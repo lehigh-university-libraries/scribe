@@ -71,6 +71,25 @@ func TestRunnerCompletesExactCredentialLifecycle(t *testing.T) {
 	}
 }
 
+func TestRunnerReportsTypedBrowserTaskFailure(t *testing.T) {
+	t.Parallel()
+	request := validTestRequest(t)
+	now := time.Unix(2_000_000_000, 0)
+	client := newFakeTransportClient(now)
+	client.readiness = func() error {
+		return browserReadinessFailure{category: "manifest-first-image"}
+	}
+	runner := NewRunner(client, WithClock(func() time.Time { return now }), WithRandomSource(bytes.NewReader(make([]byte, 10))))
+	var stderr bytes.Buffer
+	result := runner.Run(context.Background(), request, nil, &stderr)
+	if result.ExitCode != ExitInvalidInvocation || result.Category != "browser-execution-manifest-first-image" {
+		t.Fatalf("Run() = %+v; stderr=%q", result, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Production browser readiness transport failed: browser-execution-manifest-first-image.") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestRunnerPreflightFailureHasNoCloudOrRemoteMutation(t *testing.T) {
 	t.Parallel()
 	request := validTestRequest(t)

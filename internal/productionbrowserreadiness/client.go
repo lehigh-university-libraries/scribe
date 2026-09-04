@@ -8,27 +8,29 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	secretCommandTimeout     = 30 * time.Second
-	jobUpdateTimeout         = 180 * time.Second
-	jobAttestTimeout         = 30 * time.Second
-	remoteCallTimeout        = 180 * time.Second
-	remotePrepareCallTimeout = 9 * time.Minute
-	remoteMintCallTimeout    = 14 * time.Minute
-	remoteCleanupCallTimeout = 7 * time.Minute
-	readinessTimeout         = 50 * time.Minute
-	readinessKillGrace       = 46 * time.Minute
-	commandKillGrace         = 5 * time.Second
-	jobUpdateAttempts        = 3
-	jobAttestAttempts        = 3
-	destroyAttempts          = 5
-	remoteCleanupAttempts    = 3
-	maximumSecretVersions    = 64
-	browserStateVariable     = "SCRIBE_BROWSER_STORAGE_STATE_JSON"
+	secretCommandTimeout             = 30 * time.Second
+	jobUpdateTimeout                 = 180 * time.Second
+	jobAttestTimeout                 = 30 * time.Second
+	remoteCallTimeout                = 180 * time.Second
+	remotePrepareCallTimeout         = 9 * time.Minute
+	remoteMintCallTimeout            = 14 * time.Minute
+	remoteCleanupCallTimeout         = 7 * time.Minute
+	readinessTimeout                 = 50 * time.Minute
+	readinessKillGrace               = 46 * time.Minute
+	maximumReadinessDiagnosticsBytes = 128 << 10
+	commandKillGrace                 = 5 * time.Second
+	jobUpdateAttempts                = 3
+	jobAttestAttempts                = 3
+	destroyAttempts                  = 5
+	remoteCleanupAttempts            = 3
+	maximumSecretVersions            = 64
+	browserStateVariable             = "SCRIBE_BROWSER_STORAGE_STATE_JSON"
 )
 
 var (
@@ -36,7 +38,34 @@ var (
 	anyVersionPattern             = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
 	numericProjectPattern         = regexp.MustCompile(`^[1-9][0-9]{5,19}$`)
 	errSecretInventoryUnavailable = errors.New("secret manager inventory unavailable")
+	browserTaskDiagnosticPattern  = regexp.MustCompile(`^\[task\] index=(?:unknown|[0-9]+) retried=(?:unknown|[0-9]+) exit_code=([0-9]+) term_signal=(?:unknown|[0-9]+) status_code=(?:unknown|[0-9]+)$`)
 )
+
+var manifestTaskFailureCategories = [...]string{
+	"library-navigation",
+	"import-form",
+	"import-request",
+	"import-contract",
+	"editor-navigation",
+	"editor-mount",
+	"first-canvas",
+	"first-image",
+	"first-annotations",
+	"first-publication",
+	"second-image",
+	"second-canvas",
+	"second-annotations",
+	"second-overlay",
+	"second-publication",
+}
+
+type browserReadinessFailure struct {
+	category string
+}
+
+func (failure browserReadinessFailure) Error() string {
+	return "production browser readiness execution failed"
+}
 
 // SecretState is the canonical Secret Manager API version state.
 type SecretState string
@@ -148,6 +177,53 @@ func (client *GCloudClient) Preflight(ctx context.Context, request Request) erro
 		return errCommandFailed
 	}
 	return nil
+}
+
+func browserTaskFailureCategory(path string) string {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maximumReadinessDiagnosticsBytes {
+		return ""
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil || !os.SameFile(info, openedInfo) || !openedInfo.Mode().IsRegular() {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maximumReadinessDiagnosticsBytes+1))
+	if err != nil || len(data) == 0 || len(data) > maximumReadinessDiagnosticsBytes {
+		return ""
+	}
+
+	category := ""
+	for _, line := range strings.Split(strings.TrimSuffix(string(data), "\n"), "\n") {
+		matches := browserTaskDiagnosticPattern.FindStringSubmatch(line)
+		if len(matches) != 2 {
+			continue
+		}
+		exitCode, err := strconv.Atoi(matches[1])
+		if err != nil {
+			return ""
+		}
+		candidate := ""
+		switch {
+		case exitCode == 35:
+			candidate = "manifest"
+		case exitCode >= 75 && exitCode < 75+len(manifestTaskFailureCategories):
+			candidate = "manifest-" + manifestTaskFailureCategories[exitCode-75]
+		}
+		if candidate == "" {
+			continue
+		}
+		if category != "" {
+			return ""
+		}
+		category = candidate
+	}
+	return category
 }
 
 // SetJobSecretVersion completes the desired mutation and then independently
@@ -463,6 +539,9 @@ func (client *GCloudClient) RunReadiness(ctx context.Context, request Request, v
 		maximumCommandOutput,
 	)
 	if result.err != nil || result.exitCode != 0 {
+		if category := browserTaskFailureCategory(request.DiagnosticsPath); category != "" {
+			return browserReadinessFailure{category: category}
+		}
 		return errCommandFailed
 	}
 	return nil

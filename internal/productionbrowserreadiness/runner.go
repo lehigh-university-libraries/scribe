@@ -214,7 +214,7 @@ func (runner *Runner) runLifecycle(ctx context.Context, state *lifecycleState) s
 		return "local-state-cleanup"
 	}
 	if err := runner.client.RunReadiness(ctx, request, state.cleanupVersion, stateDigest); err != nil {
-		return operationCategory(ctx, "browser-execution")
+		return browserExecutionCategory(ctx, err)
 	}
 	if err := runner.client.SetJobSecretVersion(ctx, request, "1"); err != nil {
 		return operationCategory(ctx, "job-secret-restore")
@@ -229,6 +229,17 @@ func (runner *Runner) runLifecycle(ctx context.Context, state *lifecycleState) s
 	state.secretAddPossible = false
 	state.jobRestoreRequired = false
 	return ""
+}
+
+func browserExecutionCategory(ctx context.Context, err error) string {
+	if contextStopped(ctx) {
+		return operationCategory(ctx, "browser-execution")
+	}
+	var failure browserReadinessFailure
+	if errors.As(err, &failure) && failure.category != "" {
+		return "browser-execution-" + failure.category
+	}
+	return "browser-execution"
 }
 
 func (runner *Runner) finish(
