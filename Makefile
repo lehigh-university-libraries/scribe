@@ -193,6 +193,7 @@ ops-tests: install-shell-tools reset-dev-db-test ## Exercise deployment, identit
 	@bash ./ci/preview-vault-secrets_test.sh
 	@bash ./ci/vault-policy-capabilities_test.sh
 	@bash ./ci/vault-retry_test.sh
+	@bash ./ci/npm-audit_test.sh
 	@bash ./ci/vault-terraform-readiness_test.sh
 	@bash ./ci/publish-preview-images_test.sh
 	@bash ./ci/resolve-gar-image_test.sh

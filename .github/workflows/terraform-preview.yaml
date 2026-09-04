@@ -209,7 +209,7 @@ jobs:
         env:
           BACKEND_TAG: ${{ needs.prepare.outputs.image_tag }}
           FRONTEND_TAG: ${{ needs.prepare.outputs.frontend_image_tag }}
-          SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:9fb5c292a0a96ebf9c52076a64e33def0964258ba8e5903aea449e74a27f9914
+          SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:8d25aabcf965e267b6a6ad02ff8da5512f77de1490063625093ff564797e88bc
         run: ./ci/publish-preview-images.sh
   resolve-production-ocr-images:
     if: needs.prepare.outputs.mode == 'apply'
