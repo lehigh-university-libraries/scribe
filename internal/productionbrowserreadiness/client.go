@@ -180,11 +180,17 @@ func (client *GCloudClient) Preflight(ctx context.Context, request Request) erro
 }
 
 func browserTaskFailureCategory(path string) string {
-	info, err := os.Lstat(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return ""
+	}
+	defer root.Close()
+	target := filepath.Base(path)
+	info, err := root.Lstat(target)
 	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maximumReadinessDiagnosticsBytes {
 		return ""
 	}
-	file, err := os.Open(path)
+	file, err := root.Open(target)
 	if err != nil {
 		return ""
 	}
