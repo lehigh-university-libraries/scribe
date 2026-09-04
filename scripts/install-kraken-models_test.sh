@@ -241,7 +241,7 @@ if [ -e "${test_root}/models-collision" ] || [ -e "${test_root}/data-collision" 
   exit 1
 fi
 
-# shellcheck disable=SC2031
+# shellcheck disable=SC2030,SC2031
 if (
   export KRAKEN_MODEL_DIR="${test_root}/models-invalid-doi"
   export KRAKEN_TMP_DATA_DIR="${test_root}/data-invalid-doi"
