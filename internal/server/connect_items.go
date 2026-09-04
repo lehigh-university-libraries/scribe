@@ -69,6 +69,13 @@ var (
 	errManifestHOCRSourceUnavailable  = fmt.Errorf("manifest hOCR: %w", errManifestSourceUnavailable)
 )
 
+const (
+	manifestDocumentUnavailableMessage = "manifest document source is temporarily unavailable"
+	manifestHOCRUnavailableMessage     = "manifest hOCR source is temporarily unavailable"
+	manifestDocumentRejectedMessage    = "manifest document source rejected the import request"
+	manifestHOCRRejectedMessage        = "manifest hOCR source rejected the import request"
+)
+
 // --- ItemService Connect handlers ---
 
 func (h *Handler) ListItems(ctx context.Context, req *connect.Request[scribev1.ListItemsRequest]) (*connect.Response[scribev1.ListItemsResponse], error) {
@@ -1088,13 +1095,13 @@ func manifestImportConnectError(err error) error {
 	case errors.Is(err, errManifestImportBudgetExceeded):
 		return connect.NewError(connect.CodeResourceExhausted, err)
 	case errors.Is(err, errManifestDocumentUnavailable):
-		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("manifest document source is temporarily unavailable"))
+		return connect.NewError(connect.CodeUnavailable, errors.New(manifestDocumentUnavailableMessage))
 	case errors.Is(err, errManifestHOCRSourceUnavailable):
-		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("manifest hOCR source is temporarily unavailable"))
+		return connect.NewError(connect.CodeUnavailable, errors.New(manifestHOCRUnavailableMessage))
 	case errors.Is(err, errManifestDocumentSourceRejected):
-		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("manifest document source rejected the import request"))
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New(manifestDocumentRejectedMessage))
 	case errors.Is(err, errManifestHOCRSourceRejected):
-		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("manifest hOCR source rejected the import request"))
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New(manifestHOCRRejectedMessage))
 	case errors.Is(err, errManifestSourceUnavailable):
 		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("manifest source is temporarily unavailable"))
 	case errors.Is(err, errManifestSourceRejected):

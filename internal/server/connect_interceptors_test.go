@@ -3,7 +3,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -34,6 +36,119 @@ func TestConnectErrorSanitizerRedactsInternalDetails(t *testing.T) {
 	}
 	if len(connectErr.Meta()) != 0 {
 		t.Fatalf("sanitized metadata = %#v, want empty", connectErr.Meta())
+	}
+}
+
+func TestConnectErrorSanitizerPreservesOnlyAllowlistedManifestAvailability(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "manifest document",
+			err:  manifestImportConnectError(fmt.Errorf("%w: private upstream detail", errManifestDocumentUnavailable)),
+			want: manifestDocumentUnavailableMessage,
+		},
+		{
+			name: "manifest hOCR",
+			err:  manifestImportConnectError(fmt.Errorf("%w: private upstream detail", errManifestHOCRSourceUnavailable)),
+			want: manifestHOCRUnavailableMessage,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var sourceConnectErr *connect.Error
+			if !errors.As(test.err, &sourceConnectErr) {
+				t.Fatalf("source error type = %T, want *connect.Error", test.err)
+			}
+			sourceConnectErr.Meta().Set("X-Private-Upstream", "database.internal")
+			detail, detailErr := connect.NewErrorDetail(&scribev1.GetItemRequest{ItemId: "PRIVATE_ITEM_ID"})
+			if detailErr != nil {
+				t.Fatalf("create private error detail: %v", detailErr)
+			}
+			sourceConnectErr.AddDetail(detail)
+			sanitized := sanitizeConnectError(fmt.Errorf("outer private topology: %w", test.err))
+			var connectErr *connect.Error
+			if !errors.As(sanitized, &connectErr) {
+				t.Fatalf("sanitized error type = %T, want *connect.Error", sanitized)
+			}
+			if connectErr.Code() != connect.CodeUnavailable || connectErr.Message() != test.want {
+				t.Fatalf("sanitized error = %v/%q, want unavailable/%q", connectErr.Code(), connectErr.Message(), test.want)
+			}
+			if len(connectErr.Meta()) != 0 || len(connectErr.Details()) != 0 {
+				t.Fatalf("sanitized error retained metadata or details: metadata=%v details=%v", connectErr.Meta(), connectErr.Details())
+			}
+			for _, privateDetail := range []string{"private upstream detail", "outer private topology", "database.internal", "PRIVATE_ITEM_ID"} {
+				if strings.Contains(sanitized.Error(), privateDetail) {
+					t.Fatalf("sanitized error retained private detail %q: %v", privateDetail, sanitized)
+				}
+			}
+		})
+	}
+
+	for _, message := range []string{
+		"manifest source is temporarily unavailable",
+		manifestDocumentUnavailableMessage + " private suffix",
+		"transcription provider is temporarily unavailable",
+	} {
+		sanitized := sanitizeConnectError(connect.NewError(connect.CodeUnavailable, errors.New(message)))
+		var connectErr *connect.Error
+		if !errors.As(sanitized, &connectErr) || connectErr.Message() != "service unavailable" {
+			t.Fatalf("non-allowlisted message %q sanitized to %v, want generic unavailable", message, sanitized)
+		}
+	}
+}
+
+func TestConnectErrorSanitizerPreservesManifestAvailabilityOnWire(t *testing.T) {
+	t.Parallel()
+
+	for _, message := range []string{manifestDocumentUnavailableMessage, manifestHOCRUnavailableMessage} {
+		message := message
+		t.Run(message, func(t *testing.T) {
+			t.Parallel()
+			sourceErr := connect.NewError(connect.CodeUnavailable, errors.New(message))
+			sourceErr.Meta().Set("X-Private-Upstream", "database.internal")
+			detail, err := connect.NewErrorDetail(&scribev1.GetItemRequest{ItemId: "PRIVATE_ITEM_ID"})
+			if err != nil {
+				t.Fatalf("create private error detail: %v", err)
+			}
+			sourceErr.AddDetail(detail)
+			handler := connect.NewUnaryHandler(
+				"/test.v1.TestService/GetItem",
+				func(context.Context, *connect.Request[scribev1.GetItemRequest]) (*connect.Response[scribev1.GetItemResponse], error) {
+					return nil, fmt.Errorf("outer private topology: %w", sourceErr)
+				},
+				connect.WithInterceptors(connectErrorSanitizerInterceptor{}),
+			)
+			request := httptest.NewRequest(http.MethodPost, "/test.v1.TestService/GetItem", strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Connect-Protocol-Version", "1")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+
+			if response.Code != http.StatusServiceUnavailable {
+				t.Fatalf("HTTP status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+			}
+			var payload struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+				Details []any  `json:"details"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("decode Connect error: %v", err)
+			}
+			if payload.Code != connect.CodeUnavailable.String() || payload.Message != message || len(payload.Details) != 0 {
+				t.Fatalf("Connect payload = %#v, want unavailable/%q without details", payload, message)
+			}
+			for _, privateDetail := range []string{"outer private topology", "database.internal", "PRIVATE_ITEM_ID", "X-Private-Upstream"} {
+				if strings.Contains(response.Body.String(), privateDetail) || response.Header().Get("X-Private-Upstream") != "" {
+					t.Fatalf("Connect response retained private detail %q", privateDetail)
+				}
+			}
+		})
 	}
 }
 
