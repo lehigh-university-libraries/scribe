@@ -6,12 +6,27 @@ import {
   classifyRetryableUploadResponse,
   classifyUploadFailure,
   cleanupCommitHorizonMs,
+  initialIngressRetryDelayMs,
   remainingUploadSequenceTimeoutMs,
   uploadDurableFailureMarker,
   uploadFailureMarker,
   uploadRequestTimeoutMs,
   uploadRetryableResponseMarker,
 } from "./deployed-readiness-budget.mjs";
+
+test("initial ingress retries transient failures only inside the existing deadline", () => {
+  assert.equal(initialIngressRetryDelayMs(10_000, 2_000, 7_999), 2_000);
+  assert.equal(initialIngressRetryDelayMs(10_000, 2_000, 8_000), 0);
+  assert.equal(initialIngressRetryDelayMs(10_000, 2_000, 10_001), 0);
+  assert.throws(
+    () => initialIngressRetryDelayMs(Number.NaN, 2_000, 1_000),
+    /retry budget must be finite and positive/,
+  );
+  assert.throws(
+    () => initialIngressRetryDelayMs(10_000, 0, 1_000),
+    /retry budget must be finite and positive/,
+  );
+});
 
 test("upload sequence uses the remaining scenario deadline without widening request cleanup", () => {
   const scenarioStartedAt = 1_000_000;
