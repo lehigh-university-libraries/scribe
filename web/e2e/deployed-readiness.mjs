@@ -1377,6 +1377,30 @@ async function uploadAttemptRetryableResponseKind(attempt) {
   return classifyRetryableUploadResponse({ connectCode, snapshotValid, status: outcome.status });
 }
 
+async function manifestResponseFailureSubstage(response) {
+  let connectCode;
+  let snapshotValid = false;
+  const snapshot = responseJSONSnapshots.get(response);
+  if (snapshot) {
+    try {
+      const result = await snapshot;
+      if (result.ok) {
+        snapshotValid = true;
+        connectCode = result.payload?.code;
+      }
+    } catch {
+      // The fixed HTTP status remains usable when the capped JSON snapshot is
+      // absent, malformed, oversized, or otherwise unreadable.
+    }
+  }
+  const responseKind = classifyRetryableUploadResponse({
+    connectCode,
+    snapshotValid,
+    status: response.status(),
+  });
+  return responseKind ? `import-response-${responseKind}` : "import-response-status";
+}
+
 async function uploadAttemptIsRetryable(attempt) {
   const outcome = attempt?.outcome;
   if (!outcome || outcome.kind === "transport") return outcome?.status === 0;
@@ -3361,7 +3385,10 @@ try {
   await page.getByRole("button", { name: "Ingest manifest", exact: true }).click();
   const manifestResponse = await manifestResponsePromise;
   manifestFailureSubstage = "import-response-status";
-  if (!manifestResponse.ok()) throw new Error("manifest import failed");
+  if (!manifestResponse.ok()) {
+    manifestFailureSubstage = await manifestResponseFailureSubstage(manifestResponse);
+    throw new Error("manifest import failed");
+  }
   manifestFailureSubstage = "import-response-settlement";
   await waitForMutationResponsesToSettle(manifestMutation);
   requireTerminalRequestSuccess(manifestResponse, "manifest import request failed");
