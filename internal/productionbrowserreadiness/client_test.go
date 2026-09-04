@@ -3,12 +3,64 @@ package productionbrowserreadiness
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestBrowserTaskFailureCategoryAcceptsOnlyReservedTypedStatuses(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		exitCode string
+		want     string
+	}{
+		"legacy manifest":    {exitCode: "35", want: "manifest"},
+		"library navigation": {exitCode: "75", want: "manifest-library-navigation"},
+		"second publication": {exitCode: "89", want: "manifest-second-publication"},
+		"unreserved":         {exitCode: "90", want: ""},
+		"unknown":            {exitCode: "unknown", want: ""},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "readiness.log")
+			line := "[task] index=0 retried=0 exit_code=" + test.exitCode + " term_signal=0 status_code=10\n"
+			if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got := browserTaskFailureCategory(path); got != test.want {
+				t.Fatalf("browserTaskFailureCategory() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestBrowserTaskFailureCategoryRejectsAmbiguousOrUnsafeDiagnostics(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	valid := "[task] index=0 retried=0 exit_code=75 term_signal=0 status_code=10\n"
+	duplicate := filepath.Join(directory, "duplicate.log")
+	if err := os.WriteFile(duplicate, []byte(valid+valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := browserTaskFailureCategory(duplicate); got != "" {
+		t.Fatalf("duplicate task status produced category %q", got)
+	}
+	target := filepath.Join(directory, "target.log")
+	if err := os.WriteFile(target, []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(directory, "link.log")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if got := browserTaskFailureCategory(link); got != "" {
+		t.Fatalf("symlink diagnostics produced category %q", got)
+	}
+}
 
 func TestJobSecretVersionMatchesV1AndV2(t *testing.T) {
 	t.Parallel()
@@ -87,6 +139,28 @@ func TestGCloudReadinessUsesLongSettlementGraceAndExactMetadata(t *testing.T) {
 	}
 	if call.environment["SCRIBE_BROWSER_EXPECTED_SECRET_VERSION"] != "42" || call.environment["SCRIBE_BROWSER_EXPECTED_STORAGE_STATE_SHA256"] != digest {
 		t.Fatalf("environment = %#v", call.environment)
+	}
+}
+
+func TestGCloudReadinessRecoversManifestSubstageFromTypedTaskStatus(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "readiness.log")
+	line := "[task] index=0 retried=0 exit_code=82 term_signal=0 status_code=10\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		Project:                  "scribe-test",
+		Region:                   "us-east5",
+		Job:                      "scribe-browser-acde1234",
+		DiagnosticsPath:          path,
+		CloudReadinessExecutable: "/tools/cloud-readiness",
+	}
+	client := &GCloudClient{run: &recordingCommandRunner{results: []commandResult{{exitCode: 2, err: errCommandFailed}}}}
+	err := client.RunReadiness(context.Background(), request, "42", strings.Repeat("a", 64))
+	var failure browserReadinessFailure
+	if !errors.As(err, &failure) || failure.category != "manifest-first-image" {
+		t.Fatalf("RunReadiness() error = %#v", err)
 	}
 }
 

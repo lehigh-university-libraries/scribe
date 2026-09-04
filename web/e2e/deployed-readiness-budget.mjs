@@ -3,6 +3,30 @@
 export const uploadRequestTimeoutMs = 300_000;
 export const cleanupCommitHorizonMs = uploadRequestTimeoutMs;
 
+const manifestFailureExitCodes = new Map([
+  ["library-navigation", 75],
+  ["import-form", 76],
+  ["import-request", 77],
+  ["import-contract", 78],
+  ["editor-navigation", 79],
+  ["editor-mount", 80],
+  ["first-canvas", 81],
+  ["first-image", 82],
+  ["first-annotations", 83],
+  ["first-publication", 84],
+  ["second-image", 85],
+  ["second-canvas", 86],
+  ["second-annotations", 87],
+  ["second-overlay", 88],
+  ["second-publication", 89],
+]);
+
+export function manifestFailureExitCode(substage) {
+  const exitCode = manifestFailureExitCodes.get(substage);
+  if (exitCode === undefined) throw new TypeError("invalid manifest failure substage");
+  return exitCode;
+}
+
 export function initialIngressRetryDelayMs(deadline, retryIntervalMs, now = Date.now()) {
   if (![deadline, retryIntervalMs, now].every(Number.isFinite) || retryIntervalMs <= 0) {
     throw new TypeError("initial ingress retry budget must be finite and positive");

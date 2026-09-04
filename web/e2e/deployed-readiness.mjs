@@ -14,6 +14,7 @@ import {
   classifyUploadFailure,
   cleanupCommitHorizonMs,
   initialIngressRetryDelayMs,
+  manifestFailureExitCode,
   remainingUploadSequenceTimeoutMs,
   uploadDurableFailureMarker,
   uploadFailureMarker,
@@ -3754,7 +3755,9 @@ if (failureCategory) {
   if (failureCategory === "rate" && browserFaultRateFamily) {
     process.stderr.write(`browser readiness rate limit: ${browserFaultRateFamily}\n`);
   }
-  process.exitCode = readinessFailureExitCodes.get(failureCategory) ?? 1;
+  process.exitCode = failureCategory === "manifest"
+    ? manifestFailureExitCode(manifestFailureSubstage)
+    : readinessFailureExitCodes.get(failureCategory) ?? 1;
 } else {
   process.stdout.write("browser readiness passed\n");
 }

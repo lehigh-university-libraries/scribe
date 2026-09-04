@@ -7,12 +7,26 @@ import {
   classifyUploadFailure,
   cleanupCommitHorizonMs,
   initialIngressRetryDelayMs,
+  manifestFailureExitCode,
   remainingUploadSequenceTimeoutMs,
   uploadDurableFailureMarker,
   uploadFailureMarker,
   uploadRequestTimeoutMs,
   uploadRetryableResponseMarker,
 } from "./deployed-readiness-budget.mjs";
+
+test("manifest substages have distinct task-status exit codes", () => {
+  const substages = [
+    "library-navigation", "import-form", "import-request", "import-contract",
+    "editor-navigation", "editor-mount", "first-canvas", "first-image",
+    "first-annotations", "first-publication", "second-image", "second-canvas",
+    "second-annotations", "second-overlay", "second-publication",
+  ];
+  assert.deepEqual(substages.map(manifestFailureExitCode), [
+    75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
+  ]);
+  assert.throws(() => manifestFailureExitCode("raw-error"), /invalid manifest failure substage/);
+});
 
 test("initial ingress retries transient failures only inside the existing deadline", () => {
   assert.equal(initialIngressRetryDelayMs(10_000, 2_000, 7_999), 2_000);
