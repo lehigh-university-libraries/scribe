@@ -316,7 +316,9 @@ CSP console errors, unexpected native dialogs, missing annotations, and leaked
 cleanup state are failures. Cloud diagnostics admit only exact stage
 categories, including `structure`, `manifest`, and `rate`, plus fixed
 endpoint-family and client/server/transport variants for generic network
-failures. A `rate` marker is paired only with its fixed endpoint family, not a
+failures. A `manifest` marker is paired with one fixed, non-payload substage
+from library navigation through second-Canvas publication. A `rate` marker is
+paired only with its fixed endpoint family, not a
 path, request, response, or credential. A top-level `upload` marker may be paired only with separately
 allowlisted fixed substage and durable-failure markers. A final retryable image
 response also emits only a fixed marker for its exact canonical lowercase
