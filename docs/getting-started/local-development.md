@@ -111,7 +111,7 @@ OLLAMA_MODEL_ENDPOINTS_JSON={"glm-ocr:bf16":{"url":"https://OLLAMA-SERVICE-PROJE
 SEGMENTATION_SERVICE_URL=https://SEGMENTOR-SERVICE-PROJECT.REGION.run.app
 SEGMENTATION_SERVICE_AUDIENCE=https://SEGMENTOR-SERVICE-PROJECT.REGION.run.app
 SEGMENTATION_MODEL_ENDPOINTS_JSON={"kraken":{"url":"https://SEGMENTOR-SERVICE-PROJECT.REGION.run.app","audience":"https://SEGMENTOR-SERVICE-PROJECT.REGION.run.app"}}
-KRAKEN_MODEL_ENDPOINTS_JSON={"catmus-print-fondue-large.mlmodel":{"url":"https://KRAKEN-SERVICE-PROJECT.REGION.run.app","audience":"https://KRAKEN-SERVICE-PROJECT.REGION.run.app"}}
+KRAKEN_MODEL_ENDPOINTS_JSON={"catmus-medieval-1.6.0.mlmodel":{"url":"https://KRAKEN-SERVICE-PROJECT.REGION.run.app","audience":"https://KRAKEN-SERVICE-PROJECT.REGION.run.app"}}
 ```
 
 `GCLOUD_PROJECT` must be the project that owns the dev-only

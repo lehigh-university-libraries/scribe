@@ -24,7 +24,7 @@ const (
 	defaultOllamaModel       = "glm-ocr:bf16"
 	defaultOpenAIModel       = "gpt-4o"
 	defaultGeminiModel       = "gemini-3.5-flash"
-	defaultKrakenModel       = "catmus-print-fondue-large.mlmodel"
+	defaultKrakenModel       = "catmus-medieval-1.6.0.mlmodel"
 	defaultProviderTimeout   = 2 * time.Minute
 	defaultResponseByteLimit = int64(8 << 20)
 )

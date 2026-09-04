@@ -70,6 +70,11 @@ Useful starting points:
   context catalog, and create a workspace context with a registered Pro model
   when that distinction matters.
 - **Kraken** choices use administrator-built, digest-pinned model services.
+  The built-in **Kraken CATMuS** preset combines Kraken BLLA page segmentation
+  with CATMuS Medieval 1.6 recognition for handwritten medieval Latin and
+  Romance-language manuscripts. The separately registered CATMuS Print model
+  is intended for printed text; create a workspace context that selects it for
+  printed material.
 
 The context library displays run counts. Integrations can use
 `ContextService.GetContextMetrics` for corrected-run and average-distance

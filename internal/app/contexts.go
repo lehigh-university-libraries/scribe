@@ -49,7 +49,7 @@ func systemContexts(cfg config.Config) []store.Context {
 	if !geminiDescriptor.Capabilities.SystemPrompt {
 		geminiPrompt = ""
 	}
-	krakenModel, _ := registry.EffectiveModel("kraken", "")
+	krakenMedievalModel, _ := registry.EffectiveModel("kraken", "catmus-medieval-1.6.0.mlmodel")
 	return []store.Context{
 		defaultCtx,
 		{
@@ -72,11 +72,11 @@ func systemContexts(cfg config.Config) []store.Context {
 		},
 		{
 			Name:                  "Kraken CATMuS",
-			Description:           "Uses Scribe segmentation with Kraken transcription through the shared OCR service.",
+			Description:           "Uses Kraken BLLA page segmentation and CATMuS Medieval 1.6 recognition for handwritten medieval Latin and Romance-language manuscripts.",
 			IsDefault:             false,
-			SegmentationModel:     "scribe",
+			SegmentationModel:     "kraken",
 			TranscriptionProvider: "kraken",
-			TranscriptionModel:    krakenModel,
+			TranscriptionModel:    krakenMedievalModel,
 		},
 	}
 }

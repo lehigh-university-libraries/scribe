@@ -4,7 +4,7 @@ x-scribe-local-app-env: &scribe-local-app-env
   IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
   IIIF_SOURCE_BASE: http://api:8080/static/uploads
   TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3
-  KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-print-fondue-large.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
+  KRAKEN_MODEL_ENDPOINTS_JSON: '{"catmus-medieval-1.6.0.mlmodel":{"url":"http://segmentor:8080","audience":""}}'
   VAULT_TOKEN: ${VAULT_TOKEN:-}
 
 services:
