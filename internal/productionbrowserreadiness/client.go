@@ -81,6 +81,21 @@ var manifestRequestTaskFailureCategories = map[int]string{
 	108: "import-response-http-502",
 	109: "import-response-http-503",
 	110: "import-response-http-504",
+	111: "import-response-connect-canceled",
+	112: "import-response-connect-invalid-argument",
+	113: "import-response-connect-not-found",
+	114: "import-response-connect-permission-denied",
+	115: "import-response-connect-failed-precondition",
+	116: "import-response-connect-out-of-range",
+	117: "import-response-connect-unimplemented",
+	118: "import-response-connect-data-loss",
+	119: "import-response-connect-unauthenticated",
+	120: "import-response-http-400",
+	121: "import-response-http-401",
+	122: "import-response-http-403",
+	123: "import-response-http-404",
+	124: "import-response-http-other-4xx",
+	125: "import-response-http-other-5xx",
 }
 
 type browserReadinessFailure struct {

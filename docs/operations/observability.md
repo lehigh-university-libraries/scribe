@@ -121,12 +121,13 @@ Manifest failures add one fixed substage spanning library navigation, import,
 the bounded request-body/upstream-response/browser-delivery boundary, editor
 mount, both Canvas/image/annotation checks, overlay cycling, and both
 publication checks. A failed import response is further reduced through the
-same exact Connect-code and fallback HTTP-status vocabulary used for upload
-responses; any unrecognized response remains the generic response-status
-substage. The request boundary distinguishes only fixed phases and response
-categories; no URL, item identity, response body, error string, or source
-payload is logged. Each manifest substage also has a distinct reserved task
-exit code.
+retryable response vocabulary used for uploads, the remaining standard
+terminal Connect codes, or fixed HTTP client/server classes when no valid
+Connect response is available. Any unrecognized response remains the generic
+response-status substage. The request boundary distinguishes only fixed phases
+and response categories; no URL, item identity, response body, error string,
+or source payload is logged. Each manifest substage also has a distinct
+reserved task exit code.
 The production transport recovers only that fixed mapping from typed task
 status when Cloud Logging is unavailable, so the protected workflow retains
 the substage without reading or rendering raw browser output.

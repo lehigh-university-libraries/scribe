@@ -10,6 +10,7 @@ import { waitForActionByValue } from "./deployed-readiness-dom.mjs";
 import { exactStructuralSnapshot } from "./deployed-readiness-structure.mjs";
 import {
   classifyDurableUploadFailure,
+  classifyManifestResponseFailure,
   classifyRetryableUploadResponse,
   classifyUploadFailure,
   cleanupCommitHorizonMs,
@@ -1393,7 +1394,7 @@ async function manifestResponseFailureSubstage(response) {
       // absent, malformed, oversized, or otherwise unreadable.
     }
   }
-  const responseKind = classifyRetryableUploadResponse({
+  const responseKind = classifyManifestResponseFailure({
     connectCode,
     snapshotValid,
     status: response.status(),
