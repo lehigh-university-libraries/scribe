@@ -13,6 +13,7 @@ import {
   classifyRetryableUploadResponse,
   classifyUploadFailure,
   cleanupCommitHorizonMs,
+  initialIngressRetryDelayMs,
   remainingUploadSequenceTimeoutMs,
   uploadDurableFailureMarker,
   uploadFailureMarker,
@@ -659,6 +660,14 @@ async function warmInitialBrowserIngress() {
         ),
       });
     } catch {
+      const retryDelayMs = initialIngressRetryDelayMs(
+        deadline,
+        initialIngressRetryIntervalMs,
+      );
+      if (retryDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        continue;
+      }
       recordBrowserFault("network-document-transport");
       throw new Error("initial ingress warm-up transport failed");
     }
@@ -684,9 +693,12 @@ async function warmInitialBrowserIngress() {
     ) return;
 
     if (initialIngressResponseIsRetryable(responseURL, status, baseURL)) {
-      const remainingMs = deadline - Date.now();
-      if (remainingMs > initialIngressRetryIntervalMs) {
-        await new Promise((resolve) => setTimeout(resolve, initialIngressRetryIntervalMs));
+      const retryDelayMs = initialIngressRetryDelayMs(
+        deadline,
+        initialIngressRetryIntervalMs,
+      );
+      if (retryDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
         continue;
       }
     }
@@ -3304,7 +3316,9 @@ try {
   tokenFailureSubstage = "key-display-done";
   await tokenDialog.getByRole("button", { name: "Done", exact: true }).click();
   await tokenDialog.waitFor({ state: "hidden" });
-  if (await tokenField.inputValue() !== "") throw new Error("token remained in document");
+  if (await page.locator("#shell-api-key-value").inputValue() !== "") {
+    throw new Error("token remained in document");
+  }
   tokenFailureSubstage = "key-display-clear";
   await page.bringToFront();
   await page.evaluate(() => navigator.clipboard.writeText(""));

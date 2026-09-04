@@ -3,6 +3,13 @@
 export const uploadRequestTimeoutMs = 300_000;
 export const cleanupCommitHorizonMs = uploadRequestTimeoutMs;
 
+export function initialIngressRetryDelayMs(deadline, retryIntervalMs, now = Date.now()) {
+  if (![deadline, retryIntervalMs, now].every(Number.isFinite) || retryIntervalMs <= 0) {
+    throw new TypeError("initial ingress retry budget must be finite and positive");
+  }
+  return deadline - now > retryIntervalMs ? retryIntervalMs : 0;
+}
+
 const uploadFailureSubstages = new Set([
   "start-response",
   "start-transport",

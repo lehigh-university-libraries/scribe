@@ -61,5 +61,5 @@ GOMEMLIMIT="${GOMEMLIMIT:-1024MiB}" \
   GOFLAGS="${GOFLAGS:+${GOFLAGS} }-buildvcs=false -p=1" \
   "${govulncheck_bin}" ./...
 
-npm --prefix web audit --audit-level=moderate
-npm --prefix mirador-scribe audit --audit-level=moderate
+"${ROOT_DIR}/ci/npm-audit.sh" web
+"${ROOT_DIR}/ci/npm-audit.sh" mirador-scribe

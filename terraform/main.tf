@@ -459,11 +459,9 @@ locals {
   # terraform/rootfs/etc/cloud-compose/lifecycle.d via the rootfs overlay).
   # Data flows in through extra_env/application-env.json instead of argv.
   docker_compose_init = [
-    # The typed default sentinel keeps cloud-compose's sitectl context
-    # registration once docker_compose_init is otherwise overridden. Without
-    # it, later sitectl operations fail because the Compose project has no
-    # registered context.
-    "sitectl:default init",
+    # cloud-compose 1.10.0's checked legacy sentinel keeps the default context
+    # registration when docker_compose_init is otherwise overridden.
+    "/home/cloud-compose/default-lifecycle.sh init",
     "/etc/cloud-compose/lifecycle.d/scribe-preflight.sh",
   ]
   docker_compose_up = [
@@ -797,7 +795,9 @@ provider "vault" {
 }
 
 module "scribe" {
-  source = "https://github.com/libops/cloud-compose/archive/refs/tags/1.11.1.tar.gz//cloud-compose-1.11.1?archive=tar.gz"
+  # Runtime remains on 1.10.0 until upstream 1.11.x can replace a VM whose
+  # retained data root already has cloud-compose's documented 1775 mode.
+  source = "https://github.com/libops/cloud-compose/archive/refs/tags/1.10.0.tar.gz//cloud-compose-1.10.0?archive=tar.gz"
   providers = {
     google = google
   }

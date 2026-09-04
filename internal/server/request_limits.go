@@ -31,11 +31,12 @@ const (
 	maxConcurrentCanonicalReads       = 4
 	maxConcurrentCanonicalReadsPerKey = 2
 	edgeRequestRatePerSecond          = 2.0
-	// One first-party editor handoff performs a bounded RPC burst while the
+	// One first-party editor session performs a bounded RPC burst while the
 	// shell, transcription catch-up, Mirador adapter, and status UI converge.
-	// Keep that cold-start path below the per-key ceiling without changing the
-	// sustained edge rate or the independent aggregate-IP admission boundary.
-	edgeRequestBurst           = 40.0
+	// Match the authenticated per-user burst so the pre-authentication boundary
+	// does not reject traffic the inner boundary admits. The sustained edge rate
+	// and independent aggregate-IP admission boundary remain unchanged.
+	edgeRequestBurst           = requestBurst
 	edgeAggregateRatePerSecond = 12.0
 	edgeAggregateBurst         = 120.0
 )

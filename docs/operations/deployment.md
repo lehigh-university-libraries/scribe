@@ -786,13 +786,13 @@ need this credential.
 
 Preview-anonymous and production-session browser runs traverse the same edge
 admission policy as an ordinary editor. The RPC bucket refills at two requests
-per second and retains a 40-request cold-start burst so one shell-to-editor
-handoff can converge its workspace, transcription, Manifest, and canonical-page
-reads. The independent per-IP aggregate remains 12 requests per second with a
-120-request burst, and the authenticated inner, body-size, processing, and
-canonical-read concurrency limits still apply. A readiness HTTP 429 remains a
-deployment failure; do not hide mutation throttling with generic browser-side
-retries.
+per second and retains an 80-request burst matching the authenticated per-user
+ceiling, so the pre-authentication boundary does not reject a valid session
+before the inner boundary would. The independent per-IP aggregate remains 12
+requests per second with a 120-request burst, and the authenticated inner,
+body-size, processing, and canonical-read concurrency limits still apply. A
+readiness HTTP 429 remains a deployment failure; do not hide mutation
+throttling with generic browser-side retries.
 
 The production workspace adds Google's `35.235.240.0/20` IAP TCP forwarding
 range to the VM's port-22 firewall rule; development and preview SSH allowlists

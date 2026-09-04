@@ -230,7 +230,7 @@ func TestRequestAdmissionRateLimitsInvalidCredentialsBeforeAuthentication(t *tes
 	}
 }
 
-func TestRequestAdmissionFitsEditorGoldenPathBurstAndRetainsBound(t *testing.T) {
+func TestRequestAdmissionMatchesAuthenticatedRPCBurstAndRetainsBound(t *testing.T) {
 	limiter := newEdgeRequestLimiter()
 	now := time.Date(2026, time.August, 7, 14, 23, 0, 0, time.UTC)
 	limiter.now = func() time.Time { return now }
@@ -259,7 +259,10 @@ func TestRequestAdmissionFitsEditorGoldenPathBurstAndRetainsBound(t *testing.T) 
 		return response.Code
 	}
 
-	const editorGoldenPathBurst = 40
+	const editorGoldenPathBurst = int(requestBurst)
+	if edgeRequestBurst != requestBurst {
+		t.Fatalf("edge request burst = %v, want authenticated burst %v", edgeRequestBurst, requestBurst)
+	}
 	for attempt := 1; attempt <= editorGoldenPathBurst; attempt++ {
 		if status := request(attempt); status != http.StatusNoContent {
 			t.Fatalf("editor request %d status = %d, want %d", attempt, status, http.StatusNoContent)
