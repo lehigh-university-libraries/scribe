@@ -3528,6 +3528,7 @@ try {
   ) {
     throw new Error("manifest canonical page identity mismatch");
   }
+  await waitForEditorAnnotationCount(manifestAnnotationPage.items.length);
 
   // Publication is scoped to this disposable imported item and is removed by
   // the exact manifest cleanup below. It proves the canonical page reaches the
