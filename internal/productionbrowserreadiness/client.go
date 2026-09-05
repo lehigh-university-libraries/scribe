@@ -59,6 +59,45 @@ var manifestTaskFailureCategories = [...]string{
 	"second-publication",
 }
 
+var manifestRequestTaskFailureCategories = map[int]string{
+	90:  "import-request-body",
+	91:  "import-upstream-request",
+	92:  "import-upstream-response",
+	93:  "import-response-delivery",
+	94:  "import-response-status",
+	95:  "import-response-settlement",
+	96:  "import-response-connect-aborted",
+	97:  "import-response-connect-already-exists",
+	98:  "import-response-connect-deadline-exceeded",
+	99:  "import-response-connect-internal",
+	100: "import-response-connect-resource-exhausted",
+	101: "import-response-connect-unavailable",
+	102: "import-response-connect-unknown",
+	103: "import-response-http-408",
+	104: "import-response-http-409",
+	105: "import-response-http-425",
+	106: "import-response-http-429",
+	107: "import-response-http-500",
+	108: "import-response-http-502",
+	109: "import-response-http-503",
+	110: "import-response-http-504",
+	111: "import-response-connect-canceled",
+	112: "import-response-connect-invalid-argument",
+	113: "import-response-connect-not-found",
+	114: "import-response-connect-permission-denied",
+	115: "import-response-connect-failed-precondition",
+	116: "import-response-connect-out-of-range",
+	117: "import-response-connect-unimplemented",
+	118: "import-response-connect-data-loss",
+	119: "import-response-connect-unauthenticated",
+	120: "import-response-http-400",
+	121: "import-response-http-401",
+	122: "import-response-http-403",
+	123: "import-response-http-404",
+	124: "import-response-http-other-4xx",
+	125: "import-response-http-other-5xx",
+}
+
 type browserReadinessFailure struct {
 	category string
 }
@@ -220,6 +259,8 @@ func browserTaskFailureCategory(path string) string {
 			candidate = "manifest"
 		case exitCode >= 75 && exitCode < 75+len(manifestTaskFailureCategories):
 			candidate = "manifest-" + manifestTaskFailureCategories[exitCode-75]
+		case manifestRequestTaskFailureCategories[exitCode] != "":
+			candidate = "manifest-" + manifestRequestTaskFailureCategories[exitCode]
 		}
 		if candidate == "" {
 			continue

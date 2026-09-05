@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -18,9 +19,12 @@ import (
 
 const (
 	maxRemoteManifestBytes       int64 = iiif.MaxSourceManifestBytes
-	maxIIIFManifestFetchAttempts       = 3
-	iiifManifestRetryBaseDelay         = time.Second
-	iiifManifestRetryMaxDelay          = 5 * time.Second
+	maxIIIFUpstreamFetchAttempts       = 3
+	iiifUpstreamRetryBaseDelay         = time.Second
+	iiifUpstreamRetryMaxDelay          = 5 * time.Second
+	iiifManifestAccept                 = "application/ld+json, application/json;q=0.9"
+	iiifHOCRAccept                     = "text/vnd.hocr+html, text/html;q=0.9, application/xhtml+xml;q=0.8"
+	iiifImporterUserAgent              = "Scribe-IIIF-Importer/1.0 (+https://github.com/lehigh-university-libraries/scribe)"
 )
 
 type canvasInfo struct {
@@ -41,11 +45,19 @@ type canvasInfo struct {
 func fetchIIIFManifest(ctx context.Context, manifestURL string, maxCanvases int) (map[string]any, []byte, error) {
 	resp, err := fetchIIIFManifestResponse(ctx, manifestURL)
 	if err != nil {
-		return nil, nil, fmt.Errorf("fetch manifest: %w", err)
+		if errors.Is(err, errManifestDocumentSourceRejected) {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("%w: fetch manifest: %w", errManifestDocumentUnavailable, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, nil, fmt.Errorf("fetch manifest: status %d", resp.StatusCode)
+		return nil, nil, manifestSourceStatusError(
+			"fetch manifest",
+			resp.StatusCode,
+			errManifestDocumentUnavailable,
+			errManifestDocumentSourceRejected,
+		)
 	}
 	payload, err := safehttp.ReadAllLimit(resp.Body, maxRemoteManifestBytes)
 	if err != nil {
@@ -71,34 +83,90 @@ func fetchIIIFManifest(ctx context.Context, manifestURL string, maxCanvases int)
 }
 
 func fetchIIIFManifestResponse(ctx context.Context, manifestURL string) (*http.Response, error) {
-	for attempt := 1; attempt <= maxIIIFManifestFetchAttempts; attempt++ {
-		resp, err := safehttp.Get(ctx, manifestURL)
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode != http.StatusTooManyRequests || attempt == maxIIIFManifestFetchAttempts {
-			return resp, nil
-		}
-
-		delay := iiifManifestRetryDelay(resp.Header.Get("Retry-After"), attempt)
-		_ = resp.Body.Close()
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, ctx.Err()
-		case <-timer.C:
-		}
-	}
-	return nil, fmt.Errorf("manifest fetch attempts exhausted")
+	return fetchIIIFUpstreamResponse(
+		ctx,
+		manifestURL,
+		iiifManifestAccept,
+		errManifestDocumentUnavailable,
+		errManifestDocumentSourceRejected,
+	)
 }
 
-func iiifManifestRetryDelay(retryAfter string, attempt int) time.Duration {
+func fetchIIIFUpstreamResponse(ctx context.Context, rawURL, accept string, unavailableError, rejectedError error) (*http.Response, error) {
+	requestTemplate, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid IIIF source URL", rejectedError)
+	}
+	if err := safehttp.ValidateURL(requestTemplate.URL); err != nil {
+		return nil, fmt.Errorf("%w: IIIF source URL violates public-fetch policy", rejectedError)
+	}
+	requestTemplate.Header.Set("Accept", accept)
+	requestTemplate.Header.Set("User-Agent", iiifImporterUserAgent)
+
+	for attempt := 1; attempt <= maxIIIFUpstreamFetchAttempts; attempt++ {
+		req := requestTemplate.Clone(ctx)
+		resp, requestErr := safehttp.Do(req)
+		if requestErr == nil && (!iiifUpstreamStatusRetryable(resp.StatusCode) || attempt == maxIIIFUpstreamFetchAttempts) {
+			return resp, nil
+		}
+		if requestErr != nil && attempt == maxIIIFUpstreamFetchAttempts {
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
+			return nil, requestErr
+		}
+
+		retryAfter := ""
+		if resp != nil {
+			retryAfter = resp.Header.Get("Retry-After")
+			_ = resp.Body.Close()
+		}
+		if err := waitForIIIFUpstreamRetry(ctx, iiifUpstreamRetryDelay(retryAfter, attempt)); err != nil {
+			return nil, err
+		}
+	}
+	return nil, fmt.Errorf("IIIF upstream fetch attempts exhausted")
+}
+
+func iiifUpstreamStatusRetryable(status int) bool {
+	switch status {
+	case http.StatusRequestTimeout,
+		http.StatusTooEarly,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func manifestSourceStatusError(operation string, status int, unavailableError, rejectedError error) error {
+	if iiifUpstreamStatusRetryable(status) || status >= http.StatusInternalServerError {
+		return fmt.Errorf("%w: %s: status %d", unavailableError, operation, status)
+	}
+	return fmt.Errorf("%w: %s: status %d", rejectedError, operation, status)
+}
+
+func waitForIIIFUpstreamRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func iiifUpstreamRetryDelay(retryAfter string, attempt int) time.Duration {
 	value := strings.TrimSpace(retryAfter)
 	if seconds, err := strconv.ParseUint(value, 10, 32); err == nil {
 		delay := time.Duration(seconds) * time.Second
-		if delay > iiifManifestRetryMaxDelay {
-			return iiifManifestRetryMaxDelay
+		if delay > iiifUpstreamRetryMaxDelay {
+			return iiifUpstreamRetryMaxDelay
 		}
 		return delay
 	}
@@ -107,15 +175,15 @@ func iiifManifestRetryDelay(retryAfter string, attempt int) time.Duration {
 		if delay <= 0 {
 			return 0
 		}
-		if delay > iiifManifestRetryMaxDelay {
-			return iiifManifestRetryMaxDelay
+		if delay > iiifUpstreamRetryMaxDelay {
+			return iiifUpstreamRetryMaxDelay
 		}
 		return delay
 	}
 
-	delay := iiifManifestRetryBaseDelay * time.Duration(1<<(attempt-1))
-	if delay > iiifManifestRetryMaxDelay {
-		return iiifManifestRetryMaxDelay
+	delay := iiifUpstreamRetryBaseDelay * time.Duration(1<<(attempt-1))
+	if delay > iiifUpstreamRetryMaxDelay {
+		return iiifUpstreamRetryMaxDelay
 	}
 	return delay
 }

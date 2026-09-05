@@ -19,6 +19,42 @@ const manifestFailureExitCodes = new Map([
   ["second-annotations", 87],
   ["second-overlay", 88],
   ["second-publication", 89],
+  ["import-request-body", 90],
+  ["import-upstream-request", 91],
+  ["import-upstream-response", 92],
+  ["import-response-delivery", 93],
+  ["import-response-status", 94],
+  ["import-response-settlement", 95],
+  ["import-response-connect-aborted", 96],
+  ["import-response-connect-already-exists", 97],
+  ["import-response-connect-deadline-exceeded", 98],
+  ["import-response-connect-internal", 99],
+  ["import-response-connect-resource-exhausted", 100],
+  ["import-response-connect-unavailable", 101],
+  ["import-response-connect-unknown", 102],
+  ["import-response-http-408", 103],
+  ["import-response-http-409", 104],
+  ["import-response-http-425", 105],
+  ["import-response-http-429", 106],
+  ["import-response-http-500", 107],
+  ["import-response-http-502", 108],
+  ["import-response-http-503", 109],
+  ["import-response-http-504", 110],
+  ["import-response-connect-canceled", 111],
+  ["import-response-connect-invalid-argument", 112],
+  ["import-response-connect-not-found", 113],
+  ["import-response-connect-permission-denied", 114],
+  ["import-response-connect-failed-precondition", 115],
+  ["import-response-connect-out-of-range", 116],
+  ["import-response-connect-unimplemented", 117],
+  ["import-response-connect-data-loss", 118],
+  ["import-response-connect-unauthenticated", 119],
+  ["import-response-http-400", 120],
+  ["import-response-http-401", 121],
+  ["import-response-http-403", 122],
+  ["import-response-http-404", 123],
+  ["import-response-http-other-4xx", 124],
+  ["import-response-http-other-5xx", 125],
 ]);
 
 export function manifestFailureExitCode(substage) {
@@ -82,9 +118,33 @@ const retryableUploadHTTPResponseKinds = new Map([
   [503, "http-503"],
   [504, "http-504"],
 ]);
+const manifestSourceFailureKinds = new Map([
+  ["unavailable\0manifest document source is temporarily unavailable", "document-unavailable"],
+  ["unavailable\0manifest hOCR source is temporarily unavailable", "hocr-unavailable"],
+  ["failed_precondition\0manifest document source rejected the import request", "document-rejected"],
+  ["failed_precondition\0manifest hOCR source rejected the import request", "hocr-rejected"],
+]);
+const manifestSourceFailureCategories = new Set(manifestSourceFailureKinds.values());
 const retryableUploadResponseKinds = new Set([
   ...retryableUploadConnectResponseKinds.values(),
   ...retryableUploadHTTPResponseKinds.values(),
+]);
+const terminalManifestConnectResponseKinds = new Map([
+  ["canceled", "connect-canceled"],
+  ["invalid_argument", "connect-invalid-argument"],
+  ["not_found", "connect-not-found"],
+  ["permission_denied", "connect-permission-denied"],
+  ["failed_precondition", "connect-failed-precondition"],
+  ["out_of_range", "connect-out-of-range"],
+  ["unimplemented", "connect-unimplemented"],
+  ["data_loss", "connect-data-loss"],
+  ["unauthenticated", "connect-unauthenticated"],
+]);
+const terminalManifestHTTPResponseKinds = new Map([
+  [400, "http-400"],
+  [401, "http-401"],
+  [403, "http-403"],
+  [404, "http-404"],
 ]);
 const genericProviderFailures = new Set([
   "provider request canceled",
@@ -194,6 +254,37 @@ export function classifyRetryableUploadResponse({ connectCode, snapshotValid = f
     return retryableUploadConnectResponseKinds.get(connectCode);
   }
   return retryableUploadHTTPResponseKinds.get(status);
+}
+
+export function classifyManifestResponseFailure(args = {}) {
+  const retryableKind = classifyRetryableUploadResponse(args);
+  if (retryableKind) return retryableKind;
+
+  const { connectCode, snapshotValid = false, status = 0 } = args;
+  if (snapshotValid) {
+    if (typeof connectCode !== "string") return undefined;
+    return terminalManifestConnectResponseKinds.get(connectCode);
+  }
+  if (!Number.isInteger(status)) return undefined;
+  const exactHTTPKind = terminalManifestHTTPResponseKinds.get(status);
+  if (exactHTTPKind) return exactHTTPKind;
+  if (status >= 400 && status <= 499) return "http-other-4xx";
+  if (status >= 500 && status <= 599) return "http-other-5xx";
+  return undefined;
+}
+
+export function classifyManifestSourceFailure({ connectCode, connectMessage, snapshotValid = false } = {}) {
+  if (!snapshotValid || typeof connectCode !== "string" || typeof connectMessage !== "string") {
+    return undefined;
+  }
+  return manifestSourceFailureKinds.get(`${connectCode}\0${connectMessage}`);
+}
+
+export function manifestSourceFailureMarker(category) {
+  if (!manifestSourceFailureCategories.has(category)) {
+    throw new TypeError("invalid manifest source failure category");
+  }
+  return `browser readiness manifest source: ${category}`;
 }
 
 export function uploadRetryableResponseMarker(kind) {

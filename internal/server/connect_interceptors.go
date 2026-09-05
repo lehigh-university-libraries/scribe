@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -259,9 +260,28 @@ func sanitizeConnectError(err error) error {
 	case connect.CodeInternal, connect.CodeUnknown, connect.CodeDataLoss:
 		return connect.NewError(connect.CodeOf(err), fmt.Errorf("internal server error"))
 	case connect.CodeUnavailable:
+		if message, ok := publicUnavailableConnectMessage(err); ok {
+			return connect.NewError(connect.CodeUnavailable, errors.New(message))
+		}
 		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("service unavailable"))
 	default:
 		return err
+	}
+}
+
+// publicUnavailableConnectMessage is deliberately an exact allowlist. These
+// messages identify only which public manifest input failed and contain no
+// upstream response, URL, provider, credential, or topology detail.
+func publicUnavailableConnectMessage(err error) (string, bool) {
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		return "", false
+	}
+	switch connectErr.Message() {
+	case manifestDocumentUnavailableMessage, manifestHOCRUnavailableMessage:
+		return connectErr.Message(), true
+	default:
+		return "", false
 	}
 }
 

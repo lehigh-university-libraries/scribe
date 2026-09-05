@@ -10,11 +10,14 @@ import { waitForActionByValue } from "./deployed-readiness-dom.mjs";
 import { exactStructuralSnapshot } from "./deployed-readiness-structure.mjs";
 import {
   classifyDurableUploadFailure,
+  classifyManifestResponseFailure,
+  classifyManifestSourceFailure,
   classifyRetryableUploadResponse,
   classifyUploadFailure,
   cleanupCommitHorizonMs,
   initialIngressRetryDelayMs,
   manifestFailureExitCode,
+  manifestSourceFailureMarker,
   remainingUploadSequenceTimeoutMs,
   uploadDurableFailureMarker,
   uploadFailureMarker,
@@ -62,7 +65,10 @@ const productionJanitorMaxAPIKeys = 1_000;
 const productionJanitorMaxDeletes = 100;
 const maxObservedImageResponses = 100;
 const maxReadinessImageBytes = 64 * 1024 * 1024;
-const manifestURL = "https://preserve.lehigh.edu/node/38817/book-manifest";
+const manifestURL = "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/e871f532c845bd90f983f3e13282ded1442de29b/internal/server/testdata/deployed-readiness/manifest.json";
+const legacyManifestURL = "https://preserve.lehigh.edu/node/38817/book-manifest";
+const productionReadinessManifestURLs = new Set([manifestURL, legacyManifestURL]);
+const readinessManifestImageSHA256 = "0443cf4f28c60debf3237300d3357539b3b309f8c950af489491c686a13e0e16";
 const productionStorageStatePath = "/tmp/scribe-browser-session-state.json";
 const centeredLineAccessibleName = "Add a line at the viewport center and focus its keyboard resize handle";
 const deterministicLineText = "browser readiness alpha beta gamma";
@@ -501,6 +507,24 @@ function assertTextualAnnotationPage(annotationPage) {
     || !annotationPage.items.some(annotationHasText)
   ) {
     throw new Error("missing annotations");
+  }
+}
+
+function assertReadinessFixtureAnnotations(annotationPage) {
+  const expected = [
+    "line:Foo bar baz",
+    "line:Hello world",
+    "word:Foo",
+    "word:Hello",
+    "word:bar",
+    "word:baz",
+    "word:world",
+  ];
+  const actual = annotationPage.items.map((annotation) => (
+    `${String(annotation?.textGranularity ?? "").toLowerCase()}:${annotationTextValue(annotation)}`
+  )).sort();
+  if (stableJSONValue(actual) !== stableJSONValue(expected)) {
+    throw new Error("readiness fixture annotations changed");
   }
 }
 
@@ -1190,7 +1214,7 @@ function productionReadinessItemKind(fullItem) {
   ) return "upload";
   if (
     fullItem?.sourceType === "manifest"
-    && fullItem?.sourceUrl === manifestURL
+    && productionReadinessManifestURLs.has(fullItem?.sourceUrl)
     && readinessManifestReferencePattern.test(String(fullItem?.externalReferenceId ?? ""))
   ) return "manifest";
   return "";
@@ -1198,19 +1222,28 @@ function productionReadinessItemKind(fullItem) {
 
 function assertProductionManifestCleanupClassifier() {
   const markedReferenceID = "browser-readiness-manifest-00000000-0000-4000-8000-000000000000";
-  const ordinarySameURLManifest = {
-    externalReferenceId: "ordinary-library-manifest",
-    sourceType: "manifest",
-    sourceUrl: manifestURL,
-  };
-  if (productionReadinessItemKind(ordinarySameURLManifest) !== "") {
-    throw new Error("ordinary same-URL manifest matched the readiness janitor");
+  for (const sourceUrl of productionReadinessManifestURLs) {
+    const ordinarySameURLManifest = {
+      externalReferenceId: "ordinary-library-manifest",
+      sourceType: "manifest",
+      sourceUrl,
+    };
+    if (productionReadinessItemKind(ordinarySameURLManifest) !== "") {
+      throw new Error("ordinary same-URL manifest matched the readiness janitor");
+    }
+    if (productionReadinessItemKind({
+      ...ordinarySameURLManifest,
+      externalReferenceId: markedReferenceID,
+    }) !== "manifest") {
+      throw new Error("marked readiness manifest missed the readiness janitor");
+    }
   }
   if (productionReadinessItemKind({
-    ...ordinarySameURLManifest,
     externalReferenceId: markedReferenceID,
-  }) !== "manifest") {
-    throw new Error("marked readiness manifest missed the readiness janitor");
+    sourceType: "manifest",
+    sourceUrl: `${manifestURL}?untrusted=1`,
+  }) !== "") {
+    throw new Error("unallowlisted readiness manifest matched the readiness janitor");
   }
 }
 
@@ -1375,6 +1408,37 @@ async function uploadAttemptRetryableResponseKind(attempt) {
     }
   }
   return classifyRetryableUploadResponse({ connectCode, snapshotValid, status: outcome.status });
+}
+
+async function manifestResponseFailureSubstage(response) {
+  let connectCode;
+  let connectMessage;
+  let snapshotValid = false;
+  const snapshot = responseJSONSnapshots.get(response);
+  if (snapshot) {
+    try {
+      const result = await snapshot;
+      if (result.ok) {
+        snapshotValid = true;
+        connectCode = result.payload?.code;
+        connectMessage = result.payload?.message;
+      }
+    } catch {
+      // The fixed HTTP status remains usable when the capped JSON snapshot is
+      // absent, malformed, oversized, or otherwise unreadable.
+    }
+  }
+  const responseKind = classifyManifestResponseFailure({
+    connectCode,
+    snapshotValid,
+    status: response.status(),
+  });
+  manifestFailureSourceCategory = classifyManifestSourceFailure({
+    connectCode,
+    connectMessage,
+    snapshotValid,
+  });
+  return responseKind ? `import-response-${responseKind}` : "import-response-status";
 }
 
 async function uploadAttemptIsRetryable(attempt) {
@@ -1669,6 +1733,7 @@ async function requireLoadedOpenSeadragonImage(resource, action) {
     imageBody.byteLength === 0
     || imageBody.byteLength > maxReadinessImageBytes
     || !contentType.startsWith("image/")
+    || createHash("sha256").update(imageBody).digest("hex") !== readinessManifestImageSHA256
   ) {
     throw new Error("OpenSeadragon image response was empty or invalid");
   }
@@ -1946,6 +2011,7 @@ let uploadRetryableResponseCategory;
 let structureFailureSubstage = "draw-mode";
 let tokenFailureSubstage = "post-home-presentation";
 let manifestFailureSubstage = "library-navigation";
+let manifestFailureSourceCategory;
 let browserFaultMonitoringActive = true;
 let browser;
 let browserContext;
@@ -2337,14 +2403,22 @@ try {
         timeout: uploadRequestTimeoutMs,
       };
       if (requestURL.pathname === "/scribe.v1.ItemService/ImportManifest") {
+        manifestFailureSubstage = "import-request-body";
         const headers = { ...request.headers() };
         delete headers["content-length"];
         fetchOptions.headers = headers;
         fetchOptions.postData = exactManifestImportPostData(request);
+        manifestFailureSubstage = "import-upstream-request";
       }
       const upstreamResponse = await route.fetch(fetchOptions);
+      if (requestURL.pathname === "/scribe.v1.ItemService/ImportManifest") {
+        manifestFailureSubstage = "import-upstream-response";
+      }
       const snapshot = await snapshotNavigationResponseJSON(upstreamResponse);
       navigationResponseJSONSnapshots.set(request, Promise.resolve(snapshot));
+      if (requestURL.pathname === "/scribe.v1.ItemService/ImportManifest") {
+        manifestFailureSubstage = "import-response-delivery";
+      }
       await route.fulfill({ response: upstreamResponse });
     } catch {
       navigationResponseJSONSnapshots.set(
@@ -3352,7 +3426,12 @@ try {
   ), { timeout: uploadRequestTimeoutMs });
   await page.getByRole("button", { name: "Ingest manifest", exact: true }).click();
   const manifestResponse = await manifestResponsePromise;
-  if (!manifestResponse.ok()) throw new Error("manifest import failed");
+  manifestFailureSubstage = "import-response-status";
+  if (!manifestResponse.ok()) {
+    manifestFailureSubstage = await manifestResponseFailureSubstage(manifestResponse);
+    throw new Error("manifest import failed");
+  }
+  manifestFailureSubstage = "import-response-settlement";
   await waitForMutationResponsesToSettle(manifestMutation);
   requireTerminalRequestSuccess(manifestResponse, "manifest import request failed");
   manifestFailureSubstage = "import-contract";
@@ -3441,6 +3520,7 @@ try {
   );
   const manifestAnnotationPage = manifestAnnotationSnapshot.page;
   assertTextualAnnotationPage(manifestAnnotationPage);
+  assertReadinessFixtureAnnotations(manifestAnnotationPage);
   assertExactPresentationAnnotationPage(manifestAnnotationPage, manifestFirstAnnotationPath);
   if (
     manifestAnnotationSnapshot.itemImageID !== manifestFirstImageID
@@ -3490,6 +3570,7 @@ try {
     workspaceID,
   );
   assertTextualAnnotationPage(manifestSecondAnnotationSnapshot.page);
+  assertReadinessFixtureAnnotations(manifestSecondAnnotationSnapshot.page);
   assertExactPresentationAnnotationPage(
     manifestSecondAnnotationSnapshot.page,
     manifestSecondAnnotationPath,
@@ -3751,6 +3832,9 @@ if (failureCategory) {
   }
   if (failureCategory === "manifest") {
     process.stderr.write(`browser readiness manifest substage: ${manifestFailureSubstage}\n`);
+    if (manifestFailureSourceCategory) {
+      process.stderr.write(`${manifestSourceFailureMarker(manifestFailureSourceCategory)}\n`);
+    }
   }
   if (failureCategory === "rate" && browserFaultRateFamily) {
     process.stderr.write(`browser readiness rate limit: ${browserFaultRateFamily}\n`);

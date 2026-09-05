@@ -139,7 +139,22 @@ func TestBrowserTokenSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 func TestBrowserManifestSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 	t.Parallel()
 	substages := []string{
-		"library-navigation", "import-form", "import-request", "import-contract",
+		"library-navigation", "import-form", "import-request", "import-request-body",
+		"import-upstream-request", "import-upstream-response", "import-response-delivery",
+		"import-response-status", "import-response-settlement", "import-contract",
+		"import-response-connect-aborted", "import-response-connect-already-exists",
+		"import-response-connect-deadline-exceeded", "import-response-connect-internal",
+		"import-response-connect-resource-exhausted", "import-response-connect-unavailable",
+		"import-response-connect-unknown", "import-response-http-408", "import-response-http-409",
+		"import-response-http-425", "import-response-http-429", "import-response-http-500",
+		"import-response-http-502", "import-response-http-503", "import-response-http-504",
+		"import-response-connect-canceled", "import-response-connect-invalid-argument",
+		"import-response-connect-not-found", "import-response-connect-permission-denied",
+		"import-response-connect-failed-precondition", "import-response-connect-out-of-range",
+		"import-response-connect-unimplemented", "import-response-connect-data-loss",
+		"import-response-connect-unauthenticated", "import-response-http-400",
+		"import-response-http-401", "import-response-http-403", "import-response-http-404",
+		"import-response-http-other-4xx", "import-response-http-other-5xx",
 		"editor-navigation", "editor-mount", "first-canvas", "first-image",
 		"first-annotations", "first-publication", "second-image", "second-canvas",
 		"second-annotations", "second-overlay", "second-publication",
@@ -151,6 +166,31 @@ func TestBrowserManifestSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 		}
 		if ReadinessMarkerAllowed(KindBackend, line) || ReadinessMarkerAllowed(KindOCR, line) {
 			t.Errorf("browser manifest substage %q crossed kind boundary", substage)
+		}
+	}
+}
+
+func TestBrowserManifestSourceMarkerVocabularyIsExhaustive(t *testing.T) {
+	t.Parallel()
+	categories := []string{
+		"document-unavailable", "hocr-unavailable", "document-rejected", "hocr-rejected",
+	}
+	for _, category := range categories {
+		line := "browser readiness manifest source: " + category
+		if !ReadinessMarkerAllowed(KindBrowser, line) {
+			t.Errorf("browser manifest source %q was rejected", category)
+		}
+		if ReadinessMarkerAllowed(KindBackend, line) || ReadinessMarkerAllowed(KindOCR, line) {
+			t.Errorf("browser manifest source %q crossed kind boundary", category)
+		}
+	}
+	for _, line := range []string{
+		"browser readiness manifest source: document",
+		"browser readiness manifest source: document-unavailable private",
+		"browser readiness manifest source: DOCUMENT-UNAVAILABLE",
+	} {
+		if ReadinessMarkerAllowed(KindBrowser, line) {
+			t.Errorf("unsafe browser manifest source marker %q was accepted", line)
 		}
 	}
 }

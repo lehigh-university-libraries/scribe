@@ -212,6 +212,13 @@ import, up to the 64 MiB hard ceiling. The raw source Manifest itself has a
 separate fixed 20 MiB ceiling. Both checks run before tenant persistence, and
 retained bytes count toward database storage quotas.
 
+Manifest and hOCR fetches use fixed media-type preferences and a fixed Scribe
+importer identity. Idempotent GETs retry at most three times for transport
+failures and HTTP 408, 425, 429, 500, 502, 503, or 504 responses, honoring a
+bounded `Retry-After`. Retries remain inside the aggregate manifest-import
+deadline and do not relax SSRF, redirect, byte, Canvas-count, or concurrency
+limits. Other upstream responses fail without retry.
+
 `transcription.max_active_jobs_per_workspace` (or
 `TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE`) defaults to `1000` and accepts
 values from `1` through `100000`. It is a durable database admission limit over

@@ -75,7 +75,11 @@ func TestFetchManifestRejectsSourceLargerThanPersistedProjectionLimit(t *testing
 
 func TestFetchIIIFManifestRetriesRateLimitedSource(t *testing.T) {
 	var requests atomic.Int32
-	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Accept") != iiifManifestAccept || request.Header.Get("User-Agent") != iiifImporterUserAgent {
+			http.Error(response, "missing importer identity", http.StatusBadRequest)
+			return
+		}
 		if requests.Add(1) == 1 {
 			response.Header().Set("Retry-After", "0")
 			http.Error(response, "rate limited", http.StatusTooManyRequests)
@@ -112,7 +116,7 @@ func TestFetchIIIFManifestBoundsPersistentRateLimit(t *testing.T) {
 	t.Cleanup(source.Close)
 
 	_, _, err := fetchIIIFManifest(context.Background(), source.URL, 1)
-	if err == nil || !strings.Contains(err.Error(), "status 429") {
+	if err == nil || !errors.Is(err, errManifestDocumentUnavailable) || !strings.Contains(err.Error(), "status 429") {
 		t.Fatalf("persistent rate-limit error = %v, want status 429", err)
 	}
 	if got := requests.Load(); got != 3 {
@@ -124,16 +128,41 @@ func TestFetchIIIFManifestDoesNotRetryTerminalStatus(t *testing.T) {
 	var requests atomic.Int32
 	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
-		http.Error(response, "upstream failure", http.StatusInternalServerError)
+		http.Error(response, "upstream rejection", http.StatusForbidden)
 	}))
 	t.Cleanup(source.Close)
 
 	_, _, err := fetchIIIFManifest(context.Background(), source.URL, 1)
-	if err == nil || !strings.Contains(err.Error(), "status 500") {
-		t.Fatalf("terminal status error = %v, want status 500", err)
+	if err == nil || !errors.Is(err, errManifestDocumentSourceRejected) || !strings.Contains(err.Error(), "status 403") {
+		t.Fatalf("terminal status error = %v, want rejected status 403", err)
 	}
 	if got := requests.Load(); got != 1 {
 		t.Fatalf("manifest requests = %d, want no retry", got)
+	}
+}
+
+func TestFetchIIIFManifestRetriesTransientServerFailure(t *testing.T) {
+	var requests atomic.Int32
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) < 3 {
+			response.Header().Set("Retry-After", "0")
+			http.Error(response, "temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(response).Encode(map[string]any{
+			"@context":  "http://iiif.io/api/presentation/2/context.json",
+			"@type":     "sc:Manifest",
+			"sequences": []any{},
+		})
+	}))
+	t.Cleanup(source.Close)
+
+	if _, _, err := fetchIIIFManifest(context.Background(), source.URL, 1); err != nil {
+		t.Fatalf("fetchIIIFManifest after transient failures: %v", err)
+	}
+	if got := requests.Load(); got != 3 {
+		t.Fatalf("manifest requests = %d, want bounded success on third attempt", got)
 	}
 }
 
@@ -157,7 +186,7 @@ func TestFetchIIIFManifestRateLimitRetryHonorsContext(t *testing.T) {
 	}
 }
 
-func TestIIIFManifestRetryDelayIsBounded(t *testing.T) {
+func TestIIIFUpstreamRetryDelayIsBounded(t *testing.T) {
 	tests := []struct {
 		name       string
 		retryAfter string
@@ -170,8 +199,107 @@ func TestIIIFManifestRetryDelayIsBounded(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := iiifManifestRetryDelay(test.retryAfter, test.attempt); got != test.want {
+			if got := iiifUpstreamRetryDelay(test.retryAfter, test.attempt); got != test.want {
 				t.Fatalf("retry delay = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestIIIFUpstreamRetryableStatusesAreExact(t *testing.T) {
+	retryable := map[int]bool{
+		http.StatusRequestTimeout:      true,
+		http.StatusTooEarly:            true,
+		http.StatusTooManyRequests:     true,
+		http.StatusInternalServerError: true,
+		http.StatusBadGateway:          true,
+		http.StatusServiceUnavailable:  true,
+		http.StatusGatewayTimeout:      true,
+	}
+	for status := 100; status <= 599; status++ {
+		if got := iiifUpstreamStatusRetryable(status); got != retryable[status] {
+			t.Errorf("iiifUpstreamStatusRetryable(%d) = %t, want %t", status, got, retryable[status])
+		}
+	}
+}
+
+func TestFetchHOCRContentIdentifiesItselfAndRetriesTransientResponses(t *testing.T) {
+	var requests atomic.Int32
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Accept") != iiifHOCRAccept || request.Header.Get("User-Agent") != iiifImporterUserAgent {
+			http.Error(response, "missing importer identity", http.StatusBadRequest)
+			return
+		}
+		if requests.Add(1) < 3 {
+			response.Header().Set("Retry-After", "0")
+			http.Error(response, "temporarily unavailable", http.StatusTooManyRequests)
+			return
+		}
+		response.Header().Set("Content-Type", "text/vnd.hocr+html; charset=utf-8")
+		_, _ = response.Write([]byte(minimalHOCR))
+	}))
+	t.Cleanup(source.Close)
+
+	content, size, err := fetchHOCRContent(context.Background(), source.URL, maxRemoteHOCRBytes, &manifestByteBudget{max: 1 << 20})
+	if err != nil {
+		t.Fatalf("fetchHOCRContent after transient failures: %v", err)
+	}
+	if content != minimalHOCR || size != uint64(len(minimalHOCR)) {
+		t.Fatalf("hOCR result = %d bytes/%q, want exact fixture", size, content)
+	}
+	if got := requests.Load(); got != 3 {
+		t.Fatalf("hOCR requests = %d, want bounded success on third attempt", got)
+	}
+}
+
+func TestFetchIIIFUpstreamResponseRetriesTransportFailures(t *testing.T) {
+	var requests atomic.Int32
+	source := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) < 3 {
+			panic(http.ErrAbortHandler)
+		}
+		_, _ = response.Write([]byte("ok"))
+	}))
+	t.Cleanup(source.Close)
+
+	resp, err := fetchIIIFUpstreamResponse(
+		context.Background(),
+		source.URL,
+		iiifHOCRAccept,
+		errManifestHOCRSourceUnavailable,
+		errManifestHOCRSourceRejected,
+	)
+	if err != nil {
+		t.Fatalf("fetchIIIFUpstreamResponse after transport failures: %v", err)
+	}
+	_ = resp.Body.Close()
+	if got := requests.Load(); got != 3 {
+		t.Fatalf("upstream requests = %d, want bounded success on third attempt", got)
+	}
+}
+
+func TestManifestImportConnectErrorClassifiesSourceAvailabilityWithoutDetails(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		code connect.Code
+		want string
+	}{
+		{name: "transient upstream", err: fmt.Errorf("%w: private detail", errManifestSourceUnavailable), code: connect.CodeUnavailable, want: "manifest source is temporarily unavailable"},
+		{name: "terminal upstream", err: fmt.Errorf("%w: private detail", errManifestSourceRejected), code: connect.CodeFailedPrecondition, want: "manifest source rejected the import request"},
+		{name: "document unavailable", err: fmt.Errorf("%w: private detail", errManifestDocumentUnavailable), code: connect.CodeUnavailable, want: "manifest document source is temporarily unavailable"},
+		{name: "hOCR unavailable", err: fmt.Errorf("%w: private detail", errManifestHOCRSourceUnavailable), code: connect.CodeUnavailable, want: "manifest hOCR source is temporarily unavailable"},
+		{name: "document rejected", err: fmt.Errorf("%w: private detail", errManifestDocumentSourceRejected), code: connect.CodeFailedPrecondition, want: "manifest document source rejected the import request"},
+		{name: "hOCR rejected", err: fmt.Errorf("%w: private detail", errManifestHOCRSourceRejected), code: connect.CodeFailedPrecondition, want: "manifest hOCR source rejected the import request"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := manifestImportConnectError(test.err)
+			if connect.CodeOf(err) != test.code || err.Error() != test.code.String()+": "+test.want {
+				t.Fatalf("manifestImportConnectError() = %v, want %s/%q", err, test.code, test.want)
+			}
+			if strings.Contains(err.Error(), "private detail") {
+				t.Fatalf("manifestImportConnectError() exposed source detail: %v", err)
 			}
 		})
 	}
