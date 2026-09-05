@@ -35,6 +35,7 @@ export function useAnnotationBootstrap({
 }) {
   useEffect(() => {
     let cancelled = false;
+    let settled = false;
 
     async function bootstrapPage() {
       if (!adapterFactory || !canvasId || loadedCanvasRef.current === canvasId) return;
@@ -50,6 +51,7 @@ export function useAnnotationBootstrap({
           revision: snapshot.revision,
           type: 'loaded',
         });
+        settled = true;
         if (!snapshot.page.id) throw new Error('The annotation service returned a page without an ID.');
         receiveAnnotation(canvasId, snapshot.page.id, snapshot.page);
         setStatusMessage('');
@@ -68,6 +70,9 @@ export function useAnnotationBootstrap({
     void bootstrapPage();
     return () => {
       cancelled = true;
+      if (!settled && loadedCanvasRef.current === canvasId) {
+        loadedCanvasRef.current = '';
+      }
     };
   }, [
     adapterFactory,

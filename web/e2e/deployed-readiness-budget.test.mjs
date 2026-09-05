@@ -22,8 +22,10 @@ test("manifest substages have distinct task-status exit codes", () => {
   const substages = [
     "library-navigation", "import-form", "import-request", "import-contract",
     "editor-navigation", "editor-mount", "first-canvas", "first-image",
-    "first-annotations", "first-publication", "second-image", "second-canvas",
-    "second-annotations", "second-overlay", "second-publication",
+    "first-annotations", "first-publication-request", "first-publication-confirmation",
+    "first-publication-resource", "first-publication-contract", "second-image", "second-canvas",
+    "second-annotations", "second-overlay", "second-publication-request",
+    "second-publication-resource", "second-publication-contract",
     "import-request-body", "import-upstream-request", "import-upstream-response",
     "import-response-delivery", "import-response-status", "import-response-settlement",
     "import-response-connect-aborted", "import-response-connect-already-exists",
@@ -41,8 +43,8 @@ test("manifest substages have distinct task-status exit codes", () => {
     "import-response-http-other-4xx", "import-response-http-other-5xx",
   ];
   assert.deepEqual(substages.map(manifestFailureExitCode), [
-    75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
-    90, 91, 92, 93, 94, 95,
+    75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 126, 127, 128,
+    85, 86, 87, 88, 89, 129, 130, 90, 91, 92, 93, 94, 95,
     96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110,
     111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125,
   ]);

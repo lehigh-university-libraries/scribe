@@ -16,7 +16,7 @@ import {
   classifyUploadFailure,
   cleanupCommitHorizonMs,
   initialIngressRetryDelayMs,
-  manifestFailureExitCode,
+  manifestFailureExitCode as sharedManifestFailureExitCode,
   manifestSourceFailureMarker,
   remainingUploadSequenceTimeoutMs,
   uploadDurableFailureMarker,
@@ -139,6 +139,26 @@ const readinessFailureExitCodes = new Map([
   ["initial-ingress-forbidden", 72],
   ["initial-ingress-not-found", 73],
 ]);
+
+// Protected preview orchestration intentionally replaces only this file with
+// the reviewed PR-head source. Keep publication-stage codes local as well as
+// in the shared budget module so a PR that introduces a finer-grained stage
+// cannot fall through an older protected module and exit with Node's generic
+// code 1 before the Cloud Run task status captures the diagnostic.
+const protectedPreviewPublicationExitCodes = new Map([
+  ["first-publication-request", 84],
+  ["first-publication-confirmation", 126],
+  ["first-publication-resource", 127],
+  ["first-publication-contract", 128],
+  ["second-publication-request", 89],
+  ["second-publication-resource", 129],
+  ["second-publication-contract", 130],
+]);
+
+function manifestFailureExitCode(substage) {
+  return protectedPreviewPublicationExitCodes.get(substage)
+    ?? sharedManifestFailureExitCode(substage);
+}
 
 function bottomPaneHeightForViewport({ height, width }) {
   const viewportHeight = Number.isFinite(height) ? Math.max(0, Math.floor(height)) : 0;
@@ -1887,6 +1907,9 @@ async function currentEditorAnnotationCount() {
 async function waitForEditorAnnotationCount(expected) {
   await page.waitForFunction((count) => (
     globalThis.__scribeReadinessEditorState?.annotationCount === count
+    && globalThis.__scribeReadinessEditorState?.hasRevision === true
+    && globalThis.__scribeReadinessEditorState?.isBusy === false
+    && globalThis.__scribeReadinessEditorState?.sessionStatus === "ready"
   ), expected);
 }
 
@@ -2355,7 +2378,10 @@ try {
           : [],
         annotationCount: Array.isArray(annotationPage?.items) ? annotationPage.items.length : -1,
         focusedWordAnnotationId: String(event.detail?.focusedWordAnnotationId ?? ""),
+        hasRevision: event.detail?.hasRevision === true,
+        isBusy: event.detail?.isBusy === true,
         selectedAnnotationId: String(event.detail?.selectedAnnotationId ?? ""),
+        sessionStatus: String(event.detail?.sessionStatus ?? ""),
         statusMessage: String(event.detail?.statusMessage ?? ""),
         wordAnnotationIds: Array.isArray(annotationPage?.items)
           ? annotationPage.items
@@ -3528,19 +3554,23 @@ try {
   ) {
     throw new Error("manifest canonical page identity mismatch");
   }
+  await waitForEditorAnnotationCount(manifestAnnotationPage.items.length);
 
   // Publication is scoped to this disposable imported item and is removed by
   // the exact manifest cleanup below. It proves the canonical page reaches the
   // sole public Presentation surface without modifying the external source.
-  manifestFailureSubstage = "first-publication";
+  manifestFailureSubstage = "first-publication-request";
   await requireConnectAction(
-    "/scribe.v1.AnnotationService/PublishAnnotationPage",
+    "/scribe.v1.AnnotationService/PublishItemImageEdits",
     () => page.getByRole("button", { name: "Publish edits", exact: true }).click(),
   );
+  manifestFailureSubstage = "first-publication-confirmation";
   await page.getByText("Edits published.", { exact: true }).waitFor({ state: "visible" });
+  manifestFailureSubstage = "first-publication-resource";
   const manifestPublishedAnnotationPage = await waitForPublishedAnnotationPage(
     manifestFirstAnnotationPath,
   );
+  manifestFailureSubstage = "first-publication-contract";
   assertExactPresentationAnnotationPage(
     manifestPublishedAnnotationPage,
     manifestFirstAnnotationPath,
@@ -3602,14 +3632,16 @@ try {
     throw new Error("manifest editor action was unusable after overlay cycling");
   }
 
-  manifestFailureSubstage = "second-publication";
+  manifestFailureSubstage = "second-publication-request";
   await requireConnectAction(
-    "/scribe.v1.AnnotationService/PublishAnnotationPage",
+    "/scribe.v1.AnnotationService/PublishItemImageEdits",
     () => page.getByRole("button", { name: "Publish edits", exact: true }).click(),
   );
+  manifestFailureSubstage = "second-publication-resource";
   const manifestSecondPublishedAnnotationPage = await waitForPublishedAnnotationPage(
     manifestSecondAnnotationPath,
   );
+  manifestFailureSubstage = "second-publication-contract";
   assertExactPresentationAnnotationPage(
     manifestSecondPublishedAnnotationPage,
     manifestSecondAnnotationPath,

@@ -126,3 +126,35 @@ test("deployed readiness pins the published fixture and its transitive assets", 
     assert.equal(runner.includes(JSON.stringify(tuple)), true);
   }
 });
+
+test("publication diagnostics remain compatible with protected single-file staging", async () => {
+  const runner = await readFile(new URL("./deployed-readiness.mjs", import.meta.url), "utf8");
+  assert.match(
+    runner,
+    /manifestFailureExitCode as sharedManifestFailureExitCode/u,
+  );
+  for (const [substage, exitCode] of [
+    ["first-publication-request", 84],
+    ["first-publication-confirmation", 126],
+    ["first-publication-resource", 127],
+    ["first-publication-contract", 128],
+    ["second-publication-request", 89],
+    ["second-publication-resource", 129],
+    ["second-publication-contract", 130],
+  ]) {
+    assert.equal(
+      runner.includes(`[${JSON.stringify(substage)}, ${exitCode}]`),
+      true,
+      substage,
+    );
+  }
+  assert.match(
+    runner,
+    /protectedPreviewPublicationExitCodes\.get\(substage\)[\s\S]*sharedManifestFailureExitCode\(substage\)/u,
+  );
+  assert.doesNotMatch(runner, /PublishAnnotationPage/u);
+  assert.equal(
+    runner.match(/\/scribe\.v1\.AnnotationService\/PublishItemImageEdits/gu)?.length,
+    2,
+  );
+});

@@ -13,12 +13,12 @@ const manifestFailureExitCodes = new Map([
   ["first-canvas", 81],
   ["first-image", 82],
   ["first-annotations", 83],
-  ["first-publication", 84],
+  ["first-publication-request", 84],
   ["second-image", 85],
   ["second-canvas", 86],
   ["second-annotations", 87],
   ["second-overlay", 88],
-  ["second-publication", 89],
+  ["second-publication-request", 89],
   ["import-request-body", 90],
   ["import-upstream-request", 91],
   ["import-upstream-response", 92],
@@ -55,6 +55,11 @@ const manifestFailureExitCodes = new Map([
   ["import-response-http-404", 123],
   ["import-response-http-other-4xx", 124],
   ["import-response-http-other-5xx", 125],
+  ["first-publication-confirmation", 126],
+  ["first-publication-resource", 127],
+  ["first-publication-contract", 128],
+  ["second-publication-resource", 129],
+  ["second-publication-contract", 130],
 ]);
 
 export function manifestFailureExitCode(substage) {

@@ -74,6 +74,56 @@ afterEach(async () => {
 });
 
 describe('ScribeCompanionWindow', () => {
+  it('keeps a delayed annotation bootstrap alive across its loading rerender', async () => {
+    const canonicalPage = page();
+    let resolveLoad;
+    const load = new Promise((resolve) => {
+      resolveLoad = resolve;
+    });
+    const adapter = {
+      itemImageId: '41',
+      loadSnapshot: vi.fn(() => load),
+      transcribeAnnotation: vi.fn(),
+    };
+    let latestState;
+    editorStateListener = (event) => {
+      latestState = event.detail;
+    };
+    document.addEventListener('scribe:editor-state', editorStateListener);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => root.render(<ScribeCompanionWindow
+      adapterFactory={() => adapter}
+      canvasId={canvasId}
+      id="companion-1"
+      isFocusedWindow
+      receiveAnnotation={vi.fn()}
+      selectAnnotation={vi.fn()}
+      selectedAnnotationId="line-1"
+      serverPage={canonicalPage}
+      windowId={windowId}
+    />));
+    await vi.waitFor(() => expect(latestState?.sessionStatus).toBe('loading'));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(adapter.loadSnapshot).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveLoad({ page: canonicalPage, revision: '7' });
+      await load;
+    });
+    await vi.waitFor(() => {
+      expect(latestState).toMatchObject({
+        hasRevision: true,
+        isBusy: false,
+        sessionStatus: 'ready',
+      });
+    });
+    expect(adapter.loadSnapshot).toHaveBeenCalledOnce();
+    expect(document.querySelector('button[aria-label="Publish edits"]')?.disabled).toBe(false);
+  });
+
   it('keeps loose-word placement adjacent when no line owns the word', async () => {
     const terminalWord = {
       body: [{ purpose: 'supplementing', type: 'TextualBody', value: 'loose' }],
