@@ -16,7 +16,7 @@ import {
   classifyUploadFailure,
   cleanupCommitHorizonMs,
   initialIngressRetryDelayMs,
-  manifestFailureExitCode,
+  manifestFailureExitCode as sharedManifestFailureExitCode,
   manifestSourceFailureMarker,
   remainingUploadSequenceTimeoutMs,
   uploadDurableFailureMarker,
@@ -139,6 +139,26 @@ const readinessFailureExitCodes = new Map([
   ["initial-ingress-forbidden", 72],
   ["initial-ingress-not-found", 73],
 ]);
+
+// Protected preview orchestration intentionally replaces only this file with
+// the reviewed PR-head source. Keep publication-stage codes local as well as
+// in the shared budget module so a PR that introduces a finer-grained stage
+// cannot fall through an older protected module and exit with Node's generic
+// code 1 before the Cloud Run task status captures the diagnostic.
+const protectedPreviewPublicationExitCodes = new Map([
+  ["first-publication-request", 84],
+  ["first-publication-confirmation", 126],
+  ["first-publication-resource", 127],
+  ["first-publication-contract", 128],
+  ["second-publication-request", 89],
+  ["second-publication-resource", 129],
+  ["second-publication-contract", 130],
+]);
+
+function manifestFailureExitCode(substage) {
+  return protectedPreviewPublicationExitCodes.get(substage)
+    ?? sharedManifestFailureExitCode(substage);
+}
 
 function bottomPaneHeightForViewport({ height, width }) {
   const viewportHeight = Number.isFinite(height) ? Math.max(0, Math.floor(height)) : 0;
