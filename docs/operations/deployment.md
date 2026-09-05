@@ -502,7 +502,9 @@ Git blob SHA to match that tree entry. Symlinks, gitlinks, duplicate entries,
 truncated trees, and mismatched payloads fail closed before staging. The
 credentialed Docker build copies the script into the final image but never
 executes it; the protected Dockerfile installs only protected-base dependencies
-before that copy. The exact script embeds the reviewed two-line upload fixture
+before that copy. Any new task-status exit vocabulary in the staged script also
+keeps its bounded decoder in that file, preserving diagnostics while the
+protected shared modules remain at the base revision. The exact script embeds the reviewed two-line upload fixture
 and its SHA-256 digest; no separate PR-head fixture is staged into the protected
 build or Terraform. The image tag is the source SHA and Terraform records its
 resolved digest.

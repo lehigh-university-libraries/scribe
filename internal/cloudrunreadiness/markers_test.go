@@ -156,8 +156,10 @@ func TestBrowserManifestSubstageMarkerVocabularyIsExhaustive(t *testing.T) {
 		"import-response-http-401", "import-response-http-403", "import-response-http-404",
 		"import-response-http-other-4xx", "import-response-http-other-5xx",
 		"editor-navigation", "editor-mount", "first-canvas", "first-image",
-		"first-annotations", "first-publication", "second-image", "second-canvas",
-		"second-annotations", "second-overlay", "second-publication",
+		"first-annotations", "first-publication-request", "first-publication-confirmation",
+		"first-publication-resource", "first-publication-contract", "second-image", "second-canvas",
+		"second-annotations", "second-overlay", "second-publication-request",
+		"second-publication-resource", "second-publication-contract",
 	}
 	for _, substage := range substages {
 		line := "browser readiness manifest substage: " + substage

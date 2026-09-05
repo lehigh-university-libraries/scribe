@@ -329,11 +329,26 @@ func (runner *Runner) backendStartupRetryQualified(
 		contextStopped(ctx) {
 		return false
 	}
-	markers, err := runner.client.ReadinessMarkers(ctx, request.Job, execution, request.Kind)
-	if err != nil || contextStopped(ctx) {
-		return false
+	for attempt := 0; attempt < runner.limits.MarkerRecoveryAttempts; attempt++ {
+		markers, err := runner.client.ReadinessMarkers(ctx, request.Job, execution, request.Kind)
+		if contextStopped(ctx) {
+			return false
+		}
+		if err == nil {
+			if exactBackendStartupRetryMarkers(markers) {
+				return true
+			}
+			if !partialBackendStartupRetryMarkers(markers) {
+				return false
+			}
+		}
+		if attempt+1 < runner.limits.MarkerRecoveryAttempts {
+			if waitErr := runner.wait(ctx, runner.limits.PollInterval); waitErr != nil {
+				return false
+			}
+		}
 	}
-	return exactBackendStartupRetryMarkers(markers)
+	return false
 }
 
 func exactBackendStartupRetryMarkers(markers []string) bool {
@@ -356,6 +371,25 @@ func exactBackendStartupRetryMarkers(markers []string) bool {
 		if !seen {
 			return false
 		}
+	}
+	return true
+}
+
+func partialBackendStartupRetryMarkers(markers []string) bool {
+	if len(markers) >= 3 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(markers))
+	for _, marker := range markers {
+		switch marker {
+		case backendStartupGateRetryMarker, backendFrontendRetryMarker, backendNetworkRetryMarker:
+		default:
+			return false
+		}
+		if _, duplicate := seen[marker]; duplicate {
+			return false
+		}
+		seen[marker] = struct{}{}
 	}
 	return true
 }

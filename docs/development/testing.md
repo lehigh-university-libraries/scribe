@@ -125,7 +125,10 @@ payload before replacing only that path.
 Symlinks, gitlinks, duplicate entries, truncated trees, and mismatched payloads
 fail closed. The protected Dockerfile, package manifests, and dependencies
 remain from the base; its credentialed build copies but does not execute the PR
-script. The reviewed two-line upload fixture and its SHA-256 digest are embedded
+script. New task-status diagnostics used by that script must retain their
+decoder in the staged file as well as any protected-base shared helper, so a PR
+cannot collapse a new bounded failure into Node's generic exit code while the
+base and PR revisions differ. The reviewed two-line upload fixture and its SHA-256 digest are embedded
 in that attested script, so the build does not combine it with a separately
 staged PR-head fixture. The source SHA tags the image and Terraform records its
 resolved digest. The script runs only after apply in a digest-pinned Playwright

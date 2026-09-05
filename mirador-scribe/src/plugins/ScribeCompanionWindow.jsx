@@ -184,12 +184,12 @@ export function ScribeCompanionWindow({
       || targetSession.status === 'saving';
   }
 
-  /** @param {string} targetCanvasId @returns {ScribeAdapterLike} */
-  function requireAdapter(targetCanvasId) {
+  /** @returns {ScribeAdapterLike} */
+  const requireAdapter = useCallback((/** @type {string} */ targetCanvasId) => {
     const adapter = adapterFactory?.(targetCanvasId);
     if (!adapter) throw new Error(`Canvas ${targetCanvasId} has no annotation adapter.`);
     return adapter;
-  }
+  }, [adapterFactory]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -444,6 +444,7 @@ export function ScribeCompanionWindow({
         canvasId,
         drawMode,
         focusedWordAnnotationId,
+        hasRevision: Boolean(String(session.revision || '').trim()),
         inlineEditorVisible,
         isBusy,
         overlayMode,
