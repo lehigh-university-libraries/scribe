@@ -516,44 +516,6 @@ func SafeProviderFailureMessage(err error) (string, bool) {
 	return redacted.Error(), true
 }
 
-func (s *Service) ProcessImageToHOCR(imagePath string) (string, error) {
-	return s.processImageToHOCR(context.Background(), imagePath, "", "")
-}
-
-func (s *Service) ProcessImageToHOCRWithModel(imagePath, modelOverride string) (string, error) {
-	return s.processImageToHOCR(context.Background(), imagePath, "", modelOverride)
-}
-
-func (s *Service) ProcessImageToHOCRWithProviderAndModel(imagePath, providerOverride, modelOverride string) (string, error) {
-	return s.processImageToHOCR(context.Background(), imagePath, providerOverride, modelOverride)
-}
-
-func (s *Service) ProcessImageToHOCRWithContext(ctx context.Context, imagePath, providerOverride, modelOverride string) (string, error) {
-	return s.processImageToHOCR(ctx, imagePath, providerOverride, modelOverride)
-}
-
-func (s *Service) DetectLinesToHOCR(imagePath string) (string, error) {
-	ctx := context.Background()
-
-	width, height, err := s.getImageDimensions(ctx, imagePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get image dimensions: %w", err)
-	}
-
-	selectedWords, selectedProvider, err := s.detectWithModel(ctx, imagePath, "auto", width, height)
-	if err != nil {
-		return "", fmt.Errorf("detect lines: %w", err)
-	}
-
-	lines := s.groupWordsIntoLines(selectedWords)
-	if selectedProvider == "custom" || selectedProvider == "kraken" {
-		lines = s.filterValidLines(lines, width)
-		lines = s.removeOverlappingLines(lines)
-	}
-
-	return s.generateHOCRFromDetectedLines(lines, width, height), nil
-}
-
 func (s *Service) generateHOCRFromDetectedLines(lines [][]worddetection.WordBox, width, height int) string {
 	boxes := make([]lineVerticalBox, 0, len(lines))
 	for i, line := range lines {
@@ -582,10 +544,6 @@ func (s *Service) generateHOCRFromDetectedLines(lines [][]worddetection.WordBox,
 	return s.wrapInHOCRDocument(strings.Join(out, "\n"), width, height)
 }
 
-func (s *Service) TranscribeRegion(imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
-	return s.TranscribeRegionWithContext(context.Background(), imagePath, minX, minY, maxX, maxY, providerOverride, modelOverride)
-}
-
 func (s *Service) TranscribeRegionWithContext(ctx context.Context, imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
 	if maxX <= minX || maxY <= minY {
 		return "", fmt.Errorf("invalid bbox")
@@ -594,10 +552,6 @@ func (s *Service) TranscribeRegionWithContext(ctx context.Context, imagePath str
 		return s.transcribeImageFile(ctx, imagePath, providerOverride, modelOverride, "transcribe_region")
 	}
 	return s.transcribeRegionFromPath(ctx, imagePath, minX, minY, maxX, maxY, providerOverride, modelOverride)
-}
-
-func (s *Service) TranscribeImage(imagePath, providerOverride, modelOverride string) (string, error) {
-	return s.transcribeImageFile(context.Background(), imagePath, providerOverride, modelOverride, "transcribe_image")
 }
 
 func (s *Service) TranscribeImageWithContext(ctx context.Context, imagePath, providerOverride, modelOverride string) (string, error) {
@@ -860,68 +814,6 @@ func redactProviderError(err error, explicitStatus *int) error {
 
 func isRetriableProviderError(err error) bool {
 	return errors.Is(err, ErrRetryableProviderRequest)
-}
-
-func (s *Service) processImageToHOCR(ctx context.Context, imagePath, providerOverride, modelOverride string) (string, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	// Step 1: Get image dimensions
-	width, height, err := s.getImageDimensions(ctx, imagePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get image dimensions: %w", err)
-	}
-
-	selectedWords, selectedProvider, err := s.detectWithModel(ctx, imagePath, "auto", width, height)
-	if err != nil {
-		return "", fmt.Errorf("word detection failed: %w", err)
-	}
-
-	slog.Info("Selected word detection provider",
-		"provider", selectedProvider,
-		"word_count", len(selectedWords))
-
-	// Step 3: Group words into lines
-	lines := s.groupWordsIntoLines(selectedWords)
-	slog.Info("Grouped words into lines", "line_count", len(lines))
-
-	// Step 3b: For custom and kraken line providers, filter out anomalously small lines.
-	if selectedProvider == "custom" || selectedProvider == "kraken" {
-		originalLineCount := len(lines)
-		lines = s.filterValidLines(lines, width)
-		slog.Info("Filtered lines for custom provider",
-			"original_count", originalLineCount,
-			"filtered_count", len(lines),
-			"removed", originalLineCount-len(lines))
-
-		// Step 3c: Remove overlapping lines, keeping the largest
-		linesBeforeOverlap := len(lines)
-		lines = s.removeOverlappingLines(lines)
-		slog.Info("Removed overlapping lines",
-			"before", linesBeforeOverlap,
-			"after", len(lines),
-			"removed", linesBeforeOverlap-len(lines))
-	}
-
-	// Step 4: Initialize LLM provider
-	llmProvider, providerName, model, err := s.initLLMProvider(providerOverride, modelOverride)
-	if err != nil {
-		return "", fmt.Errorf("failed to initialize LLM provider: %w", err)
-	}
-
-	// Step 5: Transcribe words/lines using LLM (line-based if custom provider selected)
-	transcribedWords, err := s.transcribeWords(ctx, imagePath, selectedWords, width, height, llmProvider, providerName, selectedProvider, lines, model)
-	if err != nil {
-		return "", fmt.Errorf("failed to transcribe words: %w", err)
-	}
-
-	slog.Info("Word transcription completed", "transcribed_count", len(transcribedWords))
-
-	// Step 6: Generate hOCR
-	hocr := s.generateHOCRFromWords(transcribedWords, lines, width, height, selectedProvider)
-
-	return hocr, nil
 }
 
 func (s *Service) getImageDimensions(ctx context.Context, imagePath string) (int, int, error) {
@@ -1642,14 +1534,6 @@ func (s *Service) boundingBoxesOverlap(x1min, y1min, x1max, y1max, x2min, y2min,
 	return true
 }
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // isLikelyWordBox validates whether a detected region is likely to be a real word
 // Uses relative sizing based on image dimensions to adapt to different image resolutions
 func (s *Service) isLikelyWordBox(box worddetection.WordBox, imageWidth, imageHeight int) bool {
@@ -1984,13 +1868,6 @@ func (s *Service) wrapInHOCRDocument(content string, width, height int) string {
 </div>
 </body>
 </html>`, bbox, content)
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func abs(x int) int {

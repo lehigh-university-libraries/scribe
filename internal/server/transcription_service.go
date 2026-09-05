@@ -1440,7 +1440,7 @@ func (h *Handler) transcriptionJobOCRRun(
 	if err != nil {
 		return nil, fmt.Errorf("crosswalk completed annotations: %w", err)
 	}
-	hocrXML := hocr.NewConverter().ConvertHOCRLinesToXML(lines, pageW, pageH)
+	hocrXML := hocr.ConvertHOCRLinesToXML(lines, pageW, pageH)
 	plainText := linesToPlainText(lines)
 	contextID := pctx.ID
 	itemImageID := job.ItemImageID

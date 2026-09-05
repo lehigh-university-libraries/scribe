@@ -319,11 +319,13 @@ finish() {
     echo "SCRIBE_RESTORE_PROBE_FAILED"
   fi
   sync
-  sleep 2
+  # Serial output is unavailable after shutdown. Let the runner collect the
+  # result and delete this VM; stop after 30 minutes if the runner disappears.
+  sleep 1800
   shutdown -h now >/dev/null 2>&1 || true
   exit "$status"
 }
-trap 'finish 1' ERR
+trap 'echo "Restore probe failed at line ${LINENO}" >&2; finish 1' ERR
 
 wait_for_device() {
   local device="$1"
@@ -344,16 +346,16 @@ mount_clone() {
   mountpoint -q -- "$target"
 }
 
-mount_clone /dev/disk/by-id/google-restore-data /mnt/restore-data
-mount_clone /dev/disk/by-id/google-restore-volumes /mnt/restore-volumes
+mount_clone /dev/disk/by-id/google-restore-data /mnt/disks/restore-data
+mount_clone /dev/disk/by-id/google-restore-volumes /mnt/disks/restore-volumes
 
-backup="$(find /mnt/restore-data/backups/mariadb/primary -maxdepth 1 -type f -name '*-primary.sql.gz' -printf '%T@\t%p\n' | sort -nr | awk -F '\t' 'NR == 1 {print $2}')"
+backup="$(find /mnt/disks/restore-data/backups/mariadb/primary -maxdepth 1 -type f -name '*-primary.sql.gz' -printf '%T@\t%p\n' | sort -nr | awk -F '\t' 'NR == 1 {print $2}')"
 [[ -n "$backup" && -f "$backup" && ! -L "$backup" && -s "$backup" ]]
 backup_epoch="$(stat -c %Y -- "$backup")"
 now_epoch="$(date -u +%s)"
 ((now_epoch >= backup_epoch && now_epoch - backup_epoch <= 172800))
 gzip -t -- "$backup"
-marker="/mnt/restore-data/backups/mariadb/.last-success"
+marker="/mnt/disks/restore-data/backups/mariadb/.last-success"
 [[ -f "$marker" && ! -L "$marker" ]]
 marker_date="$(tr -d '\n' <"$marker")"
 [[ "$marker_date" =~ ^[0-9]{8}$ && "$(basename -- "$backup")" == "${marker_date}-primary.sql.gz" ]]
@@ -365,7 +367,7 @@ gzip -cd -- "$backup" | awk '
   END { exit !(migrations && pages && jobs && outbox) }
 '
 
-mariadb_volume="$(find "/mnt/restore-volumes" -mindepth 1 -maxdepth 1 -type d -name "scribe-prod-__SCRIBE_DATA_GENERATION__-mariadb-data" -print -quit)"
+mariadb_volume="$(find "/mnt/disks/restore-volumes" -mindepth 1 -maxdepth 1 -type d -name "scribe-prod-__SCRIBE_DATA_GENERATION__-mariadb-data" -print -quit)"
 [[ -n "$mariadb_volume" && -d "$mariadb_volume/_data" && ! -L "$mariadb_volume/_data" ]]
 [[ -n "$(find "$mariadb_volume/_data" -mindepth 1 -maxdepth 1 -print -quit)" ]]
 
@@ -424,7 +426,7 @@ run_drill() {
     --no-service-account \
     --no-scopes \
     --no-restart-on-failure \
-    --maintenance-policy=TERMINATE \
+    --maintenance-policy=MIGRATE \
     --shielded-secure-boot \
     --shielded-vtpm \
     --shielded-integrity-monitoring \
@@ -441,6 +443,7 @@ run_drill() {
       --project "$GCLOUD_PROJECT" \
       --zone "$PRODUCTION_ZONE" \
       --port=1 2>&1 || true)"
+    serial="${serial//$'\r'/}"
     if grep -q '^SCRIBE_RESTORE_PROBE_OK$' <<<"$serial"; then
       echo "Cloud snapshot restore drill passed for snapshots $(jq -r '.name' <<<"$data_snapshot") and $(jq -r '.name' <<<"$volumes_snapshot")."
       return 0

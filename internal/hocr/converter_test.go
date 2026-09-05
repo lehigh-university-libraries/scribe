@@ -8,7 +8,7 @@ import (
 )
 
 func TestConvertHOCRLinesToXMLEscapesCanonicalIdentifiersAndText(t *testing.T) {
-	output := NewConverter().ConvertHOCRLinesToXML([]models.HOCRLine{{
+	output := ConvertHOCRLinesToXML([]models.HOCRLine{{
 		ID: "line' onclick='alert(1)",
 		Words: []models.HOCRWord{{
 			ID:   "word' onmouseover='alert(2)",

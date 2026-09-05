@@ -146,28 +146,10 @@ WHERE id = sqlc.arg(id)
   AND locked_by = sqlc.arg(locked_by)
   AND status = 'processing';
 
--- name: GetEventOutboxHighWaterManual :one
-SELECT COALESCE(MAX(id), 0) AS high_water_id
-FROM event_outbox;
-
 -- name: GetEventOutboxHighWaterForWorkspaceManual :one
 SELECT COALESCE(MAX(id), 0) AS high_water_id
 FROM event_outbox
 WHERE workspace_id = sqlc.arg(workspace_id);
-
--- name: ListEventOutboxAfterIDManual :many
-SELECT
-  id,
-  event_id,
-  event_type,
-  workspace_id,
-  subject,
-  body_json,
-  created_at
-FROM event_outbox
-WHERE id > sqlc.arg(after_id)
-ORDER BY id ASC
-LIMIT ?;
 
 -- name: ListEventOutboxAfterIDForWorkspaceManual :many
 SELECT

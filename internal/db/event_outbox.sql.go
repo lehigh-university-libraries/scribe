@@ -189,18 +189,6 @@ func (q *Queries) GetEventOutboxHighWaterForWorkspaceManual(ctx context.Context,
 	return high_water_id, err
 }
 
-const getEventOutboxHighWaterManual = `-- name: GetEventOutboxHighWaterManual :one
-SELECT COALESCE(MAX(id), 0) AS high_water_id
-FROM event_outbox
-`
-
-func (q *Queries) GetEventOutboxHighWaterManual(ctx context.Context) (interface{}, error) {
-	row := q.db.QueryRowContext(ctx, getEventOutboxHighWaterManual)
-	var high_water_id interface{}
-	err := row.Scan(&high_water_id)
-	return high_water_id, err
-}
-
 const getWorkspaceIDForItemImageManual = `-- name: GetWorkspaceIDForItemImageManual :one
 SELECT i.workspace_id
 FROM item_images ii
@@ -294,57 +282,6 @@ type ListEventOutboxAfterIDForWorkspaceManualParams struct {
 
 func (q *Queries) ListEventOutboxAfterIDForWorkspaceManual(ctx context.Context, arg ListEventOutboxAfterIDForWorkspaceManualParams) ([]EventOutbox, error) {
 	rows, err := q.db.QueryContext(ctx, listEventOutboxAfterIDForWorkspaceManual, arg.AfterID, arg.WorkspaceID, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []EventOutbox{}
-	for rows.Next() {
-		var i EventOutbox
-		if err := rows.Scan(
-			&i.ID,
-			&i.EventID,
-			&i.EventType,
-			&i.WorkspaceID,
-			&i.Subject,
-			&i.BodyJson,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listEventOutboxAfterIDManual = `-- name: ListEventOutboxAfterIDManual :many
-SELECT
-  id,
-  event_id,
-  event_type,
-  workspace_id,
-  subject,
-  body_json,
-  created_at
-FROM event_outbox
-WHERE id > ?
-ORDER BY id ASC
-LIMIT ?
-`
-
-type ListEventOutboxAfterIDManualParams struct {
-	AfterID uint64 `json:"after_id"`
-	Limit   int32  `json:"limit"`
-}
-
-func (q *Queries) ListEventOutboxAfterIDManual(ctx context.Context, arg ListEventOutboxAfterIDManualParams) ([]EventOutbox, error) {
-	rows, err := q.db.QueryContext(ctx, listEventOutboxAfterIDManual, arg.AfterID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

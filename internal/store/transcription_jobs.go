@@ -1257,37 +1257,8 @@ func (s *TranscriptionJobStore) RetainExternalRequests(ctx context.Context, olde
 	}
 }
 
-func (s *TranscriptionJobStore) EventOutboxHighWater(ctx context.Context) (uint64, error) {
-	return s.q.GetEventOutboxHighWater(ctx)
-}
-
 func (s *TranscriptionJobStore) EventOutboxHighWaterForWorkspace(ctx context.Context, workspaceID uint64) (uint64, error) {
 	return s.q.GetEventOutboxHighWaterForWorkspace(ctx, workspaceID)
-}
-
-func (s *TranscriptionJobStore) ListEventOutboxAfter(ctx context.Context, afterID uint64, limit int) ([]EventOutboxRecord, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	rows, err := s.q.ListEventOutboxAfterID(ctx, afterID, limit)
-	if err != nil {
-		return nil, err
-	}
-	events := make([]EventOutboxRecord, 0, len(rows))
-	for _, row := range rows {
-		event := EventOutboxRecord{
-			ID:        row.ID,
-			EventID:   row.EventID,
-			EventType: row.EventType,
-			BodyJSON:  row.BodyJson,
-			CreatedAt: row.CreatedAt,
-		}
-		if row.Subject.Valid {
-			event.Subject = row.Subject.String
-		}
-		events = append(events, event)
-	}
-	return events, nil
 }
 
 func (s *TranscriptionJobStore) ListEventOutboxAfterForWorkspace(ctx context.Context, afterID, workspaceID uint64, limit int) ([]EventOutboxRecord, error) {

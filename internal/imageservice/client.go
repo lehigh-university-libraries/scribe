@@ -440,10 +440,3 @@ func readClientResponse(reader io.Reader) ([]byte, error) {
 	}
 	return body, nil
 }
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

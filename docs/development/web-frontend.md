@@ -6,6 +6,9 @@ clients under `web/src/api`, page orchestration in `web/src/pages`, and shared
 state/formatting helpers in `web/src/lib`. Do not duplicate backend business
 operations or canonical IIIF mutations in the shell.
 
+The existing Tailwind 4 PostCSS plugin handles vendor prefixing; no separate
+Autoprefixer pass is needed.
+
 Install exactly the reviewed lockfiles and run each package independently:
 
 ```bash

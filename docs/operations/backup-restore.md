@@ -49,9 +49,14 @@ hours. It then selects fresh,
 source-matched snapshots for both production disks, creates two distinct
 disposable restore disks, and attaches them read-only (`ro,noload`) to an
 isolated no-service-account, no-external-address VM behind priority-zero IPv4
-and IPv6 deny-egress rules. The probe verifies the MariaDB dump freshness,
+and IPv6 deny-egress rules. The standard E2 probe VM uses `MIGRATE` for host
+maintenance; E2 does not support `TERMINATE` without Spot/preemptible scheduling.
+Clone mount points live under COS's writable `/mnt/disks`, not read-only `/mnt`.
+The probe verifies the MariaDB dump freshness,
 gzip stream, completion marker, required canonical tables, and persistent
-MariaDB volume before cleanup. A scheduled failure opens an issue. A manual
+MariaDB volume before cleanup. After reporting its result, the probe stays
+running for serial-output collection and runner cleanup, with a 30-minute
+shutdown fallback if the runner disappears. A scheduled failure opens an issue. A manual
 dispatch can additionally download one exact backup object into the ephemeral
 runner, verify it, and discard it.
 

@@ -41,7 +41,6 @@
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "24.13.3",
     "@vitejs/plugin-react": "5.2.0",
-    "autoprefixer": "10.5.4",
     "happy-dom": "20.11.1",
     "postcss": "8.5.23",
     "tailwindcss": "4.3.3",

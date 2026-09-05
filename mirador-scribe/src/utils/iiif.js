@@ -114,16 +114,6 @@ export function findCanvasIdByAnnotationId(state, annotationId) {
   return '';
 }
 
-/** @param {MiradorState | null | undefined} state @returns {string} */
-export function firstAnnotationCanvasId(state) {
-  return annotationEntries(state)[0]?.[0] || '';
-}
-
-/** @param {MiradorState | null | undefined} state @returns {IIIFAnnotationPage | null} */
-export function firstAnnotationPage(state) {
-  return annotationEntries(state)[0]?.[1]?.json || null;
-}
-
 /** @param {MiradorState | null | undefined} state @param {string} windowId @returns {string} */
 export function canvasIdForWindow(state, windowId) {
   const windowState = state?.windows?.[windowId];
@@ -694,33 +684,6 @@ export function rowText(row) {
   return annotationText(row?.lead || fields[0]);
 }
 
-/** @param {EditorRow | null | undefined} row @returns {ImageBBox} */
-export function rowBBox(row) {
-  const fields = Array.isArray(row?.fields) ? row.fields : [];
-  const annotations = [row?.lead, ...fields].filter(Boolean);
-  if (annotations.length === 0) {
-    return {
-      h: 0,
-      w: 0,
-      x: 0,
-      y: 0,
-    };
-  }
-
-  const boxes = annotations.map((annotation) => annotationBBox(annotation));
-  const left = Math.min(...boxes.map((box) => box.x));
-  const top = Math.min(...boxes.map((box) => box.y));
-  const right = Math.max(...boxes.map((box) => box.x + box.w));
-  const bottom = Math.max(...boxes.map((box) => box.y + box.h));
-
-  return {
-    h: Math.max(0, bottom - top),
-    w: Math.max(0, right - left),
-    x: left,
-    y: top,
-  };
-}
-
 /** @param {IIIFAnnotationPage | null | undefined} page @param {IIIFAnnotation | null | undefined} annotation @returns {IIIFAnnotation | null} */
 export function lineAnnotationForSelection(page, annotation) {
   if (!page || !annotation) return null;
@@ -756,15 +719,6 @@ export function wordAnnotationIdForCaret(row, value, selectionStart) {
   const tokensBeforeCaret = beforeCaret.trim().length === 0 ? 0 : beforeCaret.trim().split(/\s+/).length - 1;
   const clampedIndex = Math.max(0, Math.min(tokensBeforeCaret, row.fields.length - 1));
   return row.fields[clampedIndex]?.id || rowSelectionId(row);
-}
-
-/** @param {IIIFAnnotation | null | undefined} selectedAnnotation @param {IIIFAnnotation[]} annotations @returns {IIIFAnnotation[]} */
-export function joinWordCandidates(selectedAnnotation, annotations) {
-  if (!selectedAnnotation || !isWordAnnotation(selectedAnnotation)) return [];
-  const candidates = sortedAnnotations({
-    items: (annotations || []).filter((annotation) => isWordAnnotation(annotation) && annotationsShareLine(annotation, selectedAnnotation)),
-  });
-  return candidates.length > 1 ? candidates : [];
 }
 
 /** @param {IIIFAnnotationPage} page @param {IIIFAnnotation} changedWordAnnotation @returns {IIIFAnnotationPage} */
@@ -832,30 +786,6 @@ export function updateRowText(page, row, text) {
   };
 }
 
-/** @param {IIIFAnnotation | null | undefined} selectedAnnotation @param {IIIFAnnotation[]} annotations @returns {IIIFAnnotation[]} */
-export function joinLineCandidates(selectedAnnotation, annotations) {
-  if (!selectedAnnotation || !isLineAnnotation(selectedAnnotation)) return [];
-  const lines = sortedAnnotations({
-    items: (annotations || []).filter((annotation) => isLineAnnotation(annotation)),
-  });
-  const selectedIndex = lines.findIndex((annotation) => annotation?.id === selectedAnnotation?.id);
-  if (selectedIndex < 0) return [];
-  const sibling = lines[selectedIndex + 1] || lines[selectedIndex - 1];
-  return sibling ? [selectedAnnotation, sibling] : [];
-}
-
-/** @param {MiradorState | null | undefined} state @param {Array<{ id: string }>} canvases @param {string} annotationId @returns {IIIFAnnotation | null} */
-export function findAnnotationForWindow(state, canvases, annotationId) {
-  if (!annotationId) return null;
-  for (const canvas of canvases || []) {
-    const page = annotationPageForCanvas(state, canvas.id);
-    const items = Array.isArray(page?.items) ? page.items : [];
-    const annotation = items.find((item) => item?.id === annotationId);
-    if (annotation) return annotation;
-  }
-  return null;
-}
-
 /** @param {IIIFAnnotation} annotation @param {ImageBBox} bbox @returns {IIIFAnnotation} */
 export function updateAnnotationBBox(annotation, { x, y, w, h }) {
   const next = structuredClone(annotation);
@@ -921,16 +851,6 @@ export function updateAnnotationText(annotation, text) {
 
   next.body = [replacement];
   return next;
-}
-
-/** @param {IIIFAnnotationPage} page @param {string} annotationId @param {IIIFAnnotation | IIIFAnnotation[]} replacements @returns {IIIFAnnotationPage} */
-export function replaceAnnotationInPage(page, annotationId, replacements) {
-  const items = Array.isArray(page?.items) ? [...page.items] : [];
-  const replacementItems = Array.isArray(replacements) ? replacements : [replacements];
-  const index = items.findIndex((item) => item?.id === annotationId);
-  if (index < 0) return page;
-  items.splice(index, 1, ...replacementItems);
-  return { ...page, items };
 }
 
 /** @param {IIIFAnnotationPage} page @param {string[]} annotationIds @returns {IIIFAnnotationPage} */

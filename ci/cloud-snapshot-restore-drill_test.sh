@@ -139,8 +139,10 @@ if [[ "$group $kind $action" == "compute instances create" ]]; then
     esac
   done
   [[ -f "$startup_script" ]]
-  grep -Fq '/mnt/restore-data/backups/mariadb/primary' "$startup_script"
-  grep -Fq '/mnt/restore-data/backups/mariadb/.last-success' "$startup_script"
+  grep -Fq '/mnt/disks/restore-data/backups/mariadb/primary' "$startup_script"
+  grep -Fq '/mnt/disks/restore-data/backups/mariadb/.last-success' "$startup_script"
+  grep -Fq 'mount_clone /dev/disk/by-id/google-restore-volumes /mnt/disks/restore-volumes' "$startup_script"
+  grep -Fq 'sleep 1800' "$startup_script"
   if grep -Fq '/mnt/restore-backups' "$startup_script"; then
     echo "startup probe still expects a third restore disk" >&2
     exit 1
@@ -153,7 +155,7 @@ if [[ "$group $kind $action" == "compute instances get-serial-port-output" ]]; t
   if [[ "${MOCK_MISSING_MARKER:-false}" == "true" ]]; then
     echo "probe is still booting"
   else
-    echo "SCRIBE_RESTORE_PROBE_OK"
+    printf 'SCRIBE_RESTORE_PROBE_OK\r\n'
   fi
   exit 0
 fi
@@ -200,6 +202,8 @@ reset_fixture
 "$ROOT_DIR/ci/cloud-snapshot-restore-drill.sh"
 assert_no_fixture_resources
 grep -q -- '--type=pd-balanced' "$MOCK_GCLOUD_LOG"
+grep -q -- '--machine-type=e2-small' "$MOCK_GCLOUD_LOG"
+grep -q -- '--maintenance-policy=MIGRATE' "$MOCK_GCLOUD_LOG"
 grep -q -- '--no-service-account' "$MOCK_GCLOUD_LOG"
 grep -q -- '--tags=scribe-restore-drill' "$MOCK_GCLOUD_LOG"
 grep -q -- 'device-name=restore-data,mode=ro,boot=no,auto-delete=no' "$MOCK_GCLOUD_LOG"

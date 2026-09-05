@@ -96,18 +96,6 @@ func (q *Queries) MarkWebhookDeliveryFailed(ctx context.Context, id uint64, lock
 	return requireAffectedRow(res, err)
 }
 
-func (q *Queries) GetEventOutboxHighWater(ctx context.Context) (uint64, error) {
-	raw, err := q.GetEventOutboxHighWaterManual(ctx)
-	if err != nil {
-		return 0, err
-	}
-	converted, err := scanInt64(raw)
-	if err != nil {
-		return 0, err
-	}
-	return uint64FromInt64(converted)
-}
-
 func (q *Queries) GetEventOutboxHighWaterForWorkspace(ctx context.Context, workspaceID uint64) (uint64, error) {
 	convertedWorkspaceID, err := uint64ToInt64(workspaceID)
 	if err != nil {
@@ -122,17 +110,6 @@ func (q *Queries) GetEventOutboxHighWaterForWorkspace(ctx context.Context, works
 		return 0, err
 	}
 	return uint64FromInt64(converted)
-}
-
-func (q *Queries) ListEventOutboxAfterID(ctx context.Context, afterID uint64, limit int) ([]EventOutbox, error) {
-	convertedLimit, err := intToInt32(limit)
-	if err != nil {
-		return nil, err
-	}
-	return q.ListEventOutboxAfterIDManual(ctx, ListEventOutboxAfterIDManualParams{
-		AfterID: afterID,
-		Limit:   convertedLimit,
-	})
 }
 
 func (q *Queries) ListEventOutboxAfterIDForWorkspace(ctx context.Context, afterID, workspaceID uint64, limit int) ([]EventOutbox, error) {

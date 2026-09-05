@@ -7,6 +7,9 @@ Sources and generated outputs are:
 | `proto/**/*.proto` | Buf remote plugins | Go, Connect, TypeScript, OpenAPI |
 | `sqlc/queries/*.sql` and database schema | sqlc | `internal/db` |
 
+Stores use the concrete sqlc `Queries` type; no unused aggregate query
+interface is generated.
+
 Install pinned tools and regenerate:
 
 ```bash

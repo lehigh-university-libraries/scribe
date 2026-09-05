@@ -1195,8 +1195,7 @@ func renderAnnotationExport(annotationPageJSON string, canvasWidth, canvasHeight
 	var content, mediaType, extension string
 	switch format {
 	case "hocr":
-		converter := hocr.NewConverter()
-		content, mediaType, extension = converter.ConvertHOCRLinesToXML(lines, pageW, pageH), "text/vnd.hocr+html; charset=utf-8", "hocr"
+		content, mediaType, extension = hocr.ConvertHOCRLinesToXML(lines, pageW, pageH), "text/vnd.hocr+html; charset=utf-8", "hocr"
 	case "pagexml":
 		content, mediaType, extension = linesToPageXML(lines, pageW, pageH), "application/vnd.prima.page+xml; charset=utf-8", "xml"
 	case "alto":
