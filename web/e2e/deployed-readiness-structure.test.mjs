@@ -152,4 +152,9 @@ test("publication diagnostics remain compatible with protected single-file stagi
     runner,
     /protectedPreviewPublicationExitCodes\.get\(substage\)[\s\S]*sharedManifestFailureExitCode\(substage\)/u,
   );
+  assert.doesNotMatch(runner, /PublishAnnotationPage/u);
+  assert.equal(
+    runner.match(/\/scribe\.v1\.AnnotationService\/PublishItemImageEdits/gu)?.length,
+    2,
+  );
 });

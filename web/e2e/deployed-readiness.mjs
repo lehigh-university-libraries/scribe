@@ -3561,7 +3561,7 @@ try {
   // sole public Presentation surface without modifying the external source.
   manifestFailureSubstage = "first-publication-request";
   await requireConnectAction(
-    "/scribe.v1.AnnotationService/PublishAnnotationPage",
+    "/scribe.v1.AnnotationService/PublishItemImageEdits",
     () => page.getByRole("button", { name: "Publish edits", exact: true }).click(),
   );
   manifestFailureSubstage = "first-publication-confirmation";
@@ -3634,7 +3634,7 @@ try {
 
   manifestFailureSubstage = "second-publication-request";
   await requireConnectAction(
-    "/scribe.v1.AnnotationService/PublishAnnotationPage",
+    "/scribe.v1.AnnotationService/PublishItemImageEdits",
     () => page.getByRole("button", { name: "Publish edits", exact: true }).click(),
   );
   manifestFailureSubstage = "second-publication-resource";
