@@ -182,7 +182,10 @@ additional owned executions. Every failed nonfinal execution must independently
 contain the exact allowlisted startup-gate, frontend-transport, and VM-network
 marker set proving guest-startup lag. All attempts use distinct execution
 markers and share one 45-minute execution deadline; OCR, browser, cancellation,
-control-plane, contract, and unavailable-marker failures are never retried.
+control-plane, and contract failures are never retried. An unavailable marker
+query or a unique incomplete subset of the exact allowlist is polled only for
+the bounded marker-recovery window; exhaustion still fails closed, while
+unknown, additional, or duplicate markers fail immediately.
 Production browser job rebinding, exact secret-version reconciliation, IAP
 transfer, restricted remote session minting, and cleanup settlement are typed
 Go tests under `internal/productionbrowserreadiness` and

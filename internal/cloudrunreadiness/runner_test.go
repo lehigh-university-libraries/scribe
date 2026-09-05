@@ -761,11 +761,99 @@ func TestBackendStartupRetryRejectsNonqualifyingMarkersAndKinds(t *testing.T) {
 	}
 }
 
-func TestBackendStartupRetryRequiresAvailableMarkers(t *testing.T) {
+func TestBackendStartupRetryRecoversTransientMarkerQuery(t *testing.T) {
+	t.Parallel()
+	request := testRequest(t, KindBackend, false)
+	request.Job = "scribe-pr-7-pr-7-backend-readiness"
+	executions := []Execution{
+		testExecution(request.Job, 840, ExecutionFailed),
+		testExecution(request.Job, 841, ExecutionSucceeded),
+	}
+	executeCalls := 0
+	markerCalls := 0
+	waits := 0
+	markersByExecution := make(map[string]string)
+	client := &fakeClient{
+		execute: func(_ context.Context, _ string, environment map[string]string) (LaunchResult, error) {
+			execution := executions[executeCalls]
+			executeCalls++
+			markersByExecution[execution.Name] = environment["SCRIBE_READINESS_EXECUTION_ID"]
+			return LaunchResult{Candidate: execution.Name}, nil
+		},
+		describe: func(_ context.Context, _ string, execution string) (Execution, error) {
+			for _, record := range executions {
+				if record.Name == execution {
+					record.ReadinessMarker = markersByExecution[execution]
+					return record, nil
+				}
+			}
+			return Execution{}, errors.New("unknown execution")
+		},
+		markers: func(_ context.Context, _ string, execution string, _ Kind) ([]string, error) {
+			if execution != executions[0].Name {
+				t.Fatal("successful execution queried for retry evidence")
+			}
+			markerCalls++
+			if markerCalls == 1 {
+				return nil, errors.New("marker query unavailable")
+			}
+			if markerCalls == 2 {
+				return backendStartupRetryMarkers()[:2], nil
+			}
+			return backendStartupRetryMarkers(), nil
+		},
+	}
+	runner := retryTestRunner(client, DefaultLimits())
+	runner.wait = func(ctx context.Context, _ time.Duration) error {
+		waits++
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
+	result := runner.Run(context.Background(), request, io.Discard, io.Discard)
+	if result.ExitCode != ExitSuccess || result.Execution != executions[1].Name || executeCalls != 2 {
+		t.Fatalf("result = %+v; execute calls = %d, want recovered retry success", result, executeCalls)
+	}
+	if markerCalls != 3 || waits != 2 {
+		t.Fatalf("marker calls = %d; waits = %d, want three bounded queries and two waits", markerCalls, waits)
+	}
+}
+
+func TestPartialBackendStartupRetryMarkers(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		markers []string
+		want    bool
+	}{
+		{name: "none yet", want: true},
+		{name: "one known", markers: backendStartupRetryMarkers()[:1], want: true},
+		{name: "two unique known", markers: backendStartupRetryMarkers()[:2], want: true},
+		{name: "complete", markers: backendStartupRetryMarkers(), want: false},
+		{name: "unknown", markers: []string{"unknown"}, want: false},
+		{name: "duplicate", markers: []string{backendFrontendRetryMarker, backendFrontendRetryMarker}, want: false},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := partialBackendStartupRetryMarkers(test.markers); got != test.want {
+				t.Fatalf("partialBackendStartupRetryMarkers(%q) = %t, want %t", test.markers, got, test.want)
+			}
+		})
+	}
+}
+
+func TestBackendStartupRetryRequiresMarkersWithinRecoveryBound(t *testing.T) {
 	t.Parallel()
 	request := testRequest(t, KindBackend, false)
 	execution := testExecution(request.Job, 840, ExecutionFailed)
 	executeCalls := 0
+	markerCalls := 0
+	waits := 0
 	marker := ""
 	client := &fakeClient{
 		execute: func(_ context.Context, _ string, environment map[string]string) (LaunchResult, error) {
@@ -779,12 +867,28 @@ func TestBackendStartupRetryRequiresAvailableMarkers(t *testing.T) {
 			return record, nil
 		},
 		markers: func(context.Context, string, string, Kind) ([]string, error) {
+			markerCalls++
 			return nil, errors.New("marker query unavailable")
 		},
 	}
-	result := retryTestRunner(client, DefaultLimits()).Run(context.Background(), request, io.Discard, io.Discard)
+	limits := DefaultLimits()
+	limits.MarkerRecoveryAttempts = 3
+	runner := retryTestRunner(client, limits)
+	runner.wait = func(ctx context.Context, _ time.Duration) error {
+		waits++
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
+	result := runner.Run(context.Background(), request, io.Discard, io.Discard)
 	if result.ExitCode != ExitReadinessFailed || executeCalls != 1 {
 		t.Fatalf("result = %+v; execute calls = %d, want no retry", result, executeCalls)
+	}
+	if markerCalls != limits.MarkerRecoveryAttempts+1 || waits != limits.MarkerRecoveryAttempts-1 {
+		t.Fatalf("marker calls = %d; waits = %d, want bounded recovery plus diagnostics", markerCalls, waits)
 	}
 	if !strings.Contains(string(result.Diagnostics.Render()), "[status] log_query=unavailable") ||
 		strings.Contains(string(result.Diagnostics.Render()), "backend_startup_retries") {

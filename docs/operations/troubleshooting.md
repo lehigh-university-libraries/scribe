@@ -287,9 +287,11 @@ retry uses a new execution marker but the pass retains the same overall
 45-minute execution deadline. Its fixed stdout notice says that confirmed
 guest-startup lag is being retried; terminal diagnostics include the bounded
 count `[status] backend_startup_retries=N`, where `N` is one through five.
-Missing, additional, duplicate, or unavailable markers stop the sequence, and
-OCR, browser, cancellation, control-plane, or readiness-contract failures
-remain single-attempt failures.
+An unavailable query, no markers, or a unique proper subset of the three known
+markers is polled only within the existing bounded marker-recovery window.
+Exhausting that window stops the sequence. Unknown, additional, or duplicate
+markers stop it immediately, and OCR, browser, cancellation, control-plane, or
+readiness-contract failures remain single-attempt failures.
 
 If `cleanup` follows an interrupted mutation, allow the runner its full
 eight-minute resource-reconciliation window. It has already closed the UI page
