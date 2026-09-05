@@ -1,0 +1,222 @@
+{
+  "@context": "http://iiif.io/api/presentation/3/context.json",
+  "id": "https://github.com/lehigh-university-libraries/scribe/readiness/manifest",
+  "type": "Manifest",
+  "label": {
+    "en": [
+      "Scribe deployed readiness fixture"
+    ]
+  },
+  "items": [
+    {
+      "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/1",
+      "type": "Canvas",
+      "label": { "en": ["Readiness canvas 1"] },
+      "width": 1000,
+      "height": 600,
+      "items": [
+        {
+          "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/1/painting",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/1/painting/image",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/web/e2e/canvas-a.svg",
+                "type": "Image",
+                "width": 1000,
+                "height": 600
+              },
+              "target": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/1"
+            }
+          ]
+        }
+      ],
+      "seeAlso": [
+        {
+          "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/internal/server/testdata/crosswalk/expected_hocr.html",
+          "type": "Text",
+          "format": "text/vnd.hocr+html",
+          "profile": "http://kba.cloud/hocr-spec"
+        }
+      ]
+    },
+    {
+      "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/2",
+      "type": "Canvas",
+      "label": { "en": ["Readiness canvas 2"] },
+      "width": 1000,
+      "height": 600,
+      "items": [
+        {
+          "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/2/painting",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/2/painting/image",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/web/e2e/canvas-a.svg",
+                "type": "Image",
+                "width": 1000,
+                "height": 600
+              },
+              "target": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/2"
+            }
+          ]
+        }
+      ],
+      "seeAlso": [
+        {
+          "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/internal/server/testdata/crosswalk/expected_hocr.html",
+          "type": "Text",
+          "format": "text/vnd.hocr+html",
+          "profile": "http://kba.cloud/hocr-spec"
+        }
+      ]
+    },
+    {
+      "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/3",
+      "type": "Canvas",
+      "label": { "en": ["Readiness canvas 3"] },
+      "width": 1000,
+      "height": 600,
+      "items": [
+        {
+          "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/3/painting",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/3/painting/image",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/web/e2e/canvas-a.svg",
+                "type": "Image",
+                "width": 1000,
+                "height": 600
+              },
+              "target": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/3"
+            }
+          ]
+        }
+      ],
+      "seeAlso": [
+        {
+          "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/internal/server/testdata/crosswalk/expected_hocr.html",
+          "type": "Text",
+          "format": "text/vnd.hocr+html",
+          "profile": "http://kba.cloud/hocr-spec"
+        }
+      ]
+    },
+    {
+      "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/4",
+      "type": "Canvas",
+      "label": { "en": ["Readiness canvas 4"] },
+      "width": 1000,
+      "height": 600,
+      "items": [
+        {
+          "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/4/painting",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/4/painting/image",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/web/e2e/canvas-a.svg",
+                "type": "Image",
+                "width": 1000,
+                "height": 600
+              },
+              "target": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/4"
+            }
+          ]
+        }
+      ],
+      "seeAlso": [
+        {
+          "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/internal/server/testdata/crosswalk/expected_hocr.html",
+          "type": "Text",
+          "format": "text/vnd.hocr+html",
+          "profile": "http://kba.cloud/hocr-spec"
+        }
+      ]
+    },
+    {
+      "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/5",
+      "type": "Canvas",
+      "label": { "en": ["Readiness canvas 5"] },
+      "width": 1000,
+      "height": 600,
+      "items": [
+        {
+          "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/5/painting",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/5/painting/image",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/web/e2e/canvas-a.svg",
+                "type": "Image",
+                "width": 1000,
+                "height": 600
+              },
+              "target": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/5"
+            }
+          ]
+        }
+      ],
+      "seeAlso": [
+        {
+          "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/internal/server/testdata/crosswalk/expected_hocr.html",
+          "type": "Text",
+          "format": "text/vnd.hocr+html",
+          "profile": "http://kba.cloud/hocr-spec"
+        }
+      ]
+    },
+    {
+      "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/6",
+      "type": "Canvas",
+      "label": { "en": ["Readiness canvas 6"] },
+      "width": 1000,
+      "height": 600,
+      "items": [
+        {
+          "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/6/painting",
+          "type": "AnnotationPage",
+          "items": [
+            {
+              "id": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/6/painting/image",
+              "type": "Annotation",
+              "motivation": "painting",
+              "body": {
+                "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/web/e2e/canvas-a.svg",
+                "type": "Image",
+                "width": 1000,
+                "height": 600
+              },
+              "target": "https://github.com/lehigh-university-libraries/scribe/readiness/canvas/6"
+            }
+          ]
+        }
+      ],
+      "seeAlso": [
+        {
+          "id": "https://raw.githubusercontent.com/lehigh-university-libraries/scribe/8202da4a50fef7256b77d60685f2f0e08e14f3c9/internal/server/testdata/crosswalk/expected_hocr.html",
+          "type": "Text",
+          "format": "text/vnd.hocr+html",
+          "profile": "http://kba.cloud/hocr-spec"
+        }
+      ]
+    }
+  ]
+}
