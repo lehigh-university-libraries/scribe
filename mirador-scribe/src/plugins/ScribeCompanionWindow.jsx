@@ -184,8 +184,8 @@ export function ScribeCompanionWindow({
       || targetSession.status === 'saving';
   }
 
-  /** @param {string} targetCanvasId @returns {ScribeAdapterLike} */
-  const requireAdapter = useCallback((targetCanvasId) => {
+  /** @returns {ScribeAdapterLike} */
+  const requireAdapter = useCallback((/** @type {string} */ targetCanvasId) => {
     const adapter = adapterFactory?.(targetCanvasId);
     if (!adapter) throw new Error(`Canvas ${targetCanvasId} has no annotation adapter.`);
     return adapter;
