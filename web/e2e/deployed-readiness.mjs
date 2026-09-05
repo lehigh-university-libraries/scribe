@@ -1907,6 +1907,9 @@ async function currentEditorAnnotationCount() {
 async function waitForEditorAnnotationCount(expected) {
   await page.waitForFunction((count) => (
     globalThis.__scribeReadinessEditorState?.annotationCount === count
+    && globalThis.__scribeReadinessEditorState?.hasRevision === true
+    && globalThis.__scribeReadinessEditorState?.isBusy === false
+    && globalThis.__scribeReadinessEditorState?.sessionStatus === "ready"
   ), expected);
 }
 
@@ -2375,7 +2378,10 @@ try {
           : [],
         annotationCount: Array.isArray(annotationPage?.items) ? annotationPage.items.length : -1,
         focusedWordAnnotationId: String(event.detail?.focusedWordAnnotationId ?? ""),
+        hasRevision: event.detail?.hasRevision === true,
+        isBusy: event.detail?.isBusy === true,
         selectedAnnotationId: String(event.detail?.selectedAnnotationId ?? ""),
+        sessionStatus: String(event.detail?.sessionStatus ?? ""),
         statusMessage: String(event.detail?.statusMessage ?? ""),
         wordAnnotationIds: Array.isArray(annotationPage?.items)
           ? annotationPage.items
