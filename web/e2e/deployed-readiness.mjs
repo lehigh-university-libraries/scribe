@@ -3533,15 +3533,18 @@ try {
   // Publication is scoped to this disposable imported item and is removed by
   // the exact manifest cleanup below. It proves the canonical page reaches the
   // sole public Presentation surface without modifying the external source.
-  manifestFailureSubstage = "first-publication";
+  manifestFailureSubstage = "first-publication-request";
   await requireConnectAction(
     "/scribe.v1.AnnotationService/PublishAnnotationPage",
     () => page.getByRole("button", { name: "Publish edits", exact: true }).click(),
   );
+  manifestFailureSubstage = "first-publication-confirmation";
   await page.getByText("Edits published.", { exact: true }).waitFor({ state: "visible" });
+  manifestFailureSubstage = "first-publication-resource";
   const manifestPublishedAnnotationPage = await waitForPublishedAnnotationPage(
     manifestFirstAnnotationPath,
   );
+  manifestFailureSubstage = "first-publication-contract";
   assertExactPresentationAnnotationPage(
     manifestPublishedAnnotationPage,
     manifestFirstAnnotationPath,
@@ -3603,14 +3606,16 @@ try {
     throw new Error("manifest editor action was unusable after overlay cycling");
   }
 
-  manifestFailureSubstage = "second-publication";
+  manifestFailureSubstage = "second-publication-request";
   await requireConnectAction(
     "/scribe.v1.AnnotationService/PublishAnnotationPage",
     () => page.getByRole("button", { name: "Publish edits", exact: true }).click(),
   );
+  manifestFailureSubstage = "second-publication-resource";
   const manifestSecondPublishedAnnotationPage = await waitForPublishedAnnotationPage(
     manifestSecondAnnotationPath,
   );
+  manifestFailureSubstage = "second-publication-contract";
   assertExactPresentationAnnotationPage(
     manifestSecondPublishedAnnotationPage,
     manifestSecondAnnotationPath,
