@@ -63,7 +63,7 @@ x-scribe-app-env: &scribe-app-env
 
 services:
   mariadb:
-    image: mariadb:12.3@sha256:628f228f0fd5913a220438693576b29b6fe4dc1fa0a1298c0e98579fae28635f
+    image: mariadb:12.3@sha256:ab1c3dd381940233af12512b97d47b508fd3a0f17fbe3ba388739b7bc17cbc0b
     environment:
       MARIADB_DATABASE: scribe
       MARIADB_USER: scribe
@@ -85,7 +85,7 @@ services:
     stop_grace_period: 30s
 
   traefik:
-    image: traefik:v3.7.9@sha256:652929a140a32d7cafafb13c6cdfab5376cfeff800f51397b87b524501ed02a8
+    image: traefik:v3.7.13@sha256:f86a2cab1b5c649070c49f883c743dd32d8485a56e3368c5f93b9e91f1e91259
     restart: unless-stopped
     command:
       - --api.insecure=false
@@ -224,7 +224,7 @@ services:
 
   triplet:
     <<: *scribe-runtime-hardening
-    image: ghcr.io/libops/triplet:v1.2.0@sha256:6f7ce5374a4517456ae0b8ba410f0abd2e6a717675e8f4e3e18ddf6ab2227ace
+    image: ghcr.io/libops/triplet:v1.2.4@sha256:1a1abbae387129c6a157005fdab43f0256adc6a1652a0144df58cdcce825cd20
     labels:
       org.libops.scribe.local-token-generation: ${SCRIBE_LOCAL_TOKEN_GENERATION:-initial}
     environment:
