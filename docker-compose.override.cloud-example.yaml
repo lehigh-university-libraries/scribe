@@ -67,4 +67,4 @@ services:
     stop_grace_period: 20s
 
   triplet:
-    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:v1.2.0@sha256:6f7ce5374a4517456ae0b8ba410f0abd2e6a717675e8f4e3e18ddf6ab2227ace}
+    image: ${TRIPLET_IMAGE:-ghcr.io/libops/triplet:v1.2.4@sha256:1a1abbae387129c6a157005fdab43f0256adc6a1652a0144df58cdcce825cd20}
