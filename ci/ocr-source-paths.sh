@@ -13,9 +13,8 @@ paths=(
   .dockerignore
   .github/workflows/build-ocr.yaml
   Dockerfile.segmentor
-  Makefile
-  ci/generate-ocr-images-map.sh
-  ci/ocr-matrix.sh
+  cmd/ocr-matrix
+  internal/ocrimages
   ci/ocr-source-paths.sh
   ci/segmentor-lock.sh
   config/imagemagick-policy.xml

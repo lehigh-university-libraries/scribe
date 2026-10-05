@@ -3,8 +3,6 @@ package config
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/vaultkv"
 )
@@ -64,22 +62,6 @@ func LoadSecrets(ctx context.Context, cfg Config) (Secrets, error) {
 		GeminiAPIKey:            gemini["api_key"],
 		DatabasePassword:        databasePassword,
 	}, nil
-}
-
-// LoadDatabasePassword fetches only the database bootstrap secret. It is for
-// narrow trusted-host helpers that need database-backed stores but must not
-// request the OAuth or provider credentials loaded by LoadSecrets.
-func LoadDatabasePassword(ctx context.Context, cfg BrowserSessionVaultConfig) (string, error) {
-	client, err := newVaultSecretReader(
-		cfg.Address,
-		strings.TrimSpace(os.Getenv("VAULT_TOKEN")),
-		cfg.KVMount,
-		cfg.GCPAuthRole,
-	)
-	if err != nil {
-		return "", err
-	}
-	return readDatabasePassword(ctx, client, cfg.DatabasePath)
 }
 
 func newVaultSecretReader(address, token, kvMount, gcpAuthRole string) (vaultSecretReader, error) {

@@ -57,9 +57,7 @@ reviewed persistence generation described in
 [deployment](../operations/deployment.md#persistence-generations), keeping the
 new schema, blobs, Triplet state, and queues together while retaining the prior
 generation for explicit recovery. The `0002` release deploys to
-`canonical-v2`; automatic rollback reads the pre-apply deployment record and
-therefore returns the prior binary to `canonical-v1` rather than opening the
-new migration ledger.
+`canonical-v2`; the `canonical-v1` data stays in place for recovery.
 
 A local volume created by an unreleased checkout that rewrote
 `0001_initial.sql` will not start once the released checksum is restored. Keep

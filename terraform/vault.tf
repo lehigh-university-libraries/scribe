@@ -81,6 +81,8 @@ resource "vault_mount" "secret" {
   options = {
     version = 2
   }
+
+  depends_on = [module.vault]
 }
 
 resource "vault_policy" "vault" {
@@ -88,6 +90,8 @@ resource "vault_policy" "vault" {
 
   name   = trimsuffix(each.value, ".hcl")
   policy = file("${path.module}/policies/vault/${each.value}")
+
+  depends_on = [module.vault]
 }
 
 resource "vault_policy" "app" {
@@ -120,6 +124,8 @@ path "secret/metadata/scribe/${local.workspace_slug}/provider-secrets/workspaces
   capabilities = ["delete"]
 }
 EOT
+
+  depends_on = [module.vault]
 }
 
 resource "vault_policy" "preview_app" {
@@ -135,6 +141,8 @@ path "secret/data/scribe/previews/{{identity.entity.aliases.${vault_gcp_auth_bac
   capabilities = ["read"]
 }
 EOT
+
+  depends_on = [module.vault]
 }
 
 resource "vault_token_auth_backend_role" "ci" {
@@ -148,6 +156,7 @@ resource "vault_token_auth_backend_role" "ci" {
   token_max_ttl    = 3600
 
   depends_on = [
+    module.vault,
     vault_policy.vault,
   ]
 }
@@ -162,6 +171,7 @@ resource "vault_audit" "stdout" {
   }
 
   depends_on = [
+    module.vault,
     vault_policy.vault,
     vault_policy.app,
   ]
@@ -173,6 +183,8 @@ resource "vault_gcp_auth_backend" "gcp" {
   path         = local.vault_gcp_auth_backend_path
   iam_alias    = "unique_id"
   iam_metadata = ["service_account_email"]
+
+  depends_on = [module.vault]
 }
 
 resource "vault_jwt_auth_backend" "google_jwt" {
@@ -182,6 +194,8 @@ resource "vault_jwt_auth_backend" "google_jwt" {
   type               = "jwt"
   oidc_discovery_url = "https://accounts.google.com"
   bound_issuer       = "https://accounts.google.com"
+
+  depends_on = [module.vault]
 }
 
 resource "vault_jwt_auth_backend_role" "ci" {
@@ -204,6 +218,7 @@ resource "vault_jwt_auth_backend_role" "ci" {
   token_max_ttl = 3600
 
   depends_on = [
+    module.vault,
     vault_policy.vault,
   ]
 }
@@ -233,6 +248,7 @@ resource "vault_jwt_auth_backend_role" "admin" {
   token_max_ttl = 900
 
   depends_on = [
+    module.vault,
     vault_policy.vault,
   ]
 }
@@ -263,6 +279,7 @@ resource "vault_jwt_auth_backend_role" "admin_break_glass" {
   token_max_ttl = 900
 
   depends_on = [
+    module.vault,
     vault_policy.vault,
   ]
 }
@@ -285,6 +302,7 @@ resource "vault_gcp_auth_backend_role" "app" {
   ]
 
   depends_on = [
+    module.vault,
     vault_gcp_auth_backend.gcp,
     vault_policy.app,
   ]
@@ -307,6 +325,7 @@ resource "vault_gcp_auth_backend_role" "preview_app" {
   ]
 
   depends_on = [
+    module.vault,
     vault_gcp_auth_backend.gcp,
     vault_policy.preview_app,
   ]
@@ -329,7 +348,28 @@ resource "vault_gcp_auth_backend_role" "ci" {
   ]
 
   depends_on = [
+    module.vault,
     vault_gcp_auth_backend.gcp,
     vault_policy.vault,
   ]
+}
+
+# Previews share dev's Vault. Each preview owns one generated database password
+# under its own service-account prefix, removed when the preview is destroyed.
+resource "random_password" "preview_database" {
+  count = local.is_preview_workspace ? 1 : 0
+
+  length  = 64
+  special = false
+}
+
+resource "vault_kv_secret_v2" "preview_database" {
+  count = local.is_preview_workspace ? 1 : 0
+
+  mount               = "secret"
+  name                = "${local.vault_secret_prefix}/database/app"
+  delete_all_versions = true
+  data_json           = jsonencode({ password = random_password.preview_database[0].result })
+
+  depends_on = [module.vault]
 }

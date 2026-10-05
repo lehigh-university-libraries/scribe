@@ -1712,6 +1712,7 @@ func TestSeedTranscriptionJobOCRRunUsesSuccessfulLineSet(t *testing.T) {
 	}
 	if provenance == nil {
 		t.Fatal("completed OCR provenance is nil")
+		return
 	}
 	if err := ocrRunStore.Create(ctx, *provenance); err != nil {
 		t.Fatalf("persist completed OCR run fixture: %v", err)

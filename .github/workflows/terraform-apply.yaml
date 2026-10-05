@@ -1,82 +1,68 @@
 name: Terraform Apply
 
+# Every push to main builds :main images and applies the prod workspace.
+# A manual run can plan or apply without building.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
-      mode:
+      action:
         description: Terraform action to run.
         required: true
         type: choice
-        default: apply
-        options:
-          - plan
-          - apply
-  push:
-    branches:
-      - main
+        default: plan
+        options: [plan, apply]
 
 permissions:
   contents: read
 
 concurrency:
-  group: terraform-apply-${{ github.ref_name }}
+  group: terraform-apply
   cancel-in-progress: false
 
 jobs:
-  prepare-backend-origin:
-    runs-on: ubuntu-24.04
-    outputs:
-      backend_origin: ${{ steps.vars.outputs.backend_origin }}
-      frontend_gar_image_tag: ${{ steps.vars.outputs.frontend_gar_image_tag }}
-      region: ${{ steps.vars.outputs.region }}
-      zone: ${{ steps.vars.outputs.zone }}
-    env:
-      GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
-      SCRIBE_REGION: ${{ vars.SCRIBE_REGION != '' && vars.SCRIBE_REGION || 'us-east5' }}
-      SCRIBE_ZONE: ${{ vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || 'us-east5-b' }}
-    steps:
-      - name: Validate workflow variables
-        shell: bash
-        run: |
-          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "Production workflows must run from the protected main branch." >&2
-            exit 1
-          fi
-          if [ -z "$GCLOUD_PROJECT" ]; then
-            echo "GitHub Actions variable GCLOUD_PROJECT must be set." >&2
-            exit 1
-          fi
-      - id: vars
-        run: |
-          {
-            echo "backend_origin=http://scribe.${SCRIBE_ZONE}.c.${GCLOUD_PROJECT}.internal"
-            echo "frontend_gar_image_tag=us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-frontend:main"
-            echo "region=${SCRIBE_REGION}"
-            echo "zone=${SCRIBE_ZONE}"
-          } >> "$GITHUB_OUTPUT"
-
-  build-backend:
-    if: github.event_name == 'push' || inputs.mode == 'apply'
-    needs: [prepare-backend-origin, lint-test]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+  lint-test:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/lint-test.yaml
     permissions:
       contents: read
+
+  images:
+    if: github.event_name == 'push'
+    needs: [lint-test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
       packages: write
-    outputs:
-      image: ghcr.io/lehigh-university-libraries/scribe@${{ steps.build.outputs.digest }}
+    env:
+      GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
+      ZONE: ${{ vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || format('{0}-b', vars.SCRIBE_REGION != '' && vars.SCRIBE_REGION || 'us-east5') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.sha }}
           persist-credentials: false
+      - id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
+          service_account: ${{ secrets.GSA }}
+          token_format: access_token
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: us-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-      - id: build
+      - name: Build backend
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
@@ -88,33 +74,7 @@ jobs:
             ghcr.io/lehigh-university-libraries/scribe:${{ github.sha }}
           provenance: true
           sbom: true
-      - name: Smoke-test the packaged Vault init runtime
-        env:
-          VAULT_INIT_IMAGE: ghcr.io/lehigh-university-libraries/scribe@${{ steps.build.outputs.digest }}
-        run: ./ci/vault-init-image-smoke.sh "$VAULT_INIT_IMAGE"
-
-  build-frontend:
-    if: github.event_name == 'push' || inputs.mode == 'apply'
-    needs: [prepare-backend-origin, lint-test]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image: ghcr.io/lehigh-university-libraries/scribe-frontend@${{ steps.build.outputs.digest }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-      - id: build
+      - name: Build frontend
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
@@ -122,270 +82,85 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/lehigh-university-libraries/scribe-frontend:main
-            ghcr.io/lehigh-university-libraries/scribe-frontend:${{ github.sha }}
+            us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe-frontend:main
+            us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe-frontend:${{ github.sha }}
+          build-args: |
+            SCRIBE_FRONTEND_BACKEND_ORIGIN=http://scribe.${{ env.ZONE }}.c.${{ vars.GCLOUD_PROJECT }}.internal
           provenance: true
           sbom: true
-          build-args: |
-            SCRIBE_FRONTEND_BACKEND_ORIGIN=${{ needs.prepare-backend-origin.outputs.backend_origin }}
-      - name: Smoke-test the packaged frontend runtime
-        env:
-          FRONTEND_IMAGE: ghcr.io/lehigh-university-libraries/scribe-frontend@${{ steps.build.outputs.digest }}
-        run: ./ci/frontend-image-smoke.sh "$FRONTEND_IMAGE"
 
-  build-ocr:
-    if: (github.event_name == 'push' || inputs.mode == 'apply') && needs.ocr-change-detection.outputs.ocr_changed == 'true'
-    needs: [prepare-backend-origin, lint-test, foundation, ocr-change-detection]
-    uses: ./.github/workflows/build-ocr.yaml
-    permissions:
-      id-token: write
-      contents: read
-      packages: write
-    with:
-      checkout_ref: ${{ github.sha }}
-      workspace_slug: prod
-      image_tag: ${{ github.sha }}
-      environment_name: production
-
-  lint-test:
-    needs: [prepare-backend-origin]
-    uses: ./.github/workflows/lint-test.yaml
-    permissions:
-      contents: read
-    with:
-      checkout_ref: ${{ github.sha }}
-
-  foundation:
-    needs: [prepare-backend-origin, lint-test]
+  # OCR images are large; rebuild them only when their inputs changed in this
+  # push, or when a :main image is missing (first deploy, new model).
+  ocr-changes:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
     environment: production
     permissions:
-      id-token: write
       contents: read
-    env:
-      GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
-      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
-        with:
-          terraform_version: v1.16.4
-      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          project_id: ${{ vars.GCLOUD_PROJECT }}
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
-        with:
-          version: 576.0.0
-      - name: Verify production deploy WIF trust boundary
-        env:
-          WIF_EXPECTED_ENVIRONMENT: production
-          WIF_IDENTITY_CLASS: deploy
-          WIF_PROVIDER: ${{ secrets.GCLOUD_OIDC_POOL }}
-          WIF_SERVICE_ACCOUNT: ${{ secrets.GSA }}
-        run: ./ci/verify-gcp-wif.sh
-      - name: Plan or apply singleton project foundation
-        shell: bash
-        env:
-          FOUNDATION_ACTION: ${{ github.event_name == 'push' && 'apply' || inputs.mode }}
-        run: |
-          set -euo pipefail
-          test -n "$GCLOUD_PROJECT"
-          test -n "$TF_STATE_BUCKET"
-          case "$FOUNDATION_ACTION" in
-            apply)
-              # Terraform's project-service resources cannot reconcile any API
-              # while Service Usage itself is disabled. This is the one
-              # apply-only API bootstrap needed before the foundation owns the
-              # complete reviewed service set.
-              gcloud services enable serviceusage.googleapis.com --project="$GCLOUD_PROJECT" --quiet
-              ;;
-            plan) ;;
-            *)
-              echo "Unsupported foundation action: $FOUNDATION_ACTION" >&2
-              exit 2
-              ;;
-          esac
-          terraform -chdir=terraform/foundation init -input=false -lockfile=readonly \
-            -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="prefix=scribe-foundation"
-          test "$(terraform -chdir=terraform/foundation workspace show)" = "default"
-          case "$FOUNDATION_ACTION" in
-            apply)
-              terraform -chdir=terraform/foundation apply -input=false -auto-approve \
-                -lock-timeout=5m -var="project_id=${GCLOUD_PROJECT}"
-              ;;
-            plan)
-              terraform -chdir=terraform/foundation plan -input=false \
-                -lock-timeout=5m -var="project_id=${GCLOUD_PROJECT}"
-              ;;
-            *)
-              echo "Unsupported foundation action: $FOUNDATION_ACTION" >&2
-              exit 2
-              ;;
-          esac
-
-  ocr-change-detection:
-    if: github.event_name == 'push' || inputs.mode == 'apply'
-    needs: [foundation, lint-test]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    environment: production
-    permissions:
       id-token: write
-      contents: read
     outputs:
-      ocr_changed: ${{ steps.detect.outputs.ocr_changed }}
-      ocr_images_json: ${{ steps.detect.outputs.ocr_images_json }}
+      changed: ${{ steps.detect.outputs.changed }}
     env:
       GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
-      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      BEFORE: ${{ github.event.before }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: .go-version
           cache: false
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
-        with:
-          terraform_version: v1.16.4
-          terraform_wrapper: false
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
-          project_id: ${{ vars.GCLOUD_PROJECT }}
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
+          workload_identity_provider: ${{ vars.OCR_GCLOUD_OIDC_POOL }}
+          service_account: ${{ vars.OCR_GSA }}
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           version: 576.0.0
-      - name: Verify production deploy WIF trust boundary
-        env:
-          WIF_EXPECTED_ENVIRONMENT: production
-          WIF_IDENTITY_CLASS: deploy
-          WIF_PROVIDER: ${{ secrets.GCLOUD_OIDC_POOL }}
-          WIF_SERVICE_ACCOUNT: ${{ secrets.GSA }}
-        run: ./ci/verify-gcp-wif.sh
       - id: detect
-        name: Detect reviewed OCR image source changes
-        shell: bash
-        env:
-          CURRENT_SHA: ${{ github.sha }}
         run: |
-          set -euo pipefail
-
-          rebuild_ocr() {
-            local reason="$1"
-            echo "::warning::OCR image reuse is unavailable; rebuilding the reviewed matrix (${reason})."
-            {
-              echo "ocr_changed=true"
-              echo "ocr_images_json={}"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          }
-
-          test -n "$GCLOUD_PROJECT" || rebuild_ocr "the project is unavailable"
-          test -n "$TF_STATE_BUCKET" || rebuild_ocr "the state bucket is unavailable"
-          [[ "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]] || rebuild_ocr "the current commit is invalid"
-          git cat-file -e "${CURRENT_SHA}^{commit}" 2>/dev/null || rebuild_ocr "the current commit is absent"
-
-          terraform -chdir=terraform init -input=false -lockfile=readonly \
-            -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="prefix=scribe" >/dev/null ||
-            rebuild_ocr "Terraform state initialization failed"
-          terraform -chdir=terraform workspace select prod >/dev/null ||
-            rebuild_ocr "the production workspace is unavailable"
-          deployment_inputs="$(terraform -chdir=terraform output -json deployment_inputs 2>/dev/null)" ||
-            rebuild_ocr "the production deployment record is unreadable"
-          deployed="$(
-            printf '%s\n' "$deployment_inputs" |
-              ./ci/resolve-rollback-inputs.sh - 2>/dev/null
-          )" || rebuild_ocr "the production deployment record is incomplete"
-          unset deployment_inputs
-
-          deployed_project="$(jq -r '.configuration.project_id' <<<"$deployed")" ||
-            rebuild_ocr "the production deployment project is unreadable"
-          [ "$deployed_project" = "$GCLOUD_PROJECT" ] ||
-            rebuild_ocr "the production deployment record belongs to another project"
-          previous_sha="$(jq -r '.docker_compose_sha' <<<"$deployed")" ||
-            rebuild_ocr "the previous deployment commit is unreadable"
-          [[ "$previous_sha" =~ ^[0-9a-f]{40}$ ]] ||
-            rebuild_ocr "the previous deployment commit is invalid"
-          git cat-file -e "${previous_sha}^{commit}" 2>/dev/null ||
-            rebuild_ocr "the previous deployment commit is outside checkout history"
-          git merge-base --is-ancestor "$previous_sha" "$CURRENT_SHA" ||
-            rebuild_ocr "the previous deployment is not an ancestor of this commit"
-
-          ocr_source_paths="$(./ci/ocr-source-paths.sh)" ||
-            rebuild_ocr "OCR source path discovery failed"
-          test -n "$ocr_source_paths" || rebuild_ocr "OCR source path discovery was empty"
-          mapfile -t ocr_source_path_list <<<"$ocr_source_paths"
-          for source_path in "${ocr_source_path_list[@]}"; do
-            test -n "$source_path" || rebuild_ocr "OCR source path discovery emitted an empty path"
-            [[ "$source_path" != /* && "$source_path" != -* ]] ||
-              rebuild_ocr "OCR source path discovery emitted an unsafe path"
-          done
-
-          changed_paths="$(
-            git diff --name-only "$previous_sha" "$CURRENT_SHA" -- "${ocr_source_path_list[@]}"
-          )" || rebuild_ocr "the deployment history could not be compared"
-          if [ -n "$changed_paths" ]; then
-            echo "OCR image inputs changed; rebuilding the reviewed matrix:"
-            printf '%s\n' "$changed_paths"
-            {
-              echo "ocr_changed=true"
-              echo "ocr_images_json={}"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
+          changed=true
+          if git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            mapfile -t paths < <(./ci/ocr-source-paths.sh)
+            if git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "${paths[@]}"; then
+              changed=false
+            fi
           fi
+          if [ "$changed" = false ]; then
+            for image in $(go run ./cmd/ocr-matrix | jq -r '.include[].image'); do
+              if ! gcloud artifacts docker images describe "$image" >/dev/null 2>&1; then
+                echo "$image is missing"
+                changed=true
+              fi
+            done
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
-          recorded_ocr_images="$(jq -c '.ocr_service_images' <<<"$deployed")" ||
-            rebuild_ocr "the recorded OCR digest map is unreadable"
-          selected_ocr_images="$(
-            GCLOUD_PROJECT="$GCLOUD_PROJECT" \
-              WORKSPACE_SLUG=prod \
-              ./ci/select-current-ocr-images.sh <<<"$recorded_ocr_images" 2>/dev/null
-          )" || rebuild_ocr "recorded OCR digests do not cover the current service matrix"
-          {
-            echo "ocr_changed=false"
-            echo "ocr_images_json=${selected_ocr_images}"
-          } >> "$GITHUB_OUTPUT"
-          echo "No OCR image inputs changed; reusing the reviewed production digest map."
+  build-ocr:
+    needs: [ocr-changes]
+    if: needs.ocr-changes.outputs.changed == 'true'
+    uses: ./.github/workflows/build-ocr.yaml
+    permissions:
+      contents: read
+      id-token: write
 
-  resolve-plan-inputs:
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'plan'
-    needs: [prepare-backend-origin, foundation, lint-test]
+  foundation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     environment: production
     permissions:
-      id-token: write
       contents: read
-    outputs:
-      api_image: ${{ steps.deployed.outputs.api_image }}
-      browser_readiness_image: ${{ steps.deployed.outputs.browser_readiness_image }}
-      frontend_gar_image: ${{ steps.deployed.outputs.frontend_gar_image }}
-      ocr_images_json: ${{ steps.deployed.outputs.ocr_images_json }}
+      id-token: write
     env:
       GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      ACTION: ${{ github.event_name == 'push' && 'apply' || inputs.action }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
-        with:
-          terraform_version: v1.16.4
-          terraform_wrapper: false
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           project_id: ${{ vars.GCLOUD_PROJECT }}
@@ -394,94 +169,34 @@ jobs:
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           version: 576.0.0
-      - name: Verify production deploy WIF trust boundary
-        env:
-          WIF_EXPECTED_ENVIRONMENT: production
-          WIF_IDENTITY_CLASS: deploy
-          WIF_PROVIDER: ${{ secrets.GCLOUD_OIDC_POOL }}
-          WIF_SERVICE_ACCOUNT: ${{ secrets.GSA }}
-        run: ./ci/verify-gcp-wif.sh
-      - id: deployed
-        name: Read current immutable production artifacts
-        shell: bash
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: 1.16.4
+      - name: Terraform ${{ env.ACTION }} foundation
         run: |
-          set -euo pipefail
-          terraform -chdir=terraform init -input=false -lockfile=readonly \
-            -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="prefix=scribe"
-          terraform -chdir=terraform workspace select prod
-          deployed="$(terraform -chdir=terraform output -json deployment_inputs | ./ci/resolve-rollback-inputs.sh -)" || {
-            echo "Production has no complete immutable deployment record; use the protected apply path for its first rollout." >&2
-            exit 1
-          }
-          [ "$(jq -r '.configuration.project_id' <<<"$deployed")" = "$GCLOUD_PROJECT" ]
-          {
-            echo "api_image=$(jq -r '.api_image' <<<"$deployed")"
-            echo "browser_readiness_image=$(jq -r '.browser_readiness_image' <<<"$deployed")"
-            echo "frontend_gar_image=$(jq -r '.frontend_gar_image' <<<"$deployed")"
-            echo "ocr_images_json=$(jq -c '.ocr_service_images' <<<"$deployed")"
-          } >> "$GITHUB_OUTPUT"
+          # Terraform cannot manage project services until Service Usage is on.
+          gcloud services enable serviceusage.googleapis.com --project="$GCLOUD_PROJECT"
+          terraform -chdir=terraform/foundation init -input=false -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" -backend-config="prefix=scribe-foundation"
+          if [ "$ACTION" = apply ]; then
+            terraform -chdir=terraform/foundation apply -input=false -auto-approve -var="project_id=${GCLOUD_PROJECT}"
+          else
+            terraform -chdir=terraform/foundation plan -input=false -var="project_id=${GCLOUD_PROJECT}"
+          fi
 
-  terraform-apply:
+  deploy:
+    needs: [images, ocr-changes, build-ocr, foundation]
+    # build-ocr is skipped when OCR inputs are unchanged; manual runs skip the builds.
     if: >-
       always() &&
-      (github.event_name == 'push' || inputs.mode == 'apply') &&
-      needs.prepare-backend-origin.result == 'success' &&
-      needs.build-backend.result == 'success' &&
-      needs.build-frontend.result == 'success' &&
       needs.foundation.result == 'success' &&
-      needs.lint-test.result == 'success' &&
-      needs.ocr-change-detection.result == 'success' &&
-      (
-        (
-          needs.ocr-change-detection.outputs.ocr_changed == 'true' &&
-          needs.build-ocr.result == 'success'
-        ) ||
-        (
-          needs.build-ocr.result == 'skipped' &&
-          needs.ocr-change-detection.outputs.ocr_changed == 'false'
-        )
-      )
-    needs: [prepare-backend-origin, build-backend, build-frontend, build-ocr, foundation, lint-test, ocr-change-detection]
+      (github.event_name != 'push' || (needs.images.result == 'success' && needs.ocr-changes.result == 'success')) &&
+      contains(fromJSON('["success", "skipped"]'), needs.build-ocr.result)
     uses: ./.github/workflows/terraform-deploy.yaml
     permissions:
-      id-token: write
       contents: read
-      packages: read
+      id-token: write
     secrets: inherit
     with:
-      mode: ${{ github.event_name == 'push' && 'apply' || inputs.mode }}
-      environment_name: production
-      tf_workspace: prod
-      site_name: scribe
-      docker_compose_branch: ${{ github.sha }}
-      checkout_ref: ${{ github.sha }}
-      image_tag: ${{ needs.build-backend.outputs.image }}
-      frontend_image_tag: ${{ needs.build-frontend.outputs.image }}
-      frontend_gar_image_tag: ${{ needs.prepare-backend-origin.outputs.frontend_gar_image_tag }}
-      ocr_images_json: ${{ needs.ocr-change-detection.outputs.ocr_changed == 'true' && needs.build-ocr.outputs.images_json || needs.ocr-change-detection.outputs.ocr_images_json }}
-      region: ${{ needs.prepare-backend-origin.outputs.region }}
-      zone: ${{ needs.prepare-backend-origin.outputs.zone }}
-
-  terraform-plan:
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'plan'
-    needs: [prepare-backend-origin, foundation, lint-test, resolve-plan-inputs]
-    uses: ./.github/workflows/terraform-deploy.yaml
-    permissions:
-      id-token: write
-      contents: read
-      packages: read
-    secrets: inherit
-    with:
-      mode: plan
-      environment_name: production
-      tf_workspace: prod
-      site_name: scribe
-      docker_compose_branch: ${{ github.sha }}
-      checkout_ref: ${{ github.sha }}
-      image_tag: ${{ needs.resolve-plan-inputs.outputs.api_image }}
-      browser_readiness_image: ${{ needs.resolve-plan-inputs.outputs.browser_readiness_image }}
-      frontend_gar_image_tag: ${{ needs.resolve-plan-inputs.outputs.frontend_gar_image }}
-      ocr_images_json: ${{ needs.resolve-plan-inputs.outputs.ocr_images_json }}
-      region: ${{ needs.prepare-backend-origin.outputs.region }}
-      zone: ${{ needs.prepare-backend-origin.outputs.zone }}
+      environment: production
+      action: ${{ github.event_name == 'push' && 'apply' || inputs.action }}

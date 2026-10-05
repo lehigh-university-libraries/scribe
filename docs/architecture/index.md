@@ -5,15 +5,8 @@ packages:
 
 - `cmd/api`: Connect API, auth routes, and public IIIF representations
 - `cmd/worker`: leased background transcription and publication work
-- `cmd/browser-session`: trusted-host, fixed 50-minute browser-readiness fallback
-  credentials
-- `cmd/cloud-run-readiness`: validated Cloud Run readiness command boundary
-- `cmd/production-browser-readiness`: validated production session-transport
-  command and restricted remote-session boundary
-- `internal/cloudrunreadiness`: typed execution fencing, launch recovery,
-  terminal settlement, and bounded diagnostics lifecycle
-- `internal/productionbrowserreadiness`: typed Secret Manager, Cloud Run job,
-  IAP transfer, and cleanup lifecycle for production browser readiness
+- `cmd/ocr-matrix`: OCR image build matrix from `config/ocr.yaml`
+- `cmd/vault-secrets`: interactive setup of application secrets in Vault
 - `internal/iiif`: IIIF IDs, parsing, validation, builders, and extensions
 - `internal/store`: transactional canonical pages, revisions, jobs, and outboxes
 - `internal/providerregistry`: provider and segmentor capability policy

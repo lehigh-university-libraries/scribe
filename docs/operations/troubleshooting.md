@@ -72,15 +72,15 @@ without persisting raw API errors or key IDs.
 
 ## Verify the managed target
 
-The manifest is the source of truth for the checkout, Compose project, and
-immutable Git revision:
+The manifest is the source of truth for the checkout, Compose project, and Git
+ref (a branch such as `main`, or a commit when CI pinned one):
 
 ```bash
 sudo jq -r \
   '.primary | [.project_dir, .compose_project_name, .docker_compose_branch] | @tsv' \
   /home/cloud-compose/compose-projects.json
 
-expected_scribe_sha="$(
+expected_scribe_ref="$(
   sudo jq -r '.primary.docker_compose_branch' \
     /home/cloud-compose/compose-projects.json
 )"
@@ -92,15 +92,21 @@ actual_scribe_sha="$(
   sudo -u cloud-compose \
     git -C "$scribe_project_dir" rev-parse --verify HEAD
 )"
+expected_scribe_sha="$(
+  sudo -u cloud-compose \
+    git -C "$scribe_project_dir" rev-parse --verify "origin/${expected_scribe_ref}" 2>/dev/null ||
+  sudo -u cloud-compose \
+    git -C "$scribe_project_dir" rev-parse --verify "${expected_scribe_ref}^{commit}"
+)"
 test "$actual_scribe_sha" = "$expected_scribe_sha" &&
   echo 'managed checkout matches the manifest commit'
 ```
 
-Production should report `/mnt/disks/data/scribe/prod`, `scribe-prod`, and one
-40-character commit. The project directory is stable for the current
+Production should report `/mnt/disks/data/scribe/prod`, `scribe-prod`, and
+`main` or a commit. The project directory is stable for the current
 persistence generation because it owns ignored local secrets, including
-MariaDB's root bootstrap password. The checkout is deliberately detached at
-the reviewed commit.
+MariaDB's root bootstrap password. A commit ref leaves the checkout detached;
+a branch ref tracks `origin/<branch>` on each rollout.
 
 Inspect file metadata without reading values:
 
@@ -240,135 +246,24 @@ curl --noproxy '*' --fail --silent --show-error \
 
 ## Cloud Run readiness
 
-The protected deployment uploads bounded diagnostics that contain typed
-execution/task fields and exact allowlisted markers, not raw responses. Download
-the exact failed run and inspect only those files:
+Every apply runs the backend and OCR readiness jobs. When one fails, read its
+logs:
 
 ```bash
-scribe_run_id=RUN_ID
-scribe_artifact_dir="$(mktemp -d)"
-gh run download "$scribe_run_id" \
-  --repo lehigh-university-libraries/scribe \
-  --dir "$scribe_artifact_dir"
-find "$scribe_artifact_dir" \
-  -type f -name '*readiness-diagnostics.log' \
-  -print -exec sed -n '1,160p' {} \;
+gcloud run jobs executions list --job scribe-prod-backend-readiness \
+  --project "$GCLOUD_PROJECT" --region us-east5 --limit 3
+gcloud logging read \
+  'resource.type="cloud_run_job" AND resource.labels.job_name="scribe-prod-backend-readiness"' \
+  --project "$GCLOUD_PROJECT" --freshness=2h --order=asc --limit=200 --format='value(timestamp,textPayload)'
 ```
 
-Use [observability](observability.md) to interpret deployment status and
-readiness markers. A backend marker isolates frontend-to-VM startup, transport,
-or readiness-contract failures. An OCR marker identifies the failed image,
-segmentation, transcription, or Ollama stage. A browser marker names
-only the failed home, context, upload, handoff, transcription, annotations,
-editor, overlay, retranscribe, structure, save, publish, responsive, token,
-manifest, cleanup, network, CSP, or rate-limit stage. Upload covers the complete
-bounded frontend retry sequence; structure covers live draft transforms through
-Save; manifest covers preserve-hOCR import and first-page canonical OCR; rate
-covers same-origin HTTP 429 responses outside the upload and manifest paths.
-Its companion marker reports only the fixed endpoint family (for example,
-`item` or `events`), never a path, request, response body, or credential.
-`AuthService` uses the dedicated `auth` request-rate bucket, so normal account
-and key management calls do not contend with the editor's generic RPC burst;
-the aggregate client-IP ceiling still applies.
-Qualified network markers identify only a fixed endpoint family and whether the
-failure was an HTTP client response, HTTP server response, or transport error.
-Use the task exit code when the diagnostics report `log_query=unavailable`;
-the same fixed mapping is committed in the readiness runner. No qualified
-marker contains the request path, query, response body, or transport message.
-Inspect the named product boundary and the ordinary redacted service telemetry;
-browser state, DOM, URLs, tokens, console text, and provider responses are
-intentionally unavailable as artifacts.
-
-Protected-preview backend readiness automatically retries once, while the exact
-production backend job may retry up to five times. Every failed nonfinal owned
-execution must independently contain the exact allowlisted startup-deadline,
-frontend-transport, and matching-DNS/TCP-timeout/HTTP-timeout marker set. Each
-retry uses a new execution marker but the pass retains the same overall
-45-minute execution deadline. Its fixed stdout notice says that confirmed
-guest-startup lag is being retried; terminal diagnostics include the bounded
-count `[status] backend_startup_retries=N`, where `N` is one through five.
-An unavailable query, no markers, or a unique proper subset of the three known
-markers is polled only within the existing bounded marker-recovery window.
-Exhausting that window stops the sequence. Unknown, additional, or duplicate
-markers stop it immediately, and OCR, browser, cancellation, control-plane, or
-readiness-contract failures remain single-attempt failures.
-
-If `cleanup` follows an interrupted mutation, allow the runner its full
-eight-minute resource-reconciliation window. It has already closed the UI page
-and is polling the workspace-scoped API for the exact generated upload name,
-manifest provenance marker, or token name. The window contains the 300-second
-commit horizon and 180-second recovery tail. A cleanup failure after that bound
-means stable absence was not proved; rerun only after investigating the ordinary
-redacted service telemetry. A Cloud Run `deadline` before the categorical
-marker means the 27-minute scenario, eight-minute reconciliation, three-minute
-logout, 30-second browser close, and 90-second platform headroom no longer fit
-the configured 40-minute task; it is an infrastructure contract failure, not
-permission to skip cleanup.
-
-An authorized production deploy operator may rerun the bounded backend and OCR
-probes from a trusted checkout of the deployed `main` commit. This creates new
-Cloud Run job executions; it does not repair a service:
+The backend job reports frontend-to-VM startup, transport, or readiness-contract
+failures. The OCR job (`scribe-prod-ocr-readiness`) names the failed image,
+segmentation, transcription, or Ollama stage. To rerun either job after a fix:
 
 ```bash
-export GCLOUD_PROJECT=your-gcp-project-id
-export SCRIBE_REGION=us-east5
-scribe_readiness_dir="$(mktemp -d)"
-go build -trimpath \
-  -o "$scribe_readiness_dir/cloud-run-readiness" \
-  ./cmd/cloud-run-readiness
-export SCRIBE_CLOUD_RUN_READINESS_BIN="$scribe_readiness_dir/cloud-run-readiness"
-
-./ci/run-cloud-run-readiness.sh \
-  scribe-prod-backend-readiness \
-  backend \
-  "$scribe_readiness_dir/backend.log"
-./ci/run-cloud-run-readiness.sh \
-  scribe-prod-ocr-readiness \
-  ocr \
-  "$scribe_readiness_dir/ocr.log"
+gcloud run jobs execute scribe-prod-ocr-readiness --project "$GCLOUD_PROJECT" --region us-east5 --wait
 ```
-
-Do not execute the production browser job directly. Its protected apply path
-creates a short-lived reserved-user session, binds its exact Secret Manager
-version to the isolated job, and proves logout before destroying that version.
-The transport's fixed mint categories locate the failed boundary without
-exposing child output. Plain `remote-mint` means the SSH/controller boundary
-could not attest a narrower VM result; `remote-mint-session-command` is the
-narrow Vault/database identity-session helper, `remote-mint-state-export` is
-the bounded container-tmpfs-to-private-host stream, and
-`remote-mint-container-cleanup` is immediate deletion of the container copy.
-`remote-mint-host-state-contract` is the host file type/owner/mode/size
-attestation.
-`remote-mint-recovery-cleanup` means the
-automatic cleanup after the mint attempt could not be confirmed; treat the
-credential state as unresolved and investigate the protected workflow's fixed
-cleanup markers before another deploy. Do not recover any category by printing
-the state file or arbitrary Docker, SSH, or gcloud output.
-After investigating a browser failure, rerun the protected **Terraform Apply**
-workflow for the unchanged `main` commit so that transport and cleanup contract
-remains intact.
-
-For an `upload` failure, pair the request substage with its fixed durable
-failure marker. `admission-failed` covers initial quota, context, and
-processing-slot admission before segmentation; `upload-storage-failed` is
-immutable upload storage; and `segmentation-output-failed` is non-provider
-processing or hOCR validation. The exact post-segmentation operation boundaries
-are `quota-resize-failed`, `image-commit-failed`, `ocr-run-commit-failed`,
-`annotation-commit-failed`, `transcription-enqueue-failed`,
-`item-reload-failed`, and `batch-commit-failed`. Lease renewal recurs before
-fenced side effects rather than forming one linear stage;
-`lease-renewal-failed` takes precedence over the operation a direct renewal or
-lease heartbeat interrupted. Provider and segmentation-provider categories
-remain separately redacted.
-
-An `image-retry` substage may also include a fixed retryable-response marker.
-`connect-*` identifies the exact canonical lowercase allowlisted Connect code
-from the capped JSON snapshot. `http-*` records only an observed HTTP status
-when that snapshot was unavailable or invalid; it does not prove that a
-gateway, frontend, backend, or other responder generated the status. Valid
-JSON with a missing, non-string, or unrecognized code fails closed. Investigate
-these named boundaries without printing the response body, Connect message, or
-the batch's raw database, filesystem, model, or provider diagnostic.
 
 For a segmentation failure, this query selects only Scribe's known redacted
 failure message and categorical fields from the exact production service:
@@ -389,7 +284,7 @@ incident evidence.
 
 ## Unsafe actions
 
-- Do not run `git pull`, switch branches, or edit the detached managed checkout.
+- Do not run `git pull`, switch branches, or edit the managed checkout.
 - Do not invoke legacy `/mnt/disks/data/{init,up,down}` helpers or run
   `/home/cloud-compose/run.sh` outside its systemd bootstrap unit.
 - Do not manually `chmod -R`, `chown -R`, touch secret files, or print their

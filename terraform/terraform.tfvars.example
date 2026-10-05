@@ -1,7 +1,6 @@
-project_id     = "your-gcp-project-id"
+project_id = "your-gcp-project-id"
 
 region = "us-east5"
-zone   = "us-east5-b"
 
 # Used only by pr-* workspaces; production and development retain machine_type.
 preview_machine_type = "n2d-standard-2"
@@ -40,31 +39,23 @@ dev_external_ocr_impersonators = [
   "group:scribe-developers@example.edu",
 ]
 
-# Production requires at least one full notification-channel resource name.
+# Alert notification channels (full resource names). Optional.
 monitoring_notification_channels = [
   "projects/your-gcp-project-id/notificationChannels/1234567890",
 ]
 
-# Production and preview compose refs and runtime images must be immutable.
-# Prefer the make/GitHub wrappers, which resolve image tags and pass these
-# values for you. The reviewed frontend GHCR source digest is promoted outside
-# Terraform; only the deployed GAR digest is an infrastructure input.
-docker_compose_branch = "0123456789abcdef0123456789abcdef01234567"
-data_generation       = "canonical-v2"
-api_image              = "ghcr.io/lehigh-university-libraries/scribe@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-frontend_gar_image     = "us-docker.pkg.dev/your-gcp-project-id/internal/scribe-frontend@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+# Images and the Compose checkout follow main by default. Point a workspace at
+# other images by setting image_tag (backend and frontend) or ocr_image_tag.
+# image_tag = "my-branch"
 
 # Proxy trust boundaries. Cloud Run sources are limited to the exact GCP
 # subnet; application forwarding trust is the derived Traefik container /32.
 # Use a canonical /24 through /28: Terraform reserves .1 for the bridge
 # gateway, .2 for Traefik, and the upper half for dynamic containers.
 network_ip_cidr_range = "10.42.0.0/24"
-# Keep each protected browser runner on a non-overlapping dedicated /26 inside
-# that environment's root-owned application VPC.
-browser_readiness_subnet_cidr = "10.43.0.0/26"
-compose_network_cidr          = "172.30.0.0/24"
+compose_network_cidr  = "172.30.0.0/24"
 
 # Runtime admission defaults come from ../config.yaml. Omit them here so a
 # copied tfvars file follows reviewed application-default changes. An operator
 # may set a bounded variable explicitly only when the deployment needs an
-# override; the workflow records the effective value for rollback.
+# override.

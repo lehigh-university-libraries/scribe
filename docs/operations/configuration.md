@@ -211,11 +211,8 @@ the chain with one canonical address, and reaches the frontend only over
 loopback. The frontend requires that invariant and external HTTPS. Traefik
 preserves the canonical address without appending the frontend VPC hop, so the
 API can safely resolve distinct browser clients through its exact Traefik
-trust boundary. The cloud runtime retains its former fixed IPAM tuple only in
-a narrow overlay so an automatic rollback to the immediately previous source
-can still start with that source's `/32` trust contract. New source does not
-depend on the tuple; remove the compatibility overlay after that rollback
-generation expires.
+trust boundary. The cloud runtime still renders its former fixed IPAM tuple in a narrow
+overlay. New source does not depend on the tuple, so the overlay can be removed.
 
 `SEGMENTOR_MAX_CONCURRENCY` (default `1`, maximum `8`) bounds model work per
 process while leaving health probes unqueued. Hosted OCR services also admit

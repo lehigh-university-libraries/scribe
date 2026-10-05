@@ -8,13 +8,9 @@ sufficient evidence by themselves.
 
 ## Current status
 
-**An untagged commit is not approved for production.**
-
-Approval is commit-scoped and automated. A numeric release tag is the durable
-approval record: it must point to the exact commit whose required CI jobs and
-production Terraform Apply succeeded. The protected release workflow verifies
-those exact-SHA results before it can create or publish the tag. Editing this
-page or checking a box is never release evidence.
+Every push to `main` deploys to production once CI passes, and each merged pull
+request gets a release tag. Editing this page or checking a box is never
+release evidence.
 
 The codebase is greenfield. Backward compatibility and data migrations are not
 constraints for the current hardening pass; prefer a clean invariant over a
@@ -49,13 +45,10 @@ without copying a second test inventory into `AGENTS.md`.
 | Administrator-owned provider origins/audiences and credential/response redaction | `TestProviderConfigUsesExactServerOwnedModelRoute`, `TestOllamaAudienceMustMatchRegisteredEndpointOrigin`, `TestProviderRedactionAcrossRegisteredAdapterLogsAndListedAudit` |
 | Real-browser focus, keyboard, geometry, zoom, rebase, save/reload, and conflict behavior | `web/e2e/editor.browser.ts` |
 | The minimum raw editor deep link opens its exact item image without prior Scribe navigation | Browser test `a raw editor deep link opens the requested item without prior navigation` in `web/e2e/editor.browser.ts`; workspace query propagation in `web/src/lib/workspace.test.ts` |
-| Isolated backup/restore and job recovery | `make backup-restore-smoke`, `make cloud-snapshot-restore-drill-test`, and the protected `recovery-smoke` job |
+| Isolated backup/restore and job recovery | `make backup-restore-smoke` and the `recovery-smoke` job |
 
-The final blocker is runtime evidence, not another source checkbox: every job
-used by `make ci`, including `recovery-smoke`, must pass for the exact clean
-commit. GitHub jobs invoke the same Make targets and repository scripts as the
-local contract. The protected release workflow then requires both that
-exact-SHA CI result and a successful production Terraform Apply before tagging.
+Every job used by `make ci`, including `recovery-smoke`, must pass. GitHub jobs
+invoke the same Make targets and repository scripts as the local contract.
 
 ## Definition of done for a change
 

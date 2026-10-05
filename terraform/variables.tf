@@ -9,27 +9,10 @@ variable "terraform_state_bucket" {
   default     = ""
 }
 
-variable "name" {
-  description = "Deployment name used for the VM and related resources."
-  type        = string
-  default     = "scribe"
-
-  validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{0,62}$", var.name))
-    error_message = "name must start with a lowercase letter and contain at most 63 lowercase letters, digits, or hyphens."
-  }
-}
-
 variable "region" {
   description = "GCP region."
   type        = string
   default     = "us-east5"
-}
-
-variable "zone" {
-  description = "GCP zone."
-  type        = string
-  default     = "us-east5-b"
 }
 
 variable "machine_type" {
@@ -56,9 +39,9 @@ variable "disk_size_gb" {
 }
 
 variable "docker_compose_branch" {
-  description = "Git ref to deploy from the Scribe repository. CI supplies an immutable commit SHA."
+  description = "Git branch or commit the VM checks out from the Scribe repository."
   type        = string
-  default     = "0000000000000000000000000000000000000000"
+  default     = "main"
 }
 
 variable "data_generation" {
@@ -69,39 +52,6 @@ variable "data_generation" {
   validation {
     condition     = contains(["canonical-v1", "canonical-v2"], var.data_generation)
     error_message = "data_generation must be an explicitly reviewed canonical generation: canonical-v1 or canonical-v2."
-  }
-}
-
-variable "api_image" {
-  description = "Backend image deployed to the VM for the api and worker services."
-  type        = string
-  default     = "ghcr.io/lehigh-university-libraries/scribe@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-
-  validation {
-    condition     = can(regex("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$", var.api_image))
-    error_message = "api_image must be a digest-pinned GHCR reference."
-  }
-}
-
-variable "frontend_gar_image" {
-  description = "Frontend image deployed as the Cloud Run sidecar next to ppb. Must live in GAR or Docker Hub, since Cloud Run cannot pull from GHCR. Leave empty to disable the sidecar."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = trimspace(var.frontend_gar_image) == "" || can(regex("^[^[:space:]@]+@sha256:[0-9a-f]{64}$", var.frontend_gar_image))
-    error_message = "frontend_gar_image must be empty or a digest-pinned image reference."
-  }
-}
-
-variable "browser_readiness_image" {
-  description = "Protected, digest-pinned Playwright image used by hosted preview and production readiness jobs."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = trimspace(var.browser_readiness_image) == "" || can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/scribe-browser-readiness@sha256:[0-9a-f]{64}$", var.browser_readiness_image))
-    error_message = "browser_readiness_image must be empty or the project-owned digest-pinned readiness image."
   }
 }
 
@@ -156,23 +106,6 @@ variable "network_ip_cidr_range" {
   }
 }
 
-variable "browser_readiness_subnet_cidr" {
-  description = "Dedicated, non-overlapping /26 inside the environment application VPC, used only by protected browser-readiness Cloud Run jobs and their subnet-scoped Cloud NAT."
-  type        = string
-  default     = "10.43.0.0/26"
-
-  validation {
-    condition = (
-      can(cidrhost(var.browser_readiness_subnet_cidr, 63)) &&
-      try(cidrhost(var.browser_readiness_subnet_cidr, 0), "") == try(split("/", var.browser_readiness_subnet_cidr)[0], "") &&
-      length(regexall(":", var.browser_readiness_subnet_cidr)) == 0 &&
-      endswith(var.browser_readiness_subnet_cidr, "/26") &&
-      !startswith(var.browser_readiness_subnet_cidr, "169.254.")
-    )
-    error_message = "browser_readiness_subnet_cidr must be a canonical, non-link-local IPv4 /26."
-  }
-}
-
 variable "compose_network_cidr" {
   description = "Dedicated Docker bridge CIDR; the API trusts only the derived Traefik container /32."
   type        = string
@@ -195,12 +128,6 @@ variable "users" {
   description = "Map of SSH users to authorized public keys."
   type        = map(list(string))
   default     = {}
-}
-
-variable "run_snapshots" {
-  description = "Whether to enable scheduled snapshots for the persistent disks."
-  type        = bool
-  default     = true
 }
 
 variable "uploads_soft_delete_retention_days" {
@@ -247,26 +174,6 @@ variable "backup_noncurrent_version_retention_days" {
   }
 }
 
-variable "backup_restore_service_account_email" {
-  description = "Protected GitHub Actions service account used only for recovery-policy verification and isolated snapshot drills."
-  type        = string
-  default     = ""
-
-  validation {
-    condition = trimspace(var.backup_restore_service_account_email) == "" || can(regex(
-      "^[a-z0-9-]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$",
-      trimspace(var.backup_restore_service_account_email),
-    ))
-    error_message = "backup_restore_service_account_email must be empty or a Google service-account email."
-  }
-}
-
-variable "terraform_state_backup_audited" {
-  description = "Ephemeral assertion set only after ci/verify-cloud-backups.sh verifies versioning and retention on the externally managed Terraform state bucket."
-  type        = bool
-  default     = false
-}
-
 variable "monitoring_notification_channels" {
   description = "Optional Cloud Monitoring notification channel IDs used by alert policies managed by this root module."
   type        = list(string)
@@ -296,17 +203,6 @@ variable "dev_external_ocr_impersonators" {
       can(regex("^(user|group):[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,63}$", member))
     ])
     error_message = "dev_external_ocr_impersonators entries must be explicit user: or group: email IAM members."
-  }
-}
-
-variable "ocr_service_images" {
-  description = "Map of OCR service key (e.g. \"segmentor\", \"kraken-ocr/<model>\", \"ollama/<model>\") to a fully digest-pinned GAR image reference. Populated by the build-ocr workflow from config/ocr.yaml."
-  type        = map(string)
-  default     = {}
-
-  validation {
-    condition     = alltrue([for image in values(var.ocr_service_images) : can(regex("^[^[:space:]@]+@sha256:[0-9a-f]{64}$", image))])
-    error_message = "Every ocr_service_images value must be a digest-pinned image reference."
   }
 }
 
@@ -472,4 +368,22 @@ variable "iiif_max_manifest_import_bytes" {
     )
     error_message = "iiif_max_manifest_import_bytes must be an integer from 1 through 67108864."
   }
+}
+
+variable "image_tag" {
+  description = "Tag of the backend (GHCR) and frontend (GAR) images to deploy. Terraform resolves it to a digest, so re-applying after the tag moves rolls out the new image."
+  type        = string
+  default     = "main"
+}
+
+variable "ocr_image_tag" {
+  description = "Tag of the OCR images in GAR. Every workspace reuses the images CI builds for main unless overridden."
+  type        = string
+  default     = "main"
+}
+
+variable "zone" {
+  description = "Zone override. Defaults to <region>-b, or <region>-c for previews."
+  type        = string
+  default     = ""
 }

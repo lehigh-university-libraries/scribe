@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && CI=true vite build",
-    "test": "vitest run --exclude e2e/deployed-readiness-budget.test.mjs --exclude e2e/deployed-readiness-dom.test.mjs --exclude e2e/deployed-readiness-structure.test.mjs",
+    "test": "vitest run --exclude e2e/editor-dom.test.mjs",
     "test:browser": "playwright test",
     "test:browser:types": "tsc --noEmit -p e2e/tsconfig.json",
     "preview": "vite preview",
@@ -28,7 +28,7 @@
     "prop-types": "15.8.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-i18next": "15.7.4",
+    "react-i18next": "17.0.15",
     "uuid": "14.0.2"
   },
   "overrides": {

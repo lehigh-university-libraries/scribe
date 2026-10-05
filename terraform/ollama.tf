@@ -13,8 +13,8 @@ locals {
   ollama_min_instances           = try(local.ollama_cloud_run.min_instances, 0)
   ollama_max_instances           = try(local.ollama_cloud_run.max_instances, 1)
   ollama_skip_neg                = try(local.ollama_cloud_run.skip_neg, true)
-  scribe_vm_gsa_email            = format("vm-%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
-  scribe_app_gsa_email           = format("%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
+  scribe_vm_gsa_email            = format("vm-%s@%s.iam.gserviceaccount.com", local.name, var.project_id)
+  scribe_app_gsa_email           = format("%s@%s.iam.gserviceaccount.com", local.name, var.project_id)
 
   ollama_service_names = {
     for model in local.ollama_models :
@@ -97,15 +97,11 @@ module "ollama_services" {
 
   source = "./modules/ollama-cloud-run"
 
-  project_id = var.project_id
-  model      = each.value
-  name       = local.ollama_service_names[each.value]
-  regions    = local.ollama_regions
-  image = lookup(
-    var.ocr_service_images,
-    "ollama/${each.value}",
-    "MISSING_IMAGE_FOR_ollama/${each.value}@sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  )
+  project_id    = var.project_id
+  model         = each.value
+  name          = local.ollama_service_names[each.value]
+  regions       = local.ollama_regions
+  image         = local.ocr_images["ollama/${each.value}"]
   memory        = local.ollama_memory
   cpu           = local.ollama_cpu
   gpu_count     = local.ollama_gpu_count

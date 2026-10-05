@@ -38,10 +38,13 @@ be committed with the implementation.
   Workspace input never controls authenticated endpoint URLs or audiences.
 - Browser state is a draft over one canonical base revision. Background work
   and job attempts are revision-fenced and cannot overwrite newer corrections.
-- Pull-request code receives no cloud credentials. Protected preview and
-  production jobs consume immutable reviewed inputs.
-- Tools, actions, modules, downloads, and runtime images remain pinned.
-- Repository automation is Go or Bash. Do not embed Python through `-c`,
+- Pull-request code receives no cloud credentials.
+- Deploying is `terraform apply` in the workspace (`make tf-prod`, `tf-dev`,
+  `tf-preview`). Terraform resolves `:main` image tags itself; do not add deploy
+  wrappers, recorded release inputs, or Bash state machines around it.
+- Tools, actions, modules, downloads, and base images remain pinned.
+- Repository automation is plain Bash or Go. Logic beyond a straight sequence
+  of commands belongs in Go with tests. Do not embed Python through `-c`,
   standard input, or heredocs; use the reviewed packaged Python tools only for
   Kraken or Zensical.
 - Durable guidance belongs under `docs/`; keep this file and the README as

@@ -2,6 +2,17 @@ version: "2"
 linters:
   exclusions:
     generated: lax
+    rules:
+      # Google's Cloud OpenTelemetry exporters are deprecated (archived after
+      # 2027-01-01). Remove this when internal/telemetry moves to OTLP.
+      - path: internal/telemetry/
+        linters: [staticcheck]
+        text: "SA1019: .*(opentelemetry-operations-go|googlemetric|googletrace)"
+      # Without localocr or remoteocr the Tesseract detector is a stub that always
+      # errors, so staticcheck proves these cross-build-tag checks constant.
+      - path: internal/(worddetection/auto|providerregistry/registry)\.go
+        linters: [staticcheck]
+        text: "SA4023"
     presets:
       - comments
       - common-false-positives

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { bottomPaneHeightForViewport } from "../src/pages/editor/mirador";
-import { assertResponsiveEditorGeometry, waitForSavedPage } from "./deployed-readiness-dom.mjs";
+import { assertResponsiveEditorGeometry, waitForSavedPage } from "./editor-dom.mjs";
 
 type BrowserHarness = {
   backgroundSnapshot(): {

@@ -26,8 +26,7 @@ operations page, and the executable acceptance contract in the same review.
 9. Keep a modular monolith plus worker until an independently scalable or
    isolated service boundary is demonstrated.
 10. Pull-request code never executes Terraform or repository scripts with cloud
-    credentials. Preview and production applies use protected environments and
-    immutable reviewed inputs.
+    credentials. Preview and production CI applies use protected environments.
 
 ## Canonical IIIF and persistence
 

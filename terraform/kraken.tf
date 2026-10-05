@@ -137,18 +137,14 @@ module "kraken" {
   route_type         = each.value.route_type
   route_key          = each.value.route_key
   regions            = local.ocr_service_regions
-  image = lookup(
-    var.ocr_service_images,
-    each.key,
-    "MISSING_IMAGE_FOR_${each.key}@sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  )
-  container_name = each.value.container_name
-  env            = each.value.env
-  cpu            = each.value.cpu
-  memory         = each.value.memory
-  min_instances  = each.value.min_instances
-  max_instances  = each.value.max_instances
-  invokers       = []
+  image              = local.ocr_images[each.key]
+  container_name     = each.value.container_name
+  env                = each.value.env
+  cpu                = each.value.cpu
+  memory             = each.value.memory
+  min_instances      = each.value.min_instances
+  max_instances      = each.value.max_instances
+  invokers           = []
 
   depends_on_iam = [google_artifact_registry_repository_iam_member.cloud_run_reader]
   depends_on = [

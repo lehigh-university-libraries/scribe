@@ -55,40 +55,20 @@ than as highly available:
   unavailable at once;
 - API and worker capacity scale vertically, and backend rollout is a single
   failure domain; and
-- backup verification limits data-loss exposure, but it does not provide
-  continuous replication or automatic service recovery.
+- backups limit data-loss exposure, but they do not provide continuous
+  replication or automatic service recovery.
 
-The repository currently enforces these recovery-artifact bounds:
+Recovery points are daily paired disk snapshots, a daily independent copy of
+uploads, and a MariaDB logical dump on the data disk. Their freshness is not
+checked automatically, and no coordinated application RPO is established until
+a restore drill selects compatible database and blob generations and verifies
+the resulting application state.
 
-| Recovery evidence | Freshness check | What it proves |
-| --- | --- | --- |
-| Paired data/Compose-volume snapshots | each snapshot is at most 36 hours old and the pair is at most 30 minutes apart | A daily protected drill can materialize and inspect a source-matched, crash-consistent database/Triplet recovery point. |
-| Independent uploads copy | its successful transfer is at most 36 hours old | A separately versioned bucket has a recent source-upload copy. |
-| Portable MariaDB logical dump | the inspected dump is at most 48 hours old | A database-aware fallback exists inside the restored data-disk snapshot. |
-| Protected artifact-verification run | the complete verification job has a 45-minute timeout | Recovery artifacts can be materialized and inspected inside that ceiling when the workflow passes. |
-
-`ci/cloud-snapshot-restore-drill.sh`, `ci/verify-cloud-backups.sh`, and the
-protected `.github/workflows/backup-verification.yaml` job are the executable
-owners of those values.
-
-These are per-layer artifact-freshness service levels, not an application RPO.
-The checks do not prove that the newest database snapshot, Triplet state, and
-uploads copy share a recoverable generation. Selecting a compatible set may
-require an older artifact than each independent freshness ceiling. No bounded
-coordinated application RPO is established until a drill selects compatible
-database/blob generations, restores every layer, and verifies the resulting
-application state.
-
-These bounds do not claim that the application will serve traffic within 45
-minutes. The current drill stops after read-only inspection; it does not rebuild
-the production stack, restore every layer, run managed readiness, and accept
-user traffic. A bounded service recovery-time objective (RTO) is therefore
+A bounded service recovery-time objective (RTO) is therefore
 **not established**. Service restoration is operator-driven and best effort
 until a full isolated rehearsal records the elapsed time
 required by all steps in the
-[backup and restore runbook](../operations/backup-restore.md). A failed or stale
-scheduled verification means even the artifact bounds above are not met and
-must be treated as an availability incident.
+[backup and restore runbook](../operations/backup-restore.md).
 
 ### Gated migration sequence
 

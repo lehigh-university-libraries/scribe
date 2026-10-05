@@ -10,8 +10,9 @@ provider "google-beta" {
 
 provider "docker" {
   registry_auth {
-    address     = "us-docker.pkg.dev"
-    config_file = pathexpand("~/.docker/config.json")
+    address  = "us-docker.pkg.dev"
+    username = "oauth2accesstoken"
+    password = data.google_client_config.current.access_token
   }
 }
 
@@ -22,11 +23,14 @@ data "google_project" "current" {
 }
 
 locals {
-  project_number             = tostring(data.google_project.current.number)
-  repo_root                  = abspath("${path.module}/..")
-  terraform_state_bucket     = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
-  is_prod_workspace          = terraform.workspace == "prod"
-  is_preview_workspace       = startswith(terraform.workspace, "pr-")
+  project_number         = tostring(data.google_project.current.number)
+  repo_root              = abspath("${path.module}/..")
+  terraform_state_bucket = trimspace(var.terraform_state_bucket) != "" ? trimspace(var.terraform_state_bucket) : "${var.project_id}-terraform"
+  is_prod_workspace      = terraform.workspace == "prod"
+  is_preview_workspace   = startswith(terraform.workspace, "pr-")
+  # prod is "scribe"; every other workspace is "scribe-<workspace>" (scribe-dev, scribe-pr-12).
+  name                       = local.is_prod_workspace ? "scribe" : "scribe-${terraform.workspace}"
+  zone                       = var.zone != "" ? var.zone : local.is_preview_workspace ? "${var.region}-c" : "${var.region}-b"
   cloud_compose_machine_type = local.is_preview_workspace ? var.preview_machine_type : var.machine_type
   cloud_compose_disk_type    = local.is_preview_workspace ? "pd-standard" : "hyperdisk-balanced"
   foundation_state_prefix    = "scribe-foundation"
@@ -34,11 +38,11 @@ locals {
   shared_ollama_workspace    = "prod"
   vault_is_owner_workspace   = terraform.workspace == "prod" || terraform.workspace == "dev"
   workspace_slug             = replace(lower(terraform.workspace), "/[^a-z0-9-]+/", "-")
-  preview_app_gsa_email      = format("%s@%s.iam.gserviceaccount.com", var.name, var.project_id)
+  preview_app_gsa_email      = format("%s@%s.iam.gserviceaccount.com", local.name, var.project_id)
   vault_app_role_name        = local.is_preview_workspace ? "scribe-preview-app" : "scribe-app-${local.workspace_slug}"
   vault_secret_prefix        = local.is_preview_workspace ? "scribe/previews/${local.preview_app_gsa_email}" : "scribe/${local.workspace_slug}"
   pubsub_service_agent       = "service-${local.project_number}@gcp-sa-pubsub.iam.gserviceaccount.com"
-  uploads_bucket_name        = trimsuffix(substr(replace(lower("${var.project_id}-${var.name}-${local.workspace_slug}-uploads"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
+  uploads_bucket_name        = trimsuffix(substr(replace(lower("${var.project_id}-${local.name}-${local.workspace_slug}-uploads"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
   # canonical-v1 keeps its original singleton addresses so rollback restores a
   # state shape the previously deployed source understands. Append an approved
   # generation to this ordered list only during its explicit cutover. Slicing
@@ -47,19 +51,6 @@ locals {
   data_generation_index                             = try(index(local.reviewed_data_generations, var.data_generation), 0)
   forward_transcription_data_generations            = toset(slice(local.reviewed_data_generations, 1, local.data_generation_index + 1))
   forward_production_transcription_data_generations = local.is_prod_workspace ? local.forward_transcription_data_generations : toset([])
-}
-
-check "immutable_reviewed_deployment_inputs" {
-  assert {
-    condition = !local.is_prod_workspace && !startswith(terraform.workspace, "pr-") || (
-      can(regex("^[0-9a-f]{40}$", var.docker_compose_branch)) &&
-      can(regex("^ghcr\\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$", var.api_image)) &&
-      can(regex("^[^[:space:]@]+@sha256:[0-9a-f]{64}$", var.frontend_gar_image)) &&
-      length(var.ocr_service_images) > 0 &&
-      alltrue([for image in values(var.ocr_service_images) : can(regex("^[^[:space:]@]+@sha256:[0-9a-f]{64}$", image))])
-    )
-    error_message = "Production and preview deployments require an immutable compose commit plus digest-pinned backend, frontend, and OCR images."
-  }
 }
 
 data "google_cloud_run_v2_service" "shared_vault" {
@@ -107,7 +98,7 @@ locals {
   # Cloud Run assigns this deterministic URL before the service exists. Direct
   # run.app ingress is the sole supported edge topology, keeping PPB's trusted
   # forwarding depth and canonical resource identity unambiguous.
-  cloud_run_public_base_url = format("https://%s-%s.%s.run.app", var.name, local.project_number, var.region)
+  cloud_run_public_base_url = format("https://%s-%s.%s.run.app", local.name, local.project_number, var.region)
   public_base_url           = local.cloud_run_public_base_url
   # Runtime defaults are authored once in the same config baked into the Go
   # image. Terraform accepts explicit operator overrides but records and
@@ -218,7 +209,7 @@ locals {
   # pool, so parallel Compose startup cannot assign it to another service.
   compose_dynamic_ip_range = cidrsubnet(var.compose_network_cidr, 1, 1)
   compose_gateway_ip       = cidrhost(var.compose_network_cidr, 1)
-  compose_project_name     = "${var.name}-${local.workspace_slug}"
+  compose_project_name     = "${local.name}-${local.workspace_slug}"
 
   docker_compose_repo = "https://github.com/lehigh-university-libraries/scribe.git"
   compose_env_vars = [
@@ -427,7 +418,7 @@ locals {
     },
     {
       name  = "SCRIBE_API_IMAGE"
-      value = var.api_image
+      value = local.api_image
     },
     {
       # cloud-compose reserves the VAULT_ prefix in extra_env for its own
@@ -491,15 +482,15 @@ locals {
 }
 
 resource "google_pubsub_topic" "transcription_jobs" {
-  name = "${var.name}-${local.workspace_slug}-canonical-v1-transcription-jobs"
+  name = "${local.name}-${local.workspace_slug}-canonical-v1-transcription-jobs"
 }
 
 resource "google_pubsub_topic" "transcription_jobs_dead_letter" {
-  name = "${var.name}-${local.workspace_slug}-canonical-v1-transcription-jobs-dlq"
+  name = "${local.name}-${local.workspace_slug}-canonical-v1-transcription-jobs-dlq"
 }
 
 resource "google_pubsub_subscription" "transcription_workers" {
-  name  = "${var.name}-${local.workspace_slug}-canonical-v1-transcription-workers"
+  name  = "${local.name}-${local.workspace_slug}-canonical-v1-transcription-workers"
   topic = google_pubsub_topic.transcription_jobs.id
 
   ack_deadline_seconds       = 60
@@ -517,7 +508,7 @@ resource "google_pubsub_subscription" "transcription_workers" {
 }
 
 resource "google_pubsub_subscription" "transcription_dead_letter_monitor" {
-  name  = "${var.name}-${local.workspace_slug}-canonical-v1-transcription-jobs-dlq-monitor"
+  name  = "${local.name}-${local.workspace_slug}-canonical-v1-transcription-jobs-dlq-monitor"
   topic = google_pubsub_topic.transcription_jobs_dead_letter.id
 
   ack_deadline_seconds       = 60
@@ -531,19 +522,19 @@ resource "google_pubsub_subscription" "transcription_dead_letter_monitor" {
 resource "google_pubsub_topic" "transcription_jobs_forward" {
   for_each = local.forward_transcription_data_generations
 
-  name = "${var.name}-${local.workspace_slug}-${each.key}-transcription-jobs"
+  name = "${local.name}-${local.workspace_slug}-${each.key}-transcription-jobs"
 }
 
 resource "google_pubsub_topic" "transcription_jobs_dead_letter_forward" {
   for_each = local.forward_transcription_data_generations
 
-  name = "${var.name}-${local.workspace_slug}-${each.key}-transcription-jobs-dlq"
+  name = "${local.name}-${local.workspace_slug}-${each.key}-transcription-jobs-dlq"
 }
 
 resource "google_pubsub_subscription" "transcription_workers_forward" {
   for_each = local.forward_transcription_data_generations
 
-  name  = "${var.name}-${local.workspace_slug}-${each.key}-transcription-workers"
+  name  = "${local.name}-${local.workspace_slug}-${each.key}-transcription-workers"
   topic = google_pubsub_topic.transcription_jobs_forward[each.key].id
 
   ack_deadline_seconds       = 60
@@ -563,7 +554,7 @@ resource "google_pubsub_subscription" "transcription_workers_forward" {
 resource "google_pubsub_subscription" "transcription_dead_letter_monitor_forward" {
   for_each = local.forward_transcription_data_generations
 
-  name  = "${var.name}-${local.workspace_slug}-${each.key}-transcription-jobs-dlq-monitor"
+  name  = "${local.name}-${local.workspace_slug}-${each.key}-transcription-jobs-dlq-monitor"
   topic = google_pubsub_topic.transcription_jobs_dead_letter_forward[each.key].id
 
   ack_deadline_seconds       = 60
@@ -577,7 +568,7 @@ resource "google_pubsub_subscription" "transcription_dead_letter_monitor_forward
 resource "google_monitoring_alert_policy" "transcription_dead_letter_depth" {
   count = local.is_prod_workspace ? 1 : 0
 
-  display_name          = "${var.name} ${local.workspace_slug} transcription DLQ has messages"
+  display_name          = "${local.name} ${local.workspace_slug} transcription DLQ has messages"
   combiner              = "OR"
   notification_channels = var.monitoring_notification_channels
 
@@ -606,7 +597,7 @@ resource "google_monitoring_alert_policy" "transcription_dead_letter_depth" {
 resource "google_monitoring_alert_policy" "transcription_dead_letter_depth_forward" {
   for_each = local.forward_production_transcription_data_generations
 
-  display_name          = "${var.name} ${local.workspace_slug} ${each.key} transcription DLQ has messages"
+  display_name          = "${local.name} ${local.workspace_slug} ${each.key} transcription DLQ has messages"
   combiner              = "OR"
   notification_channels = var.monitoring_notification_channels
 
@@ -773,20 +764,24 @@ check "shared_foundation_ready" {
 check "vault_admin_emails_configured" {
   assert {
     condition     = !local.vault_is_owner_workspace || length(var.vault_admin_emails) > 0
-    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_admin_emails to be set before apply. Use terraform.tfvars locally or VAULT_ADMIN_EMAILS in deploy-local.sh/GitHub Actions."
+    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_admin_emails to be set before apply. Set it in terraform.tfvars or the VAULT_ADMIN_EMAILS GitHub variable."
   }
 }
 
 check "vault_ci_service_account_emails_configured" {
   assert {
     condition     = !local.vault_is_owner_workspace || length(var.vault_ci_service_account_emails) > 0
-    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_ci_service_account_emails to be set before apply. Use terraform.tfvars locally or VAULT_CI_SERVICE_ACCOUNT_EMAILS in deploy-local.sh/GitHub Actions, and include the GitHub Actions deploy service account from secrets.GSA."
+    error_message = "Owner Vault workspaces ('dev' and 'prod') require vault_ci_service_account_emails to be set before apply. Set it in terraform.tfvars, and include the GitHub Actions deploy service account (secrets.GSA)."
   }
 }
 
+# Cloud Run's deterministic URL is known at plan time even while the Vault
+# service or its init job is being updated.
 provider "vault" {
-  address          = local.vault_url
+  address          = format("https://%s-%s.%s.run.app", local.vault_service_name, local.project_number, var.region)
   skip_child_token = true
+  # Vault scales to zero; retry 5xx while a revision starts.
+  max_retries = 10
 
   headers {
     name  = "X-Admin-Token"
@@ -795,20 +790,18 @@ provider "vault" {
 }
 
 module "scribe" {
-  # Runtime remains on 1.10.0 until upstream 1.11.x can replace a VM whose
-  # retained data root already has cloud-compose's documented 1775 mode.
-  source = "https://github.com/libops/cloud-compose/archive/refs/tags/1.10.0.tar.gz//cloud-compose-1.10.0?archive=tar.gz"
+  source = "https://github.com/libops/cloud-compose/archive/refs/tags/1.11.2.tar.gz//cloud-compose-1.11.2?archive=tar.gz"
   providers = {
     google = google
   }
 
-  name = var.name
+  name = local.name
 
   gcp = {
     project_id     = var.project_id
     project_number = local.project_number
     region         = var.region
-    zone           = var.zone
+    zone           = local.zone
 
     identity = {
       # cloud-compose 1.8.1 mints and rotates the scribe app SA key into
@@ -838,14 +831,14 @@ module "scribe" {
       subnetwork               = google_compute_subnetwork.application.self_link
       ip_cidr_range            = var.network_ip_cidr_range
       mtu                      = google_compute_network.application.mtu
-      power_button_allowed_ips = distinct(concat(var.allowed_ips, local.browser_readiness_allowed_ips))
+      power_button_allowed_ips = var.allowed_ips
       power_button_ip_depth    = 0
-      ssh_ipv4                 = local.effective_allowed_ssh_ipv4
+      ssh_ipv4                 = var.allowed_ssh_ipv4
       ssh_ipv6                 = var.allowed_ssh_ipv6
     }
 
     snapshots = {
-      enabled = var.run_snapshots
+      enabled = local.is_prod_workspace
     }
 
     cloud_init = {
@@ -868,8 +861,8 @@ module "scribe" {
       enabled      = true
       start_role   = local.cloud_compose_power_start_role
       suspend_role = local.cloud_compose_power_suspend_role
-      frontend = trimspace(var.frontend_gar_image) == "" ? null : {
-        image = var.frontend_gar_image
+      frontend = trimspace(local.frontend_image) == "" ? null : {
+        image = local.frontend_image
         port  = 8888
       }
     }

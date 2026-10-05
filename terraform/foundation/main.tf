@@ -29,7 +29,7 @@ resource "google_project_service" "control_plane" {
 # applied before any GAR build or app plan, so a clean project has an acyclic
 # bootstrap path: external WIF/state -> foundation -> reviewed images -> app.
 module "cloud_compose" {
-  source = "https://github.com/libops/cloud-compose/archive/refs/tags/1.11.1.tar.gz//cloud-compose-1.11.1/modules/gcp-foundation?archive=tar.gz"
+  source = "https://github.com/libops/cloud-compose/archive/refs/tags/1.11.2.tar.gz//cloud-compose-1.11.2/modules/gcp-foundation?archive=tar.gz"
   providers = {
     google      = google
     google-beta = google-beta
@@ -90,12 +90,45 @@ resource "google_artifact_registry_repository" "internal" {
 
   cleanup_policy_dry_run = false
 
+  # KEEP wins over DELETE. Production runs the :main tag of each package, and
+  # the most recent versions cover dev and open previews; everything else ages
+  # out so the registry does not grow without bound.
   cleanup_policies {
-    id     = "retain-recent-versions"
+    id     = "keep-main"
+    action = "KEEP"
+
+    condition {
+      tag_state    = "TAGGED"
+      tag_prefixes = ["main"]
+    }
+  }
+
+  cleanup_policies {
+    id     = "keep-recent-versions"
     action = "KEEP"
 
     most_recent_versions {
-      keep_count = 20
+      keep_count = 10
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-untagged"
+    action = "DELETE"
+
+    condition {
+      tag_state  = "UNTAGGED"
+      older_than = "604800s"
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-stale"
+    action = "DELETE"
+
+    condition {
+      tag_state  = "ANY"
+      older_than = "2592000s"
     }
   }
 

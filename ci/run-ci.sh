@@ -59,12 +59,8 @@ run_browser_group() {
 
 run_recovery_group() {
   run_make backup-restore-smoke
-  run_make verify-cloud-backups-test
-  run_make cloud-snapshot-restore-drill-test
   run_make mariadb-backup-retention-test
-  run_make preview-deployment-test
   run_make readiness-fixture-test
-  run_make deployment-status-test
 }
 
 run_security_group() {
@@ -74,8 +70,6 @@ run_security_group() {
 
 run_infrastructure_group() {
   run_make terraform-check
-  run_make terraform-state-normalizer-test
-  run_make terraform-targeted-output-test
   run_make ops-tests
   run_make docs-build
 }

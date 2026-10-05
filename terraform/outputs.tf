@@ -1,58 +1,18 @@
 locals {
-  recorded_root_outputs = {
+  root_outputs = {
     instance    = module.scribe.instance
     service_gsa = module.scribe.serviceGsa
     app_gsa     = module.scribe.appGsa
     # Cloud Run exposes deterministic and legacy non-deterministic run.app
     # hostnames. Persist and publish only the authority used by PUBLIC_BASE_URL
     # so browser navigation, OAuth, IIIF IDs, and CORS cannot silently diverge.
-    urls                             = { (var.region) = local.public_base_url }
-    backend                          = module.scribe.backend
-    backend_readiness_job            = try(google_cloud_run_v2_job.backend_readiness[0].name, "")
-    browser_readiness_job            = try(google_cloud_run_v2_job.browser_readiness[0].name, "")
-    browser_readiness_session_secret = try(google_secret_manager_secret.browser_session[0].secret_id, "")
-    ocr_readiness_job                = try(google_cloud_run_v2_job.ocr_readiness[0].name, "")
+    urls                  = { (var.region) = local.public_base_url }
+    backend               = module.scribe.backend
+    backend_readiness_job = try(google_cloud_run_v2_job.backend_readiness[0].name, "")
+    ocr_readiness_job     = try(google_cloud_run_v2_job.ocr_readiness[0].name, "")
     readiness_gsas = {
       backend = google_service_account.backend_readiness.email
-      browser = try(google_service_account.browser_readiness[0].email, "")
       ocr     = google_service_account.ocr_readiness.email
-    }
-    deployment_inputs = {
-      api_image               = var.api_image
-      browser_readiness_image = local.normalized_browser_readiness_image
-      configuration = {
-        allowed_ips                                 = var.allowed_ips
-        allowed_ssh_ipv4                            = var.allowed_ssh_ipv4
-        allowed_ssh_ipv6                            = var.allowed_ssh_ipv6
-        backup_restore_service_account_email        = var.backup_restore_service_account_email
-        browser_readiness_subnet_cidr               = var.browser_readiness_subnet_cidr
-        compose_network_cidr                        = var.compose_network_cidr
-        dev_external_ocr_impersonators              = var.dev_external_ocr_impersonators
-        iiif_max_manifest_canvases                  = local.runtime_limits.iiif_max_manifest_canvases
-        iiif_max_manifest_import_bytes              = local.runtime_limits.iiif_max_manifest_import_bytes
-        monitoring_notification_channels            = var.monitoring_notification_channels
-        network_ip_cidr_range                       = var.network_ip_cidr_range
-        preview_machine_type                        = var.preview_machine_type
-        project_id                                  = var.project_id
-        region                                      = var.region
-        storage_max_bytes_per_workspace             = local.runtime_limits.storage_max_bytes_per_workspace
-        storage_max_bytes_total                     = local.runtime_limits.storage_max_bytes_total
-        storage_max_images_per_workspace            = local.runtime_limits.storage_max_images_per_workspace
-        storage_max_images_total                    = local.runtime_limits.storage_max_images_total
-        storage_max_items_per_workspace             = local.runtime_limits.storage_max_items_per_workspace
-        storage_max_items_total                     = local.runtime_limits.storage_max_items_total
-        storage_normalization_cache_max_age         = local.runtime_limits.storage_normalization_cache_max_age
-        storage_normalization_cache_max_bytes       = local.runtime_limits.storage_normalization_cache_max_bytes
-        storage_reservation_ttl                     = local.runtime_limits.storage_reservation_ttl
-        transcription_max_active_jobs_per_workspace = local.runtime_limits.transcription_max_active_jobs_per_workspace
-        vault_admin_emails                          = var.vault_admin_emails
-        vault_ci_service_account_emails             = var.vault_ci_service_account_emails
-        zone                                        = var.zone
-      }
-      data_generation    = var.data_generation
-      docker_compose_sha = var.docker_compose_branch
-      frontend_gar_image = var.frontend_gar_image
-      ocr_service_images = var.ocr_service_images
     }
     uploads_bucket                   = google_storage_bucket.uploads.name
     uploads_backup_bucket            = try(google_storage_bucket.uploads_backup[0].name, "")
@@ -116,191 +76,77 @@ locals {
       if service.route_type == "kraken-transcription"
     }
     internal_artifact_registry_repository = try(data.terraform_remote_state.shared_foundation.outputs.artifact_registry_repository_id, "")
-    backup_restore_verifier_role          = local.is_prod_workspace ? google_project_iam_custom_role.backup_restore_verifier[0].name : ""
-  }
-}
-
-# Terraform's recovery-only -target applies intentionally leave unrelated
-# resources untouched. Record public root outputs under the same managed
-# lifecycle so those partial applies cannot replace truthful deployment data
-# with values calculated from incomplete recovery inputs.
-resource "terraform_data" "recorded_root_outputs" {
-  input = local.recorded_root_outputs
-
-  lifecycle {
-    precondition {
-      condition     = length("${var.name}-${local.project_number}") <= 63
-      error_message = "name plus project number must fit Cloud Run's 63-character deterministic URL segment; Scribe persists and enforces that canonical origin."
-    }
-    precondition {
-      condition = (
-        floor(local.runtime_limits.transcription_max_active_jobs_per_workspace) == local.runtime_limits.transcription_max_active_jobs_per_workspace &&
-        local.runtime_limits.transcription_max_active_jobs_per_workspace >= 1 &&
-        local.runtime_limits.transcription_max_active_jobs_per_workspace <= 100000 &&
-        floor(local.runtime_limits.storage_max_bytes_per_workspace) == local.runtime_limits.storage_max_bytes_per_workspace &&
-        local.runtime_limits.storage_max_bytes_per_workspace >= 104857600 &&
-        local.runtime_limits.storage_max_bytes_per_workspace <= 10995116277760 &&
-        floor(local.runtime_limits.storage_max_bytes_total) == local.runtime_limits.storage_max_bytes_total &&
-        local.runtime_limits.storage_max_bytes_total >= local.runtime_limits.storage_max_bytes_per_workspace &&
-        local.runtime_limits.storage_max_bytes_total <= 10995116277760 &&
-        floor(local.runtime_limits.storage_max_items_per_workspace) == local.runtime_limits.storage_max_items_per_workspace &&
-        local.runtime_limits.storage_max_items_per_workspace >= 1 &&
-        local.runtime_limits.storage_max_items_per_workspace <= 10000000 &&
-        floor(local.runtime_limits.storage_max_items_total) == local.runtime_limits.storage_max_items_total &&
-        local.runtime_limits.storage_max_items_total >= local.runtime_limits.storage_max_items_per_workspace &&
-        local.runtime_limits.storage_max_items_total <= 10000000 &&
-        floor(local.runtime_limits.storage_max_images_per_workspace) == local.runtime_limits.storage_max_images_per_workspace &&
-        local.runtime_limits.storage_max_images_per_workspace >= 1 &&
-        local.runtime_limits.storage_max_images_per_workspace <= 10000000 &&
-        floor(local.runtime_limits.storage_max_images_total) == local.runtime_limits.storage_max_images_total &&
-        local.runtime_limits.storage_max_images_total >= local.runtime_limits.storage_max_images_per_workspace &&
-        local.runtime_limits.storage_max_images_total <= 10000000 &&
-        floor(local.runtime_limits.storage_normalization_cache_max_bytes) == local.runtime_limits.storage_normalization_cache_max_bytes &&
-        local.runtime_limits.storage_normalization_cache_max_bytes >= 104857600 &&
-        local.runtime_limits.storage_normalization_cache_max_bytes <= 10995116277760 &&
-        local.storage_reservation_ttl_seconds >= 300 &&
-        local.storage_reservation_ttl_seconds <= 86400 &&
-        local.storage_normalization_cache_max_age_seconds >= 3600 &&
-        local.storage_normalization_cache_max_age_seconds <= 31536000 &&
-        floor(local.runtime_limits.iiif_max_manifest_canvases) == local.runtime_limits.iiif_max_manifest_canvases &&
-        local.runtime_limits.iiif_max_manifest_canvases >= 1 &&
-        local.runtime_limits.iiif_max_manifest_canvases <= 5000 &&
-        floor(local.runtime_limits.iiif_max_manifest_import_bytes) == local.runtime_limits.iiif_max_manifest_import_bytes &&
-        local.runtime_limits.iiif_max_manifest_import_bytes >= 1 &&
-        local.runtime_limits.iiif_max_manifest_import_bytes <= 67108864
-      )
-      error_message = "Effective runtime limits must satisfy the application's integer, duration, storage, transcription, and IIIF bounds."
-    }
   }
 }
 
 output "instance" {
   description = "VM instance details from the cloud-compose module."
-  value       = terraform_data.recorded_root_outputs.output.instance
+  value       = local.root_outputs.instance
 }
 
 output "service_gsa" {
   description = "Internal services service account."
-  value       = terraform_data.recorded_root_outputs.output.service_gsa
+  value       = local.root_outputs.service_gsa
 }
 
 output "app_gsa" {
   description = "Application service account."
-  value       = terraform_data.recorded_root_outputs.output.app_gsa
+  value       = local.root_outputs.app_gsa
 }
 
 output "urls" {
   description = "Canonical deterministic Cloud Run ingress URLs by region."
-  value       = terraform_data.recorded_root_outputs.output.urls
-}
-
-output "backend" {
-  description = "Backend service ID for the main app Cloud Run ingress."
-  value       = terraform_data.recorded_root_outputs.output.backend
-}
-
-output "backend_readiness_job" {
-  description = "Cloud Run job that verifies the frontend VPC path can reach backend readiness."
-  value       = terraform_data.recorded_root_outputs.output.backend_readiness_job
-}
-
-output "browser_readiness_job" {
-  description = "Protected Cloud Run job that exercises the canonical browser upload and editor handoff."
-  value       = terraform_data.recorded_root_outputs.output.browser_readiness_job
-}
-
-output "browser_readiness_session_secret" {
-  description = "Production-only Secret Manager container for one-time browser readiness sessions."
-  value       = terraform_data.recorded_root_outputs.output.browser_readiness_session_secret
-}
-
-output "ocr_readiness_job" {
-  description = "Cloud Run job that sends a synthetic image through private OCR endpoints."
-  value       = terraform_data.recorded_root_outputs.output.ocr_readiness_job
-}
-
-output "readiness_gsas" {
-  description = "Separate no-data service accounts used by browser, backend, and OCR readiness jobs."
-  value       = terraform_data.recorded_root_outputs.output.readiness_gsas
-}
-
-output "deployment_inputs" {
-  description = "Immutable inputs needed to reproduce or roll back the current deployment."
-  value       = terraform_data.recorded_root_outputs.output.deployment_inputs
+  value       = local.root_outputs.urls
 
   precondition {
-    condition = !local.is_prod_workspace && !startswith(terraform.workspace, "pr-") || (
-      can(regex("^[0-9a-f]{40}$", var.docker_compose_branch)) &&
-      contains(["canonical-v1", "canonical-v2"], var.data_generation) &&
-      var.docker_compose_branch != "0000000000000000000000000000000000000000" &&
-      can(regex("^ghcr\\.io/lehigh-university-libraries/scribe@sha256:[0-9a-f]{64}$", var.api_image)) &&
-      !endswith(var.api_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000") &&
-      can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/scribe-frontend@sha256:[0-9a-f]{64}$", var.frontend_gar_image)) &&
-      !endswith(var.frontend_gar_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000") &&
-      (
-        local.normalized_browser_readiness_image == "" || (
-          can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/scribe-browser-readiness@sha256:[0-9a-f]{64}$", local.normalized_browser_readiness_image)) &&
-          !endswith(local.normalized_browser_readiness_image, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
-        )
-      ) &&
-      length(setsubtract(
-        toset(concat(
-          keys(local.ocr_services),
-          local.is_prod_workspace ? [for model in local.ollama_models : "ollama/${model}"] : [],
-        )),
-        toset(keys(var.ocr_service_images)),
-      )) == 0 &&
-      length(setsubtract(
-        toset(keys(var.ocr_service_images)),
-        toset(concat(
-          keys(local.ocr_services),
-          local.is_prod_workspace ? [for model in local.ollama_models : "ollama/${model}"] : [],
-        )),
-      )) == 0 &&
-      alltrue([
-        for image in values(var.ocr_service_images) :
-        can(regex("^us-docker\\.pkg\\.dev/${var.project_id}/internal/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$", image)) &&
-        !endswith(image, "sha256:0000000000000000000000000000000000000000000000000000000000000000")
-      ]) &&
-      length(var.allowed_ips) > 0
-    )
-    error_message = "Production and preview plans require a non-placeholder compose SHA, exact project-owned digest-pinned images for every configured service, and a non-empty ingress CIDR allowlist."
+    condition     = length("${local.name}-${local.project_number}") <= 63
+    error_message = "name plus project number must fit Cloud Run's 63-character deterministic URL segment; Scribe persists and enforces that canonical origin."
   }
 
   precondition {
-    condition = !local.is_prod_workspace || (
-      var.terraform_state_backup_audited &&
-      var.run_snapshots &&
-      var.backup_soft_delete_retention_days >= 14 &&
-      var.backup_noncurrent_version_retention_days >= 30
-    )
-    error_message = "Production plans require a live state-backup audit, VM snapshots, and the minimum upload-backup retention policy."
+    condition     = !local.is_prod_workspace || length(var.allowed_ips) > 0
+    error_message = "Production requires a non-empty ingress CIDR allowlist."
   }
 
   precondition {
-    condition = !local.is_prod_workspace || (
-      length(var.monitoring_notification_channels) > 0 &&
-      alltrue([
-        for channel in var.monitoring_notification_channels :
-        can(regex("^projects/${var.project_id}/notificationChannels/[^/]+$", channel))
-      ])
+    condition = (
+      floor(local.runtime_limits.transcription_max_active_jobs_per_workspace) == local.runtime_limits.transcription_max_active_jobs_per_workspace &&
+      local.runtime_limits.transcription_max_active_jobs_per_workspace >= 1 &&
+      local.runtime_limits.transcription_max_active_jobs_per_workspace <= 100000 &&
+      floor(local.runtime_limits.storage_max_bytes_per_workspace) == local.runtime_limits.storage_max_bytes_per_workspace &&
+      local.runtime_limits.storage_max_bytes_per_workspace >= 104857600 &&
+      local.runtime_limits.storage_max_bytes_per_workspace <= 10995116277760 &&
+      floor(local.runtime_limits.storage_max_bytes_total) == local.runtime_limits.storage_max_bytes_total &&
+      local.runtime_limits.storage_max_bytes_total >= local.runtime_limits.storage_max_bytes_per_workspace &&
+      local.runtime_limits.storage_max_bytes_total <= 10995116277760 &&
+      floor(local.runtime_limits.storage_max_items_per_workspace) == local.runtime_limits.storage_max_items_per_workspace &&
+      local.runtime_limits.storage_max_items_per_workspace >= 1 &&
+      local.runtime_limits.storage_max_items_per_workspace <= 10000000 &&
+      floor(local.runtime_limits.storage_max_items_total) == local.runtime_limits.storage_max_items_total &&
+      local.runtime_limits.storage_max_items_total >= local.runtime_limits.storage_max_items_per_workspace &&
+      local.runtime_limits.storage_max_items_total <= 10000000 &&
+      floor(local.runtime_limits.storage_max_images_per_workspace) == local.runtime_limits.storage_max_images_per_workspace &&
+      local.runtime_limits.storage_max_images_per_workspace >= 1 &&
+      local.runtime_limits.storage_max_images_per_workspace <= 10000000 &&
+      floor(local.runtime_limits.storage_max_images_total) == local.runtime_limits.storage_max_images_total &&
+      local.runtime_limits.storage_max_images_total >= local.runtime_limits.storage_max_images_per_workspace &&
+      local.runtime_limits.storage_max_images_total <= 10000000 &&
+      floor(local.runtime_limits.storage_normalization_cache_max_bytes) == local.runtime_limits.storage_normalization_cache_max_bytes &&
+      local.runtime_limits.storage_normalization_cache_max_bytes >= 104857600 &&
+      local.runtime_limits.storage_normalization_cache_max_bytes <= 10995116277760 &&
+      local.storage_reservation_ttl_seconds >= 300 &&
+      local.storage_reservation_ttl_seconds <= 86400 &&
+      local.storage_normalization_cache_max_age_seconds >= 3600 &&
+      local.storage_normalization_cache_max_age_seconds <= 31536000 &&
+      floor(local.runtime_limits.iiif_max_manifest_canvases) == local.runtime_limits.iiif_max_manifest_canvases &&
+      local.runtime_limits.iiif_max_manifest_canvases >= 1 &&
+      local.runtime_limits.iiif_max_manifest_canvases <= 5000 &&
+      floor(local.runtime_limits.iiif_max_manifest_import_bytes) == local.runtime_limits.iiif_max_manifest_import_bytes &&
+      local.runtime_limits.iiif_max_manifest_import_bytes >= 1 &&
+      local.runtime_limits.iiif_max_manifest_import_bytes <= 67108864
     )
-    error_message = "Production plans require project-local Cloud Monitoring notification channels."
+    error_message = "Effective runtime limits must satisfy the application's integer, duration, storage, transcription, and IIIF bounds."
   }
-
-  precondition {
-    condition = !local.vault_is_owner_workspace || (
-      length(var.vault_admin_emails) > 0 &&
-      alltrue([for email in var.vault_admin_emails : can(regex("^[^@[:space:]]+@lehigh\\.edu$", email))]) &&
-      length(var.vault_ci_service_account_emails) > 0 &&
-      alltrue([
-        for email in var.vault_ci_service_account_emails :
-        can(regex("^[a-z0-9-]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com$", email))
-      ])
-    )
-    error_message = "Vault owner plans require lehigh.edu administrators and explicit Google service-account CI identities."
-  }
-
   precondition {
     condition = local.vault_is_owner_workspace || (
       trimspace(local.vault_url) != "" && local.vault_gsa == local.vault_expected_gsa
@@ -319,107 +165,122 @@ output "deployment_inputs" {
   }
 }
 
+output "backend" {
+  description = "Backend service ID for the main app Cloud Run ingress."
+  value       = local.root_outputs.backend
+}
+
+output "backend_readiness_job" {
+  description = "Cloud Run job that verifies the frontend VPC path can reach backend readiness."
+  value       = local.root_outputs.backend_readiness_job
+}
+
+output "ocr_readiness_job" {
+  description = "Cloud Run job that sends a synthetic image through private OCR endpoints."
+  value       = local.root_outputs.ocr_readiness_job
+}
+
+output "readiness_gsas" {
+  description = "Separate no-data service accounts used by backend and OCR readiness jobs."
+  value       = local.root_outputs.readiness_gsas
+}
 output "uploads_bucket" {
   description = "Workspace source-upload bucket."
-  value       = terraform_data.recorded_root_outputs.output.uploads_bucket
+  value       = local.root_outputs.uploads_bucket
 }
 
 output "uploads_backup_bucket" {
   description = "Independent production upload backup bucket, empty outside prod."
-  value       = terraform_data.recorded_root_outputs.output.uploads_backup_bucket
+  value       = local.root_outputs.uploads_backup_bucket
 }
 
 output "uploads_backup_transfer_job" {
   description = "Daily production uploads Storage Transfer job name, empty outside prod."
-  value       = terraform_data.recorded_root_outputs.output.uploads_backup_transfer_job
+  value       = local.root_outputs.uploads_backup_transfer_job
 }
 
 output "rollout" {
   description = "Optional cloud-compose rollout endpoint details."
-  value       = terraform_data.recorded_root_outputs.output.rollout
+  value       = local.root_outputs.rollout
 }
 
 output "cloud_compose_power_start_role" {
   description = "Project custom role used by cloud-compose power management to start or resume the VM."
-  value       = terraform_data.recorded_root_outputs.output.cloud_compose_power_start_role
+  value       = local.root_outputs.cloud_compose_power_start_role
 }
 
 output "cloud_compose_power_suspend_role" {
   description = "Project custom role used by cloud-compose power management to suspend the VM."
-  value       = terraform_data.recorded_root_outputs.output.cloud_compose_power_suspend_role
+  value       = local.root_outputs.cloud_compose_power_suspend_role
 }
 
 output "vault_gcp_auth_key_verifier_role" {
   description = "Singleton project custom role used by Vault to verify GCP IAM login signatures."
-  value       = terraform_data.recorded_root_outputs.output.vault_gcp_auth_key_verifier_role
+  value       = local.root_outputs.vault_gcp_auth_key_verifier_role
 }
 
 output "foundation_workspace" {
   description = "Standalone Terraform state prefix that exclusively owns project-scoped foundation resources."
-  value       = terraform_data.recorded_root_outputs.output.foundation_workspace
+  value       = local.root_outputs.foundation_workspace
 }
 
 output "vault_url" {
   description = "Cloud Run URL for the self-hosted Vault deployment."
-  value       = terraform_data.recorded_root_outputs.output.vault_url
+  value       = local.root_outputs.vault_url
 }
 
 output "vault_gsa" {
   description = "Cloud Run service account email for the self-hosted Vault deployment."
-  value       = terraform_data.recorded_root_outputs.output.vault_gsa
+  value       = local.root_outputs.vault_gsa
 }
 
 output "vault_init_gsa" {
   description = "Init-only Vault service account with initialization-material access."
-  value       = terraform_data.recorded_root_outputs.output.vault_init_gsa
+  value       = local.root_outputs.vault_init_gsa
 }
 
 output "vault_data_bucket" {
   description = "Vault data bucket owned by this workspace, empty for shared-Vault consumers."
-  value       = terraform_data.recorded_root_outputs.output.vault_data_bucket
+  value       = local.root_outputs.vault_data_bucket
 }
 
 output "vault_key_bucket" {
   description = "Vault initialization-material bucket owned by this workspace, empty for shared-Vault consumers."
-  value       = terraform_data.recorded_root_outputs.output.vault_key_bucket
+  value       = local.root_outputs.vault_key_bucket
 }
 
 output "vault_workspace" {
   description = "Terraform workspace that owns the Vault server used by this deployment."
-  value       = terraform_data.recorded_root_outputs.output.vault_workspace
+  value       = local.root_outputs.vault_workspace
 }
 
 output "vault_gcp_auth_role" {
   description = "Workspace-specific Vault GCP auth role name used by the app."
-  value       = terraform_data.recorded_root_outputs.output.vault_gcp_auth_role
+  value       = local.root_outputs.vault_gcp_auth_role
 }
 
 output "ollama_services" {
   description = "Shared Ollama model services keyed by model identifier."
-  value       = terraform_data.recorded_root_outputs.output.ollama_services
+  value       = local.root_outputs.ollama_services
 }
 
 output "ocr_services" {
   description = "OCR Cloud Run services keyed by service role."
-  value       = terraform_data.recorded_root_outputs.output.ocr_services
+  value       = local.root_outputs.ocr_services
 }
 
 output "kraken_segmentation_services" {
   description = "Kraken segmentation Cloud Run services keyed by the context segmentation_model value."
-  value       = terraform_data.recorded_root_outputs.output.kraken_segmentation_services
+  value       = local.root_outputs.kraken_segmentation_services
 }
 
 output "kraken_transcription_services" {
   description = "Kraken transcription Cloud Run services keyed by the context transcription_model value."
-  value       = terraform_data.recorded_root_outputs.output.kraken_transcription_services
+  value       = local.root_outputs.kraken_transcription_services
 }
 
 output "internal_artifact_registry_repository" {
   description = "Shared Artifact Registry repository resource ID from the standalone foundation state."
-  value       = terraform_data.recorded_root_outputs.output.internal_artifact_registry_repository
+  value       = local.root_outputs.internal_artifact_registry_repository
 }
 
-output "backup_restore_verifier_role" {
-  description = "Least-privilege custom role granted to the protected backup verification identity."
-  value       = terraform_data.recorded_root_outputs.output.backup_restore_verifier_role
-}

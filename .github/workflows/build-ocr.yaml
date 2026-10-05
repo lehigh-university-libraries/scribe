@@ -1,32 +1,9 @@
 name: Build OCR Images
 
+# Builds every OCR image from config/ocr.yaml and pushes it to Artifact
+# Registry as :main and :<commit>. Terraform deploys the :main tag.
 on:
   workflow_call:
-    inputs:
-      checkout_ref:
-        required: true
-        type: string
-      workspace_slug:
-        description: Terraform workspace slug passed through to OCR matrix generation for deploy parity.
-        required: true
-        type: string
-      image_tag:
-        description: Immutable source commit SHA applied to every built OCR image.
-        required: true
-        type: string
-      environment_name:
-        description: Protected GitHub environment that owns the GCP credentials.
-        required: true
-        type: string
-      build_images:
-        description: Build the matrix before resolving digests. Previews reuse reviewed main images.
-        required: false
-        default: true
-        type: boolean
-    outputs:
-      images_json:
-        description: JSON map of service_key -> fully qualified image@sha256 reference.
-        value: ${{ jobs.aggregate.outputs.images_json }}
 
 permissions:
   contents: read
@@ -34,180 +11,58 @@ permissions:
 jobs:
   matrix:
     runs-on: ubuntu-24.04
-    environment: ${{ inputs.environment_name }}
-    permissions:
-      contents: read
     outputs:
       matrix: ${{ steps.gen.outputs.matrix }}
     steps:
-      - name: Validate immutable source ref
-        env:
-          CHECKOUT_REF: ${{ inputs.checkout_ref }}
-          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
-          IMAGE_TAG: ${{ inputs.image_tag }}
-          WORKSPACE_SLUG: ${{ inputs.workspace_slug }}
-        run: |
-          [[ "$CHECKOUT_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "checkout_ref must be an immutable commit SHA" >&2; exit 1; }
-          [ "$IMAGE_TAG" = "$CHECKOUT_REF" ] || { echo "image_tag must equal checkout_ref so OCR provenance is commit-addressed" >&2; exit 1; }
-          if [ "$ENVIRONMENT_NAME" = "production" ] && [ "$WORKSPACE_SLUG" = "prod" ]; then
-            exit 0
-          fi
-          if [ "$ENVIRONMENT_NAME" = "preview" ] && [[ "$WORKSPACE_SLUG" =~ ^pr-[0-9]+$ ]]; then
-            exit 0
-          fi
-          echo "environment_name and workspace_slug do not form an allowed deployment tuple" >&2
-          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
-
-      - name: Generate matrix
-        id: gen
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: .go-version
+          cache: false
+      - id: gen
         env:
           GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
-          WORKSPACE_SLUG: ${{ inputs.workspace_slug }}
-          IMAGE_TAG: ${{ inputs.image_tag }}
-        run: |
-          if [ -z "$GCLOUD_PROJECT" ]; then
-            echo "GCLOUD_PROJECT is required" >&2
-            exit 1
-          fi
-          matrix="$(make --no-print-directory ocr-matrix)"
-          {
-            echo "matrix<<EOF"
-            echo "$matrix"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+        run: echo "matrix=$(go run ./cmd/ocr-matrix)" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.key }}
-    if: inputs.build_images
     needs: [matrix]
     runs-on: ubuntu-24.04
-    environment: ${{ inputs.environment_name }}
+    environment: production
     timeout-minutes: 30
     permissions:
-      id-token: write
       contents: read
-      packages: write
+      id-token: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
-
-      - name: Authenticate to Google Cloud
-        id: auth
+      - id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.OCR_GCLOUD_OIDC_POOL }}
           service_account: ${{ vars.OCR_GSA }}
           token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
-        with:
-          version: 576.0.0
-
-      - name: Verify OCR publisher WIF trust boundary
-        env:
-          WIF_EXPECTED_ENVIRONMENT: ${{ inputs.environment_name }}
-          WIF_IDENTITY_CLASS: ocr
-          WIF_PROVIDER: ${{ vars.OCR_GCLOUD_OIDC_POOL }}
-          WIF_SERVICE_ACCOUNT: ${{ vars.OCR_GSA }}
-        run: ./ci/verify-gcp-wif.sh
-
-      - name: Log in to GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Log in to GAR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: us-docker.pkg.dev
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
-
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-
-      - name: Build and publish reviewed OCR image
-        id: build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ghcr.io/lehigh-university-libraries/${{ matrix.ghcr_image }}:${{ inputs.image_tag }}
             ${{ matrix.image }}
+            ${{ matrix.gar_image }}:${{ github.sha }}
           build-args: ${{ matrix.build_args }}
           provenance: true
           sbom: true
-
-  aggregate:
-    if: always() && needs.matrix.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
-    needs: [matrix, build]
-    runs-on: ubuntu-24.04
-    environment: ${{ inputs.environment_name }}
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      images_json: ${{ steps.images.outputs.images_json }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.checkout_ref }}
-          persist-credentials: false
-
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ vars.OCR_GCLOUD_OIDC_POOL }}
-          service_account: ${{ vars.OCR_GSA }}
-          token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
-        with:
-          version: 576.0.0
-
-      - name: Verify OCR publisher WIF trust boundary
-        env:
-          WIF_EXPECTED_ENVIRONMENT: ${{ inputs.environment_name }}
-          WIF_IDENTITY_CLASS: ocr
-          WIF_PROVIDER: ${{ vars.OCR_GCLOUD_OIDC_POOL }}
-          WIF_SERVICE_ACCOUNT: ${{ vars.OCR_GSA }}
-        run: ./ci/verify-gcp-wif.sh
-
-      - name: Configure gcloud
-        run: |
-          gcloud config set project "${{ vars.GCLOUD_PROJECT }}"
-          gcloud config set disable_prompts true
-
-      - name: Resolve OCR digest map
-        id: images
-        env:
-          GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
-          WORKSPACE_SLUG: ${{ inputs.workspace_slug }}
-          IMAGE_TAG: ${{ inputs.image_tag }}
-          INCLUDE_OLLAMA: ${{ inputs.workspace_slug == 'prod' && 'true' || 'false' }}
-        run: |
-          images_json="$(make --no-print-directory ocr-images)"
-          if [ -z "$images_json" ] || [ "$images_json" = "null" ]; then
-            echo "No OCR image digests resolved" >&2
-            exit 1
-          fi
-          echo "images_json=$images_json" >> "$GITHUB_OUTPUT"
-          echo "$images_json" | jq .

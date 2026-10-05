@@ -1,5 +1,5 @@
 locals {
-  uploads_backup_bucket_name = trimsuffix(substr(replace(lower("${var.project_id}-${var.name}-prod-uploads-backup"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
+  uploads_backup_bucket_name = trimsuffix(substr(replace(lower("${var.project_id}-${local.name}-prod-uploads-backup"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
   # Keep one completed logical dump on cloud-compose's snapshotted data disk.
   # Reserve space for that dump, a full staging dump, and one full-database
   # safety margin in addition to cloud-compose's 20 GiB application baseline.
@@ -170,137 +170,6 @@ resource "google_storage_transfer_job" "uploads_backup" {
   ]
 }
 
-# The scheduled verifier uses an external WIF-bound identity so compromise of a
-# restore probe never grants application, Vault-token, or Terraform-apply
-# privileges. Terraform grants only bucket observation/readback plus creation
-# and deletion of tightly labelled disposable compute resources.
-resource "google_project_iam_custom_role" "backup_restore_verifier" {
-  count = local.is_prod_workspace ? 1 : 0
-
-  project     = var.project_id
-  role_id     = "scribeBackupRestoreVerifier"
-  title       = "Scribe backup restore verifier"
-  description = "Creates and inspects isolated read-only snapshot restore drills without production mutation permissions."
-  stage       = "GA"
-  permissions = [
-    "compute.disks.create",
-    "compute.disks.delete",
-    "compute.disks.get",
-    "compute.disks.list",
-    "compute.disks.setLabels",
-    "compute.disks.useReadOnly",
-    "compute.firewalls.get",
-    "compute.instances.create",
-    "compute.instances.delete",
-    "compute.instances.get",
-    "compute.instances.getSerialPortOutput",
-    "compute.instances.list",
-    "compute.instances.setLabels",
-    "compute.instances.setMetadata",
-    "compute.instances.setTags",
-    "compute.networks.use",
-    "compute.projects.get",
-    "compute.snapshots.list",
-    "compute.snapshots.useReadOnly",
-    "compute.subnetworks.use",
-    "compute.zoneOperations.get",
-  ]
-
-  deletion_policy = "PREVENT"
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "google_project_iam_member" "backup_restore_verifier" {
-  count = local.is_prod_workspace ? 1 : 0
-
-  project = var.project_id
-  role    = google_project_iam_custom_role.backup_restore_verifier[0].name
-  member  = "serviceAccount:${var.backup_restore_service_account_email}"
-}
-
-resource "google_project_iam_member" "backup_transfer_viewer" {
-  count = local.is_prod_workspace ? 1 : 0
-
-  project = var.project_id
-  role    = "roles/storagetransfer.viewer"
-  member  = "serviceAccount:${var.backup_restore_service_account_email}"
-}
-
-resource "google_storage_bucket_iam_member" "backup_verifier_bucket_metadata" {
-  for_each = local.is_prod_workspace ? toset([
-    local.terraform_state_bucket,
-    google_storage_bucket.uploads.name,
-    google_storage_bucket.uploads_backup[0].name,
-    module.vault[0].data_bucket,
-    module.vault[0].key_bucket,
-  ]) : toset([])
-
-  bucket = each.value
-  role   = "roles/storage.legacyBucketReader"
-  member = "serviceAccount:${var.backup_restore_service_account_email}"
-}
-
-resource "google_storage_bucket_iam_member" "backup_verifier_state_objects" {
-  count = local.is_prod_workspace ? 1 : 0
-
-  bucket = local.terraform_state_bucket
-  role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${var.backup_restore_service_account_email}"
-}
-
-resource "google_storage_bucket_iam_member" "backup_verifier_upload_objects" {
-  count = local.is_prod_workspace ? 1 : 0
-
-  bucket = google_storage_bucket.uploads_backup[0].name
-  role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${var.backup_restore_service_account_email}"
-}
-
-check "production_state_backup_policy_audited" {
-  assert {
-    condition     = !local.is_prod_workspace || var.terraform_state_backup_audited
-    error_message = "Production requires an audited versioned/retained Terraform state bucket. Run ci/verify-cloud-backups.sh and set TF_VAR_terraform_state_backup_audited=true only for that invocation."
-  }
-}
-
-check "production_vm_snapshots_enabled" {
-  assert {
-    condition     = !local.is_prod_workspace || var.run_snapshots
-    error_message = "Production requires scheduled persistent-disk snapshots for MariaDB and Compose volumes."
-  }
-}
-
-# The scheduled restore drill needs the production subnet only to attach the
-# disposable VM. These priority-zero rules prevent that no-SA/no-address probe
-# from reaching application, Vault, or internet services while it reads the
-# restored disks locally. Google metadata routing is firewall-exempt, so the VM
-# deliberately has no service account and therefore no workload token to mint.
-resource "google_compute_firewall" "snapshot_restore_drill_deny_egress" {
-  for_each = local.is_prod_workspace ? {
-    ipv4 = "0.0.0.0/0"
-    ipv6 = "::/0"
-  } : {}
-
-  project            = var.project_id
-  name               = "${var.name}-restore-drill-deny-egress-${each.key}"
-  network            = module.scribe.network.self_link
-  direction          = "EGRESS"
-  priority           = 0
-  destination_ranges = [each.value]
-  target_tags        = ["scribe-restore-drill"]
-
-  deny {
-    protocol = "all"
-  }
-
-  log_config {
-    metadata = "EXCLUDE_ALL_METADATA"
-  }
-}
-
 check "production_backup_policy" {
   assert {
     condition = !local.is_prod_workspace || (
@@ -311,15 +180,13 @@ check "production_backup_policy" {
   }
 }
 
-check "production_backup_restore_identity" {
-  assert {
-    condition = !local.is_prod_workspace || (
-      trimspace(var.backup_restore_service_account_email) != "" &&
-      var.backup_restore_service_account_email != module.scribe.appGsa.email &&
-      var.backup_restore_service_account_email != module.scribe.instance.gsa.email &&
-      var.backup_restore_service_account_email != local.vault_gsa &&
-      var.backup_restore_service_account_email != module.vault[0].init_gsa
-    )
-    error_message = "Production requires a dedicated backup-restore verifier identity distinct from app, VM, and Vault identities."
+
+# The backup verifier role is no longer used. Custom roles are kept on delete
+# (deletion_policy = PREVENT), so drop it from state and leave it in the project.
+removed {
+  from = google_project_iam_custom_role.backup_restore_verifier
+
+  lifecycle {
+    destroy = false
   }
 }

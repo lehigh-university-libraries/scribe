@@ -136,6 +136,14 @@ func (c *Client) readV2(ctx context.Context, token, path string) (map[string]str
 	return out, nil
 }
 
+// UseAdminToken sends token as the Vault proxy's X-Admin-Token instead of a
+// token minted from Application Default Credentials.
+func (c *Client) UseAdminToken(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.adminTokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: strings.TrimSpace(token)})
+}
+
 func (c *Client) Write(ctx context.Context, path string, data map[string]string) error {
 	if c == nil || c.addr == "" || c.kvMount == "" {
 		return fmt.Errorf("vault client is not configured")

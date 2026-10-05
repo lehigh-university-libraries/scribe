@@ -152,12 +152,6 @@ func loadSecretsWithRetry(ctx context.Context, cfg config.Config) (config.Secret
 	})
 }
 
-func loadDatabasePasswordWithRetry(ctx context.Context, cfg config.BrowserSessionVaultConfig) (string, error) {
-	return loadVaultValueWithRetry(ctx, func(loadCtx context.Context) (string, error) {
-		return config.LoadDatabasePassword(loadCtx, cfg)
-	})
-}
-
 const (
 	vaultLoadMaximumAttempts = 5
 	vaultLoadInitialDelay    = 250 * time.Millisecond

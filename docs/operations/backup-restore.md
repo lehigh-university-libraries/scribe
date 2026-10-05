@@ -28,51 +28,18 @@ The protected production deployment path enforces the deployed recovery layers:
 - A daily Storage Transfer job copies production uploads to an independent,
   versioned backup bucket with retained noncurrent generations.
 - Vault data and initialization-material buckets use versioning and soft delete.
-- Production plan/apply refuses to proceed until
-  `ci/verify-cloud-backups.sh` confirms that the externally managed Terraform
-  state bucket has versioning and at least 14 days of retention or soft delete.
-- Production apply inspects one saved Terraform plan and rejects deletion or
-  replacement of either Cloud Compose persistent disk before applying that
-  exact plan. Capacity growth remains an in-place update.
+- The Terraform state bucket has versioning and 14-day soft delete, set by
+  `make bootstrap-gcp-identities`.
 
 The rollout from the former dedicated MariaDB backup disk deliberately removes
 that disk from Terraform state without destroying it. Keep the orphaned
 `scribe-mariadb-backups` disk as a recovery source until a fresh logical dump
-has been captured on the data disk and the protected two-disk restore drill has
-passed. Removing the retired disk is a separate, explicitly approved operation;
+has been captured on the data disk and a two-disk restore has been verified. Removing the retired disk is a separate, explicitly approved operation;
 normal deployment must never delete it.
 
-The protected `Production Backup Verification` workflow runs daily with the
-dedicated `BACKUP_GCLOUD_OIDC_POOL` and `BACKUP_RESTORE_GSA`. It verifies every
-bucket policy and requires a successful upload transfer no older than 36
-hours. It then selects fresh,
-source-matched snapshots for both production disks, creates two distinct
-disposable restore disks, and attaches them read-only (`ro,noload`) to an
-isolated no-service-account, no-external-address VM behind priority-zero IPv4
-and IPv6 deny-egress rules. The standard E2 probe VM uses `MIGRATE` for host
-maintenance; E2 does not support `TERMINATE` without Spot/preemptible scheduling.
-Clone mount points live under COS's writable `/mnt/disks`, not read-only `/mnt`.
-The probe verifies the MariaDB dump freshness,
-gzip stream, completion marker, required canonical tables, and persistent
-MariaDB volume before cleanup. After reporting its result, the probe stays
-running for serial-output collection and runner cleanup, with a 30-minute
-shutdown fallback if the runner disappears. A scheduled failure opens an issue. A manual
-dispatch can additionally download one exact backup object into the ephemeral
-runner, verify it, and discard it.
-
-`BACKUP_RESTORE_GSA` is not an application or Terraform deployment identity.
-Terraform grants only its custom disposable compute drill role, Storage
-Transfer viewer, bucket metadata reads, and object reads from Terraform state
-and the independent upload backup. It has no source-upload write, Vault token,
-Vault root-object decrypt, KMS decrypt, runtime, or broad project role. The WIF
-provider, binding, and initially deployable service account are external
-bootstrap prerequisites. Use a pool containing one active GitHub provider,
-restrict it to this repository, `backup-verification.yaml`,
-`refs/heads/main`, and the protected `production` environment, and bind only
-the repository-scoped principal set. The workflow verifies that live boundary
-before reading state or creating restore resources. The protected deploy
-identity must be able to grant the listed resource bindings during the first
-production apply; the verifier must not be given that grant authority.
+Backups are not verified automatically. Check the Storage Transfer job history
+and the latest disk snapshots in the console, and run a restore drill by hand
+before relying on a recovery point.
 
 After restore, run persistence integrity checks before accepting traffic:
 
@@ -88,8 +55,6 @@ The repository exercises this procedure without touching development data:
 
 ```bash
 make backup-restore-smoke
-make verify-cloud-backups-test
-make cloud-snapshot-restore-drill-test
 ```
 
 The smoke test creates isolated source and restore MariaDB containers and blob

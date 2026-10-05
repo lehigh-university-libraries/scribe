@@ -1,808 +1,152 @@
 name: Terraform Deploy
 
+# Runs `make tf-prod` or `make tf-preview` (terraform plan/apply/destroy in the
+# matching workspace) and, after an apply, executes the readiness jobs.
 on:
   workflow_call:
     inputs:
-      mode:
+      environment:
+        description: GitHub environment holding the credentials (production or preview).
         required: true
         type: string
-      environment_name:
-        required: true
-        type: string
-      tf_workspace:
-        required: true
-        type: string
-      site_name:
-        required: true
-        type: string
-      docker_compose_branch:
-        required: true
-        type: string
-      checkout_ref:
+      action:
+        description: plan, apply, or destroy.
         required: true
         type: string
       pr_number:
+        description: Pull request number for previews; empty for production.
         required: false
         type: string
         default: ""
-      browser_readiness_source_sha:
-        description: Exact pull-request commit supplying only web/e2e/deployed-readiness.mjs to the isolated preview runner.
-        required: false
-        type: string
-        default: ""
-      browser_readiness_image:
-        description: Existing digest-pinned production browser image replayed only by protected plan workflows.
-        required: false
-        type: string
-        default: ""
-      preview_machine_type:
-        description: Reviewed preview-only Compute Engine profile frozen by protected orchestration.
-        required: false
-        type: string
-        default: ""
-      recover_preview_destroy_inputs:
-        description: Recover immutable preview destroy inputs from same-lineage versioned state after an interrupted teardown.
-        required: false
-        type: boolean
-        default: false
       image_tag:
+        description: Backend and frontend image tag to deploy.
         required: false
         type: string
-        default: ""
-      frontend_image_tag:
-        description: Reviewed GHCR frontend source image promoted to GAR during apply; Terraform never receives or records it.
-        required: false
-        type: string
-        default: ""
-      frontend_gar_image_tag:
-        required: false
-        type: string
-        default: ""
-      ocr_images_json:
-        description: JSON map of OCR service_key -> digest-pinned GAR image reference.
-        required: false
-        type: string
-        default: "{}"
-      region:
-        description: GCP region shared by the workflow and Terraform.
-        required: true
-        type: string
-      zone:
-        description: GCP zone shared by frontend proxy configuration and Terraform.
-        required: true
-        type: string
+        default: main
     outputs:
-      status:
-        description: Workflow status for the terraform action.
-        value: ${{ jobs.deploy.outputs.status }}
-      preview_url:
-        description: Cloud Run ingress URL for preview environments.
-        value: ${{ jobs.deploy.outputs.preview_url }}
-      image:
-        description: Deployed GHCR image reference.
-        value: ${{ jobs.deploy.outputs.image }}
+      url:
+        description: Public URL after an apply.
+        value: ${{ jobs.terraform.outputs.url }}
 
 permissions:
   contents: read
 
 jobs:
-  deploy:
+  terraform:
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ inputs.mode == 'destroy' && 180 || inputs.mode == 'apply' && inputs.environment_name == 'production' && 240 || 120 }}
-    environment: ${{ inputs.environment_name }}
+    timeout-minutes: 180
+    environment: ${{ inputs.environment }}
     concurrency:
-      group: ${{ inputs.environment_name == 'preview' && 'terraform-preview-dev-shared' || format('terraform-deploy-{0}', inputs.site_name) }}
-      queue: max
+      group: terraform-${{ inputs.pr_number != '' && format('pr-{0}', inputs.pr_number) || 'prod' }}
       cancel-in-progress: false
     permissions:
-      id-token: write
       contents: read
-      packages: read
+      id-token: write
+    outputs:
+      url: ${{ steps.url.outputs.url }}
     env:
       GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-      ALLOWED_IPS: ${{ vars.ALLOWED_IPS }}
-      ALLOWED_SSH_IPV4: ${{ vars.ALLOWED_SSH_IPV4 }}
-      ALLOWED_SSH_IPV6: ${{ vars.ALLOWED_SSH_IPV6 != '' && vars.ALLOWED_SSH_IPV6 || '[]' }}
-      SCRIBE_API_IMAGE: ${{ inputs.image_tag }}
-      SCRIBE_BROWSER_READINESS_IMAGE: ${{ inputs.browser_readiness_image }}
-      SCRIBE_DATA_GENERATION: canonical-v2
-      SCRIBE_FRONTEND_IMAGE: ${{ inputs.frontend_image_tag }}
-      SCRIBE_FRONTEND_GAR_IMAGE: ${{ inputs.frontend_gar_image_tag }}
-      SCRIBE_OCR_IMAGES_JSON: ${{ inputs.ocr_images_json }}
-      SCRIBE_PREVIEW_MACHINE_TYPE: ${{ inputs.preview_machine_type }}
-      SCRIBE_REGION: ${{ inputs.region }}
-      SCRIBE_ZONE: ${{ inputs.zone }}
-      DEV_EXTERNAL_OCR_IMPERSONATORS: '[]'
-      VAULT_ADMIN_EMAILS: ${{ vars.VAULT_ADMIN_EMAILS }}
-      VAULT_CI_SERVICE_ACCOUNT_EMAILS: '["${{ secrets.GSA }}"]'
-      TF_VAR_monitoring_notification_channels: ${{ vars.MONITORING_NOTIFICATION_CHANNELS != '' && vars.MONITORING_NOTIFICATION_CHANNELS || '[]' }}
-      TF_VAR_browser_readiness_subnet_cidr: ${{ vars.BROWSER_READINESS_SUBNET_CIDR != '' && vars.BROWSER_READINESS_SUBNET_CIDR || '10.43.0.0/26' }}
-      TF_VAR_network_ip_cidr_range: ${{ vars.NETWORK_IP_CIDR_RANGE != '' && vars.NETWORK_IP_CIDR_RANGE || '10.42.0.0/24' }}
-      TF_VAR_compose_network_cidr: ${{ vars.COMPOSE_NETWORK_CIDR != '' && vars.COMPOSE_NETWORK_CIDR || '172.30.0.0/24' }}
-      TF_VAR_backup_restore_service_account_email: ${{ secrets.BACKUP_RESTORE_GSA }}
-      VAULT_BOOTSTRAP_MODE: jwt-or-root-token
-
-    outputs:
-      status: ${{ steps.capture.outputs.status }}
-      preview_url: ${{ steps.preview_url.outputs.url }}
-      image: ${{ steps.capture.outputs.image }}
-
+      TF_IN_AUTOMATION: "1"
+      TF_INPUT: "0"
+      TF_CLI_ARGS_apply: -auto-approve
+      TF_CLI_ARGS_destroy: -auto-approve
+      TF_VAR_image_tag: ${{ inputs.image_tag }}
+      ACTION: ${{ inputs.action }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      REGION: ${{ vars.SCRIBE_REGION != '' && vars.SCRIBE_REGION || 'us-east5' }}
     steps:
-      - name: Validate workflow variables
-        shell: bash
-        env:
-          CHECKOUT_REF: ${{ inputs.checkout_ref }}
-          BROWSER_READINESS_SOURCE_SHA: ${{ inputs.browser_readiness_source_sha }}
-          COMPOSE_REF: ${{ inputs.docker_compose_branch }}
-          DEPLOY_MODE: ${{ inputs.mode }}
-          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          RECOVER_PREVIEW_DESTROY_INPUTS: ${{ inputs.recover_preview_destroy_inputs }}
-          SITE_NAME: ${{ inputs.site_name }}
-          TF_WORKSPACE: ${{ inputs.tf_workspace }}
-        run: |
-          set -euo pipefail
-          if [ -z "$GCLOUD_PROJECT" ]; then
-            echo "GitHub Actions variable GCLOUD_PROJECT must be set." >&2
-            exit 1
-          fi
-          if [ -z "$TF_STATE_BUCKET" ]; then
-            echo "Protected environment secret TF_STATE_BUCKET must be set." >&2
-            exit 1
-          fi
-          if [ "$DEPLOY_MODE" != "destroy" ] && ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' <<<"$ALLOWED_IPS" >/dev/null; then
-            echo "Protected environment variable ALLOWED_IPS must be a non-empty JSON CIDR array." >&2
-            exit 1
-          fi
-          if ! jq -e 'type == "array" and all(.[]; type == "string" and test("^[0-9.]+/[0-9]{1,2}$"))' <<<"${ALLOWED_SSH_IPV4:-[]}" >/dev/null; then
-            echo "Protected environment variable ALLOWED_SSH_IPV4 must be a JSON IPv4 CIDR array." >&2
-            exit 1
-          fi
-          if ! jq -e 'type == "array" and all(.[]; type == "string" and test("^[0-9A-Fa-f:]+/[0-9]{1,3}$"))' <<<"$ALLOWED_SSH_IPV6" >/dev/null; then
-            echo "Protected environment variable ALLOWED_SSH_IPV6 must be a JSON IPv6 CIDR array." >&2
-            exit 1
-          fi
-          if ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and test("^[^@[:space:]]+@[^@[:space:]]+$"))' <<<"$VAULT_ADMIN_EMAILS" >/dev/null; then
-            echo "Protected environment variable VAULT_ADMIN_EMAILS must be a non-empty JSON email array." >&2
-            exit 1
-          fi
-          if ! jq -e 'all(.[]; endswith("@lehigh.edu"))' <<<"$VAULT_ADMIN_EMAILS" >/dev/null; then
-            echo "VAULT_ADMIN_EMAILS entries must use the lehigh.edu hosted domain required by the Vault JWT role." >&2
-            exit 1
-          fi
-          if ! jq -e 'type == "array" and length == 1 and all(.[]; type == "string" and test("^[^@[:space:]]+@[^@[:space:]]+$"))' <<<"$VAULT_CI_SERVICE_ACCOUNT_EMAILS" >/dev/null; then
-            echo "Protected environment secret GSA must be a service-account email." >&2
-            exit 1
-          fi
-          [[ "$CHECKOUT_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "checkout_ref must be an immutable commit SHA" >&2; exit 1; }
-          [[ "$COMPOSE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "docker_compose_branch must be an immutable commit SHA" >&2; exit 1; }
-          [[ "$DEPLOY_MODE" =~ ^(plan|apply|destroy)$ ]] || { echo "invalid Terraform mode" >&2; exit 1; }
-          [[ "$TF_WORKSPACE" =~ ^(prod|dev|pr-[0-9]+)$ ]] || { echo "invalid Terraform workspace" >&2; exit 1; }
-          [[ "$SITE_NAME" =~ ^scribe(-pr-[0-9]+)?$ ]] || { echo "invalid site name" >&2; exit 1; }
-          [[ "$SCRIBE_REGION" =~ ^[a-z]+-[a-z]+[0-9]+$ ]] || { echo "invalid GCP region" >&2; exit 1; }
-          [[ "$SCRIBE_ZONE" =~ ^${SCRIBE_REGION}-[a-z]$ ]] || { echo "GCP zone must belong to the configured region" >&2; exit 1; }
-          [[ "$SCRIBE_DATA_GENERATION" =~ ^canonical-v(1|2)$ ]] || { echo "persistence data generation is not reviewed" >&2; exit 1; }
-          if [ "$DEPLOY_MODE" != "destroy" ]; then
-            [[ "$SCRIBE_API_IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] || { echo "backend image must be digest-pinned" >&2; exit 1; }
-            jq -e 'type == "object" and length > 0 and all(.[]; test("^[^[:space:]@]+@sha256:[0-9a-f]{64}$"))' <<<"$SCRIBE_OCR_IMAGES_JSON" >/dev/null || {
-              echo "OCR images must be a non-empty digest-pinned JSON map" >&2
-              exit 1
-            }
-          fi
-          if [ "$DEPLOY_MODE" = "apply" ]; then
-            [[ "$SCRIBE_FRONTEND_IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] || { echo "frontend source image must be digest-pinned for promotion" >&2; exit 1; }
-          fi
-          if [ -n "$PR_NUMBER" ]; then
-            [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be numeric" >&2; exit 1; }
-          fi
-          if [ "$RECOVER_PREVIEW_DESTROY_INPUTS" = "true" ] && {
-            [ "$DEPLOY_MODE" != "destroy" ] || [ "$ENVIRONMENT_NAME" != "preview" ] || [ -z "$PR_NUMBER" ];
-          }; then
-            echo "Historical destroy-input recovery is restricted to an explicit protected preview destroy." >&2
-            exit 1
-          fi
-          if [ "$ENVIRONMENT_NAME" = "production" ]; then
-            if [ -n "$SCRIBE_PREVIEW_MACHINE_TYPE" ]; then
-              echo "preview_machine_type is restricted to the preview environment" >&2
-              exit 1
-            fi
-            [ "$TF_WORKSPACE" = "prod" ] && [ "$SITE_NAME" = "scribe" ] && [ -z "$PR_NUMBER" ] || {
-              echo "production environment requires workspace=prod, site=scribe, and no PR number" >&2
-              exit 1
-            }
-          elif [ "$ENVIRONMENT_NAME" = "preview" ]; then
-            [[ "$SCRIBE_PREVIEW_MACHINE_TYPE" =~ ^(e2-medium|n2d-standard-2)$ ]] || {
-              echo "preview_machine_type must be an explicitly reviewed preview profile" >&2
-              exit 1
-            }
-            [ -n "$PR_NUMBER" ] && [ "$TF_WORKSPACE" = "pr-${PR_NUMBER}" ] && [ "$SITE_NAME" = "scribe-pr-${PR_NUMBER}" ] || {
-              echo "preview environment, workspace, site, and PR number must identify the same PR" >&2
-              exit 1
-            }
-          else
-            echo "environment_name must be production or preview" >&2
-            exit 1
-          fi
-          if [ "$DEPLOY_MODE" = "apply" ] && [ "$ENVIRONMENT_NAME" = "preview" ]; then
-            [[ "$BROWSER_READINESS_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-              echo "preview apply requires an immutable browser readiness source SHA" >&2
-              exit 1
-            }
-          elif [ -n "$BROWSER_READINESS_SOURCE_SHA" ]; then
-            echo "browser readiness source is restricted to preview apply" >&2
-            exit 1
-          fi
-          if [ "$ENVIRONMENT_NAME" = "production" ] && [ "$DEPLOY_MODE" = "plan" ]; then
-            [[ "$SCRIBE_BROWSER_READINESS_IMAGE" =~ ^us-docker\.pkg\.dev/${GCLOUD_PROJECT}/internal/scribe-browser-readiness@sha256:[0-9a-f]{64}$ ]] \
-              && [[ ! "$SCRIBE_BROWSER_READINESS_IMAGE" =~ @sha256:0{64}$ ]] || {
-              echo "Production browser readiness has no immutable deployment record; use the protected apply path for its first rollout." >&2
-              exit 1
-            }
-          elif [ -n "$SCRIBE_BROWSER_READINESS_IMAGE" ]; then
-            echo "browser_readiness_image is restricted to protected production plans" >&2
-            exit 1
-          fi
-          if [ "$ENVIRONMENT_NAME" = "production" ] && ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and startswith("projects/"))' <<<"$TF_VAR_monitoring_notification_channels" >/dev/null; then
-            echo "Protected production variable MONITORING_NOTIFICATION_CHANNELS must be a non-empty JSON channel-name array." >&2
-            exit 1
-          fi
-          if [ "$ENVIRONMENT_NAME" = "production" ] && [[ ! "$TF_VAR_backup_restore_service_account_email" =~ ^[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com$ ]]; then
-            echo "Protected production secret BACKUP_RESTORE_GSA must be a dedicated service-account email." >&2
-            exit 1
-          fi
-
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
 
-      - name: Stage exact PR-head browser readiness source
-        if: inputs.mode == 'apply' && inputs.environment_name == 'preview'
-        shell: bash
-        env:
-          BROWSER_READINESS_CONTENTS_TOKEN: ${{ github.token }}
-          BROWSER_READINESS_SOURCE_SHA: ${{ inputs.browser_readiness_source_sha }}
-          PROTECTED_SOURCE_SHA: ${{ inputs.checkout_ref }}
-        run: bash ./ci/prepare-browser-readiness-source.sh "$BROWSER_READINESS_SOURCE_SHA"
-
-      - name: Set up Go for preview Vault reconciliation and typed deployment helpers
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
-          go-version-file: .go-version
-          cache: false
-
-      - name: Build typed readiness helpers
-        if: inputs.mode == 'apply'
-        shell: bash
-        run: |
-          set -euo pipefail
-          readiness_binary="$RUNNER_TEMP/scribe-cloud-run-readiness"
-          production_browser_binary="$RUNNER_TEMP/scribe-production-browser-readiness"
-          go build -trimpath -o "$readiness_binary" ./cmd/cloud-run-readiness
-          CGO_ENABLED=0 go build -trimpath -o "$production_browser_binary" ./cmd/production-browser-readiness
-          test -f "$readiness_binary" && test ! -L "$readiness_binary" && test -x "$readiness_binary"
-          test -f "$production_browser_binary" && test ! -L "$production_browser_binary" && test -x "$production_browser_binary"
-          printf 'SCRIBE_CLOUD_RUN_READINESS_BIN=%s\n' "$readiness_binary" >> "$GITHUB_ENV"
-          printf 'SCRIBE_PRODUCTION_BROWSER_READINESS_BIN=%s\n' "$production_browser_binary" >> "$GITHUB_ENV"
-
-      - name: Apply optional runtime-limit overrides
-        if: inputs.mode == 'apply' || inputs.mode == 'plan'
-        env:
-          IIIF_MAX_MANIFEST_CANVASES: ${{ vars.IIIF_MAX_MANIFEST_CANVASES }}
-          IIIF_MAX_MANIFEST_IMPORT_BYTES: ${{ vars.IIIF_MAX_MANIFEST_IMPORT_BYTES }}
-          STORAGE_MAX_BYTES_PER_WORKSPACE: ${{ vars.STORAGE_MAX_BYTES_PER_WORKSPACE }}
-          STORAGE_MAX_BYTES_TOTAL: ${{ vars.STORAGE_MAX_BYTES_TOTAL }}
-          STORAGE_MAX_IMAGES_PER_WORKSPACE: ${{ vars.STORAGE_MAX_IMAGES_PER_WORKSPACE }}
-          STORAGE_MAX_IMAGES_TOTAL: ${{ vars.STORAGE_MAX_IMAGES_TOTAL }}
-          STORAGE_MAX_ITEMS_PER_WORKSPACE: ${{ vars.STORAGE_MAX_ITEMS_PER_WORKSPACE }}
-          STORAGE_MAX_ITEMS_TOTAL: ${{ vars.STORAGE_MAX_ITEMS_TOTAL }}
-          STORAGE_NORMALIZATION_CACHE_MAX_AGE: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_AGE }}
-          STORAGE_NORMALIZATION_CACHE_MAX_BYTES: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_BYTES }}
-          STORAGE_RESERVATION_TTL: ${{ vars.STORAGE_RESERVATION_TTL }}
-          TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE: ${{ vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE }}
-        run: go run ./cmd/deployer runtime-overrides >> "$GITHUB_ENV"
-
-      - name: Prepare Terraform artifact directory
-        run: mkdir -p .github-artifacts/terraform
-
-      - name: Install Terraform
-        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
-        with:
-          terraform_version: v1.16.4
-
-      - name: Check Terraform formatting
-        if: inputs.mode == 'apply' || inputs.mode == 'plan'
-        run: terraform fmt -check -recursive
-
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
+          project_id: ${{ vars.GCLOUD_PROJECT }}
           workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
           service_account: ${{ secrets.GSA }}
-          token_format: access_token
-          access_token_scopes: |-
-            https://www.googleapis.com/auth/cloud-platform
-            https://www.googleapis.com/auth/userinfo.email
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           version: 576.0.0
 
-      - name: Verify deploy WIF trust boundary
-        env:
-          WIF_EXPECTED_ENVIRONMENT: ${{ inputs.environment_name }}
-          WIF_IDENTITY_CLASS: deploy
-          WIF_PROVIDER: ${{ secrets.GCLOUD_OIDC_POOL }}
-          WIF_SERVICE_ACCOUNT: ${{ secrets.GSA }}
-        run: ./ci/verify-gcp-wif.sh
-
-      - name: Configure gcloud
-        run: |
-          gcloud config set project "${GCLOUD_PROJECT}"
-          gcloud config set disable_prompts true
-
-      - name: Verify external Terraform state recovery policy
-        if: inputs.mode == 'apply' || inputs.mode == 'plan'
-        env:
-          BACKUP_AUDIT_SCOPE: state
-        run: |
-          ./ci/verify-cloud-backups.sh
-          echo "TF_VAR_terraform_state_backup_audited=true" >> "$GITHUB_ENV"
-
-      - name: Normalize shared dev Terraform moved state
-        if: inputs.mode == 'apply' && inputs.pr_number != ''
-        shell: bash
-        env:
-          DEPLOY_BRANCH: ${{ inputs.checkout_ref }}
-          VAULT_BOOTSTRAP_MODE: root-token
-        run: |
-          ./ci/capture-command-log.sh ".github-artifacts/terraform/dev-moved-state.log" make tf-dev BRANCH="$DEPLOY_BRANCH" ACTION=normalize-moves
-
-      - name: Reconcile shared preview Vault runtime access
-        if: inputs.mode == 'apply' && inputs.pr_number != ''
-        shell: bash
-        env:
-          DEPLOY_BRANCH: ${{ inputs.checkout_ref }}
-          VAULT_BOOTSTRAP_MODE: root-token
-        run: |
-          ./ci/capture-command-log.sh ".github-artifacts/terraform/dev-vault-preview-runtime.log" make tf-dev-vault-preview-runtime BRANCH="$DEPLOY_BRANCH" ACTION=apply
-
-      - name: "GAR login"
-        if: inputs.mode == 'apply' || inputs.mode == 'plan'
-        uses: "docker/login-action@dbcb813823bdd20940b903addbd779551569679f" # v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          registry: "us-docker.pkg.dev"
-          username: "oauth2accesstoken"
-          password: "${{ steps.auth.outputs.access_token }}"
+          terraform_version: 1.16.4
+          terraform_wrapper: false
 
-      - name: "GHCR login"
-        if: inputs.mode == 'apply' || inputs.mode == 'plan'
-        uses: "docker/login-action@dbcb813823bdd20940b903addbd779551569679f" # v4
-        with:
-          registry: "ghcr.io"
-          username: "${{ github.actor }}"
-          password: "${{ secrets.GITHUB_TOKEN }}"
-
-      - name: Resolve pinned backend GHCR image
-        id: backend_ghcr_image
-        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && startsWith(inputs.image_tag, 'ghcr.io/')
-        shell: bash
+      - name: Export configured Terraform variables
         env:
-          INPUT_IMAGE_TAG: ${{ inputs.image_tag }}
+          region: ${{ vars.SCRIBE_REGION }}
+          zone: ${{ inputs.pr_number != '' && vars.SCRIBE_PREVIEW_ZONE || vars.SCRIBE_ZONE }}
+          allowed_ips: ${{ vars.ALLOWED_IPS }}
+          allowed_ssh_ipv4: ${{ vars.ALLOWED_SSH_IPV4 }}
+          allowed_ssh_ipv6: ${{ vars.ALLOWED_SSH_IPV6 }}
+          vault_admin_emails: ${{ vars.VAULT_ADMIN_EMAILS }}
+          vault_ci_service_account_emails: ${{ secrets.GSA != '' && format('["{0}"]', secrets.GSA) || '' }}
+          monitoring_notification_channels: ${{ vars.MONITORING_NOTIFICATION_CHANNELS }}
+          network_ip_cidr_range: ${{ vars.NETWORK_IP_CIDR_RANGE }}
+          compose_network_cidr: ${{ vars.COMPOSE_NETWORK_CIDR }}
+          preview_machine_type: ${{ vars.SCRIBE_PREVIEW_MACHINE_TYPE }}
+          iiif_max_manifest_canvases: ${{ vars.IIIF_MAX_MANIFEST_CANVASES }}
+          iiif_max_manifest_import_bytes: ${{ vars.IIIF_MAX_MANIFEST_IMPORT_BYTES }}
+          storage_max_bytes_per_workspace: ${{ vars.STORAGE_MAX_BYTES_PER_WORKSPACE }}
+          storage_max_bytes_total: ${{ vars.STORAGE_MAX_BYTES_TOTAL }}
+          storage_max_images_per_workspace: ${{ vars.STORAGE_MAX_IMAGES_PER_WORKSPACE }}
+          storage_max_images_total: ${{ vars.STORAGE_MAX_IMAGES_TOTAL }}
+          storage_max_items_per_workspace: ${{ vars.STORAGE_MAX_ITEMS_PER_WORKSPACE }}
+          storage_max_items_total: ${{ vars.STORAGE_MAX_ITEMS_TOTAL }}
+          storage_normalization_cache_max_age: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_AGE }}
+          storage_normalization_cache_max_bytes: ${{ vars.STORAGE_NORMALIZATION_CACHE_MAX_BYTES }}
+          storage_reservation_ttl: ${{ vars.STORAGE_RESERVATION_TTL }}
+          transcription_max_active_jobs_per_workspace: ${{ vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE }}
+        # Unset GitHub variables are empty strings; leave those to Terraform's defaults.
         run: |
-          resolved_image="$(./ci/resolve-ghcr-image.sh "$INPUT_IMAGE_TAG")"
-          echo "resolved_image=$resolved_image" >> "$GITHUB_OUTPUT"
-          echo "SCRIBE_API_IMAGE=$resolved_image" >> "$GITHUB_ENV"
-
-      - name: Resolve pinned frontend GHCR image
-        id: frontend_ghcr_image
-        if: inputs.mode == 'apply' && startsWith(inputs.frontend_image_tag, 'ghcr.io/')
-        shell: bash
-        env:
-          INPUT_FRONTEND_IMAGE_TAG: ${{ inputs.frontend_image_tag }}
-        run: |
-          resolved_image="$(./ci/resolve-ghcr-image.sh "$INPUT_FRONTEND_IMAGE_TAG")"
-          echo "resolved_image=$resolved_image" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
-        if: inputs.mode == 'apply'
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-
-      - name: Promote the reviewed frontend digest to GAR
-        if: inputs.mode == 'apply' && inputs.frontend_gar_image_tag != '' && steps.frontend_ghcr_image.outputs.resolved_image != ''
-        shell: bash
-        env:
-          FRONTEND_GAR_TAG: ${{ inputs.frontend_gar_image_tag }}
-          FRONTEND_GHCR_DIGEST: ${{ steps.frontend_ghcr_image.outputs.resolved_image }}
-        run: docker buildx imagetools create --tag "$FRONTEND_GAR_TAG" "$FRONTEND_GHCR_DIGEST"
-
-      - name: Resolve pinned frontend GAR image
-        id: frontend_gar_image
-        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.frontend_gar_image_tag != ''
-        shell: bash
-        env:
-          INPUT_FRONTEND_GAR_IMAGE_TAG: ${{ inputs.frontend_gar_image_tag }}
-        run: |
-          resolved_image="$(./ci/resolve-gar-image.sh "$INPUT_FRONTEND_GAR_IMAGE_TAG")"
-          echo "resolved_image=$resolved_image" >> "$GITHUB_OUTPUT"
-          echo "SCRIBE_FRONTEND_GAR_IMAGE=$resolved_image" >> "$GITHUB_ENV"
-
-      - name: Build isolated browser readiness image
-        if: inputs.mode == 'apply'
-        shell: bash
-        env:
-          BROWSER_READINESS_SOURCE_SHA: ${{ inputs.browser_readiness_source_sha }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          PROTECTED_SOURCE_SHA: ${{ inputs.checkout_ref }}
-        run: |
-          set -euo pipefail
-          [[ "$PROTECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [ "$(git rev-parse --verify 'HEAD^{commit}')" = "$PROTECTED_SOURCE_SHA" ]
-          readiness_source_sha="$PROTECTED_SOURCE_SHA"
-          if [ -n "$PR_NUMBER" ]; then
-            [[ "$BROWSER_READINESS_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-            [[ "$SCRIBE_BROWSER_READINESS_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-            [[ "$SCRIBE_BROWSER_READINESS_SCRIPT_BLOB_SHA" =~ ^[0-9a-f]{40}$ ]]
-            [ "$SCRIBE_BROWSER_READINESS_SOURCE_SHA" = "$BROWSER_READINESS_SOURCE_SHA" ]
-            [ "$(git hash-object --no-filters web/e2e/deployed-readiness.mjs)" = "$SCRIBE_BROWSER_READINESS_SCRIPT_BLOB_SHA" ]
-            changed_paths="$(git diff --name-only --)"
-            [ -z "$changed_paths" ] || [ "$changed_paths" = "web/e2e/deployed-readiness.mjs" ]
-            readiness_source_sha="$BROWSER_READINESS_SOURCE_SHA"
-          else
-            git diff --quiet --
-            git diff --cached --quiet --
-          fi
-          readiness_tag="us-docker.pkg.dev/${GCLOUD_PROJECT}/internal/scribe-browser-readiness:${readiness_source_sha}"
-          docker buildx build \
-            --file Dockerfile.browser-readiness \
-            --platform linux/amd64 \
-            --provenance=true \
-            --sbom=true \
-            --tag "$readiness_tag" \
-            --push \
-            .
-          readiness_image="$(./ci/resolve-gar-image.sh "$readiness_tag")"
-          echo "SCRIBE_BROWSER_READINESS_IMAGE=$readiness_image" >> "$GITHUB_ENV"
-
-      - name: Authenticate Vault admin header token
-        id: auth_vault_access
-        if: inputs.pr_number != ''
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/userinfo.email
-          create_credentials_file: false
-
-      - name: Resolve shared Vault address
-        id: vault_addr
-        if: inputs.pr_number != ''
-        shell: bash
-        run: |
-          if [ "${{ inputs.tf_workspace }}" = "prod" ]; then
-            vault_workspace="prod"
-          else
-            vault_workspace="dev"
-          fi
-          vault_resolution="$(./ci/resolve-shared-vault.sh "$vault_workspace")"
-          vault_addr="$(jq -er '.vault_addr' <<<"$vault_resolution")"
-          vault_audience="$(jq -er '.vault_audience' <<<"$vault_resolution")"
-          echo "vault_addr=$vault_addr" >> "$GITHUB_OUTPUT"
-          echo "vault_audience=$vault_audience" >> "$GITHUB_OUTPUT"
-
-      - name: Compute Vault CI role name
-        id: vault_role
-        if: inputs.pr_number != ''
-        shell: bash
-        env:
-          VAULT_GSA: ${{ secrets.GSA }}
-        run: |
-          sanitized="$(printf '%s' "$VAULT_GSA" | sed 's/@/-at-/g; s/\./-/g')"
-          echo "role_name=ci-${sanitized}" >> "$GITHUB_OUTPUT"
-
-      - name: Authenticate Google ID token for Vault
-        id: auth_vault_id
-        if: inputs.pr_number != ''
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: id_token
-          id_token_audience: ${{ steps.vault_addr.outputs.vault_audience }}
-          id_token_include_email: true
-          create_credentials_file: false
-
-      - name: Login to Vault
-        if: inputs.pr_number != ''
-        shell: bash
-        env:
-          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
-          VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
-          VAULT_ID_TOKEN: ${{ steps.auth_vault_id.outputs.id_token }}
-          VAULT_ROLE: ${{ steps.vault_role.outputs.role_name }}
-        run: |
-          bash ./ci/vault-login.sh
-
-      - name: Ensure isolated preview bootstrap secrets
-        if: inputs.mode == 'apply' && inputs.pr_number != ''
-        shell: bash
-        env:
-          PREVIEW_PREFIX: scribe/previews/${{ inputs.site_name }}@${{ vars.GCLOUD_PROJECT }}.iam.gserviceaccount.com
-          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
-          VAULT_ADMIN_TOKEN: ${{ steps.auth_vault_access.outputs.access_token }}
-        run: |
-          bash ./ci/preview-vault-secrets.sh ensure "$PREVIEW_PREFIX"
-
-      - name: Run production Terraform plan
-        id: plan
-        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.pr_number == ''
-        shell: bash
-        env:
-          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
-          # A real apply immediately follows this preliminary plan in the same
-          # job whenever mode == 'apply', so it's safe for the browser
-          # readiness IPv6 bootstrap to run here too. A standalone mode ==
-          # 'plan' review never sets this and stays a pure dry run.
-          TF_APPLY_PENDING: ${{ inputs.mode == 'apply' }}
-        run: |
-          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-plan.log" make tf-prod BRANCH="$DEPLOY_BRANCH" ACTION=plan
-
-      - name: Run preview Terraform plan
-        id: plan_preview
-        if: (inputs.mode == 'apply' || inputs.mode == 'plan') && inputs.pr_number != ''
-        shell: bash
-        env:
-          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          TF_APPLY_PENDING: ${{ inputs.mode == 'apply' }}
-        run: |
-          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-plan.log" make tf-preview PR="$PR_NUMBER" BRANCH="$DEPLOY_BRANCH" ACTION=plan
-
-      - name: Run production Terraform
-        id: apply
-        if: inputs.mode == 'apply' && inputs.pr_number == ''
-        shell: bash
-        env:
-          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
-        run: |
-          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-apply.log" make tf-prod BRANCH="$DEPLOY_BRANCH" ACTION=apply
-
-      - name: Run preview Terraform
-        id: apply_preview
-        if: inputs.mode == 'apply' && inputs.pr_number != ''
-        shell: bash
-        env:
-          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-        run: |
-          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-apply.log" make tf-preview PR="$PR_NUMBER" BRANCH="$DEPLOY_BRANCH" ACTION=apply
-
-      - name: Attest deployed Cloud Run revision
-        id: revision_attestation
-        if: inputs.mode == 'apply'
-        shell: bash
-        env:
-          SERVICE_NAME: ${{ inputs.site_name }}
-        run: |
-          set -euo pipefail
-          service_json="$(mktemp)"
-          revision_json="$(mktemp)"
-          trap 'rm -f "$service_json" "$revision_json"' EXIT
-          gcloud run services describe "$SERVICE_NAME" \
-            --project "$GCLOUD_PROJECT" \
-            --region "$SCRIBE_REGION" \
-            --format=json > "$service_json"
-          revision="$(jq -r '.status.latestReadyRevisionName' "$service_json")"
-          gcloud run revisions describe "$revision" \
-            --project "$GCLOUD_PROJECT" \
-            --region "$SCRIBE_REGION" \
-            --format=json > "$revision_json"
-          revision="$(./ci/attest-cloud-run-revision.sh "$service_json" "$revision_json" "$SCRIBE_FRONTEND_GAR_IMAGE")"
-          echo "Attested Ready Cloud Run revision $revision at the expected frontend digest."
-
-      - name: Verify frontend, backend, and OCR readiness
-        id: readiness
-        if: inputs.mode == 'apply'
-        shell: bash
-        env:
-          PR_NUMBER: ${{ inputs.pr_number }}
-          SCRIBE_DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment_name }}
-          SCRIBE_INSTANCE: ${{ inputs.site_name }}
-        run: |
-          set -euo pipefail
-          job_name="$(terraform -chdir=terraform output -raw backend_readiness_job)"
-          if [ -z "$job_name" ]; then
-            echo "Terraform did not return a backend readiness job" >&2
-            exit 1
-          fi
-          ./ci/run-cloud-run-readiness.sh \
-            "$job_name" \
-            backend \
-            ".github-artifacts/terraform/${{ inputs.tf_workspace }}-backend-readiness-diagnostics.log"
-          ocr_job_name="$(terraform -chdir=terraform output -raw ocr_readiness_job)"
-          if [ -z "$ocr_job_name" ]; then
-            echo "Terraform did not return an OCR readiness job" >&2
-            exit 1
-          fi
-          ./ci/run-cloud-run-readiness.sh \
-            "$ocr_job_name" \
-            ocr \
-            ".github-artifacts/terraform/${{ inputs.tf_workspace }}-ocr-readiness-diagnostics.log"
-          browser_diagnostics=".github-artifacts/terraform/${{ inputs.tf_workspace }}-browser-readiness-diagnostics.log"
-          if [ -n "$PR_NUMBER" ]; then
-            browser_job_name="$(terraform -chdir=terraform output -raw browser_readiness_job)"
-            if [ -z "$browser_job_name" ]; then
-              echo "Terraform did not return a browser readiness job" >&2
-              exit 1
+          for name in region zone allowed_ips allowed_ssh_ipv4 allowed_ssh_ipv6 vault_admin_emails \
+            vault_ci_service_account_emails monitoring_notification_channels \
+            network_ip_cidr_range compose_network_cidr \
+            preview_machine_type iiif_max_manifest_canvases iiif_max_manifest_import_bytes \
+            storage_max_bytes_per_workspace storage_max_bytes_total storage_max_images_per_workspace \
+            storage_max_images_total storage_max_items_per_workspace storage_max_items_total \
+            storage_normalization_cache_max_age storage_normalization_cache_max_bytes \
+            storage_reservation_ttl transcription_max_active_jobs_per_workspace; do
+            if [ -n "${!name}" ]; then
+              echo "TF_VAR_${name}=${!name}" >> "$GITHUB_ENV"
             fi
-            ./ci/run-cloud-run-readiness.sh \
-              "$browser_job_name" \
-              browser \
-              "$browser_diagnostics"
+          done
+
+      - name: Terraform ${{ inputs.action }}
+        run: |
+          if [ -n "$PR_NUMBER" ]; then
+            make tf-preview PR="$PR_NUMBER" ACTION="$ACTION"
           else
-            browser_job_name="$(terraform -chdir=terraform output -raw browser_readiness_job)"
-            browser_session_secret="$(terraform -chdir=terraform output -raw browser_readiness_session_secret)"
-            if [ -z "$browser_job_name" ] || [ -z "$browser_session_secret" ]; then
-              echo "Terraform did not return the production browser readiness resources" >&2
-              exit 1
-            fi
-            ./ci/run-production-browser-readiness.sh \
-              "$browser_job_name" \
-              "$browser_session_secret" \
-              "$browser_diagnostics"
+            make tf-prod ACTION="$ACTION"
           fi
 
-      - name: Read preview URL
-        id: preview_url
-        if: inputs.mode == 'apply'
+      - name: Delete the preview workspace
+        if: inputs.action == 'destroy' && inputs.pr_number != ''
         run: |
-          cd terraform
-          url="$(terraform output -json | jq -r --arg region "$SCRIBE_REGION" '.urls.value[$region] // ""')"
-          if [ -z "$url" ]; then
-            echo "Terraform did not return a preview URL for $SCRIBE_REGION" >&2
+          terraform -chdir=terraform workspace select default
+          terraform -chdir=terraform workspace delete "pr-${PR_NUMBER}"
+
+      # A replaced VM can still be booting when Terraform returns, so give each
+      # probe a few attempts before failing the deploy.
+      - name: Run readiness jobs
+        if: inputs.action == 'apply'
+        run: |
+          for output in backend_readiness_job ocr_readiness_job; do
+            job="$(terraform -chdir=terraform output -raw "$output")"
+            for attempt in 1 2 3 4 5 6; do
+              if gcloud run jobs execute "$job" --region "$REGION" --wait; then
+                continue 2
+              fi
+              echo "::warning::${job} failed (attempt ${attempt}/6); retrying in 2 minutes."
+              sleep 120
+            done
             exit 1
-          fi
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          done
 
-      - name: Capture failed VM diagnostics
-        if: failure() && inputs.mode == 'apply' && (steps.apply.outcome != 'skipped' || steps.apply_preview.outcome != 'skipped')
-        continue-on-error: true
-        shell: bash
-        env:
-          SCRIBE_INSTANCE: ${{ inputs.site_name }}
-        run: ./ci/gcp-vm-bootstrap-diagnostics.sh > ".github-artifacts/terraform/${{ inputs.tf_workspace }}-vm-bootstrap-diagnostics.log" 2>&1
-
-      - name: Read production backup outputs
-        id: backup_outputs
-        if: inputs.mode == 'apply' && inputs.pr_number == '' && steps.readiness.outcome == 'success'
-        shell: bash
-        run: |
-          {
-            echo "uploads_bucket=$(terraform -chdir=terraform output -raw uploads_bucket)"
-            echo "backup_bucket=$(terraform -chdir=terraform output -raw uploads_backup_bucket)"
-            echo "transfer_job=$(terraform -chdir=terraform output -raw uploads_backup_transfer_job)"
-            echo "vault_data_bucket=$(terraform -chdir=terraform output -raw vault_data_bucket)"
-            echo "vault_key_bucket=$(terraform -chdir=terraform output -raw vault_key_bucket)"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Verify deployed production backup policy
-        id: backup_verify
-        if: inputs.mode == 'apply' && inputs.pr_number == '' && steps.readiness.outcome == 'success'
-        env:
-          ALLOW_MISSING_TRANSFER_OPERATION: "true"
-          UPLOADS_BUCKET: ${{ steps.backup_outputs.outputs.uploads_bucket }}
-          UPLOADS_BACKUP_BUCKET: ${{ steps.backup_outputs.outputs.backup_bucket }}
-          UPLOADS_BACKUP_TRANSFER_JOB: ${{ steps.backup_outputs.outputs.transfer_job }}
-          VAULT_DATA_BUCKET: ${{ steps.backup_outputs.outputs.vault_data_bucket }}
-          VAULT_KEY_BUCKET: ${{ steps.backup_outputs.outputs.vault_key_bucket }}
-        run: ./ci/verify-cloud-backups.sh
-
-      - name: Destroy production Terraform
-        id: destroy
-        if: inputs.mode == 'destroy' && inputs.pr_number == ''
-        shell: bash
-        env:
-          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
-        run: |
-          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log" make tf-prod BRANCH="$DEPLOY_BRANCH" ACTION=destroy
-
-      - name: Destroy preview Terraform
-        id: destroy_preview
-        if: inputs.mode == 'destroy' && inputs.pr_number != ''
-        shell: bash
-        env:
-          DEPLOY_BRANCH: ${{ inputs.docker_compose_branch }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          SCRIBE_RECOVER_PREVIEW_DESTROY_INPUTS: ${{ inputs.recover_preview_destroy_inputs }}
-        run: |
-          ./ci/capture-command-log.sh ".github-artifacts/terraform/${{ inputs.tf_workspace }}-destroy.log" make tf-preview PR="$PR_NUMBER" BRANCH="$DEPLOY_BRANCH" ACTION=destroy
-
-      - name: Refresh Vault admin header token for preview teardown
-        id: refresh_vault_access
-        if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: access_token
-          access_token_scopes: https://www.googleapis.com/auth/userinfo.email
-          create_credentials_file: false
-
-      - name: Refresh Google ID token for preview teardown
-        id: refresh_vault_id
-        if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
-        with:
-          workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
-          service_account: ${{ secrets.GSA }}
-          token_format: id_token
-          id_token_audience: ${{ steps.vault_addr.outputs.vault_audience }}
-          id_token_include_email: true
-          create_credentials_file: false
-
-      - name: Refresh Vault client token for preview teardown
-        if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
-        shell: bash
-        env:
-          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
-          VAULT_ADMIN_TOKEN: ${{ steps.refresh_vault_access.outputs.access_token }}
-          VAULT_ID_TOKEN: ${{ steps.refresh_vault_id.outputs.id_token }}
-          VAULT_ROLE: ${{ steps.vault_role.outputs.role_name }}
-        run: |
-          bash ./ci/vault-login.sh
-
-      - name: Remove preview Vault namespace
-        id: destroy_preview_vault
-        if: inputs.mode == 'destroy' && inputs.pr_number != '' && steps.destroy_preview.outcome == 'success'
-        shell: bash
-        env:
-          PREVIEW_PREFIX: scribe/previews/${{ inputs.site_name }}@${{ vars.GCLOUD_PROJECT }}.iam.gserviceaccount.com
-          VAULT_ADDR: ${{ steps.vault_addr.outputs.vault_addr }}
-          VAULT_ADMIN_TOKEN: ${{ steps.refresh_vault_access.outputs.access_token }}
-        run: |
-          bash ./ci/preview-vault-secrets.sh delete "$PREVIEW_PREFIX"
-
-      - name: Upload Terraform logs
-        if: failure() || inputs.mode == 'apply' || inputs.mode == 'plan'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: terraform-logs-${{ inputs.tf_workspace }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .github-artifacts/terraform
-          if-no-files-found: ignore
-          retention-days: 14
-
-      - name: Capture status
-        id: capture
-        if: always()
-        run: |
-          image_ref="$(printf '%s' "${SCRIBE_API_IMAGE}" | tr '[:upper:]' '[:lower:]')"
-          if command -v go >/dev/null 2>&1 && status="$(
-              DEPLOY_MODE='${{ inputs.mode }}' \
-              PR_NUMBER='${{ inputs.pr_number }}' \
-              PLAN_OUTCOME='${{ steps.plan.outcome }}' \
-              PLAN_PREVIEW_OUTCOME='${{ steps.plan_preview.outcome }}' \
-              APPLY_OUTCOME='${{ steps.apply.outcome }}' \
-              APPLY_PREVIEW_OUTCOME='${{ steps.apply_preview.outcome }}' \
-              REVISION_OUTCOME='${{ steps.revision_attestation.outcome }}' \
-              URL_OUTCOME='${{ steps.preview_url.outcome }}' \
-              READINESS_OUTCOME='${{ steps.readiness.outcome }}' \
-              BACKUP_OUTCOME='${{ steps.backup_verify.outcome }}' \
-              DESTROY_OUTCOME='${{ steps.destroy.outcome }}' \
-              DESTROY_PREVIEW_OUTCOME='${{ steps.destroy_preview.outcome }}' \
-              DESTROY_PREVIEW_VAULT_OUTCOME='${{ steps.destroy_preview_vault.outcome }}' \
-                ./ci/deployment-status.sh
-            )"; then
-            :
-          else
-            # Status publication must survive an earlier setup-go failure.
-            # A missing helper is conservatively a deployment failure; policy
-            # precedence remains exclusively in the typed helper.
-            status=failure
-          fi
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          echo "image=$image_ref" >> "$GITHUB_OUTPUT"
+      - name: Read URL
+        id: url
+        if: inputs.action == 'apply'
+        run: echo "url=$(terraform -chdir=terraform output -json urls | jq -r 'to_entries[0].value')" >> "$GITHUB_OUTPUT"

@@ -26,17 +26,16 @@ RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
     --mount=type=cache,target=/go/pkg/mod,sharing=locked \
     CGO_ENABLED=0 GOOS=linux go build -tags remoteocr -o /out/scribe-api ./cmd/api \
     && CGO_ENABLED=0 GOOS=linux go build -tags remoteocr -o /out/scribe-worker ./cmd/worker \
-    && CGO_ENABLED=0 GOOS=linux go build -tags remoteocr -o /out/scribe-browser-session ./cmd/browser-session \
     && CGO_ENABLED=0 GOOS=linux go build -o /out/scribe-pdf-export ./cmd/pdf-export
 
 FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 WORKDIR /app
 RUN apk add --no-cache \
-    ca-certificates=20260611-r0 \
+    ca-certificates=20260909-r0 \
     curl=8.22.0-r0 \
     jq=1.8.2-r0 \
-    openssl=3.5.8-r0 \
-    python3=3.14.7-r1 \
+    openssl=3.5.9-r0 \
+    python3=3.14.8-r0 \
     py3-pip=26.1.2-r0 \
     poppler-utils=25.12.0-r1
 COPY config/pdf/requirements.txt /app/pdf-requirements.txt
@@ -45,7 +44,6 @@ RUN python3 -m venv /opt/pdf \
 RUN adduser -D -u 10001 appuser
 COPY --from=builder /out/scribe-api /app/scribe-api
 COPY --from=builder /out/scribe-worker /app/scribe-worker
-COPY --from=builder /out/scribe-browser-session /app/scribe-browser-session
 COPY --from=builder /out/scribe-pdf-export /app/scribe-pdf-export
 COPY --from=scyllaridae /app/scyllaridae /app/scyllaridae
 COPY config/pdf/scyllaridae.yml /app/scyllaridae.yml
