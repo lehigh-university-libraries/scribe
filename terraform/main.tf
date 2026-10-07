@@ -878,6 +878,12 @@ module "scribe" {
       } : {},
     )
 
+    # v1.12.10 follows force-pushed branches and reads rotation state left by
+    # cloud-compose 1.10 hosts.
+    sitectl = {
+      package_versions = { sitectl = "v1.12.10" }
+    }
+
     compose = {
       primary = "primary"
       projects = {
