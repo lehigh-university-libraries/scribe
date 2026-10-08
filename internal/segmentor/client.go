@@ -46,7 +46,6 @@ type Client struct {
 type tripletImageClient interface {
 	Enabled() bool
 	FullJPEG(context.Context, string) ([]byte, error)
-	Normalize(context.Context, []byte, string) ([]byte, error)
 }
 
 // NewClientForEndpoint constructs a segmentor client from an endpoint already
@@ -79,44 +78,6 @@ func NewClientForEndpoint(baseURL, audience string) (*Client, error) {
 // Enabled reports whether the HTR remote client is ready.
 func (c *Client) Enabled() bool { return c != nil && c.remote != nil }
 
-// Name implements providers.Client for registered remote transcription models.
-func (c *Client) Name() string { return "remoteocr" }
-
-// Extract implements providers.Client by delegating to HTR's generic remote
-// transcription operation. Scribe's provider registry binds the approved
-// model before exposing this client to the processing pipeline.
-func (c *Client) Extract(ctx context.Context, request providers.Request) (providers.Result, error) {
-	if !c.Enabled() {
-		return providers.Result{}, providers.NewError(providers.ErrorInvalidRequest, 0, false, nil)
-	}
-	image, err := c.prepareProviderImage(ctx, request.Image)
-	if err != nil {
-		return providers.Result{}, err
-	}
-	result, err := c.remote.Transcribe(ctx, image, request.Model)
-	if err != nil {
-		return providers.Result{}, err
-	}
-	return providers.Result{
-		Text:           result.Text,
-		EffectiveModel: result.EffectiveModel,
-	}, nil
-}
-
-func (c *Client) prepareProviderImage(ctx context.Context, image providers.Image) (providers.Image, error) {
-	if !needsTripletNormalize(image.Filename) {
-		return image, nil
-	}
-	if c.images == nil || !c.images.Enabled() {
-		return providers.Image{}, providers.NewError(providers.ErrorInvalidRequest, 0, false, nil)
-	}
-	data, err := c.images.Normalize(ctx, image.Data, image.MediaType)
-	if err != nil {
-		return providers.Image{}, providers.ErrorForRequest(ctx, err)
-	}
-	return providers.Image{Data: data, MediaType: "image/jpeg", Filename: "image.jpg"}, nil
-}
-
 // DetectWords sends prepared image bytes to HTR's segmentation operation.
 func (c *Client) DetectWords(ctx context.Context, imagePath, model string) ([]worddetection.WordBox, string, error) {
 	image, err := c.prepareImage(ctx, imagePath)
@@ -135,19 +96,6 @@ func (c *Client) DetectWords(ctx context.Context, imagePath, model string) ([]wo
 		}
 	}
 	return words, result.Provider, nil
-}
-
-// Transcribe sends prepared image bytes to HTR's transcription operation.
-func (c *Client) Transcribe(ctx context.Context, imagePath, model string) (string, string, error) {
-	image, err := c.prepareImage(ctx, imagePath)
-	if err != nil {
-		return "", "", err
-	}
-	result, err := c.remote.Transcribe(ctx, image, strings.TrimSpace(model))
-	if err != nil {
-		return "", "", err
-	}
-	return strings.TrimSpace(result.Text), result.EffectiveModel, nil
 }
 
 func segmentorAuthenticator(endpointRaw, audienceRaw string) (httpclient.Authenticator, error) {

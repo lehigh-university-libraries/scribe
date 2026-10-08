@@ -86,6 +86,6 @@ ci/                   local/CI shared quality commands
 docs/                 Zensical documentation source
 ```
 
-Secrets belong in Vault or local Compose secret files. Do not commit credentials
+Cloud secrets belong in Secret Manager; local secrets use Vault or Compose files. Do not commit credentials
 or put them in `.env`, configuration YAML, Terraform variables, build arguments,
 or provider error messages.

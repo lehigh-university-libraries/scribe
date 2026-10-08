@@ -9,76 +9,31 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
-var retiredSystemContextNames = [...]string{"Default", "Scribe Custom"}
-
-// defaultContext returns the credential-free preset used for automatic context
-// resolution. Scribe preserves the established segmentation quality while
-// Tesseract transcribes each detected line without provider credentials.
-func defaultContext(config.Config) store.Context {
-	return store.Context{
-		Name:                  "Tesseract OCR",
-		Description:           "Built-in system context that uses Scribe segmentation and Tesseract line transcription.",
-		IsDefault:             true,
-		SegmentationModel:     "scribe",
-		TranscriptionProvider: "tesseract",
-		TranscriptionModel:    "tesseract",
-	}
-}
-
-func configuredLLMSelection(cfg config.Config) store.Context {
-	registry := providerregistry.New(cfg)
-	descriptor, _ := registry.ResolveProvider("") // configured provider is startup-validated
-	systemPrompt := cfg.LLM.DefaultSystemPrompt
-	if !descriptor.Capabilities.SystemPrompt {
-		systemPrompt = ""
-	}
-	return store.Context{
-		TranscriptionProvider: descriptor.ID,
-		TranscriptionModel:    descriptor.DefaultModel(),
-		SystemPrompt:          systemPrompt,
-	}
-}
+var retiredSystemContextNames = [...]string{"Default", "Scribe Custom", "Tesseract OCR", "Kraken BLLA", "Gemini Pro", "Kraken CATMuS", "Kraken BLLA + GLM-OCR", "Kraken BLLA + Gemini Pro", "Kraken BLLA + Gemini Flash", "Kraken BLLA + CATMuS Medieval", "Kraken BLLA + CATMuS Print"}
 
 func systemContexts(cfg config.Config) []store.Context {
-	defaultCtx := defaultContext(cfg)
-	configuredLLM := configuredLLMSelection(cfg)
-	registry := providerregistry.New(cfg)
-	geminiDescriptor, _ := registry.ResolveProvider("gemini") // built-in provider is always installed
-	geminiModel, _ := registry.EffectiveModel(geminiDescriptor.ID, "")
-	geminiPrompt := cfg.LLM.DefaultSystemPrompt
-	if !geminiDescriptor.Capabilities.SystemPrompt {
-		geminiPrompt = ""
+	var catalog []store.Context
+	for _, document := range []struct{ name, segmentor string }{
+		{"Letters", "kraken"}, {"Medieval manuscripts", "kraken"}, {"Newspapers", "newspapers"},
+	} {
+		for _, transcription := range []struct{ label, provider, model string }{
+			{"GLM-OCR", "ollama", "glm-ocr:bf16"},
+			{"Gemini Pro", "gemini", "gemini-3.1-pro-preview"},
+			{"Gemini Flash", "gemini", "gemini-3.8-flash"},
+			{"OpenAI", "openai", "gpt-4.1"},
+		} {
+			catalog = append(catalog, store.Context{
+				Name:                  document.name + " + " + transcription.label,
+				Description:           "Segment " + document.name + " into lines and transcribe each crop with " + transcription.label + ".",
+				IsDefault:             len(catalog) == 0,
+				SegmentationModel:     document.segmentor,
+				TranscriptionProvider: transcription.provider,
+				TranscriptionModel:    transcription.model,
+				SystemPrompt:          cfg.LLM.DefaultSystemPrompt,
+			})
+		}
 	}
-	krakenMedievalModel, _ := registry.EffectiveModel("kraken", "catmus-medieval-1.6.0.mlmodel")
-	return []store.Context{
-		defaultCtx,
-		{
-			Name:                  "Kraken BLLA",
-			Description:           "Built-in system context that uses Kraken page segmentation with the default BLLA model and then transcribes each detected line with the configured LLM provider.",
-			IsDefault:             false,
-			SegmentationModel:     "kraken",
-			TranscriptionProvider: configuredLLM.TranscriptionProvider,
-			TranscriptionModel:    configuredLLM.TranscriptionModel,
-			SystemPrompt:          configuredLLM.SystemPrompt,
-		},
-		{
-			Name:                  "Gemini Pro",
-			Description:           "Uses Scribe segmentation and the configured Gemini model with model-default sampling.",
-			IsDefault:             false,
-			SegmentationModel:     "scribe",
-			TranscriptionProvider: geminiDescriptor.ID,
-			TranscriptionModel:    geminiModel,
-			SystemPrompt:          geminiPrompt,
-		},
-		{
-			Name:                  "Kraken CATMuS",
-			Description:           "Uses Kraken BLLA page segmentation and CATMuS Medieval 1.6 recognition for handwritten medieval Latin and Romance-language manuscripts.",
-			IsDefault:             false,
-			SegmentationModel:     "kraken",
-			TranscriptionProvider: "kraken",
-			TranscriptionModel:    krakenMedievalModel,
-		},
-	}
+	return catalog
 }
 
 // EnsureSystemContexts upserts the built-in catalog, promotes its sole default,

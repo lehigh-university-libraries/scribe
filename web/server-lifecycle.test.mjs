@@ -310,6 +310,41 @@ describe("frontend server lifecycle", () => {
     }
   }, 10_000);
 
+  it("routes encoded IIIF upload identifiers to Triplet rather than the API", async () => {
+    const target = "/iiif/3/http:%2F%2Flocalhost:8080%2Fstatic%2Fuploads%2Fimage.jpg/info.json";
+    const api = http.createServer((request, response) => {
+      if (handleReadinessProbe(request, response)) return;
+      response.writeHead(404);
+      response.end();
+    });
+    const observed = [];
+    const triplet = http.createServer((request, response) => {
+      observed.push({ url: request.url, cookie: request.headers.cookie });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"type":"ImageService3"}');
+    });
+    const apiPort = await listen(api);
+    const tripletPort = await listen(triplet);
+    const frontend = spawnFrontend({
+      SCRIBE_FRONTEND_BACKEND_ORIGIN: `http://127.0.0.1:${apiPort}`,
+      SCRIBE_FRONTEND_PRESENTATION_ORIGIN: `http://127.0.0.1:${tripletPort}`,
+    });
+    try {
+      const port = await frontendPort(frontend);
+      const response = await fetch(`http://127.0.0.1:${port}${target}`, {
+        headers: { cookie: "scribe-session=upload-reader" },
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ type: "ImageService3" });
+      expect(observed).toEqual([{ url: target, cookie: "scribe-session=upload-reader" }]);
+    } finally {
+      await stopFrontend(frontend);
+      await Promise.all([api, triplet].map((server) => new Promise((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      })));
+    }
+  }, 10_000);
+
   it("strips credentials at the same-origin public Presentation boundary", async () => {
     const observed = [];
     const upstream = http.createServer((request, response) => {

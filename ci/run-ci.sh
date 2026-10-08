@@ -48,6 +48,8 @@ run_test_group() {
   start_database
   SCRIBE_REQUIRE_TEST_DB=true run_make test-backend
   cleanup_database
+  run_make test-mysql
+  run_make triplet-sql-test
   run_make ocr-build-tags
 }
 
@@ -59,7 +61,6 @@ run_browser_group() {
 
 run_recovery_group() {
   run_make backup-restore-smoke
-  run_make mariadb-backup-retention-test
   run_make readiness-fixture-test
 }
 
@@ -84,6 +85,8 @@ run_all_groups() {
   SCRIBE_REQUIRE_BROWSER_BACKEND=true run_make test-browser
   SCRIBE_REQUIRE_TEST_DB=true run_make test-backend
   cleanup_database
+  run_make test-mysql
+  run_make triplet-sql-test
   run_make ocr-build-tags
   run_recovery_group
   run_security_group

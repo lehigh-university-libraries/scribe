@@ -734,7 +734,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     const providers = state.modelCatalog?.transcriptionProviders ?? [];
     const selectedProvider = providers.find((provider) => provider.id === "ollama") ?? providers[0];
     const segmentationModels = state.modelCatalog?.segmentationModels ?? [];
-    const defaultSegmentationModel = segmentationModels.find((model) => model.isDefault)?.id ?? segmentationModels[0]?.id ?? "tesseract";
+    const defaultSegmentationModel = segmentationModels.find((model) => model.isDefault)?.id ?? segmentationModels[0]?.id ?? "kraken";
     const providerOptions = providers.map((provider) => html`<option value="${provider.id}"${provider.id === selectedProvider?.id ? " selected" : ""}>${provider.label || provider.id}</option>`);
     const modelOptions = (selectedProvider?.models ?? []).map((model) => html`<option value="${model.id}"${model.isDefault ? " selected" : ""}>${model.label || model.id}</option>`);
     const segmentationOptions = segmentationModels.map((model) => html`<option value="${model.id}"${model.id === defaultSegmentationModel ? " selected" : ""}>${model.label || model.id}</option>`);
@@ -791,7 +791,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         name,
         description: (document.getElementById("contexts-description") as HTMLTextAreaElement).value.trim(),
         isDefault: (document.getElementById("contexts-default") as HTMLInputElement).checked,
-        segmentationModel: (document.getElementById("contexts-segmentation") as HTMLInputElement).value.trim() || "tesseract",
+        segmentationModel: (document.getElementById("contexts-segmentation") as HTMLInputElement).value.trim() || "kraken",
         transcriptionProvider: (document.getElementById("contexts-provider") as HTMLInputElement).value.trim() || "ollama",
         transcriptionModel: (document.getElementById("contexts-model") as HTMLInputElement).value.trim(),
         temperature: temperatureValue === "" ? undefined : Number(temperatureValue),

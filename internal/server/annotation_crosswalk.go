@@ -172,14 +172,7 @@ func annotationPageToHOCRLinesWithDimensions(pageJSON string, canvasWidth, canva
 		return nil, 0, 0, fmt.Errorf("annotation page has no parseable textual annotations")
 	}
 
-	sort.Slice(looseLines, func(i, j int) bool {
-		ai := looseLines[i].BBox.Y1 + looseLines[i].BBox.Y2
-		aj := looseLines[j].BBox.Y1 + looseLines[j].BBox.Y2
-		if ai != aj {
-			return ai < aj
-		}
-		return looseLines[i].BBox.X1 < looseLines[j].BBox.X1
-	})
+	// Canonical item order carries segmentor reading order across columns.
 	for i := range looseLines {
 		if strings.TrimSpace(looseLines[i].ID) == "" {
 			looseLines[i].ID = fmt.Sprintf("line_%d", i+1)

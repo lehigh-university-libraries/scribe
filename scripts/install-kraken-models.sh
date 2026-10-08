@@ -17,16 +17,6 @@ if [[ ! "${KRAKEN_MODEL_DOWNLOAD_RETRY_DELAY_SECONDS}" =~ ^(0|[1-9][0-9]{0,2})$ 
   exit 1
 fi
 
-transcription_filename="${KRAKEN_RECOGNITION_MODEL_FILE:-}"
-segmentation_filename="${KRAKEN_SEGMENTATION_MODEL_FILE:-}"
-if [ -n "${transcription_filename}" ] &&
-  [ -n "${segmentation_filename}" ] &&
-  [ "$(printf '%s' "${transcription_filename}" | tr '[:upper:]' '[:lower:]')" = \
-    "$(printf '%s' "${segmentation_filename}" | tr '[:upper:]' '[:lower:]')" ]; then
-  echo "Transcription and segmentation models must use distinct baked filenames: ${transcription_filename}" >&2
-  exit 1
-fi
-
 if ! mkdir -p "${KRAKEN_MODEL_DIR}" "${KRAKEN_TMP_DATA_DIR}"; then
   echo "Failed to create Kraken model directories" >&2
   exit 1
@@ -210,5 +200,4 @@ install_model() {
   done
 }
 
-install_model "transcription" "${KRAKEN_TRANSCRIPTION_MODEL_ID:-}" "${KRAKEN_RECOGNITION_MODEL_DOI:-}" "${KRAKEN_RECOGNITION_MODEL_FILE:-}" "${KRAKEN_RECOGNITION_MODEL_SHA256:-}" || exit 1
 install_model "segmentation" "${KRAKEN_SEGMENTATION_MODEL_ID:-}" "${KRAKEN_SEGMENTATION_MODEL_DOI:-}" "${KRAKEN_SEGMENTATION_MODEL_FILE:-}" "${KRAKEN_SEGMENTATION_MODEL_SHA256:-}" || exit 1

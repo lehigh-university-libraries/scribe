@@ -2,7 +2,7 @@
 
 Non-secret defaults live in `config.yaml` and the embedded copy under
 `internal/config/defaults`. Environment interpolation supplies deployment
-values. Secret material comes from Vault or Compose secret files and must not be
+values. Cloud secrets come from Secret Manager; local secrets come from Vault or Compose secret files and must not be
 placed in committed `.env` files, YAML, checked-in Terraform values, build
 arguments, or image layers.
 
@@ -51,11 +51,12 @@ construct and verify model images. It is not part of the embedded Go runtime
 configuration; runtime provider and segmentor capabilities come from their
 registered descriptors and endpoint policy.
 
-The Kraken registry keeps recognition domains explicit. CATMuS Medieval 1.6 is
-the recognition model used by the built-in **Kraken CATMuS** handwritten-
-manuscript preset; CATMuS Print remains a separate registered model for printed
-material. Production builds and routes each recognition artifact independently,
-and contexts select only its stable server-registered key.
+The segmentor image packages Kraken BLLA for letters/manuscripts and
+PP-DocLayoutV3 for newspaper layout reading order. Both artifacts are pinned
+and checksum-verified during image builds. The native packaged inference CLIs
+run behind the private segmentation service; model weights are never fetched
+from workspace input. Transcription is restricted to GLM-OCR through Ollama,
+Gemini, and OpenAI. The system default is **Letters + GLM-OCR**.
 
 `generate-secrets.sh` creates high-entropy values for every locally owned
 Compose secret that does not exist. The externally managed Google credential
@@ -93,13 +94,11 @@ secret: never commit it, print it, attach it to a ticket, or put it in `.env`.
 If it is lost, copied, or exposed, revoke it immediately. Removing the local
 file alone does not revoke the underlying credential.
 
-MariaDB's root bootstrap password is generated only into the ignored,
-workspace-stable `secrets/mariadb_root_password` file on the VM. It is never
-stored in Vault and is never readable by the application identity. Vault owns
-only `database/app`, which is materialized as MariaDB's application bootstrap
-credential. Keep that value stable for a persistence generation; a coordinated
-database credential rotation is an operator maintenance operation, not an
-ordinary application deploy.
+Cloud SQL uses a Private Service Connect endpoint and the Cloud SQL Auth Proxy with the service's
+identity. The application database password is read from Secret Manager;
+Terraform initializes the Cloud SQL user from the copied `database/app` secret.
+Cloud Run never receives a service-account key. Local Compose still generates
+its MariaDB root password in the ignored `secrets/mariadb_root_password` file.
 
 All API replicas must use the same `pagination.signing_key` (normally loaded by
 the entrypoint from `SCRIBE_PAGE_TOKEN_SIGNING_KEY_FILE`). Startup fails if the
@@ -196,23 +195,22 @@ bytes with no surrounding whitespace. Startup rejects an empty or partial
 group, so Scribe cannot accept a publication while silently fabricating an ID
 that no Presentation server owns.
 
-Forwarding headers are fail-closed. The application defaults
-`SERVER_TRUSTED_PROXY_CIDRS` to empty, and Compose sets
-`SERVER_TRUSTED_PROXY_HOSTS=traefik`. Scribe resolves only that configured
-direct peer through Docker service discovery with a bounded five-second cache;
-an unresolvable or different peer cannot supply forwarding identity. Docker
-therefore owns local bridge allocation, avoiding collisions with other
-projects. Traefik does not trust local direct callers to provide forwarding
-headers. Terraform
-sets `TRAEFIK_FORWARDED_TRUSTED_IPS` to the exact Cloud Run/VM subnet so the
-hosted frontend proxy remains usable without trusting every private or
-link-local address. PPB validates the Cloud Run client at depth zero, replaces
-the chain with one canonical address, and reaches the frontend only over
-loopback. The frontend requires that invariant and external HTTPS. Traefik
-preserves the canonical address without appending the frontend VPC hop, so the
-API can safely resolve distinct browser clients through its exact Traefik
-trust boundary. The cloud runtime still renders its former fixed IPAM tuple in a narrow
-overlay. New source does not depend on the tuple, so the overlay can be removed.
+Forwarding headers are fail-closed. Local Compose trusts only its Traefik peer
+through Docker service discovery. In Cloud Run, the frontend requires HTTPS
+and the platform's single client address, applies the configured allowlist,
+and forwards that canonical address to the API over loopback. The API trusts
+only loopback proxies. Cloud Run containers in one service share its service
+account; the frontend, API, Triplet, PDF renderer, and SQL proxy are one identity
+boundary. The worker and OCR services use separate identities.
+
+Cloud deployments set `SECRET_MANAGER_PROJECT_ID` and `SECRET_MANAGER_PREFIX`.
+The secret adapter hashes logical workspace paths into deployment-specific
+secret names. Provider payloads are opaque JSON objects; neither values nor
+logical paths are printed by the copy command. See
+[deployment](deployment.md) for `make secret-manager-secrets` and the bootstrap
+sequence. API and worker replicas share the generated pagination and Triplet
+tokens through Secret Manager. Triplet stores Presentation resources in its
+own Cloud SQL database; its local image cache is disposable.
 
 `SEGMENTOR_MAX_CONCURRENCY` (default `1`, maximum `8`) bounds model work per
 process while leaving health probes unqueued. Hosted OCR services also admit
@@ -285,9 +283,9 @@ expensive model work. `processing.global_concurrency`,
 `per_workspace_concurrency`, and
 `per_provider_concurrency` default to `4`, `2`, and `2`. Synchronous whole-page
 enrichment is rejected before any provider call when it exceeds
-`max_page_enrichment_lines` (default `50`, hard ceiling `500`). Durable jobs
+`max_page_enrichment_lines` (default `500`, hard ceiling `500`). Durable jobs
 likewise reject a segmented page before credential lookup or provider work when
-it exceeds `transcription.max_segments_per_job` (default `50`, hard ceiling
+it exceeds `transcription.max_segments_per_job` (default `500`, hard ceiling
 `500`). Background jobs use only workspace-scoped provider credentials; a
 workspace member cannot cause a job to spend another member's user-scoped key.
 Waiting is cancellable,
@@ -302,8 +300,7 @@ is deleted.
 
 Per-process fan-out is validated at startup as well. `transcription.job_workers`
 defaults to `3` and is limited to `32`; Pub/Sub outstanding messages default to
-that worker count and are capped at `128`. `llm.batch_size` defaults to `10`
-and is capped at `100`, while independent line transcription defaults to `5`
+that worker count and are capped at `128`. Independent line transcription defaults to `5`
 concurrent calls and is capped at `32`. Invalid negative or oversized values
 fail startup instead of creating an unbounded worker pool.
 
@@ -312,10 +309,10 @@ off by default. Authenticated endpoint origin and audience are an
 administrator-owned pair; a workspace cannot supply either value.
 
 Provider-secret metadata is a durable cross-system lifecycle record. Creation
-commits a workspace-scoped `pending_write` locator before writing Vault and
-changes it to `active` only after Vault succeeds. Only `active` rows can be
+commits a workspace-scoped `pending_write` locator before writing the secret store and
+changes it to `active` only after the secret store succeeds. Only `active` rows can be
 listed or resolved for a provider call. Failed creates and explicit deletes
-are state-fenced into `cleanup_pending`; the worker retries idempotent Vault
+are state-fenced into `cleanup_pending`; the worker retries idempotent secret-store
 deletion before removing the locator. It also reconciles interrupted
 `pending_write` rows after a bounded grace period. Scribe has no database
 foreign keys: any future user/workspace deletion use case must first drive all

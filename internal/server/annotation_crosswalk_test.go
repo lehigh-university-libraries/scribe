@@ -431,3 +431,18 @@ func TestCrosswalkEmptyAnnotationPageUsesCanvasDimensions(t *testing.T) {
 		t.Fatalf("plain text for empty page = %q; want empty", plainResponse.content)
 	}
 }
+
+func TestCanonicalReadingOrderSurvivesExportForColumns(t *testing.T) {
+	page := `{"type":"AnnotationPage","items":[
+ {"id":"left-1","type":"Annotation","textGranularity":"line","body":{"type":"TextualBody","value":"First column"},"target":"https://example.org/canvas/1#xywh=10,10,90,10"},
+ {"id":"left-2","type":"Annotation","textGranularity":"line","body":{"type":"TextualBody","value":"Still first"},"target":"https://example.org/canvas/1#xywh=10,40,90,10"},
+ {"id":"right-1","type":"Annotation","textGranularity":"line","body":{"type":"TextualBody","value":"Second column"},"target":"https://example.org/canvas/1#xywh=110,10,90,10"}
+ ]}`
+	lines, _, _, err := annotationPageToHOCRLines(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 3 || lines[0].ID != "left-1" || lines[1].ID != "left-2" || lines[2].ID != "right-1" {
+		t.Fatalf("export reordered columns: %+v", lines)
+	}
+}

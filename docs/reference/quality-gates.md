@@ -11,7 +11,7 @@ Required pull-request checks cover:
   image/page-order checks through Poppler;
 - OCR build tags and DB-backed ingest/revision acceptance tests;
 - isolated backup/restore integrity and expired-job recovery smoke tests;
-- gosec, reachable Go vulnerability analysis, npm audits, and Trivy dependency
+- gosec, npm audits, and Trivy dependency
   plus credential scanning with a synthetic detection regression;
 - hash-locked segmentor Python transitives, repository dependency and secret
   scanning, digest-pinned runtime images, and packaged-runtime smoke tests;
@@ -19,11 +19,13 @@ Required pull-request checks cover:
   runtime, Vault-init, and secret-generation script tests;
 - Zensical documentation build.
 
-dependency and secret scan as the hosted workflow. Runtime image scanning is
 `make ci` is the local entrypoint and includes the same Trivy high/critical
 dependency and secret scan as the hosted workflow. Runtime image scanning is
 currently deferred and does not gate CI, deployment, or release. Individual
-component commands remain useful for iteration, but a manually checked box is
+component commands remain useful for iteration. Reachable Go vulnerability
+analysis is optional during development: run
+`SCRIBE_GOVULNCHECK=true make security` to include the pinned `govulncheck`.
+It is not a `make ci` or hosted CI gate. A manually checked box is
 not a substitute for a passing required job. `ci/run-ci.sh` owns the canonical
 `contracts`, `test`, `browser`, `recovery`, `security`, and `infrastructure`
 groups; hosted jobs call those same groups in parallel while `make ci` runs
@@ -43,13 +45,6 @@ with the release build tag in the same pinned Go container used for its native
 build checks. Hosted CI and the local entrypoint therefore reject constants and
 other code that compile on 64-bit development hosts but fail a supported
 release target.
-
-Every Scribe-managed GCP VM, including previews and production, uses
-Container-Optimized OS as the sole host-runtime standard. Terraform-installed
-host scripts therefore use the jq feature set shipped by COS and may not depend
-on its unavailable Oniguruma regex functions or jq 1.6's broken
-`contains("\\u0000")` behavior. Container images and CI-only scripts retain
-their independently pinned toolchains.
 
 `make segmentor-lock-check` proves every Python requirement is exact and every
 accepted distribution has a SHA-256 hash, including the explicitly retained
@@ -128,18 +123,18 @@ the committed deterministic PNG.
 
 ## Deployment checks
 
-Every apply runs the backend and OCR readiness Cloud Run jobs with
-`gcloud run jobs execute --wait`, retried up to six times two minutes apart
-while a replaced VM boots; a job that keeps failing fails the deployment. The
-backend job runs `readiness-job.mjs` from the deployed frontend image over the
-same VPC path as the sidecar and requires the live API to report the exact
-image digest Terraform deployed. The OCR job sends a real image through private
-image normalization, Scribe segmentation, Kraken transcription, and in
-production the default Ollama model. It requires authenticated requests,
-non-empty model output, and Ollama `done=true`; a health-only response is not
-enough.
+Every apply executes finite Scribe and Triplet schema jobs before creating new
+Cloud Run service revisions. The backend readiness job checks API and worker
+HTTPS readiness, the immutable deployed API image, and canonical origin. The
+OCR readiness job sends a real image through the private registered model
+endpoints. Failed migrations or readiness executions fail deployment.
 
 `make generate` consumes the reviewed dependency commits in `proto/buf.lock`.
 To upgrade a Buf module deliberately, run `cd proto && ../.tools/bin/buf dep
 update .`, review the lock diff, then regenerate; CI never floats that lock on
 its own.
+
+Managed database acceptance is `make test-mysql`. It runs the full Go suite
+against digest-pinned MySQL 8.4 with the deployed Unicode collation, alongside
+the local MariaDB contract. Recovery smoke uses the same MySQL family and
+verifies migration-ledger, canonical/publication, and expired-lease recovery.

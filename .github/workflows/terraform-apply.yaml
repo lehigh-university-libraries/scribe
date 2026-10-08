@@ -37,10 +37,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      packages: write
     env:
       GCLOUD_PROJECT: ${{ vars.GCLOUD_PROJECT }}
-      ZONE: ${{ vars.SCRIBE_ZONE != '' && vars.SCRIBE_ZONE || format('{0}-b', vars.SCRIBE_REGION != '' && vars.SCRIBE_REGION || 'us-east5') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -56,11 +54,6 @@ jobs:
           registry: us-docker.pkg.dev
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
       - name: Build backend
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
@@ -70,8 +63,20 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/lehigh-university-libraries/scribe:main
-            ghcr.io/lehigh-university-libraries/scribe:${{ github.sha }}
+            us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe:main
+            us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe:${{ github.sha }}
+          provenance: true
+          sbom: true
+      - name: Build SQL-backed Triplet
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Dockerfile.triplet
+          platforms: linux/amd64
+          push: true
+          tags: |
+            us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe-triplet:main
+            us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe-triplet:${{ github.sha }}
           provenance: true
           sbom: true
       - name: Build frontend
@@ -85,7 +90,7 @@ jobs:
             us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe-frontend:main
             us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe-frontend:${{ github.sha }}
           build-args: |
-            SCRIBE_FRONTEND_BACKEND_ORIGIN=http://scribe.${{ env.ZONE }}.c.${{ vars.GCLOUD_PROJECT }}.internal
+            SCRIBE_FRONTEND_BACKEND_ORIGIN=http://localhost:8080
           provenance: true
           sbom: true
 

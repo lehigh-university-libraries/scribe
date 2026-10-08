@@ -180,7 +180,7 @@ func TestSegmentBoxesNormalizesLocalDetectorConfidenceForHTRWireContract(t *test
 func TestMalformedMultipartResponsesDoNotReflectRequestContent(t *testing.T) {
 	const privateRequestContent = "PRIVATE_MULTIPART_DOCUMENT_CONTENT"
 
-	for _, endpoint := range []string{"/v1/segment", "/v1/transcribe"} {
+	for _, endpoint := range []string{"/v1/segment"} {
 		t.Run(endpoint, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(privateRequestContent))
 			request.Header.Set("Content-Type", "multipart/form-data; boundary=scribe-test-boundary")
@@ -268,55 +268,10 @@ printf 'transcribed text\n' > "$4"
 		t.Fatalf("DetectWords() = %q, %#v", segmentationID, words)
 	}
 
-	for _, requestedID := range []string{"latin-handwriting-v2", ""} {
-		text, transcriptionID, transcribeErr := TranscribeWithKraken(context.Background(), imagePath, requestedID)
-		if transcribeErr != nil {
-			t.Fatalf("TranscribeWithKraken(%q) error = %v", requestedID, transcribeErr)
-		}
-		if text != "transcribed text" || transcriptionID != "latin-handwriting-v2" {
-			t.Fatalf("TranscribeWithKraken(%q) = %q, %q", requestedID, text, transcriptionID)
-		}
-	}
-
 	if _, _, err := DetectWords(context.Background(), imagePath, "unbaked-layout"); err == nil {
 		t.Fatal("DetectWords() accepted an unbaked public model ID")
 	}
-	if _, _, err := TranscribeWithKraken(context.Background(), imagePath, "unbaked-transcription"); err == nil {
-		t.Fatal("TranscribeWithKraken() accepted an unbaked public model ID")
-	}
-}
 
-func TestTranscribeWithKrakenPreservesContextDeadline(t *testing.T) {
-	modelDirectory := t.TempDir()
-	modelPath := filepath.Join(modelDirectory, "transcription-engine.mlmodel")
-	if err := os.WriteFile(modelPath, []byte("reviewed model fixture"), 0o600); err != nil {
-		t.Fatalf("write model fixture: %v", err)
-	}
-
-	binDirectory := t.TempDir()
-	krakenPath := filepath.Join(binDirectory, "kraken")
-	if err := os.WriteFile(krakenPath, []byte("#!/bin/sh\nexec /bin/sleep 10\n"), 0o700); err != nil {
-		t.Fatalf("write fake kraken: %v", err)
-	}
-
-	t.Setenv("PATH", binDirectory)
-	t.Setenv("KRAKEN_MODEL_DIR", modelDirectory)
-	t.Setenv("KRAKEN_TRANSCRIPTION_MODEL_ID", "latin-handwriting-v2")
-	t.Setenv("KRAKEN_TRANSCRIPTION_MODEL", filepath.Base(modelPath))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	_, _, err := TranscribeWithKraken(ctx, "image.png", "latin-handwriting-v2")
-	if err == nil {
-		t.Fatal("TranscribeWithKraken() error = nil")
-	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("TranscribeWithKraken() error = %v, want context deadline exceeded", err)
-	}
-	var failure *processingFailure
-	if !errors.As(err, &failure) || failure.category != processingFailureTimeout {
-		t.Fatalf("TranscribeWithKraken() failure = %#v, want timeout category", failure)
-	}
 }
 
 func TestKrakenModelRoutesRejectUntrustedFilesystemPaths(t *testing.T) {

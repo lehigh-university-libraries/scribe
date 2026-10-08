@@ -408,6 +408,38 @@ func (q *Queries) GetClaimableTranscriptionQueueSnapshot(ctx context.Context) (G
 	return i, err
 }
 
+const listRecoverableTranscriptionJobIDs = `-- name: ListRecoverableTranscriptionJobIDs :many
+SELECT id FROM transcription_jobs
+WHERE created_at < ?
+  AND ((status = 'pending' AND (retry_after IS NULL OR retry_after <= NOW()) AND attempt_count < max_attempts)
+    OR (status = 'running' AND lease_until IS NOT NULL AND lease_until < NOW()))
+ORDER BY created_at ASC
+LIMIT 100
+`
+
+func (q *Queries) ListRecoverableTranscriptionJobIDs(ctx context.Context, cutoff time.Time) ([]uint64, error) {
+	rows, err := q.db.QueryContext(ctx, listRecoverableTranscriptionJobIDs, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uint64{}
+	for rows.Next() {
+		var id uint64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockActiveTranscriptionJobLeaseManual = `-- name: LockActiveTranscriptionJobLeaseManual :one
 SELECT id
 FROM transcription_jobs

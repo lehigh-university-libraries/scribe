@@ -1,0 +1,17 @@
+services:
+  mariadb:
+    # Named mariadb only so the existing isolated DB test runner can discover it.
+    image: mysql:8.4.8@sha256:2952e3be7807f06fc18de50b3ea1a632d5c70d63482ff7d7376fe3aa8999babf
+    environment:
+      MYSQL_DATABASE: scribe
+      MYSQL_USER: scribe
+      MYSQL_PASSWORD: mysql-contract-password
+      MYSQL_ROOT_PASSWORD: mysql-contract-root-password
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+    ports:
+      - "127.0.0.1::3306"

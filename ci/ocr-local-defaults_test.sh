@@ -28,10 +28,8 @@ assert_equal() {
 
 
 default_segmentation_model="$(yq -r '.kraken.default_segmentation_model // ""' "${OCR_CONFIG}")"
-default_transcription_model="$(yq -r '.kraken.default_transcription_model // ""' "${OCR_CONFIG}")"
 kraken_pip_spec="$(yq -r '.kraken.pip_spec // ""' "${OCR_CONFIG}")"
 require_value "kraken.default_segmentation_model" "${default_segmentation_model}"
-require_value "kraken.default_transcription_model" "${default_transcription_model}"
 require_value "kraken.pip_spec" "${kraken_pip_spec}"
 
 segmentation_file="$(
@@ -46,25 +44,10 @@ segmentation_sha256="$(
   MODEL="${default_segmentation_model}" \
     yq -r '.kraken.segmentation_models[strenv(MODEL)].sha256 // ""' "${OCR_CONFIG}"
 )"
-transcription_file="$(
-  MODEL="${default_transcription_model}" \
-    yq -r '.kraken.transcription_models[strenv(MODEL)].file // ""' "${OCR_CONFIG}"
-)"
-transcription_doi="$(
-  MODEL="${default_transcription_model}" \
-    yq -r '.kraken.transcription_models[strenv(MODEL)].doi // ""' "${OCR_CONFIG}"
-)"
-transcription_sha256="$(
-  MODEL="${default_transcription_model}" \
-    yq -r '.kraken.transcription_models[strenv(MODEL)].sha256 // ""' "${OCR_CONFIG}"
-)"
 for spec in \
   "default segmentation file:${segmentation_file}" \
   "default segmentation DOI:${segmentation_doi}" \
-  "default segmentation SHA-256:${segmentation_sha256}" \
-  "default transcription file:${transcription_file}" \
-  "default transcription DOI:${transcription_doi}" \
-  "default transcription SHA-256:${transcription_sha256}"; do
+  "default segmentation SHA-256:${segmentation_sha256}"; do
   require_value "${spec%%:*}" "${spec#*:}"
 done
 
@@ -79,31 +62,14 @@ api_segmentation_endpoints="$(
 worker_segmentation_endpoints="$(
   yq -r '.services.worker.environment.SEGMENTATION_MODEL_ENDPOINTS_JSON // ""' "${COMPOSE_OVERRIDE}"
 )"
-api_transcription_endpoints="$(
-  yq -r '.services.api.environment.KRAKEN_MODEL_ENDPOINTS_JSON // ""' "${COMPOSE_OVERRIDE}"
-)"
-worker_transcription_endpoints="$(
-  yq -r '.services.worker.environment.KRAKEN_MODEL_ENDPOINTS_JSON // ""' "${COMPOSE_OVERRIDE}"
-)"
-
 [ "${api_segmentation_endpoints}" = "${worker_segmentation_endpoints}" ] ||
   fail "API and worker local segmentation endpoint maps differ"
-[ "${api_transcription_endpoints}" = "${worker_transcription_endpoints}" ] ||
-  fail "API and worker local transcription endpoint maps differ"
-
 jq -e --arg model "${default_segmentation_model}" '
   type == "object" and
-  keys == [$model] and
+  keys == ([$model, "newspapers"] | sort) and
   .[$model] == {"url": "http://segmentor:8080", "audience": ""}
 ' <<<"${api_segmentation_endpoints}" >/dev/null ||
   fail "local segmentation endpoint map must expose exactly the configured default"
-
-jq -e --arg model "${default_transcription_model}" '
-  type == "object" and
-  keys == [$model] and
-  .[$model] == {"url": "http://segmentor:8080", "audience": ""}
-' <<<"${api_transcription_endpoints}" >/dev/null ||
-  fail "local transcription endpoint map must expose exactly the configured default"
 
 [ -f "${CLOUD_COMPOSE_OVERRIDE}" ] ||
   fail "cloud OCR Compose override is missing"
@@ -128,8 +94,7 @@ for key in \
   OLLAMA_MODEL_ENDPOINTS_JSON \
   SEGMENTATION_SERVICE_URL \
   SEGMENTATION_SERVICE_AUDIENCE \
-  SEGMENTATION_MODEL_ENDPOINTS_JSON \
-  KRAKEN_MODEL_ENDPOINTS_JSON; do
+  SEGMENTATION_MODEL_ENDPOINTS_JSON; do
   api_value="$(KEY="${key}" yq -r '.services.api.environment[strenv(KEY)] // ""' "${CLOUD_COMPOSE_OVERRIDE}")"
   worker_value="$(KEY="${key}" yq -r '.services.worker.environment[strenv(KEY)] // ""' "${CLOUD_COMPOSE_OVERRIDE}")"
   assert_equal "cloud OCR API/worker ${key}" "${api_value}" "${worker_value}"

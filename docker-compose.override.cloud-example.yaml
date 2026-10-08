@@ -6,7 +6,6 @@ x-scribe-cloud-ocr-app-env: &scribe-cloud-ocr-app-env
   SEGMENTATION_SERVICE_URL: ${SEGMENTATION_SERVICE_URL:?set SEGMENTATION_SERVICE_URL to the private HTTPS Cloud Run origin}
   SEGMENTATION_SERVICE_AUDIENCE: ${SEGMENTATION_SERVICE_AUDIENCE:?set SEGMENTATION_SERVICE_AUDIENCE to the same HTTPS origin}
   SEGMENTATION_MODEL_ENDPOINTS_JSON: ${SEGMENTATION_MODEL_ENDPOINTS_JSON:?set the server-owned segmentation endpoint map}
-  KRAKEN_MODEL_ENDPOINTS_JSON: ${KRAKEN_MODEL_ENDPOINTS_JSON:?set the server-owned Kraken endpoint map}
   IIIF_INTERNAL_BASE: http://triplet:8080/iiif/3
   IIIF_SOURCE_BASE: http://api:8080/static/uploads
   TRIPLET_PRESENTATION_INTERNAL_BASE: http://triplet:8080/presentation/v3

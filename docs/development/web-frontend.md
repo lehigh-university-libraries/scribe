@@ -9,6 +9,17 @@ operations or canonical IIIF mutations in the shell.
 The existing Tailwind 4 PostCSS plugin handles vendor prefixing; no separate
 Autoprefixer pass is needed.
 
+The frontend routes both `/iiif/` image requests and `/presentation/` requests
+to the configured Triplet origin. Image requests preserve the encoded source
+identifier and reader credentials so Triplet can fetch authorized uploads from
+the API. Public Presentation requests strip browser credentials.
+
+Opening an existing item loads its saved annotations without replaying a
+completed transcription job. Completed line animations apply only to a job
+explicitly linked by `jobId` or observed pending/running in this editor session.
+New completion events also refresh the page; reconciling a historical
+completion never starts an animation.
+
 Install exactly the reviewed lockfiles and run each package independently:
 
 ```bash

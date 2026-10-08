@@ -48,7 +48,7 @@ export type Context = Message<"scribe.v1.Context"> & {
   isDefault: boolean;
 
   /**
-   * Segmentation model: "tesseract" | "scribe" | "kraken:<model-id>"
+   * Server-registered segmentation model (Kraken BLLA or newspaper layout).
    *
    * @generated from field: string segmentation_model = 6;
    */

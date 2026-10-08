@@ -1,4 +1,19 @@
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
+
+export function ingressPolicy(cidrs) {
+  if (!Array.isArray(cidrs)) throw new Error("ingress CIDRs must be an array");
+  const allowed = new BlockList();
+  for (const cidr of cidrs) {
+    const [address, prefix, extra] = String(cidr).split("/");
+    const family = isIP(address);
+    const bits = Number(prefix);
+    if (extra || !family || !/^\d+$/.test(prefix || "") || bits > (family === 4 ? 32 : 128)) {
+      throw new Error("invalid ingress CIDR");
+    }
+    allowed.addSubnet(address, bits, family === 4 ? "ipv4" : "ipv6");
+  }
+  return (address) => cidrs.length === 0 || allowed.check(address, isIP(address) === 4 ? "ipv4" : "ipv6");
+}
 
 function deleteHeader(headers, name) {
   for (const key of Object.keys(headers)) {
@@ -112,6 +127,16 @@ export function resolveForwardingIdentity(headers, {
       proto: encrypted ? "https" : "http",
     };
   }
+  if (edgeMode === "cloudrun") {
+    if (singleHeaderValue(headers, "x-forwarded-proto").toLowerCase() !== "https") {
+      throw new Error("Cloud Run must establish HTTPS");
+    }
+    return {
+      clientAddress: selectForwardedClient(headerValue(headers, "x-forwarded-for"), 0),
+      host: validateForwardedHost(requestHost),
+      proto: "https",
+    };
+  }
   if (edgeMode !== "ppb") throw new Error("unsupported frontend edge mode");
   if (!isLoopbackAddress(remoteAddress)) {
     throw new Error("PPB forwarding is accepted only from the loopback peer");
@@ -153,6 +178,7 @@ export function stripCredentialHeaders(headers) {
   const filtered = { ...headers };
   for (const name of [
     "authorization",
+    "x-serverless-authorization",
     "cookie",
     "x-scribe-api-key",
     "x-scribe-workspace-id",

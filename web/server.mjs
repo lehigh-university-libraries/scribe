@@ -6,6 +6,7 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import {
   establishForwardingHeaders,
+  ingressPolicy,
   isLoopbackAddress,
   resolveForwardingIdentity,
   stripCredentialHeaders,
@@ -75,9 +76,10 @@ if (frontendRequestBudgetMs >= frontendPlatformRequestBoundaryMs) {
   );
 }
 const edgeMode = (process.env.SCRIBE_FRONTEND_EDGE_MODE || "direct").trim();
-if (edgeMode !== "direct" && edgeMode !== "ppb") {
-  throw new Error("SCRIBE_FRONTEND_EDGE_MODE must be direct or ppb");
+if (!["direct", "ppb", "cloudrun"].includes(edgeMode)) {
+  throw new Error("SCRIBE_FRONTEND_EDGE_MODE must be direct, ppb, or cloudrun");
 }
+const ingressAllowed = ingressPolicy(JSON.parse(process.env.SCRIBE_FRONTEND_ALLOWED_IPS || "[]"));
 const activeStreams = new Set();
 const activeSockets = new Set();
 let shuttingDown = false;
@@ -259,7 +261,7 @@ function responseHeaders(headers = {}) {
 }
 
 function targetOriginForPath(pathname) {
-  if (isPresentationPath(pathname)) {
+  if (isIIIFPath(pathname) || isPresentationPath(pathname)) {
     return presentationOrigin || backendOrigin;
   }
   return backendOrigin;
@@ -455,7 +457,7 @@ async function waitForRequestBackend(req, res) {
 
 async function enforceCanonicalRequestOrigin(req, res, requestURL, pathname) {
   if (
-    edgeMode !== "ppb"
+    edgeMode === "direct"
     || !backendOrigin
     || canonicalOriginExemptPaths.has(pathname)
   ) {
@@ -465,6 +467,11 @@ async function enforceCanonicalRequestOrigin(req, res, requestURL, pathname) {
   let forwardingIdentity;
   try {
     forwardingIdentity = requestForwardingIdentity(req, stripHopByHopHeaders(req.headers));
+    if (!ingressAllowed(forwardingIdentity.clientAddress)) {
+      res.writeHead(403, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
+      res.end("client address is not allowed");
+      return { continueRequest: false, forwardingIdentity: null };
+    }
   } catch (error) {
     logFailure("frontend rejected invalid edge forwarding identity", error);
     res.writeHead(502, responseHeaders({ "content-type": "text/plain; charset=utf-8" }));
@@ -562,14 +569,15 @@ async function proxyRequest(
   // authentication work or depend on browser identity.
   const isPublicPresentation = isPresentationPath(pathname);
   const isStatusPath = canonicalOriginExemptPaths.has(pathname);
-  const stripsCredentials = isSeparateOrigin || isPublicPresentation || isStatusPath;
+  // Image requests carry reader credentials to Triplet's authenticated source
+  // fetch, including when the configured sidecar uses a separate port.
+  const stripsCredentials = (isSeparateOrigin && !isIIIFPath(pathname)) || isPublicPresentation || isStatusPath;
   const incomingHeaders = stripsCredentials
     ? stripCredentialHeaders(stripHopByHopHeaders(req.headers))
     : stripHopByHopHeaders(req.headers);
   let forwardingIdentity = establishedForwardingIdentity;
   const internalPPBStatusProbe = isStatusPath
-    && edgeMode === "ppb"
-    && isLoopbackAddress(req.socket.remoteAddress || "")
+    && (edgeMode === "cloudrun" || (edgeMode === "ppb" && isLoopbackAddress(req.socket.remoteAddress || "")))
     && incomingHeaders["x-forwarded-for"] === undefined
     && incomingHeaders["x-forwarded-host"] === undefined
     && incomingHeaders["x-forwarded-proto"] === undefined;

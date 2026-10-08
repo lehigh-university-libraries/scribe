@@ -1,41 +1,5 @@
 locals {
   uploads_backup_bucket_name = trimsuffix(substr(replace(lower("${var.project_id}-${local.name}-prod-uploads-backup"), "/[^a-z0-9._-]/", "-"), 0, 63), "-")
-  # Keep one completed logical dump on cloud-compose's snapshotted data disk.
-  # Reserve space for that dump, a full staging dump, and one full-database
-  # safety margin in addition to cloud-compose's 20 GiB application baseline.
-  # Daily and weekly snapshots provide historical retention.
-  mariadb_backup_retained_completed_copies = 1
-  cloud_compose_data_baseline_size_gb      = 20
-  cloud_compose_data_disk_size_gb = local.is_prod_workspace ? (
-    local.cloud_compose_data_baseline_size_gb + var.disk_size_gb * (
-      local.mariadb_backup_retained_completed_copies + 2
-    )
-  ) : local.cloud_compose_data_baseline_size_gb
-}
-
-# Logical dumps now live on cloud-compose's existing data disk. Forget the old
-# independently managed disk so Terraform cannot destroy its historical data.
-# The former google_compute_attached_disk is intentionally removed normally:
-# destroying that non-data-bearing resource only detaches this preserved disk.
-removed {
-  from = google_compute_disk.mariadb_backups
-
-  lifecycle {
-    destroy = false
-  }
-}
-
-check "production_logical_backup_capacity" {
-  assert {
-    condition = !local.is_prod_workspace || (
-      local.mariadb_backup_retained_completed_copies >= 1 &&
-      local.cloud_compose_data_disk_size_gb >= (
-        local.cloud_compose_data_baseline_size_gb +
-        var.disk_size_gb * (local.mariadb_backup_retained_completed_copies + 2)
-      )
-    )
-    error_message = "The production data disk must preserve cloud-compose's baseline capacity plus every retained full dump, one staging dump, and one safety margin."
-  }
 }
 
 resource "google_project_service" "storage_transfer" {
@@ -177,16 +141,5 @@ check "production_backup_policy" {
       var.backup_noncurrent_version_retention_days >= 30
     )
     error_message = "Production upload backups require at least 14 days soft-delete retention and 30 days noncurrent-version retention."
-  }
-}
-
-
-# The backup verifier role is no longer used. Custom roles are kept on delete
-# (deletion_policy = PREVENT), so drop it from state and leave it in the project.
-removed {
-  from = google_project_iam_custom_role.backup_restore_verifier
-
-  lifecycle {
-    destroy = false
   }
 }

@@ -37,7 +37,7 @@ canonical-page snapshots after connecting.
 
 Transcription provider and remote segmentation protocols are supplied by the
 general-purpose `github.com/lehigh-university-libraries/htr` packages. Scribe's
-provider registry selects installed models, exact origins/audiences, Vault
+provider registry selects installed models, exact origins/audiences, secret-store
 credentials, application retry policy, quotas, and audit metadata; it does not
 encode vendor request or response bodies. The same HTR metrics package backs
 offline model evaluation and persisted correction distances.

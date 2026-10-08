@@ -2568,7 +2568,7 @@ components:
           title: segmentation_model
           maxLength: 255
           pattern: ^[a-z0-9][a-z0-9._:-]{0,254}$
-          description: 'Segmentation model: "tesseract" | "scribe" | "kraken:<model-id>"'
+          description: Server-registered segmentation model (Kraken BLLA or newspaper layout).
         transcriptionProvider:
           type: string
           title: transcription_provider

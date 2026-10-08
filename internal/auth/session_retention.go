@@ -12,6 +12,20 @@ const (
 	authBackgroundOperationTimeout = 30 * time.Second
 )
 
+// RunWorkerMaintenance performs one request-scoped cloud maintenance pass.
+func (m *Manager) RunWorkerMaintenance(ctx context.Context) error {
+	if m.identities != nil {
+		if err := m.identities.RetainExpiredSessions(ctx, time.Now().UTC()); err != nil {
+			return err
+		}
+	}
+	if m.providerSecrets != nil && m.vault != nil {
+		_, err := m.ReconcileProviderSecretCleanups(ctx)
+		return err
+	}
+	return nil
+}
+
 // StartSessionRetentionDispatcher bounds expired authentication state without
 // introducing writes into the request authentication path.
 func (m *Manager) StartSessionRetentionDispatcher(ctx context.Context) {

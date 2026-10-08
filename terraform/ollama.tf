@@ -13,7 +13,7 @@ locals {
   ollama_min_instances           = try(local.ollama_cloud_run.min_instances, 0)
   ollama_max_instances           = try(local.ollama_cloud_run.max_instances, 1)
   ollama_skip_neg                = try(local.ollama_cloud_run.skip_neg, true)
-  scribe_vm_gsa_email            = format("vm-%s@%s.iam.gserviceaccount.com", local.name, var.project_id)
+  scribe_worker_gsa_email        = format("worker-%s@%s.iam.gserviceaccount.com", local.name, var.project_id)
   scribe_app_gsa_email           = format("%s@%s.iam.gserviceaccount.com", local.name, var.project_id)
 
   ollama_service_names = {
@@ -30,7 +30,7 @@ locals {
   }
 
   ollama_invoker_gsas = [
-    local.scribe_vm_gsa_email,
+    local.scribe_worker_gsa_email,
     local.scribe_app_gsa_email,
   ]
 
@@ -52,7 +52,7 @@ locals {
   # dev external OCR identity here: that would turn a dev credential into a
   # production-service invoker and violate its workspace boundary.
   ollama_preview_invoker_gsas = local.ollama_preview_iam_enabled ? [
-    local.scribe_vm_gsa_email,
+    local.scribe_worker_gsa_email,
     local.scribe_app_gsa_email,
   ] : []
 
@@ -126,7 +126,8 @@ resource "google_cloud_run_v2_service_iam_member" "ollama_invoker" {
 
   depends_on = [
     module.ollama_services,
-    module.scribe,
+    google_service_account.app,
+    google_service_account.worker,
   ]
 }
 
@@ -140,7 +141,8 @@ resource "google_cloud_run_v2_service_iam_member" "ollama_preview_invoker" {
   member   = "serviceAccount:${each.value.gsa}"
 
   depends_on = [
-    module.scribe,
+    google_service_account.app,
+    google_service_account.worker,
   ]
 }
 

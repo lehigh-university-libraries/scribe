@@ -13,6 +13,7 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/database"
 	"github.com/lehigh-university-libraries/scribe/internal/jobqueue"
 	"github.com/lehigh-university-libraries/scribe/internal/safelog"
+	"github.com/lehigh-university-libraries/scribe/internal/secretmanager"
 	"github.com/lehigh-university-libraries/scribe/internal/server"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	"github.com/lehigh-university-libraries/scribe/internal/telemetry"
@@ -45,7 +46,7 @@ type Dependencies struct {
 	IdentityStore            *store.IdentityStore
 	APIKeyStore              *store.APIKeyStore
 	ProviderSecretStore      *store.ProviderSecretStore
-	VaultClient              *vaultkv.Client
+	VaultClient              config.SecretClient
 	AuthManager              *auth.Manager
 	TranscriptionQueue       *jobqueue.PubSubTranscriptionQueue
 	Telemetry                *telemetry.Runtime
@@ -86,6 +87,11 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 		_ = dbPool.Close()
 		return nil, fmt.Errorf("configure transcription job admission: %w", err)
 	}
+	secretClient, err := config.NewSecretClient(ctx, cfg)
+	if err != nil {
+		_ = dbPool.Close()
+		return nil, err
+	}
 
 	deps := &Dependencies{
 		AppContext:               ctx,
@@ -102,7 +108,7 @@ func NewDependencies(ctx context.Context, opts BootstrapOptions) (*Dependencies,
 		IdentityStore:            store.NewIdentityStore(dbPool),
 		APIKeyStore:              store.NewAPIKeyStore(dbPool),
 		ProviderSecretStore:      store.NewProviderSecretStore(dbPool),
-		VaultClient:              vaultkv.New(cfg.Vault.Address, cfg.Vault.Token, cfg.Vault.KVMount, cfg.Vault.GCPAuthRole),
+		VaultClient:              secretClient,
 	}
 	if jobqueue.Enabled(cfg.Transcription.Queue) {
 		q, err := jobqueue.NewPubSubTranscriptionQueue(ctx, cfg.Transcription.Queue, cfg.Transcription.JobWorkers)
@@ -159,7 +165,7 @@ const (
 )
 
 func loadVaultValueWithRetry[T any](ctx context.Context, load func(context.Context) (T, error)) (T, error) {
-	return loadVaultValueWithRetryPolicy(ctx, load, vaultkv.IsRetryable, waitForVaultRetry)
+	return loadVaultValueWithRetryPolicy(ctx, load, func(err error) bool { return vaultkv.IsRetryable(err) || secretmanager.IsRetryable(err) }, waitForVaultRetry)
 }
 
 func loadVaultValueWithRetryPolicy[T any](
@@ -180,7 +186,7 @@ func loadVaultValueWithRetryPolicy[T any](
 		if !retryable(err) || attempt == vaultLoadMaximumAttempts {
 			break
 		}
-		slog.Warn("vault secrets load failed; retrying", "attempt", attempt, "error_type", safelog.ErrorType(err), "category", safelog.ErrorCategory(err))
+		slog.Warn("secret loading failed; retrying", "attempt", attempt, "error_type", safelog.ErrorType(err), "category", safelog.ErrorCategory(err))
 		if err := wait(ctx, delay); err != nil {
 			return zero, err
 		}

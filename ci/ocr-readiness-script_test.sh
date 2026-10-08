@@ -61,13 +61,13 @@ case "$request_url" in
     kind=token
     state_key="token-$(printf '%s' "$audience" | tr -c 'A-Za-z0-9' '_')"
     ;;
-  */v1/segment)
+  https://segment.example/v1/segment)
     kind=segment
     state_key=segment
     ;;
-  */v1/transcribe)
-    kind=transcribe
-    state_key=transcribe
+  https://layout.example/v1/segment)
+    kind=layout
+    state_key=layout
     ;;
   */api/generate)
     kind=ollama
@@ -121,9 +121,9 @@ case "$kind" in
     fi
     printf '{"provider":"%s","words":[{"text":"hello"}]}\n' "$segment_provider" >"$output_file"
     ;;
-  transcribe)
-    grep -aFq "$TRANSCRIPTION_MODEL" "$request_body"
-    printf '{"model":"%s","text":"hello"}\n' "$TRANSCRIPTION_MODEL" >"$output_file"
+  layout)
+    grep -aFq "$LAYOUT_MODEL" "$request_body"
+    printf '{"provider":"%s","words":[{"text":"hello"}]}\n' "$LAYOUT_MODEL" >"$output_file"
     ;;
   ollama)
     printf '%s\n' '{"response":"hello","done":true}' >"$output_file"
@@ -145,9 +145,9 @@ export MOCK_STATE_DIR="$TEST_DIR/state"
 export MOCK_CURL_LOG="$TEST_DIR/curl.log"
 export MOCK_SLEEP_LOG="$TEST_DIR/sleep.log"
 export SEGMENTOR_URL=https://segment.example
-export TRANSCRIBER_URL=https://transcribe.example
+export LAYOUT_URL=https://layout.example
 export SEGMENTATION_MODEL=layout-lines-v2
-export TRANSCRIPTION_MODEL=catmus-print-fondue-large.mlmodel
+export LAYOUT_MODEL=newspapers
 export OLLAMA_URL=https://ollama.example
 export OLLAMA_MODEL=glm-ocr:bf16
 export SMOKE_IMAGE_BASE64
@@ -170,7 +170,7 @@ run_probe env MOCK_TRANSIENT_ONCE=true
   fail "a recovered transient failure emitted raw diagnostics"
 [[ "$(grep -c '^token ' "$MOCK_CURL_LOG")" -eq 6 ]] ||
   fail "identity-token retries were not bounded to one retry per service"
-for service in segment transcribe ollama; do
+for service in segment layout ollama; do
   [[ "$(grep -c "^$service " "$MOCK_CURL_LOG")" -eq 2 ]] ||
     fail "$service was not retried exactly once after a transient failure"
 done
@@ -193,12 +193,12 @@ run_probe env MOCK_ALWAYS_FAIL_STAGE=segment
 [[ "$(grep -c '^segment ' "$MOCK_CURL_LOG")" -eq 2 ]] ||
   fail "segment request retry attempts are not bounded"
 
-run_probe env MOCK_ALWAYS_TIMEOUT_STAGE=transcribe
+run_probe env MOCK_ALWAYS_TIMEOUT_STAGE=layout
 [[ "$PROBE_STATUS" -eq 1 ]] ||
   fail "an exhausted transcription timeout retry did not fail the readiness probe"
-[[ "$(cat "$TEST_DIR/probe.err")" == 'ocr readiness failed: transcribe-timeout' ]] ||
+[[ "$(cat "$TEST_DIR/probe.err")" == 'ocr readiness failed: layout-timeout' ]] ||
   fail "request timeout exhaustion did not emit its exact safe stage marker"
-[[ "$(grep -c '^transcribe ' "$MOCK_CURL_LOG")" -eq 2 ]] ||
+[[ "$(grep -c '^layout ' "$MOCK_CURL_LOG")" -eq 2 ]] ||
   fail "transcription timeout retry attempts are not bounded"
 
 run_probe env MOCK_BAD_CONTRACT_STAGE=segment

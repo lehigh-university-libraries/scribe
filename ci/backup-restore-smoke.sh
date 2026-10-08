@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MARIADB_IMAGE="${MARIADB_IMAGE:-mariadb:12.3@sha256:628f228f0fd5913a220438693576b29b6fe4dc1fa0a1298c0e98579fae28635f}"
+MYSQL_IMAGE="${MYSQL_IMAGE:-mysql:8.4.8@sha256:2952e3be7807f06fc18de50b3ea1a632d5c70d63482ff7d7376fe3aa8999babf}"
 GO_TEST_IMAGE="${GO_TEST_IMAGE:-golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414}"
 ALPINE_IMAGE="${ALPINE_IMAGE:-alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b}"
 DB_NAME=scribe
@@ -38,7 +38,7 @@ fi
 wait_for_database() {
   local container="$1"
   for _ in $(seq 1 90); do
-    if docker exec "${container}" mariadb \
+    if docker exec "${container}" mysql \
       --batch \
       --skip-column-names \
       --protocol=tcp \
@@ -77,11 +77,11 @@ start_database() {
   docker run --detach \
     --name "${container}" \
     --network "${NETWORK_NAME}" \
-    --env "MARIADB_DATABASE=${DB_NAME}" \
-    --env "MARIADB_USER=${DB_USER}" \
-    --env "MARIADB_PASSWORD=${DB_PASSWORD}" \
-    --env "MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}" \
-    "${MARIADB_IMAGE}" >/dev/null
+    --env "MYSQL_DATABASE=${DB_NAME}" \
+    --env "MYSQL_USER=${DB_USER}" \
+    --env "MYSQL_PASSWORD=${DB_PASSWORD}" \
+    --env "MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}" \
+    "${MYSQL_IMAGE}" >/dev/null
   wait_for_database "${container}"
 }
 
@@ -106,7 +106,7 @@ docker exec \
   "${GO_TEST_CONTAINER}" \
   sh -lc 'CGO_ENABLED=0 timeout 600 /usr/local/go/bin/go test -v ./internal/database -run "^TestBackupRestoreMigrationLedger$" -count=1'
 
-docker exec -i "${SOURCE_DB}" mariadb \
+docker exec -i "${SOURCE_DB}" mysql \
   --protocol=tcp \
   --host=127.0.0.1 \
   --user=root \
@@ -117,7 +117,7 @@ VALUES ('restore-smoke-item', 1, 1, 'Restore smoke item', 'manifest', 'https://s
 INSERT INTO item_images (id, workspace_id, item_id, sequence, image_url, canvas_uri, width, height, label)
 VALUES (99001, 1, 'restore-smoke-item', 1, '/static/uploads/restore-smoke.bin', 'https://source.example/canvas/restore-smoke', 1200, 800, 'Restore smoke canvas');
 INSERT INTO contexts (id, name, segmentation_model, transcription_provider, transcription_model)
-VALUES (99001, 'Restore smoke context', 'tesseract', 'tesseract', 'tesseract');
+VALUES (99001, 'Restore smoke context', 'kraken', 'ollama', 'glm-ocr:bf16');
 INSERT INTO annotation_pages (workspace_id, item_image_id, page_id, canvas_uri, payload, revision)
 VALUES (
   1,
@@ -154,7 +154,7 @@ INSERT INTO transcription_jobs (
   i.workspace_id,
   ii.id,
   99001,
-  '{"id":99001,"name":"Restore smoke context","is_default":false,"segmentation_model":"tesseract","transcription_provider":"tesseract","transcription_model":"tesseract","created_at":"2026-07-20T00:00:00Z","updated_at":"2026-07-20T00:00:00Z"}',
+  '{"id":99001,"name":"Restore smoke context","is_default":false,"segmentation_model":"kraken","transcription_provider":"ollama","transcription_model":"glm-ocr:bf16","created_at":"2026-07-20T00:00:00Z","updated_at":"2026-07-20T00:00:00Z"}',
   7,
   'running',
   3,
@@ -190,12 +190,14 @@ docker run --rm \
   sh -c 'mkdir -p /data/uploads && printf %s restored-source-blob > /data/uploads/restore-smoke.bin'
 SOURCE_BLOB_HASH="$(docker run --rm --volume "${SOURCE_BLOBS}:/data:ro" "${ALPINE_IMAGE}" sha256sum /data/uploads/restore-smoke.bin | awk '{print $1}')"
 
-docker exec "${SOURCE_DB}" mariadb-dump \
+docker exec "${SOURCE_DB}" mysqldump \
   --protocol=tcp \
   --host=127.0.0.1 \
   --user=root \
   --password="${DB_ROOT_PASSWORD}" \
   --single-transaction \
+  --set-gtid-purged=OFF \
+  --no-tablespaces \
   --routines \
   --triggers \
   "${DB_NAME}" > "${TEMP_DIR}/database.sql"
@@ -210,7 +212,7 @@ docker start -a "${BLOB_BACKUP_CONTAINER}" >/dev/null
 docker cp "${BLOB_BACKUP_CONTAINER}:/tmp/uploads.tgz" "${TEMP_DIR}/uploads.tgz"
 
 start_database "${RESTORE_DB}"
-docker exec -i "${RESTORE_DB}" mariadb \
+docker exec -i "${RESTORE_DB}" mysql \
   --protocol=tcp \
   --host=127.0.0.1 \
   --user=root \

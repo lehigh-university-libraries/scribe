@@ -352,9 +352,9 @@ func TestLocalAnnotationCRUDSavedAsWholePagesPreservesCanonicalProperties(t *tes
 	ensureServerTestDefaultContext(t, contextStore, store.Context{
 		Name:                  "annotation-hardening-default",
 		IsDefault:             true,
-		SegmentationModel:     "tesseract",
-		TranscriptionProvider: "tesseract",
-		TranscriptionModel:    "tesseract",
+		SegmentationModel:     "kraken",
+		TranscriptionProvider: "ollama",
+		TranscriptionModel:    "glm-ocr:bf16",
 	})
 	enrichResponse, err := h.EnrichAnnotation(ctx, connect.NewRequest(&scribev1.EnrichAnnotationRequest{
 		ItemImageId:    image.ID,

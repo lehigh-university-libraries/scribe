@@ -1,94 +1,55 @@
 # Backup and restore
 
-A recoverable Scribe deployment needs coordinated backups of:
+Durable cloud state consists of the scribe and triplet Cloud SQL databases,
+versioned GCS source uploads, Secret Manager credentials, and Terraform state.
+Triplet's Presentation store is SQL-backed; its container cache is disposable.
 
-1. MariaDB, including canonical pages, revisions, jobs, audits, and outbox;
-2. uploaded source blobs;
-3. any Triplet material that cannot be deterministically regenerated;
-4. Vault storage according to the Vault operator procedure;
-5. Terraform state.
+Production Cloud SQL has regional HA, fourteen retained daily backups, and
+seven days of binary logs for point-in-time recovery. Uploads retain object
+versions and soft-deleted generations and have an independent daily Storage
+Transfer copy. Terraform owns those settings. HA is an availability control,
+not a replacement for backups.
 
-Record the database snapshot time and blob-version boundary together. Encrypt
-backups, restrict restore identities, and test restore into an isolated
-workspace on a schedule.
-
-The protected production deployment path enforces the deployed recovery layers:
-
-- Cloud Compose writes nightly logical MariaDB dumps under
-  `/mnt/disks/data/backups/mariadb`. Terraform explicitly sizes that data disk
-  for runtime overhead, the retained complete dump, staging space, and a
-  full-dump safety margin. The writer stages atomically, verifies gzip content
-  and a completion marker, then retains the newest complete copy.
-- Daily and weekly immutable snapshot policies cover the data and
-  Compose-volume disks. These disk snapshots are crash-consistent recovery
-  points; the completed logical dump captured on the data-disk snapshot is the
-  portable, database-aware restore artifact. Together they survive loss of the
-  VM or either live disk without adding a third attachment.
-- Source uploads have GCS versioning and 30-day soft delete.
-- A daily Storage Transfer job copies production uploads to an independent,
-  versioned backup bucket with retained noncurrent generations.
-- Vault data and initialization-material buckets use versioning and soft delete.
-- The Terraform state bucket has versioning and 14-day soft delete, set by
-  `make bootstrap-gcp-identities`.
-
-The rollout from the former dedicated MariaDB backup disk deliberately removes
-that disk from Terraform state without destroying it. Keep the orphaned
-`scribe-mariadb-backups` disk as a recovery source until a fresh logical dump
-has been captured on the data disk and a two-disk restore has been verified. Removing the retired disk is a separate, explicitly approved operation;
-normal deployment must never delete it.
-
-Backups are not verified automatically. Check the Storage Transfer job history
-and the latest disk snapshots in the console, and run a restore drill by hand
-before relying on a recovery point.
-
-After restore, run persistence integrity checks before accepting traffic:
-
-- every item image resolves to one tenant-scoped canonical page;
-- every public AnnotationPage snapshot resolves to its canonical image and a
-  real committed revision;
-- referenced source blobs exist;
-- page/index revisions agree;
-- outbox and leased jobs are reset according to the recovery policy;
-- a sample manifest, edit load, and export validates successfully.
-
-The repository exercises this procedure without touching development data:
+## Local acceptance
 
 ```bash
+make test-mysql
 make backup-restore-smoke
 ```
 
-The smoke test creates isolated source and restore MariaDB containers and blob
-volumes, creates the source schema through the embedded migrator, restores a
-logical database dump and blob archive, and verifies the clean migration
-ledger and checksums with a second migration pass. It then validates the
-canonical and published IIIF pages plus the derived index through the
-production stores and confirms that an expired job at its attempt limit is
-fenced into `failed`.
-Every resource is uniquely named and removed when the test exits.
+The full database suite proves migrations, tenancy, canonical revisions,
+concurrent job claims, lease/revision fencing, outboxes, and cleanup against
+pinned MySQL 8.4. The restore smoke uses independent source/restore databases,
+a logical dump containing the migration ledger, and an independent blob archive.
+It verifies canonical and published pages, derived indexes, blob hashes, and
+expired-job recovery. Temporary resources are removed on every exit.
 
-## Isolated production restore drill
+## Cloud SQL restoration
 
-1. Record the database snapshot timestamp, uploads backup generation boundary,
-   Vault generations, and Terraform state generation. Never restore one layer
-   without recording the others.
-2. Run the protected backup workflow. Its required two-disk probe proves that
-   the physical MariaDB volume and the data-disk copy of the completed logical
-   dump can be inspected together without production credentials or egress.
-   Passing this probe confirms both a crash-consistent disk recovery point and
-   a portable logical restore artifact; it does not treat one as a substitute
-   for the other.
-   Optionally supply a non-sensitive source-object name to prove the independent
-   upload copy is readable.
-3. For a broader rehearsal, copy selected upload generations into a new
-   isolated bucket. Do not overwrite production during a drill.
-4. Restore Vault data/key generations into isolated buckets and point an
-   isolated Vault service at them. Keep restored root material access logged and
-   short-lived.
-5. Restore the selected Terraform state generation under a new backend prefix,
-   select a non-production workspace, and run `terraform plan` before apply.
-6. Run the integrity checks above, both managed readiness jobs, and a real
-   annotation save/reload. Record the achieved recovery point and elapsed time.
+Use an isolated instance and private Cloud Run jobs in the same VPC. Record the
+Cloud SQL backup/PITR timestamp, upload object-generation boundary, Secret
+Manager versions, and Terraform state generation together. Restore both scribe
+and triplet databases; restoring only one can leave publication state stale.
 
-For an incident restore, obtain explicit incident-commander approval before
-copying backup generations over production names. Preserve the failed state and
-current generations first so the operation remains reversible.
+Use Cloud SQL's managed export to an isolated GCS bucket as an independent
+logical recovery artifact:
+
+```bash
+gcloud sql export sql INSTANCE gs://RECOVERY_BUCKET/database.sql --database=scribe,triplet --offload
+gcloud sql import sql RESTORE_INSTANCE gs://RECOVERY_BUCKET/database.sql
+```
+
+The Cloud SQL instance service account needs scoped bucket permissions for this
+operation. Restore source objects at compatible generations, run migration-ledger
+validation, check canonical/publication references and upload hashes, then verify
+that expired job/outbox leases recover. Run a real upload, correction, publication,
+and export against the isolated application before considering it restored.
+
+Secret Manager versions are separate from SQL backups. Retain the exact OAuth,
+provider, database, and token versions needed by the recovery instance; ensure
+its runtime identity has only its intended credential and bucket grants.
+
+Neither a bounded coordinated application RPO nor serving-application RTO is
+claimed until a timed isolated cloud restoration demonstrates them. Record
+backup timestamps, object generations, integrity results, elapsed time, and
+remaining errors. Never infer those objectives from regional HA alone.

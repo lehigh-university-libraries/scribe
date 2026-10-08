@@ -1,12 +1,38 @@
 import { describe, expect, it } from "vitest";
 import {
   establishForwardingHeaders,
+  ingressPolicy,
   resolveForwardingIdentity,
   selectForwardedClient,
+  stripCredentialHeaders,
   stripHopByHopHeaders,
 } from "./proxy-headers.mjs";
 
 describe("frontend proxy header boundaries", () => {
+  it("strips Cloud Run and application credentials from public sidecar requests", () => {
+    expect(stripCredentialHeaders({
+      authorization: "Bearer application-token",
+      "x-serverless-authorization": "Bearer platform-token",
+      cookie: "scribe_session=private",
+      accept: "application/json",
+    })).toEqual({ accept: "application/json" });
+  });
+  it("accepts direct Cloud Run HTTPS and ignores a spoofed forwarded host", () => {
+    const options = { edgeMode: "cloudrun", requestHost: "scribe-123.us-east5.run.app" };
+    const headers = { "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https", "x-forwarded-host": "evil.example" };
+    expect(resolveForwardingIdentity(headers, options)).toEqual({ clientAddress: "203.0.113.9", host: options.requestHost, proto: "https" });
+    expect(() => resolveForwardingIdentity({ ...headers, "x-forwarded-for": "198.51.100.2, 203.0.113.9" }, options)).toThrow(/topology/);
+    expect(() => resolveForwardingIdentity({ ...headers, "x-forwarded-proto": "http" }, options)).toThrow(/HTTPS/);
+  });
+
+  it("enforces IPv4 and IPv6 ingress CIDRs and rejects malformed policies", () => {
+    const allowed = ingressPolicy(["203.0.113.0/24", "2001:db8::/32"]);
+    expect(allowed("203.0.113.9")).toBe(true);
+    expect(allowed("198.51.100.9")).toBe(false);
+    expect(allowed("2001:db8::1")).toBe(true);
+    expect(allowed("2001:db9::1")).toBe(false);
+    expect(() => ingressPolicy(["203.0.113.0/33"])).toThrow();
+  });
   it("removes standard and Connection-nominated hop-by-hop headers", () => {
     const headers = stripHopByHopHeaders({
       connection: "keep-alive, x-remove-me",

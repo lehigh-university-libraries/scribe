@@ -34,12 +34,11 @@ registry instead.
    `kraken-seg/<selection-key>` image entry. Terraform creates the corresponding
    private service and derives `SEGMENTATION_MODELS_JSON` plus
    `SEGMENTATION_MODEL_ENDPOINTS_JSON` from the reviewed registry.
-   A route-specific segmentation image contains only its selected segmentation
-   artifact and bakes the public model ID separately from the filename. A
-   route-specific transcription build likewise fetches only its selected
-   recognition artifact and consumes already-cropped lines. The generic paired
-   segmentor fetches the defaults for both operations. None accepts a
-   runtime-selectable model map.
+   The default model is baked into the shared segmentation image, which also
+   packages PP-DocLayoutV3 for the newspaper route. Additional Kraken model
+   images contain the exact selected BLLA artifact. Recognition is performed
+   by the separate transcription provider; the segmentor exposes only
+   /v1/segment.
 6. Add registry tests proving the key is cataloged and resolves only to its
    exact administrator-owned endpoint. Unknown keys must be rejected.
 7. Test empty pages, rotations, large dimensions, overlapping regions,

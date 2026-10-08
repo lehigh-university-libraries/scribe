@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/lehigh-university-libraries/scribe/internal/secretmanager"
 	"github.com/lehigh-university-libraries/scribe/internal/vaultkv"
 )
 
@@ -11,16 +12,29 @@ type vaultSecretReader interface {
 	Read(context.Context, string) (map[string]string, error)
 }
 
+// SecretClient is shared by bootstrap, credential resolution, and the durable
+// cleanup ledger. Logical paths are storage locators, independent of backend.
+type SecretClient interface {
+	Read(context.Context, string) (map[string]string, error)
+	Write(context.Context, string, map[string]string) error
+	Delete(context.Context, string) error
+}
+
+func NewSecretClient(ctx context.Context, cfg Config) (SecretClient, error) {
+	if cfg.SecretManagerProject != "" {
+		return secretmanager.New(ctx, cfg.SecretManagerProject, cfg.SecretManagerPrefix)
+	}
+	if cfg.Vault.Address == "" {
+		return nil, fmt.Errorf("secret backend is required")
+	}
+	return vaultkv.New(cfg.Vault.Address, cfg.Vault.Token, cfg.Vault.KVMount, cfg.Vault.GCPAuthRole), nil
+}
+
 // LoadSecrets eagerly fetches the secrets authorized for this runtime. An
 // anonymous preview reads only its identity-scoped database bootstrap; ordinary
 // deployments also read OAuth and optional provider credentials.
 func LoadSecrets(ctx context.Context, cfg Config) (Secrets, error) {
-	client, err := newVaultSecretReader(
-		cfg.Vault.Address,
-		cfg.Vault.Token,
-		cfg.Vault.KVMount,
-		cfg.Vault.GCPAuthRole,
-	)
+	client, err := NewSecretClient(ctx, cfg)
 	if err != nil {
 		return Secrets{}, err
 	}
@@ -36,7 +50,7 @@ func LoadSecrets(ctx context.Context, cfg Config) (Secrets, error) {
 
 		openai, err = client.Read(ctx, cfg.Vault.Paths.OpenAI)
 		if err != nil {
-			if !vaultkv.IsNotFound(err) {
+			if !vaultkv.IsNotFound(err) && !secretmanager.IsNotFound(err) {
 				return Secrets{}, fmt.Errorf("read openai secret: %w", err)
 			}
 			openai = map[string]string{}
@@ -44,7 +58,7 @@ func LoadSecrets(ctx context.Context, cfg Config) (Secrets, error) {
 
 		gemini, err = client.Read(ctx, cfg.Vault.Paths.Gemini)
 		if err != nil {
-			if !vaultkv.IsNotFound(err) {
+			if !vaultkv.IsNotFound(err) && !secretmanager.IsNotFound(err) {
 				return Secrets{}, fmt.Errorf("read gemini secret: %w", err)
 			}
 			gemini = map[string]string{}
@@ -62,13 +76,6 @@ func LoadSecrets(ctx context.Context, cfg Config) (Secrets, error) {
 		GeminiAPIKey:            gemini["api_key"],
 		DatabasePassword:        databasePassword,
 	}, nil
-}
-
-func newVaultSecretReader(address, token, kvMount, gcpAuthRole string) (vaultSecretReader, error) {
-	if address == "" {
-		return nil, fmt.Errorf("vault.address is required")
-	}
-	return vaultkv.New(address, token, kvMount, gcpAuthRole), nil
 }
 
 func readDatabasePassword(ctx context.Context, client vaultSecretReader, path string) (string, error) {

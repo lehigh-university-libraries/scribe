@@ -10,7 +10,7 @@ There are two registries with different jobs:
 - `config.yaml` and `internal/config/defaults/config.yaml` define the runtime
   allowlist and default exposed by `ContextService.GetModelCatalog`.
 - `config/ocr.yaml` defines immutable images and deployment routes for
-  Scribe-hosted Ollama and Kraken models.
+  Scribe-hosted GLM-OCR models through Ollama.
 
 A model is usable only when the runtime catalog and its execution path agree.
 
@@ -67,54 +67,3 @@ An Ollama addition also creates an immutable build and Cloud Run route:
 Previews reuse reviewed main OCR images. A pull request that refers to a model
 not yet present in the protected base cannot prove that new hosted model in a
 preview; deploy the reviewed main model image before relying on it.
-
-## Scribe-hosted Kraken recognition model
-
-For Kraken transcription:
-
-1. Add a key under `config/ocr.yaml`
-   `kraken.transcription_models`. Its `file` must be an exact `.mlmodel`
-   basename and its DOI and lowercase SHA-256 must identify the reviewed
-   artifact. The stable public key stored in contexts may differ from the
-   baked filename.
-2. Add the same key to `llm.kraken.models` in both runtime configuration
-   copies. Set `kraken.default_transcription_model` and `llm.kraken.model`
-   together only when changing the default. For a default change, also update
-   the matching `KRAKEN_TRANSCRIPTION_MODEL_ID` and
-   `KRAKEN_RECOGNITION_MODEL_*` defaults in `Dockerfile.segmentor` and the
-   model key in both local `KRAKEN_MODEL_ENDPOINTS_JSON` maps in
-   `docker-compose.override-example.yaml`.
-3. Run the `make ocr-matrix` command shown above and verify it emits
-   `kraken-ocr/<key>`. The build must fail when the DOI download does not
-   contain the exact basename or its bytes do not match the configured digest.
-   The installer first resolves the DOI through Kraken/HTRMoPo. If that catalog
-   does not index the reviewed model, it downloads only the configured basename
-   from the exact `10.5281/zenodo.<record>` record over HTTPS. Both paths must
-   pass the same pinned SHA-256 check before the artifact is published.
-   The image bakes the public key and filename as separate values and accepts
-   only that exact transcription key at runtime. The dedicated route fetches
-   only its selected recognition artifact and does not configure a segmentation
-   route: Scribe sends already-cropped lines, and Kraken recognizes each crop
-   with `ocr --no-segmentation`.
-4. Exercise `providerregistry` model routing, the remote OCR client contract,
-   and a worker job that commits against the expected canonical page revision.
-5. Verify the protected deployment supplies matching `KRAKEN_MODELS_JSON` and
-   `KRAKEN_MODEL_ENDPOINTS_JSON`, then run a real transcription readiness
-   probe.
-
-Never place an endpoint or audience in a context. Local development can provide
-the server-owned model endpoint environment documented in
-[configuration](../operations/configuration.md); production Terraform owns it.
-`make ocr-matrix-test` checks that the Dockerfile defaults and both local
-endpoint maps still match `config/ocr.yaml`.
-
-## Completion checklist
-
-- The model appears once in `GetModelCatalog` under the intended provider.
-- An unknown model is rejected instead of falling back.
-- The provider default is unambiguous.
-- Hosted artifacts and container inputs are immutable and verified.
-- Provider failures remain typed and redact credentials and response bodies.
-- A queued attempt is fenced by lease token and input revision.
-- The relevant user and operator documentation names when the model should be
-  selected.

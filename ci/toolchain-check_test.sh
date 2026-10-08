@@ -26,7 +26,7 @@ cat >"${TEST_DIR}/fixture/Dockerfile" <<'EOF'
 FROM golang:1.27.1-alpine
 EOF
 cat >"${TEST_DIR}/fixture/Dockerfile.segmentor" <<'EOF'
-FROM golang:1.27.1-alpine AS helper
+FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine AS helper
 FROM python:3.14.2-slim
 EOF
 cat >"${TEST_DIR}/fixture/Dockerfile.frontend" <<'EOF'

@@ -1,27 +1,13 @@
-# The public PPB ingress is intentionally source-IP restricted, so a hosted
-# GitHub runner cannot reliably exercise the frontend's private backend origin.
-# This job starts server.mjs from the exact deployed frontend image and probes
-# its own /healthz proxy over the same direct-VPC network path as the sidecar.
-# The deploy workflow executes it after every apply and fails if either the
-# baked backend origin or the live backend route is wrong.
 locals {
-  # cloud-compose exposes Compute API HTTPS self-links, while Cloud Run Direct
-  # VPC egress accepts only canonical relative resource names.
-  readiness_network_resource_name = regex(
-    "projects/[^/]+/global/networks/[^/]+$",
-    module.scribe.network.self_link,
-  )
-  readiness_subnetwork_resource_name = regex(
-    "projects/[^/]+/regions/[^/]+/subnetworks/[^/]+$",
-    module.scribe.network.subnetwork,
-  )
+  readiness_network_resource_name    = google_compute_network.application.id
+  readiness_subnetwork_resource_name = google_compute_subnetwork.application.id
 }
 
 resource "google_service_account" "backend_readiness" {
   project      = var.project_id
   account_id   = trimsuffix(substr("probe-backend-${local.workspace_slug}", 0, 30), "-")
   display_name = "Scribe ${local.workspace_slug} backend readiness"
-  description  = "No-data, no-invoker runtime identity used only to verify the frontend-to-backend path."
+  description  = "No-data identity allowed to probe the API and invoke only the worker readiness endpoint."
 }
 
 resource "google_service_account" "ocr_readiness" {
@@ -36,11 +22,11 @@ check "readiness_identity_isolated" {
     condition = length(toset([
       google_service_account.backend_readiness.email,
       google_service_account.ocr_readiness.email,
-      module.scribe.appGsa.email,
-      module.scribe.instance.gsa.email,
+      google_service_account.app.email,
+      google_service_account.worker.email,
       google_service_account.ocr_compute.email,
     ])) == 5
-    error_message = "Backend readiness, OCR readiness, app, VM, and OCR compute workloads must use distinct identities."
+    error_message = "Backend readiness, OCR readiness, API, worker, and OCR compute workloads must use distinct identities."
   }
 }
 
@@ -57,15 +43,14 @@ resource "google_cloud_run_v2_job" "backend_readiness" {
 
     template {
       # The probed image may be supplied by a pull request. This identity has no
-      # data-plane, Vault, Pub/Sub, or project-level IAM grants.
+      # data-plane, Secret Manager, Pub/Sub, or project-level IAM grants.
       service_account = google_service_account.backend_readiness.email
       max_retries     = 0
       timeout         = "300s"
 
       containers {
-        image   = local.frontend_image
-        command = ["node"]
-        args    = ["readiness-job.mjs"]
+        image   = local.api_image
+        command = ["/app/scribe-readiness"]
 
         resources {
           limits = {
@@ -85,8 +70,12 @@ resource "google_cloud_run_v2_job" "backend_readiness" {
         }
 
         env {
-          name  = "SCRIBE_EXPECTED_BACKEND_IP"
-          value = module.scribe.internal_ip
+          name  = "SCRIBE_API_ORIGIN"
+          value = local.public_base_url
+        }
+        env {
+          name  = "SCRIBE_WORKER_ORIGIN"
+          value = google_cloud_run_v2_service.worker.uri
         }
       }
 
@@ -100,14 +89,14 @@ resource "google_cloud_run_v2_job" "backend_readiness" {
     }
   }
 
-  depends_on = [module.scribe, google_service_account.backend_readiness]
+  depends_on = [google_cloud_run_v2_service.application, google_cloud_run_v2_service_iam_member.worker_readiness]
 }
 
 locals {
   # Use the reviewed, digest-pinned API image as a tiny shell runtime. The probe
-  # sends one repository-owned PNG through segmentation, Kraken transcription,
+  # sends one repository-owned PNG through segmentation, newspaper layout,
   # and (in production) the default Ollama generation endpoint. It never needs
-  # uploads-bucket or Vault access. Bounded retries absorb identity propagation
+  # uploads-bucket or Secret Manager access. Bounded retries absorb identity propagation
   # and cold starts; a successful response that violates its contract fails
   # immediately instead of repeating expensive inference.
   ocr_readiness_script = file("${local.repo_root}/scripts/ocr-readiness.sh")
@@ -142,16 +131,16 @@ resource "google_cloud_run_v2_job" "ocr_readiness" {
           value = local.segmentor_url
         }
         env {
-          name  = "TRANSCRIBER_URL"
-          value = local.default_kraken_url
+          name  = "LAYOUT_URL"
+          value = local.segmentor_url
         }
         env {
           name  = "SEGMENTATION_MODEL"
-          value = "scribe"
+          value = local.kraken_default_segmentation_key
         }
         env {
-          name  = "TRANSCRIPTION_MODEL"
-          value = local.kraken_default_transcription_key
+          name  = "LAYOUT_MODEL"
+          value = "newspapers"
         }
         env {
           name  = "SMOKE_IMAGE_BASE64"
@@ -196,9 +185,31 @@ check "production_deep_readiness_targets" {
   assert {
     condition = !local.is_prod_workspace || (
       trimspace(local.segmentor_url) != "" &&
-      trimspace(local.default_kraken_url) != "" &&
       trimspace(local.default_ollama_url) != ""
     )
-    error_message = "Production readiness requires segmentor, default Kraken, and default Ollama endpoints."
+    error_message = "Production readiness requires segmentor, newspaper layout, and default Ollama endpoints."
   }
+}
+
+resource "google_cloud_run_v2_service_iam_member" "worker_readiness" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.worker.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.backend_readiness.email}"
+}
+
+# Readiness belongs to Terraform apply, including operator-driven Make targets.
+resource "terraform_data" "readiness" {
+  triggers_replace = [
+    local.frontend_image,
+    jsonencode(local.ocr_images),
+  ]
+  lifecycle {
+    replace_triggered_by = [google_cloud_run_v2_service.application, google_cloud_run_v2_service.worker]
+  }
+  provisioner "local-exec" {
+    command = "gcloud run jobs execute '${google_cloud_run_v2_job.backend_readiness[0].name}' --project '${var.project_id}' --region '${var.region}' --wait && gcloud run jobs execute '${google_cloud_run_v2_job.ocr_readiness[0].name}' --project '${var.project_id}' --region '${var.region}' --wait"
+  }
+  depends_on = [google_cloud_run_v2_service_iam_member.public, google_cloud_run_v2_service_iam_member.worker_readiness, google_cloud_run_v2_job.backend_readiness, google_cloud_run_v2_job.ocr_readiness]
 }

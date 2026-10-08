@@ -46,7 +46,8 @@ identity() {
 # Previews run Terraform for their own workspace and push preview images.
 identity scribe-preview-deploy scribe-preview-deploy-wif preview terraform-preview.yaml \
   roles/compute.admin roles/iam.serviceAccountAdmin roles/iam.serviceAccountUser roles/pubsub.admin \
-  roles/resourcemanager.projectIamAdmin roles/run.admin roles/serviceusage.serviceUsageConsumer roles/storage.admin
+  roles/resourcemanager.projectIamAdmin roles/run.admin roles/serviceusage.serviceUsageConsumer roles/storage.admin \
+  roles/cloudsql.admin roles/secretmanager.admin roles/dns.admin roles/cloudscheduler.admin
 gcloud artifacts repositories add-iam-policy-binding internal --location=us \
   --member="serviceAccount:scribe-preview-deploy@${GCLOUD_PROJECT}.iam.gserviceaccount.com" --role=roles/artifactregistry.repoAdmin >/dev/null
 

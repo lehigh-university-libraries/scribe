@@ -1,165 +1,105 @@
 # Deployment
 
-Deploying Scribe is `terraform apply` in the right workspace. Terraform resolves
-image tags to digests itself, derives each environment's names from the
-workspace, and owns every cloud resource. CI builds images and runs the same
-Make targets an operator runs locally.
+Deploying Scribe is Terraform apply in the selected workspace. Terraform resolves
+API, frontend, Triplet, and OCR GAR tags to immutable digests. The deployment has
+no VM, Cloud Compose, Traefik, or cloud Vault dependency.
 
-| Environment | Workspace | Site | Images | Vault |
+| Environment | Workspace | Public service | Images | Database |
 | --- | --- | --- | --- | --- |
-| Production | `prod` | `scribe` | `:main` | owns `vault-server-prod` |
-| Development | `dev` | `scribe-dev` | `:main` unless `TF_VAR_image_tag` is set | owns `vault-server-dev` |
-| Preview | `pr-<number>` | `scribe-pr-<number>` | `:pr-<number>` backend and frontend, `:main` OCR | uses dev's Vault |
+| Production | prod | scribe | main | Regional Cloud SQL MySQL 8.4 |
+| Development | dev | scribe-dev | main or image_tag | Isolated zonal Cloud SQL |
+| Preview | pr-N | scribe-pr-N | PR API/frontend; main Triplet/OCR | Isolated zonal Cloud SQL |
 
-## How production deploys
+## Bootstrap secrets
 
-Every push to `main` runs [Terraform Apply](https://github.com/lehigh-university-libraries/scribe/actions/workflows/terraform-apply.yaml):
-
-1. The CI gate runs.
-2. The backend image is pushed to GHCR, and the frontend image to Artifact
-   Registry, as `:main` and `:<commit>`.
-3. OCR images are rebuilt only when a path listed by `ci/ocr-source-paths.sh`
-   changed in the push, or when one of their `:main` images is missing. They
-   are built from `go run ./cmd/ocr-matrix` and pushed as `:main` and
-   `:<commit>`.
-4. The foundation root (`terraform/foundation`) is applied.
-5. `make tf-prod ACTION=apply` runs, then the backend and OCR readiness
-   Cloud Run jobs run with `gcloud run jobs execute --wait`, up to six times
-   two minutes apart while a replaced VM boots.
-
-The VM checks out `main` (`docker_compose_branch`) on each rollout. Because new
-images change their digests, every push replaces the VM's boot disk and
-re-runs bootstrap. The data and Docker-volume disks are kept.
-
-A manual run of the workflow can `plan` or `apply` production without building
-anything.
-
-To roll back, revert the commit on `main` and let it deploy.
-
-## Previews
-
-Same-repository pull requests get a preview at `scribe-pr-<number>`; closing
-the PR destroys it. Fork pull requests run CI only.
-
-The PR head's backend and frontend are built as OCI archives in a job with no
-credentials. A separate job, which never runs pull-request code, pushes the
-archives to `ghcr.io/lehigh-university-libraries/scribe:pr-<number>` and
-`<GAR>/scribe-frontend:pr-<number>`. Terraform then runs from `main` with
-`TF_VAR_image_tag=pr-<number>`. Previews reuse production's `:main` OCR
-images and production's Ollama service.
-
-Each preview stores its own generated database password in dev's Vault under
-`scribe/previews/scribe-pr-<number>@<project>.iam.gserviceaccount.com/`.
-Destroying the preview removes it. Previews run in `<region>-c` (or
-`SCRIBE_PREVIEW_ZONE`) on
-`n2d-standard-2` with standard persistent disks; set the
-`SCRIBE_PREVIEW_MACHINE_TYPE` repository variable to change the machine type.
-To destroy a preview by hand, dispatch the Terraform Preview workflow with the
-PR number.
-
-## Running Terraform locally
+While the existing dev/prod Vault service is still available, authenticate
+with gcloud and keyless Application Default Credentials, then copy its four
+application credential maps:
 
 ```bash
-export GCLOUD_PROJECT=your-project
-make tf-dev                          # plan
-make tf-dev ACTION=apply
-make tf-prod ACTION=plan
-make tf-preview PR=123 ACTION=destroy
-make tf-prod ACTION=apply ARGS='-target=module.kraken'
+GCLOUD_PROJECT=your-project make secret-manager-secrets WORKSPACE=dev
+GCLOUD_PROJECT=your-project make secret-manager-secrets WORKSPACE=prod
 ```
 
-Each target initializes the `scribe` state prefix in
-`${TF_STATE_BUCKET:-$GCLOUD_PROJECT-terraform}`, selects or creates the
-workspace, and runs `terraform $ACTION $ARGS`. Terraform variables come from
-`terraform/terraform.tfvars` and `TF_VAR_*` environment variables. CI exports
-`TF_VAR_*` from the environment's GitHub variables and secrets.
+The command discovers the corresponding Vault service, uses the same operator
+login as make vault-secrets, and writes google_oauth, openai, gemini, and
+database/app to deterministic deployment-scoped Secret Manager names. It verifies
+every map after writing, preserves opaque values, and prints only the logical
+secret names. An unchanged value does not create another version. Missing
+optional provider credentials become empty maps; missing OAuth or database
+credentials fail. VAULT_ADDR, VAULT_TOKEN, and VAULT_ADMIN_TOKEN may be supplied
+explicitly for a locally accessible Vault.
 
-To deploy a branch to dev, push images tagged with the branch name and set
-`TF_VAR_image_tag` to that tag.
+Terraform adopts these exact bootstrap secrets with declarative imports. The
+copied database password initializes the new Cloud SQL user. The schema jobs initialize fresh databases.
+Preview credentials are independently generated by Terraform; previews cannot
+read dev/prod credentials or create provider secrets.
 
-## Vault
+## Apply
 
-Terraform's Vault provider needs a token. Unless `VAULT_TOKEN` is set,
-`scripts/vault-token.sh` gets one:
-
-- It logs in through Google JWT as the active gcloud account, using the
-  `break-glass-admin-<account>` or `admin-<account>` role.
-- If that fails (a new Vault has no roles yet, and CI has none), it decrypts the
-  stored root token from `gs://<project>-vault-server-<dev|prod>-key/root-token.enc`
-  with the `vault` key in the `vault-server-<dev|prod>` KMS key ring.
-
-When dev or prod has no Vault yet (a new project, or Vault was deleted),
-`make tf-dev ACTION=apply` or `make tf-prod ACTION=apply` first runs
-`terraform apply -target=module.vault`, which creates Vault and runs its init
-job, then gets the root token and runs the full apply. Terraform can't do this
-in one apply because the Vault provider needs a token from that Vault.
-
-Set `vault_admin_emails` and `vault_ci_service_account_emails` in tfvars, or the
-matching `TF_VAR_*` variables, before the first apply of an owner workspace.
-
-Application secrets (Google OAuth, OpenAI, Gemini, database password) are set
-interactively:
+The foundation root owns enabled project APIs and the shared Artifact Registry.
+Apply it before application workspaces. It contains no Cloud Compose module.
 
 ```bash
-make vault-secrets WORKSPACE=prod
-make vault-secrets WORKSPACE=prod CMD=show
+terraform -chdir=terraform/foundation init -backend-config=bucket=YOUR_STATE_BUCKET -backend-config=prefix=scribe-foundation
+terraform -chdir=terraform/foundation apply -var=project_id=YOUR_PROJECT
+GCLOUD_PROJECT=YOUR_PROJECT make tf-dev ACTION=apply
+GCLOUD_PROJECT=YOUR_PROJECT make tf-prod ACTION=apply
+GCLOUD_PROJECT=YOUR_PROJECT make tf-preview PR=23 ACTION=apply
 ```
 
-## New project setup
+The protected main workflow runs CI, builds API/frontend/Triplet images in GAR,
+refreshes OCR images when needed, applies foundation, and invokes make tf-prod.
+Preview image builds run without credentials. The protected publisher promotes
+OCI artifacts to GAR without executing PR code; Terraform runs trusted source.
+Fork PRs receive CI only.
 
-1. Create the state bucket and the production deploy service account by hand,
-   and give that account the roles Terraform needs.
-2. Run `make bootstrap-gcp-identities` with `GCLOUD_PROJECT` and
-   `MONITORING_NOTIFICATION_EMAIL` set. It creates the preview deploy and
-   production OCR identities, turns on state bucket versioning and soft
-   delete, and creates the alert email channel.
-3. Configure the `production` and `preview` GitHub environments: secrets
-   `GCLOUD_OIDC_POOL`, `GSA`, `TF_STATE_BUCKET`; variables
-   `GCLOUD_PROJECT`, `ALLOWED_IPS`, `VAULT_ADMIN_EMAILS`,
-   `MONITORING_NOTIFICATION_CHANNELS`, `OCR_GCLOUD_OIDC_POOL`, `OCR_GSA`.
-4. Push to `main`.
+Terraform creates two finite Cloud Run migration jobs. Each starts a keyless
+Private Service Connect Cloud SQL proxy, applies its schema, and stops the proxy before exit.
+A straight Terraform provisioner sequence executes both jobs with --wait before
+creating API or worker revisions. A failed migration fails the apply.
 
-## Images and registry cleanup
+The API service runs frontend, API, Triplet, PDF, and SQL-proxy containers.
+The private worker service runs a request-driven worker, an API for source
+reads, Triplet, and a SQL proxy. `worker_min_instances` defaults to zero and
+request-based billing allows idle workers to scale to zero. Authenticated
+Pub/Sub pushes wake workers for transcription; Cloud Scheduler invokes bounded
+maintenance every thirty minutes for outboxes, retention, and recovery of missed
+publishes or expired leases. The invocation identity has no data access.
+Committed application events also push maintenance wake-ups, so outbox delivery
+does not normally wait for the schedule. The thirty-minute fallback leaves an
+idle window for scale-down; a lost wake-up can delay recovery until that pass.
+The Scheduler job runs in `us-east4`, a [supported Scheduler location](https://docs.cloud.google.com/scheduler/docs/locations), and invokes the
+worker in its configured runtime region; it carries no application payload.
+Transcription attempts cancel after nine minutes, before Pub/Sub's ten-minute
+push deadline, and follow the existing fenced, bounded retry policy. Maintenance
+requests finish within four minutes. No background work runs between requests.
+Only the frontend and worker request ports
+are ingress ports; all other listeners stay inside their instance.
 
-Terraform reads `scribe:<image_tag>` from GHCR and `scribe-frontend:<image_tag>`
-and every OCR image (`:<ocr_image_tag>`, default `main`) from the internal
-Artifact Registry repository, and deploys them by digest.
+When services or images change, Terraform executes backend_readiness_job and ocr_readiness_job. The
+backend job checks the deployed API and worker image digests, canonical origin,
+and database readiness over HTTPS. The OCR job sends a real image through the
+registered private OCR endpoints. These jobs have no database, upload, or secret
+access. A failed probe fails deployment.
 
-The internal repository keeps every `main`-tagged image and the 10 most
-recent versions of each image. It deletes untagged versions after 7 days and
-anything else after 30 days.
+## Configuration and destruction
 
-## Persistence generations
+Allowed ingress CIDRs are enforced by the Cloud Run frontend. It accepts only
+the reviewed direct run.app forwarding topology, establishes external HTTPS,
+and forwards one validated client address to the loopback API. Custom load
+balancers require a separate reviewed topology. Production requires nonempty allowed_ips before apply. Runtime quotas are decoded from config.yaml and may
+be overridden with the bounded Terraform variables.
 
-`data_generation` (default `canonical-v2`) scopes every Compose volume, the GCS
-upload prefix, and the transcription Pub/Sub topics. Changing it is an explicit
-cutover: the new generation starts empty, and the old volumes, prefix, and
-queues are kept for inspection. Terraform keeps every generation in its ordered
-`reviewed_data_generations` list through the selected one.
+Production Cloud SQL and serving services have deletion protection. Preview
+resources have independent names, buckets, queues, credentials, and database
+instances, and can be removed with make tf-preview PR=N ACTION=destroy.
+No preview teardown requires a shared Vault namespace.
 
-## State-lock recovery
+See [configuration](configuration.md), [troubleshooting](troubleshooting.md),
+and [backup and restore](backup-restore.md).
 
-If an interrupted run leaves a state lock, first confirm that no workflow or
-local Terraform process is still running, then:
-
-```bash
-terraform -chdir=terraform force-unlock <LOCK_ID>
-make tf-prod ACTION=plan
-```
-
-## Runtime notes
-
-- Cloud Compose's pinned release selects the COS image. Upgrade COS by pinning a
-  newer Cloud Compose release; Terraform replaces the boot disk and keeps the
-  data disks.
-- The Compose checkout lives at `/mnt/disks/data/scribe/<workspace>`. Use
-  `cloud-compose.service` and `/home/cloud-compose/{init,up,down}` on the VM;
-  do not `git pull` there.
-- Containers drop all capabilities, run with read-only root filesystems, and
-  handle `SIGTERM` with a bounded drain.
-- The API and worker mint identity tokens for every configured OCR audience
-  before they start listening, so a bad credential fails startup rather than
-  the first upload.
-
-See [troubleshooting](troubleshooting.md) for VM, Compose, and readiness
-diagnostics.
+SQL connectivity uses a deployment-owned Private Service Connect endpoint and
+private Cloud DNS record. It creates no producer VPC peering to retain after a
+preview is deleted. Terraform removes the endpoint and DNS records before
+removing its SQL instance and application network.

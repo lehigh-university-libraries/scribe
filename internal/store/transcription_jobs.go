@@ -553,6 +553,12 @@ func (s *TranscriptionJobStore) ClaimNextPendingOlderThan(ctx context.Context, c
 	return s.claimNextPending(ctx, cutoff)
 }
 
+// RecoverableJobIDs lists bounded wake-up candidates without taking an attempt
+// lease. The push consumer still owns the fenced claim and duplicate handling.
+func (s *TranscriptionJobStore) RecoverableJobIDs(ctx context.Context, cutoff time.Time) ([]uint64, error) {
+	return s.q.ListRecoverableTranscriptionJobIDs(ctx, cutoff)
+}
+
 func (s *TranscriptionJobStore) claimNextPending(ctx context.Context, cutoff time.Time) (*TranscriptionJob, error) {
 	return s.claim(ctx, 0, cutoff)
 }

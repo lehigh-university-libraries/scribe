@@ -1,7 +1,4 @@
-# The application VPC must be a root-owned dependency rather than an output of
-# module.scribe. The protected browser subnet contributes its external IPv6
-# prefix to the module's PPB policy, so leaving network ownership inside that
-# module would create a dependency cycle on every fresh workspace.
+# Direct VPC egress connects Cloud Run to the private Cloud SQL address.
 resource "google_compute_network" "application" {
   project                 = var.project_id
   name                    = local.name

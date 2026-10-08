@@ -25,43 +25,38 @@ cors:
 
 database:
   dsn_template: "{{.User}}:{{.Password}}@tcp({{.Host}}:{{.Port}})/{{.Name}}?parseTime=true"
-  host: mariadb
+  host: "${DATABASE_HOST:-mariadb}"
   port: 3306
-  name: scribe
-  user: scribe
+  name: "${DATABASE_NAME:-scribe}"
+  user: "${DATABASE_USER:-scribe}"
 
 llm:
   provider: ollama
   default_system_prompt: ""
-  segmentation_model: auto
-  batch_size: 10
+  segmentation_model: kraken
   line_transcribe_concurrency: 5
   ollama:
     url: "${OLLAMA_URL:-http://localhost:11434}"
     audience: "${OLLAMA_AUDIENCE:-}"
     model: "glm-ocr:bf16"
-    models: ["glm-ocr:bf16", "llava", "bakllava", "mistral-small3.2:24b"]
-  kraken:
-    url: "${KRAKEN_URL:-}"
-    audience: "${KRAKEN_AUDIENCE:-}"
-    model: "${KRAKEN_MODEL:-catmus-medieval-1.6.0.mlmodel}"
-    models: ["catmus-medieval-1.6.0.mlmodel", "catmus-print-fondue-large.mlmodel"]
+    models: ["glm-ocr:bf16"]
   openai:
     model: "gpt-4o"
     models: ["gpt-4o", "gpt-4.1"]
   gemini:
-    model: "gemini-3.5-flash"
-    models: ["gemini-3.5-flash", "gemini-2.5-flash"]
+    model: "gemini-3.1-pro-preview"
+    models: ["gemini-3.1-pro-preview", "gemini-3.8-flash"]
 
 transcription:
   job_workers: 3
   max_active_jobs_per_workspace: ${TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE:-1000}
-  max_segments_per_job: ${TRANSCRIPTION_MAX_SEGMENTS_PER_JOB:-50}
+  max_segments_per_job: ${TRANSCRIPTION_MAX_SEGMENTS_PER_JOB:-500}
   queue:
     backend: "${TRANSCRIPTION_QUEUE_BACKEND:-database}"
     project_id: "${PUBSUB_PROJECT_ID:-}"
     topic_id: "${PUBSUB_TRANSCRIPTION_TOPIC_ID:-scribe-transcription-jobs}"
     subscription_id: "${PUBSUB_TRANSCRIPTION_SUBSCRIPTION_ID:-scribe-transcription-workers}"
+    maintenance_topic_id: "${PUBSUB_MAINTENANCE_TOPIC_ID:-}"
     max_outstanding_messages: 3
     max_extension: 60m
     recovery_poll_interval: 30s
@@ -96,7 +91,7 @@ iiif:
 segmentation_service:
   url: "${SEGMENTATION_SERVICE_URL:-}"
   audience: "${SEGMENTATION_SERVICE_AUDIENCE:-}"
-  models: ["kraken"]
+  models: ["kraken", "newspapers"]
 
 annotation:
   api_base: /

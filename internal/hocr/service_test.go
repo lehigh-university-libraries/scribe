@@ -62,54 +62,6 @@ func TestCompletedProviderWithUnreadableRegionReturnsTypedOutcome(t *testing.T) 
 	}
 }
 
-func TestLikelyWordBoxAcceptsUnicodeAndNumbers(t *testing.T) {
-	service := NewService()
-	for _, text := range []string{"Привет", "漢字", "1234", "é"} {
-		if !service.isLikelyWordBox(worddetection.WordBox{X: 10, Y: 10, Width: 80, Height: 24, Text: text}, 1000, 1000) {
-			t.Errorf("isLikelyWordBox() rejected %q", text)
-		}
-	}
-}
-
-func TestRejectedWordDetectionLogDoesNotExposeDocumentText(t *testing.T) {
-	const privateText = "PRIVATE_HANDWRITTEN_TEXT_DO_NOT_LOG"
-
-	var captured bytes.Buffer
-	previousLogger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&captured, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { slog.SetDefault(previousLogger) })
-
-	service := NewService()
-	words, err := service.transcribeWords(
-		context.Background(),
-		"unused.jpg",
-		[]worddetection.WordBox{{X: 1, Y: 1, Width: 1, Height: 1, Text: privateText}},
-		1000,
-		1000,
-		nil,
-		"ollama",
-		"tesseract",
-		nil,
-		"glm-ocr:bf16",
-	)
-	if err != nil {
-		t.Fatalf("transcribeWords() error = %v", err)
-	}
-	if len(words) != 0 {
-		t.Fatalf("transcribeWords() returned %d rejected words", len(words))
-	}
-
-	logs := captured.String()
-	if strings.Contains(logs, privateText) {
-		t.Fatalf("rejected detection log exposed document text: %s", logs)
-	}
-	for _, metadata := range []string{`"msg":"Skipping non-word detection"`, `"width":1`, `"height":1`} {
-		if !strings.Contains(logs, metadata) {
-			t.Fatalf("rejected detection log omitted bounded diagnostic metadata %s: %s", metadata, logs)
-		}
-	}
-}
-
 func TestProviderConfigUsesOllamaModelEndpointMap(t *testing.T) {
 	config.Init(config.Runtime{
 		Config: config.Config{
@@ -509,34 +461,38 @@ func TestImageOperationsHonorCallerCancellation(t *testing.T) {
 	if _, err := service.extractLineImage(ctx, "unused.png", 0, 0, 10, 10, 0); !errors.Is(err, context.Canceled) {
 		t.Fatalf("extractLineImage error = %v, want context.Canceled", err)
 	}
-	if _, err := service.stitchWordImages(ctx, "unused.png", []worddetection.WordBox{{X: 0, Y: 0, Width: 10, Height: 10}}); !errors.Is(err, context.Canceled) {
-		t.Fatalf("stitchWordImages error = %v, want context.Canceled", err)
+
+}
+
+func TestSegmentationPreservesSeparateColumnsNarrowNotesAndReadingOrder(t *testing.T) {
+	service := NewService()
+	boxes := []worddetection.WordBox{
+		{X: 510, Y: 40, Width: 200, Height: 20},
+		{X: 40, Y: 40, Width: 200, Height: 20},
+		{X: 750, Y: 30, Width: 20, Height: 10},
+	}
+	result := service.generateHOCRFromDetectedLines(service.groupWordsIntoLines(boxes), 800, 1000)
+	previous := -1
+	for _, bbox := range []string{"bbox 510 40 710 60", "bbox 40 40 240 60", "bbox 750 30 770 40"} {
+		position := strings.Index(result, bbox)
+		if position <= previous {
+			t.Fatalf("crop %q missing or reordered: %s", bbox, result)
+		}
+		previous = position
+	}
+	if got := strings.Count(result, "class='ocr_line'"); got != len(boxes) {
+		t.Fatalf("line count = %d", got)
 	}
 }
 
-func TestProviderCallMetadataIsMerged(t *testing.T) {
-	contextID := uint64(12)
-	itemImageID := uint64(34)
-	ctx := WithProviderCallMetadata(context.Background(), 42, "", nil, &contextID)
-	ctx = WithProviderCallMetadata(ctx, 0, "processing-id", &itemImageID, nil)
-	metadata := providerCallMetadataFromContext(ctx)
-	if metadata.WorkspaceID != 42 || metadata.SessionID != "processing-id" || metadata.ItemImageID == nil || *metadata.ItemImageID != itemImageID || metadata.ContextID == nil || *metadata.ContextID != contextID {
-		t.Fatalf("merged metadata = %#v", metadata)
+func TestTranscriptionPreservesOrdinaryProseThatSoundsLikeRefusal(t *testing.T) {
+	service := NewService()
+	for _, text := range []string{"I cannot attend tomorrow.", "The signature is illegible.", "No text found in the earlier edition.", "漢字 Привет café"} {
+		if service.isRefusalOrIllegible(text) {
+			t.Fatalf("discarded document text %q", text)
+		}
 	}
-}
-
-func TestTesseractIsAFirstClassTranscriptionProvider(t *testing.T) {
-	provider, name, model, err := NewService().initLLMProvider("tesseract", "")
-	if err != nil {
-		t.Fatalf("initLLMProvider(tesseract) error = %v", err)
-	}
-	if provider != nil {
-		t.Fatalf("tesseract unexpectedly returned an LLM provider: %#v", provider)
-	}
-	if name != "tesseract" {
-		t.Fatalf("provider name = %q, want tesseract", name)
-	}
-	if model != "tesseract" {
-		t.Fatalf("model = %q, want tesseract", model)
+	if !service.isRefusalOrIllegible(" NOT LEGIBLE ") {
+		t.Fatal("failed to recognize the exact unreadable sentinel")
 	}
 }

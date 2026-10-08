@@ -32,7 +32,7 @@ type Context struct {
 	Name        string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
 	IsDefault   bool   `protobuf:"varint,5,opt,name=is_default,json=isDefault,proto3" json:"is_default,omitempty"`
-	// Segmentation model: "tesseract" | "scribe" | "kraken:<model-id>"
+	// Server-registered segmentation model (Kraken BLLA or newspaper layout).
 	SegmentationModel     string   `protobuf:"bytes,6,opt,name=segmentation_model,json=segmentationModel,proto3" json:"segmentation_model,omitempty"`
 	TranscriptionProvider string   `protobuf:"bytes,8,opt,name=transcription_provider,json=transcriptionProvider,proto3" json:"transcription_provider,omitempty"`
 	TranscriptionModel    string   `protobuf:"bytes,9,opt,name=transcription_model,json=transcriptionModel,proto3" json:"transcription_model,omitempty"`

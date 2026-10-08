@@ -119,6 +119,14 @@ ORDER BY created_at ASC
 LIMIT 1
 FOR UPDATE SKIP LOCKED;
 
+-- name: ListRecoverableTranscriptionJobIDs :many
+SELECT id FROM transcription_jobs
+WHERE created_at < sqlc.arg(cutoff)
+  AND ((status = 'pending' AND (retry_after IS NULL OR retry_after <= NOW()) AND attempt_count < max_attempts)
+    OR (status = 'running' AND lease_until IS NOT NULL AND lease_until < NOW()))
+ORDER BY created_at ASC
+LIMIT 100;
+
 -- name: ClaimLeasedTranscriptionJobByIDManual :one
 SELECT
   id,

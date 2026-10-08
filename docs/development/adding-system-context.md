@@ -19,8 +19,7 @@ Material-specific experiments belong in a workspace context.
    Hard-code a model only when the preset deliberately names that immutable
    selection.
 4. Set a system prompt or temperature only when the descriptor advertises the
-   matching capability. Tesseract and Kraken reject unsupported prompt
-   controls.
+   matching capability.
 5. Leave `UserID` and `WorkspaceID` unset. Startup owns system scope; client
    input must never be able to create it.
 6. Add a focused test in `internal/app/contexts_test.go` for the name, model,
@@ -34,14 +33,13 @@ catalog lifecycle change with an acceptance test.
 
 ## Change the global default
 
-There is exactly one system default. Change the recipe produced by
-`defaultContext`; do not add a second system context with `IsDefault: true`.
-The built-in **Tesseract OCR** default uses the established Scribe segmentor
-with credential-free local Tesseract line transcription.
-Provider-specific presets such as **Gemini Pro** remain explicit selections,
-while **Kraken BLLA** continues to use the administrator-configured
-`llm.provider`, that provider's default model, and its supported
-`llm.default_system_prompt`.
+There is exactly one system default. Change
+the first recipe in `systemContexts`; do not add another with `IsDefault: true`.
+The built-in **Letters + GLM-OCR** default uses Kraken BLLA segmentation
+and GLM-OCR transcription. Letters, medieval manuscripts, and newspapers each
+have GLM-OCR, Gemini Pro, Gemini Flash, and OpenAI presets. Newspaper presets
+select the layout-aware newspaper segmentor. All presets use the supported
+operator system prompt; Gemini 3.x does not expose a temperature control.
 
 When replacing or removing a shipped default, list the replacement as the sole
 catalog default and use `ContextStore.ReplaceSystemDefault` at startup to

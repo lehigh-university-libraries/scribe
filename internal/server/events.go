@@ -64,6 +64,22 @@ func (h *Handler) publishCloudEvent(evt cloudEvent, enqueueWebhook bool) {
 	if enqueueWebhook {
 		h.enqueueWebhooks(evt)
 	}
+	// Task progress is drained by the page completion wake-up. Avoid a second
+	// queue request for every individual line while keeping committed outboxes
+	// prompt without a cron request keeping an idle worker warm.
+	if !strings.HasPrefix(evt.Type, "dev.scribe.transcription.task.") {
+		h.wakeWorkerMaintenance(h.backgroundContext())
+	}
+}
+
+func (h *Handler) wakeWorkerMaintenance(parent context.Context) {
+	if queue, ok := h.transcriptionQueue.(interface{ WakeMaintenance(context.Context) error }); ok {
+		ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+		defer cancel()
+		if err := queue.WakeMaintenance(ctx); err != nil {
+			slog.Warn("worker maintenance wake-up failed; scheduled recovery will retry")
+		}
+	}
 }
 
 func (h *Handler) enqueueWebhooks(evt cloudEvent) {
@@ -185,11 +201,11 @@ func (h *Handler) retainProviderCallAudits(ctx context.Context, retention time.D
 	}
 }
 
-func (h *Handler) dispatchWebhookBatch(ctx context.Context) {
+func (h *Handler) dispatchWebhookBatch(ctx context.Context) int {
 	deliveries, err := h.transcriptionJobs.ClaimWebhookDeliveries(ctx, 10)
 	if err != nil {
 		slog.Warn("Failed to claim webhook deliveries", "error_type", safeLogErrorType(err))
-		return
+		return 0
 	}
 	g, groupCtx := errgroup.WithContext(ctx)
 	g.SetLimit(5)
@@ -218,6 +234,7 @@ func (h *Handler) dispatchWebhookBatch(ctx context.Context) {
 	if err := g.Wait(); err != nil {
 		slog.Warn("Webhook batch stopped", "error_type", safeLogErrorType(err))
 	}
+	return len(deliveries)
 }
 
 const (

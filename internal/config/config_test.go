@@ -353,7 +353,7 @@ func TestLoadAppliesBoundedProcessingDefaults(t *testing.T) {
 	if cfg.Transcription.JobWorkers != DefaultTranscriptionJobWorkers || cfg.Transcription.Queue.MaxOutstandingMessages != DefaultTranscriptionJobWorkers {
 		t.Fatalf("transcription worker defaults = %+v", cfg.Transcription)
 	}
-	if cfg.LLM.BatchSize != DefaultLLMBatchSize || cfg.LLM.LineTranscribeConcurrency != DefaultLineTranscribeConcurrency {
+	if cfg.LLM.LineTranscribeConcurrency != DefaultLineTranscribeConcurrency {
 		t.Fatalf("LLM concurrency defaults = %+v", cfg.LLM)
 	}
 	if cfg.Pagination.SigningKey != testPageTokenSigningKey {
@@ -459,13 +459,12 @@ func TestNormalizeRuntimeConcurrencyIsBounded(t *testing.T) {
 	}
 	if defaults.Transcription.JobWorkers != DefaultTranscriptionJobWorkers ||
 		defaults.Transcription.Queue.MaxOutstandingMessages != DefaultTranscriptionJobWorkers ||
-		defaults.LLM.BatchSize != DefaultLLMBatchSize ||
 		defaults.LLM.LineTranscribeConcurrency != DefaultLineTranscribeConcurrency {
 		t.Fatalf("normalized defaults = %+v", defaults)
 	}
 
 	valid := Config{
-		LLM: LLMConfig{BatchSize: maxConfiguredLLMBatchSize, LineTranscribeConcurrency: maxConfiguredLineTranscribeConcurrency},
+		LLM: LLMConfig{LineTranscribeConcurrency: maxConfiguredLineTranscribeConcurrency},
 		Transcription: TranscriptionConfig{
 			JobWorkers: maxConfiguredTranscriptionJobWorkers,
 			Queue:      TranscriptionQueue{MaxOutstandingMessages: maxConfiguredQueueOutstandingMessages},
@@ -482,14 +481,12 @@ func TestNormalizeRuntimeConcurrencyIsBounded(t *testing.T) {
 		"too many outstanding": func(cfg *Config) {
 			cfg.Transcription.Queue.MaxOutstandingMessages = maxConfiguredQueueOutstandingMessages + 1
 		},
-		"negative batch":            func(cfg *Config) { cfg.LLM.BatchSize = -1 },
-		"oversized batch":           func(cfg *Config) { cfg.LLM.BatchSize = maxConfiguredLLMBatchSize + 1 },
 		"negative line concurrency": func(cfg *Config) { cfg.LLM.LineTranscribeConcurrency = -1 },
 		"line concurrency fanout":   func(cfg *Config) { cfg.LLM.LineTranscribeConcurrency = maxConfiguredLineTranscribeConcurrency + 1 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := Config{
-				LLM: LLMConfig{BatchSize: 1, LineTranscribeConcurrency: 1},
+				LLM: LLMConfig{LineTranscribeConcurrency: 1},
 				Transcription: TranscriptionConfig{
 					JobWorkers: 1,
 					Queue:      TranscriptionQueue{MaxOutstandingMessages: 1},
@@ -872,5 +869,27 @@ func TestNormalizeExternalJWTIssuersRequiresSecureCompleteConfig(t *testing.T) {
 	loopback.JWKSURL = "http://localhost:8080/keys"
 	if _, err := normalizeExternalJWTIssuers([]ExternalJWTIssuerConfig{loopback}); err != nil {
 		t.Fatalf("loopback development issuer rejected: %v", err)
+	}
+}
+
+func TestSecretManagerScopesLocatorsAndDisablesVault(t *testing.T) {
+	t.Setenv("SECRET_MANAGER_PROJECT_ID", "test-project")
+	t.Setenv("SECRET_MANAGER_PREFIX", "scribe-dev-secret")
+	t.Setenv("SCRIBE_DEPLOYMENT_WORKSPACE", "dev")
+	t.Setenv("VAULT_ADDR", "https://obsolete.example")
+	t.Setenv("VAULT_TOKEN", "obsolete-token")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Vault.Address != "" || cfg.Vault.Token != "" || cfg.Vault.GCPAuthRole != "" {
+		t.Fatal("cloud runtime still configured Vault authentication")
+	}
+	if cfg.Vault.Paths.Database != "scribe/dev/database/app" || cfg.Vault.Paths.ProviderSecrets != "scribe/dev/provider-secrets/workspaces" {
+		t.Fatalf("workspace locators: %#v", cfg.Vault.Paths)
+	}
+	t.Setenv("SCRIBE_DEPLOYMENT_WORKSPACE", "other")
+	if _, err := Load(); err == nil {
+		t.Fatal("unrecognized cloud workspace accepted")
 	}
 }

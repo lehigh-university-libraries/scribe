@@ -449,16 +449,18 @@ func (h *Handler) StartAnnotationMirrorDispatcher(ctx context.Context) {
 	})
 }
 
-func (h *Handler) dispatchAnnotationMirrors(ctx context.Context) {
+func (h *Handler) dispatchAnnotationMirrors(ctx context.Context) int {
+	processed := 0
 	for range 10 {
 		delivery, err := h.annotations.ClaimAnnotationMirror(ctx, annotationMirrorLeaseDuration)
 		if err != nil {
 			slog.Warn("failed to claim annotation mirror", "error_type", safeLogErrorType(err))
-			return
+			return processed
 		}
 		if delivery == nil {
-			return
+			return processed
 		}
+		processed++
 		operationCtx, cancel := context.WithTimeout(ctx, annotationMirrorOperationLimit)
 		buildErr := h.deliverAnnotationMirror(operationCtx, *delivery)
 		cancel()
@@ -475,6 +477,7 @@ func (h *Handler) dispatchAnnotationMirrors(ctx context.Context) {
 			slog.Warn("failed to complete annotation mirror", "item_image_id", delivery.ItemImageID, "revision", delivery.Revision, "error_type", safeLogErrorType(err))
 		}
 	}
+	return processed
 }
 
 func annotationMirrorRetryDelay(attempt int) time.Duration {

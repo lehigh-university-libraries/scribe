@@ -132,7 +132,7 @@ if PATH="$TEST_DIR/bin:/usr/bin:/bin" FAKE_GOSEC_VERSION=v2.27.0 FAKE_GOVULNCHEC
 fi
 grep -F 'gosec v2.28.0 is required' "$TEST_DIR/security.err" >/dev/null
 
-if PATH="$TEST_DIR/bin:/usr/bin:/bin" FAKE_GOSEC_VERSION=v2.28.0 FAKE_GOVULNCHECK_VERSION=v1.5.4 \
+if PATH="$TEST_DIR/bin:/usr/bin:/bin" SCRIBE_GOVULNCHECK=true FAKE_GOSEC_VERSION=v2.28.0 FAKE_GOVULNCHECK_VERSION=v1.5.4 \
   "$ROOT_DIR/ci/security.sh" \
   >/dev/null 2>"$TEST_DIR/govulncheck.err"; then
   echo "security scan accepted an unreviewed govulncheck module" >&2

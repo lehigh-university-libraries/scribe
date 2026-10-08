@@ -11,8 +11,8 @@ readonly TOKEN_REQUEST_TIMEOUT_SECONDS=5
 readonly TOKEN_RETRY_DELAY_SECONDS=2
 readonly SEGMENT_MAX_ATTEMPTS=2
 readonly SEGMENT_REQUEST_TIMEOUT_SECONDS=240
-readonly TRANSCRIBE_MAX_ATTEMPTS=2
-readonly TRANSCRIBE_REQUEST_TIMEOUT_SECONDS=240
+readonly LAYOUT_MAX_ATTEMPTS=2
+readonly LAYOUT_REQUEST_TIMEOUT_SECONDS=240
 readonly OLLAMA_MAX_ATTEMPTS=3
 readonly OLLAMA_REQUEST_TIMEOUT_SECONDS=120
 readonly SERVICE_RETRY_DELAY_SECONDS=5
@@ -135,16 +135,10 @@ validate_multipart_response() (
   kind="$1"
   model="$2"
   case "$kind" in
-    segment)
+    segment | layout)
       jq -e \
         --arg model "$model" \
         '.provider == $model and (.words | type) == "array" and (.words | length) > 0' \
-        "$work_dir/$kind.response" >/dev/null
-      ;;
-    transcribe)
-      jq -e \
-        --arg model "$model" \
-        '.model == $model and (.text | type) == "string" and (.text | length) > 0' \
         "$work_dir/$kind.response" >/dev/null
       ;;
     *) exit 2 ;;
@@ -272,12 +266,12 @@ probe_multipart \
   "$SEGMENT_MAX_ATTEMPTS" \
   "$SEGMENT_REQUEST_TIMEOUT_SECONDS"
 probe_multipart \
-  transcribe \
-  "$TRANSCRIBER_URL" \
-  /v1/transcribe \
-  "$TRANSCRIPTION_MODEL" \
-  "$TRANSCRIBE_MAX_ATTEMPTS" \
-  "$TRANSCRIBE_REQUEST_TIMEOUT_SECONDS"
+  layout \
+  "$LAYOUT_URL" \
+  /v1/segment \
+  "$LAYOUT_MODEL" \
+  "$LAYOUT_MAX_ATTEMPTS" \
+  "$LAYOUT_REQUEST_TIMEOUT_SECONDS"
 if [ -n "$OLLAMA_URL" ]; then
   probe_ollama
 fi

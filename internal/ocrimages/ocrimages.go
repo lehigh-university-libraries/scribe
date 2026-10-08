@@ -20,11 +20,9 @@ import (
 // Config is the subset of config/ocr.yaml that determines OCR images.
 type Config struct {
 	Kraken struct {
-		PipSpec                   string           `yaml:"pip_spec"`
-		DefaultSegmentationModel  string           `yaml:"default_segmentation_model"`
-		DefaultTranscriptionModel string           `yaml:"default_transcription_model"`
-		SegmentationModels        map[string]Model `yaml:"segmentation_models"`
-		TranscriptionModels       map[string]Model `yaml:"transcription_models"`
+		PipSpec                  string           `yaml:"pip_spec"`
+		DefaultSegmentationModel string           `yaml:"default_segmentation_model"`
+		SegmentationModels       map[string]Model `yaml:"segmentation_models"`
 	} `yaml:"kraken"`
 	Ollama struct {
 		BaseImage    string                 `yaml:"base_image"`
@@ -100,18 +98,6 @@ func Matrix(cfg Config, garRepo, tag string) ([]Entry, error) {
 		return nil, fmt.Errorf("kraken.pip_spec must pin an exact kraken release: %s", pip)
 	}
 
-	txKey := k.DefaultTranscriptionModel
-	if err := validateModelKey("default transcription model", txKey); err != nil {
-		return nil, err
-	}
-	tx, ok := k.TranscriptionModels[txKey]
-	if !ok {
-		return nil, fmt.Errorf("kraken.default_transcription_model must reference a key in kraken.transcription_models")
-	}
-	if err := validateModel("default transcription model", tx); err != nil {
-		return nil, err
-	}
-
 	segKey := k.DefaultSegmentationModel
 	if segKey == "" {
 		keys := sortedKeys(k.SegmentationModels)
@@ -130,10 +116,6 @@ func Matrix(cfg Config, garRepo, tag string) ([]Entry, error) {
 	if err := validateModel("default segmentation model", seg); err != nil {
 		return nil, err
 	}
-	if strings.EqualFold(tx.File, seg.File) {
-		return nil, fmt.Errorf("default transcription and segmentation models must use distinct baked filenames: %s", tx.File)
-	}
-
 	image := func(service string) (string, string) {
 		repo := garRepo + "/" + service
 		return repo, repo + ":" + tag
@@ -146,14 +128,6 @@ func Matrix(cfg Config, garRepo, tag string) ([]Entry, error) {
 			BuildArgs: strings.Join(append([]string{"KRAKEN_PIP_SPEC=" + pip}, args...), "\n") + "\n",
 		}
 	}
-	txArgs := func(key string, m Model) []string {
-		return []string{
-			"KRAKEN_TRANSCRIPTION_MODEL_ID=" + key,
-			"KRAKEN_RECOGNITION_MODEL_DOI=" + m.DOI,
-			"KRAKEN_RECOGNITION_MODEL_FILE=" + m.File,
-			"KRAKEN_RECOGNITION_MODEL_SHA256=" + m.SHA256,
-		}
-	}
 	segArgs := func(key string, m Model) []string {
 		return []string{
 			"KRAKEN_SEGMENTATION_MODEL_ID=" + key,
@@ -162,11 +136,7 @@ func Matrix(cfg Config, garRepo, tag string) ([]Entry, error) {
 			"KRAKEN_SEGMENTATION_MODEL_SHA256=" + m.SHA256,
 		}
 	}
-	var noTx, noSeg = txArgs("", Model{}), segArgs("", Model{})
-
-	// The segmentor bundles the default segmentation and transcription models.
-	entries := []Entry{kraken("segmentor", "scribe-segmentor", append(txArgs(txKey, tx), segArgs(segKey, seg)...)...)}
-
+	entries := []Entry{kraken("segmentor", "scribe-segmentor", segArgs(segKey, seg)...)}
 	seen := map[string]bool{}
 	for _, key := range sortedKeys(k.SegmentationModels) {
 		if err := validateSegmentationKey("segmentation model", key); err != nil {
@@ -180,23 +150,9 @@ func Matrix(cfg Config, garRepo, tag string) ([]Entry, error) {
 		if err := validateModel("segmentation model "+key, m); err != nil {
 			return nil, err
 		}
-		entries = append(entries, kraken("kraken-seg/"+key, "scribe-ks-"+hash8(key), append(noTx, segArgs(key, m)...)...))
-	}
-
-	seen = map[string]bool{}
-	for _, key := range sortedKeys(k.TranscriptionModels) {
-		if err := validateModelKey("transcription model", key); err != nil {
-			return nil, err
+		if key != segKey {
+			entries = append(entries, kraken("kraken-seg/"+key, "scribe-ks-"+hash8(key), segArgs(key, m)...))
 		}
-		if seen[strings.ToLower(key)] {
-			return nil, fmt.Errorf("case-insensitive duplicate transcription model ID: %s", key)
-		}
-		seen[strings.ToLower(key)] = true
-		m := k.TranscriptionModels[key]
-		if err := validateModel("transcription model "+key, m); err != nil {
-			return nil, err
-		}
-		entries = append(entries, kraken("kraken-ocr/"+key, "scribe-ko-"+hash8(key), append(txArgs(key, m), noSeg...)...))
 	}
 
 	o := cfg.Ollama

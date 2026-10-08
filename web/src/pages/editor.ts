@@ -498,6 +498,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   const blockedCompletedJobs = new Set<string>();
   const settledCompletedReplays = new Set<string>();
   const authoritativeTerminalJobs = new Set<string>();
+  const observedActiveJobs = new Set<string>();
   const visibleCompletedOrdinals = new Map<string, Set<number>>();
   let completedReplay: {
     controller: AbortController;
@@ -1258,8 +1259,17 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
       cancelPendingCompletedReload();
     }
     if (isCompletedStatus(job.status)) {
+      const explicitlyRequested = requestedJobItemImageID === targetItemImageID
+        && requestedJobID === job.id;
+      if (!explicitlyRequested && !observedActiveJobs.has(terminalJobKey)) {
+        renderJobStatus(job);
+        return;
+      }
       applyCompletedJob(job, targetItemImageID, authoritative);
       return;
+    }
+    if (isPendingStatus(job.status) || isRunningStatus(job.status)) {
+      observedActiveJobs.add(terminalJobKey);
     }
     renderJobStatus(job);
     const overlayReady = transcriptionOverlayReady(targetItemImageID);
@@ -1439,6 +1449,9 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
             );
             break;
           case "dev.scribe.transcription.completed":
+            if (!authoritativeTerminalJobs.has(`${targetItemImageID}\u0000${eventJobID.toString()}`)) {
+              observedActiveJobs.add(`${targetItemImageID}\u0000${eventJobID.toString()}`);
+            }
             applyJobUpdate(
               {
                 id: eventBigInt(data.jobId),

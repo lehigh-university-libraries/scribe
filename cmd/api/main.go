@@ -28,8 +28,8 @@ func main() {
 
 func run(ctx context.Context) (returnErr error) {
 	deps, err := app.NewDependencies(ctx, app.BootstrapOptions{
-		RunMigrations:        true,
-		SeedSystemContexts:   true,
+		RunMigrations:        os.Getenv("SCRIBE_RUN_MIGRATIONS") != "false",
+		SeedSystemContexts:   os.Getenv("SCRIBE_RUN_MIGRATIONS") != "false",
 		TelemetryServiceName: "scribe-api",
 	})
 	if err != nil {

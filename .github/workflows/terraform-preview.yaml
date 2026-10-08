@@ -60,7 +60,7 @@ jobs:
           platforms: linux/amd64
           outputs: type=oci,dest=${{ runner.temp }}/${{ matrix.name }}.oci.tar
           build-args: |
-            SCRIBE_FRONTEND_BACKEND_ORIGIN=http://scribe-pr-${{ env.PR_NUMBER }}.${{ vars.SCRIBE_PREVIEW_ZONE != '' && vars.SCRIBE_PREVIEW_ZONE || format('{0}-c', vars.SCRIBE_REGION != '' && vars.SCRIBE_REGION || 'us-east5') }}.c.${{ vars.GCLOUD_PROJECT }}.internal
+            SCRIBE_FRONTEND_BACKEND_ORIGIN=http://localhost:8080
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: preview-${{ matrix.name }}
@@ -76,7 +76,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      packages: write
     env:
       SKOPEO_IMAGE: quay.io/skopeo/stable:v1.22.2@sha256:db4108427c05acbadd1447316caa9b5f097a9a737d897d2297443baedff37ded
     steps:
@@ -94,13 +93,13 @@ jobs:
       - name: Push images
         env:
           GAR_TOKEN: ${{ steps.auth.outputs.access_token }}
-          GHCR_TOKEN: ${{ github.token }}
           IMAGES: ${{ runner.temp }}/images
+          BACKEND: us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe:pr-${{ env.PR_NUMBER }}
           FRONTEND: us-docker.pkg.dev/${{ vars.GCLOUD_PROJECT }}/internal/scribe-frontend:pr-${{ env.PR_NUMBER }}
         run: |
           skopeo() { docker run --rm -v "$IMAGES:/images:ro" "$SKOPEO_IMAGE" "$@"; }
-          skopeo copy --all --dest-creds "${GITHUB_ACTOR}:${GHCR_TOKEN}" \
-            oci-archive:/images/backend.oci.tar "docker://ghcr.io/lehigh-university-libraries/scribe:pr-${PR_NUMBER}"
+          skopeo copy --all --dest-creds "oauth2accesstoken:${GAR_TOKEN}" \
+            oci-archive:/images/backend.oci.tar "docker://${BACKEND}"
           skopeo copy --all --dest-creds "oauth2accesstoken:${GAR_TOKEN}" \
             oci-archive:/images/frontend.oci.tar "docker://${FRONTEND}"
 

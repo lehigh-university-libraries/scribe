@@ -879,6 +879,7 @@ func (h *Handler) DeleteItem(ctx context.Context, req *connect.Request[scribev1.
 		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	h.wakeWorkerMaintenance(ctx)
 	return connect.NewResponse(&scribev1.DeleteItemResponse{}), nil
 }
 

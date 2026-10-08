@@ -38,73 +38,43 @@ digest, and the approved PR image runs only with preview-scoped identities.
 
 ## Production topology and availability
 
-**Status:** current interim topology; non-high-availability risk acceptance is
-not recorded by this document.
+The deployment target is entirely managed: Cloud Run hosts the frontend, API,
+worker, Triplet, PDF converter, and private OCR helpers. Cloud SQL for MySQL 8.4
+stores Scribe and Triplet in separate databases on one instance. GCS stores
+source uploads. Secret Manager stores OAuth, provider, database, and application
+token credentials. There is no Scribe-managed VM, Cloud Compose, Traefik, or
+cloud Vault server.
 
-The public frontend and Private Power Button run on Cloud Run, as do Vault and
-the private OCR helpers. MariaDB, Triplet, the API, the worker, and Traefik run
-together through Cloud Compose on one COS VM in one zone. Source uploads use
-GCS in cloud deployments. The VM and its persistent disks can be recreated or
-restored, but there is no live database replica, second backend instance, or
-cross-zone failover path.
+The frontend and API share a Cloud Run instance with the Triplet image helper,
+PDF converter, and Private Service Connect Cloud SQL Auth Proxy. The worker is a separate
+private Cloud Run service with request-based billing, a zero instance floor,
+and authenticated Pub/Sub push delivery. Cloud Scheduler wakes it every thirty
+minutes for bounded recovery, outbox delivery, and retention passes; committed
+application events push immediate maintenance wake-ups. Its
+source-serving API and Triplet sidecars use
+the same SQL and GCS state, so every replica can resolve the exact localhost
+source identifiers without exposing private uploads through another public
+endpoint. Cloud workers process work inside requests; local workers retain
+their polling loops. No cloud work depends on CPU between requests.
 
-This topology is deliberately described by its demonstrated behavior rather
-than as highly available:
+Triplet's pinned SQL store provides byte-preserving Presentation resources and
+transactional ETag preconditions across replicas. Container filesystems contain
+only disposable derivative caches. The migration jobs apply Scribe's versioned
+schema and Triplet's schema before services start; neither runtime replays DDL.
 
-- a VM, zone, rollout, or shared-disk failure can make every backend component
-  unavailable at once;
-- API and worker capacity scale vertically, and backend rollout is a single
-  failure domain; and
-- backups limit data-loss exposure, but they do not provide continuous
-  replication or automatic service recovery.
+Production Cloud SQL uses regional HA, daily backups retained for fourteen days,
+and seven days of transaction logs for point-in-time recovery. Production keeps
+a separate daily uploads copy, versioning, and soft deletion. These settings do
+not establish a coordinated application RPO or serving-application RTO; an
+isolated restoration must verify database state and compatible blob versions.
 
-Recovery points are daily paired disk snapshots, a daily independent copy of
-uploads, and a MariaDB logical dump on the data disk. Their freshness is not
-checked automatically, and no coordinated application RPO is established until
-a restore drill selects compatible database and blob generations and verifies
-the resulting application state.
+Existing Vault bootstrap credentials are copied with
+`make secret-manager-secrets` before removing the cloud Vault deployment.
+Database-engine acceptance runs against pinned MySQL 8.4 as well as local
+MariaDB; publication tests exercise two Triplet replicas sharing MySQL.
 
-A bounded service recovery-time objective (RTO) is therefore
-**not established**. Service restoration is operator-driven and best effort
-until a full isolated rehearsal records the elapsed time
-required by all steps in the
-[backup and restore runbook](../operations/backup-restore.md).
-
-### Gated migration sequence
-
-Moving the backend to managed services remains the intended way to remove the
-single failure domain, but it is not a container-placement-only change. Perform
-the migration in this order and do not delete the VM recovery path until the
-replacement has passed its own restore and rollback drills:
-
-1. **Prove a database-engine migration.** Cloud SQL offers MySQL, PostgreSQL,
-   and SQL Server, not MariaDB. Select and pin a supported Cloud SQL for MySQL
-   version, then run every migration, store, lease/fencing, outbox, and
-   backup/restore contract against it. Verify SQL modes, collations, time
-   precision, locking, `SKIP LOCKED`, and cutover/rollback before moving
-   production data. Define private connectivity, credential rotation, HA,
-   point-in-time recovery, and a tested export path as part of the same gate.
-2. **Externalize Triplet's durable state.** The current Triplet service persists
-   `/var/lib/triplet/presentation` on `triplet-presentation-data`; its cache is
-   separate. Cloud Run container filesystems do not persist when an instance
-   stops. Either move the Presentation store to a supported shared durable
-   backend or prove a complete, idempotent reconstruction and reconciliation
-   process from Scribe's published snapshots. Exercise concurrent replicas and
-   rollback before removing the persistent volume.
-3. **Move the stateless processes deliberately.** Deploy the API only after the
-   database and Triplet gates are complete. For the continuously polling worker,
-   choose a Cloud Run execution/billing model that allocates CPU outside HTTP
-   requests, preserves graceful lease draining, and has a nonzero capacity
-   floor. Load-test queue contention, revision fencing, ingress, trusted-proxy
-   handling, and canonical public URLs with more than one replica.
-4. **Cut over and retire automation.** Promote immutable API and worker images
-   to GAR, pass managed readiness and a real upload/edit/publish flow, rehearse
-   database and Triplet rollback, and observe the agreed rollback window. Only
-   then remove Traefik, Cloud Compose, VM backup scripts, snapshot drills, and
-   their contract tests. Replace them with Cloud SQL, Cloud Run, and Triplet
-   recovery evidence before changing the recovery objectives above.
-
-The engine and filesystem constraints come from the provider contracts, not a
-repository preference: see the official
-[Cloud SQL engine list](https://docs.cloud.google.com/sql/docs/introduction)
-and [Cloud Run container filesystem contract](https://docs.cloud.google.com/run/docs/container-contract#filesystem).
+See [deployment](../operations/deployment.md),
+[backup and restore](../operations/backup-restore.md), and the provider contracts:
+[Cloud SQL versions](https://docs.cloud.google.com/sql/docs/mysql/db-versions),
+[Cloud Run billing](https://docs.cloud.google.com/run/docs/configuring/billing-settings),
+and [Private Service Connect](https://docs.cloud.google.com/sql/docs/mysql/configure-private-service-connect).

@@ -22,12 +22,6 @@ func TestConfiguredServiceAudiencesAreExactUniqueAndOutboundOnly(t *testing.T) {
 			},
 		},
 		LLM: config.LLMConfig{
-			Kraken: config.KrakenConfig{
-				Audience: "https://kraken.example",
-				ModelEndpoints: map[string]config.ModelEndpoint{
-					"default": {Audience: "https://kraken.example"},
-				},
-			},
 			Ollama: config.OllamaConfig{
 				ModelEndpoints: map[string]config.ModelEndpoint{
 					"default": {Audience: "https://ollama.example"},
@@ -44,7 +38,6 @@ func TestConfiguredServiceAudiencesAreExactUniqueAndOutboundOnly(t *testing.T) {
 
 	got := configuredServiceAudiences(cfg)
 	want := []string{
-		"https://kraken.example",
 		"https://ollama.example",
 		"https://segment-other.example",
 		"https://segment.example",

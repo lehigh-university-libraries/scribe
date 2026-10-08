@@ -49,6 +49,13 @@ read-only presets visible in every workspace. Creating a new workspace default
 replaces the previous workspace default; it does not change the global system
 default.
 
+For Gemini, choose **Google Gemini** and select `gemini-3.1-pro-preview`
+(Pro) or `gemini-3.8-flash` (Flash). These are the latest Pro and Flash options
+in [Google's model catalog](https://ai.google.dev/gemini-api/docs/models)
+as of October 8, 2026. Select **Kraken** segmentation to pair its layout
+detection with Gemini transcription, and **Set as default** to use this
+context for new workspace processing.
+
 ## Pick models deliberately
 
 Segmentation finds regions or words; transcription turns the selected image
@@ -56,29 +63,30 @@ regions into text. A strong transcription model cannot recover text that the
 segmentation step did not select, so compare both parts of a context when
 results are poor.
 
-Useful starting points:
+The built-in presets cover these starting collections:
 
-- **Automatic** segmentation runs the built-in detectors and keeps the result
-  with more words. Use it as an experiment rather than assuming the larger
-  region count is the better layout.
-- **Tesseract** segmentation uses the local deterministic detector. The
-  built-in **Tesseract OCR** preset is the credential-free system default; it
-  preserves the established Scribe segmentation path and uses Tesseract for
-  line transcription.
-- **Scribe** segmentation pairs the built-in detector with the chosen
-  transcription provider. The built-in **Gemini Pro** preset combines Scribe
-  segmentation with the configured Gemini model and model-default sampling;
-  select it explicitly when Gemini is configured for the workspace. The preset
-  name does not independently select a Pro-family model: it follows the Gemini
-  default registered by the administrator. Check the model shown in the
-  context catalog, and create a workspace context with a registered Pro model
-  when that distinction matters.
-- **Kraken** choices use administrator-built, digest-pinned model services.
-  The built-in **Kraken CATMuS** preset combines Kraken BLLA page segmentation
-  with CATMuS Medieval 1.6 recognition for handwritten medieval Latin and
-  Romance-language manuscripts. The separately registered CATMuS Print model
-  is intended for printed text; create a workspace context that selects it for
-  printed material.
+| Material | Segmentation |
+| --- | --- |
+| Latin-script handwritten letters | Kraken BLLA line detection |
+| Latin-script medieval manuscripts | Kraken BLLA line detection |
+| Historical English newspapers | PP-DocLayoutV3 layout reading order, with Kraken BLLA lines |
+
+Each material has **GLM-OCR**, **Gemini Pro**, **Gemini Flash**, and **OpenAI**
+presets. **Letters + GLM-OCR** is the system default. Every detected line is
+transcribed from its own crop; columns and narrow marginal notes retain their
+original bounds. Newspaper layout orders the detected lines by column; lines
+outside the detected layout regions remain available at the end in Kraken order.
+
+Transcription choices are glm-ocr:bf16, gemini-3.1-pro-preview,
+gemini-3.8-flash, and registered OpenAI vision models. Segmentation does not
+perform recognition. Tesseract, custom automatic detectors, and CATMuS
+recognition are no longer available.
+
+These are starting selections, not a measured ranking for your collections.
+Compare representative pages before declaring a model best for a collection.
+The architecture also supports additional languages, scripts, and layouts:
+create workspace contexts using server-registered models and selection rules.
+No collection assumption changes the IIIF storage or provider transport.
 
 The context library displays run counts. Integrations can use
 `ContextService.GetContextMetrics` for corrected-run and average-distance
@@ -127,7 +135,7 @@ Do not put a Gemini key in `.env` or `GEMINI_API_KEY`; Scribe does not consume
 that variable for provider credentials. The deployment-wide secret written by
 `make vault-secrets` is also not eligible for durable workspace jobs. Store the
 key through **Provider secrets** so queued work resolves the workspace-scoped
-Vault locator.
+secret-store locator.
 
 Scribe never copies a provider key into the context. Deleting or rotating a key
 therefore does not require recreating contexts.

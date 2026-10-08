@@ -24,7 +24,7 @@ message Context {
     max_len: 4096
   }];
   bool is_default = 5;
-  // Segmentation model: "tesseract" | "scribe" | "kraken:<model-id>"
+  // Server-registered segmentation model (Kraken BLLA or newspaper layout).
   string segmentation_model = 6 [
     (buf.validate.field).required = true,
     (buf.validate.field).string = {

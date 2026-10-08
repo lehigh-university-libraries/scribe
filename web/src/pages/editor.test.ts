@@ -1092,6 +1092,56 @@ describe("renderEditor", () => {
     document.removeEventListener("scribe:transcription-result", onResult);
   });
 
+  it("opens an existing completed item without replaying its transcription", async () => {
+    window.history.replaceState({}, "", "/editor?itemImageId=7");
+    mocks.getOCRRun.mockResolvedValue({
+      contextId: 33n,
+      itemImageId: 7n,
+      model: "test-model",
+      imageUrl: "https://example.test/page.jpg",
+    });
+    mocks.listTranscriptionJobs.mockResolvedValue([{ id: 91n }]);
+    mocks.getTranscriptionJob.mockResolvedValue({
+      id: 91n,
+      itemImageId: 7n,
+      status: "completed",
+      completedSegments: 2,
+      failedSegments: 0,
+      totalSegments: 2,
+      attempts: [{
+        attemptNumber: 1,
+        jobId: 91n,
+        outcome: TranscriptionJobAttemptOutcome.COMPLETED,
+        resultRevision: 20n,
+      }],
+    });
+    const onSegment = vi.fn();
+    const onResult = vi.fn();
+    document.addEventListener("scribe:transcription-segment", onSegment);
+    document.addEventListener("scribe:transcription-result", onResult);
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+    try {
+      await renderEditor(app);
+      document.dispatchEvent(new CustomEvent("scribe:transcription-overlay-state", {
+        detail: {
+          canvasId: "https://example.test/canvas/1",
+          ready: true,
+          windowId: "scribe-editor-window",
+        },
+      }));
+      await vi.waitFor(() => expect(mocks.getTranscriptionJob).toHaveBeenCalledTimes(2));
+      expect(onSegment).not.toHaveBeenCalled();
+      expect(onResult).not.toHaveBeenCalled();
+      expect(mocks.getAnnotationPage).not.toHaveBeenCalled();
+      expect(document.getElementById("editor-transcription-status")?.textContent)
+        .toContain("Batch transcription complete");
+    } finally {
+      document.removeEventListener("scribe:transcription-segment", onSegment);
+      document.removeEventListener("scribe:transcription-result", onResult);
+    }
+  });
+
   it("paces a fast completed job from its exact canonical result after the overlay is ready", async () => {
     vi.useFakeTimers();
     window.history.replaceState(
@@ -2105,7 +2155,7 @@ describe("renderEditor", () => {
   });
 
   it("fails closed when the latest completed job reload is negatively acknowledged", async () => {
-    window.history.replaceState({}, "", "/editor?itemImageId=7");
+    window.history.replaceState({}, "", "/editor?itemImageId=7&jobId=91");
     mocks.getOCRRun.mockResolvedValue({
       contextId: 0n,
       itemImageId: 7n,
@@ -2187,7 +2237,7 @@ describe("renderEditor", () => {
 
   it("starts the completed reload timeout at dispatch and stays blocked after timeout", async () => {
     vi.useFakeTimers();
-    window.history.replaceState({}, "", "/editor?itemImageId=7");
+    window.history.replaceState({}, "", "/editor?itemImageId=7&jobId=91");
     mocks.getOCRRun.mockResolvedValue({
       contextId: 0n,
       itemImageId: 7n,

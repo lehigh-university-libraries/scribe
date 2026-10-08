@@ -3,7 +3,7 @@
 Provider installation is server-owned. A context may select only a provider
 and model returned by `ContextService.GetModelCatalog`; it cannot provide a
 network endpoint, Cloud Run audience, or credential. Those values come from
-trusted runtime configuration, and credentials are resolved from Vault for the
+trusted runtime configuration, and credentials are resolved from Secret Manager in the cloud or Vault locally for the
 authenticated user or workspace.
 
 If the transport, credential schema, and endpoint policy already exist, follow
@@ -28,7 +28,7 @@ To add a provider:
    Recheck the vendor lifecycle documentation whenever a default changes, and
    remove retired model identifiers from the allowlist. A syntactically valid
    model identifier is not evidence that the vendor still serves it.
-4. Resolve credentials through the existing provider-secret/Vault path. Durable
+4. Resolve credentials through the existing provider-secret store. Durable
    upload, reprocess, and worker jobs use only administrator-managed workspace
    credentials; personal credentials are intentionally limited to interactive
    editor enrichment and are never inferred from a job creator. Do not
@@ -57,7 +57,7 @@ endpoint URLs, audiences, factories, retry details, and credential field names.
 Segmentation engines follow the same rule. Register the engine descriptor and
 factory in `providerregistry`, add its approved selection IDs to trusted runtime
 configuration, and let `Registry.NewSegmentor` resolve exact server-owned
-origins. Remote `/v1/segment` and `/v1/transcribe` calls use
+origins. Remote `/v1/segment` calls use
 `htr/pkg/remoteocr`; all callers share Scribe's `internal/gcpidentity` token
 source. The source accepts only a validated service-account JSON or the
 keyless, non-delegated impersonation ADC shape named by

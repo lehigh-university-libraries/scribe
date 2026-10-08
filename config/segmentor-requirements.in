@@ -5,3 +5,6 @@
 kraken==7.0.2
 torch==2.10.0+cpu
 torchvision==0.25.0+cpu
+paddleocr==3.7.0
+paddlex==3.7.2
+paddlepaddle==3.3.1

@@ -13,7 +13,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -43,19 +42,12 @@ type SegmentBox struct {
 	Confidence float64 `json:"Confidence"`
 }
 
-type TranscriptionResponse struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	Text     string `json:"text"`
-}
-
 type processingFailureCategory string
 
 const (
 	processingFailureCanceled processingFailureCategory = "canceled"
 	processingFailureTimeout  processingFailureCategory = "timeout"
 	processingFailureInternal processingFailureCategory = "internal"
-	maxKrakenOutputBytes                                = int64(8 << 20)
 )
 
 var (
@@ -175,10 +167,6 @@ func NewHandler() http.Handler {
 		"POST /v1/segment",
 		withRequestDeadline(InferenceHandlerTimeout, expensive.Wrap(http.HandlerFunc(handleSegment))),
 	)
-	mux.Handle(
-		"POST /v1/transcribe",
-		withRequestDeadline(InferenceHandlerTimeout, expensive.Wrap(http.HandlerFunc(handleTranscribe))),
-	)
 	return mux
 }
 
@@ -201,7 +189,7 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	model := strings.TrimSpace(r.FormValue("model"))
 	if model == "" {
-		model = "auto"
+		model = "kraken"
 	}
 
 	file, header, err := r.FormFile("image")
@@ -278,67 +266,15 @@ func segmentBoxes(words []worddetection.WordBox) ([]SegmentBox, error) {
 	return result, nil
 }
 
-func handleTranscribe(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, uploadlimits.MaxMultipartBodyBytes)
-	if err := r.ParseMultipartForm(uploadlimits.MultipartMemoryBytes); err != nil { // #nosec G120 -- request body is capped with http.MaxBytesReader immediately above.
-		http.Error(w, "invalid multipart image request", http.StatusBadRequest)
-		return
-	}
-	if r.MultipartForm != nil {
-		defer func() { _ = r.MultipartForm.RemoveAll() }()
-	}
-	model := strings.TrimSpace(r.FormValue("model"))
-
-	file, header, err := r.FormFile("image")
-	if err != nil {
-		http.Error(w, "image form file is required", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	tmp, err := os.CreateTemp("", "segmentor-transcribe-*"+segmentorImageExtension(header, r.Header.Get("Content-Type")))
-	if err != nil {
-		http.Error(w, "prepare uploaded image failed", http.StatusInternalServerError)
-		return
-	}
-	tmpPath := tmp.Name()
-	defer func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath) // #nosec G703 -- tmpPath comes directly from os.CreateTemp, not request input.
-	}()
-	if err := copyMultipartImage(tmp, file, header.Size); err != nil {
-		http.Error(w, "prepare uploaded image failed", http.StatusInternalServerError)
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		http.Error(w, "prepare uploaded image failed", http.StatusInternalServerError)
-		return
-	}
-
-	text, resolvedModel, err := TranscribeWithKraken(r.Context(), tmpPath, model)
-	if err != nil {
-		writeProcessingFailure(w, "transcribe image", err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(TranscriptionResponse{
-		Provider: "kraken",
-		Model:    resolvedModel,
-		Text:     text,
-	})
-}
-
 func providerForModel(model string) (worddetection.Provider, string, error) {
 	trimmed := strings.TrimSpace(model)
 	normalized := strings.ToLower(trimmed)
-	switch normalized {
-	case "", "auto":
-		return worddetection.NewAuto(), "auto", nil
-	case "tesseract":
-		return worddetection.NewTesseract(), "tesseract", nil
-	case "scribe", "custom":
-		return worddetection.NewCustom(), "scribe", nil
+	if normalized == "newspapers" {
+		route, err := configuredKrakenModelRoute("KRAKEN_SEGMENTATION_MODEL_ID", "KRAKEN_SEGMENTATION_MODEL")
+		if err != nil {
+			return nil, "", err
+		}
+		return worddetection.NewNewspaper(route.path), "newspapers", nil
 	}
 	if trimmed != "" && trimmed == strings.TrimSpace(os.Getenv("KRAKEN_SEGMENTATION_MODEL_ID")) {
 		route, err := configuredKrakenModelRoute("KRAKEN_SEGMENTATION_MODEL_ID", "KRAKEN_SEGMENTATION_MODEL")
@@ -348,55 +284,6 @@ func providerForModel(model string) (worddetection.Provider, string, error) {
 		return worddetection.NewKraken(route.path), route.id, nil
 	}
 	return nil, normalized, fmt.Errorf("unsupported segmentation model")
-}
-
-func TranscribeWithKraken(ctx context.Context, imagePath, model string) (string, string, error) {
-	route, err := configuredKrakenModelRoute("KRAKEN_TRANSCRIPTION_MODEL_ID", "KRAKEN_TRANSCRIPTION_MODEL")
-	if err != nil {
-		return "", "", redactProcessingError("kraken transcription configuration", fmt.Errorf("invalid model selection"))
-	}
-	requestedModel := strings.TrimSpace(model)
-	if requestedModel != "" && requestedModel != route.id {
-		return "", "", redactProcessingError("kraken transcription configuration", fmt.Errorf("invalid model selection"))
-	}
-
-	output, err := os.CreateTemp("", "segmentor-kraken-*.txt")
-	if err != nil {
-		return "", "", redactProcessingError("kraken transcription", err)
-	}
-	outputPath := output.Name()
-	if err := output.Close(); err != nil {
-		_ = os.Remove(outputPath)
-		return "", "", redactProcessingError("kraken transcription", err)
-	}
-	defer func() { _ = os.Remove(outputPath) }()
-
-	// Scribe sends a cropped text line to the transcription provider, so a
-	// second page-segmentation pass is both redundant and can discard an
-	// otherwise valid line. Kraken suppresses pipeline exceptions by default;
-	// raising them keeps a failed recognition from looking like empty output.
-	cmd := exec.CommandContext(ctx, "kraken", // #nosec G204,G702 -- kraken is invoked directly without a shell; model paths are resolved under the configured model directory.
-		"--raise-on-error",
-		"-i", imagePath, outputPath,
-		"ocr", "--no-segmentation", "-m", route.path,
-	)
-	combined, err := cmd.CombinedOutput()
-	if err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			err = contextErr
-		}
-		return "", "", redactSubprocessError("kraken transcription", err, combined)
-	}
-
-	data, err := safefile.ReadFileLimit(outputPath, maxKrakenOutputBytes)
-	if err != nil {
-		return "", "", redactProcessingError("kraken transcription", err)
-	}
-	text := strings.TrimSpace(string(data))
-	if text == "" {
-		return "", "", fmt.Errorf("kraken returned empty transcription")
-	}
-	return text, route.id, nil
 }
 
 type krakenModelRoute struct {

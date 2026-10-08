@@ -4,10 +4,6 @@ terraform {
   backend "gcs" {}
 
   required_providers {
-    docker = {
-      source  = "kreuzwerker/docker"
-      version = "~> 4.2"
-    }
     google = {
       source  = "hashicorp/google"
       version = "~> 7.0"
@@ -20,9 +16,6 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.7"
     }
-    vault = {
-      source  = "hashicorp/vault"
-      version = "~> 5.7"
-    }
+
   }
 }

@@ -31,7 +31,7 @@ terraform_version_re="${tool_terraform//./\\.}"
 [ "$node_version" = "$tool_node" ] || fail ".nvmrc and .tool-versions disagree"
 
 for file in Dockerfile Dockerfile.segmentor; do
-  grep -Eq "^FROM golang:${go_version_re}[-@]" "$file" || fail "$file does not use Go ${go_version}"
+  grep -Eq "^FROM (--platform=[^ ]+ )?golang:${go_version_re}[-@]" "$file" || fail "$file does not use Go ${go_version}"
 done
 grep -Eq "^FROM node:${node_version_re}-" Dockerfile.frontend || fail "Dockerfile.frontend does not use Node ${node_version}"
 grep -Eq "^FROM python:${python_version_re}-" Dockerfile.segmentor || fail "Dockerfile.segmentor does not use Python ${tool_python}"

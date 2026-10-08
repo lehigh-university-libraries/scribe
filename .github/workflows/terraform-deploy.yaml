@@ -1,7 +1,7 @@
 name: Terraform Deploy
 
 # Runs `make tf-prod` or `make tf-preview` (terraform plan/apply/destroy in the
-# matching workspace) and, after an apply, executes the readiness jobs.
+# matching workspace). Terraform executes migrations and readiness jobs.
 on:
   workflow_call:
     inputs:
@@ -78,16 +78,9 @@ jobs:
       - name: Export configured Terraform variables
         env:
           region: ${{ vars.SCRIBE_REGION }}
-          zone: ${{ inputs.pr_number != '' && vars.SCRIBE_PREVIEW_ZONE || vars.SCRIBE_ZONE }}
           allowed_ips: ${{ vars.ALLOWED_IPS }}
-          allowed_ssh_ipv4: ${{ vars.ALLOWED_SSH_IPV4 }}
-          allowed_ssh_ipv6: ${{ vars.ALLOWED_SSH_IPV6 }}
-          vault_admin_emails: ${{ vars.VAULT_ADMIN_EMAILS }}
-          vault_ci_service_account_emails: ${{ secrets.GSA != '' && format('["{0}"]', secrets.GSA) || '' }}
           monitoring_notification_channels: ${{ vars.MONITORING_NOTIFICATION_CHANNELS }}
           network_ip_cidr_range: ${{ vars.NETWORK_IP_CIDR_RANGE }}
-          compose_network_cidr: ${{ vars.COMPOSE_NETWORK_CIDR }}
-          preview_machine_type: ${{ vars.SCRIBE_PREVIEW_MACHINE_TYPE }}
           iiif_max_manifest_canvases: ${{ vars.IIIF_MAX_MANIFEST_CANVASES }}
           iiif_max_manifest_import_bytes: ${{ vars.IIIF_MAX_MANIFEST_IMPORT_BYTES }}
           storage_max_bytes_per_workspace: ${{ vars.STORAGE_MAX_BYTES_PER_WORKSPACE }}
@@ -102,10 +95,8 @@ jobs:
           transcription_max_active_jobs_per_workspace: ${{ vars.TRANSCRIPTION_MAX_ACTIVE_JOBS_PER_WORKSPACE }}
         # Unset GitHub variables are empty strings; leave those to Terraform's defaults.
         run: |
-          for name in region zone allowed_ips allowed_ssh_ipv4 allowed_ssh_ipv6 vault_admin_emails \
-            vault_ci_service_account_emails monitoring_notification_channels \
-            network_ip_cidr_range compose_network_cidr \
-            preview_machine_type iiif_max_manifest_canvases iiif_max_manifest_import_bytes \
+          for name in region allowed_ips monitoring_notification_channels \
+            network_ip_cidr_range iiif_max_manifest_canvases iiif_max_manifest_import_bytes \
             storage_max_bytes_per_workspace storage_max_bytes_total storage_max_images_per_workspace \
             storage_max_images_total storage_max_items_per_workspace storage_max_items_total \
             storage_normalization_cache_max_age storage_normalization_cache_max_bytes \
@@ -128,23 +119,6 @@ jobs:
         run: |
           terraform -chdir=terraform workspace select default
           terraform -chdir=terraform workspace delete "pr-${PR_NUMBER}"
-
-      # A replaced VM can still be booting when Terraform returns, so give each
-      # probe a few attempts before failing the deploy.
-      - name: Run readiness jobs
-        if: inputs.action == 'apply'
-        run: |
-          for output in backend_readiness_job ocr_readiness_job; do
-            job="$(terraform -chdir=terraform output -raw "$output")"
-            for attempt in 1 2 3 4 5 6; do
-              if gcloud run jobs execute "$job" --region "$REGION" --wait; then
-                continue 2
-              fi
-              echo "::warning::${job} failed (attempt ${attempt}/6); retrying in 2 minutes."
-              sleep 120
-            done
-            exit 1
-          done
 
       - name: Read URL
         id: url

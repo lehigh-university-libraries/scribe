@@ -17,9 +17,10 @@ import (
 const transcriptionJobMessageType = "scribe.transcription_job"
 
 type PubSubTranscriptionQueue struct {
-	client     *pubsub.Client
-	publisher  *pubsub.Publisher
-	subscriber *pubsub.Subscriber
+	client               *pubsub.Client
+	publisher            *pubsub.Publisher
+	maintenancePublisher *pubsub.Publisher
+	subscriber           *pubsub.Subscriber
 }
 
 type transcriptionJobMessage struct {
@@ -42,6 +43,9 @@ func NewPubSubTranscriptionQueue(ctx context.Context, cfg config.TranscriptionQu
 		client:     client,
 		publisher:  client.Publisher(topicID),
 		subscriber: client.Subscriber(subscriptionID),
+	}
+	if cfg.MaintenanceTopicID != "" {
+		q.maintenancePublisher = client.Publisher(cfg.MaintenanceTopicID)
 	}
 	maxOutstanding := cfg.MaxOutstandingMessages
 	if maxOutstanding <= 0 {
@@ -122,10 +126,22 @@ func (q *PubSubTranscriptionQueue) Close() error {
 	if q.publisher != nil {
 		q.publisher.Stop()
 	}
+	if q.maintenancePublisher != nil {
+		q.maintenancePublisher.Stop()
+	}
 	if q.client != nil {
 		return q.client.Close()
 	}
 	return nil
+}
+
+// WakeMaintenance sends a wake-up only; durable outbox rows own the work.
+func (q *PubSubTranscriptionQueue) WakeMaintenance(ctx context.Context) error {
+	if q.maintenancePublisher == nil {
+		return nil
+	}
+	_, err := q.maintenancePublisher.Publish(ctx, &pubsub.Message{Data: []byte(`{"type":"scribe.maintenance"}`)}).Get(ctx)
+	return err
 }
 
 func parseTranscriptionJobMessage(msg *pubsub.Message) (uint64, error) {
@@ -149,4 +165,23 @@ func parseTranscriptionJobMessage(msg *pubsub.Message) (uint64, error) {
 		return 0, fmt.Errorf("missing job_id")
 	}
 	return payload.JobID, nil
+}
+
+// ParsePushTranscriptionJob decodes the bounded, wrapped Pub/Sub push format.
+// Cloud Run IAM authenticates the sender before this internal endpoint runs.
+func ParsePushTranscriptionJob(body []byte, subscription string) (uint64, error) {
+	var envelope struct {
+		Message struct {
+			Data       []byte            `json:"data"`
+			Attributes map[string]string `json:"attributes"`
+		} `json:"message"`
+		Subscription string `json:"subscription"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return 0, fmt.Errorf("invalid push envelope")
+	}
+	if subscription == "" || envelope.Subscription != subscription {
+		return 0, fmt.Errorf("unexpected push subscription")
+	}
+	return parseTranscriptionJobMessage(&pubsub.Message{Data: envelope.Message.Data, Attributes: envelope.Message.Attributes})
 }

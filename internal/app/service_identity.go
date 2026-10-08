@@ -82,8 +82,6 @@ func configuredServiceAudiences(cfg config.Config) []string {
 
 	add(cfg.Segmentation.Audience)
 	addEndpoints(cfg.Segmentation.ModelEndpoints)
-	add(cfg.LLM.Kraken.Audience)
-	addEndpoints(cfg.LLM.Kraken.ModelEndpoints)
 	add(cfg.LLM.Ollama.Audience)
 	addEndpoints(cfg.LLM.Ollama.ModelEndpoints)
 

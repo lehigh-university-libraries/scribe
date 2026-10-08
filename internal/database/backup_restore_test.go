@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -123,7 +124,10 @@ FROM items
 WHERE id = 'migration-upgrade-item'`).Scan(&externalReferenceID, &callerIdempotencyKey, &metadata); err != nil {
 		t.Fatalf("load upgraded item fixture: %v", err)
 	}
-	if externalReferenceID != "" || callerIdempotencyKey != "" || metadata != `{"preserved":true}` {
+	var preserved struct {
+		Preserved bool `json:"preserved"`
+	}
+	if externalReferenceID != "" || callerIdempotencyKey != "" || json.Unmarshal([]byte(metadata), &preserved) != nil || !preserved.Preserved {
 		t.Fatalf("upgraded item fields = %q/%q/%q; want empty new identifiers and preserved metadata", externalReferenceID, callerIdempotencyKey, metadata)
 	}
 

@@ -4,7 +4,7 @@ Use this guide for a new engine or wire contract. To add another model served
 by an existing segmentor, follow
 [add a segmentation model](adding-segmentation-model.md) instead.
 
-1. Implement the general `/v1/segment` or `/v1/transcribe` transport in
+1. Implement the general `/v1/segment` transport in
    `github.com/lehigh-university-libraries/htr/pkg/remoteocr`, then register the
    Scribe capability descriptor and approved model routes. Do not add a second
    multipart HTTP client in Scribe.

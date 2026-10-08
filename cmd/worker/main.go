@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,9 +17,12 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/lehigh-university-libraries/scribe/internal/app"
 	"github.com/lehigh-university-libraries/scribe/internal/httplimits"
 	"github.com/lehigh-university-libraries/scribe/internal/httprun"
+	"github.com/lehigh-university-libraries/scribe/internal/jobqueue"
 	"github.com/lehigh-university-libraries/scribe/internal/safelog"
 )
 
@@ -45,12 +51,51 @@ func workerHealthHandler(checker readinessChecker, draining *atomic.Bool) http.H
 				return
 			}
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready", "api_image": os.Getenv("SCRIBE_DEPLOYED_API_IMAGE"), "public_origin": os.Getenv("PUBLIC_BASE_URL")})
 	}
 	mux.HandleFunc("GET /livez", liveness)
 	mux.HandleFunc("GET /readyz", readiness)
 	mux.HandleFunc("GET /healthz", readiness)
+	return mux
+}
+
+func workerRequestHandler(health http.Handler, subscription string, draining *atomic.Bool, process func(context.Context, uint64) error, maintain func(context.Context) error) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/", health)
+	run := func(w http.ResponseWriter, r *http.Request, limit time.Duration, work func(context.Context) error) {
+		if draining.Load() {
+			http.Error(w, "draining", http.StatusServiceUnavailable)
+			return
+		}
+		ctx, cancel := context.WithCancel(r.Context())
+		// Cancellation follows the existing defer/retry path before Pub/Sub's
+		// ten-minute push deadline. No work continues after the response.
+		timer := time.AfterFunc(limit, cancel)
+		defer timer.Stop()
+		defer cancel()
+		if err := work(ctx); err != nil {
+			http.Error(w, "worker operation incomplete", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	mux.HandleFunc("POST /internal/transcription", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+		if err != nil {
+			http.Error(w, "invalid push envelope", http.StatusBadRequest)
+			return
+		}
+		id, err := jobqueue.ParsePushTranscriptionJob(body, subscription)
+		if err != nil {
+			http.Error(w, "invalid push envelope", http.StatusBadRequest)
+			return
+		}
+		run(w, r, 9*time.Minute, func(ctx context.Context) error { return process(ctx, id) })
+	})
+	mux.HandleFunc("POST /internal/maintenance", func(w http.ResponseWriter, r *http.Request) {
+		run(w, r, 4*time.Minute, maintain)
+	})
 	return mux
 }
 
@@ -79,16 +124,35 @@ func run(ctx context.Context) (returnErr error) {
 
 	workerCtx, workerCancel := context.WithCancel(ctx)
 	defer workerCancel()
-	handler.StartTranscriptionWorker(workerCtx)
-	handler.StartWebhookDispatcher(workerCtx)
-	handler.StartProviderCallAuditRetention(workerCtx)
-	handler.StartExternalRequestRetention(workerCtx)
-	handler.StartAnnotationMirrorDispatcher(workerCtx)
-	handler.StartResourceCleanupDispatcher(workerCtx)
-	deps.AuthManager.StartProviderSecretCleanupDispatcher(workerCtx)
-	deps.AuthManager.StartSessionRetentionDispatcher(workerCtx)
+	pushMode := os.Getenv("SCRIBE_WORKER_PUSH") == "true"
+	if pushMode && deps.TranscriptionQueue == nil {
+		return fmt.Errorf("push worker requires the Pub/Sub queue")
+	}
+	if !pushMode {
+		handler.StartTranscriptionWorker(workerCtx)
+		handler.StartWebhookDispatcher(workerCtx)
+		handler.StartProviderCallAuditRetention(workerCtx)
+		handler.StartExternalRequestRetention(workerCtx)
+		handler.StartAnnotationMirrorDispatcher(workerCtx)
+		handler.StartResourceCleanupDispatcher(workerCtx)
+		deps.AuthManager.StartProviderSecretCleanupDispatcher(workerCtx)
+		deps.AuthManager.StartSessionRetentionDispatcher(workerCtx)
+	}
 
 	var draining atomic.Bool
+	httpHandler := workerHealthHandler(deps.DBPool, &draining)
+	writeTimeout := 10 * time.Second
+	if pushMode {
+		cfg := deps.Config.Transcription.Queue
+		subscription := "projects/" + cfg.ProjectID + "/subscriptions/" + cfg.SubscriptionID
+		httpHandler = workerRequestHandler(httpHandler, subscription, &draining, handler.ProcessTranscriptionDelivery, func(ctx context.Context) error {
+			var passes errgroup.Group
+			passes.Go(func() error { return deps.AuthManager.RunWorkerMaintenance(ctx) })
+			passes.Go(func() error { return handler.RunWorkerMaintenance(ctx) })
+			return passes.Wait()
+		})
+		writeTimeout = 610 * time.Second
+	}
 
 	healthAddr := strings.TrimSpace(os.Getenv("WORKER_HEALTH_LISTEN_ADDR"))
 	if healthAddr == "" {
@@ -96,10 +160,11 @@ func run(ctx context.Context) (returnErr error) {
 	}
 	httpServer := &http.Server{
 		Addr:              healthAddr,
-		Handler:           workerHealthHandler(deps.DBPool, &draining),
+		Handler:           httpHandler,
+		BaseContext:       func(net.Listener) context.Context { return workerCtx },
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    httplimits.MaxHeaderBytes,
 	}

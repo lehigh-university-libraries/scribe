@@ -1,10 +1,22 @@
 package jobqueue
 
 import (
+	"encoding/base64"
 	"testing"
 
 	"cloud.google.com/go/pubsub/v2"
 )
+
+func TestPushJobDecodesWrappedData(t *testing.T) {
+	body := []byte(`{"subscription":"projects/project/subscriptions/jobs","message":{"data":"` + base64.StdEncoding.EncodeToString([]byte(`{"type":"scribe.transcription_job","job_id":123}`)) + `"}}`)
+	id, err := ParsePushTranscriptionJob(body, "projects/project/subscriptions/jobs")
+	if err != nil || id != 123 {
+		t.Fatalf("push job = %d/%v; want 123", id, err)
+	}
+	if _, err := ParsePushTranscriptionJob(body, "projects/project/subscriptions/other"); err == nil {
+		t.Fatal("accepted another subscription's push")
+	}
+}
 
 func TestParseTranscriptionJobMessageFromAttribute(t *testing.T) {
 	jobID, err := parseTranscriptionJobMessage(&pubsub.Message{

@@ -19,6 +19,7 @@ paths=(
   ci/segmentor-lock.sh
   config/imagemagick-policy.xml
   config/ocr.yaml
+  config/readiness-smoke.png.base64
   config/segmentor-requirements.lock
   go.mod
   go.sum

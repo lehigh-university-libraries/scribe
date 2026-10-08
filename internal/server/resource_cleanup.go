@@ -48,7 +48,7 @@ func (h *Handler) StartResourceCleanupDispatcher(ctx context.Context) {
 	})
 }
 
-func (h *Handler) dispatchResourceCleanups(ctx context.Context) {
+func (h *Handler) dispatchResourceCleanups(ctx context.Context) int {
 	deliveries := make([]store.ResourceCleanupDelivery, 0, resourceCleanupClaimBatch)
 	for range resourceCleanupClaimBatch {
 		delivery, err := h.items.ClaimResourceCleanup(ctx, resourceCleanupLease)
@@ -85,6 +85,7 @@ func (h *Handler) dispatchResourceCleanups(ctx context.Context) {
 		}()
 	}
 	workers.Wait()
+	return len(deliveries)
 }
 
 func (h *Handler) performResourceCleanup(ctx context.Context, delivery store.ResourceCleanupDelivery) (bool, error) {

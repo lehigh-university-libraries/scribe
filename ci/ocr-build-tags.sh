@@ -17,13 +17,12 @@ container_id="$(
     "$GO_TEST_IMAGE" \
     sh -lc '
     set -eu
-    apk add --no-cache build-base pkgconf tesseract-ocr-dev leptonica-dev >/dev/null
     /usr/local/go/bin/go test ./internal/worddetection ./internal/hocr ./internal/handlers
     /usr/local/go/bin/go test -tags remoteocr ./internal/worddetection ./internal/hocr ./internal/handlers
     /usr/local/go/bin/go test -tags localocr ./internal/worddetection ./internal/hocr ./internal/handlers
     CGO_ENABLED=0 /usr/local/go/bin/go build -tags remoteocr ./cmd/api ./cmd/worker
     CGO_ENABLED=0 GOOS=linux GOARCH=386 /usr/local/go/bin/go build -trimpath -tags remoteocr ./cmd/api ./cmd/worker
-    CGO_ENABLED=1 /usr/local/go/bin/go build -tags localocr ./cmd/segmentor
+    CGO_ENABLED=0 /usr/local/go/bin/go build ./cmd/segmentor
   '
 )"
 cleanup() {

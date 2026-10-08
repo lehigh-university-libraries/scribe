@@ -3,12 +3,10 @@ package telemetry
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"regexp"
 	"sync"
 	"time"
@@ -24,6 +22,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"google.golang.org/grpc/status"
 )
 
 const instrumentationName = "github.com/lehigh-university-libraries/scribe"
@@ -74,7 +73,7 @@ func Start(ctx context.Context, cfg config.ObservabilityConfig, opts Options) (*
 	res := resource.NewSchemaless(
 		attribute.String("service.name", opts.ServiceName),
 		attribute.String("service.namespace", "scribe"),
-		attribute.String("service.instance.id", opaqueInstanceID(opts.ServiceName)),
+		attribute.String("service.instance.id", rand.Text()),
 		deploymentEnvironmentAttributeKey.String(cfg.DeploymentEnvironment),
 	)
 	errorHandler := safeErrorHandler{}
@@ -200,15 +199,6 @@ func (runtime *Runtime) Close() error {
 	return runtime.closeErr
 }
 
-func opaqueInstanceID(serviceName string) string {
-	hostname, err := os.Hostname()
-	if err != nil || hostname == "" {
-		hostname = serviceName
-	}
-	digest := sha256.Sum256([]byte(serviceName + "\x00" + hostname))
-	return hex.EncodeToString(digest[:8])
-}
-
 type safeErrorHandler struct{}
 
 func (safeErrorHandler) Handle(err error) {
@@ -219,6 +209,7 @@ func (safeErrorHandler) Handle(err error) {
 		"telemetry export failed",
 		"error_type", safelog.ErrorType(err),
 		"category", safelog.ErrorCategory(err),
+		"rpc_code", status.Code(err).String(),
 	)
 }
 

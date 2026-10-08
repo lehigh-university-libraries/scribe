@@ -1,301 +1,33 @@
 # Production troubleshooting
 
-Production runs on Container-Optimized OS (COS). The VM boot disk contains the
-reviewed Cloud Compose runtime, while the data and Docker-volume disks retain
-the workspace checkout, local secrets, uploads, and named volumes across VM
-replacement. Diagnose that managed lifecycle before changing anything by hand.
-
-## Preconditions
-
-Only an authorized production operator should run these commands. First, from
-an operator checkout, confirm that no production apply, rollback, or other
-lifecycle operation is still running:
+Start with the failed managed readiness job and Cloud Run revision logs. There
+is no SSH, COS bootstrap, Docker daemon, or VM lifecycle to repair.
 
 ```bash
-gh run list \
-  --repo lehigh-university-libraries/scribe \
-  --workflow terraform-apply.yaml \
-  --branch main \
-  --limit 3
+terraform -chdir=terraform output -raw backend_readiness_job
+terraform -chdir=terraform output -raw ocr_readiness_job
+gcloud run services describe scribe --region=us-east5
+gcloud run services describe scribe-worker --region=us-east5
+gcloud sql instances describe scribe-mysql
 ```
 
-Wait for the active workflow to finish. Record its run ID and expected commit
-before connecting to the VM. Manual recovery may restart the application and
-must not race Terraform or another operator.
+Use the actual workspace's names and configured region. Inspect container names
+in logs: frontend validates ingress/origin, api serves Connect and upload reads,
+triplet handles Image/Presentation requests, pdf converts exports, cloudsql
+provides private authenticated database connectivity, and worker drains leases.
 
-## Separate boot failure from application failure
-
-On the production VM, collect read-only evidence first:
-
-```bash
-sudo cloud-init status --long
-sudo systemctl --no-pager --full status \
-  cloud-final.service \
-  cloud-compose-bootstrap.service \
-  cloud-compose.service
-sudo journalctl -b \
-  -u cloud-final.service \
-  -u cloud-compose-bootstrap.service \
-  -u cloud-compose.service \
-  --no-pager -n 300
-sudo test ! -f /home/cloud-compose/run.log ||
-  sudo tail -n 300 /home/cloud-compose/run.log
-```
-
-`cloud-compose-bootstrap.service` owns retryable root convergence. Its journal
-is the canonical bootstrap log; `run.log`, when present, is legacy or rollout
-evidence. A failed `cloud-compose.service` means the unprivileged application
-lifecycle reached `/home/cloud-compose/up` and failed during preflight, image
-pull, secret generation, convergence, Compose startup, or local readiness.
-Cloud final waits for the bootstrap marker, but the enabled bootstrap unit keeps
-retrying a transient failure after cloud final exits.
-
-The completion marker and service state distinguish a completed bootstrap from
-one that stopped early:
-
-```bash
-sudo test -f /home/cloud-compose/.cloud-compose-bootstrap-complete &&
-  echo 'cloud-compose bootstrap marker is present'
-sudo systemctl is-active cloud-compose.service
-```
-
-Do not publish the complete boot log without reviewing it. Never print `.env`,
-secret-file contents, tokens, or raw provider responses into an issue or chat.
-
-Failed protected production and preview applies upload
-`<workspace>-vm-bootstrap-diagnostics.log` with the Terraform artifacts. That
-file contains only typed instance, Direct VPC, effective-firewall, and
-module-owned service-account key counts. `capacity=exhausted` means an app or
-internal identity has reached GCP's ten user-managed-key limit; it does not
-identify or delete any key. Query failures are reported as `unavailable`
-without persisting raw API errors or key IDs.
-
-## Verify the managed target
-
-The manifest is the source of truth for the checkout, Compose project, and Git
-ref (a branch such as `main`, or a commit when CI pinned one):
-
-```bash
-sudo jq -r \
-  '.primary | [.project_dir, .compose_project_name, .docker_compose_branch] | @tsv' \
-  /home/cloud-compose/compose-projects.json
-
-expected_scribe_ref="$(
-  sudo jq -r '.primary.docker_compose_branch' \
-    /home/cloud-compose/compose-projects.json
-)"
-scribe_project_dir="$(
-  sudo jq -r '.primary.project_dir' \
-    /home/cloud-compose/compose-projects.json
-)"
-actual_scribe_sha="$(
-  sudo -u cloud-compose \
-    git -C "$scribe_project_dir" rev-parse --verify HEAD
-)"
-expected_scribe_sha="$(
-  sudo -u cloud-compose \
-    git -C "$scribe_project_dir" rev-parse --verify "origin/${expected_scribe_ref}" 2>/dev/null ||
-  sudo -u cloud-compose \
-    git -C "$scribe_project_dir" rev-parse --verify "${expected_scribe_ref}^{commit}"
-)"
-test "$actual_scribe_sha" = "$expected_scribe_sha" &&
-  echo 'managed checkout matches the manifest commit'
-```
-
-Production should report `/mnt/disks/data/scribe/prod`, `scribe-prod`, and
-`main` or a commit. The project directory is stable for the current
-persistence generation because it owns ignored local secrets, including
-MariaDB's root bootstrap password. A commit ref leaves the checkout detached;
-a branch ref tracks `origin/<branch>` on each rollout.
-
-Inspect file metadata without reading values:
-
-```bash
-scribe_project_dir="$(
-  sudo jq -r '.primary.project_dir' \
-    /home/cloud-compose/compose-projects.json
-)"
-sudo stat -c '%U:%G %a %s %n' \
-  "$scribe_project_dir/.env" \
-  "$scribe_project_dir/secrets/triplet_presentation_write_token"
-sudo test -s \
-  "$scribe_project_dir/secrets/triplet_presentation_write_token" &&
-  echo 'Triplet write-token bind is present and nonempty'
-```
-
-Root convergence makes `.env` writable only by the `cloud-compose` runtime
-account; Scribe's atomic updates leave it owner-only with mode `0600`. Every
-declared local secret must be a nonempty regular file. The secret group is
-recorded in `.env`; do not reveal it by printing the file.
-
-For a port or network collision, restrict inspection to the exact production
-project:
-
-```bash
-sudo docker ps -a \
-  --filter label=com.docker.compose.project=scribe-prod \
-  --format 'name={{.Names}} service={{.Label "com.docker.compose.service"}} status={{.Status}}'
-sudo docker inspect scribe-prod-traefik-1 \
-  --format 'status={{.State.Status}} error={{.State.Error}}'
-sudo docker network inspect scribe-prod_default \
-  --format '{{range $id,$c := .Containers}}{{printf "name=%s ip=%s\n" $c.Name $c.IPv4Address}}{{end}}'
-sudo docker ps --filter publish=80 \
-  --format 'name={{.Names}} project={{.Label "com.docker.compose.project"}} ports={{.Ports}}'
-sudo ss -ltnp '( sport = :80 )'
-```
-
-An empty host-port result does not rule out a stale Docker network endpoint.
-The runtime preflight checks both exact project labels and the fixed Traefik
-address.
-
-Render status through the same profile, checkout, and overlay used by the
-service:
-
-```bash
-scribe_project_dir="$(
-  sudo jq -r '.primary.project_dir' \
-    /home/cloud-compose/compose-projects.json
-)"
-sudo -u cloud-compose \
-  bash -c 'source /home/cloud-compose/profile.sh
-cd -- "$1"
-docker compose \
-  -f docker-compose.yaml \
-  -f /home/cloud-compose/scribe-runtime.compose.yaml \
-  ps' bash "$scribe_project_dir"
-```
-
-## Retry the supported lifecycle
-
-If bootstrap completed and only `cloud-compose.service` failed, restart that
-unit:
-
-```bash
-sudo systemctl restart cloud-compose.service
-sudo systemctl --no-pager --full status cloud-compose.service
-```
-
-This takes the shared lifecycle lock, reuses the verified checkout, refreshes
-deployment-owned environment values, retries image pulls, creates missing
-declared local secret files, and repairs an interrupted short application-token
-write in place. A repair first changes a nonsecret Compose generation label, so
-the ordinary Compose startup recreates API, worker, and Triplet together rather
-than leaving any process with an older token in its environment. The lifecycle
-converges only the exact `scribe-prod` containers and network when required,
-starts the reviewed services, and waits for readiness. It does not remove named
-volumes.
-
-Do not invoke `generate-secrets.sh` directly to repair a live application
-token. Partial lifecycles such as `make up-db` deliberately refuse that repair
-because they do not follow it with a full Compose startup. Use `make up`
-locally or restart `cloud-compose.service` in the hosted runtime so the
-generation-label change and consumer recreation happen in the same resumable
-lifecycle.
-
-In-place short-token repair depends on Linux `/proc` descriptor semantics. On
-Darwin or BSD, if `make up` reports a short token, run `make down`, remove only
-the exact reported token file under `secrets/`, and run `make up` again to
-regenerate it. Missing-token creation remains supported on those hosts.
-
-If the completion marker is absent, first check whether
-`cloud-compose-bootstrap.service` is activating or automatically retrying. Do
-not start a second lifecycle while it is active. After resolving a reviewed
-input failure, restart the systemd-owned idempotent bootstrap:
-
-```bash
-sudo systemctl restart cloud-compose-bootstrap.service
-sudo systemctl --no-pager --full status \
-  cloud-compose-bootstrap.service cloud-compose.service
-sudo journalctl -b \
-  -u cloud-compose-bootstrap.service \
-  -u cloud-compose.service \
-  --no-pager -n 300
-```
-
-This is the supported recovery for metadata left by VM replacement, including
-an unreadable `.env`. Root convergence operates only on the exact
-manifest-owned project directory and `.env`, then source preparation restores
-the immutable commit and application initialization scaffolds declared secret
-files before the service starts. A retry does not repeat app initialization
-after the current-boot marker is published. The original cloud-init failure
-remains useful historical evidence; successful convergence is proven by the
-completion marker, active service, exact Git SHA, and readiness checks.
-
-Verify recovery:
-
-```bash
-sudo test -f /home/cloud-compose/.cloud-compose-bootstrap-complete &&
-  echo 'cloud-compose bootstrap marker is present'
-sudo systemctl is-active --quiet cloud-compose.service
-curl --noproxy '*' --fail --silent --show-error \
-  --connect-timeout 2 --max-time 10 http://127.0.0.1/livez
-curl --noproxy '*' --fail --silent --show-error \
-  --connect-timeout 2 --max-time 10 http://127.0.0.1/readyz
-```
-
-### Known failure signatures
-
-| Signature | Meaning and supported recovery |
+| Symptom | Check |
 | --- | --- |
-| `.env: permission denied` | The persistent checkout retained metadata from an older VM. Run the full root bootstrap; do not apply recursive ownership changes. |
-| `secret file ... does not exist` or `bind source path does not exist` | Verify the declared bind with `test -s`. Restart `cloud-compose.service`: the locked application lifecycle creates a missing local secret and safely regenerates a short Triplet or page-token secret without rotating a valid file. The repair preserves the bind-mounted inode and changes the Compose generation so API, worker, and Triplet are recreated together. Vault-backed database secrets are synchronized before Compose starts. If an externally managed credential remains absent or empty, run the full root bootstrap; never create an empty placeholder manually. |
-| `scripts/update-env.py: No such file` under `/mnt/disks/data` | An obsolete data-disk helper was invoked. Stop using it and return to the systemd-owned bootstrap or `cloud-compose.service`; no replacement Python helper is required. |
-| `Address already in use` for Traefik | Inspect the exact project containers, network, port 80, and Traefik state above, then restart `cloud-compose.service`. Its preflight repairs only exact-project stale state. If it reports that the canonical network is owned outside the project label, stop and escalate rather than deleting it. |
-| Traefik reports a configuration parser error | The immutable application configuration is invalid. Fix and redeploy the repository source; do not edit generated configuration on the VM. |
-| Image upload or URL ingest returns `500` after about ten seconds | An old application image is attempting a metadata-only identity-token lookup even though container metadata access is intentionally blocked. Confirm the managed checkout SHA and inspect only the API/worker startup status and redacted logs. Current images mint all configured outbound service audiences from the managed credential before listening, so this condition must fail deployment readiness. Deploy the reviewed fix; do not open metadata access or copy credentials by hand. |
+| API never becomes ready | Cloud SQL operation status, proxy connectivity, Secret Manager accessor grants, OAuth maps, completed migration jobs |
+| Worker stops consuming jobs | Minimum instance count, cpu_idle=false, worker readiness, subscription IAM, leases, registered provider endpoints |
+| Triplet returns errors | triplet database schema, SQL DSN secret version, shared write token, source-read policy, image limits |
+| Frontend rejects a request | allowed_ips, exact direct Cloud Run forwarded chain, external HTTPS, canonical PUBLIC_BASE_URL |
+| Backend readiness reports wrong digest | SCRIBE_DEPLOYED_API_IMAGE and image_tag resolution; reapply the correct immutable image |
+| Secret loading fails | Deployment prefix and workspace, active Secret Manager versions, ADC identity, resource-scoped IAM |
+| Schema migration fails | Cloud Run migration execution logs and the dirty migration ledger; repair/reset the unused database deliberately before retrying |
 
-## Cloud Run readiness
-
-Every apply runs the backend and OCR readiness jobs. When one fails, read its
-logs:
-
-```bash
-gcloud run jobs executions list --job scribe-prod-backend-readiness \
-  --project "$GCLOUD_PROJECT" --region us-east5 --limit 3
-gcloud logging read \
-  'resource.type="cloud_run_job" AND resource.labels.job_name="scribe-prod-backend-readiness"' \
-  --project "$GCLOUD_PROJECT" --freshness=2h --order=asc --limit=200 --format='value(timestamp,textPayload)'
-```
-
-The backend job reports frontend-to-VM startup, transport, or readiness-contract
-failures. The OCR job (`scribe-prod-ocr-readiness`) names the failed image,
-segmentation, transcription, or Ollama stage. To rerun either job after a fix:
-
-```bash
-gcloud run jobs execute scribe-prod-ocr-readiness --project "$GCLOUD_PROJECT" --region us-east5 --wait
-```
-
-For a segmentation failure, this query selects only Scribe's known redacted
-failure message and categorical fields from the exact production service:
-
-```bash
-gcloud logging read \
-  'resource.type="cloud_run_revision" AND resource.labels.service_name="scribe-segmentor-prod" AND textPayload:"segmentor request failed"' \
-  --project "$GCLOUD_PROJECT" \
-  --freshness=2h \
-  --order=asc \
-  --limit=50 \
-  --format='value(timestamp,textPayload)'
-```
-
-Do not broaden the query to raw provider payloads. Preserve the run ID,
-execution name, operation, category, error type, and subprocess byte count as
-incident evidence.
-
-## Unsafe actions
-
-- Do not run `git pull`, switch branches, or edit the managed checkout.
-- Do not invoke legacy `/mnt/disks/data/{init,up,down}` helpers or run
-  `/home/cloud-compose/run.sh` outside its systemd bootstrap unit.
-- Do not manually `chmod -R`, `chown -R`, touch secret files, or print their
-  contents.
-- Do not run `docker system prune`, `docker volume rm`, `docker compose down
-  --volumes`, or remove a network/container outside the exact validated project.
-- Do not edit `.env`, Compose YAML, or generated runtime overlays on the VM;
-  change reviewed source or Terraform inputs and deploy them.
-- Do not run credentialed deployment or readiness helpers from a pull-request
-  checkout.
-
-If bounded convergence refuses ownership or identity checks, preserve the
-evidence and fix the reviewed source or infrastructure. A refusal is not
-authorization to widen the recovery boundary.
+Run make ci before changing runtime configuration. Reapply Terraform to publish
+changes; do not patch a live revision's environment outside Terraform. Run the
+backend and OCR jobs again after remediation with gcloud run jobs execute JOB
+--region REGION --wait. See [job recovery](job-recovery.md) for lease recovery
+and [backup and restore](backup-restore.md) for durable data verification.

@@ -17,6 +17,14 @@ attempt number, lease token, and input revision so a delayed attempt cannot
 overwrite newer human corrections or silently pick up an edited model
 configuration.
 
+Cloud workers receive authenticated Pub/Sub pushes and can scale to zero when
+idle. Each delivery finishes within its HTTP request and uses the same durable
+claim and revision fence as local polling workers. Committed events push outbox
+maintenance wake-ups; scheduled passes recover missed wake-ups, expired leases,
+and delayed retries every thirty minutes. A transcription push attempt is
+bounded to nine minutes and cancellation follows the existing bounded retry
+policy; contexts must fit that attempt budget.
+
 Line transcription attempts every segment before deciding whether a
 retryable or unclassified line failure should retry the page. If at least one
 line succeeds, the worker commits the partial page once, records the failed
@@ -60,3 +68,18 @@ revision conflict or late database failure rolls back all of those effects. A
 retry of a committed operation replays its persisted run, revision, and job
 without provider work. The RPC returns the committed canonical revision and
 successor job ID so clients can immediately follow the durable work.
+
+## Supported OCR recipes
+
+Segmentation and transcription are independent capabilities. Letters and
+medieval manuscripts start with Kraken BLLA lines; newspapers additionally use
+PP-DocLayoutV3 region reading order. A line crop is never expanded to page width
+or joined with a neighboring column. Gemini, GLM-OCR, or OpenAI transcribes each
+crop. Canonical line annotations and their ordered revisions remain the input
+to editing, export, and retry recovery.
+
+The initial collection assumptions are Latin-script handwriting and historical
+English newspapers. They determine the built-in presets, not the data model.
+Additional scripts and collections use the existing trusted model registry,
+workspace contexts, and selection rules. Evaluate segmentation completeness and
+reading order on representative pages before adopting a collection default.

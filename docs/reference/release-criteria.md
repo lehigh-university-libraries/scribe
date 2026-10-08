@@ -45,6 +45,7 @@ without copying a second test inventory into `AGENTS.md`.
 | Administrator-owned provider origins/audiences and credential/response redaction | `TestProviderConfigUsesExactServerOwnedModelRoute`, `TestOllamaAudienceMustMatchRegisteredEndpointOrigin`, `TestProviderRedactionAcrossRegisteredAdapterLogsAndListedAudit` |
 | Real-browser focus, keyboard, geometry, zoom, rebase, save/reload, and conflict behavior | `web/e2e/editor.browser.ts` |
 | The minimum raw editor deep link opens its exact item image without prior Scribe navigation | Browser test `a raw editor deep link opens the requested item without prior navigation` in `web/e2e/editor.browser.ts`; workspace query propagation in `web/src/lib/workspace.test.ts` |
+| Managed SQL persistence, multi-replica publication CAS, and opaque secret copy | `make test-mysql`, `TestTripletSQLReplicas`, `TestCredentialLifecycleAndDeploymentIsolation`, `cmd/secret-manager-secrets/main_test.go` |
 | Isolated backup/restore and job recovery | `make backup-restore-smoke` and the `recovery-smoke` job |
 
 Every job used by `make ci`, including `recovery-smoke`, must pass. GitHub jobs

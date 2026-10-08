@@ -23,8 +23,7 @@ const (
 	defaultProviderID        = "ollama"
 	defaultOllamaModel       = "glm-ocr:bf16"
 	defaultOpenAIModel       = "gpt-4o"
-	defaultGeminiModel       = "gemini-3.5-flash"
-	defaultKrakenModel       = "catmus-medieval-1.6.0.mlmodel"
+	defaultGeminiModel       = "gemini-3.1-pro-preview"
 	defaultProviderTimeout   = 2 * time.Minute
 	defaultResponseByteLimit = int64(8 << 20)
 )
@@ -45,16 +44,12 @@ type Execution string
 const (
 	// ExecutionAdapter uses an HTR byte-oriented provider client.
 	ExecutionAdapter Execution = "adapter"
-	// ExecutionTesseract uses Scribe's local/remote Tesseract path.
-	ExecutionTesseract Execution = "tesseract"
 )
 
 // EndpointMode states how a provider endpoint is controlled.
 type EndpointMode string
 
 const (
-	// EndpointLocal performs no provider network request.
-	EndpointLocal EndpointMode = "local"
 	// EndpointExactOrigin uses an administrator-configured exact origin/audience.
 	EndpointExactOrigin EndpointMode = "server_exact_origin"
 	// EndpointVendor uses a fixed vendor endpoint owned by the adapter.
@@ -78,7 +73,7 @@ type CredentialField struct {
 	Secret   bool
 }
 
-// CredentialSchema describes the Vault material a provider accepts.
+// CredentialSchema describes the secret material a provider accepts.
 type CredentialSchema struct {
 	Fields []CredentialField
 }
@@ -213,9 +208,8 @@ type Catalog struct {
 
 // SegmentationCapabilities describes an installed segmentation engine.
 type SegmentationCapabilities struct {
-	AutomaticSelection bool
-	OutputGranularity  string
-	RemoteCapable      bool
+	OutputGranularity string
+	RemoteCapable     bool
 }
 
 // Segmentor is an immutable segmentation-engine descriptor.
@@ -226,8 +220,6 @@ type Segmentor struct {
 	Capabilities SegmentationCapabilities
 	Limits       Limits
 	Endpoint     EndpointPolicy
-
-	factory func(string) Detector
 }
 
 // Detector is the runtime segmentation factory product. It returns the
@@ -262,14 +254,10 @@ func New(cfg config.Config, configure ...Option) Registry {
 	ollamaConfig := cfg.LLM.Ollama
 	ollamaConfig.Models = append([]string(nil), cfg.LLM.Ollama.Models...)
 	ollamaConfig.ModelEndpoints = snapshotModelEndpoints(cfg.LLM.Ollama.ModelEndpoints)
-	krakenConfig := cfg.LLM.Kraken
-	krakenConfig.Models = append([]string(nil), cfg.LLM.Kraken.Models...)
-	krakenConfig.ModelEndpoints = snapshotModelEndpoints(cfg.LLM.Kraken.ModelEndpoints)
 	segmentationConfig := cfg.Segmentation
 	segmentationConfig.Models = append([]string(nil), cfg.Segmentation.Models...)
 	segmentationConfig.ModelEndpoints = snapshotModelEndpoints(cfg.Segmentation.ModelEndpoints)
 	providerDescriptors := []Provider{
-		newProvider("tesseract", "Tesseract", []string{"tesseract"}, "tesseract", ExecutionTesseract, Capabilities{}, CredentialSchema{}, localEndpoint(), nil, nil, nil),
 		newProvider("ollama", "Ollama", ollamaConfig.Models, valueOr(ollamaConfig.Model, defaultOllamaModel), ExecutionAdapter, Capabilities{SystemPrompt: true, Temperature: true}, CredentialSchema{}, exactEndpoint(ollamaConfig.URL, ollamaConfig.Audience), newOllamaClient, func(model string) EndpointPolicy {
 			url, audience := ollamaConfig.ResolveForModel(model)
 			if strings.TrimSpace(url) == "" {
@@ -292,25 +280,6 @@ func New(cfg config.Config, configure ...Option) Registry {
 			}
 			return ""
 		}),
-		newProvider("kraken", "Kraken", krakenConfig.Models, valueOr(krakenConfig.Model, defaultKrakenModel), ExecutionAdapter, Capabilities{}, CredentialSchema{}, exactEndpoint(krakenConfig.URL, krakenConfig.Audience), newKrakenClient, func(model string) EndpointPolicy {
-			url, audience := krakenConfig.ResolveForModel(model)
-			if strings.TrimSpace(url) == "" {
-				url, audience = segmentationConfig.ResolveForModel(model)
-			}
-			if strings.TrimSpace(url) == "" {
-				url = krakenConfig.URL
-			}
-			if strings.TrimSpace(url) == "" {
-				url = segmentationConfig.URL
-			}
-			if strings.TrimSpace(audience) == "" {
-				audience = krakenConfig.Audience
-			}
-			if strings.TrimSpace(audience) == "" {
-				audience = segmentationConfig.Audience
-			}
-			return exactEndpoint(url, audience)
-		}, nil),
 	}
 
 	providerMap := make(map[string]Provider, len(providerDescriptors))
@@ -331,20 +300,14 @@ func New(cfg config.Config, configure ...Option) Registry {
 	}
 
 	segmentorMap := map[string]Segmentor{
-		"auto": newSegmentor("auto", "Automatic", "", true, func(string) Detector { return autoDetector{} }),
-		"tesseract": newSegmentor("tesseract", "Tesseract", "tesseract", false, func(string) Detector {
-			return localDetector{provider: worddetection.NewTesseract(), resultID: "tesseract"}
-		}),
-		"scribe": newSegmentor("scribe", "Scribe", "custom", false, func(string) Detector { return localDetector{provider: worddetection.NewCustom(), resultID: "custom"} }),
-		"kraken": newSegmentor("kraken", "Kraken", "kraken", false, func(model string) Detector {
-			return localDetector{provider: worddetection.NewKraken(model), resultID: "kraken"}
-		}),
+		"kraken":     newSegmentor("kraken", "Kraken BLLA", "kraken"),
+		"newspapers": newSegmentor("newspapers", "Newspapers (PP-DocLayoutV3 + Kraken BLLA)", "newspapers"),
 	}
 	defaultSegmentation := strings.TrimSpace(cfg.LLM.SegmentationModel)
 	if defaultSegmentation == "" {
-		defaultSegmentation = "auto"
+		defaultSegmentation = "kraken"
 	}
-	selectionIDs := append([]string{"auto", "tesseract", "scribe", "kraken"}, segmentationConfig.Models...)
+	selectionIDs := append([]string{"kraken"}, segmentationConfig.Models...)
 	segmentationModels := models(selectionIDs, defaultSegmentation)
 
 	return Registry{
@@ -356,15 +319,6 @@ func New(cfg config.Config, configure ...Option) Registry {
 		defaultSegmentation:   defaultSegmentation,
 		segmentationEndpoints: segmentationConfig,
 	}
-}
-
-func newKrakenClient(descriptor Provider, model string) (providers.Client, error) {
-	endpoint, err := registeredProviderEndpoint(descriptor, model, EndpointExactOrigin)
-	if err != nil {
-		return nil, err
-	}
-	client, err := segmentor.NewClientForEndpoint(endpoint.URL, endpoint.Audience)
-	return bindRegisteredModel(client, model, err)
 }
 
 func newProvider(id, label string, modelIDs []string, defaultModel string, execution Execution, capabilities Capabilities, credentials CredentialSchema, endpoint EndpointPolicy, factory func(Provider, string) (providers.Client, error), resolver func(string) EndpointPolicy, credentialFallback func(string) string) Provider {
@@ -383,28 +337,22 @@ func newProvider(id, label string, modelIDs []string, defaultModel string, execu
 	}
 }
 
-func newSegmentor(id, label, resultID string, automatic bool, factory func(string) Detector) Segmentor {
+func newSegmentor(id, label, resultID string) Segmentor {
 	return Segmentor{
 		ID:       id,
 		Label:    label,
 		ResultID: resultID,
 		Capabilities: SegmentationCapabilities{
-			AutomaticSelection: automatic,
-			OutputGranularity:  "word",
-			RemoteCapable:      true,
+			OutputGranularity: "line",
+			RemoteCapable:     true,
 		},
 		Limits:   Limits{Timeout: defaultProviderTimeout, MaxResponseBytes: 16 << 20, Retry: RetryPolicy{MaxAttempts: 1}},
 		Endpoint: EndpointPolicy{Mode: EndpointExactOrigin, ServerOwned: true},
-		factory:  factory,
 	}
 }
 
 func apiKeySchema() CredentialSchema {
 	return CredentialSchema{Fields: []CredentialField{{ID: "api_key", Label: "API key", Required: true, Secret: true}}}
-}
-
-func localEndpoint() EndpointPolicy {
-	return EndpointPolicy{Mode: EndpointLocal, ServerOwned: true}
 }
 
 func exactEndpoint(url, audience string) EndpointPolicy {
@@ -679,30 +627,23 @@ func (r Registry) ResolveSegmentor(selection string) (Segmentor, string, string,
 	}
 	descriptor, ok := r.segmentors[kind]
 	if !ok {
-		// Administrator-registered model routes use the remote segmentor and
-		// retain automatic local detection as an availability fallback.
-		descriptor = r.segmentors["auto"]
+		descriptor = r.segmentors["kraken"]
 	}
 	descriptor.Endpoint = r.segmentationEndpoint(selection)
 	return descriptor, selection, model, nil
 }
 
-// NewSegmentor constructs a detector using trusted endpoint routing and the
-// descriptor's local fallback.
+// NewSegmentor constructs a detector using only administrator-owned routing.
 func (r Registry) NewSegmentor(selection string) (Detector, error) {
-	descriptor, resolvedSelection, model, err := r.ResolveSegmentor(selection)
+	descriptor, resolvedSelection, _, err := r.ResolveSegmentor(selection)
 	if err != nil {
 		return nil, err
 	}
-	local := descriptor.factory(model)
-	if endpoint := descriptor.Endpoint; strings.TrimSpace(endpoint.URL) != "" {
-		remote, err := segmentor.NewClientForEndpoint(endpoint.URL, endpoint.Audience)
-		if err != nil {
-			return nil, err
-		}
-		return remoteDetector{remote: remote, selection: resolvedSelection}, nil
+	remote, err := segmentor.NewClientForEndpoint(descriptor.Endpoint.URL, descriptor.Endpoint.Audience)
+	if err != nil {
+		return nil, err
 	}
-	return local, nil
+	return remoteDetector{remote: remote, selection: resolvedSelection}, nil
 }
 
 func (r Registry) segmentationEndpoint(selection string) EndpointPolicy {
@@ -734,33 +675,6 @@ func resolveModel(values []Model, id string) (Model, bool) {
 	return Model{}, false
 }
 
-type localDetector struct {
-	provider worddetection.Provider
-	resultID string
-}
-
-func (d localDetector) DetectWords(ctx context.Context, imagePath string) ([]worddetection.WordBox, string, error) {
-	words, err := d.provider.DetectWords(ctx, imagePath)
-	return words, d.resultID, err
-}
-
-type autoDetector struct{}
-
-func (autoDetector) DetectWords(ctx context.Context, imagePath string) ([]worddetection.WordBox, string, error) {
-	tesseractWords, tesseractErr := worddetection.NewTesseract().DetectWords(ctx, imagePath)
-	customWords, customErr := worddetection.NewCustom().DetectWords(ctx, imagePath)
-	if tesseractErr != nil && customErr != nil {
-		return nil, "", fmt.Errorf("both detection methods failed - tesseract: %v, custom: %v", tesseractErr, customErr)
-	}
-	if tesseractErr != nil {
-		return customWords, "custom", nil
-	}
-	if customErr != nil || len(tesseractWords) >= len(customWords) {
-		return tesseractWords, "tesseract", nil
-	}
-	return customWords, "custom", nil
-}
-
 type remoteDetector struct {
 	remote    *segmentor.Client
 	selection string
@@ -769,21 +683,7 @@ type remoteDetector struct {
 func (d remoteDetector) DetectWords(ctx context.Context, imagePath string) ([]worddetection.WordBox, string, error) {
 	if d.remote != nil && d.remote.Enabled() {
 		words, provider, err := d.remote.DetectWords(ctx, imagePath, d.selection)
-		return words, normalizeDetectionProvider(provider), err
+		return words, normalizeID(provider), err
 	}
 	return nil, "", fmt.Errorf("segmentation endpoint is not configured")
-}
-
-func normalizeDetectionProvider(provider string) string {
-	normalized := normalizeID(provider)
-	switch {
-	case normalized == "scribe" || normalized == "custom":
-		return "custom"
-	case normalized == "kraken" || strings.HasPrefix(normalized, "kraken:"):
-		return "kraken"
-	case normalized == "tesseract":
-		return "tesseract"
-	default:
-		return normalized
-	}
 }

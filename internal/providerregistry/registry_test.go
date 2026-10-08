@@ -53,9 +53,10 @@ func TestRegistryOwnsProviderDefaultsFactoriesAndCapabilities(t *testing.T) {
 		}
 	}
 
-	kraken, ok := registry.Provider("kraken")
-	if !ok || kraken.Execution != ExecutionAdapter {
-		t.Fatalf("Kraken descriptor = %#v", kraken)
+	for _, retired := range []string{"kraken", "tesseract"} {
+		if _, ok := registry.Provider(retired); ok {
+			t.Fatalf("retired transcription provider %q is installed", retired)
+		}
 	}
 }
 
@@ -302,53 +303,6 @@ func TestProviderConfigUsesExactServerOwnedModelRoute(t *testing.T) {
 	}
 }
 
-func TestKrakenRegistrySnapshotsRegisteredRouting(t *testing.T) {
-	cfg := config.Config{}
-	cfg.LLM.Kraken.URL = "https://kraken-default.example"
-	cfg.LLM.Kraken.Audience = "https://kraken-default.example"
-	cfg.LLM.Kraken.Model = "transcription-v1"
-	cfg.LLM.Kraken.Models = []string{"transcription-v1", "shared-v1"}
-	cfg.LLM.Kraken.ModelEndpoints = map[string]config.ModelEndpoint{
-		"transcription-v1": {URL: "https://kraken-model.example", Audience: "https://kraken-model.example"},
-	}
-	cfg.Segmentation.ModelEndpoints = map[string]config.ModelEndpoint{
-		"shared-v1": {URL: "https://shared-model.example", Audience: "https://shared-model.example"},
-	}
-	registry := New(cfg)
-
-	cfg.LLM.Kraken.Models[0] = "mutated-transcription"
-	cfg.LLM.Kraken.ModelEndpoints["transcription-v1"] = config.ModelEndpoint{URL: "https://mutated-kraken.example"}
-	cfg.Segmentation.ModelEndpoints["shared-v1"] = config.ModelEndpoint{URL: "https://mutated-shared.example"}
-
-	tests := []struct {
-		model        string
-		wantURL      string
-		wantAudience string
-	}{
-		{
-			model:        "transcription-v1",
-			wantURL:      "https://kraken-model.example",
-			wantAudience: "https://kraken-model.example",
-		},
-		{
-			model:        "shared-v1",
-			wantURL:      "https://shared-model.example",
-			wantAudience: "https://shared-model.example",
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.model, func(t *testing.T) {
-			runtimeConfig, err := registry.ProviderConfig("kraken", test.model, "", 0)
-			if err != nil {
-				t.Fatalf("ProviderConfig: %v", err)
-			}
-			if runtimeConfig.BaseURL != test.wantURL || runtimeConfig.Audience != test.wantAudience {
-				t.Fatalf("registered route changed after source mutation: %#v", runtimeConfig)
-			}
-		})
-	}
-}
-
 func TestRemoteSegmentationRegistrySnapshotsRegisteredRouting(t *testing.T) {
 	cfg := config.Config{}
 	cfg.Segmentation.Models = []string{"layout-v1"}
@@ -373,9 +327,9 @@ func TestRemoteSegmentationRegistrySnapshotsRegisteredRouting(t *testing.T) {
 
 func TestRegistryRoutingSnapshotsAreSafeDuringConcurrentSourceMutation(t *testing.T) {
 	cfg := config.Config{}
-	cfg.LLM.Kraken.Model = "transcription-v1"
-	cfg.LLM.Kraken.Models = []string{"transcription-v1"}
-	cfg.LLM.Kraken.ModelEndpoints = map[string]config.ModelEndpoint{
+	cfg.LLM.Ollama.Model = "transcription-v1"
+	cfg.LLM.Ollama.Models = []string{"transcription-v1"}
+	cfg.LLM.Ollama.ModelEndpoints = map[string]config.ModelEndpoint{
 		"transcription-v1": {URL: "https://kraken-model.example", Audience: "https://kraken-model.example"},
 	}
 	cfg.Segmentation.Models = []string{"layout-v1"}
@@ -399,7 +353,7 @@ func TestRegistryRoutingSnapshotsAreSafeDuringConcurrentSourceMutation(t *testin
 		defer workers.Done()
 		<-start
 		for i := 0; i < iterations; i++ {
-			cfg.LLM.Kraken.ModelEndpoints["transcription-v1"] = config.ModelEndpoint{URL: fmt.Sprintf("https://mutated-kraken-%d.example", i)}
+			cfg.LLM.Ollama.ModelEndpoints["transcription-v1"] = config.ModelEndpoint{URL: fmt.Sprintf("https://mutated-kraken-%d.example", i)}
 			cfg.Segmentation.ModelEndpoints["layout-v1"] = config.ModelEndpoint{URL: fmt.Sprintf("https://mutated-segmentor-%d.example", i)}
 		}
 	}()
@@ -407,7 +361,7 @@ func TestRegistryRoutingSnapshotsAreSafeDuringConcurrentSourceMutation(t *testin
 		defer workers.Done()
 		<-start
 		for i := 0; i < iterations; i++ {
-			runtimeConfig, err := registry.ProviderConfig("kraken", "transcription-v1", "", 0)
+			runtimeConfig, err := registry.ProviderConfig("ollama", "transcription-v1", "", 0)
 			if err != nil {
 				report(fmt.Errorf("provider config: %w", err))
 				return
@@ -468,7 +422,7 @@ func TestResolveSegmentorReturnsCanonicalRegisteredRouteID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveSegmentor() error = %v", err)
 	}
-	if descriptor.ID != "auto" || selection != "Layout-Lines-V2" || model != "" {
+	if descriptor.ID != "kraken" || selection != "Layout-Lines-V2" || model != "" {
 		t.Fatalf("ResolveSegmentor() = (%#v, %q, %q)", descriptor, selection, model)
 	}
 }

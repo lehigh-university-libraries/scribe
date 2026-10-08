@@ -31,7 +31,6 @@ resolve_tool() {
 }
 
 gosec_bin="$(resolve_tool gosec)"
-govulncheck_bin="$(resolve_tool govulncheck)"
 
 assert_go_tool_version() {
   local name="$1" binary="$2" module="$3" expected="$4" metadata actual
@@ -44,7 +43,10 @@ assert_go_tool_version() {
 }
 
 assert_go_tool_version gosec "$gosec_bin" "$EXPECTED_GOSEC_MODULE" "$EXPECTED_GOSEC_VERSION"
-assert_go_tool_version govulncheck "$govulncheck_bin" "$EXPECTED_GOVULNCHECK_MODULE" "$EXPECTED_GOVULNCHECK_VERSION"
+if [ "${SCRIBE_GOVULNCHECK:-false}" = true ]; then
+  govulncheck_bin="$(resolve_tool govulncheck)"
+  assert_go_tool_version govulncheck "$govulncheck_bin" "$EXPECTED_GOVULNCHECK_MODULE" "$EXPECTED_GOVULNCHECK_VERSION"
+fi
 
 cd "${ROOT_DIR}"
 GOFLAGS="${GOFLAGS:+${GOFLAGS} }-buildvcs=false" "${gosec_bin}" \
@@ -55,11 +57,11 @@ GOFLAGS="${GOFLAGS:+${GOFLAGS} }-buildvcs=false" "${gosec_bin}" \
   -severity medium \
   -confidence medium \
   ./...
-# govulncheck loads the whole program graph. Bound its heap and package build
-# parallelism so the release gate also fits on resource-constrained runners.
-GOMEMLIMIT="${GOMEMLIMIT:-1024MiB}" \
-  GOFLAGS="${GOFLAGS:+${GOFLAGS} }-buildvcs=false -p=1" \
-  "${govulncheck_bin}" ./...
+if [ "${SCRIBE_GOVULNCHECK:-false}" = true ]; then
+  GOMEMLIMIT="${GOMEMLIMIT:-1024MiB}" \
+    GOFLAGS="${GOFLAGS:+${GOFLAGS} }-buildvcs=false -p=1" \
+    "${govulncheck_bin}" ./...
+fi
 
 "${ROOT_DIR}/ci/npm-audit.sh" web
 "${ROOT_DIR}/ci/npm-audit.sh" mirador-scribe

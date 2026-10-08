@@ -55,7 +55,9 @@ if [ "$FAST_MODE" = "false" ] && command -v docker >/dev/null 2>&1; then
     if [ -n "$NETWORK" ]; then
       echo "MariaDB detected — running integration tests on network: $NETWORK"
       NETWORK_ARGS=(--network "$NETWORK")
-      if [ -f "./secrets/mariadb_password" ]; then
+      if [ -n "${SCRIBE_TEST_DB_PASSWORD:-}" ]; then
+        DB_PASSWORD="$SCRIBE_TEST_DB_PASSWORD"
+      elif [ -f "./secrets/mariadb_password" ]; then
         DB_PASSWORD="$(tr -d '\n' < ./secrets/mariadb_password)"
       else
         DB_PASSWORD="scribe"

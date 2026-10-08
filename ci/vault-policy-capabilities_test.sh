@@ -13,16 +13,13 @@ fail() {
 command -v docker >/dev/null 2>&1 || fail "Docker is required"
 command -v jq >/dev/null 2>&1 || fail "jq is required"
 
-image="scribe-vault-policy-test:1.21.4"
-if ! docker image inspect "$image" >/dev/null 2>&1; then
-  docker build --quiet -t "$image" -f terraform/modules/vault-cloud-run/Dockerfile terraform/modules/vault-cloud-run >/dev/null
-fi
+image="hashicorp/vault:1.21.4@sha256:6c77f568e6b6310d5bc68befb5711b9215c574de7da489e7c24332581176888b"
 
 container="$(
   docker run -d --rm \
     --cap-drop=ALL \
     --security-opt no-new-privileges \
-    --entrypoint /vault \
+    --entrypoint /bin/vault \
     -e VAULT_DEV_ROOT_TOKEN_ID=policy-test-root \
     "$image" server -dev
 )"
@@ -35,7 +32,7 @@ vault_exec() {
   docker exec \
     -e VAULT_ADDR=http://127.0.0.1:8200 \
     -e VAULT_TOKEN="${VAULT_TOKEN_VALUE:-policy-test-root}" \
-    "$container" /vault "$@"
+    "$container" /bin/vault "$@"
 }
 
 ready=false

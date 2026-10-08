@@ -196,9 +196,9 @@ func TestUploadBatchProcessingFailuresPersistOnlyFixedStage(t *testing.T) {
 				UserID:                &userID,
 				WorkspaceID:           &workspaceID,
 				Name:                  "upload-failure-stage-" + uuid.NewString(),
-				SegmentationModel:     "tesseract",
-				TranscriptionProvider: "tesseract",
-				TranscriptionModel:    "tesseract",
+				SegmentationModel:     "kraken",
+				TranscriptionProvider: "ollama",
+				TranscriptionModel:    "glm-ocr:bf16",
 			})
 			if err != nil {
 				t.Fatalf("create selected context: %v", err)
@@ -264,9 +264,9 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 		UserID:                &userID,
 		WorkspaceID:           &workspaceID,
 		Name:                  "upload-batch-acceptance-" + uuid.NewString(),
-		SegmentationModel:     "tesseract",
-		TranscriptionProvider: "tesseract",
-		TranscriptionModel:    "tesseract",
+		SegmentationModel:     "kraken",
+		TranscriptionProvider: "ollama",
+		TranscriptionModel:    "glm-ocr:bf16",
 		Temperature:           &selectedTemperature,
 		SystemPrompt:          "immutable selected prompt",
 	})
@@ -334,7 +334,7 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 
 	mutatedContext := selectedContext
 	mutatedTemperature := 0.91
-	mutatedContext.SegmentationModel = "scribe"
+	mutatedContext.SegmentationModel = "newspapers"
 	mutatedContext.Temperature = &mutatedTemperature
 	mutatedContext.SystemPrompt = "context changed after the batch started"
 	if _, err := contextStore.UpdateForWorkspace(ctx, mutatedContext, workspaceID, userID); err != nil {

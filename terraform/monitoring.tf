@@ -32,32 +32,6 @@ resource "google_monitoring_alert_policy" "transcription_queue_age" {
   }
 }
 
-resource "google_monitoring_alert_policy" "transcription_queue_age_forward" {
-  for_each = local.forward_production_transcription_data_generations
-
-  display_name          = "${local.name} ${local.workspace_slug} ${each.key} transcription queue is stalled"
-  combiner              = "OR"
-  notification_channels = var.monitoring_notification_channels
-
-  documentation {
-    content   = "The oldest unacked ${each.key} transcription message exceeded 15 minutes. Inspect worker readiness, leases, provider errors, and the dead-letter subscription."
-    mime_type = "text/markdown"
-  }
-
-  conditions {
-    display_name = "${each.key} oldest transcription message exceeds 15 minutes"
-    condition_threshold {
-      filter          = "resource.type = \"pubsub_subscription\" AND resource.labels.subscription_id = \"${google_pubsub_subscription.transcription_workers_forward[each.key].name}\" AND metric.type = \"pubsub.googleapis.com/subscription/oldest_unacked_message_age\""
-      comparison      = "COMPARISON_GT"
-      threshold_value = 900
-      duration        = "300s"
-      aggregations {
-        alignment_period   = "60s"
-        per_series_aligner = "ALIGN_MAX"
-      }
-    }
-  }
-}
 
 resource "google_monitoring_alert_policy" "frontend_server_errors" {
   count = local.is_prod_workspace ? 1 : 0
@@ -67,7 +41,7 @@ resource "google_monitoring_alert_policy" "frontend_server_errors" {
   notification_channels = var.monitoring_notification_channels
 
   documentation {
-    content   = "The public Cloud Run ingress is returning server errors. Execute the backend and OCR readiness jobs and inspect the frontend proxy, VM, API, and database health."
+    content   = "The public Cloud Run ingress is returning server errors. Execute the backend and OCR readiness jobs and inspect the frontend proxy, API, worker, and Cloud SQL health."
     mime_type = "text/markdown"
   }
 
@@ -114,35 +88,6 @@ resource "google_monitoring_alert_policy" "readiness_job_failures" {
         per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
         group_by_fields      = ["resource.labels.job_name"]
-      }
-    }
-  }
-}
-
-resource "google_monitoring_alert_policy" "persistent_disk_utilization" {
-  count = local.is_prod_workspace ? 1 : 0
-
-  display_name          = "${local.name} ${local.workspace_slug} persistent disk capacity"
-  combiner              = "OR"
-  notification_channels = var.monitoring_notification_channels
-
-  documentation {
-    content   = "A production filesystem exceeded 80% utilization, or disk-utilization telemetry disappeared. The cloud-compose data disk must retain capacity for application data, the completed logical MariaDB dump, and a full staging dump."
-    mime_type = "text/markdown"
-  }
-
-  conditions {
-    display_name = "Persistent filesystem is over 80 percent full"
-    condition_threshold {
-      filter                  = "resource.type = \"gce_instance\" AND resource.labels.instance_id = \"${module.scribe.instance.id}\" AND metric.type = \"agent.googleapis.com/disk/percent_used\""
-      comparison              = "COMPARISON_GT"
-      threshold_value         = 80
-      duration                = "300s"
-      evaluation_missing_data = "EVALUATION_MISSING_DATA_ACTIVE"
-      aggregations {
-        alignment_period     = "300s"
-        per_series_aligner   = "ALIGN_MAX"
-        cross_series_reducer = "REDUCE_MAX"
       }
     }
   }

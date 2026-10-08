@@ -13,7 +13,24 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func TestExportFailureReportsJoinedRPCStatusWithoutSensitiveMessage(t *testing.T) {
+	previousLogger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	var logs bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	const sensitive = "PRIVATE_DSN_user:password@database.internal"
+	safeErrorHandler{}.Handle(errors.Join(errors.New(sensitive), status.Error(codes.PermissionDenied, sensitive)))
+	if !strings.Contains(logs.String(), `"rpc_code":"PermissionDenied"`) {
+		t.Fatalf("export log omitted RPC status: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), sensitive) || strings.Contains(logs.String(), "password") {
+		t.Fatalf("export log exposed sensitive details: %s", logs.String())
+	}
+}
 
 func TestDisabledTelemetryDoesNotPollOrFailLifecycle(t *testing.T) {
 	t.Parallel()

@@ -19,7 +19,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
@@ -67,7 +66,7 @@ type providerCallMetadataKey struct{}
 type transcriptionOptionsKey struct{}
 
 const (
-	defaultTranscriptionPrompt = "Transcribe the handwritten text in this image. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
+	defaultTranscriptionPrompt = "Transcribe the text in this image, preserving its spelling, punctuation, language, and script. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
 )
 
 var (
@@ -154,7 +153,7 @@ type transcriptionOptions struct {
 }
 
 func NewService(options ...providerregistry.Option) *Service {
-	slog.Info("Initializing hOCR service (Tesseract word detection + LLM transcription)")
+	slog.Info("Initializing hOCR service (registered line segmentation + LLM transcription)")
 	return &Service{registry: providerregistry.New(config.Get().Config, options...)}
 }
 
@@ -315,7 +314,7 @@ func temperatureFromContext(ctx context.Context) float64 {
 // ProcessingContext carries the parameters from a store.Context into the
 // processing pipeline without importing the store package (avoids cycles).
 type ProcessingContext struct {
-	SegmentationModel     string // "tesseract" | "scribe" | "kraken" | "kraken:<model>"
+	SegmentationModel     string // Server-registered line segmentor selection.
 	TranscriptionProvider string
 	TranscriptionModel    string
 	Temperature           *float64
@@ -349,10 +348,6 @@ func (s *Service) ProcessImageWithContext(ctx context.Context, imagePath string,
 		"word_count", len(selectedWords))
 
 	lines := s.groupWordsIntoLines(selectedWords)
-	if selectedProvider == "custom" || selectedProvider == "kraken" {
-		lines = s.filterValidLines(lines, width)
-		lines = s.removeOverlappingLines(lines)
-	}
 
 	// SegmentOnly: return line boxes without any transcription.
 	if pctx.SegmentOnly {
@@ -360,70 +355,17 @@ func (s *Service) ProcessImageWithContext(ctx context.Context, imagePath string,
 		return s.generateHOCRFromDetectedLines(lines, width, height), selectedProvider, "", nil
 	}
 
-	// For explicit tesseract segmentation or "auto" when tesseract wins, use the
-	// detected tesseract text directly without an LLM pass.
-	seg := strings.ToLower(strings.TrimSpace(pctx.SegmentationModel))
-	if seg == "tesseract" || ((seg == "auto" || seg == "") && selectedProvider == "tesseract") {
-		slog.Info("Using tesseract text directly (no LLM)",
-			"segmentation_model", seg,
-			"line_count", len(lines))
-		transcribedWords := s.transcribeTesseractDirect(lines, width)
-		// Pass "custom" so generateHOCRFromWords emits one line-span per entry.
-		return s.generateHOCRFromWords(transcribedWords, lines, width, height, "custom"), "tesseract", "tesseract", nil
-	}
-
 	llmProvider, providerName, model, err := s.initLLMProvider(pctx.TranscriptionProvider, pctx.TranscriptionModel)
 	if err != nil {
 		return "", "", "", fmt.Errorf("init LLM provider: %w", err)
 	}
 
-	transcribedWords, err := s.transcribeWords(goCtx, imagePath, selectedWords, width, height,
-		llmProvider, providerName, selectedProvider, lines, model)
+	transcribedWords, err := s.transcribeLines(goCtx, imagePath, lines, llmProvider, providerName, model)
 	if err != nil {
 		return "", "", "", fmt.Errorf("transcribe words: %w", err)
 	}
 
-	return s.generateHOCRFromWords(transcribedWords, lines, width, height, selectedProvider), providerName, model, nil
-}
-
-// transcribeTesseractDirect converts already-grouped lines of tesseract WordBoxes into
-// line-level TranscribedWords by joining the text that tesseract detected in each line.
-// This is used by auto mode when tesseract wins the competitive segmentation race,
-// letting us skip the LLM transcription step entirely.
-func (s *Service) transcribeTesseractDirect(lines [][]worddetection.WordBox, imageWidth int) []TranscribedWord {
-	result := make([]TranscribedWord, 0, len(lines))
-	for i, line := range lines {
-		if len(line) == 0 {
-			continue
-		}
-		minY := line[0].Y
-		maxY := line[0].Y + line[0].Height
-		var texts []string
-		for _, w := range line {
-			if w.Y < minY {
-				minY = w.Y
-			}
-			if w.Y+w.Height > maxY {
-				maxY = w.Y + w.Height
-			}
-			if t := strings.TrimSpace(w.Text); t != "" {
-				texts = append(texts, t)
-			}
-		}
-		if len(texts) == 0 {
-			continue
-		}
-		result = append(result, TranscribedWord{
-			X:          0,
-			Y:          minY,
-			Width:      imageWidth,
-			Height:     maxY - minY,
-			Text:       strings.Join(texts, " "),
-			Confidence: 90.0,
-			LineID:     i,
-		})
-	}
-	return result
+	return s.generateHOCRFromWords(transcribedWords, width, height), providerName, model, nil
 }
 
 // detectWithModel selects and runs the appropriate segmentation provider.
@@ -436,7 +378,7 @@ func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel strin
 	started := time.Now()
 	model := strings.TrimSpace(segModel)
 	if model == "" {
-		model = "auto"
+		model = s.registry.DefaultSegmentation()
 	}
 	audit := func(operationErr error) error {
 		redactedErr := redactSegmentationError(operationErr)
@@ -514,34 +456,6 @@ func SafeProviderFailureMessage(err error) (string, bool) {
 		return "", false
 	}
 	return redacted.Error(), true
-}
-
-func (s *Service) generateHOCRFromDetectedLines(lines [][]worddetection.WordBox, width, height int) string {
-	boxes := make([]lineVerticalBox, 0, len(lines))
-	for i, line := range lines {
-		if len(line) == 0 {
-			continue
-		}
-		minY := line[0].Y
-		maxY := line[0].Y + line[0].Height
-		for _, word := range line {
-			if word.Y < minY {
-				minY = word.Y
-			}
-			if word.Y+word.Height > maxY {
-				maxY = word.Y + word.Height
-			}
-		}
-		boxes = append(boxes, lineVerticalBox{lineID: i, y1: minY, y2: maxY})
-	}
-	boxes = normalizeLineVerticalBoxes(boxes, height)
-
-	var out []string
-	for _, box := range boxes {
-		lineBBox := fmt.Sprintf("bbox %d %d %d %d", 0, box.y1, width, box.y2)
-		out = append(out, fmt.Sprintf("<span class='ocr_line' id='line_%d' title='%s'></span>", box.lineID, lineBBox))
-	}
-	return s.wrapInHOCRDocument(strings.Join(out, "\n"), width, height)
 }
 
 func (s *Service) TranscribeRegionWithContext(ctx context.Context, imagePath string, minX, minY, maxX, maxY int, providerOverride, modelOverride string) (string, error) {
@@ -683,8 +597,6 @@ func (s *Service) executeProvider(
 	}
 	var text string
 	switch descriptor.Execution {
-	case providerregistry.ExecutionTesseract:
-		text, err = s.extractTextWithTesseract(ctx, imagePath, operation)
 	case providerregistry.ExecutionAdapter:
 		if client == nil {
 			err = providers.NewError(providers.ErrorInvalidRequest, 0, false, nil)
@@ -897,184 +809,16 @@ func (s *Service) initLLMProvider(providerOverride, modelOverride string) (provi
 	return client, descriptor.ID, model, nil
 }
 
-// groupWordsIntoLines groups detected words into text lines based on coordinates
-func (s *Service) groupWordsIntoLines(words []worddetection.WordBox) [][]worddetection.WordBox {
-	if len(words) == 0 {
-		return nil
-	}
-
-	// Sort words by Y then X
-	sortedWords := make([]worddetection.WordBox, len(words))
-	copy(sortedWords, words)
-	sort.Slice(sortedWords, func(i, j int) bool {
-		yi := sortedWords[i].Y + sortedWords[i].Height/2
-		yj := sortedWords[j].Y + sortedWords[j].Height/2
-		if abs(yi-yj) <= 20 { // Same line threshold
-			return sortedWords[i].X < sortedWords[j].X
-		}
-		return yi < yj
-	})
-
-	var lines [][]worddetection.WordBox
-	var currentLine []worddetection.WordBox
-
-	for _, word := range sortedWords {
-		if len(currentLine) == 0 {
-			currentLine = append(currentLine, word)
-			continue
-		}
-
-		// Check if this word belongs to current line
-		lastWord := currentLine[len(currentLine)-1]
-		lastY := lastWord.Y + lastWord.Height/2
-		currentY := word.Y + word.Height/2
-
-		if abs(lastY-currentY) <= 20 {
-			currentLine = append(currentLine, word)
-		} else {
-			lines = append(lines, currentLine)
-			currentLine = []worddetection.WordBox{word}
-		}
-	}
-
-	if len(currentLine) > 0 {
-		lines = append(lines, currentLine)
-	}
-
-	return lines
-}
-
-// transcribeWords extracts and transcribes words in batches using the configured
-// transcription provider. For line-level detectors such as the custom Scribe
-// segmentor and Kraken, it transcribes whole lines instead of individual words.
-// The lines parameter contains pre-filtered lines.
-func (s *Service) transcribeWords(ctx context.Context, imagePath string, words []worddetection.WordBox, imageWidth, imageHeight int, provider providers.Client, providerName, detectionProvider string, lines [][]worddetection.WordBox, model string) ([]TranscribedWord, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	transcribed := make([]TranscribedWord, 0, len(words))
-
-	batchSize := s.getBatchSize()
-
-	// For line-level detectors, transcribe pre-filtered lines instead of individual words.
-	if detectionProvider == "custom" || detectionProvider == "kraken" {
-		slog.Info("Using line-based transcription for line detector", "provider", providerName, "model", model, "line_count", len(lines), "detection_provider", detectionProvider)
-		return s.transcribeLinesForCustomProvider(ctx, imagePath, lines, imageWidth, imageHeight, provider, providerName, model, batchSize)
-	}
-
-	slog.Info("Starting batch word transcription", "provider", providerName, "model", model, "word_count", len(words), "batch_size", batchSize)
-
-	// Filter valid words first
-	validWords := make([]worddetection.WordBox, 0, len(words))
-	skippedCount := 0
-	for i, word := range words {
-		// Skip empty words
-		if strings.TrimSpace(word.Text) == "" {
-			skippedCount++
-			continue
-		}
-
-		// Validate that this is likely a real word
-		if !s.isLikelyWordBox(word, imageWidth, imageHeight) {
-			slog.Debug("Skipping non-word detection", "index", i,
-				"width", word.Width,
-				"height", word.Height)
-			skippedCount++
-			continue
-		}
-
-		validWords = append(validWords, word)
-	}
-
-	slog.Info("Filtered words for transcription", "valid", len(validWords), "skipped", skippedCount, "total", len(words))
-
-	// Process words in batches
-	for batchStart := 0; batchStart < len(validWords); batchStart += batchSize {
-		batchEnd := batchStart + batchSize
-		if batchEnd > len(validWords) {
-			batchEnd = len(validWords)
-		}
-
-		batch := validWords[batchStart:batchEnd]
-		batchNum := (batchStart / batchSize) + 1
-		totalBatches := (len(validWords) + batchSize - 1) / batchSize
-
-		slog.Info("Processing batch", "batch", batchNum, "total_batches", totalBatches, "words_in_batch", len(batch))
-
-		// Stitch word images together
-		stitchedImagePath, err := s.stitchWordImages(ctx, imagePath, batch)
-		if err != nil {
-			logHOCRFailure("Failed to stitch word images", err, "batch", batchNum)
-			continue
-		}
-		defer os.Remove(stitchedImagePath)
-
-		imageData, err := safefile.ReadFileLimit(stitchedImagePath, uploadlimits.MaxImageBytes)
-		if err != nil {
-			logHOCRFailure("Failed to read stitched image", err, "batch", batchNum)
-			continue
-		}
-		image := providerImage(stitchedImagePath, imageData)
-
-		// Create prompt for batch transcription
-		prompt := promptFromContext(ctx, fmt.Sprintf("There are %d words in this image arranged horizontally. Transcribe each word on a separate line. Return ONLY the words, one per line, with no additional text, numbering, or explanation. If a word is not legible, use an empty line for that position.", len(batch)))
-
-		config, err := s.providerConfig(providerName, model, prompt, temperatureFromContext(ctx))
-		if err != nil {
-			return nil, err
-		}
-
-		text, err := s.executeProvider(ctx, provider, providerName, config, stitchedImagePath, image, "transcribe_word_batch")
-		if err != nil {
-			logHOCRFailure("Failed to transcribe batch", err, "batch", batchNum)
-			continue
-		}
-
-		// Parse response - split by newlines
-		lines := strings.Split(strings.TrimSpace(text), "\n")
-
-		slog.Debug("Batch transcription result", "batch", batchNum, "expected_words", len(batch), "received_lines", len(lines))
-
-		// Map transcribed words back to their original positions
-		for i, word := range batch {
-			var transcribedText string
-			if i < len(lines) {
-				transcribedText = strings.TrimSpace(lines[i])
-			}
-
-			// Skip empty transcriptions
-			if transcribedText == "" {
-				continue
-			}
-
-			transcribed = append(transcribed, TranscribedWord{
-				X:          word.X,
-				Y:          word.Y,
-				Width:      word.Width,
-				Height:     word.Height,
-				Text:       transcribedText,
-				Confidence: 90.0, // Slightly lower confidence for batch processing
-			})
-		}
-	}
-
-	slog.Info("Batch transcription completed", "transcribed", len(transcribed), "skipped", skippedCount, "total", len(words))
-	return transcribed, nil
-}
-
-// transcribeLinesForCustomProvider transcribes whole detected lines for
-// line-level detectors such as the custom Scribe segmentor and Kraken. The
-// lines parameter should be pre-filtered. Lines are processed independently
+// transcribeLines transcribes each validated segmentor crop independently,
 // with bounded concurrency.
-func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePath string, lines [][]worddetection.WordBox, imageWidth, imageHeight int, provider providers.Client, providerName, model string, batchSize int) ([]TranscribedWord, error) {
+func (s *Service) transcribeLines(ctx context.Context, imagePath string, lines [][]worddetection.WordBox, provider providers.Client, providerName, model string) ([]TranscribedWord, error) {
 	if len(lines) == 0 {
-		slog.Info("No lines to transcribe for custom provider")
+		slog.Info("No lines to transcribe")
 		return nil, nil
 	}
-	_ = batchSize
 
 	concurrency := s.getLineTranscriptionConcurrency()
-	slog.Info("Transcribing lines for custom provider", "line_count", len(lines), "concurrency", concurrency)
+	slog.Info("Transcribing lines", "line_count", len(lines), "concurrency", concurrency)
 
 	transcribed := make([]TranscribedWord, 0, len(lines))
 	skippedEmpty := 0
@@ -1083,6 +827,7 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 		lineID    int
 		queueIdx  int
 		wordCount int
+		x1, x2    int
 		y1        int
 		y2        int
 	}
@@ -1092,41 +837,12 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 		skippedText bool
 	}
 	var regions []lineRegion
-	var boxes []lineVerticalBox
 	for idx, line := range lines {
 		if len(line) == 0 {
 			continue
 		}
-		minY := line[0].Y
-		maxY := line[0].Y + line[0].Height
-		for _, word := range line {
-			if word.Y < minY {
-				minY = word.Y
-			}
-			if word.Y+word.Height > maxY {
-				maxY = word.Y + word.Height
-			}
-		}
-		regions = append(regions, lineRegion{
-			lineID:    idx,
-			queueIdx:  idx,
-			wordCount: len(line),
-			y1:        minY,
-			y2:        maxY,
-		})
-		boxes = append(boxes, lineVerticalBox{lineID: idx, y1: minY, y2: maxY})
-	}
-
-	boxes = normalizeLineVerticalBoxes(boxes, imageHeight)
-	boxByID := make(map[int]lineVerticalBox, len(boxes))
-	for _, box := range boxes {
-		boxByID[box.lineID] = box
-	}
-	sort.Slice(regions, func(i, j int) bool {
-		return regions[i].y1 < regions[j].y1
-	})
-	for i := range regions {
-		regions[i].queueIdx = i
+		box := line[0]
+		regions = append(regions, lineRegion{lineID: idx, queueIdx: idx, wordCount: len(line), x1: box.X, x2: box.X + box.Width, y1: box.Y, y2: box.Y + box.Height})
 	}
 
 	jobs := make(chan lineRegion, len(regions))
@@ -1136,14 +852,10 @@ func (s *Service) transcribeLinesForCustomProvider(ctx context.Context, imagePat
 	worker := func() {
 		defer wg.Done()
 		for region := range jobs {
-			box, ok := boxByID[region.lineID]
-			if !ok {
-				continue
-			}
-			minX := 0
-			maxX := imageWidth
-			minY := box.y1
-			maxY := box.y2
+			minX := region.x1
+			maxX := region.x2
+			minY := region.y1
+			maxY := region.y2
 			lineWidth := maxX - minX
 			lineHeight := maxY - minY
 
@@ -1258,598 +970,6 @@ func (s *Service) getLineTranscriptionConcurrency() int {
 	return config.DefaultLineTranscribeConcurrency
 }
 
-// isRefusalOrIllegible checks if the LLM response indicates refusal or illegibility
-func (s *Service) isRefusalOrIllegible(text string) bool {
-	textLower := strings.ToLower(text)
-
-	// Common refusal patterns
-	refusalPatterns := []string{
-		"not legible",
-		"illegible",
-		"cannot transcribe",
-		"can't transcribe",
-		"unable to transcribe",
-		"cannot read",
-		"can't read",
-		"unable to read",
-		"i am sorry",
-		"i'm sorry",
-		"i apologize",
-		"as an ai",
-		"as a language model",
-		"i cannot",
-		"i can't",
-		"no text visible",
-		"no text found",
-		"blank image",
-		"empty image",
-	}
-
-	for _, pattern := range refusalPatterns {
-		if strings.Contains(textLower, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// filterValidLines filters out lines that are anomalously small compared to the average
-// This removes detection errors that are too small to be real lines of text
-func (s *Service) filterValidLines(lines [][]worddetection.WordBox, imageWidth int) [][]worddetection.WordBox {
-	if len(lines) == 0 {
-		return lines
-	}
-
-	// Calculate width of each line
-	lineWidths := make([]int, len(lines))
-	for i, line := range lines {
-		if len(line) == 0 {
-			continue
-		}
-
-		// Find min and max X coordinates
-		minX := line[0].X
-		maxX := line[0].X + line[0].Width
-
-		for _, word := range line {
-			if word.X < minX {
-				minX = word.X
-			}
-			if word.X+word.Width > maxX {
-				maxX = word.X + word.Width
-			}
-		}
-
-		lineWidths[i] = maxX - minX
-	}
-
-	// Calculate average line width
-	totalWidth := 0
-	validCount := 0
-	for _, width := range lineWidths {
-		if width > 0 {
-			totalWidth += width
-			validCount++
-		}
-	}
-
-	if validCount == 0 {
-		return lines
-	}
-
-	avgWidth := float64(totalWidth) / float64(validCount)
-
-	// Calculate median for more robust filtering
-	sortedWidths := make([]int, len(lineWidths))
-	copy(sortedWidths, lineWidths)
-	sort.Ints(sortedWidths)
-	medianWidth := float64(sortedWidths[len(sortedWidths)/2])
-
-	// Use the larger of average or median as reference
-	referenceWidth := avgWidth
-	if medianWidth > avgWidth {
-		referenceWidth = medianWidth
-	}
-
-	slog.Debug("Line width statistics",
-		"avg_width", avgWidth,
-		"median_width", medianWidth,
-		"reference_width", referenceWidth,
-		"image_width", imageWidth)
-
-	// Filter lines based on multiple criteria
-	var validLines [][]worddetection.WordBox
-	minAbsoluteWidth := int(float64(imageWidth) * 0.15) // At least 15% of image width
-	minRelativeWidth := int(referenceWidth * 0.35)      // At least 35% of reference width
-
-	for i, line := range lines {
-		width := lineWidths[i]
-
-		// Skip empty lines
-		if len(line) == 0 || width == 0 {
-			slog.Debug("Skipping empty line", "line_index", i)
-			continue
-		}
-
-		// Check if line meets minimum width requirements
-		if width < minAbsoluteWidth {
-			slog.Debug("Skipping line - too narrow (absolute)",
-				"line_index", i,
-				"width", width,
-				"min_absolute", minAbsoluteWidth,
-				"percent_of_image", float64(width)/float64(imageWidth)*100)
-			continue
-		}
-
-		if width < minRelativeWidth {
-			slog.Debug("Skipping line - too narrow (relative)",
-				"line_index", i,
-				"width", width,
-				"min_relative", minRelativeWidth,
-				"percent_of_reference", float64(width)/referenceWidth*100)
-			continue
-		}
-
-		validLines = append(validLines, line)
-	}
-
-	return validLines
-}
-
-// removeOverlappingLines removes overlapping lines, keeping the one with the largest dimension
-func (s *Service) removeOverlappingLines(lines [][]worddetection.WordBox) [][]worddetection.WordBox {
-	if len(lines) <= 1 {
-		return lines
-	}
-
-	// Calculate bounding boxes for all lines
-	type lineBBox struct {
-		minX, minY, maxX, maxY int
-		width, height, area    int
-		index                  int
-	}
-
-	lineBBoxes := make([]lineBBox, len(lines))
-	for i, line := range lines {
-		if len(line) == 0 {
-			continue
-		}
-
-		minX, minY := line[0].X, line[0].Y
-		maxX, maxY := line[0].X+line[0].Width, line[0].Y+line[0].Height
-
-		for _, word := range line {
-			if word.X < minX {
-				minX = word.X
-			}
-			if word.Y < minY {
-				minY = word.Y
-			}
-			if word.X+word.Width > maxX {
-				maxX = word.X + word.Width
-			}
-			if word.Y+word.Height > maxY {
-				maxY = word.Y + word.Height
-			}
-		}
-
-		width := maxX - minX
-		height := maxY - minY
-		lineBBoxes[i] = lineBBox{
-			minX:   minX,
-			minY:   minY,
-			maxX:   maxX,
-			maxY:   maxY,
-			width:  width,
-			height: height,
-			area:   width * height,
-			index:  i,
-		}
-	}
-
-	// Track which lines to keep
-	keep := make([]bool, len(lines))
-	for i := range keep {
-		keep[i] = true
-	}
-
-	// Check all pairs for overlaps
-	for i := 0; i < len(lineBBoxes); i++ {
-		if !keep[i] {
-			continue
-		}
-
-		for j := i + 1; j < len(lineBBoxes); j++ {
-			if !keep[j] {
-				continue
-			}
-
-			bbox1 := lineBBoxes[i]
-			bbox2 := lineBBoxes[j]
-
-			// Check if bounding boxes overlap
-			if s.boundingBoxesOverlap(bbox1.minX, bbox1.minY, bbox1.maxX, bbox1.maxY,
-				bbox2.minX, bbox2.minY, bbox2.maxX, bbox2.maxY) {
-
-				// Calculate overlap area
-				overlapMinX := max(bbox1.minX, bbox2.minX)
-				overlapMinY := max(bbox1.minY, bbox2.minY)
-				overlapMaxX := min(bbox1.maxX, bbox2.maxX)
-				overlapMaxY := min(bbox1.maxY, bbox2.maxY)
-
-				overlapWidth := overlapMaxX - overlapMinX
-				overlapHeight := overlapMaxY - overlapMinY
-				overlapArea := overlapWidth * overlapHeight
-
-				// Calculate overlap percentage relative to smaller box
-				smallerArea := min(bbox1.area, bbox2.area)
-				overlapPercent := float64(overlapArea) / float64(smallerArea) * 100
-
-				// If overlap is significant (>30%), keep only the larger box
-				if overlapPercent > 30 {
-					if bbox1.area >= bbox2.area {
-						keep[j] = false
-						slog.Debug("Removing overlapping line (keeping larger)",
-							"kept_line", i,
-							"kept_area", bbox1.area,
-							"removed_line", j,
-							"removed_area", bbox2.area,
-							"overlap_percent", overlapPercent)
-					} else {
-						keep[i] = false
-						slog.Debug("Removing overlapping line (keeping larger)",
-							"kept_line", j,
-							"kept_area", bbox2.area,
-							"removed_line", i,
-							"removed_area", bbox1.area,
-							"overlap_percent", overlapPercent)
-						break // Exit inner loop since line i is removed
-					}
-				}
-			}
-		}
-	}
-
-	// Build result with only kept lines
-	var result [][]worddetection.WordBox
-	for i, shouldKeep := range keep {
-		if shouldKeep {
-			result = append(result, lines[i])
-		}
-	}
-
-	return result
-}
-
-// boundingBoxesOverlap checks if two bounding boxes overlap
-func (s *Service) boundingBoxesOverlap(x1min, y1min, x1max, y1max, x2min, y2min, x2max, y2max int) bool {
-	// Boxes don't overlap if one is completely to the left/right/above/below the other
-	if x1max <= x2min || x2max <= x1min {
-		return false
-	}
-	if y1max <= y2min || y2max <= y1min {
-		return false
-	}
-	return true
-}
-
-// isLikelyWordBox validates whether a detected region is likely to be a real word
-// Uses relative sizing based on image dimensions to adapt to different image resolutions
-func (s *Service) isLikelyWordBox(box worddetection.WordBox, imageWidth, imageHeight int) bool {
-	// Check 1: Minimum size - too small is likely noise
-	// Use relative sizing: min 0.5% of image width and 0.8% of image height.
-	minWidth := int(float64(imageWidth) * 0.005)
-	minHeight := int(float64(imageHeight) * 0.01)
-
-	// Ensure absolute minimums for very small images
-	if minWidth < 10 {
-		minWidth = 10
-	}
-	if minHeight < 10 {
-		minHeight = 10
-	}
-
-	if box.Width < minWidth || box.Height < minHeight {
-		return false
-	}
-
-	// Check 2: Maximum size - too large is likely not a single word
-	// Use relative sizing: max 25% of image width and 10% of image height
-	maxWidth := int(float64(imageWidth) * 0.25)
-	maxHeight := int(float64(imageHeight) * 0.10)
-
-	// Cap absolute maximums for very large images
-	if maxWidth > 500 {
-		maxWidth = 500
-	}
-	if maxHeight > 200 {
-		maxHeight = 200
-	}
-
-	if box.Width > maxWidth || box.Height > maxHeight {
-		return false
-	}
-
-	// Check 3: Aspect ratio - words are typically wider than tall
-	// Reject very tall/narrow regions (like vertical lines or borders)
-	aspectRatio := float64(box.Width) / float64(box.Height)
-	if aspectRatio < 0.3 || aspectRatio > 15 {
-		return false
-	}
-
-	// Check 4: Detected text should have reasonable characters
-	// Accept all Unicode writing systems and numeric-only tokens. OCR input is
-	// not assumed to be English or Latin-script text.
-	word := strings.TrimSpace(box.Text)
-	if word == "" {
-		return false
-	}
-
-	hasLetterOrNumber := false
-	specialCharCount := 0
-	runeCount := 0
-	for _, char := range word {
-		runeCount++
-		if unicode.IsLetter(char) || unicode.IsNumber(char) {
-			hasLetterOrNumber = true
-		} else if !unicode.IsMark(char) {
-			specialCharCount++
-		}
-	}
-
-	if !hasLetterOrNumber || runeCount == 0 || float64(specialCharCount)/float64(runeCount) > 0.5 {
-		return false
-	}
-
-	return true
-}
-
-func (s *Service) extractTextWithTesseract(ctx context.Context, imagePath, operation string) (string, error) {
-	started := time.Now()
-	width, height, err := s.getImageDimensions(ctx, imagePath)
-	if err != nil {
-		return "", err
-	}
-	words, _, err := s.detectWithModel(ctx, imagePath, "tesseract", width, height)
-	record := ProviderCallAuditRecord{
-		Provider: "tesseract", Model: "tesseract", Operation: operation,
-		DurationMS: time.Since(started).Milliseconds(),
-	}
-	if err != nil {
-		record.ErrorMessage = err.Error()
-		s.auditProviderCall(ctx, record)
-		return "", err
-	}
-
-	lines := s.groupWordsIntoLines(words)
-	textLines := make([]string, 0, len(lines))
-	for _, line := range lines {
-		parts := make([]string, 0, len(line))
-		for _, word := range line {
-			if value := strings.TrimSpace(word.Text); value != "" {
-				parts = append(parts, value)
-			}
-		}
-		if len(parts) > 0 {
-			textLines = append(textLines, strings.Join(parts, " "))
-		}
-	}
-	text := strings.Join(textLines, "\n")
-	s.auditProviderCall(ctx, record)
-	return text, nil
-}
-
-// getBatchSize returns the batch size for word transcription.
-func (s *Service) getBatchSize() int {
-	if v := config.Get().Config.LLM.BatchSize; v > 0 {
-		return v
-	}
-	return config.DefaultLLMBatchSize
-}
-
-// generateHOCRFromWords generates hOCR output from transcribed words and
-// detected lines. For line-level detectors, each TranscribedWord represents a
-// full line.
-func (s *Service) generateHOCRFromWords(transcribedWords []TranscribedWord, lines [][]worddetection.WordBox, width, height int, detectionProvider string) string {
-	var hocrLines []string
-
-	// For line-level detectors, each TranscribedWord is a full line.
-	if detectionProvider == "custom" || detectionProvider == "kraken" {
-		type customLine struct {
-			text       string
-			confidence float64
-			y1         int
-			y2         int
-		}
-
-		customLines := make([]customLine, 0, len(transcribedWords))
-		for _, line := range transcribedWords {
-			customLines = append(customLines, customLine{
-				text:       line.Text,
-				confidence: line.Confidence,
-				y1:         line.Y,
-				y2:         line.Y + line.Height,
-			})
-		}
-
-		sort.Slice(customLines, func(i, j int) bool {
-			return customLines[i].y1 < customLines[j].y1
-		})
-		customBoxes := make([]lineVerticalBox, 0, len(customLines))
-		for i, line := range customLines {
-			customBoxes = append(customBoxes, lineVerticalBox{
-				lineID: i,
-				y1:     line.y1,
-				y2:     line.y2,
-			})
-		}
-		customBoxes = normalizeLineVerticalBoxes(customBoxes, height)
-
-		for i := range customBoxes {
-			lineID := customBoxes[i].lineID
-			lineBBox := fmt.Sprintf("bbox %d %d %d %d", 0, customBoxes[i].y1, width, customBoxes[i].y2)
-			lineSpan := fmt.Sprintf("<span class='ocr_line' id='line_%d' title='%s'>", lineID, lineBBox)
-
-			wordBBox := lineBBox
-			wordSpan := fmt.Sprintf("<span class='ocrx_word' id='word_%d_0' title='%s; x_wconf %.0f'>%s</span>",
-				lineID, wordBBox, customLines[i].confidence, html.EscapeString(customLines[i].text))
-
-			lineSpan += wordSpan + "</span>"
-			hocrLines = append(hocrLines, lineSpan)
-		}
-
-		return s.wrapInHOCRDocument(strings.Join(hocrLines, "\n"), width, height)
-	}
-
-	// For tesseract provider, use the original word-based grouping logic
-	// Group transcribed words by line based on Y-coordinate proximity
-	lineWords := make([][]TranscribedWord, len(lines))
-
-	// For each transcribed word, find which line it belongs to
-	for _, word := range transcribedWords {
-		wordCenterY := word.Y + word.Height/2
-		bestLineIdx := -1
-		minDistance := int(^uint(0) >> 1) // Max int
-
-		for lineIdx, line := range lines {
-			if len(line) == 0 {
-				continue
-			}
-			// Calculate line center Y
-			lineCenterY := line[0].Y + line[0].Height/2
-			distance := abs(wordCenterY - lineCenterY)
-			if distance < minDistance {
-				minDistance = distance
-				bestLineIdx = lineIdx
-			}
-		}
-
-		if bestLineIdx >= 0 && minDistance <= 20 {
-			lineWords[bestLineIdx] = append(lineWords[bestLineIdx], word)
-		}
-	}
-
-	type lineWithWords struct {
-		lineID int
-		words  []TranscribedWord
-	}
-
-	lineGroups := make([]lineWithWords, 0, len(lineWords))
-	lineBoxes := make([]lineVerticalBox, 0, len(lineWords))
-	for lineID, lineWordList := range lineWords {
-		if len(lineWordList) == 0 {
-			continue
-		}
-		minY := lineWordList[0].Y
-		maxY := lineWordList[0].Y + lineWordList[0].Height
-		for _, word := range lineWordList {
-			if word.Y < minY {
-				minY = word.Y
-			}
-			if word.Y+word.Height > maxY {
-				maxY = word.Y + word.Height
-			}
-		}
-		lineGroups = append(lineGroups, lineWithWords{lineID: lineID, words: lineWordList})
-		lineBoxes = append(lineBoxes, lineVerticalBox{lineID: lineID, y1: minY, y2: maxY})
-	}
-
-	lineBoxes = normalizeLineVerticalBoxes(lineBoxes, height)
-	boxByID := make(map[int]lineVerticalBox, len(lineBoxes))
-	for _, box := range lineBoxes {
-		boxByID[box.lineID] = box
-	}
-
-	for _, group := range lineGroups {
-		box, ok := boxByID[group.lineID]
-		if !ok {
-			continue
-		}
-
-		filtered := make([]TranscribedWord, 0, len(group.words))
-		for _, word := range group.words {
-			centerY := word.Y + word.Height/2
-			if centerY >= box.y1 && centerY <= box.y2 {
-				filtered = append(filtered, word)
-			}
-		}
-		if len(filtered) == 0 {
-			continue
-		}
-
-		sort.Slice(filtered, func(i, j int) bool {
-			return filtered[i].X < filtered[j].X
-		})
-
-		lineBBox := fmt.Sprintf("bbox %d %d %d %d", 0, box.y1, width, box.y2)
-		lineSpan := fmt.Sprintf("<span class='ocr_line' id='line_%d' title='%s'>", group.lineID, lineBBox)
-
-		var wordSpans []string
-		for i, word := range filtered {
-			wordBBox := fmt.Sprintf("bbox %d %d %d %d", word.X, word.Y, word.X+word.Width, word.Y+word.Height)
-			wordSpan := fmt.Sprintf("<span class='ocrx_word' id='word_%d_%d' title='%s; x_wconf %.0f'>%s</span>",
-				group.lineID, i, wordBBox, word.Confidence, html.EscapeString(word.Text))
-			wordSpans = append(wordSpans, wordSpan)
-		}
-
-		lineSpan += strings.Join(wordSpans, " ") + "</span>"
-		hocrLines = append(hocrLines, lineSpan)
-	}
-
-	return s.wrapInHOCRDocument(strings.Join(hocrLines, "\n"), width, height)
-}
-
-type lineVerticalBox struct {
-	lineID int
-	y1     int
-	y2     int
-}
-
-func normalizeLineVerticalBoxes(boxes []lineVerticalBox, imageHeight int) []lineVerticalBox {
-	if len(boxes) == 0 {
-		return boxes
-	}
-
-	for i := range boxes {
-		if boxes[i].y1 < 0 {
-			boxes[i].y1 = 0
-		}
-		if boxes[i].y2 > imageHeight {
-			boxes[i].y2 = imageHeight
-		}
-		if boxes[i].y2 < boxes[i].y1 {
-			boxes[i].y2 = boxes[i].y1
-		}
-	}
-
-	sort.Slice(boxes, func(i, j int) bool {
-		return boxes[i].y1 < boxes[j].y1
-	})
-
-	for i := 0; i < len(boxes)-1; i++ {
-		boundary := (boxes[i].y2 + boxes[i+1].y1) / 2
-		if boundary < boxes[i].y1 {
-			boundary = boxes[i].y1
-		}
-		if boundary > boxes[i+1].y2 {
-			boundary = boxes[i+1].y2
-		}
-
-		boxes[i].y2 = boundary
-		nextStart := boundary + 1
-		if nextStart > boxes[i+1].y2 {
-			nextStart = boxes[i+1].y2
-		}
-		if nextStart < boxes[i+1].y1 {
-			nextStart = boxes[i+1].y1
-		}
-		boxes[i+1].y1 = nextStart
-	}
-
-	return boxes
-}
-
 // wrapInHOCRDocument wraps content in a complete hOCR document
 func (s *Service) wrapInHOCRDocument(content string, width, height int) string {
 	bbox := fmt.Sprintf("bbox 0 0 %d %d", width, height)
@@ -1859,7 +979,7 @@ func (s *Service) wrapInHOCRDocument(content string, width, height int) string {
 <head>
 <title></title>
 <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
-<meta name='ocr-system' content='Scribe-tesseract-llm' />
+<meta name='ocr-system' content='Scribe-segmented-llm' />
 <meta name='ocr-capabilities' content='ocr_page ocr_carea ocr_par ocr_line ocrx_word' />
 </head>
 <body>
@@ -1870,9 +990,39 @@ func (s *Service) wrapInHOCRDocument(content string, width, height int) string {
 </html>`, bbox, content)
 }
 
-func abs(x int) int {
-	if x < 0 {
-		return -x
+// groupWordsIntoLines preserves model-defined chunks and reading order.
+func (s *Service) groupWordsIntoLines(boxes []worddetection.WordBox) [][]worddetection.WordBox {
+	lines := make([][]worddetection.WordBox, len(boxes))
+	for index, box := range boxes {
+		lines[index] = []worddetection.WordBox{box}
 	}
-	return x
+	return lines
+}
+
+func (s *Service) generateHOCRFromDetectedLines(lines [][]worddetection.WordBox, width, height int) string {
+	var spans []string
+	for index, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		box := line[0]
+		spans = append(spans, fmt.Sprintf("<span class='ocr_line' id='line_%d' title='bbox %d %d %d %d'></span>", index, box.X, box.Y, box.X+box.Width, box.Y+box.Height))
+	}
+	return s.wrapInHOCRDocument(strings.Join(spans, "\n"), width, height)
+}
+
+func (s *Service) generateHOCRFromWords(words []TranscribedWord, width, height int) string {
+	sort.SliceStable(words, func(i, j int) bool { return words[i].LineID < words[j].LineID })
+	var spans []string
+	for _, box := range words {
+		bbox := fmt.Sprintf("bbox %d %d %d %d", box.X, box.Y, box.X+box.Width, box.Y+box.Height)
+		spans = append(spans, fmt.Sprintf("<span class='ocr_line' id='line_%d' title='%s'><span class='ocrx_word' id='word_%d_0' title='%s; x_wconf %.0f'>%s</span></span>", box.LineID, bbox, box.LineID, bbox, box.Confidence, html.EscapeString(box.Text)))
+	}
+	return s.wrapInHOCRDocument(strings.Join(spans, "\n"), width, height)
+}
+
+// Only the exact requested sentinel means unreadable; document prose can
+// legitimately contain words such as "illegible" or "I cannot".
+func (*Service) isRefusalOrIllegible(text string) bool {
+	return strings.EqualFold(strings.TrimSpace(text), "not legible")
 }

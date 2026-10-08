@@ -334,8 +334,8 @@ func testTranscriptionJobCommitsSuccessfulLinesWhenLaterSegmentFails(t *testing.
 	contextStore := store.NewContextStore(database)
 	processingContext, err := contextStore.Create(ctx, store.Context{
 		UserID: &userID, WorkspaceID: &workspaceID,
-		Name: uniqueName("partial transcription"), SegmentationModel: "scribe",
-		TranscriptionProvider: "tesseract", TranscriptionModel: "tesseract",
+		Name: uniqueName("partial transcription"), SegmentationModel: "kraken",
+		TranscriptionProvider: "ollama", TranscriptionModel: "glm-ocr:bf16",
 	})
 	if err != nil {
 		t.Fatalf("create processing context: %v", err)
@@ -434,7 +434,7 @@ func testTranscriptionJobCommitsSuccessfulLinesWhenLaterSegmentFails(t *testing.
 	if err != nil {
 		t.Fatalf("load partial transcription OCR provenance: %v", err)
 	}
-	if provenance.Provider != "tesseract" || provenance.Model != "tesseract" {
+	if provenance.Provider != "ollama" || provenance.Model != "glm-ocr:bf16" {
 		t.Fatalf("partial transcription OCR provider/model = %q/%q", provenance.Provider, provenance.Model)
 	}
 	if provenance.OriginalText != "transcribed first line" {
@@ -481,8 +481,8 @@ func TestTranscriptionJobRetriesWhenEverySegmentHasTransientFailure(t *testing.T
 	contextStore := store.NewContextStore(database)
 	processingContext, err := contextStore.Create(ctx, store.Context{
 		UserID: &userID, WorkspaceID: &workspaceID,
-		Name: uniqueName("all transient transcription"), SegmentationModel: "scribe",
-		TranscriptionProvider: "tesseract", TranscriptionModel: "tesseract",
+		Name: uniqueName("all transient transcription"), SegmentationModel: "kraken",
+		TranscriptionProvider: "ollama", TranscriptionModel: "glm-ocr:bf16",
 	})
 	if err != nil {
 		t.Fatalf("create processing context: %v", err)
@@ -674,7 +674,7 @@ func TestBackgroundTranscriptionUsesWorkspaceAndProviderLimiter(t *testing.T) {
 	contexts := store.NewContextStore(database)
 	processingContext, err := contexts.Create(ctx, store.Context{
 		UserID: &owner, WorkspaceID: &workspaceID, Name: "worker-limit-context",
-		SegmentationModel: "scribe", TranscriptionProvider: "tesseract", TranscriptionModel: "tesseract",
+		SegmentationModel: "kraken", TranscriptionProvider: "ollama", TranscriptionModel: "glm-ocr:bf16",
 	})
 	if err != nil {
 		t.Fatalf("create context: %v", err)
@@ -773,7 +773,7 @@ func TestTranscriptionJobSegmentLimitStopsBeforeCredentialsProgressAndProvider(t
 
 	processingContext := store.Context{
 		ID: 77, WorkspaceID: &workspaceID, UserID: &owner, Name: "segment cap",
-		SegmentationModel: "scribe", TranscriptionProvider: "openai", TranscriptionModel: "test-model",
+		SegmentationModel: "kraken", TranscriptionProvider: "openai", TranscriptionModel: "test-model",
 	}
 	snapshot, err := json.Marshal(processingContext)
 	if err != nil {
@@ -859,7 +859,7 @@ func TestTranscriptionJobMissingWorkspaceCredentialFailsBeforeRegionOrProviderWo
 
 	processingContext := store.Context{
 		ID: 78, WorkspaceID: &workspaceID, UserID: &owner, Name: "missing Gemini key",
-		SegmentationModel: "scribe", TranscriptionProvider: "gemini", TranscriptionModel: "gemini-test",
+		SegmentationModel: "kraken", TranscriptionProvider: "gemini", TranscriptionModel: "gemini-test",
 	}
 	snapshot, err := json.Marshal(processingContext)
 	if err != nil {
@@ -1428,7 +1428,7 @@ func TestResolveTranscriptionJobContextUsesSnapshotAndItemWorkspace(t *testing.T
 	defaultCtx, err := contextStore.Create(ctx, store.Context{
 		Name:                  uniqueName("job-default"),
 		IsDefault:             true,
-		SegmentationModel:     "scribe",
+		SegmentationModel:     "kraken",
 		TranscriptionProvider: "ollama",
 		TranscriptionModel:    "default-model",
 	})
@@ -1445,7 +1445,7 @@ func TestResolveTranscriptionJobContextUsesSnapshotAndItemWorkspace(t *testing.T
 		WorkspaceID:           &otherWorkspaceID,
 		Name:                  uniqueName("other-user-context"),
 		IsDefault:             false,
-		SegmentationModel:     "scribe",
+		SegmentationModel:     "kraken",
 		TranscriptionProvider: "ollama",
 		TranscriptionModel:    "other-user-model",
 	})
@@ -1530,7 +1530,7 @@ func TestTranscriptionJobUsesImmutableContextSnapshot(t *testing.T) {
 		UserID:                &userID,
 		WorkspaceID:           &workspaceID,
 		Name:                  uniqueName("snapshot-context"),
-		SegmentationModel:     "tesseract",
+		SegmentationModel:     "kraken",
 		TranscriptionProvider: "ollama",
 		TranscriptionModel:    "model-before-update",
 	})
@@ -1618,7 +1618,7 @@ func TestSeedTranscriptionJobOCRRunUsesSuccessfulLineSet(t *testing.T) {
 	workspaceID := createTestWorkspace(t, db, userID, uniqueName("seed-workspace"))
 	contextRow, err := contextStore.Create(ctx, store.Context{
 		Name:                  uniqueName("seed-context"),
-		SegmentationModel:     "scribe",
+		SegmentationModel:     "kraken",
 		TranscriptionProvider: "ollama",
 		TranscriptionModel:    "seed-model",
 	})

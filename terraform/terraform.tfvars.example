@@ -2,35 +2,8 @@ project_id = "your-gcp-project-id"
 
 region = "us-east5"
 
-# Used only by pr-* workspaces; production and development retain machine_type.
-preview_machine_type = "n2d-standard-2"
-
 # Restrict ingress to your office/VPN/public IPs.
-allowed_ips = [
-  "203.0.113.10/32",
-]
-
-allowed_ssh_ipv4 = [
-  "203.0.113.10/32",
-]
-
-# Example SSH access.
-users = {
-  ops = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIReplaceMeWithARealPublicKey ops@example"
-  ]
-}
-
-# Vault administrators for the shared dev/prod Vault servers.
-vault_admin_emails = [
-  "operator@lehigh.edu",
-]
-
-# GitHub Actions deploy service accounts that must keep Vault CI login roles.
-# This must include the current value of GitHub secret GSA.
-vault_ci_service_account_emails = [
-  "github@example-project.iam.gserviceaccount.com",
-]
+allowed_ips = ["203.0.113.10/32"]
 
 # Dev workspace only. These human identities may impersonate the keyless,
 # dev-only scribe-dev-external service account. Leave empty in prod/preview.
@@ -44,16 +17,12 @@ monitoring_notification_channels = [
   "projects/your-gcp-project-id/notificationChannels/1234567890",
 ]
 
-# Images and the Compose checkout follow main by default. Point a workspace at
-# other images by setting image_tag (backend and frontend) or ocr_image_tag.
-# image_tag = "my-branch"
-
-# Proxy trust boundaries. Cloud Run sources are limited to the exact GCP
-# subnet; application forwarding trust is the derived Traefik container /32.
-# Use a canonical /24 through /28: Terraform reserves .1 for the bridge
-# gateway, .2 for Traefik, and the upper half for dynamic containers.
+# Terraform resolves API, frontend, and Triplet GAR tags to immutable digests.
+# image_tag = "main"
 network_ip_cidr_range = "10.42.0.0/24"
-compose_network_cidr  = "172.30.0.0/24"
+cloud_sql_tier = "db-custom-2-7680"
+worker_min_instances = 0
+worker_max_instances = 3
 
 # Runtime admission defaults come from ../config.yaml. Omit them here so a
 # copied tfvars file follows reviewed application-default changes. An operator

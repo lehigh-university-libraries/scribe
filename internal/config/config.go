@@ -36,12 +36,10 @@ const (
 	maxConfiguredManifestImportBytes              uint64 = 64 << 20
 	DefaultMaxActiveTranscriptionJobsPerWorkspace        = 1000
 	maxConfiguredActiveTranscriptionJobs                 = 100000
-	DefaultMaxTranscriptionSegmentsPerJob                = 50
+	DefaultMaxTranscriptionSegmentsPerJob                = 500
 	maxConfiguredTranscriptionSegmentsPerJob             = 500
 	DefaultTranscriptionJobWorkers                       = 3
 	maxConfiguredTranscriptionJobWorkers                 = 32
-	DefaultLLMBatchSize                                  = 10
-	maxConfiguredLLMBatchSize                            = 100
 	DefaultLineTranscribeConcurrency                     = 5
 	maxConfiguredLineTranscribeConcurrency               = 32
 	maxConfiguredQueueOutstandingMessages                = 128
@@ -83,21 +81,23 @@ type Config struct {
 	PublicBaseURL string `yaml:"public_base_url"`
 	PDFExportURL  string `yaml:"pdf_export_url"`
 
-	Server        ServerConfig          `yaml:"server"`
-	Auth          AuthConfig            `yaml:"auth"`
-	Pagination    PaginationConfig      `yaml:"pagination"`
-	CORS          CORSConfig            `yaml:"cors"`
-	Database      DatabaseConfig        `yaml:"database"`
-	LLM           LLMConfig             `yaml:"llm"`
-	Transcription TranscriptionConfig   `yaml:"transcription"`
-	IIIF          IIIFConfig            `yaml:"iiif"`
-	Segmentation  ServiceEndpointConfig `yaml:"segmentation_service"`
-	Annotation    AnnotationConfig      `yaml:"annotation"`
-	Processing    ProcessingConfig      `yaml:"processing"`
-	Storage       StorageConfig         `yaml:"storage"`
-	Audit         AuditConfig           `yaml:"audit"`
-	Observability ObservabilityConfig   `yaml:"observability"`
-	Vault         VaultConfig           `yaml:"vault"`
+	Server               ServerConfig          `yaml:"server"`
+	Auth                 AuthConfig            `yaml:"auth"`
+	Pagination           PaginationConfig      `yaml:"pagination"`
+	CORS                 CORSConfig            `yaml:"cors"`
+	Database             DatabaseConfig        `yaml:"database"`
+	LLM                  LLMConfig             `yaml:"llm"`
+	Transcription        TranscriptionConfig   `yaml:"transcription"`
+	IIIF                 IIIFConfig            `yaml:"iiif"`
+	Segmentation         ServiceEndpointConfig `yaml:"segmentation_service"`
+	Annotation           AnnotationConfig      `yaml:"annotation"`
+	Processing           ProcessingConfig      `yaml:"processing"`
+	Storage              StorageConfig         `yaml:"storage"`
+	Audit                AuditConfig           `yaml:"audit"`
+	Observability        ObservabilityConfig   `yaml:"observability"`
+	Vault                VaultConfig           `yaml:"vault"`
+	SecretManagerProject string                `yaml:"-"`
+	SecretManagerPrefix  string                `yaml:"-"`
 
 	// DatabaseDSN is resolved at load time from Vault + Database config.
 	DatabaseDSN string `yaml:"-"`
@@ -217,10 +217,8 @@ type LLMConfig struct {
 	Provider                  string       `yaml:"provider"`
 	DefaultSystemPrompt       string       `yaml:"default_system_prompt"`
 	SegmentationModel         string       `yaml:"segmentation_model"`
-	BatchSize                 int          `yaml:"batch_size"`
 	LineTranscribeConcurrency int          `yaml:"line_transcribe_concurrency"`
 	Ollama                    OllamaConfig `yaml:"ollama"`
-	Kraken                    KrakenConfig `yaml:"kraken"`
 	OpenAI                    OpenAIConfig `yaml:"openai"`
 	Gemini                    GeminiConfig `yaml:"gemini"`
 }
@@ -243,14 +241,6 @@ type OpenAIConfig struct {
 	Models []string `yaml:"models"`
 }
 
-type KrakenConfig struct {
-	URL            string                   `yaml:"url"`
-	Audience       string                   `yaml:"audience"`
-	Model          string                   `yaml:"model"`
-	Models         []string                 `yaml:"models"`
-	ModelEndpoints map[string]ModelEndpoint `yaml:"-"`
-}
-
 type GeminiConfig struct {
 	Model  string   `yaml:"model"`
 	Models []string `yaml:"models"`
@@ -268,6 +258,7 @@ type TranscriptionQueue struct {
 	ProjectID              string        `yaml:"project_id"`
 	TopicID                string        `yaml:"topic_id"`
 	SubscriptionID         string        `yaml:"subscription_id"`
+	MaintenanceTopicID     string        `yaml:"maintenance_topic_id"`
 	MaxOutstandingMessages int           `yaml:"max_outstanding_messages"`
 	MaxExtension           time.Duration `yaml:"max_extension"`
 	RecoveryPollInterval   time.Duration `yaml:"recovery_poll_interval"`
@@ -395,6 +386,17 @@ func Load() (Config, error) {
 		cfg.Vault.Workspace = strings.TrimSpace(os.Getenv("VAULT_WORKSPACE"))
 	}
 	cfg.Vault.Token = strings.TrimSpace(os.Getenv("VAULT_TOKEN"))
+	cfg.SecretManagerProject = strings.TrimSpace(os.Getenv("SECRET_MANAGER_PROJECT_ID"))
+	cfg.SecretManagerPrefix = strings.TrimSpace(os.Getenv("SECRET_MANAGER_PREFIX"))
+	if cfg.SecretManagerProject != "" {
+		cfg.Vault.Workspace = strings.TrimSpace(os.Getenv("SCRIBE_DEPLOYMENT_WORKSPACE"))
+		if !regexp.MustCompile(`^(prod|dev|pr-[0-9]+)$`).MatchString(cfg.Vault.Workspace) {
+			return Config{}, fmt.Errorf("secret Manager requires a prod, dev, or pr-N deployment workspace")
+		}
+		prefix := "scribe/" + cfg.Vault.Workspace
+		cfg.Vault.Paths = VaultPaths{GoogleOAuth: prefix + "/google_oauth", OpenAI: prefix + "/openai", Gemini: prefix + "/gemini", Database: prefix + "/database/app", ProviderSecrets: prefix + "/provider-secrets/workspaces"}
+		cfg.Vault.Address, cfg.Vault.Token, cfg.Vault.GCPAuthRole = "", "", ""
+	}
 	var err error
 	cfg.LLM.Ollama.URL = strings.TrimSpace(cfg.LLM.Ollama.URL)
 	cfg.LLM.Ollama.Audience = strings.TrimSpace(cfg.LLM.Ollama.Audience)
@@ -423,28 +425,6 @@ func Load() (Config, error) {
 	cfg.IIIF.SourceBase = strings.TrimRight(strings.TrimSpace(cfg.IIIF.SourceBase), "/")
 	cfg.Annotation.TripletPresentationBase = strings.TrimRight(strings.TrimSpace(cfg.Annotation.TripletPresentationBase), "/")
 	cfg.Annotation.TripletPresentationInternalBase = strings.TrimRight(strings.TrimSpace(cfg.Annotation.TripletPresentationInternalBase), "/")
-	cfg.LLM.Kraken.URL = strings.TrimSpace(cfg.LLM.Kraken.URL)
-	cfg.LLM.Kraken.Audience = strings.TrimSpace(cfg.LLM.Kraken.Audience)
-	cfg.LLM.Kraken.Model = strings.TrimSpace(cfg.LLM.Kraken.Model)
-	cfg.LLM.Kraken.ModelEndpoints, err = loadModelEndpointMapEnv("KRAKEN_MODEL_ENDPOINTS_JSON")
-	if err != nil {
-		return Config{}, err
-	}
-	if models, ok, err := loadStringListEnv("KRAKEN_MODELS_JSON"); err != nil {
-		return Config{}, err
-	} else if ok {
-		cfg.LLM.Kraken.Models = models
-	}
-	if cfg.LLM.Kraken.URL == "" {
-		cfg.LLM.Kraken.URL = cfg.Segmentation.URL
-	}
-	if cfg.LLM.Kraken.Audience == "" {
-		cfg.LLM.Kraken.Audience = cfg.Segmentation.Audience
-	}
-	if cfg.LLM.Kraken.Model == "" {
-		cfg.LLM.Kraken.Model = "catmus-medieval-1.6.0.mlmodel"
-	}
-
 	cfg.Server.TrustedProxyCIDRs, err = normalizeTrustedProxyCIDRs(cfg.Server.TrustedProxyCIDRs)
 	if err != nil {
 		return Config{}, err
@@ -550,7 +530,7 @@ func Load() (Config, error) {
 	if cfg.Vault.KVMount == "" {
 		cfg.Vault.KVMount = "secret"
 	}
-	if cfg.Vault.GCPAuthRole == "" {
+	if cfg.Vault.GCPAuthRole == "" && cfg.SecretManagerProject == "" {
 		cfg.Vault.GCPAuthRole = "scribe-app"
 	}
 	if cfg.Vault.Workspace != "" {
@@ -647,7 +627,7 @@ func normalizeObservabilityConfig(value ObservabilityConfig) (ObservabilityConfi
 
 func expectedVaultPathPrefix(cfg Config) (string, error) {
 	workspace := strings.Trim(strings.TrimSpace(cfg.Vault.Workspace), "/")
-	if !cfg.Auth.PreviewAnonymous {
+	if !cfg.Auth.PreviewAnonymous || cfg.SecretManagerProject != "" {
 		return "scribe/" + workspace, nil
 	}
 
@@ -682,12 +662,6 @@ func normalizeRuntimeConcurrency(cfg *Config) error {
 	}
 	if cfg.Transcription.Queue.MaxOutstandingMessages < 1 || cfg.Transcription.Queue.MaxOutstandingMessages > maxConfiguredQueueOutstandingMessages {
 		return fmt.Errorf("transcription.queue.max_outstanding_messages must be between 1 and %d", maxConfiguredQueueOutstandingMessages)
-	}
-	if cfg.LLM.BatchSize == 0 {
-		cfg.LLM.BatchSize = DefaultLLMBatchSize
-	}
-	if cfg.LLM.BatchSize < 1 || cfg.LLM.BatchSize > maxConfiguredLLMBatchSize {
-		return fmt.Errorf("llm.batch_size must be between 1 and %d", maxConfiguredLLMBatchSize)
 	}
 	if cfg.LLM.LineTranscribeConcurrency == 0 {
 		cfg.LLM.LineTranscribeConcurrency = DefaultLineTranscribeConcurrency
@@ -913,7 +887,6 @@ func validateServiceEndpoints(cfg Config) error {
 		audience string
 	}{
 		{name: "llm.ollama", url: cfg.LLM.Ollama.URL, audience: cfg.LLM.Ollama.Audience},
-		{name: "llm.kraken", url: cfg.LLM.Kraken.URL, audience: cfg.LLM.Kraken.Audience},
 		{name: "segmentation_service", url: cfg.Segmentation.URL, audience: cfg.Segmentation.Audience},
 		{name: "pdf_export_url", url: cfg.PDFExportURL},
 	}
@@ -927,7 +900,6 @@ func validateServiceEndpoints(cfg Config) error {
 		endpoints map[string]ModelEndpoint
 	}{
 		{name: "llm.ollama.model_endpoints", endpoints: cfg.LLM.Ollama.ModelEndpoints},
-		{name: "llm.kraken.model_endpoints", endpoints: cfg.LLM.Kraken.ModelEndpoints},
 		{name: "segmentation_service.model_endpoints", endpoints: cfg.Segmentation.ModelEndpoints},
 	}
 	for _, set := range modelEndpointSets {
@@ -1173,18 +1145,6 @@ func resolveModelEndpoint(endpoints map[string]ModelEndpoint, key string) (strin
 	return "", ""
 }
 
-func (c ServiceEndpointConfig) ResolveForModel(model string) (string, string) {
-	return resolveModelEndpoint(c.ModelEndpoints, model)
-}
-
-func (c KrakenConfig) ResolveForModel(model string) (string, string) {
-	return resolveModelEndpoint(c.ModelEndpoints, model)
-}
-
-func (c OllamaConfig) ResolveForModel(model string) (string, string) {
-	return resolveModelEndpoint(c.ModelEndpoints, model)
-}
-
 // GoogleCallbackURL returns the absolute callback URL constructed from
 // PublicBaseURL + Auth.GoogleCallbackPath.
 func (c Config) GoogleCallbackURL() string {
@@ -1213,4 +1173,11 @@ func (d DatabaseConfig) BuildDSN(password string) string {
 		"{{.Name}}", d.Name,
 	)
 	return replacer.Replace(tpl)
+}
+
+func (c ServiceEndpointConfig) ResolveForModel(model string) (string, string) {
+	return resolveModelEndpoint(c.ModelEndpoints, model)
+}
+func (c OllamaConfig) ResolveForModel(model string) (string, string) {
+	return resolveModelEndpoint(c.ModelEndpoints, model)
 }

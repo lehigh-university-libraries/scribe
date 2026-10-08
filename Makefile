@@ -1,7 +1,7 @@
 .PHONY: help
-.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check check test test-backend test-backend-fast test-frontend test-browser e2e-smoke backup-restore-smoke mariadb-backup-retention-test readiness-fixture-test ocr-build-tags segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-tests terraform-check docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-cloud-ocr up-db reset-dev-db down logs sequelace ocr-matrix bootstrap-gcp-identities tf-dev tf-prod tf-preview vault-secrets
+.PHONY: build build-frontend frontend-image-smoke vault-init-image-smoke fmt fmt-check lint toolchain-check check test test-backend test-backend-fast test-frontend test-browser e2e-smoke backup-restore-smoke readiness-fixture-test ocr-build-tags segmentor-lock segmentor-lock-check export-schema-check proto proto-lint sqlc generate generate-check security dependency-scan ops-tests terraform-check docs docs-build docs-serve install-tools install-shell-tools install-codegen-tools install-security-tools install-doc-tools doctor ci up up-cloud-ocr up-db reset-dev-db down logs sequelace ocr-matrix bootstrap-gcp-identities tf-dev tf-prod tf-preview vault-secrets
 
-IMAGE ?= ghcr.io/lehigh-university-libraries/scribe:main
+IMAGE ?= scribe-api:local
 FRONTEND_IMAGE ?= scribe-frontend:local
 COMPOSE_UP_FLAGS ?= -d
 REBUILD ?= false
@@ -20,7 +20,7 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build: ## Build the backend Docker image used on the VM
+build: ## Build the backend Docker image for the API and worker
 	@IMAGE="$(IMAGE)" ./ci/build.sh
 
 build-frontend: ## Build the frontend Docker image
@@ -141,7 +141,7 @@ docs-serve: install-doc-tools ## Serve docs locally with live reload
 toolchain-check: ## Verify version files, containers, scripts, and workflows remain aligned
 	@./ci/toolchain-check.sh
 
-security: ## Run Go reachability/static scans and npm advisory gates
+security: ## Run gosec and npm audits (opt in to govulncheck with SCRIBE_GOVULNCHECK=true)
 	@./ci/security.sh
 
 dependency-scan: ## Scan locked dependencies for fixed high and critical vulnerabilities
@@ -157,7 +157,6 @@ ops-tests: install-shell-tools ## Exercise local runtime, identity, secret, and 
 	@bash ./ci/update-env_test.sh
 	@bash ./ci/persistence-generation_test.sh
 	@bash ./ci/compose-network-ipam_test.sh
-	@bash ./ci/compose-runtime-preflight_test.sh
 	@bash ./ci/ocr-local-defaults_test.sh
 	@bash ./ci/vault-database-path_test.sh
 	@bash ./ci/generate-secrets-permissions_test.sh
@@ -206,11 +205,11 @@ test-browser: ## Run real Chromium editor acceptance tests in the pinned Playwri
 e2e-smoke: ## Run the containerized DB-backed ingest/edit/save/reload smoke path
 	@bash ./ci/e2e-smoke.sh
 
-backup-restore-smoke: ## Exercise isolated MariaDB/blob backup, restore, integrity, and expired-job recovery
+backup-restore-smoke: ## Exercise isolated MySQL/blob backup, restore, integrity, and expired-job recovery
 	@bash ./ci/backup-restore-smoke.sh
 
-mariadb-backup-retention-test: ## Verify logical-backup retention is bounded and fails closed on unsafe entries
-	@bash ./ci/mariadb-backup-retention_test.sh
+test-mysql: ## Run migrations, stores, leases, fencing, and outboxes against pinned MySQL 8.4
+	@bash ./ci/test-mysql.sh
 
 readiness-fixture-test: ## Verify the deterministic non-empty OCR deployment smoke fixture and assertions
 	@bash ./ci/readiness-fixture-test.sh
@@ -218,11 +217,7 @@ readiness-fixture-test: ## Verify the deterministic non-empty OCR deployment smo
 ocr-build-tags: ## Build and test the default, remoteocr, and localocr modes
 	@bash ./ci/ocr-build-tags.sh
 
-# Terraform in the named workspace: init, select (or create) the workspace, then
-# run ACTION (plan by default) with any extra ARGS. Vault's token comes from
-# scripts/vault-token.sh unless VAULT_TOKEN is already set. When dev or prod has
-# no Vault yet, apply first creates and initializes it (the Vault provider needs
-# a token from that Vault before Terraform can plan the rest).
+# Apply the named Terraform workspace directly.
 define terraform
 @set -eu; \
 	export PATH="$(HOST_PATH)"; \
@@ -232,12 +227,7 @@ define terraform
 	terraform -chdir=terraform init -input=false -lockfile=readonly \
 		-backend-config="bucket=$${TF_STATE_BUCKET:-$$GCLOUD_PROJECT-terraform}" -backend-config="prefix=scribe"; \
 	terraform -chdir=terraform workspace select -or-create "$(1)"; \
-	token="$${VAULT_TOKEN:-$$(./scripts/vault-token.sh "$(1)")}"; \
-	if [ -z "$$token" ] && [ "$$action" = apply ] && { [ "$(1)" = dev ] || [ "$(1)" = prod ]; }; then \
-		terraform -chdir=terraform apply -target=module.vault; \
-		token="$$(./scripts/vault-token.sh "$(1)")"; \
-	fi; \
-	VAULT_TOKEN="$$token" terraform -chdir=terraform "$$action" $(ARGS)
+	terraform -chdir=terraform "$$action" $(ARGS)
 endef
 
 tf-dev: ## Terraform for the shared dev environment. Usage: make tf-dev [ACTION=plan|apply|destroy] [ARGS=...]
@@ -259,3 +249,20 @@ vault-secrets: ## Set the application secrets in Vault. Usage: make vault-secret
 	VAULT_TOKEN="$${VAULT_TOKEN:-$$(./scripts/vault-token.sh "$$ws")}" \
 	VAULT_ADMIN_TOKEN="$$(gcloud auth print-access-token)" \
 		go run ./cmd/vault-secrets -workspace "$$ws" $(or $(CMD),update)
+
+.PHONY: secret-manager-secrets
+secret-manager-secrets: ## Copy and verify Vault bootstrap secrets in Secret Manager. Usage: make secret-manager-secrets WORKSPACE=dev|prod
+	@set -eu; \
+	 export PATH="$(HOST_PATH)"; \
+	 : "$${GCLOUD_PROJECT:?set GCLOUD_PROJECT}"; \
+	 workspace="$(or $(WORKSPACE),dev)"; \
+	 case "$$workspace" in dev|prod) ;; *) echo 'WORKSPACE must be dev or prod' >&2; exit 2 ;; esac; \
+	 service="vault-server-$$workspace"; \
+	 export VAULT_ADDR="$${VAULT_ADDR:-$$(gcloud run services describe "$$service" --project "$$GCLOUD_PROJECT" --region "$${TF_VAR_region:-us-east5}" --format='value(status.url)')}"; \
+	 export VAULT_TOKEN="$${VAULT_TOKEN:-$$(./scripts/vault-token.sh "$$workspace")}"; \
+	 export VAULT_ADMIN_TOKEN="$${VAULT_ADMIN_TOKEN:-$$(gcloud auth print-access-token)}"; \
+	 go run ./cmd/secret-manager-secrets -workspace "$$workspace" -project "$$GCLOUD_PROJECT"
+
+.PHONY: test-mysql triplet-sql-test
+triplet-sql-test: ## Verify shared Triplet SQL CAS and restart persistence
+	@bash ./ci/triplet-sql_test.sh

@@ -74,19 +74,20 @@ operations page, and the executable acceptance contract in the same review.
 - `/livez` reports process liveness; `/readyz` reports persistence readiness.
 - Long-running Compose services are restartable with readiness-aware ordering
   and graceful termination.
-- Container-Optimized OS (COS) is the only supported host for every
-  Scribe-managed GCP VM, including previews and production. Host-executed
-  lifecycle scripts use its shipped shell and jq feature set; portability
-  layers for other VM operating systems are out of scope.
+- Cloud deployments contain no VM: Cloud Run hosts stateless processes,
+  Cloud SQL MySQL 8.4 stores application and Triplet Presentation state, GCS
+  stores uploads, and Secret Manager owns cloud secrets through keyless ADC.
+- Cloud workers scale to zero using authenticated Pub/Sub pushes and scheduled,
+  bounded maintenance requests. Work completes within the request lifetime;
+  local workers poll. Both use bounded shutdown and revision-fenced work.
 - Actions, module commits, tools, downloads, and container digests are pinned;
   Renovate updates related references together.
 - Protected `preview` and `production` environments are required. GCP Workload
   Identity Federation claims are restricted to the repository, workflow, ref,
   and environment.
-- Preview teardown evidence succeeds only after both Terraform and its exact
-  Vault namespace are absent. Ordinary destroy requires readable current state;
-  protected recovery may accept an already absent exact preview workspace only
-  after authoritative workspace inventory and remains fail closed otherwise.
+- Each preview has isolated Cloud SQL, storage, queue, and secret resources;
+  its runtime cannot read dev/prod secrets. Destruction has no shared Vault
+  namespace dependency.
 
 ## Developer experience and documentation
 

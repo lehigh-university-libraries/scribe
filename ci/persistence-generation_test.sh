@@ -100,7 +100,6 @@ volume_names() {
     docker compose \
       -p "$project_name" \
       -f docker-compose.yaml \
-      -f terraform/rootfs/home/cloud-compose/scribe-runtime.compose.yaml \
       config --format json \
     | jq -r '.volumes | to_entries | sort_by(.key) | map(.value.name) | .[]'
 }

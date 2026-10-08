@@ -5,6 +5,10 @@ workspace, provider, model, job ID, attempt, status, and latency. Never log
 prompts, transcription previews, API keys, OAuth tokens, identity-token URLs,
 cookies, or raw provider response bodies by default.
 
+Each process uses a random telemetry instance ID so Cloud Run replicas cannot
+write competing points to the same metric series. Export failures include the
+categorical gRPC status code without recording provider error messages.
+
 The API and worker install bounded OpenTelemetry SDK pipelines. Managed GCP
 deployments push metrics directly to Cloud Monitoring and sampled spans to
 Cloud Trace with Application Default Credentials; there is no public
@@ -61,7 +65,7 @@ The application metrics above support these dashboards and alerts directly:
 - queue depth, oldest age, expired leases, and queue-collection failures.
 
 Use the platform sources named below for container health, Pub/Sub delivery,
-MariaDB, and backup signals. Provider audits and the diagnostic Connect APIs
+Cloud SQL, and backup signals. Provider audits and the diagnostic Connect APIs
 are bounded per-item investigation data, not time-series metrics. Scribe does
 not currently emit dedicated provider latency, save-conflict, publication-lag,
 quota-rejection, or rate-limit-rejection metric series; do not create empty
@@ -74,7 +78,7 @@ on the operator dashboard; absence of a dashboard is not evidence that a
 platform alert fired.
 
 Every apply runs the backend and OCR readiness jobs and fails if either does;
-see [production troubleshooting](troubleshooting.md#cloud-run-readiness) to
+see [production troubleshooting](troubleshooting.md) to
 read their logs or rerun one. OCR readiness covers image normalization, the
 default Scribe segmentation, Kraken transcription, and the production default
 Ollama request. Segmentation and transcription each use a 240-second request

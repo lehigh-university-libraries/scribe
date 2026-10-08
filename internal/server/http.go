@@ -31,7 +31,6 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
-	"github.com/lehigh-university-libraries/scribe/internal/vaultkv"
 	"github.com/lehigh-university-libraries/scribe/internal/worklimit"
 )
 
@@ -159,7 +158,7 @@ func NewHandler(
 	transcriptionJobs *store.TranscriptionJobStore,
 	authManager *auth.Manager,
 	providerSecrets *store.ProviderSecretStore,
-	vaultClient *vaultkv.Client,
+	vaultClient config.SecretClient,
 	auditStores ...*store.ProviderCallAuditStore,
 ) *Handler {
 	var providerCallAudits *store.ProviderCallAuditStore
