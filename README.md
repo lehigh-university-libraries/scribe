@@ -9,6 +9,10 @@ Scribe accepts a single image URL, a single upload, a multi-file ingest, or a
 IIIF manifest. Its Connect API is also intended for external IIIF editors and
 plugins.
 
+Workspace API keys created without explicit scopes use their selected role's
+permissions. Explicit scopes further restrict that role. Previously created
+keys with empty scopes remain denied and must be recreated.
+
 > Scribe is greenfield software under active hardening. Treat `main` as a
 > development branch until every published
 > [release criterion](docs/reference/release-criteria.md) is backed by a passing

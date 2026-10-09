@@ -248,6 +248,68 @@ func TestRejectedSessionsDoNotRepairOrDeletePersistence(t *testing.T) {
 	}
 }
 
+func TestRoleOnlyAPIKeyCreationDefaultsScopesAndPreservesRestrictions(t *testing.T) {
+	databasePool := openAuthTestDB(t)
+	identities := store.NewIdentityStore(databasePool)
+	creator, workspace := ensureAuthTestUser(t, identities, uuid.NewString())
+	manager := &Manager{identities: identities, apiKeys: store.NewAPIKeyStore(databasePool)}
+	ctx := WithPrincipal(context.Background(), Principal{
+		UserID: creator.ID, WorkspaceID: workspace.ID, WorkspaceRole: "admin",
+		Authenticated: true, AuthType: "session",
+	})
+	for _, test := range []struct {
+		role   string
+		scopes []string
+		read   bool
+		create bool
+		write  bool
+		admin  bool
+	}{
+		{role: "read", read: true},
+		{role: "create", read: true, create: true},
+		{role: "write", read: true, create: true, write: true},
+		{role: "admin", read: true, create: true, write: true, admin: true},
+		{role: "admin", scopes: []string{"annotations:read"}, read: true},
+	} {
+		t.Run(test.role+fmt.Sprint(test.scopes), func(t *testing.T) {
+			response, err := manager.CreateAPIKey(ctx, connect.NewRequest(&scribev1.CreateAPIKeyRequest{
+				Name: "role-only regression", Role: test.role, Scopes: test.scopes,
+			}))
+			if err != nil {
+				t.Fatalf("CreateAPIKey: %v", err)
+			}
+			principal, err := manager.apiKeyPrincipal(ctx, response.Msg.GetKey())
+			if err != nil {
+				t.Fatalf("authenticate created key: %v", err)
+			}
+			for permission, want := range map[string]bool{
+				"annotations:read": test.read, "items:create": test.create,
+				"annotations:write": test.write, "admin:webhooks": test.admin,
+			} {
+				if got := principalHasPermission(principal, permission); got != want {
+					t.Errorf("%s allowed = %v, want %v", permission, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestExistingEmptyScopeAPIKeyRemainsDenied(t *testing.T) {
+	databasePool := openAuthTestDB(t)
+	ctx := context.Background()
+	identities := store.NewIdentityStore(databasePool)
+	creator, workspace := ensureAuthTestUser(t, identities, uuid.NewString())
+	manager := &Manager{identities: identities, apiKeys: store.NewAPIKeyStore(databasePool)}
+	_, rawKey, err := manager.apiKeys.Create(ctx, workspace.ID, creator.ID, "empty scopes", "admin", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	principal, err := manager.apiKeyPrincipal(ctx, rawKey)
+	if err != nil || principalHasPermission(principal, "annotations:read") {
+		t.Fatalf("existing empty-scope key gained permissions: %v", err)
+	}
+}
+
 func TestAPIKeyAuthenticationIsReadOnlyAndTracksCurrentMembership(t *testing.T) {
 	databasePool := openAuthTestDB(t)
 	ctx := context.Background()

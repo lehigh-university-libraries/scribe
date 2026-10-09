@@ -80,7 +80,13 @@ func (m *Manager) CreateAPIKey(ctx context.Context, req *connect.Request[scribev
 		}
 		expiresAt = &parsed
 	}
-	apiKey, rawKey, err := m.apiKeys.Create(ctx, principal.WorkspaceID, principal.UserID, req.Msg.GetName(), req.Msg.GetRole(), req.Msg.GetScopes(), expiresAt)
+	scopes := req.Msg.GetScopes()
+	if len(scopes) == 0 {
+		// Role-only keys use the selected role's permissions; authorization still
+		// intersects scopes with that role and the creator's current membership.
+		scopes = []string{"*"}
+	}
+	apiKey, rawKey, err := m.apiKeys.Create(ctx, principal.WorkspaceID, principal.UserID, req.Msg.GetName(), req.Msg.GetRole(), scopes, expiresAt)
 	if err != nil {
 		if errors.Is(err, store.ErrAPIKeyLimit) {
 			return nil, connect.NewError(connect.CodeResourceExhausted, err)
