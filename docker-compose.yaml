@@ -63,7 +63,7 @@ x-scribe-app-env: &scribe-app-env
 
 services:
   mariadb:
-    image: mariadb:12.3@sha256:805c8e104bd563d5bfa24fadd3f31cd419ea859cb5277f32b5dbf2db714f9ed1
+    image: mariadb:12.3@sha256:2bdff1534a7e569fecaf4b10b66ad0d410806e382d9db29ba305448addda97c4
     environment:
       MARIADB_DATABASE: scribe
       MARIADB_USER: scribe
@@ -85,7 +85,7 @@ services:
     stop_grace_period: 30s
 
   traefik:
-    image: traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
+    image: traefik:v3.7.14@sha256:575fa15b135078fe5e50aa847987d96dbddd7b093c172429618404df73f3fa7c
     restart: unless-stopped
     command:
       - --api.insecure=false

@@ -176,7 +176,7 @@ jobs:
           version: 576.0.0
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: 1.16.4
+          terraform_version: v1.16.5
       - name: Terraform ${{ env.ACTION }} foundation
         run: |
           # Terraform cannot manage project services until Service Usage is on.
