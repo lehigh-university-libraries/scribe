@@ -61,8 +61,9 @@ creating API or worker revisions. A failed migration fails the apply.
 
 The API service runs frontend, API, Triplet, PDF, and SQL-proxy containers.
 The private worker service runs a request-driven worker, an API for source
-reads, Triplet, and a SQL proxy. `worker_min_instances` defaults to zero and
-request-based billing allows idle workers to scale to zero. Authenticated
+reads, Triplet, and a SQL proxy. All Cloud Run services use a minimum of zero
+instances, including the production application, worker, and OCR services.
+Request-based billing allows idle workers to scale to zero. Authenticated
 Pub/Sub pushes wake workers for transcription; Cloud Scheduler invokes bounded
 maintenance every thirty minutes for outboxes, retention, and recovery of missed
 publishes or expired leases. The invocation identity has no data access.

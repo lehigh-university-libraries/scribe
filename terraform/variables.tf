@@ -283,14 +283,6 @@ variable "api_max_instances" {
     error_message = "API capacity must be an integer from 2 to 20."
   }
 }
-variable "worker_min_instances" {
-  type    = number
-  default = 0
-  validation {
-    condition     = var.worker_min_instances >= 0 && var.worker_min_instances <= var.worker_max_instances && floor(var.worker_min_instances) == var.worker_min_instances
-    error_message = "Worker minimum must be an integer from zero to worker_max_instances."
-  }
-}
 variable "worker_max_instances" {
   type    = number
   default = 3

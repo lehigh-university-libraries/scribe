@@ -10,7 +10,6 @@ locals {
   ollama_memory                  = try(local.ollama_cloud_run.memory, "16Gi")
   ollama_cpu                     = try(local.ollama_cloud_run.cpu, "4000m")
   ollama_gpu_count               = try(local.ollama_cloud_run.gpu_count, 1)
-  ollama_min_instances           = try(local.ollama_cloud_run.min_instances, 0)
   ollama_max_instances           = try(local.ollama_cloud_run.max_instances, 1)
   ollama_skip_neg                = try(local.ollama_cloud_run.skip_neg, true)
   scribe_worker_gsa_email        = format("worker-%s@%s.iam.gserviceaccount.com", local.name, var.project_id)
@@ -105,7 +104,7 @@ module "ollama_services" {
   memory        = local.ollama_memory
   cpu           = local.ollama_cpu
   gpu_count     = local.ollama_gpu_count
-  min_instances = local.ollama_min_instances
+  min_instances = 0
   max_instances = local.ollama_max_instances
   skip_neg      = local.ollama_skip_neg
   invokers      = []

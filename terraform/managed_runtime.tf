@@ -365,6 +365,9 @@ resource "google_cloud_run_v2_service" "application" {
   project             = var.project_id
   location            = var.region
   deletion_protection = local.is_prod_workspace
+  scaling {
+    min_instance_count = 0
+  }
   lifecycle {
     precondition {
       condition     = !local.is_prod_workspace || length(var.allowed_ips) > 0
@@ -377,7 +380,7 @@ resource "google_cloud_run_v2_service" "application" {
     timeout                          = "300s"
     max_instance_request_concurrency = 20
     scaling {
-      min_instance_count = local.is_prod_workspace ? 2 : 0
+      min_instance_count = 0
       max_instance_count = var.api_max_instances
     }
     containers {
@@ -557,13 +560,16 @@ resource "google_cloud_run_v2_service" "worker" {
   project             = var.project_id
   location            = var.region
   deletion_protection = local.is_prod_workspace
+  scaling {
+    min_instance_count = 0
+  }
   template {
     execution_environment            = "EXECUTION_ENVIRONMENT_GEN2"
     service_account                  = google_service_account.worker.email
     timeout                          = "600s"
     max_instance_request_concurrency = 1
     scaling {
-      min_instance_count = var.worker_min_instances
+      min_instance_count = 0
       max_instance_count = var.worker_max_instances
     }
     containers {
