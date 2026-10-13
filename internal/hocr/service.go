@@ -168,7 +168,7 @@ func (s *Service) auditProviderCall(ctx context.Context, record ProviderCallAudi
 	if s == nil {
 		return
 	}
-	if record.ErrorMessage != "" {
+	if record.ErrorMessage != "" && record.ErrorMessage != "provider output token limit reached" {
 		record.ErrorMessage = redactProviderError(errors.New(record.ErrorMessage), record.HTTPStatus).Error()
 	}
 	meta := providerCallMetadataFromContext(ctx)
@@ -711,6 +711,10 @@ func redactProviderError(err error, explicitStatus *int) error {
 			permanent = false
 		case providers.ErrorInvalidResponse:
 			message = "provider returned an invalid response"
+		case providers.ErrorOutputLimit:
+			message, cause = "provider output token limit reached", ErrNoTranscription
+			permanent = false
+			retryable = false
 		}
 		if status != 0 && (htrError.Kind == providers.ErrorUpstream || htrError.Kind == providers.ErrorRateLimited || htrError.Kind == providers.ErrorAuthentication || htrError.Kind == providers.ErrorInvalidRequest || htrError.Kind == providers.ErrorTimeout) {
 			message = fmt.Sprintf("provider request failed with HTTP status %d", status)

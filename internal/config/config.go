@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -250,9 +251,10 @@ type OpenAIConfig struct {
 }
 
 type GeminiConfig struct {
-	ThinkingLevels map[string]string `yaml:"thinking_levels"`
-	Model          string            `yaml:"model"`
-	Models         []string          `yaml:"models"`
+	OutputTokenLimits map[string]int    `yaml:"output_token_limits"`
+	ThinkingLevels    map[string]string `yaml:"thinking_levels"`
+	Model             string            `yaml:"model"`
+	Models            []string          `yaml:"models"`
 }
 
 type TranscriptionConfig struct {
@@ -566,6 +568,14 @@ func Load() (Config, error) {
 	cfg.Auth.ExternalJWTIssuers, err = normalizeExternalJWTIssuers(cfg.Auth.ExternalJWTIssuers)
 	if err != nil {
 		return Config{}, err
+	}
+	for model, limit := range cfg.LLM.Gemini.OutputTokenLimits {
+		if !slices.Contains(cfg.LLM.Gemini.Models, model) && model != cfg.LLM.Gemini.Model {
+			return Config{}, fmt.Errorf("gemini output token limit model is not registered: %s", model)
+		}
+		if limit != 1024 && limit != 2048 {
+			return Config{}, fmt.Errorf("gemini output token limit must be 1024 or 2048 for %s", model)
+		}
 	}
 	for model, level := range cfg.LLM.Gemini.ThinkingLevels {
 		registered := model == cfg.LLM.Gemini.Model

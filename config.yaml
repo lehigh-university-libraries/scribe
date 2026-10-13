@@ -44,6 +44,9 @@ llm:
     model: "gpt-4o"
     models: ["gpt-4o", "gpt-4.1"]
   gemini:
+    output_token_limits:
+      gemini-3.1-pro-preview: 1024
+      gemini-3.8-flash: 1024
     thinking_levels:
       gemini-3.1-pro-preview: low
       gemini-3.8-flash: minimal

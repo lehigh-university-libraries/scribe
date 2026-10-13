@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	ocrcatalog "github.com/lehigh-university-libraries/scribe/config"
+	"maps"
 	"math"
 	"net/http"
 	"sort"
@@ -128,6 +129,7 @@ type Provider struct {
 	credentialFallback func(string) string
 	vendorHTTPClient   *http.Client
 	thinkingLevels     map[string]string
+	outputTokenLimits  map[string]int
 }
 
 type registryOptions struct {
@@ -298,6 +300,7 @@ func New(cfg config.Config, configure ...Option) Registry {
 			descriptor.Limits.Retry = RetryPolicy{MaxAttempts: 6, BaseDelay: time.Second, MaxDelay: 30 * time.Second}
 		}
 		if descriptor.ID == "gemini" {
+			descriptor.outputTokenLimits = maps.Clone(cfg.LLM.Gemini.OutputTokenLimits)
 			descriptor.thinkingLevels = make(map[string]string, len(cfg.LLM.Gemini.ThinkingLevels))
 			for model, level := range cfg.LLM.Gemini.ThinkingLevels {
 				descriptor.thinkingLevels[model] = level

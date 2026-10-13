@@ -19,11 +19,28 @@ import (
 )
 
 type failingClient struct {
-	err error
+	err    error
+	result providers.Result
 }
 
 func (p failingClient) Extract(context.Context, providers.Request) (providers.Result, error) {
-	return providers.Result{}, p.err
+	return p.result, p.err
+}
+
+func TestOutputLimitRetainsBilledUsageAndFailsOnlyTheLine(t *testing.T) {
+	service := NewService()
+	var audit ProviderCallAuditRecord
+	service.SetProviderCallAuditLogger(func(_ context.Context, record ProviderCallAuditRecord) { audit = record })
+	_, err := service.extractTextWithProvider(context.Background(), failingClient{
+		err:    providers.NewError(providers.ErrorOutputLimit, 200, false, nil),
+		result: providers.Result{Usage: providers.UsageInfo{InputTokens: 120, OutputTokens: 24, ThoughtTokens: 1000}},
+	}, "gemini", providers.Config{Model: "gemini-3.1-pro-preview"}, providers.Image{}, "transcribe")
+	if !errors.Is(err, ErrNoTranscription) || errors.Is(err, ErrPermanentProviderRequest) || isRetriableProviderError(err) {
+		t.Fatalf("output limit classification: %v", err)
+	}
+	if audit.InputTokens != 120 || audit.OutputTokens != 24 || audit.ThoughtTokens != 1000 || audit.ErrorMessage != "provider output token limit reached" {
+		t.Fatalf("failed call audit: %#v", audit)
+	}
 }
 
 func (failingClient) Name() string { return "failing" }
@@ -194,6 +211,7 @@ func TestRedactedProviderFailuresExposeOnlySafeRetryDisposition(t *testing.T) {
 		{name: "upstream retryable", provider: providers.NewError(providers.ErrorUpstream, http.StatusServiceUnavailable, true, nil), retryable: true},
 		{name: "upstream non-retryable", provider: providers.NewError(providers.ErrorUpstream, http.StatusBadGateway, false, nil), permanent: true},
 		{name: "invalid response", provider: providers.NewError(providers.ErrorInvalidResponse, http.StatusOK, false, nil), permanent: true},
+		{name: "output limit", provider: providers.NewError(providers.ErrorOutputLimit, http.StatusOK, false, nil)},
 		{name: "response too large", provider: providers.NewError(providers.ErrorResponseTooLarge, http.StatusRequestEntityTooLarge, false, nil), permanent: true},
 	}
 	for _, test := range tests {

@@ -200,13 +200,14 @@ func TestGeminiThinkingPolicyIsServerOwned(t *testing.T) {
 	model := "gemini-3.5-flash"
 	descriptor := testGeminiDescriptor(model, "https://example.test/v1beta")
 	descriptor.thinkingLevels = map[string]string{model: "minimal"}
+	descriptor.outputTokenLimits = map[string]int{model: 2048}
 	descriptor.vendorHTTPClient = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
 		cfg := payload["generationConfig"].(map[string]any)
-		if cfg["thinkingConfig"].(map[string]any)["thinkingLevel"] != "minimal" || cfg["maxOutputTokens"] != float64(1024) {
+		if cfg["thinkingConfig"].(map[string]any)["thinkingLevel"] != "minimal" || cfg["maxOutputTokens"] != float64(2048) {
 			t.Fatalf("config=%#v", cfg)
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"café"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":3,"thoughtsTokenCount":12}}`)), Header: make(http.Header)}, nil

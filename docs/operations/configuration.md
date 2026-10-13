@@ -345,15 +345,29 @@ version bumps must update the version and digest together.
 Server-owned `llm.gemini.thinking_levels` selects `low` for Pro and
 `minimal` for Flash. Model keys must be registered and levels must be one of
 `minimal|low|medium|high`. Workspace contexts cannot override this policy.
-Each line has a 1,024-token combined thinking/response ceiling and no media
+Server-owned `llm.gemini.output_token_limits` accepts 1,024 or 2,048 per
+registered model; the default is 1,024. This ceiling includes thinking and
+response tokens. Each line has no media
 resolution fallback. A truncated line uses the existing partial failure path.
 Provider audits and context metrics expose candidate and thought tokens
 separately; billed output is their sum, including failed calls with usage.
 
-Before comparing spend, import the same two public pages with the same model
-and context, retain their audit totals, and compare the new calls' input and
-billed output totals. This requires a configured workspace credential and
-access to the original pages. Lines remain independent checkpoints.
+In workspace 2, run the same two public pages at both limits with identical
+model, prompt and thinking level. Use a new processing revision for each run
+and retain its provider audits. Report attempted lines, successful lines,
+failed lines (including output-limit failures), input tokens, candidate tokens,
+thought tokens, billed output (candidate plus thought), and total cost across
+**all** calls. Compare cost per successful line as well as total cost; failed
+lines can still be billed. Do not choose the Pro cap from successful calls
+alone. Keep 1,024 until this comparison establishes whether 2,048 reduces
+failures enough to justify the spend. Lines remain independent checkpoints.
+
+For Kraken, run a dense two-column page using the segmentor image and its
+production one-thread configuration. Record image dimensions, line count,
+model, wall time and provider audit duration. Repeat after a warm-up and include
+the cold run. Every full-page request must finish within the 240-second request
+limit; a timeout is a failed run. Keep the limit unchanged until measured
+evidence supports a deployment change.
 
 Book integrations can set `ImportManifestRequest.ignore_existing_ocr=true` to
 skip all source hOCR fetches and queue every Canvas with the selected context.

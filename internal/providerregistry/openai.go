@@ -32,6 +32,10 @@ func newOpenAIClient(descriptor Provider, model string) (providers.Client, error
 }
 
 func newGeminiClient(descriptor Provider, model string) (providers.Client, error) {
+	limit := descriptor.outputTokenLimits[model]
+	if limit == 0 {
+		limit = 1024
+	}
 	endpoint, err := registeredProviderEndpoint(descriptor, model, EndpointVendor)
 	if err != nil {
 		return nil, err
@@ -45,7 +49,7 @@ func newGeminiClient(descriptor Provider, model string) (providers.Client, error
 		MaxResponseBytes:        descriptor.Limits.MaxResponseBytes,
 		MediaResolutionFallback: false,
 		ThinkingLevel:           descriptor.thinkingLevels[model],
-		MaxOutputTokens:         1024,
+		MaxOutputTokens:         limit,
 		OmitTemperature:         geminiModelUsesDefaultSampling(model),
 	})
 	return bindRegisteredModel(client, model, err)
