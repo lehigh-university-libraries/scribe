@@ -548,3 +548,28 @@ describe('ScribeTextOverlayPlugin interaction', () => {
     expect(rows.map((row) => row.value)).toEqual(['first last', 'hidden']);
   });
 });
+
+it('keeps viewer focus during viewport updates and focuses only a new selection', async () => {
+  const mountedViewer = viewer();
+  mountedViewer.viewport.setMargins = vi.fn();
+  const items = [textLine('line-1', '20,30,240,24', 'first'), textLine('line-2', '20,60,240,24', 'second')];
+  await renderOverlay(items, mountedViewer);
+  const state = { annotationPage: { id: 'page-1', items, type: 'AnnotationPage' }, canvasId, overlayMode: 'transcript', selectedAnnotationId: 'line-1', windowId };
+  await act(async () => document.dispatchEvent(new CustomEvent('scribe:editor-state', { detail: state })));
+  const rows = [...viewerCanvas.querySelectorAll('[data-scribe-transcript-row]')];
+  const focus = vi.spyOn(rows[0], 'focus');
+  const scroll = vi.spyOn(rows[0], 'scrollIntoView');
+  viewerCanvas.tabIndex = 0;
+  viewerCanvas.focus();
+  vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
+  const update = mountedViewer.addHandler.mock.calls.find(([name]) => name === 'update-viewport')[1];
+  for (let i = 0; i < 3; i += 1) {
+    await act(async () => { update(); vi.advanceTimersToNextFrame(); });
+  }
+  await act(async () => document.dispatchEvent(new CustomEvent('scribe:editor-state', { detail: { ...state, annotationPage: structuredClone(state.annotationPage) } })));
+  expect(focus).not.toHaveBeenCalled();
+  expect(scroll).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(viewerCanvas);
+  await act(async () => document.dispatchEvent(new CustomEvent('scribe:editor-state', { detail: { ...state, selectedAnnotationId: 'line-2' } })));
+  expect(document.activeElement).toBe(rows[1]);
+});

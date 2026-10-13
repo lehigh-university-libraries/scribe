@@ -84,7 +84,7 @@ export const TRANSCRIPT_FONT_SIZE_PX = 15;
 /** @typedef {{ id: string, isWord: boolean, rect: Rect, text: string }} OverlayLabel */
 /** @typedef {{ granularity: 'line' | 'word', id: string, rect: Rect, selected: boolean }} GranularityMarker */
 /** @typedef {{ annotation: IIIFAnnotation, containerBBox: Rect | null, isWord: boolean, rect: Rect }} GeometryTarget */
-/** @typedef {{ id: string, rect: Rect, selected: boolean, text: string, wordIds: string[] }} TranscriptRow */
+/** @typedef {{ id: string, selected: boolean, text: string, wordIds: string[] }} TranscriptRow */
 /** @typedef {{ annotationId: string | null, fallbackIndex?: number, rect: Rect, text: string }} WordEditor */
 /** @typedef {Object} ScribeTextOverlayProps
  * @property {IIIFAnnotationPage | null} annotationPage
@@ -253,6 +253,7 @@ export function ScribeTextOverlayPlugin({
   const inputRefs = useRef(/** @type {Map<string, HTMLInputElement>} */ (new Map()));
   const inlineFocusKeyRef = useRef('');
   const resumeInlineFocusRef = useRef(false);
+  const transcriptFocusKeyRef = useRef('');
   const transcriptInputRefs = useRef(/** @type {Map<string, HTMLInputElement>} */ (new Map()));
   const resizeHandleRefs = useRef(/** @type {Map<string, HTMLButtonElement>} */ (new Map()));
   const dragIntentRef = useRef(/** @type {{ timeoutId: number } | null} */ (null));
@@ -731,18 +732,15 @@ export function ScribeTextOverlayPlugin({
   }, [activeFocusedWordAnnotationId, activePage, inlineEditorVisible, selectedDecoration.lineAnnotation, viewer, version]));
 
   const transcriptRows = /** @type {TranscriptRow[]} */ (useMemo(() => {
-    if (!transcriptVisible || !viewer) return [];
+    if (!transcriptVisible) return [];
     return transcriptRowsInPageOrder(activePage)
       .map((row) => {
-        const lead = row.lead || row.fields[0];
-        const rect = lead ? annotationRect(viewer, lead) : null;
         const id = rowSelectionId(row);
         const wordIds = row.granularity === 'word'
           ? row.fields.map((annotation) => String(annotation.id || '')).filter(Boolean)
           : [];
         return {
           id,
-          rect,
           selected: id === activeSelectedAnnotationId
             || wordIds.includes(activeSelectedAnnotationId)
             || wordIds.includes(activeFocusedWordAnnotationId),
@@ -750,8 +748,8 @@ export function ScribeTextOverlayPlugin({
           wordIds,
         };
       })
-      .filter((row) => row.id && row.rect && row.rect.h > 0);
-  }, [activeFocusedWordAnnotationId, activePage, activeSelectedAnnotationId, transcriptVisible, viewer, visibleItems, version]));
+      .filter((row) => row.id);
+  }, [activeFocusedWordAnnotationId, activePage, activeSelectedAnnotationId, transcriptVisible]));
 
   const inlineEditor = useMemo(() => {
     if (!inlineEditorVisible || !viewer) return null;
@@ -864,18 +862,28 @@ export function ScribeTextOverlayPlugin({
   // In transcript mode a selection made on the image moves focus to the
   // matching transcript row, unless a transcript row already owns focus.
   useEffect(() => {
-    if (!transcriptVisible || editorIsBusy) return;
+    if (!transcriptVisible) {
+      transcriptFocusKeyRef.current = '';
+      return;
+    }
+    if (editorIsBusy) return;
     const selection = pendingFocusWordId || activeFocusedWordAnnotationId || activeSelectedAnnotationId;
-    if (!selection) return;
+    const focusKey = `${canvasId}:${selection}`;
+    if (!selection) {
+      transcriptFocusKeyRef.current = '';
+      return;
+    }
+    if (transcriptFocusKeyRef.current === focusKey) return;
     const row = transcriptRows.find((candidate) => (
       candidate.id === selection || candidate.wordIds.includes(selection)
     ));
     const target = row ? transcriptInputRefs.current.get(row.id) : null;
     if (!(target instanceof HTMLInputElement)) return;
+    transcriptFocusKeyRef.current = focusKey;
     target.scrollIntoView?.({ block: 'nearest' });
     target.focus({ preventScroll: true });
     setPendingFocusWordId('');
-  }, [activeFocusedWordAnnotationId, activeSelectedAnnotationId, editorIsBusy, pendingFocusWordId, transcriptRows, transcriptVisible]);
+  }, [activeFocusedWordAnnotationId, activeSelectedAnnotationId, canvasId, editorIsBusy, pendingFocusWordId, transcriptRows, transcriptVisible]);
 
   useEffect(() => {
     if (!pendingResizeFocus || editorIsBusy || !inlineEditorVisible) return;
