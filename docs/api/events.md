@@ -103,8 +103,9 @@ alone.
 Long-running transcription APIs return a job identity. Job status distinguishes
 pending, running, completed, failed, and canceled work. Retry and supersession
 details are represented by attempt counters and the redacted failure reason.
-Per-segment payloads are transient progress previews, not durable canonical
-saves.
+Per-segment events are progress previews, not durable canonical saves.
+Successful queued line results also enter a private, fenced job checkpoint so
+interrupted attempts can resume; only job completion commits the canonical page.
 
 `ListTranscriptionJobs` returns scalar summaries through signed, opaque keyset
 cursors. Pages default to 50 jobs and are capped at 100; a continuation token

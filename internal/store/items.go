@@ -369,6 +369,12 @@ func deleteItemResourceGraph(ctx context.Context, queries *db.Queries, workspace
 		return fmt.Errorf("delete item resource graph: workspace and item are required")
 	}
 	itemID = strings.TrimSpace(itemID)
+	// Checkpoint writers lock the job before its children; use the same order.
+	if _, err := queries.LockCheckpointJobsForItemResourceGraph(ctx, db.LockCheckpointJobsForItemResourceGraphParams{
+		WorkspaceID: workspaceID, ItemID: itemID, ItemImageID: imageID,
+	}); err != nil {
+		return fmt.Errorf("lock transcription checkpoint jobs: %w", err)
+	}
 	// Revoke scoped browser credentials before removing their owning image.
 	// Sessions and grants are deliberately outside the ordinary OAuth session
 	// table, so item deletion must remove both halves of the handoff explicitly.
@@ -407,6 +413,11 @@ func deleteItemResourceGraph(ctx context.Context, queries *db.Queries, workspace
 		ItemImageID: imageID,
 	}); err != nil {
 		return fmt.Errorf("detach upload batch file resources: %w", err)
+	}
+	if err := queries.DeleteCheckpointsForItemResourceGraph(ctx, db.DeleteCheckpointsForItemResourceGraphParams{
+		WorkspaceID: workspaceID, ItemID: itemID, ItemImageID: imageID,
+	}); err != nil {
+		return fmt.Errorf("delete transcription checkpoints: %w", err)
 	}
 	if err := queries.DeleteTranscriptionAttemptsForItemResourceGraph(ctx, db.DeleteTranscriptionAttemptsForItemResourceGraphParams{
 		WorkspaceID: workspaceID,

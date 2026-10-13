@@ -914,6 +914,12 @@ type TranscriptionJobAttempt struct {
 	FinishedAt       sql.NullTime                    `json:"finished_at"`
 }
 
+type TranscriptionJobCheckpoint struct {
+	JobID   uint64 `json:"job_id"`
+	LineID  []byte `json:"line_id"`
+	Payload string `json:"payload"`
+}
+
 type UploadBatch struct {
 	WorkspaceID     uint64              `json:"workspace_id"`
 	ID              string              `json:"id"`

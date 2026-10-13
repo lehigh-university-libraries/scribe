@@ -893,3 +893,15 @@ func TestSecretManagerScopesLocatorsAndDisablesVault(t *testing.T) {
 		t.Fatal("unrecognized cloud workspace accepted")
 	}
 }
+
+func TestLineConcurrencySupportsUnvalidatedConfig(t *testing.T) {
+	for _, value := range []int{-1, 0, 1, 32} {
+		want := value
+		if want < 1 {
+			want = DefaultLineTranscribeConcurrency
+		}
+		if got := (LLMConfig{LineTranscribeConcurrency: value}).LineConcurrency(); got != want {
+			t.Fatalf("value %d: concurrency %d, want %d", value, got, want)
+		}
+	}
+}

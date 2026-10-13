@@ -22,6 +22,7 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
+	"golang.org/x/sync/errgroup"
 )
 
 // Ensure Handler implements the TranscriptionService interface.
@@ -724,6 +725,42 @@ func (h *Handler) resolveTranscriptionJobContext(ctx context.Context, job *store
 	return contextValue, item.WorkspaceID, nil
 }
 
+// restoreTranscriptionCheckpoint overlays independently stored line results
+// onto the one-time segmented page. Invalid derived state is discarded by the
+// caller; the original canonical page remains authoritative.
+func restoreTranscriptionCheckpoint(payload string, results map[string]string) (map[string]any, map[string]bool, error) {
+	var page map[string]any
+	if err := iiif.DecodeJSON([]byte(payload), &page); err != nil {
+		return nil, nil, err
+	}
+	items, ok := page["items"].([]any)
+	if !ok {
+		return nil, nil, errors.New("checkpoint page has no items array")
+	}
+	positions := make(map[string]int)
+	for i, item := range items {
+		if line, ok := item.(map[string]any); ok && line["textGranularity"] == "line" {
+			if id, ok := line["id"].(string); ok {
+				positions[id] = i
+			}
+		}
+	}
+	successful := make(map[string]bool, len(results))
+	for id, payload := range results {
+		position, exists := positions[id]
+		var line map[string]any
+		if err := iiif.DecodeJSON([]byte(payload), &line); err != nil {
+			return nil, nil, err
+		}
+		if !exists || line["id"] != id || line["textGranularity"] != "line" {
+			return nil, nil, errors.New("checkpoint line does not match its page")
+		}
+		items[position] = line
+		successful[id] = true
+	}
+	return page, successful, nil
+}
+
 func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.TranscriptionJob) error {
 	fence, err := job.Fence()
 	if err != nil {
@@ -756,9 +793,47 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 			page.Revision,
 		))
 	}
+	checkpoint, err := h.transcriptionJobs.Checkpoint(ctx, fence)
+	if err != nil {
+		return fmt.Errorf("load transcription checkpoint: %w", err)
+	}
 	var pageDocument map[string]any
-	if err := iiif.DecodeJSON([]byte(page.Payload), &pageDocument); err != nil {
-		return fmt.Errorf("decode canonical annotation page: %w", err)
+	restored := make(map[string]bool)
+	if checkpoint != "" {
+		results, loadErr := h.transcriptionJobs.LineCheckpoints(ctx, fence)
+		if loadErr != nil {
+			return fmt.Errorf("load line checkpoints: %w", loadErr)
+		}
+		pageDocument, restored, err = restoreTranscriptionCheckpoint(checkpoint, results)
+		if err == nil {
+			var payload []byte
+			payload, err = json.Marshal(pageDocument)
+			if err == nil {
+				payload, err = iiif.NormalizeAnnotationPage(payload, iiif.PageIdentity{
+					PublicBaseURL: h.publicAnnotationBaseURL(), ItemImageID: job.ItemImageID, CanvasURI: img.CanvasURI,
+				})
+			}
+			if err == nil {
+				err = iiif.ValidateAnnotationPageGeometry(payload, img.Width, img.Height)
+			}
+		}
+		if err != nil {
+			slog.Warn("Discarding invalid transcription checkpoint", "job_id", job.ID)
+			if err := h.transcriptionJobs.ClearCheckpoints(ctx, fence); err != nil {
+				return err
+			}
+			checkpoint = ""
+			restored = make(map[string]bool)
+		}
+	}
+	if checkpoint == "" {
+		// Also remove orphaned line results if the page row is missing or empty.
+		if err := h.transcriptionJobs.ClearCheckpoints(ctx, fence); err != nil {
+			return err
+		}
+		if err := iiif.DecodeJSON([]byte(page.Payload), &pageDocument); err != nil {
+			return fmt.Errorf("decode canonical annotation page: %w", err)
+		}
 	}
 	pageItems, ok := pageDocument["items"].([]any)
 	if !ok {
@@ -845,93 +920,143 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 			return permanentTranscriptionFailure("workspace provider credential is not configured")
 		}
 	}
-	releaseTranscription, err := h.processingLimiter.Acquire(ctx, workspaceID, processingLimitProvider(pctx))
-	if err != nil {
-		return fmt.Errorf("acquire transcription processing capacity: %w", err)
-	}
-	defer releaseTranscription()
 	slog.Info("Transcription job: found line annotations", "job_id", job.ID, "count", total)
 	if err := h.transcriptionJobs.SetTotalSegments(ctx, fence, total); err != nil {
 		return fmt.Errorf("set total segments: %w", err)
 	}
-	// Results are committed as one full-page revision. Claiming an attempt
-	// atomically clears mutable progress, so the first worker update always
-	// represents actual work rather than an idempotent reset that MySQL can
-	// report as zero affected rows. A wholly transient attempt may retry from
-	// the canonical base; once any line succeeds, the partial page commits once.
+	if checkpoint == "" {
+		payload, err := json.Marshal(pageDocument)
+		if err != nil {
+			return err
+		}
+		if err := h.transcriptionJobs.SaveCheckpoint(ctx, fence, "", string(payload)); err != nil {
+			return fmt.Errorf("checkpoint segmented page: %w", err)
+		}
+	}
 	completed, failed := 0, 0
 	var segmentFailures transcriptionSegmentFailureState
 	successfulLineIDs := make(map[string]struct{}, total)
+	for _, entry := range lines {
+		if restored[entry.id] {
+			successfulLineIDs[entry.id] = struct{}{}
+			completed++
+		}
+	}
+	if completed > 0 {
+		if err := h.transcriptionJobs.UpdateProgress(ctx, fence, completed, 0, "", "", ""); err != nil {
+			return fmt.Errorf("restore checkpoint progress: %w", err)
+		}
+	}
+	var progressMu sync.Mutex
+	active := make(map[string]annotationEntry)
+	currentLine := func() (string, string) {
+		var current annotationEntry
+		for _, line := range active {
+			if current.id == "" || line.position < current.position {
+				current = line
+			}
+		}
+		return current.id, current.payload
+	}
+	group, workCtx := errgroup.WithContext(ctx)
+	concurrency := config.Get().Config.LLM.LineConcurrency()
+	group.SetLimit(concurrency)
 	for i, entry := range lines {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		slog.Info("Transcribing segment", "job_id", job.ID, "index", i+1, "total", total, "annotation_id", entry.id)
-
-		// Mark current segment in progress.
-		if err := h.transcriptionJobs.UpdateProgress(ctx, fence,
-			completed, failed, entry.id, entry.payload, ""); err != nil {
-			if errors.Is(err, store.ErrTranscriptionJobFence) {
-				return fmt.Errorf("job lease lost before segment: %w", err)
-			}
-			return fmt.Errorf("update progress before segment: %w", err)
-		}
-		h.publishEvent("dev.scribe.transcription.task.started", subjectForAnnotation(job.ItemImageID, entry.id), map[string]any{
-			"jobId":             job.ID,
-			"itemImageId":       job.ItemImageID,
-			"attemptNumber":     fence.AttemptNumber,
-			"annotationId":      entry.id,
-			"completedSegments": completed,
-			"failedSegments":    failed,
-			"totalSegments":     total,
-			"annotationJson":    entry.payload,
-		})
-
-		enriched, err := h.enrichSingleAnnotationInWorkspace(ctx, job.ItemImageID, entry.payload, pctx, workspaceID, nil)
-		if err != nil {
-			slog.Warn("Segment transcription failed", "job_id", job.ID, "annotation_id", entry.id, "failure", store.SafeTranscriptionFailureMessage(err))
-			if jobFailure := segmentFailures.record(err); jobFailure != nil {
-				return jobFailure
-			}
-			failed++
-			if err := h.transcriptionJobs.UpdateProgress(ctx, fence,
-				completed, failed, "", "", ""); err != nil {
-				if errors.Is(err, store.ErrTranscriptionJobFence) {
-					return fmt.Errorf("job lease lost after segment failure: %w", err)
-				}
-				return fmt.Errorf("update progress after segment failure: %w", err)
-			}
+		if restored[entry.id] {
 			continue
 		}
-
-		var enrichedAnno map[string]any
-		if err := iiif.DecodeJSON([]byte(enriched), &enrichedAnno); err != nil {
-			return fmt.Errorf("decode enriched annotation %q: %w", entry.id, err)
-		}
-		pageItems[entry.position] = enrichedAnno
-		successfulLineIDs[entry.id] = struct{}{}
-
-		completed++
-		if err := h.transcriptionJobs.UpdateProgress(ctx, fence,
-			completed, failed, "", "", enriched); err != nil {
-			if errors.Is(err, store.ErrTranscriptionJobFence) {
-				return fmt.Errorf("job lease lost after segment success: %w", err)
+		group.Go(func() error {
+			release, err := h.processingLimiter.Acquire(workCtx, workspaceID, processingLimitProvider(pctx))
+			if err != nil {
+				return err
 			}
-			return fmt.Errorf("update progress after segment success: %w", err)
-		}
-		h.publishEvent("dev.scribe.transcription.task.completed", subjectForAnnotation(job.ItemImageID, entry.id), map[string]any{
-			"jobId":             job.ID,
-			"itemImageId":       job.ItemImageID,
-			"attemptNumber":     fence.AttemptNumber,
-			"annotationId":      entry.id,
-			"completedSegments": completed,
-			"failedSegments":    failed,
-			"totalSegments":     total,
-			"annotationJson":    enriched,
-			"persisted":         false,
+			defer release()
+			select {
+			case <-workCtx.Done():
+				return workCtx.Err()
+			default:
+			}
+			slog.Info("Transcribing segment", "job_id", job.ID, "index", i+1, "total", total, "annotation_id", entry.id)
+
+			progressMu.Lock()
+			active[entry.id] = entry
+			if err := h.transcriptionJobs.UpdateProgress(workCtx, fence,
+				completed, failed, entry.id, entry.payload, ""); err != nil {
+				progressMu.Unlock()
+				if errors.Is(err, store.ErrTranscriptionJobFence) {
+					return fmt.Errorf("job lease lost before segment: %w", err)
+				}
+				return fmt.Errorf("update progress before segment: %w", err)
+			}
+			h.publishEvent("dev.scribe.transcription.task.started", subjectForAnnotation(job.ItemImageID, entry.id), map[string]any{
+				"jobId":             job.ID,
+				"itemImageId":       job.ItemImageID,
+				"attemptNumber":     fence.AttemptNumber,
+				"annotationId":      entry.id,
+				"completedSegments": completed,
+				"failedSegments":    failed,
+				"totalSegments":     total,
+				"annotationJson":    entry.payload,
+			})
+			progressMu.Unlock()
+
+			enriched, err := h.enrichSingleAnnotationInWorkspace(workCtx, job.ItemImageID, entry.payload, pctx, workspaceID, nil)
+			if err == nil {
+				if err := h.transcriptionJobs.SaveCheckpoint(workCtx, fence, entry.id, enriched); err != nil {
+					return fmt.Errorf("checkpoint successful segment: %w", err)
+				}
+			}
+			progressMu.Lock()
+			defer progressMu.Unlock()
+			delete(active, entry.id)
+			currentID, currentPayload := currentLine()
+			if err != nil {
+				slog.Warn("Segment transcription failed", "job_id", job.ID, "annotation_id", entry.id, "failure", store.SafeTranscriptionFailureMessage(err))
+				if jobFailure := segmentFailures.record(err); jobFailure != nil {
+					return jobFailure
+				}
+				failed++
+				if err := h.transcriptionJobs.UpdateProgress(workCtx, fence,
+					completed, failed, currentID, currentPayload, ""); err != nil {
+					if errors.Is(err, store.ErrTranscriptionJobFence) {
+						return fmt.Errorf("job lease lost after segment failure: %w", err)
+					}
+					return fmt.Errorf("update progress after segment failure: %w", err)
+				}
+				return nil
+			}
+
+			var enrichedAnno map[string]any
+			if err := iiif.DecodeJSON([]byte(enriched), &enrichedAnno); err != nil {
+				return fmt.Errorf("decode enriched annotation %q: %w", entry.id, err)
+			}
+			pageItems[entry.position] = enrichedAnno
+			successfulLineIDs[entry.id] = struct{}{}
+
+			completed++
+			if err := h.transcriptionJobs.UpdateProgress(workCtx, fence,
+				completed, failed, currentID, currentPayload, enriched); err != nil {
+				if errors.Is(err, store.ErrTranscriptionJobFence) {
+					return fmt.Errorf("job lease lost after segment success: %w", err)
+				}
+				return fmt.Errorf("update progress after segment success: %w", err)
+			}
+			h.publishEvent("dev.scribe.transcription.task.completed", subjectForAnnotation(job.ItemImageID, entry.id), map[string]any{
+				"jobId":             job.ID,
+				"itemImageId":       job.ItemImageID,
+				"attemptNumber":     fence.AttemptNumber,
+				"annotationId":      entry.id,
+				"completedSegments": completed,
+				"failedSegments":    failed,
+				"totalSegments":     total,
+				"annotationJson":    enriched,
+				"persisted":         false,
+			})
+			return nil
 		})
+	}
+	if err := group.Wait(); err != nil {
+		return err
 	}
 	if jobFailure := segmentFailures.finish(completed, failed); jobFailure != nil {
 		return jobFailure

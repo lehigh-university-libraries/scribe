@@ -115,6 +115,9 @@ func retainTerminalTranscriptionHistory(ctx context.Context, queries *db.Queries
 			}); err != nil {
 				return fmt.Errorf("detach retained job from upload batch files: %w", err)
 			}
+			if err := queries.DeleteTranscriptionCheckpoints(ctx, jobID); err != nil {
+				return fmt.Errorf("delete transcription checkpoints: %w", err)
+			}
 			if err := queries.DeleteRetainedTranscriptionJobAttemptsManual(ctx, jobID); err != nil {
 				return fmt.Errorf("delete retained transcription attempts: %w", err)
 			}

@@ -698,6 +698,9 @@ func (s *ItemStore) CancelUploadBatch(ctx context.Context, workspaceID uint64, b
 		if err := queries.CancelUploadBatchJobsManual(ctx, db.CancelUploadBatchJobsManualParams{WorkspaceID: workspaceID, BatchID: row.ID}); err != nil {
 			return UploadBatch{}, fmt.Errorf("cancel upload batch: cancel jobs: %w", err)
 		}
+		if err := queries.DeleteCheckpointsForUploadBatch(ctx, db.DeleteCheckpointsForUploadBatchParams{WorkspaceID: workspaceID, BatchID: row.ID}); err != nil {
+			return UploadBatch{}, fmt.Errorf("cancel upload batch: delete transcription checkpoints: %w", err)
+		}
 		incompleteImages, err := queries.ListIncompleteUploadBatchImagesForCleanupManual(ctx, db.ListIncompleteUploadBatchImagesForCleanupManualParams{WorkspaceID: workspaceID, BatchID: row.ID})
 		if err != nil {
 			return UploadBatch{}, fmt.Errorf("cancel upload batch: lock incomplete images: %w", err)

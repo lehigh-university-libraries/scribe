@@ -223,6 +223,14 @@ type LLMConfig struct {
 	Gemini                    GeminiConfig `yaml:"gemini"`
 }
 
+// LineConcurrency also supports config.Init callers that bypass validation.
+func (c LLMConfig) LineConcurrency() int {
+	if c.LineTranscribeConcurrency > 0 {
+		return c.LineTranscribeConcurrency
+	}
+	return DefaultLineTranscribeConcurrency
+}
+
 type OllamaConfig struct {
 	URL            string                   `yaml:"url"`
 	Audience       string                   `yaml:"audience"`

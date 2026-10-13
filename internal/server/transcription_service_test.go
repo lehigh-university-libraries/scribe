@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,19 +31,27 @@ const segmentCapTestHOCR = `<!DOCTYPE html><html><body><div class="ocr_page" tit
 </div></body></html>`
 
 type segmentCapOCR struct {
+	mu                 sync.Mutex
 	segmentationCalls  int
 	transcriptionCalls int
 }
 
 type scriptedLineOCR struct {
 	*segmentCapOCR
+	mu                 sync.Mutex
 	transcriptionCalls int
 	failures           map[int]error
 }
 
-func (f *scriptedLineOCR) TranscribeImageFileWithContext(context.Context, string, string, string) (string, error) {
+func (f *scriptedLineOCR) TranscribeImageFileWithContext(_ context.Context, imagePath, _, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.transcriptionCalls++
-	if err := f.failures[f.transcriptionCalls]; err != nil {
+	line := 1
+	if strings.HasSuffix(imagePath, "-30") {
+		line = 2
+	}
+	if err := f.failures[line]; err != nil {
 		return "", err
 	}
 	return "transcribed first line", nil
@@ -408,8 +417,8 @@ func testTranscriptionJobCommitsSuccessfulLinesWhenLaterSegmentFails(t *testing.
 		items: store.NewItemStore(database), annotations: annotationStore,
 		transcriptionJobs: jobStore, processingLimiter: limiter, ocr: ocr,
 		ocrRuns: ocrRuns,
-		imageRegionFetcher: func(context.Context, string, int, int, int, int) (string, func(), error) {
-			return "unused-scripted-region", func() {}, nil
+		imageRegionFetcher: func(_ context.Context, _ string, _, y, _, _ int) (string, func(), error) {
+			return fmt.Sprintf("scripted-region-%d", y), func() {}, nil
 		},
 	}
 	if err := handler.processQueuedTranscriptionJob(ctx, jobID); err != nil {
@@ -535,8 +544,8 @@ func TestTranscriptionJobRetriesWhenEverySegmentHasTransientFailure(t *testing.T
 	handler := &Handler{
 		items: store.NewItemStore(database), annotations: annotationStore,
 		transcriptionJobs: jobStore, processingLimiter: limiter, ocr: ocr,
-		imageRegionFetcher: func(context.Context, string, int, int, int, int) (string, func(), error) {
-			return "unused-scripted-region", func() {}, nil
+		imageRegionFetcher: func(_ context.Context, _ string, _, y, _, _ int) (string, func(), error) {
+			return fmt.Sprintf("scripted-region-%d", y), func() {}, nil
 		},
 	}
 	if err := handler.processQueuedTranscriptionJob(ctx, jobID); !errors.Is(err, hocr.ErrRetryableProviderRequest) {
@@ -586,6 +595,8 @@ func (*segmentCapOCR) StoreUploadedImage(context.Context, string, []byte) (strin
 }
 
 func (f *segmentCapOCR) TranscribeImageFileWithContext(context.Context, string, string, string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.transcriptionCalls++
 	return "unexpected", nil
 }
@@ -701,10 +712,6 @@ func TestBackgroundTranscriptionUsesWorkspaceAndProviderLimiter(t *testing.T) {
 	}, 0); err != nil {
 		t.Fatalf("save worker limiter page: %v", err)
 	}
-	snapshot, err := json.Marshal(processingContext)
-	if err != nil {
-		t.Fatalf("marshal context: %v", err)
-	}
 	limiter, err := worklimit.NewHierarchical(1, 1, 1)
 	if err != nil {
 		t.Fatalf("create limiter: %v", err)
@@ -714,13 +721,12 @@ func TestBackgroundTranscriptionUsesWorkspaceAndProviderLimiter(t *testing.T) {
 		t.Fatalf("occupy provider slot: %v", err)
 	}
 	defer release()
-	handler := &Handler{items: items, contexts: contexts, annotations: annotationStore, processingLimiter: limiter}
+	jobs := store.NewTranscriptionJobStore(database)
+	job := claimCheckpointTestJob(t, jobs, image.ID, processingContext)
+	handler := &Handler{items: items, contexts: contexts, annotations: annotationStore, processingLimiter: limiter, transcriptionJobs: jobs}
 	deadlineCtx, cancel := context.WithTimeout(ctx, 25*time.Millisecond)
 	defer cancel()
-	err = handler.processTranscriptionJob(deadlineCtx, &store.TranscriptionJob{
-		ID: 99, ItemImageID: image.ID, ContextID: &processingContext.ID, ContextSnapshot: snapshot,
-		InputRevision: 1, AttemptCount: 1, LeaseToken: "worker-limit-fence",
-	})
+	err = handler.processTranscriptionJob(deadlineCtx, job)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("processTranscriptionJob error = %v, want limiter deadline", err)
 	}
@@ -771,13 +777,12 @@ func TestTranscriptionJobSegmentLimitStopsBeforeCredentialsProgressAndProvider(t
 		t.Fatalf("save empty page: %v", err)
 	}
 
-	processingContext := store.Context{
-		ID: 77, WorkspaceID: &workspaceID, UserID: &owner, Name: "segment cap",
+	processingContext, err := store.NewContextStore(database).Create(ctx, store.Context{
+		WorkspaceID: &workspaceID, UserID: &owner, Name: "segment cap",
 		SegmentationModel: "kraken", TranscriptionProvider: "openai", TranscriptionModel: "test-model",
-	}
-	snapshot, err := json.Marshal(processingContext)
+	})
 	if err != nil {
-		t.Fatalf("marshal context: %v", err)
+		t.Fatal(err)
 	}
 	limiter, err := worklimit.NewHierarchical(1, 1, 1)
 	if err != nil {
@@ -786,14 +791,14 @@ func TestTranscriptionJobSegmentLimitStopsBeforeCredentialsProgressAndProvider(t
 	providerSecrets := &recordingProviderSecretResolver{}
 	vault := &countingProviderVault{}
 	ocr := &segmentCapOCR{}
+	jobs := store.NewTranscriptionJobStore(database)
+	job := claimCheckpointTestJob(t, jobs, image.ID, processingContext)
 	handler := &Handler{
 		items: items, annotations: annotationStore, ocr: ocr,
 		processingLimiter: limiter, providerSecrets: providerSecrets, vault: vault,
+		transcriptionJobs: jobs,
 	}
-	err = handler.processTranscriptionJob(ctx, &store.TranscriptionJob{
-		ID: 99, ItemImageID: image.ID, ContextID: &processingContext.ID, ContextSnapshot: snapshot,
-		InputRevision: 1, AttemptCount: 1, LeaseToken: "segment-cap-fence",
-	})
+	err = handler.processTranscriptionJob(ctx, job)
 	var permanent permanentTranscriptionError
 	if !errors.As(err, &permanent) || !strings.Contains(err.Error(), "configured maximum is 1") {
 		t.Fatalf("processTranscriptionJob error = %v, want permanent segment-limit failure", err)
@@ -857,30 +862,29 @@ func TestTranscriptionJobMissingWorkspaceCredentialFailsBeforeRegionOrProviderWo
 		t.Fatalf("save annotation page: %v", err)
 	}
 
-	processingContext := store.Context{
-		ID: 78, WorkspaceID: &workspaceID, UserID: &owner, Name: "missing Gemini key",
+	processingContext, err := store.NewContextStore(database).Create(ctx, store.Context{
+		WorkspaceID: &workspaceID, UserID: &owner, Name: "missing Gemini key",
 		SegmentationModel: "kraken", TranscriptionProvider: "gemini", TranscriptionModel: "gemini-test",
-	}
-	snapshot, err := json.Marshal(processingContext)
+	})
 	if err != nil {
-		t.Fatalf("marshal context: %v", err)
+		t.Fatal(err)
 	}
 	providerSecrets := &recordingProviderSecretResolver{err: sql.ErrNoRows}
 	vault := &countingProviderVault{}
 	ocr := &segmentCapOCR{}
 	regionFetches := 0
+	jobs := store.NewTranscriptionJobStore(database)
+	job := claimCheckpointTestJob(t, jobs, image.ID, processingContext)
 	handler := &Handler{
 		items: items, annotations: annotationStore, ocr: ocr,
 		providerSecrets: providerSecrets, vault: vault,
+		transcriptionJobs: jobs,
 		imageRegionFetcher: func(context.Context, string, int, int, int, int) (string, func(), error) {
 			regionFetches++
 			return "", func() {}, fmt.Errorf("unexpected image region fetch")
 		},
 	}
-	err = handler.processTranscriptionJob(ctx, &store.TranscriptionJob{
-		ID: 100, ItemImageID: image.ID, ContextID: &processingContext.ID, ContextSnapshot: snapshot,
-		InputRevision: 1, AttemptCount: 1, LeaseToken: "missing-key-fence",
-	})
+	err = handler.processTranscriptionJob(ctx, job)
 	var permanent permanentTranscriptionError
 	const want = "workspace provider credential is not configured"
 	if !errors.As(err, &permanent) || err.Error() != want {

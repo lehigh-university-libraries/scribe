@@ -177,6 +177,12 @@ FROM (
      OR (child.context_id IS NOT NULL AND context_parent.id IS NULL)
 
   UNION ALL
+  SELECT 'transcription_job_checkpoints.job', COUNT(*)
+  FROM transcription_job_checkpoints child
+  LEFT JOIN transcription_jobs job_parent ON job_parent.id = child.job_id
+  WHERE job_parent.id IS NULL
+
+  UNION ALL
   SELECT 'transcription_job_attempts.job', COUNT(*)
   FROM transcription_job_attempts child
   LEFT JOIN transcription_jobs job_parent ON job_parent.id = child.job_id

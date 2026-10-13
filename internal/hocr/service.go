@@ -964,10 +964,7 @@ func (s *Service) transcribeLines(ctx context.Context, imagePath string, lines [
 }
 
 func (s *Service) getLineTranscriptionConcurrency() int {
-	if v := config.Get().Config.LLM.LineTranscribeConcurrency; v > 0 {
-		return v
-	}
-	return config.DefaultLineTranscribeConcurrency
+	return config.Get().Config.LLM.LineConcurrency()
 }
 
 // wrapInHOCRDocument wraps content in a complete hOCR document

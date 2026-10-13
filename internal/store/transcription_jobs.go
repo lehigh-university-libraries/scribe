@@ -440,6 +440,9 @@ func (s *TranscriptionJobStore) createLocked(
 			if updateErr := requireOneAffected(result, updateErr); updateErr != nil {
 				return 0, fmt.Errorf("supersede active transcription job: %w", updateErr)
 			}
+			if err := queries.DeleteTranscriptionCheckpoints(ctx, active.ID); err != nil {
+				return 0, fmt.Errorf("delete transcription checkpoints: %w", err)
+			}
 		} else if !errors.Is(activeErr, sql.ErrNoRows) {
 			return 0, fmt.Errorf("lock active transcription job: %w", activeErr)
 		}
@@ -616,6 +619,9 @@ func (s *TranscriptionJobStore) claim(ctx context.Context, jobID uint64, cutoff 
 				if failErr := requireOneAffected(result, failErr); failErr != nil {
 					return nil, fmt.Errorf("fail exhausted transcription job: %w", failErr)
 				}
+				if err := qtx.DeleteTranscriptionCheckpoints(ctx, row.ID); err != nil {
+					return nil, fmt.Errorf("delete transcription checkpoints: %w", err)
+				}
 				if jobID > 0 {
 					if commitErr := tx.Commit(); commitErr != nil {
 						return nil, fmt.Errorf("commit exhausted transcription job: %w", commitErr)
@@ -750,6 +756,9 @@ func (s *TranscriptionJobStore) Cancel(ctx context.Context, id uint64) error {
 	if err := requireOneAffected(result, err); err != nil {
 		return err
 	}
+	if err := qtx.DeleteTranscriptionCheckpoints(ctx, id); err != nil {
+		return fmt.Errorf("delete transcription checkpoints: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit transcription cancellation: %w", err)
 	}
@@ -848,6 +857,11 @@ func (s *TranscriptionJobStore) failWithWebhookEvent(ctx context.Context, fence 
 	}
 	if err := requireFenceAffected(result, err); err != nil {
 		return false, err
+	}
+	if terminal {
+		if err := qtx.DeleteTranscriptionCheckpoints(ctx, fence.JobID); err != nil {
+			return false, fmt.Errorf("delete transcription checkpoints: %w", err)
+		}
 	}
 	if terminal && strings.TrimSpace(eventID) != "" && strings.TrimSpace(bodyJSON) != "" {
 		workspaceID, workspaceErr := s.eventWorkspaceID(ctx, qtx, subject)

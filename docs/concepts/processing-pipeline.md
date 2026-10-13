@@ -23,14 +23,39 @@ claim and revision fence as local polling workers. Committed events push outbox
 maintenance wake-ups; scheduled passes recover missed wake-ups, expired leases,
 and delayed retries every thirty minutes. A transcription push attempt is
 bounded to nine minutes and cancellation follows the existing bounded retry
-policy; contexts must fit that attempt budget.
+policy. Private checkpoint rows persist the segmented page once and each
+successful line separately, so later attempts resume unfinished lines without
+rewriting the whole page or repeating checkpointed provider calls. Checkpoint
+reads and writes enforce the current attempt, input revision, lease token, and
+unexpired lease. Checkpoints are deleted transactionally on completion,
+cancellation, permanent failure, supersession, exhausted retries, and job/item
+deletion. Invalid checkpoints are
+discarded and rebuilt from the original page. They never bypass the canonical
+revision fence. If every allowed attempt hits its deadline, the job fails and
+its checkpoints are removed; no partial canonical page is committed in that
+case. Resuming reduces repeated work but does not guarantee completion within
+the bounded attempt budget.
+
+Queued line transcription uses `llm.line_transcribe_concurrency` (default five),
+with each call also acquiring the existing global, workspace, and provider
+processing quotas inside its running goroutine. These in-memory quotas are
+per process/Cloud Run instance, not service-wide; multiple instances can each
+use their own allowance. For queued transcription, quotas count individual
+line calls; the previous queued path counted whole jobs. Operators should size
+both the per-instance limits and instance count for their provider quota. The
+singular current-line indicator identifies one active line and stays populated until
+all active calls finish. Cancellation stops scheduling useful work and joins
+every started call before returning; no cloud work continues outside the
+request.
 
 Line transcription attempts every segment before deciding whether a
 retryable or unclassified line failure should retry the page. If at least one
 line succeeds, the worker commits the partial page once, records the failed
 line count, and leaves each failed line's canonical subtree unchanged. A
-whole-page retry is reserved for attempts in which no line succeeded;
-cancellation and permanent provider failures still stop immediately.
+retry after an interrupted attempt reuses checkpointed successes. An attempt
+with no successful results follows the bounded retry policy; cancellation and
+permanent provider failures still stop immediately. A call interrupted before
+its result is checkpointed may run again; provider execution is not exactly-once.
 
 Batch cancellation uses that same boundary: the batch, its active jobs, and
 their current attempt outcomes change in one transaction. A worker holding a

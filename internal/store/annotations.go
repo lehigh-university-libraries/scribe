@@ -819,6 +819,9 @@ func (s *AnnotationStore) savePage(
 			}
 			return annotationPageSaveResult{}, fmt.Errorf("complete transcription job: %w", completionErr)
 		}
+		if err := queries.DeleteTranscriptionCheckpoints(ctx, completion.JobID); err != nil {
+			return annotationPageSaveResult{}, fmt.Errorf("delete transcription checkpoints: %w", err)
+		}
 		if strings.TrimSpace(completion.EventID) != "" && strings.TrimSpace(completion.BodyJSON) != "" {
 			if eventErr := queries.InsertEventOutbox(ctx, completion.EventID, completion.EventType, nullableUint64(page.WorkspaceID), nullableString(completion.Subject), completion.BodyJSON); eventErr != nil {
 				return annotationPageSaveResult{}, fmt.Errorf("insert transcription completion event: %w", eventErr)
@@ -897,6 +900,9 @@ func commitAnnotationReprocess(
 		updateResult, updateErr := queries.SupersedeTranscriptionJobByIDManual(ctx, active.ID)
 		if updateErr := requireOneAffected(updateResult, updateErr); updateErr != nil {
 			return 0, fmt.Errorf("commit annotation reprocess: supersede prior job: %w", updateErr)
+		}
+		if err := queries.DeleteTranscriptionCheckpoints(ctx, active.ID); err != nil {
+			return 0, fmt.Errorf("delete transcription checkpoints: %w", err)
 		}
 	}
 	jobID, err := queries.CreateTranscriptionJob(ctx, db.CreateTranscriptionJobParams{

@@ -54,6 +54,9 @@ INSERT INTO transcription_job_attempts (
 	}
 
 	var itemID string
+	if _, err := database.ExecContext(ctx, `INSERT INTO transcription_job_checkpoints (job_id,line_id,payload) VALUES (?, '', '{}')`, jobIDs[0]); err != nil {
+		t.Fatalf("seed oldest checkpoint: %v", err)
+	}
 	if err := database.QueryRowContext(ctx, `SELECT item_id FROM item_images WHERE id = ?`, imageID).Scan(&itemID); err != nil {
 		t.Fatalf("load terminal-retention item: %v", err)
 	}
@@ -90,6 +93,10 @@ INSERT INTO external_requests (
 		t.Fatalf("admit job with terminal retention = %d/%v", activeJobID, err)
 	}
 	var terminalCount, attemptCount, oldestCount int
+	var checkpointCount int
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM transcription_job_checkpoints WHERE job_id = ?`, jobIDs[0]).Scan(&checkpointCount); err != nil || checkpointCount != 0 {
+		t.Fatalf("retained checkpoints = %d/%v, want 0", checkpointCount, err)
+	}
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM transcription_jobs WHERE workspace_id = ? AND status IN ('completed','failed','canceled','superseded')`, workspaceID).Scan(&terminalCount); err != nil {
 		t.Fatalf("count retained terminal jobs: %v", err)
 	}
