@@ -3585,6 +3585,10 @@ components:
           title: external_reference_id
           maxLength: 512
           pattern: ^$|.*\S.*
+        ignoreExistingOcr:
+          type: boolean
+          title: ignore_existing_ocr
+          description: Ignore source hOCR and enqueue transcription for every Canvas.
       title: ImportManifestRequest
       required:
         - manifestUrl

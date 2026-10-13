@@ -232,7 +232,7 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 		workspaceID,
 		"item-create",
 		fmt.Sprintf("%x", digest[:]),
-		stableRequestHash(requestedName, "manifest", manifestURL, metadata, externalReferenceID, strconv.FormatUint(req.Msg.GetContextId(), 10)),
+		stableRequestHash(requestedName, "manifest", manifestURL, metadata, externalReferenceID, strconv.FormatUint(req.Msg.GetContextId(), 10), strconv.FormatBool(req.Msg.GetIgnoreExistingOcr())),
 		"",
 	)
 	if err != nil {
@@ -314,6 +314,9 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 		budgetErr := fmt.Errorf("%w: source manifest and imported hOCR exceed %d bytes", errManifestImportBudgetExceeded, h.maxManifestImportBytes)
 		failItemReservation(budgetErr)
 		return nil, connect.NewError(connect.CodeResourceExhausted, budgetErr)
+	}
+	if req.Msg.GetIgnoreExistingOcr() {
+		prefetchedCanvases = withoutExistingManifestOCR(prefetchedCanvases)
 	}
 	manifestDurableBytes := sourceBytes
 	prefetchedCanvases, hocrDurableBytes, prefetchErr := prefetchManifestHOCR(importCtx, prefetchedCanvases, h.maxManifestImportBytes-sourceBytes)
@@ -1387,4 +1390,15 @@ func uploadBatchFileStatusToProto(status store.UploadBatchFileStatus) scribev1.U
 	default:
 		return scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_UNSPECIFIED
 	}
+}
+
+func withoutExistingManifestOCR(canvases []canvasInfo) []canvasInfo {
+	result := append([]canvasInfo(nil), canvases...)
+	for i := range result {
+		result[i].hocrURL = ""
+		result[i].hocrXML = ""
+		result[i].plainText = ""
+		result[i].parsedHOCR = nil
+	}
+	return result
 }

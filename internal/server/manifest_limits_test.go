@@ -903,3 +903,17 @@ WHERE workspace_id = ? AND source = 'item-create' AND idempotency_key = ?`, stor
 		t.Fatalf("manifest reservation status = %q, want failed", status)
 	}
 }
+
+func TestManifestIgnoreExistingOCRSkipsFetchAndKeepsCanvas(t *testing.T) {
+	original := []canvasInfo{{canvasURI: "https://example.test/canvas/1", hocrURL: "https://example.test/old.hocr", hocrXML: "old", plainText: "old"}}
+	cleared := withoutExistingManifestOCR(original)
+	if cleared[0].hocrURL != "" || cleared[0].hocrXML != "" || cleared[0].plainText != "" || cleared[0].canvasURI != original[0].canvasURI {
+		t.Fatalf("cleared=%#v", cleared)
+	}
+	if original[0].hocrURL == "" {
+		t.Fatal("mutated source")
+	}
+	if _, bytes, err := prefetchManifestHOCR(context.Background(), cleared, 1); err != nil || bytes != 0 {
+		t.Fatalf("bytes=%d err=%v", bytes, err)
+	}
+}

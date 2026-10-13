@@ -989,8 +989,10 @@ type ImportManifestRequest struct {
 	// Stable client-generated key used to resume an interrupted import.
 	IdempotencyKey      string `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	ExternalReferenceId string `protobuf:"bytes,6,opt,name=external_reference_id,json=externalReferenceId,proto3" json:"external_reference_id,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Ignore source hOCR and enqueue transcription for every Canvas.
+	IgnoreExistingOcr bool `protobuf:"varint,7,opt,name=ignore_existing_ocr,json=ignoreExistingOcr,proto3" json:"ignore_existing_ocr,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ImportManifestRequest) Reset() {
@@ -1063,6 +1065,13 @@ func (x *ImportManifestRequest) GetExternalReferenceId() string {
 		return x.ExternalReferenceId
 	}
 	return ""
+}
+
+func (x *ImportManifestRequest) GetIgnoreExistingOcr() bool {
+	if x != nil {
+		return x.IgnoreExistingOcr
+	}
+	return false
 }
 
 type ImportManifestResponse struct {
@@ -2284,7 +2293,7 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"media_type\x18\x03 \x01(\tR\tmediaType\x12:\n" +
 	"\trevisions\x18\x04 \x03(\v2\x1c.scribe.v1.ItemImageRevisionR\trevisions\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\tR\texpiresAt\"\xbf\x02\n" +
+	"expires_at\x18\x05 \x01(\tR\texpiresAt\"\xef\x02\n" +
 	"\x15ImportManifestRequest\x126\n" +
 	"\fmanifest_url\x18\x01 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\x80\x102\x06.*\\S.*R\vmanifestUrl\x12\x1c\n" +
 	"\x04name\x18\x02 \x01(\tB\b\xbaH\x05r\x03\x18\xff\x01R\x04name\x12\x1d\n" +
@@ -2293,7 +2302,8 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x01(\tB\x14\xbaH\x11r\x0f(\x80\x80@2\t^$|.*\\S.*R\bmetadata\x126\n" +
 	"\x0fidempotency_key\x18\x05 \x01(\tB\r\xbaH\n" +
 	"\xc8\x01\x01r\x05\x10\x01\x18\x80\x02R\x0eidempotencyKey\x12G\n" +
-	"\x15external_reference_id\x18\x06 \x01(\tB\x13\xbaH\x10r\x0e\x18\x80\x042\t^$|.*\\S.*R\x13externalReferenceId\"=\n" +
+	"\x15external_reference_id\x18\x06 \x01(\tB\x13\xbaH\x10r\x0e\x18\x80\x042\t^$|.*\\S.*R\x13externalReferenceId\x12.\n" +
+	"\x13ignore_existing_ocr\x18\a \x01(\bR\x11ignoreExistingOcr\"=\n" +
 	"\x16ImportManifestResponse\x12#\n" +
 	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\"\x9f\x01\n" +
 	"\x14UploadBatchFileInput\x12)\n" +

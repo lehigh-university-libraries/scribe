@@ -354,3 +354,9 @@ Before comparing spend, import the same two public pages with the same model
 and context, retain their audit totals, and compare the new calls' input and
 billed output totals. This requires a configured workspace credential and
 access to the original pages. Lines remain independent checkpoints.
+
+Book integrations can set `ImportManifestRequest.ignore_existing_ocr=true` to
+skip all source hOCR fetches and queue every Canvas with the selected context.
+The flag is included in import idempotency: changing it requires a new key.
+The source manifest remains provenance. Manifest and image access are
+anonymous, so only publicly viewable paged content is supported.

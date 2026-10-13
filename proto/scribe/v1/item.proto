@@ -183,6 +183,8 @@ message ImportManifestRequest {
     pattern: "^$|.*\\S.*"
     max_len: 512
   }];
+  // Ignore source hOCR and enqueue transcription for every Canvas.
+  bool ignore_existing_ocr = 7;
 }
 
 message ImportManifestResponse {
