@@ -108,3 +108,19 @@ English newspapers. They determine the built-in presets, not the data model.
 Additional scripts and collections use the existing trusted model registry,
 workspace contexts, and selection rules. Evaluate segmentation completeness and
 reading order on representative pages before adopting a collection default.
+
+## Kraken native recognition
+
+The Medieval manuscripts + Kraken CATMuS and Letters + Kraken McCATMuS
+contexts run one full-page BLLA segmentation and recognition pass. Installed
+recognition routes come from `config/ocr.yaml` and are checksum-verified at
+build time. Kraken's custom JSON serialization retains reading order and
+character cuts; word boxes come from the native cuts. Per-line LLM calls are
+skipped. Whole-page results use the same checkpoint, input revision, lease
+fence, commit, and completion event as LLM jobs. Foreground annotation
+enrichment rejects these contexts; use explicit whole-page reprocessing.
+
+CATMuS Medieval v1.6.2 is pinned to DOI 10.5281/zenodo.21488839 and McCATMuS
+to DOI 10.5281/zenodo.13788177. Existing LLM letters contexts retain their
+rectangular crops; compare them with native recognition on the same pages
+before changing their crop behavior.

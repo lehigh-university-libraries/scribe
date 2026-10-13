@@ -201,3 +201,9 @@ install_model() {
 }
 
 install_model "segmentation" "${KRAKEN_SEGMENTATION_MODEL_ID:-}" "${KRAKEN_SEGMENTATION_MODEL_DOI:-}" "${KRAKEN_SEGMENTATION_MODEL_FILE:-}" "${KRAKEN_SEGMENTATION_MODEL_SHA256:-}" || exit 1
+
+if [ -f /tmp/recognition-models.tsv ]; then
+ while IFS=$'\t' read -r model_id doi filename digest; do
+  install_model "recognition" "$model_id" "$doi" "$filename" "$digest" || exit 1
+ done < /tmp/recognition-models.tsv
+fi

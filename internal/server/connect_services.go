@@ -118,6 +118,9 @@ func processingContextFromStore(c store.Context) hocr.ProcessingContext {
 // before model-default sampling became mandatory. Creation and update paths do
 // not call this helper and continue to reject an explicit temperature.
 func normalizeContextForExecution(c store.Context, registry providerregistry.Registry) (store.Context, error) {
+	if strings.EqualFold(c.TranscriptionProvider, "kraken") && c.SegmentationModel != "kraken" {
+		return store.Context{}, fmt.Errorf("native Kraken recognition requires BLLA segmentation")
+	}
 	temperature, err := registry.NormalizeExecutionSelection(
 		c.TranscriptionProvider,
 		c.TranscriptionModel,

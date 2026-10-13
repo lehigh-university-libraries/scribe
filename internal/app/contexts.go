@@ -33,6 +33,7 @@ func systemContexts(cfg config.Config) []store.Context {
 			})
 		}
 	}
+	catalog = append(catalog, store.Context{Name: "Medieval manuscripts + Kraken CATMuS", Description: "Full-page BLLA recognition with CATMuS Medieval v1.6.2.", SegmentationModel: "kraken", TranscriptionProvider: "kraken", TranscriptionModel: "catmus-medieval"}, store.Context{Name: "Letters + Kraken McCATMuS", Description: "Full-page BLLA recognition of 16th–21st century handwriting with McCATMuS.", SegmentationModel: "kraken", TranscriptionProvider: "kraken", TranscriptionModel: "mccatmus"})
 	return catalog
 }
 

@@ -22,6 +22,7 @@ type Config struct {
 	Kraken struct {
 		PipSpec                  string           `yaml:"pip_spec"`
 		DefaultSegmentationModel string           `yaml:"default_segmentation_model"`
+		RecognitionModels        map[string]Model `yaml:"recognition_models"`
 		SegmentationModels       map[string]Model `yaml:"segmentation_models"`
 	} `yaml:"kraken"`
 	Ollama struct {
@@ -134,6 +135,14 @@ func Matrix(cfg Config, garRepo, tag string) ([]Entry, error) {
 			"KRAKEN_SEGMENTATION_MODEL_DOI=" + m.DOI,
 			"KRAKEN_SEGMENTATION_MODEL_FILE=" + m.File,
 			"KRAKEN_SEGMENTATION_MODEL_SHA256=" + m.SHA256,
+		}
+	}
+	for key, model := range k.RecognitionModels {
+		if err := validateSegmentationKey("recognition model", key); err != nil {
+			return nil, err
+		}
+		if err := validateModel("recognition model "+key, model); err != nil {
+			return nil, err
 		}
 	}
 	entries := []Entry{kraken("segmentor", "scribe-segmentor", segArgs(segKey, seg)...)}

@@ -7,6 +7,7 @@ package providerregistry
 import (
 	"context"
 	"fmt"
+	ocrcatalog "github.com/lehigh-university-libraries/scribe/config"
 	"math"
 	"net/http"
 	"sort"
@@ -44,6 +45,7 @@ type Execution string
 const (
 	// ExecutionAdapter uses an HTR byte-oriented provider client.
 	ExecutionAdapter Execution = "adapter"
+	ExecutionKraken  Execution = "kraken"
 )
 
 // EndpointMode states how a provider endpoint is controlled.
@@ -283,6 +285,12 @@ func New(cfg config.Config, configure ...Option) Registry {
 		}),
 	}
 
+	recognitionIDs := []string{}
+	for id := range ocrcatalog.RecognitionModels() {
+		recognitionIDs = append(recognitionIDs, id)
+	}
+	sort.Strings(recognitionIDs)
+	providerDescriptors = append(providerDescriptors, newProvider("kraken", "Kraken native OCR", recognitionIDs, "catmus-medieval", ExecutionKraken, Capabilities{}, CredentialSchema{}, exactEndpoint(segmentationConfig.URL, segmentationConfig.Audience), nil, nil, nil))
 	providerMap := make(map[string]Provider, len(providerDescriptors))
 	providerOrder := make([]string, 0, len(providerDescriptors))
 	for _, descriptor := range providerDescriptors {

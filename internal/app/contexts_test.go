@@ -16,14 +16,14 @@ func systemContextTestConfig() config.Config {
 func TestDocumentContextsUseOnlyRegisteredSegmentorsAndLLMTranscription(t *testing.T) {
 	cfg := systemContextTestConfig()
 	catalog := systemContexts(cfg)
-	if len(catalog) != 12 {
+	if len(catalog) != 14 {
 		t.Fatalf("catalog size = %d", len(catalog))
 	}
 	if err := validateSystemContextCatalog(cfg, catalog); err != nil {
 		t.Fatal(err)
 	}
 	for _, preset := range catalog {
-		if preset.TranscriptionProvider != "ollama" && preset.TranscriptionProvider != "gemini" && preset.TranscriptionProvider != "openai" {
+		if preset.TranscriptionProvider != "ollama" && preset.TranscriptionProvider != "gemini" && preset.TranscriptionProvider != "openai" && preset.TranscriptionProvider != "kraken" {
 			t.Fatalf("unsupported transcription: %+v", preset)
 		}
 		if strings.HasPrefix(preset.Name, "Newspapers") != (preset.SegmentationModel == "newspapers") {

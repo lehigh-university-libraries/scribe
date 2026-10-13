@@ -839,7 +839,30 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	if !ok {
 		return fmt.Errorf("canonical annotation page items are not an array")
 	}
-	if !containsLineAnnotation(pageItems) {
+	nativeKraken := pctx.TranscriptionProvider == "kraken"
+	if nativeKraken && checkpoint == "" {
+		registry := providerregistry.New(config.Get().Config)
+		pctx, err = normalizeContextForExecution(pctx, registry)
+		if err != nil {
+			return permanentTranscriptionFailure("transcription context snapshot is invalid")
+		}
+		release, err := h.processingLimiter.Acquire(ctx, workspaceID, processingLimitProvider(pctx))
+		if err != nil {
+			return err
+		}
+		recognized, recognitionErr := h.recognizeKrakenJobPage(ctx, job, pctx, img)
+		release()
+		if recognitionErr != nil {
+			return recognitionErr
+		}
+		pageItems = append(preserveNonOCRAnnotations(pageItems), recognized...)
+		pageDocument["items"] = pageItems
+		pageDocument, pageItems, err = canonicalizeSegmentedTranscriptionPage(pageDocument, iiif.PageIdentity{PublicBaseURL: h.publicAnnotationBaseURL(), ItemImageID: job.ItemImageID, CanvasURI: img.CanvasURI})
+		if err != nil {
+			return permanentTranscriptionFailure("recognition produced invalid annotations")
+		}
+	}
+	if !nativeKraken && !containsLineAnnotation(pageItems) {
 		releaseSegmentation, acquireErr := h.processingLimiter.Acquire(ctx, workspaceID, processingLimitSegmentor(pctx))
 		if acquireErr != nil {
 			return fmt.Errorf("acquire segmentation processing capacity: %w", acquireErr)
@@ -886,6 +909,11 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		}
 	}
 
+	if nativeKraken {
+		for _, line := range lines {
+			restored[line.id] = true
+		}
+	}
 	total := len(lines)
 	maxSegments := transcriptionJobSegmentLimit()
 	if total > maxSegments {
@@ -1064,7 +1092,9 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	// Explicitly unreadable lines retain their complete canonical subtree.
 	// Reconcile word children only beneath lines that this attempt successfully
 	// transcribed, so failed-line text and word provenance remain unchanged.
-	pageItems = reconcileTranscribedLineWords(pageItems, successfulLineIDs)
+	if !nativeKraken {
+		pageItems = reconcileTranscribedLineWords(pageItems, successfulLineIDs)
+	}
 	pageDocument["items"] = pageItems
 	pageJSON, err := json.Marshal(pageDocument)
 	if err != nil {

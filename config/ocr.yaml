@@ -15,6 +15,15 @@ kraken:
       file: blla.mlmodel
       doi: "10.5281/zenodo.14602569"
       sha256: "77a638a83c9e535620827a09e410ed36391e9e8e8126d5796a0f15b978186056"
+  recognition_models:
+    catmus-medieval:
+      file: catmus-medieval-1.6.0.mlmodel
+      doi: "10.5281/zenodo.21488839"
+      sha256: "227d10f15a936c2492105b7796a6152647c742f248af117856f417008eadbc9c"
+    mccatmus:
+      file: McCATMuS_nfd_nofix_V1.mlmodel
+      doi: "10.5281/zenodo.13788177"
+      sha256: "dfb911ba25fd11f93efc1b0c340957162981ecfdaac0ee1e26793d491f770244"
 ollama:
   base_image: "ollama/ollama:0.19.0@sha256:bf240c2847a8bc7b2c630b85dab5d1dedcba257b551d5fc9b290ce544d59272a"
   default_model: "glm-ocr:bf16"

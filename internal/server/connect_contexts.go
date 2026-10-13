@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
@@ -213,6 +214,9 @@ func validateContextSelection(contextValue store.Context) error {
 	registry := providerregistry.New(config.Get().Config)
 	if err := registry.ValidateSegmentation(contextValue.SegmentationModel); err != nil {
 		return err
+	}
+	if strings.EqualFold(contextValue.TranscriptionProvider, "kraken") && contextValue.SegmentationModel != "kraken" {
+		return fmt.Errorf("native Kraken recognition requires BLLA segmentation")
 	}
 	return registry.ValidateSelection(
 		contextValue.TranscriptionProvider,

@@ -53,7 +53,7 @@ func TestRegistryOwnsProviderDefaultsFactoriesAndCapabilities(t *testing.T) {
 		}
 	}
 
-	for _, retired := range []string{"kraken", "tesseract"} {
+	for _, retired := range []string{"tesseract"} {
 		if _, ok := registry.Provider(retired); ok {
 			t.Fatalf("retired transcription provider %q is installed", retired)
 		}

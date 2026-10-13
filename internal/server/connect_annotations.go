@@ -343,6 +343,10 @@ func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scr
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("processing context is not executable"))
 	}
 
+	if processingContext.TranscriptionProvider == "kraken" {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("Kraken contexts require whole-page reprocessing"))
+	}
+
 	releaseProcessing, err := h.acquireTranscriptionProcessingSlot(ctx, h.currentWorkspaceID(ctx), processingContext)
 	if err != nil {
 		return nil, err

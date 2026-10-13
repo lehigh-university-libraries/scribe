@@ -166,3 +166,12 @@ func (c *Client) fetchTripletJPEG(ctx context.Context, imagePath string) ([]byte
 	}
 	return c.images.FullJPEG(ctx, imagePath)
 }
+
+// OCR recognizes a complete image with a server-registered model.
+func (c *Client) OCR(ctx context.Context, imagePath, model string) (remoteocr.OCRResult, error) {
+	image, err := c.prepareImage(ctx, imagePath)
+	if err != nil {
+		return remoteocr.OCRResult{}, err
+	}
+	return c.remote.OCR(ctx, image, model)
+}

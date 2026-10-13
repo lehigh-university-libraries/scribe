@@ -7,6 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lehigh-university-libraries/htr/pkg/remoteocr"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -1832,5 +1837,96 @@ func TestResolveTranscriptionJobContextRejectsCrossWorkspaceSnapshot(t *testing.
 		ContextSnapshot: contextSnapshot,
 	}); err == nil {
 		t.Fatal("resolveTranscriptionJobContext succeeded with another user's explicit context")
+	}
+}
+
+func TestKrakenAnnotationsKeepNativeWords(t *testing.T) {
+	lines := []remoteocr.Line{{Box: remoteocr.Box{X: 1, Y: 2, Width: 100, Height: 30, Text: "café 世界"}, Words: []remoteocr.Box{{X: 1, Y: 2, Width: 40, Height: 20, Text: "café"}, {X: 50, Y: 2, Width: 40, Height: 20, Text: "世界"}}}}
+	items := krakenAnnotations("native", "https://example.test/canvas/1", lines)
+	if len(items) != 3 || annStringValue(items[0].(map[string]any), "textGranularity") != "line" {
+		t.Fatalf("items=%#v", items)
+	}
+	// Native text agrees with word text, so the canonical reconciler retains
+	// recognition geometry rather than inventing boxes from string lengths.
+	if got := reconcileTranscribedWords(items); len(got) != 3 {
+		t.Fatalf("native words lost: %#v", got)
+	}
+}
+
+func TestKrakenJobRecognizesPageOnceAndSkipsLineProvider(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+	workspace, owner := createServerTestWorkspace(t, database)
+	image := createServerTestItemImage(t, database, workspace, owner, "https://source.example/canvas/native")
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/v1/ocr" {
+			t.Errorf("route=%s", r.URL.Path)
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Error(err)
+			return
+		}
+		defer r.MultipartForm.RemoveAll()
+		if r.FormValue("model") != "mccatmus" {
+			t.Error("recognition model missing")
+		}
+		_, _ = w.Write([]byte(`{"provider":"kraken","model":"mccatmus","lines":[{"X":0,"Y":0,"Width":100,"Height":20,"Text":"café 世界","Confidence":0.9,"words":[{"X":0,"Y":0,"Width":30,"Height":20,"Text":"café","Confidence":0.9},{"X":40,"Y":0,"Width":50,"Height":20,"Text":"世界","Confidence":0.8}]}]}`))
+	}))
+	defer server.Close()
+	old := config.Get()
+	cfg := old.Config
+	cfg.Segmentation.URL = server.URL
+	cfg.Segmentation.Audience = ""
+	config.Init(config.Runtime{Config: cfg})
+	t.Cleanup(func() { config.Init(old) })
+	contextStore := store.NewContextStore(database)
+	pctx, err := contextStore.Create(ctx, store.Context{WorkspaceID: &workspace, UserID: &owner, Name: uniqueName("native Kraken"), SegmentationModel: "kraken", TranscriptionProvider: "kraken", TranscriptionModel: "mccatmus"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = contextStore.DeleteForWorkspace(context.Background(), pctx.ID, workspace) })
+	annotations := store.NewAnnotationStore(database)
+	identity := iiif.PageIdentity{PublicBaseURL: (&Handler{}).publicAnnotationBaseURL(), ItemImageID: image.ID, CanvasURI: image.CanvasURI}
+	payload, err := iiif.NewAnnotationPage(identity, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageID, err := iiif.CanonicalPageID(identity.PublicBaseURL, image.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = annotations.SavePage(ctx, store.AnnotationPage{WorkspaceID: workspace, ItemImageID: image.ID, PageID: pageID, CanvasURI: image.CanvasURI, Payload: string(payload)}, 0); err != nil {
+		t.Fatal(err)
+	}
+	jobs := store.NewTranscriptionJobStore(database)
+	job := claimCheckpointTestJob(t, jobs, image.ID, pctx)
+	path := filepath.Join(t.TempDir(), "page.png")
+	if err = os.WriteFile(path, []byte("image"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ocr := &segmentCapOCR{}
+	limiter, err := worklimit.NewHierarchical(1, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{items: store.NewItemStore(database), annotations: annotations, transcriptionJobs: jobs, processingLimiter: limiter, ocr: ocr, ocrRuns: store.NewOCRRunStore(database), imageRegionFetcher: func(context.Context, string, int, int, int, int) (string, func(), error) { return path, func() {}, nil }}
+	if err = h.processTranscriptionJob(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || ocr.segmentationCalls != 0 || ocr.transcriptionCalls != 0 {
+		t.Fatalf("page=%d segmentation=%d line=%d", calls, ocr.segmentationCalls, ocr.transcriptionCalls)
+	}
+	committed, err := annotations.LoadPage(ctx, workspace, image.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed.Revision != job.InputRevision+1 || !strings.Contains(committed.Payload, "café") || !strings.Contains(committed.Payload, "世界") {
+		t.Fatalf("page=%+v", committed)
+	}
+	completed, err := jobs.Get(ctx, job.ID)
+	if err != nil || completed.CompletedSegments != 1 || completed.Status != store.TranscriptionJobStatusCompleted {
+		t.Fatalf("job=%+v err=%v", completed, err)
 	}
 }

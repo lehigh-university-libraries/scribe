@@ -51,3 +51,19 @@ func TestMatrixBuildsOnlySegmentationAndGLMOCR(t *testing.T) {
 		})
 	}
 }
+
+func TestRecognitionModelsArePinnedAndValidated(t *testing.T) {
+	cfg, err := Load("../../config/ocr.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Kraken.RecognitionModels) != 2 || cfg.Kraken.RecognitionModels["catmus-medieval"].File != "catmus-medieval-1.6.0.mlmodel" || cfg.Kraken.RecognitionModels["mccatmus"].File != "McCATMuS_nfd_nofix_V1.mlmodel" {
+		t.Fatalf("recognition catalog=%+v", cfg.Kraken.RecognitionModels)
+	}
+	model := cfg.Kraken.RecognitionModels["mccatmus"]
+	model.SHA256 = ""
+	cfg.Kraken.RecognitionModels["mccatmus"] = model
+	if _, err := Matrix(cfg, testRepo, "main"); err == nil {
+		t.Fatal("recognition checksum is required")
+	}
+}

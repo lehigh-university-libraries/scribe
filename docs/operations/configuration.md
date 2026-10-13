@@ -46,17 +46,18 @@ runtime copy. Rebuild the backend image after changing `config.yaml`. The
 embedded copy remains the application fallback, and the repository contract
 requires it to be byte-identical to the image source.
 
-The model list in `config/ocr.yaml` is deployment/build metadata used to
-construct and verify model images. It is not part of the embedded Go runtime
-configuration; runtime provider and segmentor capabilities come from their
-registered descriptors and endpoint policy.
+The model list in `config/ocr.yaml` pins deployment/build artifacts. Its Kraken
+recognition routes are also embedded in the Go runtime registry; one catalog
+owns both selectable recognition models and installed weights. Other runtime
+provider and segmentor capabilities come from registered descriptors and
+endpoint policy.
 
 The segmentor image packages Kraken BLLA for letters/manuscripts and
 PP-DocLayoutV3 for newspaper layout reading order. Both artifacts are pinned
 and checksum-verified during image builds. The native packaged inference CLIs
 run behind the private segmentation service; model weights are never fetched
-from workspace input. Transcription is restricted to GLM-OCR through Ollama,
-Gemini, and OpenAI. The system default is **Letters + GLM-OCR**.
+from workspace input. Transcription supports GLM-OCR through Ollama, Gemini, OpenAI, and full-page
+Kraken recognition. The system default is **Letters + GLM-OCR**.
 
 `generate-secrets.sh` creates high-entropy values for every locally owned
 Compose secret that does not exist. The externally managed Google credential

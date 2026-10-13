@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lehigh-university-libraries/htr/pkg/remoteocr"
+	ocrcatalog "github.com/lehigh-university-libraries/scribe/config"
 	"image"
 	_ "image/jpeg"
 	"io"
@@ -167,6 +169,7 @@ func NewHandler() http.Handler {
 		"POST /v1/segment",
 		withRequestDeadline(InferenceHandlerTimeout, expensive.Wrap(http.HandlerFunc(handleSegment))),
 	)
+	mux.Handle("POST /v1/ocr", withRequestDeadline(InferenceHandlerTimeout, expensive.Wrap(http.HandlerFunc(handleOCR))))
 	return mux
 }
 
@@ -178,7 +181,9 @@ func withRequestDeadline(timeout time.Duration, next http.Handler) http.Handler 
 	})
 }
 
-func handleSegment(w http.ResponseWriter, r *http.Request) {
+func handleSegment(w http.ResponseWriter, r *http.Request) { handleImage(w, r, false) }
+func handleOCR(w http.ResponseWriter, r *http.Request)     { handleImage(w, r, true) }
+func handleImage(w http.ResponseWriter, r *http.Request, recognize bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, uploadlimits.MaxMultipartBodyBytes)
 	if err := r.ParseMultipartForm(uploadlimits.MultipartMemoryBytes); err != nil { // #nosec G120 -- request body is capped with http.MaxBytesReader immediately above.
 		http.Error(w, "invalid multipart image request", http.StatusBadRequest)
@@ -225,6 +230,49 @@ func handleSegment(w http.ResponseWriter, r *http.Request) {
 	}
 	defer cleanupPrepared()
 
+	if recognize {
+		artifact, ok := ocrcatalog.RecognitionModels()[model]
+		if !ok || !validKrakenModelFilename(artifact.File) {
+			http.Error(w, "unsupported recognition model", http.StatusBadRequest)
+			return
+		}
+		seg, err := configuredKrakenModelRoute("KRAKEN_SEGMENTATION_MODEL_ID", "KRAKEN_SEGMENTATION_MODEL")
+		if err != nil {
+			writeProcessingFailure(w, "OCR configuration", err)
+			return
+		}
+		root, err := os.OpenRoot(filepath.Dir(seg.path))
+		if err != nil {
+			writeProcessingFailure(w, "OCR configuration", err)
+			return
+		}
+		defer root.Close()
+		info, err := root.Lstat(artifact.File)
+		if err != nil || !info.Mode().IsRegular() {
+			writeProcessingFailure(w, "OCR configuration", errors.New("model unavailable"))
+			return
+		}
+		lines, err := worddetection.RecognizeKraken(r.Context(), preparedPath, seg.path, filepath.Join(filepath.Dir(seg.path), artifact.File))
+		if err != nil {
+			writeProcessingFailure(w, "recognize image", err)
+			return
+		}
+		cfg, err := inspectPreparedImage(preparedPath)
+		boxes := []worddetection.WordBox{}
+		for _, line := range lines {
+			boxes = append(boxes, worddetection.WordBox{X: line.X, Y: line.Y, Width: line.Width, Height: line.Height, Confidence: line.Confidence})
+			for _, word := range line.Words {
+				boxes = append(boxes, worddetection.WordBox{X: word.X, Y: word.Y, Width: word.Width, Height: word.Height, Confidence: word.Confidence})
+			}
+		}
+		if err != nil || worddetection.ValidateBoxes(boxes, cfg.Width, cfg.Height, iiif.MaxAnnotationsPerPage/2) != nil {
+			writeProcessingFailure(w, "recognize image", errors.New("invalid OCR geometry"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(remoteocr.OCRResult{Provider: "kraken", Model: model, Lines: lines})
+		return
+	}
 	words, provider, err := DetectWords(r.Context(), preparedPath, model)
 	if err != nil {
 		writeProcessingFailure(w, "segment image", err)
