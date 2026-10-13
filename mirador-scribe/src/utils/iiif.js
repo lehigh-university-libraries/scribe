@@ -949,11 +949,15 @@ export function createDraftWordAnnotation(canvasId, bbox, pageId = '', text = ''
   return updateAnnotationText({ ...annotation, textGranularity: 'word' }, text);
 }
 
-/** Transcript follows the canonical page's reading order, including columns.
+/**
+ * Transcript follows the canonical page's reading order, including columns.
  * @param {IIIFAnnotationPage | null | undefined} page
  * @returns {EditorRow[]}
  */
 export function transcriptRowsInPageOrder(page) {
- const positions = new Map((page?.items || []).map((annotation,index) => [annotation.id,index]));
- return groupAnnotationsForEditor(page).sort((a,b) => (positions.get(a.lead?.id) ?? Infinity) - (positions.get(b.lead?.id) ?? Infinity));
+  const positions = new Map((page?.items || []).map((annotation, index) => [annotation.id, index]));
+  return groupAnnotationsForEditor(page).sort((left, right) => (
+    (positions.get(left.lead?.id || left.id) ?? Number.MAX_SAFE_INTEGER)
+      - (positions.get(right.lead?.id || right.id) ?? Number.MAX_SAFE_INTEGER)
+  ));
 }

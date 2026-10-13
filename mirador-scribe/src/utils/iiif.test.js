@@ -447,7 +447,28 @@ describe('IIIF editor utilities', () => {
 });
 
 it('keeps canonical two-column transcript order instead of sorting by viewer y', () => {
- const annotation = (id,x,y) => ({id,type:'Annotation',textGranularity:'line',body:[{type:'TextualBody',value:id}],target:{source:'canvas',selector:{type:'FragmentSelector',value:`xywh=${x},${y},100,8`}}});
- const items=[annotation('left-top',0,0),annotation('left-bottom',0,20),annotation('right-top',200,0),annotation('right-bottom',200,20)];
- expect(transcriptRowsInPageOrder({type:'AnnotationPage',items}).map(row=>row.id)).toEqual(items.map(item=>item.id));
+  const annotation = (id, x, y) => ({
+    id,
+    type: 'Annotation',
+    textGranularity: 'line',
+    body: [{ type: 'TextualBody', value: id }],
+    target: { source: 'canvas', selector: { type: 'FragmentSelector', value: `xywh=${x},${y},100,8` } },
+  });
+  const items = [
+    annotation('left-top', 0, 0), annotation('left-bottom', 0, 20),
+    annotation('right-top', 200, 0), annotation('right-bottom', 200, 20),
+  ];
+  expect(transcriptRowsInPageOrder({ type: 'AnnotationPage', items }).map((row) => row.id))
+    .toEqual(items.map((item) => item.id));
+});
+
+it('keeps word-only transcript rows in canonical order', () => {
+  const annotation = (id, y) => ({
+    id, type: 'Annotation', textGranularity: 'word',
+    body: [{ type: 'TextualBody', value: id }],
+    target: { source: 'canvas', selector: { type: 'FragmentSelector', value: `xywh=0,${y},100,8` } },
+  });
+  const items = [annotation('first', 100), annotation('second', 0)];
+  expect(transcriptRowsInPageOrder({ type: 'AnnotationPage', items }).map((row) => row.id))
+    .toEqual(['first', 'second']);
 });
