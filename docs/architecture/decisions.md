@@ -28,13 +28,10 @@ switch statements.
 
 ## Deployment trust
 
-Pull-request validation and image builds receive no cloud credentials. A
-same-repository PR automatically requests a preview, but deployment waits for
-a required reviewer only when repository operators have configured that rule
-on the protected `preview` environment. The workflow binds the job to the
-environment but cannot create its protection settings. Terraform and
-credentialed helpers execute from the trusted base SHA, images are promoted by
-digest, and the approved PR image runs only with preview-scoped identities.
+Pull-request validation receives no cloud credentials. Automatic previews and
+their merge requirement are disabled during active development. Production
+deployment and manual preview cleanup execute trusted main code using the
+protected `production` environment.
 
 ## Production topology and availability
 

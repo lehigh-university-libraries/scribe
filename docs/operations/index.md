@@ -17,11 +17,8 @@ the credentialed job to the `production` GitHub environment; an operator must
 configure that environment with required reviewers before release so the job
 waits for approval.
 Use manual dispatch with `mode=plan` for a non-mutating plan.
-Same-repository pull requests automatically request a preview deployment,
-which binds credentialed work to the `preview` environment. Required reviewers
-for that environment are likewise an externally configured release
-prerequisite.
-Forks receive secret-free CI only.
+Pull requests run CI without automatic preview deployments or cloud credentials.
+Preview deployment is not a merge requirement during active development.
 
 Start with [configuration](configuration.md) and [deployment](deployment.md).
 Use the bounded [production troubleshooting](troubleshooting.md) runbook for

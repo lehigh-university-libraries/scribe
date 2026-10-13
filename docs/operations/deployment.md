@@ -50,9 +50,10 @@ GCLOUD_PROJECT=YOUR_PROJECT make tf-preview PR=23 ACTION=apply
 
 The protected main workflow runs CI, builds API/frontend/Triplet images in GAR,
 refreshes OCR images when needed, applies foundation, and invokes make tf-prod.
-Preview image builds run without credentials. The protected publisher promotes
-OCI artifacts to GAR without executing PR code; Terraform runs trusted source.
-Fork PRs receive CI only.
+Pull requests run CI only; automatic preview deployments are disabled during
+active development. Operators can still apply a preview workspace manually.
+To remove an existing preview, dispatch Terraform Apply on main with action
+`destroy-preview` and its PR number, or run `make tf-preview PR=N ACTION=destroy`.
 
 Terraform creates two finite Cloud Run migration jobs. Each starts a keyless
 Private Service Connect Cloud SQL proxy, applies its schema, and stops the proxy before exit.

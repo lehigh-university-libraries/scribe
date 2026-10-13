@@ -12,7 +12,12 @@ on:
         required: true
         type: choice
         default: plan
-        options: [plan, apply]
+        options: [plan, apply, destroy-preview]
+      pr_number:
+        description: PR number to clean up when action is destroy-preview.
+        required: false
+        type: number
+        default: 0
 
 permissions:
   contents: read
@@ -152,6 +157,7 @@ jobs:
       id-token: write
 
   foundation:
+    if: inputs.action != 'destroy-preview'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production
@@ -205,3 +211,15 @@ jobs:
     with:
       environment: production
       action: ${{ github.event_name == 'push' && 'apply' || inputs.action }}
+
+  cleanup-preview:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy-preview' && inputs.pr_number > 0
+    uses: ./.github/workflows/terraform-deploy.yaml
+    permissions:
+      contents: read
+      id-token: write
+    secrets: inherit
+    with:
+      environment: production
+      action: destroy
+      pr_number: ${{ format('{0}', inputs.pr_number) }}

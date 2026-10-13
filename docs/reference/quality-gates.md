@@ -67,11 +67,8 @@ The hosted browser job independently starts MariaDB and sets
 `SCRIBE_REQUIRE_BROWSER_BACKEND=true`; it cannot silently select in-browser
 persistence. The CI workflow no longer runs separately on `main` because the
 production workflow invokes the same reusable jobs for that SHA. Pull requests
-still run the direct CI workflow, and same-repository previews run the same gate
-before any image build or credentialed deployment. Preview head images are
-built and smoked as credential-free OCI artifacts; a protected publisher job
-is the first step allowed to authenticate to the registry and it never executes
-the pull-request checkout.
+still run the direct CI workflow without cloud credentials. Automatic preview
+deployments and their merge requirement are disabled during active development.
 
 The backend jobs likewise set `SCRIBE_REQUIRE_TEST_DB=true`; failure to resolve
 the isolated Compose database is a gate failure rather than a unit-only pass.
