@@ -3,6 +3,8 @@ package ocrcatalog
 
 import (
 	_ "embed"
+	"maps"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,7 +19,11 @@ type RecognitionModel struct {
 }
 
 // RecognitionModels returns an independent copy of the trusted model registry.
-func RecognitionModels() map[string]RecognitionModel {
+func RecognitionModels() map[string]RecognitionModel { return maps.Clone(recognitionModels) }
+
+var recognitionModels = parseRecognitionModels()
+
+func parseRecognitionModels() map[string]RecognitionModel {
 	var catalog struct {
 		Kraken struct {
 			Models map[string]RecognitionModel `yaml:"recognition_models"`

@@ -839,9 +839,9 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 	if !ok {
 		return fmt.Errorf("canonical annotation page items are not an array")
 	}
+	registry := providerregistry.New(config.Get().Config)
 	nativeKraken := pctx.TranscriptionProvider == "kraken"
 	if nativeKraken && checkpoint == "" {
-		registry := providerregistry.New(config.Get().Config)
 		pctx, err = normalizeContextForExecution(pctx, registry)
 		if err != nil {
 			return permanentTranscriptionFailure("transcription context snapshot is invalid")
@@ -850,7 +850,7 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 		if err != nil {
 			return err
 		}
-		recognized, recognitionErr := h.recognizeKrakenJobPage(ctx, job, pctx, img)
+		recognized, recognitionErr := h.recognizeKrakenJobPage(ctx, job, pctx, img, registry)
 		release()
 		if recognitionErr != nil {
 			return recognitionErr
@@ -923,7 +923,6 @@ func (h *Handler) processTranscriptionJob(ctx context.Context, job *store.Transc
 			maxSegments,
 		))
 	}
-	registry := providerregistry.New(config.Get().Config)
 	pctx, err = normalizeContextForExecution(pctx, registry)
 	if err != nil {
 		return permanentTranscriptionFailure("transcription context snapshot is invalid")

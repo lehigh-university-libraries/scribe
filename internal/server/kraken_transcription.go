@@ -6,15 +6,14 @@ import (
 	"time"
 
 	"github.com/lehigh-university-libraries/htr/pkg/remoteocr"
-	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
 	"github.com/lehigh-university-libraries/scribe/internal/providerregistry"
 	"github.com/lehigh-university-libraries/scribe/internal/segmentor"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
-func (h *Handler) recognizeKrakenJobPage(ctx context.Context, job *store.TranscriptionJob, pctx store.Context, img store.ItemImage) ([]any, error) {
-	descriptor, ok := providerregistry.New(config.Get().Config).Provider("kraken")
+func (h *Handler) recognizeKrakenJobPage(ctx context.Context, job *store.TranscriptionJob, pctx store.Context, img store.ItemImage, registry providerregistry.Registry) ([]any, error) {
+	descriptor, ok := registry.Provider("kraken")
 	if !ok {
 		return nil, permanentTranscriptionFailure("Kraken provider unavailable")
 	}
