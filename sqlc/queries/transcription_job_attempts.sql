@@ -30,7 +30,7 @@ UPDATE transcription_job_attempts
 SET outcome = sqlc.arg(outcome),
     safe_error_message = sqlc.narg(safe_error_message),
     result_revision = sqlc.narg(result_revision),
-    finished_at = NOW(6)
+    finished_at = GREATEST(started_at, NOW(6))
 WHERE job_id = sqlc.arg(job_id)
   AND attempt_number = sqlc.arg(attempt_number)
   AND input_revision = sqlc.arg(input_revision)

@@ -15,7 +15,7 @@ UPDATE transcription_job_attempts
 SET outcome = ?,
     safe_error_message = ?,
     result_revision = ?,
-    finished_at = NOW(6)
+    finished_at = GREATEST(started_at, NOW(6))
 WHERE job_id = ?
   AND attempt_number = ?
   AND input_revision = ?

@@ -47,7 +47,7 @@ LEFT JOIN transcription_job_attempts tja
 SET
   tja.outcome = 'canceled',
   tja.safe_error_message = 'canceled with upload batch',
-  tja.finished_at = NOW(6),
+  tja.finished_at = GREATEST(tja.started_at, NOW(6)),
   tj.status = 'canceled',
   tj.lease_until = NULL,
   tj.locked_by = NULL,
