@@ -37,16 +37,19 @@ type Service struct {
 }
 
 type ProviderCallAuditRecord struct {
-	WorkspaceID  uint64
-	SessionID    string
-	ItemImageID  *uint64
-	ContextID    *uint64
-	Provider     string
-	Model        string
-	Operation    string
-	ErrorMessage string
-	HTTPStatus   *int
-	DurationMS   int64
+	InputTokens   uint64
+	OutputTokens  uint64
+	ThoughtTokens uint64
+	WorkspaceID   uint64
+	SessionID     string
+	ItemImageID   *uint64
+	ContextID     *uint64
+	Provider      string
+	Model         string
+	Operation     string
+	ErrorMessage  string
+	HTTPStatus    *int
+	DurationMS    int64
 }
 
 type ProviderCallAuditLogger func(context.Context, ProviderCallAuditRecord)
@@ -631,7 +634,10 @@ func (s *Service) extractTextWithProvider(
 	redactedErr := redactProviderError(err, nil)
 	record := ProviderCallAuditRecord{
 		Provider: providerName, Model: config.Model, Operation: operation,
-		DurationMS: time.Since(started).Milliseconds(),
+		InputTokens:   nonnegativeTokens(result.Usage.InputTokens),
+		OutputTokens:  nonnegativeTokens(result.Usage.OutputTokens),
+		ThoughtTokens: nonnegativeTokens(result.Usage.ThoughtTokens),
+		DurationMS:    time.Since(started).Milliseconds(),
 	}
 	if redactedErr != nil {
 		record.ErrorMessage = redactedErr.Error()
@@ -1022,4 +1028,11 @@ func (s *Service) generateHOCRFromWords(words []TranscribedWord, width, height i
 // legitimately contain words such as "illegible" or "I cannot".
 func (*Service) isRefusalOrIllegible(text string) bool {
 	return strings.EqualFold(strings.TrimSpace(text), "not legible")
+}
+
+func nonnegativeTokens(value int) uint64 {
+	if value < 0 {
+		return 0
+	}
+	return uint64(value)
 }

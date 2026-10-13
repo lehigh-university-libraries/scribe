@@ -1378,6 +1378,10 @@ type ContextMetrics struct {
 	TotalRuns              uint64                 `protobuf:"varint,2,opt,name=total_runs,json=totalRuns,proto3" json:"total_runs,omitempty"`
 	CorrectedRuns          uint64                 `protobuf:"varint,3,opt,name=corrected_runs,json=correctedRuns,proto3" json:"corrected_runs,omitempty"`
 	AvgLevenshteinDistance float64                `protobuf:"fixed64,4,opt,name=avg_levenshtein_distance,json=avgLevenshteinDistance,proto3" json:"avg_levenshtein_distance,omitempty"`
+	InputTokens            uint64                 `protobuf:"varint,5,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	OutputTokens           uint64                 `protobuf:"varint,6,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	ThoughtTokens          uint64                 `protobuf:"varint,7,opt,name=thought_tokens,json=thoughtTokens,proto3" json:"thought_tokens,omitempty"`
+	BilledOutputTokens     uint64                 `protobuf:"varint,8,opt,name=billed_output_tokens,json=billedOutputTokens,proto3" json:"billed_output_tokens,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -1436,6 +1440,34 @@ func (x *ContextMetrics) GetCorrectedRuns() uint64 {
 func (x *ContextMetrics) GetAvgLevenshteinDistance() float64 {
 	if x != nil {
 		return x.AvgLevenshteinDistance
+	}
+	return 0
+}
+
+func (x *ContextMetrics) GetInputTokens() uint64 {
+	if x != nil {
+		return x.InputTokens
+	}
+	return 0
+}
+
+func (x *ContextMetrics) GetOutputTokens() uint64 {
+	if x != nil {
+		return x.OutputTokens
+	}
+	return 0
+}
+
+func (x *ContextMetrics) GetThoughtTokens() uint64 {
+	if x != nil {
+		return x.ThoughtTokens
+	}
+	return 0
+}
+
+func (x *ContextMetrics) GetBilledOutputTokens() uint64 {
+	if x != nil {
+		return x.BilledOutputTokens
 	}
 	return 0
 }
@@ -1634,14 +1666,18 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\x16GetModelCatalogRequest\"\xbe\x01\n" +
 	"\x17GetModelCatalogResponse\x12V\n" +
 	"\x17transcription_providers\x18\x01 \x03(\v2\x1d.scribe.v1.ProviderDescriptorR\x16transcriptionProviders\x12K\n" +
-	"\x13segmentation_models\x18\x02 \x03(\v2\x1a.scribe.v1.ModelDescriptorR\x12segmentationModels\"\xaf\x01\n" +
+	"\x13segmentation_models\x18\x02 \x03(\v2\x1a.scribe.v1.ModelDescriptorR\x12segmentationModels\"\xd0\x02\n" +
 	"\x0eContextMetrics\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x01 \x01(\x04R\tcontextId\x12\x1d\n" +
 	"\n" +
 	"total_runs\x18\x02 \x01(\x04R\ttotalRuns\x12%\n" +
 	"\x0ecorrected_runs\x18\x03 \x01(\x04R\rcorrectedRuns\x128\n" +
-	"\x18avg_levenshtein_distance\x18\x04 \x01(\x01R\x16avgLevenshteinDistance\"E\n" +
+	"\x18avg_levenshtein_distance\x18\x04 \x01(\x01R\x16avgLevenshteinDistance\x12!\n" +
+	"\finput_tokens\x18\x05 \x01(\x04R\vinputTokens\x12#\n" +
+	"\routput_tokens\x18\x06 \x01(\x04R\foutputTokens\x12%\n" +
+	"\x0ethought_tokens\x18\a \x01(\x04R\rthoughtTokens\x120\n" +
+	"\x14billed_output_tokens\x18\b \x01(\x04R\x12billedOutputTokens\"E\n" +
 	"\x18GetContextMetricsRequest\x12)\n" +
 	"\n" +
 	"context_id\x18\x01 \x01(\x04B\n" +

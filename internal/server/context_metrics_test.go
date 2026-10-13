@@ -114,11 +114,19 @@ func TestSaveAnnotationPageCommitsCorrectionMetricWithCanonicalRevision(t *testi
 	if got := saved.Msg.GetCorrection(); got == nil || got.GetLevenshteinDistance() != 1 || got.GetBaselineCharacters() != 3 || got.GetCorrectedCharacters() != 3 {
 		t.Fatalf("save response correction metric = %v, want distance 1 over 3 baseline and 3 corrected characters", got)
 	}
+	audits := store.NewProviderCallAuditStore(database)
+	if err := audits.Create(ctx, store.ProviderCallAudit{WorkspaceID: workspaceID, ContextID: &contextID, ItemImageID: &image.ID, Provider: "gemini", Model: "test-model", Operation: "transcribe", InputTokens: 8, OutputTokens: 3, ThoughtTokens: 12}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := audits.ListByItem(ctx, workspaceID, image.ItemID, 10)
+	if err != nil || len(listed) != 1 || listed[0].ThoughtTokens != 12 || listed[0].InputTokens != 8 || listed[0].OutputTokens != 3 {
+		t.Fatalf("audits=%+v err=%v", listed, err)
+	}
 	aggregate, err := runStore.GetContextMetrics(ctx, workspaceID, processingContext.ID)
 	if err != nil {
 		t.Fatalf("load committed context metric: %v", err)
 	}
-	if aggregate.TotalRuns != 1 || aggregate.CorrectedRuns != 1 || aggregate.AvgLevenshteinDistance != 1 {
+	if aggregate.InputTokens != 8 || aggregate.OutputTokens != 3 || aggregate.ThoughtTokens != 12 || aggregate.TotalRuns != 1 || aggregate.CorrectedRuns != 1 || aggregate.AvgLevenshteinDistance != 1 {
 		t.Fatalf("committed context metric = %+v, want one corrected run at distance 1", aggregate)
 	}
 

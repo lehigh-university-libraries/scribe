@@ -250,8 +250,9 @@ type OpenAIConfig struct {
 }
 
 type GeminiConfig struct {
-	Model  string   `yaml:"model"`
-	Models []string `yaml:"models"`
+	ThinkingLevels map[string]string `yaml:"thinking_levels"`
+	Model          string            `yaml:"model"`
+	Models         []string          `yaml:"models"`
 }
 
 type TranscriptionConfig struct {
@@ -565,6 +566,20 @@ func Load() (Config, error) {
 	cfg.Auth.ExternalJWTIssuers, err = normalizeExternalJWTIssuers(cfg.Auth.ExternalJWTIssuers)
 	if err != nil {
 		return Config{}, err
+	}
+	for model, level := range cfg.LLM.Gemini.ThinkingLevels {
+		registered := model == cfg.LLM.Gemini.Model
+		for _, candidate := range cfg.LLM.Gemini.Models {
+			registered = registered || candidate == model
+		}
+		if !registered {
+			return Config{}, fmt.Errorf("gemini thinking level model is not registered: %s", model)
+		}
+		switch level {
+		case "minimal", "low", "medium", "high":
+		default:
+			return Config{}, fmt.Errorf("invalid gemini thinking level for %s", model)
+		}
 	}
 	if err := validateServiceEndpoints(cfg); err != nil {
 		return Config{}, err

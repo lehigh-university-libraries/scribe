@@ -52,6 +52,9 @@ func (s *OCRRunStore) SetStorageQuotaLimits(limits StorageQuotaLimits) error {
 
 // ContextMetrics holds aggregate statistics for all OCR runs belonging to a context.
 type ContextMetrics struct {
+	InputTokens            uint64
+	OutputTokens           uint64
+	ThoughtTokens          uint64
 	ContextID              uint64  `json:"context_id"`
 	TotalRuns              int64   `json:"total_runs"`
 	CorrectedRuns          int64   `json:"corrected_runs"`
@@ -66,7 +69,22 @@ func (s *OCRRunStore) GetContextMetrics(ctx context.Context, workspaceID, contex
 	if err != nil {
 		return ContextMetrics{}, fmt.Errorf("get context metrics: %w", err)
 	}
+	contextKey, err := uint64ValueToNullInt64(contextID)
+	if err != nil {
+		return ContextMetrics{}, err
+	}
+	usage, err := s.q.GetContextProviderUsage(ctx, db.GetContextProviderUsageParams{WorkspaceID: workspaceID, ContextID: contextKey})
+	if err != nil {
+		return ContextMetrics{}, fmt.Errorf("get context usage: %w", err)
+	}
+	input, validInput := uint64FromNonNegativeInt64(usage.InputTokens)
+	output, validOutput := uint64FromNonNegativeInt64(usage.OutputTokens)
+	thoughts, validThoughts := uint64FromNonNegativeInt64(usage.ThoughtTokens)
+	if !validInput || !validOutput || !validThoughts {
+		return ContextMetrics{}, fmt.Errorf("invalid provider usage totals")
+	}
 	return ContextMetrics{
+		InputTokens: input, OutputTokens: output, ThoughtTokens: thoughts,
 		ContextID:              contextID,
 		TotalRuns:              metricsRow.TotalRuns,
 		CorrectedRuns:          metricsRow.CorrectedRuns,

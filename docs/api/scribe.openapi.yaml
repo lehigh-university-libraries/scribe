@@ -2629,6 +2629,30 @@ components:
           type: number
           title: avg_levenshtein_distance
           format: double
+        inputTokens:
+          type:
+            - integer
+            - string
+          title: input_tokens
+          format: int64
+        outputTokens:
+          type:
+            - integer
+            - string
+          title: output_tokens
+          format: int64
+        thoughtTokens:
+          type:
+            - integer
+            - string
+          title: thought_tokens
+          format: int64
+        billedOutputTokens:
+          type:
+            - integer
+            - string
+          title: billed_output_tokens
+          format: int64
       title: ContextMetrics
       additionalProperties: false
       description: |-
@@ -4365,6 +4389,30 @@ components:
         createdAt:
           type: string
           title: created_at
+        inputTokens:
+          type:
+            - integer
+            - string
+          title: input_tokens
+          format: int64
+        outputTokens:
+          type:
+            - integer
+            - string
+          title: output_tokens
+          format: int64
+        thoughtTokens:
+          type:
+            - integer
+            - string
+          title: thought_tokens
+          format: int64
+        billedOutputTokens:
+          type:
+            - integer
+            - string
+          title: billed_output_tokens
+          format: int64
       title: ProviderCallAudit
       additionalProperties: false
     scribe.v1.ProviderDescriptor:

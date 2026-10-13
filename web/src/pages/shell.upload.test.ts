@@ -139,6 +139,7 @@ async function setupShell(
   vi.mocked(getContextMetrics).mockResolvedValue({
     contextId: 0n,
     totalRuns: 0n,
+    inputTokens: 0n, outputTokens: 0n, thoughtTokens: 0n, billedOutputTokens: 0n,
     correctedRuns: 0n,
     avgLevenshteinDistance: 0,
   } as never);

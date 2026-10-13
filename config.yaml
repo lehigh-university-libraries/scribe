@@ -44,6 +44,9 @@ llm:
     model: "gpt-4o"
     models: ["gpt-4o", "gpt-4.1"]
   gemini:
+    thinking_levels:
+      gemini-3.1-pro-preview: low
+      gemini-3.8-flash: minimal
     model: "gemini-3.1-pro-preview"
     models: ["gemini-3.1-pro-preview", "gemini-3.8-flash"]
 

@@ -346,6 +346,10 @@ message ProviderCallAudit {
   optional int32 http_status = 15;
   int64 duration_ms = 16;
   string created_at = 17;
+  uint64 input_tokens = 18;
+  uint64 output_tokens = 19;
+  uint64 thought_tokens = 20;
+  uint64 billed_output_tokens = 21;
 }
 
 message ListItemProviderCallAuditsRequest {

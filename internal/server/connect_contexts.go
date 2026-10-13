@@ -192,6 +192,7 @@ func (h *Handler) GetContextMetrics(ctx context.Context, req *connect.Request[sc
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get context metrics: invalid corrected run count"))
 	}
 	return connect.NewResponse(&scribev1.GetContextMetricsResponse{Metrics: &scribev1.ContextMetrics{
+		InputTokens: metric.InputTokens, OutputTokens: metric.OutputTokens, ThoughtTokens: metric.ThoughtTokens, BilledOutputTokens: metric.OutputTokens + metric.ThoughtTokens,
 		ContextId:              metric.ContextID,
 		TotalRuns:              totalRuns,
 		CorrectedRuns:          correctedRuns,

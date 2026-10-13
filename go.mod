@@ -14,7 +14,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/trace v1.38.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/google/uuid v1.6.0
-	github.com/lehigh-university-libraries/htr v0.19.4
+	github.com/lehigh-university-libraries/htr v0.21.0
 	github.com/libops/iiif-spec v0.3.0
 	github.com/markbates/goth v1.82.0
 	go.opentelemetry.io/otel v1.46.0

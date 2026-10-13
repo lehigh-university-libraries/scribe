@@ -1,12 +1,9 @@
 package providerregistry
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -78,7 +75,7 @@ func TestGeminiClientUsesModelCompatibleRequestAndRegisteredVendorBase(t *testin
 	}
 }
 
-func TestGeminiClientRewritesEveryResolutionFallbackAttempt(t *testing.T) {
+func TestGeminiClientFailsTruncatedLineWithoutRetry(t *testing.T) {
 	var configurations []map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		var payload map[string]any
@@ -109,336 +106,15 @@ func TestGeminiClientRewritesEveryResolutionFallbackAttempt(t *testing.T) {
 		Model: model, Prompt: "transcribe", Temperature: 0.8,
 		Image: providers.Image{Data: []byte("image"), MediaType: "image/png"},
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || len(configurations) != 1 {
+		t.Fatalf("result=%#v err=%v calls=%d", result, err, len(configurations))
 	}
-	if result.Text != "finished" || len(configurations) != 2 {
-		t.Fatalf("result/configurations = %#v/%#v", result, configurations)
+	if _, ok := configurations[0]["temperature"]; ok {
+		t.Fatal("temperature retained")
 	}
-	for index, configuration := range configurations {
-		if _, ok := configuration["temperature"]; ok {
-			t.Fatalf("attempt %d retained temperature: %#v", index+1, configuration)
-		}
+	if configurations[0]["maxOutputTokens"] != float64(1024) {
+		t.Fatal("token limit missing")
 	}
-	if got := configurations[0]["mediaResolution"]; got != nil {
-		t.Fatalf("initial mediaResolution = %#v, want omitted", got)
-	}
-	if got := configurations[1]["mediaResolution"]; got != "MEDIA_RESOLUTION_HIGH" {
-		t.Fatalf("fallback mediaResolution = %#v", got)
-	}
-}
-
-func TestOmitGeminiDeprecatedSamplingPreservesEveryOtherByte(t *testing.T) {
-	const prefix = `{"contents":[{"parts":[{"text":"escaped \"temperature\":0.9 stays"}]}],"generationConfig":{`
-	tests := []struct {
-		name        string
-		temperature string
-		remainder   string
-	}{
-		{name: "temperature only", temperature: "0", remainder: `}}`},
-		{name: "negative exponent", temperature: "-1.25e-7", remainder: `}}`},
-		{name: "unspecified media resolution", temperature: "0.1", remainder: `"mediaResolution":"MEDIA_RESOLUTION_UNSPECIFIED"}}`},
-		{name: "media resolution", temperature: "0.2", remainder: `"mediaResolution":"MEDIA_RESOLUTION_HIGH"}}`},
-		{name: "medium media resolution", temperature: "0.5", remainder: `"mediaResolution":"MEDIA_RESOLUTION_MEDIUM"}}`},
-		{name: "thinking", temperature: "1", remainder: `"thinkingConfig":{"includeThoughts":true}}}`},
-		{name: "media and thinking", temperature: "2", remainder: `"mediaResolution":"MEDIA_RESOLUTION_LOW","thinkingConfig":{"includeThoughts":true}}}`},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			separator := ""
-			if test.remainder != `}}` {
-				separator = ","
-			}
-			member := `"temperature":` + test.temperature + separator
-			body := []byte(prefix + member + test.remainder)
-			originalLength := len(body)
-			if err := omitGeminiDeprecatedSampling(body); err != nil {
-				t.Fatal(err)
-			}
-			want := prefix + strings.Repeat(" ", len(member)) + test.remainder
-			if string(body) != want {
-				t.Fatalf("adapted body changed non-temperature bytes:\n got: %q\nwant: %q", body, want)
-			}
-			if len(body) != originalLength {
-				t.Fatalf("adapted length = %d, want %d", len(body), originalLength)
-			}
-			var decoded map[string]any
-			if err := json.Unmarshal(body, &decoded); err != nil {
-				t.Fatalf("adapted body is invalid JSON: %v", err)
-			}
-			configuration := decoded["generationConfig"].(map[string]any)
-			if _, exists := configuration["temperature"]; exists {
-				t.Fatalf("temperature remains in %#v", configuration)
-			}
-		})
-	}
-}
-
-func TestGeminiDefaultSamplingTransportPreservesRequestLengthAndReplay(t *testing.T) {
-	body := `{"contents":[],"generationConfig":{"temperature":0.2,"mediaResolution":"MEDIA_RESOLUTION_HIGH"}}`
-	want := `{"contents":[],"generationConfig":{                  "mediaResolution":"MEDIA_RESOLUTION_HIGH"}}`
-	request := geminiRequest(t, strings.NewReader(body), int64(len(body)))
-	originalGetBody := request.GetBody
-	getBodyCalls := 0
-	request.GetBody = func() (io.ReadCloser, error) {
-		getBodyCalls++
-		return originalGetBody()
-	}
-
-	transport := geminiDefaultSamplingTransport{
-		maxRequestBytes: int64(len(body)),
-		next: roundTripperFunc(func(adapted *http.Request) (*http.Response, error) {
-			if adapted == request {
-				t.Fatal("RoundTrip mutated and forwarded the caller's request")
-			}
-			if adapted.ContentLength != request.ContentLength || adapted.ContentLength != int64(len(want)) {
-				t.Fatalf("ContentLength = %d, want %d", adapted.ContentLength, len(want))
-			}
-			first, err := io.ReadAll(adapted.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := adapted.Body.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if string(first) != want {
-				t.Fatalf("first body = %q, want %q", first, want)
-			}
-			for retry := 0; retry < 2; retry++ {
-				replay, err := adapted.GetBody()
-				if err != nil {
-					t.Fatal(err)
-				}
-				replayed, err := io.ReadAll(replay)
-				if err != nil {
-					t.Fatal(err)
-				}
-				_ = replay.Close()
-				if string(replayed) != want {
-					t.Fatalf("retry %d body = %q, want %q", retry+1, replayed, want)
-				}
-			}
-			return successfulGeminiHTTPResponse(adapted), nil
-		}),
-	}
-	response, err := transport.RoundTrip(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-	if getBodyCalls != 2 {
-		t.Fatalf("original GetBody calls = %d, want 2", getBodyCalls)
-	}
-}
-
-func TestGeminiDefaultSamplingTransportPreservesNilGetBody(t *testing.T) {
-	body := `{"contents":[],"generationConfig":{"temperature":0}}`
-	request := geminiRequest(t, strings.NewReader(body), int64(len(body)))
-	request.GetBody = nil
-	transport := geminiDefaultSamplingTransport{
-		maxRequestBytes: int64(len(body)),
-		next: roundTripperFunc(func(adapted *http.Request) (*http.Response, error) {
-			if adapted.GetBody != nil {
-				t.Fatal("nil GetBody became replayable")
-			}
-			if _, err := io.Copy(io.Discard, adapted.Body); err != nil {
-				t.Fatal(err)
-			}
-			_ = adapted.Body.Close()
-			return successfulGeminiHTTPResponse(adapted), nil
-		}),
-	}
-	response, err := transport.RoundTrip(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-}
-
-func TestGeminiDefaultSamplingTransportStreamsLargeBodyWithSmallTail(t *testing.T) {
-	const payloadBytes int64 = 16 << 20
-	prefix := `{"contents":[{"parts":[{"text":"`
-	suffix := `"}]}],"generationConfig":{"temperature":0.2,"mediaResolution":"MEDIA_RESOLUTION_MEDIUM"}}`
-	wantSuffix := `"}]}],"generationConfig":{                  "mediaResolution":"MEDIA_RESOLUTION_MEDIUM"}}`
-	length := int64(len(prefix)+len(suffix)) + payloadBytes
-	source := &trackingReadCloser{reader: io.MultiReader(
-		strings.NewReader(prefix),
-		&repeatedByteReader{remaining: payloadBytes, value: 'a'},
-		strings.NewReader(suffix),
-	)}
-	request := geminiRequest(t, source, length)
-	request.GetBody = nil
-
-	wantDigest := sha256.New()
-	_, _ = io.WriteString(wantDigest, prefix)
-	_, _ = io.Copy(wantDigest, &repeatedByteReader{remaining: payloadBytes, value: 'a'})
-	_, _ = io.WriteString(wantDigest, wantSuffix)
-	transport := geminiDefaultSamplingTransport{
-		maxRequestBytes: length,
-		next: roundTripperFunc(func(adapted *http.Request) (*http.Response, error) {
-			if source.bytesRead != 0 {
-				t.Fatalf("adapter consumed %d source bytes before invoking next transport", source.bytesRead)
-			}
-			stream, ok := adapted.Body.(*geminiSamplingBody)
-			if !ok {
-				t.Fatalf("adapted body type = %T", adapted.Body)
-			}
-			if len(stream.buffer) != maxGeminiSamplingTailBytes+geminiStreamReadBytes {
-				t.Fatalf("stream buffer = %d bytes", len(stream.buffer))
-			}
-			gotDigest := sha256.New()
-			written, err := io.Copy(gotDigest, adapted.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_ = adapted.Body.Close()
-			if written != length {
-				t.Fatalf("streamed bytes = %d, want %d", written, length)
-			}
-			if !bytes.Equal(gotDigest.Sum(nil), wantDigest.Sum(nil)) {
-				t.Fatal("large streamed body changed outside the temperature member")
-			}
-			return successfulGeminiHTTPResponse(adapted), nil
-		}),
-	}
-	response, err := transport.RoundTrip(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-	if source.bytesRead != length || !source.closed {
-		t.Fatalf("source read/closed = %d/%v, want %d/true", source.bytesRead, source.closed, length)
-	}
-}
-
-func TestGeminiDefaultSamplingTransportRejectsInvalidEnvelopeBeforeNextTransport(t *testing.T) {
-	tests := []struct {
-		name          string
-		contentLength int64
-		limit         int64
-		contentType   string
-		wantErr       error
-	}{
-		{name: "unknown length", contentLength: -1, limit: 100, contentType: "application/json", wantErr: errGeminiRequestLength},
-		{name: "empty length", contentLength: 0, limit: 100, contentType: "application/json", wantErr: errGeminiRequestLength},
-		{name: "oversize", contentLength: 101, limit: 100, contentType: "application/json", wantErr: errGeminiRequestTooLarge},
-		{name: "wrong content type", contentLength: 10, limit: 100, contentType: "text/plain", wantErr: errGeminiRequestMalformed},
-		{name: "invalid bound", contentLength: 10, limit: 0, contentType: "application/json", wantErr: errGeminiRequestMalformed},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			source := &trackingReadCloser{reader: strings.NewReader("not inspected")}
-			request := geminiRequest(t, source, test.contentLength)
-			request.Header.Set("Content-Type", test.contentType)
-			nextCalls := 0
-			transport := geminiDefaultSamplingTransport{
-				maxRequestBytes: test.limit,
-				next: roundTripperFunc(func(*http.Request) (*http.Response, error) {
-					nextCalls++
-					return nil, errors.New("unexpected network call")
-				}),
-			}
-			_, err := transport.RoundTrip(request)
-			if !errors.Is(err, test.wantErr) {
-				t.Fatalf("RoundTrip() error = %v, want %v", err, test.wantErr)
-			}
-			if nextCalls != 0 || source.bytesRead != 0 || !source.closed {
-				t.Fatalf("next/read/closed = %d/%d/%v", nextCalls, source.bytesRead, source.closed)
-			}
-		})
-	}
-}
-
-func TestGeminiDefaultSamplingTransportFailsClosedOnUntrustedTail(t *testing.T) {
-	const secret = "workspace-secret-must-not-leak"
-	tests := []struct {
-		name    string
-		body    string
-		wantErr error
-	}{
-		{name: "malformed JSON suffix", body: `{"contents":["` + secret + `"],"generationConfig":{"temperature":oops}}`, wantErr: errGeminiRequestMalformed},
-		{name: "missing generation config", body: `{"contents":["` + secret + `"]}`, wantErr: errGeminiRequestMalformed},
-		{name: "unknown generation field", body: `{"contents":["` + secret + `"],"generationConfig":{"temperature":0,"candidateCount":2}}`, wantErr: errGeminiRequestMalformed},
-		{name: "unknown media resolution", body: `{"contents":["` + secret + `"],"generationConfig":{"temperature":0,"mediaResolution":"UNREGISTERED"}}`, wantErr: errGeminiRequestMalformed},
-		{name: "generation config is not trailing", body: `{"contents":["` + secret + `"],"generationConfig":{"temperature":0},"extra":true}`, wantErr: errGeminiRequestMalformed},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			request := geminiRequest(t, strings.NewReader(test.body), int64(len(test.body)))
-			nextCalls := 0
-			transport := geminiDefaultSamplingTransport{
-				maxRequestBytes: int64(len(test.body)),
-				next: roundTripperFunc(func(adapted *http.Request) (*http.Response, error) {
-					nextCalls++
-					_, readErr := io.Copy(io.Discard, adapted.Body)
-					_ = adapted.Body.Close()
-					return nil, readErr
-				}),
-			}
-			_, err := transport.RoundTrip(request)
-			if !errors.Is(err, test.wantErr) {
-				t.Fatalf("RoundTrip() error = %v, want %v", err, test.wantErr)
-			}
-			if err == nil || strings.Contains(err.Error(), secret) {
-				t.Fatalf("RoundTrip() leaked request data: %v", err)
-			}
-			if nextCalls != 1 {
-				t.Fatalf("next transport calls = %d, want streaming call", nextCalls)
-			}
-		})
-	}
-}
-
-func TestGeminiDefaultSamplingBodyRedactsReadLengthCloseAndReplayFailures(t *testing.T) {
-	const secret = "provider-body-secret"
-	validBody := `{"contents":[],"generationConfig":{"temperature":0}}`
-	t.Run("read", func(t *testing.T) {
-		source := &failingReadCloser{err: errors.New(secret)}
-		body := newGeminiSamplingBody(source, int64(len(validBody)), int64(len(validBody)))
-		_, err := io.Copy(io.Discard, body)
-		if !errors.Is(err, errGeminiRequestRead) || strings.Contains(err.Error(), secret) {
-			t.Fatalf("read error = %v", err)
-		}
-	})
-	t.Run("short length", func(t *testing.T) {
-		body := newGeminiSamplingBody(io.NopCloser(strings.NewReader(validBody)), int64(len(validBody)+1), int64(len(validBody)+1))
-		_, err := io.Copy(io.Discard, body)
-		if !errors.Is(err, errGeminiRequestLength) {
-			t.Fatalf("short error = %v", err)
-		}
-	})
-	t.Run("long length", func(t *testing.T) {
-		body := newGeminiSamplingBody(io.NopCloser(strings.NewReader(validBody+"x")), int64(len(validBody)), int64(len(validBody)+1))
-		_, err := io.Copy(io.Discard, body)
-		if !errors.Is(err, errGeminiRequestLength) {
-			t.Fatalf("long error = %v", err)
-		}
-	})
-	t.Run("close", func(t *testing.T) {
-		body := newGeminiSamplingBody(&failingReadCloser{reader: strings.NewReader(validBody), closeErr: errors.New(secret)}, int64(len(validBody)), int64(len(validBody)))
-		if err := body.Close(); !errors.Is(err, errGeminiRequestRead) || strings.Contains(err.Error(), secret) {
-			t.Fatalf("close error = %v", err)
-		}
-	})
-	t.Run("replay", func(t *testing.T) {
-		request := geminiRequest(t, strings.NewReader(validBody), int64(len(validBody)))
-		request.GetBody = func() (io.ReadCloser, error) { return nil, errors.New(secret) }
-		transport := geminiDefaultSamplingTransport{
-			maxRequestBytes: int64(len(validBody)),
-			next: roundTripperFunc(func(adapted *http.Request) (*http.Response, error) {
-				_, err := adapted.GetBody()
-				_ = adapted.Body.Close()
-				return nil, err
-			}),
-		}
-		_, err := transport.RoundTrip(request)
-		if !errors.Is(err, errGeminiRequestReplay) || strings.Contains(err.Error(), secret) {
-			t.Fatalf("replay error = %v", err)
-		}
-	})
 }
 
 func testGeminiDescriptor(model, endpoint string) Provider {
@@ -520,54 +196,27 @@ func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, erro
 	return f(request)
 }
 
-type trackingReadCloser struct {
-	reader    io.Reader
-	bytesRead int64
-	closed    bool
-}
-
-func (r *trackingReadCloser) Read(destination []byte) (int, error) {
-	n, err := r.reader.Read(destination)
-	r.bytesRead += int64(n)
-	return n, err
-}
-
-func (r *trackingReadCloser) Close() error {
-	r.closed = true
-	return nil
-}
-
-type failingReadCloser struct {
-	reader   io.Reader
-	err      error
-	closeErr error
-}
-
-func (r *failingReadCloser) Read(destination []byte) (int, error) {
-	if r.err != nil {
-		return 0, r.err
+func TestGeminiThinkingPolicyIsServerOwned(t *testing.T) {
+	model := "gemini-3.5-flash"
+	descriptor := testGeminiDescriptor(model, "https://example.test/v1beta")
+	descriptor.thinkingLevels = map[string]string{model: "minimal"}
+	descriptor.vendorHTTPClient = &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		cfg := payload["generationConfig"].(map[string]any)
+		if cfg["thinkingConfig"].(map[string]any)["thinkingLevel"] != "minimal" || cfg["maxOutputTokens"] != float64(1024) {
+			t.Fatalf("config=%#v", cfg)
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"café"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":3,"thoughtsTokenCount":12}}`)), Header: make(http.Header)}, nil
+	})}
+	c, err := descriptor.NewClient(model)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return r.reader.Read(destination)
-}
-
-func (r *failingReadCloser) Close() error { return r.closeErr }
-
-type repeatedByteReader struct {
-	remaining int64
-	value     byte
-}
-
-func (r *repeatedByteReader) Read(destination []byte) (int, error) {
-	if r.remaining == 0 {
-		return 0, io.EOF
+	result, err := c.Extract(WithCredential(context.Background(), "gemini", providerAPIKeyField, "key"), providers.Request{Model: model, Prompt: "transcribe", Image: providers.Image{Data: []byte("image"), MediaType: "image/png"}})
+	if err != nil || result.Usage.ThoughtTokens != 12 {
+		t.Fatalf("result=%#v error=%v", result, err)
 	}
-	n := len(destination)
-	if int64(n) > r.remaining {
-		n = int(r.remaining)
-	}
-	for index := 0; index < n; index++ {
-		destination[index] = r.value
-	}
-	r.remaining -= int64(n)
-	return n, nil
 }

@@ -23,6 +23,9 @@ const (
 )
 
 type ProviderCallAudit struct {
+	InputTokens   uint64    `json:"input_tokens"`
+	OutputTokens  uint64    `json:"output_tokens"`
+	ThoughtTokens uint64    `json:"thought_tokens"`
 	ID            uint64    `json:"id"`
 	WorkspaceID   uint64    `json:"workspace_id"`
 	SessionID     string    `json:"session_id,omitempty"`
@@ -105,15 +108,16 @@ func (s *ProviderCallAuditStore) Create(ctx context.Context, audit ProviderCallA
 		return fmt.Errorf("insert provider call audit: workspace ID is out of range")
 	}
 	result, err := queries.InsertProviderCallAudit(ctx, db.InsertProviderCallAuditParams{
-		AuditWorkspaceID:   int64(normalized.WorkspaceID), // #nosec G115 -- checked immediately below.
-		AuditSessionID:     nullString(normalized.SessionID),
-		AuditItemImageID:   uint64ToNullInt64(normalized.ItemImageID),
-		AuditContextID:     uint64ToNullInt64(normalized.ContextID),
-		AuditProvider:      normalized.Provider,
-		AuditModel:         normalized.Model,
-		AuditOperation:     normalized.Operation,
-		AuditErrorMessage:  nullString(normalized.ErrorMessage),
-		AuditHttpStatus:    providerAuditHTTPStatus(normalized.HTTPStatus),
+		AuditWorkspaceID:  int64(normalized.WorkspaceID), // #nosec G115 -- checked immediately below.
+		AuditSessionID:    nullString(normalized.SessionID),
+		AuditItemImageID:  uint64ToNullInt64(normalized.ItemImageID),
+		AuditContextID:    uint64ToNullInt64(normalized.ContextID),
+		AuditProvider:     normalized.Provider,
+		AuditModel:        normalized.Model,
+		AuditOperation:    normalized.Operation,
+		AuditErrorMessage: nullString(normalized.ErrorMessage),
+		AuditHttpStatus:   providerAuditHTTPStatus(normalized.HTTPStatus),
+		AuditInputTokens:  normalized.InputTokens, AuditOutputTokens: normalized.OutputTokens, AuditThoughtTokens: normalized.ThoughtTokens,
 		AuditDurationMs:    uint64(normalized.DurationMS), // #nosec G115 -- normalizeProviderCallAudit rejects negative durations.
 		AuditDatabaseBytes: normalized.DatabaseBytes,
 	})
@@ -156,6 +160,7 @@ func (s *ProviderCallAuditStore) ListByItem(ctx context.Context, workspaceID uin
 	for _, row := range rows {
 		audit := ItemProviderCallAudit{
 			ProviderCallAudit: ProviderCallAudit{
+				InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, ThoughtTokens: row.ThoughtTokens,
 				ID: row.ID, WorkspaceID: row.WorkspaceID, SessionID: row.SessionID,
 				Provider: row.Provider, Model: row.Model, Operation: row.Operation,
 				ErrorMessage: row.ErrorMessage, DurationMS: providerAuditDuration(row.DurationMs), CreatedAt: row.CreatedAt,

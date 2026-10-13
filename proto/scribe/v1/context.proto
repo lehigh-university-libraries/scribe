@@ -241,6 +241,10 @@ message ContextMetrics {
   uint64 total_runs = 2;
   uint64 corrected_runs = 3;
   double avg_levenshtein_distance = 4;
+  uint64 input_tokens = 5;
+  uint64 output_tokens = 6;
+  uint64 thought_tokens = 7;
+  uint64 billed_output_tokens = 8;
 }
 
 message GetContextMetricsRequest {

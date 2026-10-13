@@ -902,6 +902,7 @@ func (h *Handler) ListItemProviderCallAudits(ctx context.Context, req *connect.R
 	response := &scribev1.ListItemProviderCallAuditsResponse{Audits: make([]*scribev1.ProviderCallAudit, 0, len(audits))}
 	for _, audit := range audits {
 		entry := &scribev1.ProviderCallAudit{
+			InputTokens: audit.InputTokens, OutputTokens: audit.OutputTokens, ThoughtTokens: audit.ThoughtTokens, BilledOutputTokens: audit.OutputTokens + audit.ThoughtTokens,
 			Id:                audit.ID,
 			ItemId:            audit.ItemID,
 			ItemImageSequence: audit.ItemImageSequence,

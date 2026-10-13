@@ -37,13 +37,16 @@ func newGeminiClient(descriptor Provider, model string) (providers.Client, error
 		return nil, err
 	}
 	client, err := gemini.NewClient(gemini.Options{
-		HTTPClient:              geminiModelHTTPClient(descriptor.vendorHTTPClient, model),
+		HTTPClient:              descriptor.vendorHTTPClient,
 		Endpoint:                endpoint.URL,
 		APIKey:                  providerCredentialSource(descriptor),
 		Timeout:                 descriptor.Limits.Timeout,
 		MaxImageBytes:           uploadlimits.MaxImageBytes,
 		MaxResponseBytes:        descriptor.Limits.MaxResponseBytes,
-		MediaResolutionFallback: true,
+		MediaResolutionFallback: false,
+		ThinkingLevel:           descriptor.thinkingLevels[model],
+		MaxOutputTokens:         1024,
+		OmitTemperature:         geminiModelUsesDefaultSampling(model),
 	})
 	return bindRegisteredModel(client, model, err)
 }

@@ -125,6 +125,7 @@ type Provider struct {
 	resolveEndpoint    func(string) EndpointPolicy
 	credentialFallback func(string) string
 	vendorHTTPClient   *http.Client
+	thinkingLevels     map[string]string
 }
 
 type registryOptions struct {
@@ -287,6 +288,12 @@ func New(cfg config.Config, configure ...Option) Registry {
 	for _, descriptor := range providerDescriptors {
 		if descriptor.ID == defaultProviderID {
 			descriptor.Limits.Retry = RetryPolicy{MaxAttempts: 6, BaseDelay: time.Second, MaxDelay: 30 * time.Second}
+		}
+		if descriptor.ID == "gemini" {
+			descriptor.thinkingLevels = make(map[string]string, len(cfg.LLM.Gemini.ThinkingLevels))
+			for model, level := range cfg.LLM.Gemini.ThinkingLevels {
+				descriptor.thinkingLevels[model] = level
+			}
 		}
 		if descriptor.Endpoint.Mode == EndpointVendor {
 			descriptor.vendorHTTPClient = options.vendorHTTPClient

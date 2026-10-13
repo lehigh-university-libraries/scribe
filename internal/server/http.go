@@ -280,6 +280,7 @@ func NewHandler(
 func providerCallAuditLogger(audits *store.ProviderCallAuditStore) hocr.ProviderCallAuditLogger {
 	return func(ctx context.Context, record hocr.ProviderCallAuditRecord) {
 		if err := audits.Create(ctx, store.ProviderCallAudit{
+			InputTokens: record.InputTokens, OutputTokens: record.OutputTokens, ThoughtTokens: record.ThoughtTokens,
 			WorkspaceID:  record.WorkspaceID,
 			SessionID:    record.SessionID,
 			ItemImageID:  record.ItemImageID,

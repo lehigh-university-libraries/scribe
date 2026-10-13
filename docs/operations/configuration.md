@@ -338,3 +338,18 @@ model registry. The OCR matrix passes that digest into the image build, and the
 installer verifies the downloaded model before copying it into the runtime
 image. The Vault image similarly pins the official HashiCorp image digest;
 version bumps must update the version and digest together.
+
+## Gemini line spend
+
+Server-owned `llm.gemini.thinking_levels` selects `low` for Pro and
+`minimal` for Flash. Model keys must be registered and levels must be one of
+`minimal|low|medium|high`. Workspace contexts cannot override this policy.
+Each line has a 1,024-token combined thinking/response ceiling and no media
+resolution fallback. A truncated line uses the existing partial failure path.
+Provider audits and context metrics expose candidate and thought tokens
+separately; billed output is their sum, including failed calls with usage.
+
+Before comparing spend, import the same two public pages with the same model
+and context, retain their audit totals, and compare the new calls' input and
+billed output totals. This requires a configured workspace credential and
+access to the original pages. Lines remain independent checkpoints.

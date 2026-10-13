@@ -814,6 +814,9 @@ type ProviderCallAudit struct {
 	DurationMs     uint64         `json:"duration_ms"`
 	DatabaseBytes  uint64         `json:"database_bytes"`
 	CreatedAt      time.Time      `json:"created_at"`
+	InputTokens    uint64         `json:"input_tokens"`
+	OutputTokens   uint64         `json:"output_tokens"`
+	ThoughtTokens  uint64         `json:"thought_tokens"`
 }
 
 type ProviderSecret struct {

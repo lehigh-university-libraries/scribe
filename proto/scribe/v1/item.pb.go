@@ -1927,23 +1927,27 @@ func (*DeleteItemResponse) Descriptor() ([]byte, []int) {
 }
 
 type ProviderCallAudit struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Id                uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	ItemId            string                 `protobuf:"bytes,2,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
-	ItemImageId       *uint64                `protobuf:"varint,3,opt,name=item_image_id,json=itemImageId,proto3,oneof" json:"item_image_id,omitempty"`
-	ItemImageSequence uint32                 `protobuf:"varint,4,opt,name=item_image_sequence,json=itemImageSequence,proto3" json:"item_image_sequence,omitempty"`
-	ItemImageLabel    string                 `protobuf:"bytes,5,opt,name=item_image_label,json=itemImageLabel,proto3" json:"item_image_label,omitempty"`
-	SessionId         string                 `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	ContextId         *uint64                `protobuf:"varint,7,opt,name=context_id,json=contextId,proto3,oneof" json:"context_id,omitempty"`
-	Provider          string                 `protobuf:"bytes,8,opt,name=provider,proto3" json:"provider,omitempty"`
-	Model             string                 `protobuf:"bytes,9,opt,name=model,proto3" json:"model,omitempty"`
-	Operation         string                 `protobuf:"bytes,10,opt,name=operation,proto3" json:"operation,omitempty"`
-	ErrorMessage      string                 `protobuf:"bytes,14,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	HttpStatus        *int32                 `protobuf:"varint,15,opt,name=http_status,json=httpStatus,proto3,oneof" json:"http_status,omitempty"`
-	DurationMs        int64                  `protobuf:"varint,16,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
-	CreatedAt         string                 `protobuf:"bytes,17,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Id                 uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	ItemId             string                 `protobuf:"bytes,2,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	ItemImageId        *uint64                `protobuf:"varint,3,opt,name=item_image_id,json=itemImageId,proto3,oneof" json:"item_image_id,omitempty"`
+	ItemImageSequence  uint32                 `protobuf:"varint,4,opt,name=item_image_sequence,json=itemImageSequence,proto3" json:"item_image_sequence,omitempty"`
+	ItemImageLabel     string                 `protobuf:"bytes,5,opt,name=item_image_label,json=itemImageLabel,proto3" json:"item_image_label,omitempty"`
+	SessionId          string                 `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ContextId          *uint64                `protobuf:"varint,7,opt,name=context_id,json=contextId,proto3,oneof" json:"context_id,omitempty"`
+	Provider           string                 `protobuf:"bytes,8,opt,name=provider,proto3" json:"provider,omitempty"`
+	Model              string                 `protobuf:"bytes,9,opt,name=model,proto3" json:"model,omitempty"`
+	Operation          string                 `protobuf:"bytes,10,opt,name=operation,proto3" json:"operation,omitempty"`
+	ErrorMessage       string                 `protobuf:"bytes,14,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	HttpStatus         *int32                 `protobuf:"varint,15,opt,name=http_status,json=httpStatus,proto3,oneof" json:"http_status,omitempty"`
+	DurationMs         int64                  `protobuf:"varint,16,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	CreatedAt          string                 `protobuf:"bytes,17,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	InputTokens        uint64                 `protobuf:"varint,18,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	OutputTokens       uint64                 `protobuf:"varint,19,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	ThoughtTokens      uint64                 `protobuf:"varint,20,opt,name=thought_tokens,json=thoughtTokens,proto3" json:"thought_tokens,omitempty"`
+	BilledOutputTokens uint64                 `protobuf:"varint,21,opt,name=billed_output_tokens,json=billedOutputTokens,proto3" json:"billed_output_tokens,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ProviderCallAudit) Reset() {
@@ -2072,6 +2076,34 @@ func (x *ProviderCallAudit) GetCreatedAt() string {
 		return x.CreatedAt
 	}
 	return ""
+}
+
+func (x *ProviderCallAudit) GetInputTokens() uint64 {
+	if x != nil {
+		return x.InputTokens
+	}
+	return 0
+}
+
+func (x *ProviderCallAudit) GetOutputTokens() uint64 {
+	if x != nil {
+		return x.OutputTokens
+	}
+	return 0
+}
+
+func (x *ProviderCallAudit) GetThoughtTokens() uint64 {
+	if x != nil {
+		return x.ThoughtTokens
+	}
+	return 0
+}
+
+func (x *ProviderCallAudit) GetBilledOutputTokens() uint64 {
+	if x != nil {
+		return x.BilledOutputTokens
+	}
+	return 0
 }
 
 type ListItemProviderCallAuditsRequest struct {
@@ -2326,7 +2358,7 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\x05batch\x18\x04 \x01(\v2\x16.scribe.v1.UploadBatchR\x05batch\">\n" +
 	"\x11DeleteItemRequest\x12)\n" +
 	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\"\x14\n" +
-	"\x12DeleteItemResponse\"\xa0\x04\n" +
+	"\x12DeleteItemResponse\"\xc1\x05\n" +
 	"\x11ProviderCallAudit\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\aitem_id\x18\x02 \x01(\tR\x06itemId\x12'\n" +
@@ -2347,7 +2379,11 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\vduration_ms\x18\x10 \x01(\x03R\n" +
 	"durationMs\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x11 \x01(\tR\tcreatedAtB\x10\n" +
+	"created_at\x18\x11 \x01(\tR\tcreatedAt\x12!\n" +
+	"\finput_tokens\x18\x12 \x01(\x04R\vinputTokens\x12#\n" +
+	"\routput_tokens\x18\x13 \x01(\x04R\foutputTokens\x12%\n" +
+	"\x0ethought_tokens\x18\x14 \x01(\x04R\rthoughtTokens\x120\n" +
+	"\x14billed_output_tokens\x18\x15 \x01(\x04R\x12billedOutputTokensB\x10\n" +
 	"\x0e_item_image_idB\r\n" +
 	"\v_context_idB\x0e\n" +
 	"\f_http_statusJ\x04\b\v\x10\fJ\x04\b\f\x10\rJ\x04\b\r\x10\x0e\"n\n" +

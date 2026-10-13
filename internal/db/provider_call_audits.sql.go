@@ -29,6 +29,32 @@ func (q *Queries) DeleteExpiredProviderAuditBatch(ctx context.Context, arg Delet
 	return q.db.ExecContext(ctx, deleteExpiredProviderAuditBatch, arg.WorkspaceID, arg.Cutoff, arg.Limit)
 }
 
+const getContextProviderUsage = `-- name: GetContextProviderUsage :one
+SELECT CAST(COALESCE(SUM(input_tokens),0) AS UNSIGNED) AS input_tokens,
+ CAST(COALESCE(SUM(output_tokens),0) AS UNSIGNED) AS output_tokens,
+ CAST(COALESCE(SUM(thought_tokens),0) AS UNSIGNED) AS thought_tokens
+FROM provider_call_audits
+WHERE workspace_id = ? AND context_id = ?
+`
+
+type GetContextProviderUsageParams struct {
+	WorkspaceID uint64        `json:"workspace_id"`
+	ContextID   sql.NullInt64 `json:"context_id"`
+}
+
+type GetContextProviderUsageRow struct {
+	InputTokens   int64 `json:"input_tokens"`
+	OutputTokens  int64 `json:"output_tokens"`
+	ThoughtTokens int64 `json:"thought_tokens"`
+}
+
+func (q *Queries) GetContextProviderUsage(ctx context.Context, arg GetContextProviderUsageParams) (GetContextProviderUsageRow, error) {
+	row := q.db.QueryRowContext(ctx, getContextProviderUsage, arg.WorkspaceID, arg.ContextID)
+	var i GetContextProviderUsageRow
+	err := row.Scan(&i.InputTokens, &i.OutputTokens, &i.ThoughtTokens)
+	return i, err
+}
+
 const insertProviderCallAudit = `-- name: InsertProviderCallAudit :execresult
 INSERT INTO provider_call_audits (
   workspace_id,
@@ -41,6 +67,9 @@ INSERT INTO provider_call_audits (
   operation,
   error_message,
   http_status,
+  input_tokens,
+  output_tokens,
+  thought_tokens,
   duration_ms,
   database_bytes
 ) SELECT
@@ -49,6 +78,9 @@ INSERT INTO provider_call_audits (
   ?,
   ?,
   c.scope_id,
+  ?,
+  ?,
+  ?,
   ?,
   ?,
   ?,
@@ -82,6 +114,9 @@ type InsertProviderCallAuditParams struct {
 	AuditOperation     string         `json:"audit_operation"`
 	AuditErrorMessage  sql.NullString `json:"audit_error_message"`
 	AuditHttpStatus    sql.NullInt32  `json:"audit_http_status"`
+	AuditInputTokens   uint64         `json:"audit_input_tokens"`
+	AuditOutputTokens  uint64         `json:"audit_output_tokens"`
+	AuditThoughtTokens uint64         `json:"audit_thought_tokens"`
 	AuditDurationMs    uint64         `json:"audit_duration_ms"`
 	AuditDatabaseBytes uint64         `json:"audit_database_bytes"`
 }
@@ -97,6 +132,9 @@ func (q *Queries) InsertProviderCallAudit(ctx context.Context, arg InsertProvide
 		arg.AuditOperation,
 		arg.AuditErrorMessage,
 		arg.AuditHttpStatus,
+		arg.AuditInputTokens,
+		arg.AuditOutputTokens,
+		arg.AuditThoughtTokens,
 		arg.AuditDurationMs,
 		arg.AuditDatabaseBytes,
 		arg.AuditContextID,
@@ -157,6 +195,9 @@ SELECT
   a.operation,
   COALESCE(a.error_message, '') AS error_message,
   a.http_status,
+  a.input_tokens,
+  a.output_tokens,
+  a.thought_tokens,
   a.duration_ms,
   a.created_at,
   i.id AS item_id,
@@ -189,6 +230,9 @@ type ListProviderCallAuditsByItemRow struct {
 	Operation         string        `json:"operation"`
 	ErrorMessage      string        `json:"error_message"`
 	HttpStatus        sql.NullInt32 `json:"http_status"`
+	InputTokens       uint64        `json:"input_tokens"`
+	OutputTokens      uint64        `json:"output_tokens"`
+	ThoughtTokens     uint64        `json:"thought_tokens"`
 	DurationMs        uint64        `json:"duration_ms"`
 	CreatedAt         time.Time     `json:"created_at"`
 	ItemID            string        `json:"item_id"`
@@ -221,6 +265,9 @@ func (q *Queries) ListProviderCallAuditsByItem(ctx context.Context, arg ListProv
 			&i.Operation,
 			&i.ErrorMessage,
 			&i.HttpStatus,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.ThoughtTokens,
 			&i.DurationMs,
 			&i.CreatedAt,
 			&i.ItemID,

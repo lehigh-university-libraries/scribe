@@ -10,6 +10,9 @@ INSERT INTO provider_call_audits (
   operation,
   error_message,
   http_status,
+  input_tokens,
+  output_tokens,
+  thought_tokens,
   duration_ms,
   database_bytes
 ) SELECT
@@ -23,6 +26,9 @@ INSERT INTO provider_call_audits (
   sqlc.arg(audit_operation),
   sqlc.narg(audit_error_message),
   sqlc.narg(audit_http_status),
+  sqlc.arg(audit_input_tokens),
+  sqlc.arg(audit_output_tokens),
+  sqlc.arg(audit_thought_tokens),
   sqlc.arg(audit_duration_ms),
   sqlc.arg(audit_database_bytes)
 FROM (SELECT 1 AS seed) seed
@@ -52,6 +58,9 @@ SELECT
   a.operation,
   COALESCE(a.error_message, '') AS error_message,
   a.http_status,
+  a.input_tokens,
+  a.output_tokens,
+  a.thought_tokens,
   a.duration_ms,
   a.created_at,
   i.id AS item_id,
@@ -89,3 +98,10 @@ WHERE workspace_id = sqlc.arg(workspace_id)
   AND created_at < sqlc.arg(cutoff)
 ORDER BY id
 LIMIT ?;
+
+-- name: GetContextProviderUsage :one
+SELECT CAST(COALESCE(SUM(input_tokens),0) AS UNSIGNED) AS input_tokens,
+ CAST(COALESCE(SUM(output_tokens),0) AS UNSIGNED) AS output_tokens,
+ CAST(COALESCE(SUM(thought_tokens),0) AS UNSIGNED) AS thought_tokens
+FROM provider_call_audits
+WHERE workspace_id = sqlc.arg(workspace_id) AND context_id = sqlc.arg(context_id);
