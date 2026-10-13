@@ -526,6 +526,7 @@ export function ScribeCompanionWindow({
 
   useEffect(() => {
     if (didInitialSnapRef.current) return;
+    if (overlayMode === 'transcript') { didInitialSnapRef.current = true; return; }
     const anchor = annotations[0];
     if (!anchor) return;
     document.dispatchEvent(new CustomEvent('scribe:snap-to-bbox', {
@@ -536,7 +537,7 @@ export function ScribeCompanionWindow({
       },
     }));
     didInitialSnapRef.current = true;
-  }, [annotations, canvasId, windowId]);
+  }, [annotations, canvasId, overlayMode, windowId]);
 
   useAnnotationCreationBridge({
     canvasId,

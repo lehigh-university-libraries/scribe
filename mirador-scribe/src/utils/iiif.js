@@ -948,3 +948,12 @@ export function createDraftWordAnnotation(canvasId, bbox, pageId = '', text = ''
   const annotation = createDraftLineAnnotation(canvasId, bbox, pageId);
   return updateAnnotationText({ ...annotation, textGranularity: 'word' }, text);
 }
+
+/** Transcript follows the canonical page's reading order, including columns.
+ * @param {IIIFAnnotationPage | null | undefined} page
+ * @returns {EditorRow[]}
+ */
+export function transcriptRowsInPageOrder(page) {
+ const positions = new Map((page?.items || []).map((annotation,index) => [annotation.id,index]));
+ return groupAnnotationsForEditor(page).sort((a,b) => (positions.get(a.lead?.id) ?? Infinity) - (positions.get(b.lead?.id) ?? Infinity));
+}

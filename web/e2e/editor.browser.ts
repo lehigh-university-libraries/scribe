@@ -1020,3 +1020,18 @@ test("structural edit pickers split, join lines, and retain words when forming a
     ]),
   });
 });
+
+test("two-column medieval transcript flows in reading order beside a fitted page", async ({ page }) => {
+  await page.goto('/e2e/harness.html?mode=plugin&transcript=two-column');
+  await waitForHarness(page, 120_000);
+  await page.getByRole('button', {name:'Transcript overlay', exact:true}).click();
+  const pane=page.locator('[data-scribe-transcript-pane]');
+  await expect(pane).toBeVisible();
+  const rows=pane.locator('input[data-scribe-transcript-row]');
+  await expect(rows).toHaveCount(6);
+  expect(await rows.evaluateAll((inputs)=>inputs.map((input)=>(input as HTMLInputElement).value))).toEqual(['left-top','left-second','left-third','right-top','right-second','right-third']);
+  const boxes=await rows.evaluateAll((inputs)=>inputs.map((input)=>{const r=input.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height};}));
+  for(let i=1;i<boxes.length;i++){expect(boxes[i].top).toBeGreaterThanOrEqual(boxes[i-1].bottom);}
+  expect(boxes.every((box)=>box.height>=32)).toBe(true);
+  await page.screenshot({path:'test-results/two-column-medieval-transcript.png',fullPage:true});
+});

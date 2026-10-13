@@ -107,18 +107,14 @@ selected line. A "Move" grip drags or Arrow-nudges the whole box (Shift for a
 its owning line and a line to the canonical image (`clampBBoxWithin`), and the
 `scribe:resize-annotation` payload carries `operation: 'move' | 'resize'`.
 
-`transcript` mode reserves the right side of the viewer through OpenSeadragon
-viewport margins and renders one editable row per visible line at the same
-viewer y coordinate and height as its image line, so rows track pan and zoom.
-The row text uses IBM Plex Sans (with Helvetica Neue and sans-serif fallbacks)
-at 15 px at every image zoom level (`TRANSCRIPT_FONT_FAMILY` and
-`TRANSCRIPT_FONT_SIZE_PX`); only the row geometry scales, with a minimum height
-of 18 px. Row edits emit `scribe:inline-change-text` with the row's `annotationId`.
-Rows retain the complete line text even when some words are outside the viewport;
-an edit naming a retired annotation is ignored. Enter
-and the Arrow keys step rows, Ctrl/Cmd+Enter saves, and focusing a row emits
-`scribe:focus-annotation` with `ensureVisible` so the viewport only pans when
-the line is out of view.
+`transcript` mode reserves roughly 45% of the viewer on the right (minimum
+260px where space permits). It shows every line in canonical AnnotationPage
+reading order in a scrollable list with 32px rows and 15px text. Rows never
+follow image y coordinates. Selecting a row highlights and reveals its image
+line without zooming; selecting an image line scrolls and focuses its row.
+Entering the mode, loading a Canvas, and resizing fit the full page with
+OpenSeadragon's right viewport margin. User pan/zoom keeps the text layout
+stable.
 
 Deletion resolves one target: the focused word if any, otherwise the selected
 annotation. The button label names it ("Delete word", "Delete line") and plain

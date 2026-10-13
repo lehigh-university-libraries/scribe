@@ -64,7 +64,7 @@ in the order a person meets them.
 | Finding | Decision |
 | --- | --- |
 | One button cycled through four modes and showed only the current one, so reaching a specific mode took up to three clicks and gave no overview. | An exclusive mode switch ("Off", "Edit", "Read", "Outline", "Transcript") with `aria-pressed`, tooltips describing each mode, and single-key shortcuts (Esc, E, R, T). |
-| There was no way to read the transcription as text while seeing the image, short of the small inline editor for one line. | New "Transcript" mode: the image keeps the left of the viewer and a pane on the right lists one editable row per visible line, positioned at the same viewer y coordinate and height as its image line, so rows track pan and zoom. The text keeps one typeface and size at every zoom; only the row geometry scales. The pane reserves its width through OpenSeadragon viewport margins, so coordinate conversion stays exact. Focusing a row selects the line and pans (never re-zooms) only when the line is out of view. |
+| There was no way to read the transcription as text while seeing the image, short of the small inline editor for one line. | New "Transcript" mode: the image keeps the left of the viewer and a pane on the right lists one editable row per line, in canonical reading order in a scrollable flowing list. Rows have a fixed minimum height and 15px type at every zoom. The pane reserves its width through OpenSeadragon viewport margins, so coordinate conversion stays exact. Focusing a row selects the line and pans (never re-zooms) only when the line is out of view. |
 
 ### Metrics
 
@@ -97,7 +97,7 @@ that never silently truncate long-line edits.
 
 - `mirador-scribe`: Vitest covers the geometry clamps, the metrics diff, the
   gesture guard, keyboard routing, hit-target clicks versus drags, word move and
-  resize clamping, the transcript pane alignment and margin, delete-target
+  resize clamping, the transcript pane reading order, non-overlapping flow, fit and margin, delete-target
   resolution, the auto read overlay, the reprocess request, and the
   `scribe:edit-metrics` payload after a save.
 - `web`: Vitest covers the header context selector, reprocessing with the

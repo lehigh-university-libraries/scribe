@@ -109,7 +109,7 @@ export const overlayModeOptions = Object.freeze([
   { description: 'Correct the selected line in place, and move or resize its boxes.', label: 'Edit', mode: 'edit', shortcut: 'E' },
   { description: 'Show the transcription on top of the image.', label: 'Read', mode: 'read', shortcut: 'R' },
   { description: 'Show only line boundaries.', label: 'Outline', mode: 'outline' },
-  { description: 'Image on the left, transcript on the right, aligned line by line at the current zoom.', label: 'Transcript', mode: 'transcript', shortcut: 'T' },
+  { description: 'Image on the left, scrollable transcript in reading order on the right.', label: 'Transcript', mode: 'transcript', shortcut: 'T' },
 ]);
 
 /**

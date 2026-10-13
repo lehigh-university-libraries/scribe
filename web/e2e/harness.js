@@ -188,6 +188,15 @@ async function initializePlugin(structural = false) {
     }],
   ]);
   pluginState.get("1001").page.id = "https://scribe.test/presentation/v3/item-image-1001/canvas/page-1/annotations";
+  if (new URLSearchParams(window.location.search).get('transcript') === 'two-column') {
+    pluginState.get("1001").page.items = [
+      ['left-top', 60, 60], ['left-second', 60, 70], ['left-third', 60, 80],
+      ['right-top', 540, 60], ['right-second', 540, 70], ['right-third', 540, 80],
+    ].map(([text,x,y],index) => ({
+      ...annotation(`https://scribe.test/presentation/v3/item-image-1001/canvas/page-1/annotations/items/${String(index+1).padStart(32,'0')}`,text),
+      target: `${canvasA}#xywh=pixel:${x},${y},350,8`,
+    }));
+  }
   const client = {
     async enrichAnnotation(itemImageId, scope, annotationJson, contextId) {
       const submitted = parseIIIFJSON(annotationJson);

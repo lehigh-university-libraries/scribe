@@ -21,6 +21,7 @@ import {
   canvasIdForWindow,
   findEditorRowByAnnotationId,
   groupAnnotationsForEditor,
+  transcriptRowsInPageOrder,
   isLineAnnotation,
   isWordAnnotation,
   lineAnnotationForSelection,
@@ -60,10 +61,9 @@ const HANDLE_SIZE_PX = 32;
 const KEYBOARD_NUDGE_PX = 1;
 const KEYBOARD_NUDGE_LARGE_PX = 10;
 const TRANSCRIPT_PANE_MIN_WIDTH_PX = 260;
-const TRANSCRIPT_PANE_MAX_WIDTH_PX = 440;
-const TRANSCRIPT_PANE_WIDTH_RATIO = 0.38;
-const TRANSCRIPT_ROW_MIN_HEIGHT_PX = 18;
-// Keep transcript text readable while row geometry follows image zoom.
+const TRANSCRIPT_PANE_WIDTH_RATIO = 0.45;
+const TRANSCRIPT_ROW_MIN_HEIGHT_PX = 32;
+// Keep flowing transcript rows readable at every image zoom.
 export const TRANSCRIPT_FONT_FAMILY = '"IBM Plex Sans", "Helvetica Neue", sans-serif';
 export const TRANSCRIPT_FONT_SIZE_PX = 15;
 
@@ -184,8 +184,8 @@ function transcriptionSegmentDisplayDuration(total) {
 export function transcriptPaneWidth(canvasWidth) {
   const width = Number.isFinite(canvasWidth) ? canvasWidth : 0;
   return Math.round(Math.max(
-    TRANSCRIPT_PANE_MIN_WIDTH_PX,
-    Math.min(TRANSCRIPT_PANE_MAX_WIDTH_PX, width * TRANSCRIPT_PANE_WIDTH_RATIO),
+    0,
+    Math.min(Math.max(0, width - 120), Math.max(TRANSCRIPT_PANE_MIN_WIDTH_PX, width * TRANSCRIPT_PANE_WIDTH_RATIO)),
   ));
 }
 
@@ -570,17 +570,28 @@ export function ScribeTextOverlayPlugin({
   const canvasWidth = viewer?.canvas?.clientWidth || 0;
   const paneWidth = transcriptVisible ? transcriptPaneWidth(canvasWidth) : 0;
 
-  // The transcript pane reserves the right side of the viewer. OpenSeadragon
-  // margins keep the image centred in the remaining area while every
-  // coordinate conversion still reports positions in viewer pixels.
+  // Fit the full page into the viewport's inner area when entering transcript
+  // mode, loading a Canvas, or resizing. User pan/zoom does not trigger a fit.
   useEffect(() => {
-    if (!viewer?.viewport?.setMargins) return undefined;
-    if (!transcriptVisible) return undefined;
-    viewer.viewport.setMargins({ right: paneWidth });
+    if (!transcriptVisible || !viewer?.viewport?.setMargins) return undefined;
+    const fit = () => {
+      const width = viewer.canvas?.clientWidth || viewer.element?.clientWidth || 0;
+      viewer.viewport.setMargins({ right: transcriptPaneWidth(width) });
+      const image = viewer.world?.getItemCount() ? viewer.world.getItemAt(0) : null;
+      const bounds = image?.getBounds?.();
+      if (bounds) viewer.viewport.fitBounds(bounds, true);
+      setVersion((value) => value + 1);
+    };
+    fit();
+    viewer.addHandler('open', fit);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null;
+    if (viewer.element || viewer.canvas) observer?.observe(viewer.element || viewer.canvas);
     return () => {
+      observer?.disconnect();
+      viewer.removeHandler('open', fit);
       viewer.viewport?.setMargins?.({});
     };
-  }, [paneWidth, transcriptVisible, viewer]);
+  }, [canvasId, transcriptVisible, viewer]);
 
   useEffect(() => {
     setEditorDock('below');
@@ -721,13 +732,7 @@ export function ScribeTextOverlayPlugin({
 
   const transcriptRows = /** @type {TranscriptRow[]} */ (useMemo(() => {
     if (!transcriptVisible || !viewer) return [];
-    const visibleBounds = visibleImageBounds(viewer);
-    // Group the complete line before culling: editing a row assembled from
-    // only on-screen words would replace the line with truncated text.
-    return groupAnnotationsForEditor(activePage)
-      .filter((row) => [row.lead, ...row.fields].some((annotation) => (
-        annotation && annotationIntersectsImageRect(annotation, visibleBounds)
-      )))
+    return transcriptRowsInPageOrder(activePage)
       .map((row) => {
         const lead = row.lead || row.fields[0];
         const rect = lead ? annotationRect(viewer, lead) : null;
@@ -859,15 +864,18 @@ export function ScribeTextOverlayPlugin({
   // In transcript mode a selection made on the image moves focus to the
   // matching transcript row, unless a transcript row already owns focus.
   useEffect(() => {
-    if (!transcriptVisible || editorIsBusy || !pendingFocusWordId) return;
+    if (!transcriptVisible || editorIsBusy) return;
+    const selection = pendingFocusWordId || activeFocusedWordAnnotationId || activeSelectedAnnotationId;
+    if (!selection) return;
     const row = transcriptRows.find((candidate) => (
-      candidate.id === pendingFocusWordId || candidate.wordIds.includes(pendingFocusWordId)
+      candidate.id === selection || candidate.wordIds.includes(selection)
     ));
     const target = row ? transcriptInputRefs.current.get(row.id) : null;
     if (!(target instanceof HTMLInputElement)) return;
-    target.focus();
+    target.scrollIntoView?.({ block: 'nearest' });
+    target.focus({ preventScroll: true });
     setPendingFocusWordId('');
-  }, [editorIsBusy, pendingFocusWordId, transcriptRows, transcriptVisible]);
+  }, [activeFocusedWordAnnotationId, activeSelectedAnnotationId, editorIsBusy, pendingFocusWordId, transcriptRows, transcriptVisible]);
 
   useEffect(() => {
     if (!pendingResizeFocus || editorIsBusy || !inlineEditorVisible) return;
@@ -1565,7 +1573,7 @@ export function ScribeTextOverlayPlugin({
             boxShadow: `-8px 0 20px ${scribeTheme.shadowSoft}`,
             boxSizing: 'border-box',
             height: '100%',
-            overflow: 'hidden',
+            overflowY: 'auto',
             pointerEvents: 'auto',
             position: 'absolute',
             right: 0,
@@ -1584,12 +1592,11 @@ export function ScribeTextOverlayPlugin({
                 padding: 16,
               }}
             >
-              No transcribed lines are in view. Pan or zoom the image to bring lines into the transcript.
+              No transcribed lines on this page.
             </p>
           ) : null}
           {transcriptRows.map((row, index) => {
-            const rect = row.rect;
-            const rowHeight = Math.max(TRANSCRIPT_ROW_MIN_HEIGHT_PX, rect.h);
+            const rowHeight = TRANSCRIPT_ROW_MIN_HEIGHT_PX;
             return (
               <input
                 aria-label={`Transcript line ${index + 1}: ${row.text || 'empty text'}`}
@@ -1657,8 +1664,8 @@ export function ScribeTextOverlayPlugin({
                   margin: 0,
                   outline: 'none',
                   padding: '0 10px',
-                  position: 'absolute',
-                  top: rect.y,
+                  display: 'block',
+                  position: 'relative',
                   width: '100%',
                 }}
               />

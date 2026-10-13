@@ -40,6 +40,7 @@ function viewer(contentHeight = 600) {
   document.body.appendChild(viewerCanvas);
   const tiledImage = {
     getContentSize: () => ({ x: 800, y: contentHeight }),
+    getBounds: () => ({ x: 0, y: 0, width: 1, height: contentHeight / 800 }),
     imageToViewportCoordinates: (x, y) => ({ x, y }),
     viewportToImageRectangle: () => ({ height: 600, width: 800, x: 0, y: 0 }),
   };
@@ -49,6 +50,7 @@ function viewer(contentHeight = 600) {
     removeHandler: vi.fn(),
     setMouseNavEnabled: vi.fn(),
     viewport: {
+      fitBounds: vi.fn(),
       getBounds: () => ({}),
       pixelFromPoint: (point) => point,
     },
@@ -437,7 +439,7 @@ describe('ScribeTextOverlayPlugin interaction', () => {
     expect(document.activeElement).toBe(viewerCanvas.querySelector('input'));
   });
 
-  it('aligns transcript rows with their image lines and reserves a viewer margin', async () => {
+  it('flows transcript rows without overlap at every zoom and reserves the image fit margin', async () => {
     const mountedViewer = viewer();
     mountedViewer.viewport.setMargins = vi.fn();
     const items = [
@@ -464,21 +466,22 @@ describe('ScribeTextOverlayPlugin interaction', () => {
     });
 
     expect(mountedViewer.setMouseNavEnabled).not.toHaveBeenCalledWith(false);
-    expect(mountedViewer.viewport.setMargins).toHaveBeenLastCalledWith({ right: 304 });
+    expect(mountedViewer.viewport.setMargins).toHaveBeenLastCalledWith({ right: 360 });
+    expect(mountedViewer.viewport.fitBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 1, height: 0.75 }, true);
     const pane = viewerCanvas.querySelector('[data-scribe-transcript-pane]');
     expect(pane?.getAttribute('aria-label')).toBe('Transcript');
     const rows = [...viewerCanvas.querySelectorAll('input[data-scribe-transcript-row]')];
     expect(rows.map((row) => row.value)).toEqual(['first line', 'second line']);
-    expect(rows.map((row) => row.style.top)).toEqual(['30px', '90px']);
-    expect(rows.map((row) => row.style.height)).toEqual(['24px', '30px']);
+    expect(rows.map((row) => row.style.top)).toEqual(['', '']);
+    expect(rows.map((row) => row.style.height)).toEqual(['32px', '32px']);
     expect(rows[0].getAttribute('aria-label')).toBe('Transcript line 1: first line');
 
     vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
     const updateViewport = mountedViewer.addHandler.mock.calls.find(([name]) => name === 'update-viewport')[1];
     for (const [scale, tops, heights] of [
-      [1, ['30px', '90px'], ['24px', '30px']],
-      [0.5, ['15px', '45px'], ['18px', '18px']],
-      [2, ['60px', '180px'], ['48px', '60px']],
+      [1, ['', ''], ['32px', '32px']],
+      [0.5, ['', ''], ['32px', '32px']],
+      [2, ['', ''], ['32px', '32px']],
     ]) {
       mountedViewer.viewport.pixelFromPoint = ({ x, y }) => ({ x: x * scale, y: y * scale });
       await act(async () => {
@@ -542,6 +545,6 @@ describe('ScribeTextOverlayPlugin interaction', () => {
       detail: { canvasId, overlayMode: 'transcript', windowId },
     })));
     const rows = [...viewerCanvas.querySelectorAll('input[data-scribe-transcript-row]')];
-    expect(rows.map((row) => row.value)).toEqual(['first last']);
+    expect(rows.map((row) => row.value)).toEqual(['first last', 'hidden']);
   });
 });
