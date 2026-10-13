@@ -273,7 +273,9 @@ func (s *ItemStore) DeleteForWorkspace(ctx context.Context, id string, workspace
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("item store is not configured")
 	}
-	tx, err := s.pool.BeginTx(ctx, nil)
+	// Explicit parent/job locks protect the graph. Read current child rows after
+	// waiting on a checkpoint writer, rather than an older MariaDB snapshot.
+	tx, err := s.pool.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin item deletion: %w", err)
 	}
@@ -326,7 +328,7 @@ func (s *ItemStore) DeleteItemImageForWorkspace(ctx context.Context, id, workspa
 	if s == nil || s.pool == nil {
 		return fmt.Errorf("item store is not configured")
 	}
-	tx, err := s.pool.BeginTx(ctx, nil)
+	tx, err := s.pool.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return fmt.Errorf("begin item image deletion: %w", err)
 	}

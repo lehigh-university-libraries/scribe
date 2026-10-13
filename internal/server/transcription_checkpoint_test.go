@@ -660,7 +660,12 @@ func TestItemDeletionAndCheckpointWritesUseConsistentLockOrder(t *testing.T) {
 			done <- nil
 		}()
 		<-started
-		if err := h.items.DeleteForWorkspace(ctx, image.ItemID, job.WorkspaceID); err != nil {
+		if attempt%2 == 0 {
+			err = h.items.DeleteForWorkspace(ctx, image.ItemID, job.WorkspaceID)
+		} else {
+			err = h.items.DeleteItemImageForWorkspace(ctx, image.ID, job.WorkspaceID)
+		}
+		if err != nil {
 			t.Fatalf("delete while checkpointing: %v", err)
 		}
 		if err := <-done; err != nil {
