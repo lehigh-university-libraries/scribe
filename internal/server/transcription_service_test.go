@@ -1868,7 +1868,11 @@ func TestKrakenJobRecognizesPageOnceAndSkipsLineProvider(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		defer r.MultipartForm.RemoveAll()
+		defer func() {
+			if err := r.MultipartForm.RemoveAll(); err != nil {
+				t.Error(err)
+			}
+		}()
 		if r.FormValue("model") != "mccatmus" {
 			t.Error("recognition model missing")
 		}

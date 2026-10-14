@@ -62,9 +62,10 @@ func parseKrakenOCR(data []byte) ([]remoteocr.Line, error) {
 	}
 	entities := []krakenOCREntity{}
 	for _, e := range page.Entities {
-		if e.Type == "line" {
+		switch e.Type {
+		case "line":
 			entities = append(entities, e)
-		} else if e.Type == "region" {
+		case "region":
 			entities = append(entities, e.Lines...)
 		}
 	}

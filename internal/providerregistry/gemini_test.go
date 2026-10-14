@@ -129,26 +129,6 @@ func testGeminiDescriptor(model, endpoint string) Provider {
 	return descriptor
 }
 
-func geminiRequest(t *testing.T, body io.Reader, contentLength int64) *http.Request {
-	t.Helper()
-	request, err := http.NewRequest(http.MethodPost, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent", body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.ContentLength = contentLength
-	request.Header.Set("Content-Type", "application/json")
-	return request
-}
-
-func successfulGeminiHTTPResponse(request *http.Request) *http.Response {
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(`{}`)),
-		Header:     make(http.Header),
-		Request:    request,
-	}
-}
-
 func geminiResponse(finishReason, text string) map[string]any {
 	return map[string]any{
 		"modelVersion": "gemini-resolved",
