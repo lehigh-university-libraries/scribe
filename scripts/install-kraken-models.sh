@@ -57,8 +57,8 @@ download_zenodo_model() {
     --proto '=https' \
     --proto-redir '=https' \
     --max-redirs 3 \
-    --connect-timeout 10 \
-    --max-time 60 \
+    --connect-timeout 30 \
+    --max-time 300 \
     --retry 0 \
     --output "${destination}" \
     "https://zenodo.org/records/${record_id}/files/${filename}?download=1"

@@ -27,9 +27,9 @@ analysis is optional during development: run
 `SCRIBE_GOVULNCHECK=true make security` to include the pinned `govulncheck`.
 It is not a `make ci` or hosted CI gate. A manually checked box is
 not a substitute for a passing required job. `ci/run-ci.sh` owns the canonical
-`contracts`, `test`, `browser`, `recovery`, `security`, and `infrastructure`
-  and `segmentor` groups; hosted jobs call those same groups in parallel while `make ci` runs
-them locally. The orchestrator creates a unique Compose project from the
+`contracts`, `test`, `browser`, `recovery`, `security`, `infrastructure`, and
+`segmentor` groups; hosted jobs call those same groups in parallel while
+`make ci` runs them locally. The orchestrator creates a unique Compose project from the
 reviewed base file (never a developer's local override), lets Docker allocate a
 collision-free bridge, waits for MariaDB health before integration tests, and
 removes its containers and volumes on success, failure, or interruption. It
@@ -142,3 +142,6 @@ and both registered Kraken recognition models on the packaged readiness
 fixture, with one thread and the 240-second recognition limit. It needs no
 cloud credentials. This checks runtime packaging; representative dense-page
 timing and the workspace 2 Gemini comparison remain operator measurements.
+Build-time Zenodo transfers have a five-minute limit per attempt to accommodate
+recognition weights on a slow connection; every downloaded model must still
+match its pinned SHA-256. This does not change the 240-second inference limit.
