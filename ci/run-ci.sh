@@ -77,6 +77,7 @@ run_infrastructure_group() {
 
 run_all_groups() {
   run_contracts_group
+  run_make segmentor-image-smoke
   # The full local contract reuses one isolated database for browser and Go
   # integration checks. Hosted jobs invoke the same two groups independently.
   run_make test-frontend
@@ -102,9 +103,10 @@ case "$group" in
   recovery) run_recovery_group ;;
   security) run_security_group ;;
   infrastructure) run_infrastructure_group ;;
-  --list) printf '%s\n' contracts test browser recovery security infrastructure ;;
+  segmentor) run_make segmentor-image-smoke ;;
+  --list) printf '%s\n' contracts test browser recovery security infrastructure segmentor ;;
   *)
-    echo "Usage: $0 [all|contracts|test|browser|recovery|security|infrastructure|--list]" >&2
+    echo "Usage: $0 [all|contracts|test|browser|recovery|security|infrastructure|segmentor|--list]" >&2
     exit 2
     ;;
 esac

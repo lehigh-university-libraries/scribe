@@ -171,6 +171,9 @@ ops-tests: install-shell-tools ## Exercise local runtime, identity, secret, and 
 terraform-check: ## Format-check, initialize, and validate Terraform
 	@./ci/terraform-check.sh
 
+segmentor-image-smoke: ## Build the production segmentor and exercise its packaged inference models
+	@docker build --platform linux/amd64 -f Dockerfile.segmentor -t scribe-segmentor:ci .
+
 ci: ## Run every required CI gate with an isolated, automatically removed integration database
 	@SCRIBE_MAKE_COMMAND="$(MAKE)" bash ./ci/run-ci.sh
 

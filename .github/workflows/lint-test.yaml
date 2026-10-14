@@ -19,6 +19,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  segmentor-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.checkout_ref != '' && inputs.checkout_ref || github.sha }}
+          persist-credentials: false
+      - name: Build segmentor and run packaged inference smoke checks
+        run: ./ci/run-ci.sh segmentor
+
   contracts-and-lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 25

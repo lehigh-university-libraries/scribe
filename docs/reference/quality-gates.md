@@ -28,7 +28,7 @@ analysis is optional during development: run
 It is not a `make ci` or hosted CI gate. A manually checked box is
 not a substitute for a passing required job. `ci/run-ci.sh` owns the canonical
 `contracts`, `test`, `browser`, `recovery`, `security`, and `infrastructure`
-groups; hosted jobs call those same groups in parallel while `make ci` runs
+  and `segmentor` groups; hosted jobs call those same groups in parallel while `make ci` runs
 them locally. The orchestrator creates a unique Compose project from the
 reviewed base file (never a developer's local override), lets Docker allocate a
 collision-free bridge, waits for MariaDB health before integration tests, and
@@ -135,3 +135,10 @@ Managed database acceptance is `make test-mysql`. It runs the full Go suite
 against digest-pinned MySQL 8.4 with the deployed Unicode collation, alongside
 the local MariaDB contract. Recovery smoke uses the same MySQL family and
 verifies migration-ledger, canonical/publication, and expired-lease recovery.
+
+The `segmentor-image` job runs `make segmentor-image-smoke` on an AMD64
+GitHub runner. It builds the production Dockerfile and runs layout inference
+and both registered Kraken recognition models on the packaged readiness
+fixture, with one thread and the 240-second recognition limit. It needs no
+cloud credentials. This checks runtime packaging; representative dense-page
+timing and the workspace 2 Gemini comparison remain operator measurements.
