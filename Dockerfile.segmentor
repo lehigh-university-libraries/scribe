@@ -93,7 +93,8 @@ RUN base64 -d /tmp/layout-smoke.png.base64 > /tmp/layout-smoke.png \
         -t /app/kraken-ocr.json.jinja -i /tmp/layout-smoke.png /tmp/kraken-smoke.json \
         segment -bl -i "/models/kraken/${KRAKEN_SEGMENTATION_MODEL}" ocr -m "$model" \
       && grep -q '"cuts"' /tmp/kraken-smoke.json \
-      && grep -q '"text": "[^"]' /tmp/kraken-smoke.json || exit 1; \
+      && grep -q '"text"' /tmp/kraken-smoke.json \
+      && cat /tmp/kraken-smoke.json || exit 1; \
     done \
     && rm -f /tmp/kraken-smoke.json \
     && rm -rf /tmp/layout-smoke /tmp/layout-smoke.png /tmp/layout-smoke.png.base64

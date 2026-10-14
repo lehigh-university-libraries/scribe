@@ -142,6 +142,9 @@ and both registered Kraken recognition models on the packaged readiness
 fixture, with one thread and the 240-second recognition limit. It needs no
 cloud credentials. This checks runtime packaging; representative dense-page
 timing and the workspace 2 Gemini comparison remain operator measurements.
+The printed readiness fixture checks loading, inference, and native JSON
+fields. Empty recognized text is valid for this out-of-domain fixture; it is
+not a recognition-accuracy acceptance test for the manuscript models.
 Build-time Zenodo transfers have a five-minute limit per attempt to accommodate
 recognition weights on a slow connection; every downloaded model must still
 match its pinned SHA-256. This does not change the 240-second inference limit.
