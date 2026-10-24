@@ -53,6 +53,6 @@
     "openseadragon": "6.1.1",
     "typescript": "7.0.2",
     "vite": "7.3.6",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }
