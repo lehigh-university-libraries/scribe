@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/providerregistry"
 	"github.com/lehigh-university-libraries/scribe/internal/providersecret"
@@ -20,7 +20,7 @@ import (
 
 var _ scribev1connect.AuthServiceHandler = (*Manager)(nil)
 
-func (m *Manager) GetAuthMe(ctx context.Context, _ *connect.Request[scribev1.GetAuthMeRequest]) (*connect.Response[scribev1.GetAuthMeResponse], error) {
+func (m *Manager) GetAuthMe(ctx context.Context, _ *scribev1.GetAuthMeRequest) (*scribev1.GetAuthMeResponse, error) {
 	principal, ok := PrincipalFromContext(ctx)
 	if !ok {
 		principal = m.anonymousPrincipal()
@@ -48,130 +48,130 @@ func (m *Manager) GetAuthMe(ctx context.Context, _ *connect.Request[scribev1.Get
 			Role: principal.WorkspaceRole,
 		}
 	}
-	return connect.NewResponse(resp), nil
+	return resp, nil
 }
 
-func (m *Manager) ListAPIKeys(ctx context.Context, _ *connect.Request[scribev1.ListAPIKeysRequest]) (*connect.Response[scribev1.ListAPIKeysResponse], error) {
+func (m *Manager) ListAPIKeys(ctx context.Context, _ *scribev1.ListAPIKeysRequest) (*scribev1.ListAPIKeysResponse, error) {
 	principal, err := m.sessionPrincipal(ctx)
 	if err != nil {
 		return nil, err
 	}
 	keys, err := m.apiKeys.ListByWorkspace(ctx, principal.WorkspaceID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list api keys: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list api keys: %w", err).Error())
 	}
 	resp := &scribev1.ListAPIKeysResponse{ApiKeys: make([]*scribev1.APIKeyRecord, 0, len(keys))}
 	for _, key := range keys {
 		resp.ApiKeys = append(resp.ApiKeys, apiKeyToProto(key))
 	}
-	return connect.NewResponse(resp), nil
+	return resp, nil
 }
 
-func (m *Manager) CreateAPIKey(ctx context.Context, req *connect.Request[scribev1.CreateAPIKeyRequest]) (*connect.Response[scribev1.CreateAPIKeyResponse], error) {
+func (m *Manager) CreateAPIKey(ctx context.Context, req *scribev1.CreateAPIKeyRequest) (*scribev1.CreateAPIKeyResponse, error) {
 	principal, err := m.sessionPrincipal(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var expiresAt *time.Time
-	if raw := strings.TrimSpace(req.Msg.GetExpiresAt()); raw != "" {
+	if raw := strings.TrimSpace(req.GetExpiresAt()); raw != "" {
 		parsed, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid expires_at"))
+			return nil, connect.Errorf(connect.CodeInvalidArgument, "invalid expires_at")
 		}
 		expiresAt = &parsed
 	}
-	scopes := req.Msg.GetScopes()
+	scopes := req.GetScopes()
 	if len(scopes) == 0 {
 		// Role-only keys use the selected role's permissions; authorization still
 		// intersects scopes with that role and the creator's current membership.
 		scopes = []string{"*"}
 	}
-	apiKey, rawKey, err := m.apiKeys.Create(ctx, principal.WorkspaceID, principal.UserID, req.Msg.GetName(), req.Msg.GetRole(), scopes, expiresAt)
+	apiKey, rawKey, err := m.apiKeys.Create(ctx, principal.WorkspaceID, principal.UserID, req.GetName(), req.GetRole(), scopes, expiresAt)
 	if err != nil {
 		if errors.Is(err, store.ErrAPIKeyLimit) {
-			return nil, connect.NewError(connect.CodeResourceExhausted, err)
+			return nil, connect.NewError(connect.CodeResourceExhausted, err.Error()).WithCause(err)
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create api key persistence failed"))
+		return nil, connect.Errorf(connect.CodeInternal, "create api key persistence failed")
 	}
-	return connect.NewResponse(&scribev1.CreateAPIKeyResponse{
+	return &scribev1.CreateAPIKeyResponse{
 		ApiKey: apiKeyToProto(apiKey),
 		Key:    rawKey,
-	}), nil
+	}, nil
 }
 
-func (m *Manager) DeleteAPIKey(ctx context.Context, req *connect.Request[scribev1.DeleteAPIKeyRequest]) (*connect.Response[scribev1.DeleteAPIKeyResponse], error) {
+func (m *Manager) DeleteAPIKey(ctx context.Context, req *scribev1.DeleteAPIKeyRequest) (*scribev1.DeleteAPIKeyResponse, error) {
 	principal, err := m.sessionPrincipal(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := m.apiKeys.DeleteForWorkspace(ctx, req.Msg.GetKeyId(), principal.WorkspaceID); err != nil {
+	if err := m.apiKeys.DeleteForWorkspace(ctx, req.GetKeyId(), principal.WorkspaceID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("api key not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "api key not found")
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("delete api key: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("delete api key: %w", err).Error())
 	}
-	return connect.NewResponse(&scribev1.DeleteAPIKeyResponse{}), nil
+	return &scribev1.DeleteAPIKeyResponse{}, nil
 }
 
-func (m *Manager) ListProviderSecrets(ctx context.Context, _ *connect.Request[scribev1.ListProviderSecretsRequest]) (*connect.Response[scribev1.ListProviderSecretsResponse], error) {
+func (m *Manager) ListProviderSecrets(ctx context.Context, _ *scribev1.ListProviderSecretsRequest) (*scribev1.ListProviderSecretsResponse, error) {
 	principal, err := m.sessionPrincipal(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if m.providerSecrets == nil {
-		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("provider secret storage is not configured"))
+		return nil, connect.Errorf(connect.CodeUnavailable, "provider secret storage is not configured")
 	}
 	secrets, err := m.providerSecrets.ListVisible(ctx, principal.WorkspaceID, principal.UserID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list provider secrets: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list provider secrets: %w", err).Error())
 	}
 	resp := &scribev1.ListProviderSecretsResponse{ProviderSecrets: make([]*scribev1.ProviderSecretRecord, 0, len(secrets))}
 	for _, secret := range secrets {
 		resp.ProviderSecrets = append(resp.ProviderSecrets, providerSecretToProto(secret))
 	}
-	return connect.NewResponse(resp), nil
+	return resp, nil
 }
 
-func (m *Manager) CreateProviderSecret(ctx context.Context, req *connect.Request[scribev1.CreateProviderSecretRequest]) (*connect.Response[scribev1.CreateProviderSecretResponse], error) {
+func (m *Manager) CreateProviderSecret(ctx context.Context, req *scribev1.CreateProviderSecretRequest) (*scribev1.CreateProviderSecretResponse, error) {
 	principal, err := m.sessionPrincipal(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if m.providerSecrets == nil || m.vault == nil {
-		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("provider secret storage is not configured"))
+		return nil, connect.Errorf(connect.CodeUnavailable, "provider secret storage is not configured")
 	}
 
-	provider := strings.ToLower(strings.TrimSpace(req.Msg.GetProvider()))
+	provider := strings.ToLower(strings.TrimSpace(req.GetProvider()))
 	descriptor, supported := providerregistry.New(config.Get().Config).Provider(provider)
 	if !supported || !descriptor.Credentials.Required() {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("unsupported provider secret provider"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "unsupported provider secret provider")
 	}
-	name := strings.TrimSpace(req.Msg.GetName())
+	name := strings.TrimSpace(req.GetName())
 	if name == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("name is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "name is required")
 	}
 	// Provider credentials are opaque: validate without trimming or otherwise
 	// mutating the value that will be stored in Vault.
-	apiKey := req.Msg.GetApiKey()
+	apiKey := req.GetApiKey()
 	apiKeyLength := utf8.RuneCountInString(apiKey)
 	if strings.TrimSpace(apiKey) == "" || apiKeyLength < 8 || apiKeyLength > 8192 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("api_key must contain between 8 and 8192 characters"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "api_key must contain between 8 and 8192 characters")
 	}
 
-	scope := strings.ToLower(strings.TrimSpace(req.Msg.GetScope()))
+	scope := strings.ToLower(strings.TrimSpace(req.GetScope()))
 	if scope == "" {
 		scope = "workspace"
 	}
 	if scope != "user" && scope != "workspace" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("scope must be 'user' or 'workspace'"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "scope must be 'user' or 'workspace'")
 	}
 	if scope == "workspace" && !strings.EqualFold(principal.WorkspaceRole, "admin") && !principal.IsAdmin {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("workspace secrets require admin role"))
+		return nil, connect.Errorf(connect.CodePermissionDenied, "workspace secrets require admin role")
 	}
 
 	pathSuffix, err := randomString(12)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("generate secret path: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("generate secret path: %w", err).Error())
 	}
 	vaultPath := fmt.Sprintf(
 		"%s/%d/%s/%s-%s",
@@ -197,9 +197,9 @@ func (m *Manager) CreateProviderSecret(ctx context.Context, req *connect.Request
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrProviderSecretLimit) {
-			return nil, connect.NewError(connect.CodeResourceExhausted, err)
+			return nil, connect.NewError(connect.CodeResourceExhausted, err.Error()).WithCause(err)
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create provider secret persistence failed"))
+		return nil, connect.Errorf(connect.CodeInternal, "create provider secret persistence failed")
 	}
 	// Persist the non-secret locator before writing material. A process crash can
 	// therefore leave only fail-closed metadata pointing at a missing value,
@@ -211,55 +211,55 @@ func (m *Manager) CreateProviderSecret(ctx context.Context, req *connect.Request
 		"name":     name,
 	}); err != nil {
 		m.scheduleProviderSecretCleanup(ctx, &secret)
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("write provider secret failed"))
+		return nil, connect.Errorf(connect.CodeInternal, "write provider secret failed")
 	}
 	secret, err = m.providerSecrets.Activate(ctx, secret.ID, workspaceID)
 	if err != nil {
 		persisted, loadErr := m.providerSecrets.GetLifecycle(ctx, secret.ID, workspaceID)
 		if loadErr == nil && persisted.LifecycleState == store.ProviderSecretActive {
 			secret = persisted
-			return connect.NewResponse(&scribev1.CreateProviderSecretResponse{
+			return &scribev1.CreateProviderSecretResponse{
 				ProviderSecret: providerSecretToProto(secret),
-			}), nil
+			}, nil
 		}
 		m.scheduleProviderSecretCleanup(ctx, &secret)
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("activate provider secret failed"))
+		return nil, connect.Errorf(connect.CodeInternal, "activate provider secret failed")
 	}
-	return connect.NewResponse(&scribev1.CreateProviderSecretResponse{
+	return &scribev1.CreateProviderSecretResponse{
 		ProviderSecret: providerSecretToProto(secret),
-	}), nil
+	}, nil
 }
 
-func (m *Manager) DeleteProviderSecret(ctx context.Context, req *connect.Request[scribev1.DeleteProviderSecretRequest]) (*connect.Response[scribev1.DeleteProviderSecretResponse], error) {
+func (m *Manager) DeleteProviderSecret(ctx context.Context, req *scribev1.DeleteProviderSecretRequest) (*scribev1.DeleteProviderSecretResponse, error) {
 	principal, err := m.sessionPrincipal(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if m.providerSecrets == nil || m.vault == nil {
-		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("provider secret storage is not configured"))
+		return nil, connect.Errorf(connect.CodeUnavailable, "provider secret storage is not configured")
 	}
 
-	secret, err := m.providerSecrets.GetVisible(ctx, req.Msg.GetSecretId(), principal.WorkspaceID, principal.UserID)
+	secret, err := m.providerSecrets.GetVisible(ctx, req.GetSecretId(), principal.WorkspaceID, principal.UserID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("provider secret not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "provider secret not found")
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("load provider secret: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("load provider secret: %w", err).Error())
 	}
 	if secret.Scope == "workspace" && !strings.EqualFold(principal.WorkspaceRole, "admin") && !principal.IsAdmin {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("workspace secrets require admin role"))
+		return nil, connect.Errorf(connect.CodePermissionDenied, "workspace secrets require admin role")
 	}
 	if err := m.validateProviderSecretVaultPath(secret.VaultPath, principal.WorkspaceID); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
 	if err := m.providerSecrets.MarkActiveCleanup(ctx, secret.ID, secret.WorkspaceID); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("schedule provider secret deletion failed"))
+		return nil, connect.Errorf(connect.CodeInternal, "schedule provider secret deletion failed")
 	}
 	secret.LifecycleState = store.ProviderSecretCleanupPending
 	if err := m.cleanupProviderSecret(ctx, secret); err != nil {
-		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("provider secret deletion is pending"))
+		return nil, connect.Errorf(connect.CodeUnavailable, "provider secret deletion is pending")
 	}
-	return connect.NewResponse(&scribev1.DeleteProviderSecretResponse{}), nil
+	return &scribev1.DeleteProviderSecretResponse{}, nil
 }
 
 func (m *Manager) providerSecretVaultPrefix() string {

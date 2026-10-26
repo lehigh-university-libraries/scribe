@@ -15,7 +15,6 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
@@ -269,20 +268,20 @@ func TestForegroundAndBackgroundExecutePersistedGemini3ContextWithModelDefaultSa
 		},
 	}
 	requestContext := providerregistry.WithCredential(ctx, "gemini", "api_key", "test-gemini-credential")
-	response, err := handler.EnrichAnnotation(requestContext, connect.NewRequest(&scribev1.EnrichAnnotationRequest{
+	response, err := handler.EnrichAnnotation(requestContext, &scribev1.EnrichAnnotationRequest{
 		ItemImageId:    itemImage.ID,
 		ContextId:      legacyContext.ID,
 		Scope:          "line",
 		AnnotationJson: string(annotationJSON),
-	}))
+	})
 	if err != nil {
 		t.Fatalf("EnrichAnnotation legacy Gemini context: %v", err)
 	}
 	if len(wireTemperatures) != 1 || wireTemperatures[0] {
 		t.Fatalf("foreground Gemini wire temperatures = %v; want [false]", wireTemperatures)
 	}
-	if !strings.Contains(response.Msg.GetAnnotationJson(), "normalized transcription") {
-		t.Fatalf("enriched annotation = %s", response.Msg.GetAnnotationJson())
+	if !strings.Contains(response.GetAnnotationJson(), "normalized transcription") {
+		t.Fatalf("enriched annotation = %s", response.GetAnnotationJson())
 	}
 
 	if err := handler.processQueuedTranscriptionJob(ctx, jobID); err != nil {

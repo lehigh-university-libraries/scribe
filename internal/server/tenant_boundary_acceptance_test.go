@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
@@ -29,17 +30,17 @@ func TestDuplicateCanvasImportsWithinWorkspaceRemainItemImageScoped(t *testing.T
 	appServer := httptest.NewServer(handler)
 	t.Cleanup(appServer.Close)
 
-	itemClient := scribev1connect.NewItemServiceClient(http.DefaultClient, appServer.URL)
-	annotationClient := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
+	itemClient := scribev1connect.NewItemServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
+	annotationClient := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 	importItem := func(name, idempotencyKey string) *scribev1.Item {
 		t.Helper()
-		response, err := itemClient.ImportManifest(ctx, connect.NewRequest(&scribev1.ImportManifestRequest{
+		response, err := itemClient.ImportManifest(ctx, &scribev1.ImportManifestRequest{
 			Name: name, ManifestUrl: source.URL + "/manifest", IdempotencyKey: idempotencyKey,
-		}))
+		})
 		if err != nil {
 			t.Fatalf("ImportManifest(%s): %v", name, err)
 		}
-		item := response.Msg.GetItem()
+		item := response.GetItem()
 		if item == nil || len(item.GetImages()) != 1 {
 			t.Fatalf("ImportManifest(%s) item = %#v", name, item)
 		}
@@ -59,11 +60,11 @@ func TestDuplicateCanvasImportsWithinWorkspaceRemainItemImageScoped(t *testing.T
 
 	loadPage := func(itemImageID uint64) *scribev1.GetAnnotationPageResponse {
 		t.Helper()
-		response, err := annotationClient.GetAnnotationPage(ctx, connect.NewRequest(&scribev1.GetAnnotationPageRequest{ItemImageId: itemImageID}))
+		response, err := annotationClient.GetAnnotationPage(ctx, &scribev1.GetAnnotationPageRequest{ItemImageId: itemImageID})
 		if err != nil {
 			t.Fatalf("GetAnnotationPage(%d): %v", itemImageID, err)
 		}
-		return response.Msg
+		return response
 	}
 	pageA, pageB := loadPage(imageA.GetId()), loadPage(imageB.GetId())
 	if pageA.GetAnnotationPageJson() == pageB.GetAnnotationPageJson() {
@@ -71,31 +72,31 @@ func TestDuplicateCanvasImportsWithinWorkspaceRemainItemImageScoped(t *testing.T
 	}
 
 	const privateEdit = "same-workspace first-import correction"
-	savedA, err := annotationClient.SaveAnnotationPage(ctx, connect.NewRequest(&scribev1.SaveAnnotationPageRequest{
+	savedA, err := annotationClient.SaveAnnotationPage(ctx, &scribev1.SaveAnnotationPageRequest{
 		ItemImageId: imageA.GetId(), AnnotationPageJson: replaceFirstAnnotationText(t, pageA.GetAnnotationPageJson(), privateEdit), ExpectedRevision: pageA.GetRevision(),
-	}))
+	})
 	if err != nil {
 		t.Fatalf("SaveAnnotationPage(first import): %v", err)
 	}
 
 	search := func(itemImageID uint64) string {
 		t.Helper()
-		response, err := annotationClient.SearchAnnotations(ctx, connect.NewRequest(&scribev1.SearchAnnotationsRequest{
+		response, err := annotationClient.SearchAnnotations(ctx, &scribev1.SearchAnnotationsRequest{
 			ItemImageId: itemImageID, CanvasUri: imageA.GetCanvasUri(),
-		}))
+		})
 		if err != nil {
 			t.Fatalf("SearchAnnotations(%d): %v", itemImageID, err)
 		}
-		return response.Msg.GetAnnotationPageJson()
+		return response.GetAnnotationPageJson()
 	}
 	if first, second := search(imageA.GetId()), search(imageB.GetId()); !strings.Contains(first, privateEdit) || strings.Contains(second, privateEdit) {
 		t.Fatalf("same-Canvas search crossed item-image boundary: first=%t second=%t", strings.Contains(first, privateEdit), strings.Contains(second, privateEdit))
 	}
 
-	firstAnnotation := firstAnnotationID(t, savedA.Msg.GetAnnotationPageJson())
-	_, err = annotationClient.GetAnnotation(ctx, connect.NewRequest(&scribev1.GetAnnotationRequest{
+	firstAnnotation := firstAnnotationID(t, savedA.GetAnnotationPageJson())
+	_, err = annotationClient.GetAnnotation(ctx, &scribev1.GetAnnotationRequest{
 		ItemImageId: imageB.GetId(), Id: firstAnnotation,
-	}))
+	})
 	assertConnectCode(t, err, connect.CodeNotFound)
 
 	for label, test := range map[string]struct {
@@ -103,7 +104,7 @@ func TestDuplicateCanvasImportsWithinWorkspaceRemainItemImageScoped(t *testing.T
 		revision uint64
 		want     bool
 	}{
-		"first":  {imageID: imageA.GetId(), revision: savedA.Msg.GetRevision(), want: true},
+		"first":  {imageID: imageA.GetId(), revision: savedA.GetRevision(), want: true},
 		"second": {imageID: imageB.GetId(), revision: pageB.GetRevision(), want: false},
 	} {
 		status, body := tenantAnnotationExport(t, annotationClient, "", test.imageID, test.revision, "txt")
@@ -112,9 +113,9 @@ func TestDuplicateCanvasImportsWithinWorkspaceRemainItemImageScoped(t *testing.T
 		}
 	}
 
-	if _, err := annotationClient.PublishItemImageEdits(ctx, connect.NewRequest(&scribev1.PublishItemImageEditsRequest{
-		ItemImageId: imageA.GetId(), ExpectedRevision: savedA.Msg.GetRevision(),
-	})); err != nil {
+	if _, err := annotationClient.PublishItemImageEdits(ctx, &scribev1.PublishItemImageEditsRequest{
+		ItemImageId: imageA.GetId(), ExpectedRevision: savedA.GetRevision(),
+	}); err != nil {
 		t.Fatalf("PublishItemImageEdits(first import): %v", err)
 	}
 	publishedA, err := annotations.LoadPublishedPage(ctx, imageA.GetId())

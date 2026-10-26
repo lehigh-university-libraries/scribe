@@ -1,6 +1,16 @@
 package server
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
+
+func TestExternalRequestWithoutConnectTransportMetadata(t *testing.T) {
+	req := externalRequestFromHeaders(connectRequestHeaders(context.Background()), "event-123", "image-url", stableRequestHash("request"))
+	if req.source != "image-url" || req.key == "" || req.eventHeader != "" {
+		t.Fatalf("direct handler request metadata = %+v", req)
+	}
+}
 
 func TestExternalRequestFromHeadersUsesExplicitKey(t *testing.T) {
 	req := externalRequestFromHeaders(map[string][]string{

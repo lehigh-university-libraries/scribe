@@ -5,430 +5,507 @@
 package scribev1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// AnnotationServiceName is the fully-qualified name of the AnnotationService service.
 	AnnotationServiceName = "scribe.v1.AnnotationService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// AnnotationServiceGetAnnotationPageProcedure is the fully-qualified name of the
-	// AnnotationService's GetAnnotationPage RPC.
+	// AnnotationServiceGetAnnotationPageProcedure is the procedure name of the AnnotationService's
+	// GetAnnotationPage RPC.
 	AnnotationServiceGetAnnotationPageProcedure = "/scribe.v1.AnnotationService/GetAnnotationPage"
-	// AnnotationServiceSaveAnnotationPageProcedure is the fully-qualified name of the
-	// AnnotationService's SaveAnnotationPage RPC.
+	// AnnotationServiceSaveAnnotationPageProcedure is the procedure name of the AnnotationService's
+	// SaveAnnotationPage RPC.
 	AnnotationServiceSaveAnnotationPageProcedure = "/scribe.v1.AnnotationService/SaveAnnotationPage"
-	// AnnotationServiceSearchAnnotationsProcedure is the fully-qualified name of the
-	// AnnotationService's SearchAnnotations RPC.
+	// AnnotationServiceSearchAnnotationsProcedure is the procedure name of the AnnotationService's
+	// SearchAnnotations RPC.
 	AnnotationServiceSearchAnnotationsProcedure = "/scribe.v1.AnnotationService/SearchAnnotations"
-	// AnnotationServiceGetAnnotationProcedure is the fully-qualified name of the AnnotationService's
+	// AnnotationServiceGetAnnotationProcedure is the procedure name of the AnnotationService's
 	// GetAnnotation RPC.
 	AnnotationServiceGetAnnotationProcedure = "/scribe.v1.AnnotationService/GetAnnotation"
-	// AnnotationServicePublishItemImageEditsProcedure is the fully-qualified name of the
-	// AnnotationService's PublishItemImageEdits RPC.
+	// AnnotationServicePublishItemImageEditsProcedure is the procedure name of the AnnotationService's
+	// PublishItemImageEdits RPC.
 	AnnotationServicePublishItemImageEditsProcedure = "/scribe.v1.AnnotationService/PublishItemImageEdits"
-	// AnnotationServiceEnrichAnnotationProcedure is the fully-qualified name of the AnnotationService's
+	// AnnotationServiceEnrichAnnotationProcedure is the procedure name of the AnnotationService's
 	// EnrichAnnotation RPC.
 	AnnotationServiceEnrichAnnotationProcedure = "/scribe.v1.AnnotationService/EnrichAnnotation"
-	// AnnotationServiceSplitLineIntoWordsProcedure is the fully-qualified name of the
-	// AnnotationService's SplitLineIntoWords RPC.
+	// AnnotationServiceSplitLineIntoWordsProcedure is the procedure name of the AnnotationService's
+	// SplitLineIntoWords RPC.
 	AnnotationServiceSplitLineIntoWordsProcedure = "/scribe.v1.AnnotationService/SplitLineIntoWords"
-	// AnnotationServiceSplitPageIntoWordsProcedure is the fully-qualified name of the
-	// AnnotationService's SplitPageIntoWords RPC.
+	// AnnotationServiceSplitPageIntoWordsProcedure is the procedure name of the AnnotationService's
+	// SplitPageIntoWords RPC.
 	AnnotationServiceSplitPageIntoWordsProcedure = "/scribe.v1.AnnotationService/SplitPageIntoWords"
-	// AnnotationServiceSplitLineIntoTwoLinesProcedure is the fully-qualified name of the
-	// AnnotationService's SplitLineIntoTwoLines RPC.
+	// AnnotationServiceSplitLineIntoTwoLinesProcedure is the procedure name of the AnnotationService's
+	// SplitLineIntoTwoLines RPC.
 	AnnotationServiceSplitLineIntoTwoLinesProcedure = "/scribe.v1.AnnotationService/SplitLineIntoTwoLines"
-	// AnnotationServiceJoinLinesProcedure is the fully-qualified name of the AnnotationService's
-	// JoinLines RPC.
+	// AnnotationServiceJoinLinesProcedure is the procedure name of the AnnotationService's JoinLines
+	// RPC.
 	AnnotationServiceJoinLinesProcedure = "/scribe.v1.AnnotationService/JoinLines"
-	// AnnotationServiceJoinWordsIntoLineProcedure is the fully-qualified name of the
-	// AnnotationService's JoinWordsIntoLine RPC.
+	// AnnotationServiceJoinWordsIntoLineProcedure is the procedure name of the AnnotationService's
+	// JoinWordsIntoLine RPC.
 	AnnotationServiceJoinWordsIntoLineProcedure = "/scribe.v1.AnnotationService/JoinWordsIntoLine"
-	// AnnotationServiceExportAnnotationPageProcedure is the fully-qualified name of the
-	// AnnotationService's ExportAnnotationPage RPC.
+	// AnnotationServiceExportAnnotationPageProcedure is the procedure name of the AnnotationService's
+	// ExportAnnotationPage RPC.
 	AnnotationServiceExportAnnotationPageProcedure = "/scribe.v1.AnnotationService/ExportAnnotationPage"
+)
+
+var (
+	annotationServiceGetAnnotationPageSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("GetAnnotationPage"),
+			Procedure:  AnnotationServiceGetAnnotationPageProcedure,
+		}
+	})
+	annotationServiceSaveAnnotationPageSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("SaveAnnotationPage"),
+			Procedure:  AnnotationServiceSaveAnnotationPageProcedure,
+		}
+	})
+	annotationServiceSearchAnnotationsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("SearchAnnotations"),
+			Procedure:  AnnotationServiceSearchAnnotationsProcedure,
+		}
+	})
+	annotationServiceGetAnnotationSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("GetAnnotation"),
+			Procedure:  AnnotationServiceGetAnnotationProcedure,
+		}
+	})
+	annotationServicePublishItemImageEditsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("PublishItemImageEdits"),
+			Procedure:  AnnotationServicePublishItemImageEditsProcedure,
+		}
+	})
+	annotationServiceEnrichAnnotationSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("EnrichAnnotation"),
+			Procedure:  AnnotationServiceEnrichAnnotationProcedure,
+		}
+	})
+	annotationServiceSplitLineIntoWordsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("SplitLineIntoWords"),
+			Procedure:  AnnotationServiceSplitLineIntoWordsProcedure,
+		}
+	})
+	annotationServiceSplitPageIntoWordsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("SplitPageIntoWords"),
+			Procedure:  AnnotationServiceSplitPageIntoWordsProcedure,
+		}
+	})
+	annotationServiceSplitLineIntoTwoLinesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("SplitLineIntoTwoLines"),
+			Procedure:  AnnotationServiceSplitLineIntoTwoLinesProcedure,
+		}
+	})
+	annotationServiceJoinLinesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("JoinLines"),
+			Procedure:  AnnotationServiceJoinLinesProcedure,
+		}
+	})
+	annotationServiceJoinWordsIntoLineSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("JoinWordsIntoLine"),
+			Procedure:  AnnotationServiceJoinWordsIntoLineProcedure,
+		}
+	})
+	annotationServiceExportAnnotationPageSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("ExportAnnotationPage"),
+			Procedure:  AnnotationServiceExportAnnotationPageProcedure,
+		}
+	})
 )
 
 // AnnotationServiceClient is a client for the scribe.v1.AnnotationService service.
 type AnnotationServiceClient interface {
-	GetAnnotationPage(context.Context, *connect.Request[v1.GetAnnotationPageRequest]) (*connect.Response[v1.GetAnnotationPageResponse], error)
-	SaveAnnotationPage(context.Context, *connect.Request[v1.SaveAnnotationPageRequest]) (*connect.Response[v1.SaveAnnotationPageResponse], error)
-	SearchAnnotations(context.Context, *connect.Request[v1.SearchAnnotationsRequest]) (*connect.Response[v1.SearchAnnotationsResponse], error)
-	GetAnnotation(context.Context, *connect.Request[v1.GetAnnotationRequest]) (*connect.Response[v1.GetAnnotationResponse], error)
-	PublishItemImageEdits(context.Context, *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error)
+	GetAnnotationPage(context.Context, *v1.GetAnnotationPageRequest) (*v1.GetAnnotationPageResponse, error)
+	SaveAnnotationPage(context.Context, *v1.SaveAnnotationPageRequest) (*v1.SaveAnnotationPageResponse, error)
+	SearchAnnotations(context.Context, *v1.SearchAnnotationsRequest) (*v1.SearchAnnotationsResponse, error)
+	GetAnnotation(context.Context, *v1.GetAnnotationRequest) (*v1.GetAnnotationResponse, error)
+	PublishItemImageEdits(context.Context, *v1.PublishItemImageEditsRequest) (*v1.PublishItemImageEditsResponse, error)
 	// Improve transcription for one line or a full canvas.
-	EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error)
+	EnrichAnnotation(context.Context, *v1.EnrichAnnotationRequest) (*v1.EnrichAnnotationResponse, error)
 	// Structural split/join operations.
-	SplitLineIntoWords(context.Context, *connect.Request[v1.SplitLineIntoWordsRequest]) (*connect.Response[v1.SplitLineIntoWordsResponse], error)
-	SplitPageIntoWords(context.Context, *connect.Request[v1.SplitPageIntoWordsRequest]) (*connect.Response[v1.SplitPageIntoWordsResponse], error)
-	SplitLineIntoTwoLines(context.Context, *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error)
-	JoinLines(context.Context, *connect.Request[v1.JoinLinesRequest]) (*connect.Response[v1.JoinLinesResponse], error)
-	JoinWordsIntoLine(context.Context, *connect.Request[v1.JoinWordsIntoLineRequest]) (*connect.Response[v1.JoinWordsIntoLineResponse], error)
+	SplitLineIntoWords(context.Context, *v1.SplitLineIntoWordsRequest) (*v1.SplitLineIntoWordsResponse, error)
+	SplitPageIntoWords(context.Context, *v1.SplitPageIntoWordsRequest) (*v1.SplitPageIntoWordsResponse, error)
+	SplitLineIntoTwoLines(context.Context, *v1.SplitLineIntoTwoLinesRequest) (*v1.SplitLineIntoTwoLinesResponse, error)
+	JoinLines(context.Context, *v1.JoinLinesRequest) (*v1.JoinLinesResponse, error)
+	JoinWordsIntoLine(context.Context, *v1.JoinWordsIntoLineRequest) (*v1.JoinWordsIntoLineResponse, error)
 	// Export one exact committed canonical revision to a rebuildable OCR view.
-	ExportAnnotationPage(context.Context, *connect.Request[v1.ExportAnnotationPageRequest]) (*connect.Response[v1.ExportAnnotationPageResponse], error)
+	ExportAnnotationPage(context.Context, *v1.ExportAnnotationPageRequest) (*v1.ExportAnnotationPageResponse, error)
 }
 
-// NewAnnotationServiceClient constructs a client for the scribe.v1.AnnotationService service. By
-// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
-// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
-// connect.WithGRPC() or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewAnnotationServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) AnnotationServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	annotationServiceMethods := v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods()
-	return &annotationServiceClient{
-		getAnnotationPage: connect.NewClient[v1.GetAnnotationPageRequest, v1.GetAnnotationPageResponse](
-			httpClient,
-			baseURL+AnnotationServiceGetAnnotationPageProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("GetAnnotationPage")),
-			connect.WithClientOptions(opts...),
-		),
-		saveAnnotationPage: connect.NewClient[v1.SaveAnnotationPageRequest, v1.SaveAnnotationPageResponse](
-			httpClient,
-			baseURL+AnnotationServiceSaveAnnotationPageProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("SaveAnnotationPage")),
-			connect.WithClientOptions(opts...),
-		),
-		searchAnnotations: connect.NewClient[v1.SearchAnnotationsRequest, v1.SearchAnnotationsResponse](
-			httpClient,
-			baseURL+AnnotationServiceSearchAnnotationsProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("SearchAnnotations")),
-			connect.WithClientOptions(opts...),
-		),
-		getAnnotation: connect.NewClient[v1.GetAnnotationRequest, v1.GetAnnotationResponse](
-			httpClient,
-			baseURL+AnnotationServiceGetAnnotationProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("GetAnnotation")),
-			connect.WithClientOptions(opts...),
-		),
-		publishItemImageEdits: connect.NewClient[v1.PublishItemImageEditsRequest, v1.PublishItemImageEditsResponse](
-			httpClient,
-			baseURL+AnnotationServicePublishItemImageEditsProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("PublishItemImageEdits")),
-			connect.WithClientOptions(opts...),
-		),
-		enrichAnnotation: connect.NewClient[v1.EnrichAnnotationRequest, v1.EnrichAnnotationResponse](
-			httpClient,
-			baseURL+AnnotationServiceEnrichAnnotationProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("EnrichAnnotation")),
-			connect.WithClientOptions(opts...),
-		),
-		splitLineIntoWords: connect.NewClient[v1.SplitLineIntoWordsRequest, v1.SplitLineIntoWordsResponse](
-			httpClient,
-			baseURL+AnnotationServiceSplitLineIntoWordsProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("SplitLineIntoWords")),
-			connect.WithClientOptions(opts...),
-		),
-		splitPageIntoWords: connect.NewClient[v1.SplitPageIntoWordsRequest, v1.SplitPageIntoWordsResponse](
-			httpClient,
-			baseURL+AnnotationServiceSplitPageIntoWordsProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("SplitPageIntoWords")),
-			connect.WithClientOptions(opts...),
-		),
-		splitLineIntoTwoLines: connect.NewClient[v1.SplitLineIntoTwoLinesRequest, v1.SplitLineIntoTwoLinesResponse](
-			httpClient,
-			baseURL+AnnotationServiceSplitLineIntoTwoLinesProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("SplitLineIntoTwoLines")),
-			connect.WithClientOptions(opts...),
-		),
-		joinLines: connect.NewClient[v1.JoinLinesRequest, v1.JoinLinesResponse](
-			httpClient,
-			baseURL+AnnotationServiceJoinLinesProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("JoinLines")),
-			connect.WithClientOptions(opts...),
-		),
-		joinWordsIntoLine: connect.NewClient[v1.JoinWordsIntoLineRequest, v1.JoinWordsIntoLineResponse](
-			httpClient,
-			baseURL+AnnotationServiceJoinWordsIntoLineProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("JoinWordsIntoLine")),
-			connect.WithClientOptions(opts...),
-		),
-		exportAnnotationPage: connect.NewClient[v1.ExportAnnotationPageRequest, v1.ExportAnnotationPageResponse](
-			httpClient,
-			baseURL+AnnotationServiceExportAnnotationPageProcedure,
-			connect.WithSchema(annotationServiceMethods.ByName("ExportAnnotationPage")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// annotationServiceClient implements AnnotationServiceClient.
-type annotationServiceClient struct {
-	getAnnotationPage     *connect.Client[v1.GetAnnotationPageRequest, v1.GetAnnotationPageResponse]
-	saveAnnotationPage    *connect.Client[v1.SaveAnnotationPageRequest, v1.SaveAnnotationPageResponse]
-	searchAnnotations     *connect.Client[v1.SearchAnnotationsRequest, v1.SearchAnnotationsResponse]
-	getAnnotation         *connect.Client[v1.GetAnnotationRequest, v1.GetAnnotationResponse]
-	publishItemImageEdits *connect.Client[v1.PublishItemImageEditsRequest, v1.PublishItemImageEditsResponse]
-	enrichAnnotation      *connect.Client[v1.EnrichAnnotationRequest, v1.EnrichAnnotationResponse]
-	splitLineIntoWords    *connect.Client[v1.SplitLineIntoWordsRequest, v1.SplitLineIntoWordsResponse]
-	splitPageIntoWords    *connect.Client[v1.SplitPageIntoWordsRequest, v1.SplitPageIntoWordsResponse]
-	splitLineIntoTwoLines *connect.Client[v1.SplitLineIntoTwoLinesRequest, v1.SplitLineIntoTwoLinesResponse]
-	joinLines             *connect.Client[v1.JoinLinesRequest, v1.JoinLinesResponse]
-	joinWordsIntoLine     *connect.Client[v1.JoinWordsIntoLineRequest, v1.JoinWordsIntoLineResponse]
-	exportAnnotationPage  *connect.Client[v1.ExportAnnotationPageRequest, v1.ExportAnnotationPageResponse]
-}
-
-// GetAnnotationPage calls scribe.v1.AnnotationService.GetAnnotationPage.
-func (c *annotationServiceClient) GetAnnotationPage(ctx context.Context, req *connect.Request[v1.GetAnnotationPageRequest]) (*connect.Response[v1.GetAnnotationPageResponse], error) {
-	return c.getAnnotationPage.CallUnary(ctx, req)
-}
-
-// SaveAnnotationPage calls scribe.v1.AnnotationService.SaveAnnotationPage.
-func (c *annotationServiceClient) SaveAnnotationPage(ctx context.Context, req *connect.Request[v1.SaveAnnotationPageRequest]) (*connect.Response[v1.SaveAnnotationPageResponse], error) {
-	return c.saveAnnotationPage.CallUnary(ctx, req)
-}
-
-// SearchAnnotations calls scribe.v1.AnnotationService.SearchAnnotations.
-func (c *annotationServiceClient) SearchAnnotations(ctx context.Context, req *connect.Request[v1.SearchAnnotationsRequest]) (*connect.Response[v1.SearchAnnotationsResponse], error) {
-	return c.searchAnnotations.CallUnary(ctx, req)
-}
-
-// GetAnnotation calls scribe.v1.AnnotationService.GetAnnotation.
-func (c *annotationServiceClient) GetAnnotation(ctx context.Context, req *connect.Request[v1.GetAnnotationRequest]) (*connect.Response[v1.GetAnnotationResponse], error) {
-	return c.getAnnotation.CallUnary(ctx, req)
-}
-
-// PublishItemImageEdits calls scribe.v1.AnnotationService.PublishItemImageEdits.
-func (c *annotationServiceClient) PublishItemImageEdits(ctx context.Context, req *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error) {
-	return c.publishItemImageEdits.CallUnary(ctx, req)
-}
-
-// EnrichAnnotation calls scribe.v1.AnnotationService.EnrichAnnotation.
-func (c *annotationServiceClient) EnrichAnnotation(ctx context.Context, req *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error) {
-	return c.enrichAnnotation.CallUnary(ctx, req)
-}
-
-// SplitLineIntoWords calls scribe.v1.AnnotationService.SplitLineIntoWords.
-func (c *annotationServiceClient) SplitLineIntoWords(ctx context.Context, req *connect.Request[v1.SplitLineIntoWordsRequest]) (*connect.Response[v1.SplitLineIntoWordsResponse], error) {
-	return c.splitLineIntoWords.CallUnary(ctx, req)
-}
-
-// SplitPageIntoWords calls scribe.v1.AnnotationService.SplitPageIntoWords.
-func (c *annotationServiceClient) SplitPageIntoWords(ctx context.Context, req *connect.Request[v1.SplitPageIntoWordsRequest]) (*connect.Response[v1.SplitPageIntoWordsResponse], error) {
-	return c.splitPageIntoWords.CallUnary(ctx, req)
-}
-
-// SplitLineIntoTwoLines calls scribe.v1.AnnotationService.SplitLineIntoTwoLines.
-func (c *annotationServiceClient) SplitLineIntoTwoLines(ctx context.Context, req *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error) {
-	return c.splitLineIntoTwoLines.CallUnary(ctx, req)
-}
-
-// JoinLines calls scribe.v1.AnnotationService.JoinLines.
-func (c *annotationServiceClient) JoinLines(ctx context.Context, req *connect.Request[v1.JoinLinesRequest]) (*connect.Response[v1.JoinLinesResponse], error) {
-	return c.joinLines.CallUnary(ctx, req)
-}
-
-// JoinWordsIntoLine calls scribe.v1.AnnotationService.JoinWordsIntoLine.
-func (c *annotationServiceClient) JoinWordsIntoLine(ctx context.Context, req *connect.Request[v1.JoinWordsIntoLineRequest]) (*connect.Response[v1.JoinWordsIntoLineResponse], error) {
-	return c.joinWordsIntoLine.CallUnary(ctx, req)
-}
-
-// ExportAnnotationPage calls scribe.v1.AnnotationService.ExportAnnotationPage.
-func (c *annotationServiceClient) ExportAnnotationPage(ctx context.Context, req *connect.Request[v1.ExportAnnotationPageRequest]) (*connect.Response[v1.ExportAnnotationPageResponse], error) {
-	return c.exportAnnotationPage.CallUnary(ctx, req)
+// NewAnnotationServiceClient constructs a client for the scribe.v1.AnnotationService service.
+// Multiple service clients may share a single connect.Client.
+func NewAnnotationServiceClient(client *connect.Client) AnnotationServiceClient {
+	return &annotationServiceClient{client: client}
 }
 
 // AnnotationServiceHandler is an implementation of the scribe.v1.AnnotationService service.
 type AnnotationServiceHandler interface {
-	GetAnnotationPage(context.Context, *connect.Request[v1.GetAnnotationPageRequest]) (*connect.Response[v1.GetAnnotationPageResponse], error)
-	SaveAnnotationPage(context.Context, *connect.Request[v1.SaveAnnotationPageRequest]) (*connect.Response[v1.SaveAnnotationPageResponse], error)
-	SearchAnnotations(context.Context, *connect.Request[v1.SearchAnnotationsRequest]) (*connect.Response[v1.SearchAnnotationsResponse], error)
-	GetAnnotation(context.Context, *connect.Request[v1.GetAnnotationRequest]) (*connect.Response[v1.GetAnnotationResponse], error)
-	PublishItemImageEdits(context.Context, *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error)
+	GetAnnotationPage(context.Context, *v1.GetAnnotationPageRequest) (*v1.GetAnnotationPageResponse, error)
+	SaveAnnotationPage(context.Context, *v1.SaveAnnotationPageRequest) (*v1.SaveAnnotationPageResponse, error)
+	SearchAnnotations(context.Context, *v1.SearchAnnotationsRequest) (*v1.SearchAnnotationsResponse, error)
+	GetAnnotation(context.Context, *v1.GetAnnotationRequest) (*v1.GetAnnotationResponse, error)
+	PublishItemImageEdits(context.Context, *v1.PublishItemImageEditsRequest) (*v1.PublishItemImageEditsResponse, error)
 	// Improve transcription for one line or a full canvas.
-	EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error)
+	EnrichAnnotation(context.Context, *v1.EnrichAnnotationRequest) (*v1.EnrichAnnotationResponse, error)
 	// Structural split/join operations.
-	SplitLineIntoWords(context.Context, *connect.Request[v1.SplitLineIntoWordsRequest]) (*connect.Response[v1.SplitLineIntoWordsResponse], error)
-	SplitPageIntoWords(context.Context, *connect.Request[v1.SplitPageIntoWordsRequest]) (*connect.Response[v1.SplitPageIntoWordsResponse], error)
-	SplitLineIntoTwoLines(context.Context, *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error)
-	JoinLines(context.Context, *connect.Request[v1.JoinLinesRequest]) (*connect.Response[v1.JoinLinesResponse], error)
-	JoinWordsIntoLine(context.Context, *connect.Request[v1.JoinWordsIntoLineRequest]) (*connect.Response[v1.JoinWordsIntoLineResponse], error)
+	SplitLineIntoWords(context.Context, *v1.SplitLineIntoWordsRequest) (*v1.SplitLineIntoWordsResponse, error)
+	SplitPageIntoWords(context.Context, *v1.SplitPageIntoWordsRequest) (*v1.SplitPageIntoWordsResponse, error)
+	SplitLineIntoTwoLines(context.Context, *v1.SplitLineIntoTwoLinesRequest) (*v1.SplitLineIntoTwoLinesResponse, error)
+	JoinLines(context.Context, *v1.JoinLinesRequest) (*v1.JoinLinesResponse, error)
+	JoinWordsIntoLine(context.Context, *v1.JoinWordsIntoLineRequest) (*v1.JoinWordsIntoLineResponse, error)
 	// Export one exact committed canonical revision to a rebuildable OCR view.
-	ExportAnnotationPage(context.Context, *connect.Request[v1.ExportAnnotationPageRequest]) (*connect.Response[v1.ExportAnnotationPageResponse], error)
+	ExportAnnotationPage(context.Context, *v1.ExportAnnotationPageRequest) (*v1.ExportAnnotationPageResponse, error)
 }
 
-// NewAnnotationServiceHandler builds an HTTP handler from the service implementation. It returns
-// the path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewAnnotationServiceHandler(svc AnnotationServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	annotationServiceMethods := v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods()
-	annotationServiceGetAnnotationPageHandler := connect.NewUnaryHandler(
-		AnnotationServiceGetAnnotationPageProcedure,
-		svc.GetAnnotationPage,
-		connect.WithSchema(annotationServiceMethods.ByName("GetAnnotationPage")),
-		connect.WithHandlerOptions(opts...),
+// RegisterAnnotationServiceHandler registers svc as the scribe.v1.AnnotationService implementation
+// on server.
+func RegisterAnnotationServiceHandler(server *connect.Server, svc AnnotationServiceHandler) {
+	adapter := annotationServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: annotationServiceGetAnnotationPageSpec(), Handler: adapter.getAnnotationPage},
+		connect.Method{Spec: annotationServiceSaveAnnotationPageSpec(), Handler: adapter.saveAnnotationPage},
+		connect.Method{Spec: annotationServiceSearchAnnotationsSpec(), Handler: adapter.searchAnnotations},
+		connect.Method{Spec: annotationServiceGetAnnotationSpec(), Handler: adapter.getAnnotation},
+		connect.Method{Spec: annotationServicePublishItemImageEditsSpec(), Handler: adapter.publishItemImageEdits},
+		connect.Method{Spec: annotationServiceEnrichAnnotationSpec(), Handler: adapter.enrichAnnotation},
+		connect.Method{Spec: annotationServiceSplitLineIntoWordsSpec(), Handler: adapter.splitLineIntoWords},
+		connect.Method{Spec: annotationServiceSplitPageIntoWordsSpec(), Handler: adapter.splitPageIntoWords},
+		connect.Method{Spec: annotationServiceSplitLineIntoTwoLinesSpec(), Handler: adapter.splitLineIntoTwoLines},
+		connect.Method{Spec: annotationServiceJoinLinesSpec(), Handler: adapter.joinLines},
+		connect.Method{Spec: annotationServiceJoinWordsIntoLineSpec(), Handler: adapter.joinWordsIntoLine},
+		connect.Method{Spec: annotationServiceExportAnnotationPageSpec(), Handler: adapter.exportAnnotationPage},
 	)
-	annotationServiceSaveAnnotationPageHandler := connect.NewUnaryHandler(
-		AnnotationServiceSaveAnnotationPageProcedure,
-		svc.SaveAnnotationPage,
-		connect.WithSchema(annotationServiceMethods.ByName("SaveAnnotationPage")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceSearchAnnotationsHandler := connect.NewUnaryHandler(
-		AnnotationServiceSearchAnnotationsProcedure,
-		svc.SearchAnnotations,
-		connect.WithSchema(annotationServiceMethods.ByName("SearchAnnotations")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceGetAnnotationHandler := connect.NewUnaryHandler(
-		AnnotationServiceGetAnnotationProcedure,
-		svc.GetAnnotation,
-		connect.WithSchema(annotationServiceMethods.ByName("GetAnnotation")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServicePublishItemImageEditsHandler := connect.NewUnaryHandler(
-		AnnotationServicePublishItemImageEditsProcedure,
-		svc.PublishItemImageEdits,
-		connect.WithSchema(annotationServiceMethods.ByName("PublishItemImageEdits")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceEnrichAnnotationHandler := connect.NewUnaryHandler(
-		AnnotationServiceEnrichAnnotationProcedure,
-		svc.EnrichAnnotation,
-		connect.WithSchema(annotationServiceMethods.ByName("EnrichAnnotation")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceSplitLineIntoWordsHandler := connect.NewUnaryHandler(
-		AnnotationServiceSplitLineIntoWordsProcedure,
-		svc.SplitLineIntoWords,
-		connect.WithSchema(annotationServiceMethods.ByName("SplitLineIntoWords")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceSplitPageIntoWordsHandler := connect.NewUnaryHandler(
-		AnnotationServiceSplitPageIntoWordsProcedure,
-		svc.SplitPageIntoWords,
-		connect.WithSchema(annotationServiceMethods.ByName("SplitPageIntoWords")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceSplitLineIntoTwoLinesHandler := connect.NewUnaryHandler(
-		AnnotationServiceSplitLineIntoTwoLinesProcedure,
-		svc.SplitLineIntoTwoLines,
-		connect.WithSchema(annotationServiceMethods.ByName("SplitLineIntoTwoLines")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceJoinLinesHandler := connect.NewUnaryHandler(
-		AnnotationServiceJoinLinesProcedure,
-		svc.JoinLines,
-		connect.WithSchema(annotationServiceMethods.ByName("JoinLines")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceJoinWordsIntoLineHandler := connect.NewUnaryHandler(
-		AnnotationServiceJoinWordsIntoLineProcedure,
-		svc.JoinWordsIntoLine,
-		connect.WithSchema(annotationServiceMethods.ByName("JoinWordsIntoLine")),
-		connect.WithHandlerOptions(opts...),
-	)
-	annotationServiceExportAnnotationPageHandler := connect.NewUnaryHandler(
-		AnnotationServiceExportAnnotationPageProcedure,
-		svc.ExportAnnotationPage,
-		connect.WithSchema(annotationServiceMethods.ByName("ExportAnnotationPage")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/scribe.v1.AnnotationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case AnnotationServiceGetAnnotationPageProcedure:
-			annotationServiceGetAnnotationPageHandler.ServeHTTP(w, r)
-		case AnnotationServiceSaveAnnotationPageProcedure:
-			annotationServiceSaveAnnotationPageHandler.ServeHTTP(w, r)
-		case AnnotationServiceSearchAnnotationsProcedure:
-			annotationServiceSearchAnnotationsHandler.ServeHTTP(w, r)
-		case AnnotationServiceGetAnnotationProcedure:
-			annotationServiceGetAnnotationHandler.ServeHTTP(w, r)
-		case AnnotationServicePublishItemImageEditsProcedure:
-			annotationServicePublishItemImageEditsHandler.ServeHTTP(w, r)
-		case AnnotationServiceEnrichAnnotationProcedure:
-			annotationServiceEnrichAnnotationHandler.ServeHTTP(w, r)
-		case AnnotationServiceSplitLineIntoWordsProcedure:
-			annotationServiceSplitLineIntoWordsHandler.ServeHTTP(w, r)
-		case AnnotationServiceSplitPageIntoWordsProcedure:
-			annotationServiceSplitPageIntoWordsHandler.ServeHTTP(w, r)
-		case AnnotationServiceSplitLineIntoTwoLinesProcedure:
-			annotationServiceSplitLineIntoTwoLinesHandler.ServeHTTP(w, r)
-		case AnnotationServiceJoinLinesProcedure:
-			annotationServiceJoinLinesHandler.ServeHTTP(w, r)
-		case AnnotationServiceJoinWordsIntoLineProcedure:
-			annotationServiceJoinWordsIntoLineHandler.ServeHTTP(w, r)
-		case AnnotationServiceExportAnnotationPageProcedure:
-			annotationServiceExportAnnotationPageHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedAnnotationServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAnnotationServiceHandler struct{}
 
-func (UnimplementedAnnotationServiceHandler) GetAnnotationPage(context.Context, *connect.Request[v1.GetAnnotationPageRequest]) (*connect.Response[v1.GetAnnotationPageResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.GetAnnotationPage is not implemented"))
+func (UnimplementedAnnotationServiceHandler) GetAnnotationPage(context.Context, *v1.GetAnnotationPageRequest) (*v1.GetAnnotationPageResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.GetAnnotationPage is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) SaveAnnotationPage(context.Context, *connect.Request[v1.SaveAnnotationPageRequest]) (*connect.Response[v1.SaveAnnotationPageResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.SaveAnnotationPage is not implemented"))
+func (UnimplementedAnnotationServiceHandler) SaveAnnotationPage(context.Context, *v1.SaveAnnotationPageRequest) (*v1.SaveAnnotationPageResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.SaveAnnotationPage is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) SearchAnnotations(context.Context, *connect.Request[v1.SearchAnnotationsRequest]) (*connect.Response[v1.SearchAnnotationsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.SearchAnnotations is not implemented"))
+func (UnimplementedAnnotationServiceHandler) SearchAnnotations(context.Context, *v1.SearchAnnotationsRequest) (*v1.SearchAnnotationsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.SearchAnnotations is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) GetAnnotation(context.Context, *connect.Request[v1.GetAnnotationRequest]) (*connect.Response[v1.GetAnnotationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.GetAnnotation is not implemented"))
+func (UnimplementedAnnotationServiceHandler) GetAnnotation(context.Context, *v1.GetAnnotationRequest) (*v1.GetAnnotationResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.GetAnnotation is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) PublishItemImageEdits(context.Context, *connect.Request[v1.PublishItemImageEditsRequest]) (*connect.Response[v1.PublishItemImageEditsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.PublishItemImageEdits is not implemented"))
+func (UnimplementedAnnotationServiceHandler) PublishItemImageEdits(context.Context, *v1.PublishItemImageEditsRequest) (*v1.PublishItemImageEditsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.PublishItemImageEdits is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) EnrichAnnotation(context.Context, *connect.Request[v1.EnrichAnnotationRequest]) (*connect.Response[v1.EnrichAnnotationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.EnrichAnnotation is not implemented"))
+func (UnimplementedAnnotationServiceHandler) EnrichAnnotation(context.Context, *v1.EnrichAnnotationRequest) (*v1.EnrichAnnotationResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.EnrichAnnotation is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) SplitLineIntoWords(context.Context, *connect.Request[v1.SplitLineIntoWordsRequest]) (*connect.Response[v1.SplitLineIntoWordsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.SplitLineIntoWords is not implemented"))
+func (UnimplementedAnnotationServiceHandler) SplitLineIntoWords(context.Context, *v1.SplitLineIntoWordsRequest) (*v1.SplitLineIntoWordsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.SplitLineIntoWords is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) SplitPageIntoWords(context.Context, *connect.Request[v1.SplitPageIntoWordsRequest]) (*connect.Response[v1.SplitPageIntoWordsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.SplitPageIntoWords is not implemented"))
+func (UnimplementedAnnotationServiceHandler) SplitPageIntoWords(context.Context, *v1.SplitPageIntoWordsRequest) (*v1.SplitPageIntoWordsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.SplitPageIntoWords is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) SplitLineIntoTwoLines(context.Context, *connect.Request[v1.SplitLineIntoTwoLinesRequest]) (*connect.Response[v1.SplitLineIntoTwoLinesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.SplitLineIntoTwoLines is not implemented"))
+func (UnimplementedAnnotationServiceHandler) SplitLineIntoTwoLines(context.Context, *v1.SplitLineIntoTwoLinesRequest) (*v1.SplitLineIntoTwoLinesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.SplitLineIntoTwoLines is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) JoinLines(context.Context, *connect.Request[v1.JoinLinesRequest]) (*connect.Response[v1.JoinLinesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.JoinLines is not implemented"))
+func (UnimplementedAnnotationServiceHandler) JoinLines(context.Context, *v1.JoinLinesRequest) (*v1.JoinLinesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.JoinLines is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) JoinWordsIntoLine(context.Context, *connect.Request[v1.JoinWordsIntoLineRequest]) (*connect.Response[v1.JoinWordsIntoLineResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.JoinWordsIntoLine is not implemented"))
+func (UnimplementedAnnotationServiceHandler) JoinWordsIntoLine(context.Context, *v1.JoinWordsIntoLineRequest) (*v1.JoinWordsIntoLineResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.JoinWordsIntoLine is not implemented")
 }
 
-func (UnimplementedAnnotationServiceHandler) ExportAnnotationPage(context.Context, *connect.Request[v1.ExportAnnotationPageRequest]) (*connect.Response[v1.ExportAnnotationPageResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AnnotationService.ExportAnnotationPage is not implemented"))
+func (UnimplementedAnnotationServiceHandler) ExportAnnotationPage(context.Context, *v1.ExportAnnotationPageRequest) (*v1.ExportAnnotationPageResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.ExportAnnotationPage is not implemented")
+}
+
+type annotationServiceClient struct {
+	client *connect.Client
+}
+
+func (c *annotationServiceClient) GetAnnotationPage(ctx context.Context, req *v1.GetAnnotationPageRequest) (*v1.GetAnnotationPageResponse, error) {
+	var res v1.GetAnnotationPageResponse
+	if err := c.client.CallUnary(ctx, annotationServiceGetAnnotationPageSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) SaveAnnotationPage(ctx context.Context, req *v1.SaveAnnotationPageRequest) (*v1.SaveAnnotationPageResponse, error) {
+	var res v1.SaveAnnotationPageResponse
+	if err := c.client.CallUnary(ctx, annotationServiceSaveAnnotationPageSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) SearchAnnotations(ctx context.Context, req *v1.SearchAnnotationsRequest) (*v1.SearchAnnotationsResponse, error) {
+	var res v1.SearchAnnotationsResponse
+	if err := c.client.CallUnary(ctx, annotationServiceSearchAnnotationsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) GetAnnotation(ctx context.Context, req *v1.GetAnnotationRequest) (*v1.GetAnnotationResponse, error) {
+	var res v1.GetAnnotationResponse
+	if err := c.client.CallUnary(ctx, annotationServiceGetAnnotationSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) PublishItemImageEdits(ctx context.Context, req *v1.PublishItemImageEditsRequest) (*v1.PublishItemImageEditsResponse, error) {
+	var res v1.PublishItemImageEditsResponse
+	if err := c.client.CallUnary(ctx, annotationServicePublishItemImageEditsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) EnrichAnnotation(ctx context.Context, req *v1.EnrichAnnotationRequest) (*v1.EnrichAnnotationResponse, error) {
+	var res v1.EnrichAnnotationResponse
+	if err := c.client.CallUnary(ctx, annotationServiceEnrichAnnotationSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) SplitLineIntoWords(ctx context.Context, req *v1.SplitLineIntoWordsRequest) (*v1.SplitLineIntoWordsResponse, error) {
+	var res v1.SplitLineIntoWordsResponse
+	if err := c.client.CallUnary(ctx, annotationServiceSplitLineIntoWordsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) SplitPageIntoWords(ctx context.Context, req *v1.SplitPageIntoWordsRequest) (*v1.SplitPageIntoWordsResponse, error) {
+	var res v1.SplitPageIntoWordsResponse
+	if err := c.client.CallUnary(ctx, annotationServiceSplitPageIntoWordsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) SplitLineIntoTwoLines(ctx context.Context, req *v1.SplitLineIntoTwoLinesRequest) (*v1.SplitLineIntoTwoLinesResponse, error) {
+	var res v1.SplitLineIntoTwoLinesResponse
+	if err := c.client.CallUnary(ctx, annotationServiceSplitLineIntoTwoLinesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) JoinLines(ctx context.Context, req *v1.JoinLinesRequest) (*v1.JoinLinesResponse, error) {
+	var res v1.JoinLinesResponse
+	if err := c.client.CallUnary(ctx, annotationServiceJoinLinesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) JoinWordsIntoLine(ctx context.Context, req *v1.JoinWordsIntoLineRequest) (*v1.JoinWordsIntoLineResponse, error) {
+	var res v1.JoinWordsIntoLineResponse
+	if err := c.client.CallUnary(ctx, annotationServiceJoinWordsIntoLineSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) ExportAnnotationPage(ctx context.Context, req *v1.ExportAnnotationPageRequest) (*v1.ExportAnnotationPageResponse, error) {
+	var res v1.ExportAnnotationPageResponse
+	if err := c.client.CallUnary(ctx, annotationServiceExportAnnotationPageSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type annotationServiceHandler struct{ svc AnnotationServiceHandler }
+
+func (h annotationServiceHandler) getAnnotationPage(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetAnnotationPageRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetAnnotationPage(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) saveAnnotationPage(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SaveAnnotationPageRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SaveAnnotationPage(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) searchAnnotations(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SearchAnnotationsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SearchAnnotations(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) getAnnotation(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetAnnotationRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetAnnotation(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) publishItemImageEdits(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.PublishItemImageEditsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.PublishItemImageEdits(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) enrichAnnotation(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.EnrichAnnotationRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.EnrichAnnotation(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) splitLineIntoWords(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SplitLineIntoWordsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SplitLineIntoWords(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) splitPageIntoWords(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SplitPageIntoWordsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SplitPageIntoWords(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) splitLineIntoTwoLines(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SplitLineIntoTwoLinesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SplitLineIntoTwoLines(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) joinLines(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.JoinLinesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.JoinLines(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) joinWordsIntoLine(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.JoinWordsIntoLineRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.JoinWordsIntoLine(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) exportAnnotationPage(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ExportAnnotationPageRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ExportAnnotationPage(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

@@ -238,7 +238,7 @@ func NewHandler(
 		handler.ocr.SetProviderCallAuditLogger(providerCallAuditLogger(providerCallAudits))
 	}
 	mux := http.NewServeMux()
-	registerConnectServices(mux, handler, authManager, connectHandlerOptions(authManager)...)
+	registerConnectServices(mux, handler, authManager, connectServerInterceptors(authManager)...)
 
 	// Liveness only checks the process. Readiness verifies required persistence.
 	mux.HandleFunc("GET /livez", handler.handleLiveness)

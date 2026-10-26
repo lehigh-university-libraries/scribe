@@ -101,7 +101,7 @@ export default function StructuralEditDialogs({ structuralEdits }) {
             <Stack
               aria-label="Available word boundaries"
               direction="row"
-              flexWrap="wrap"
+              sx={{ flexWrap: "wrap" }}
               role="group"
               spacing={0.75}
               useFlexGap
@@ -169,7 +169,7 @@ export default function StructuralEditDialogs({ structuralEdits }) {
                     checked={checked}
                     disabled={required}
                     edge="start"
-                    inputProps={{ 'aria-label': `Select line ${index + 1}: ${text}` }}
+                    slotProps={{ input: { 'aria-label': `Select line ${index + 1}: ${text}` } }}
                     tabIndex={-1}
                   />
                   <ListItemText primary={text} secondary={required ? 'Current line' : annotation.id} />
@@ -200,7 +200,7 @@ export default function StructuralEditDialogs({ structuralEdits }) {
                     checked={checked}
                     disabled={required}
                     edge="start"
-                    inputProps={{ 'aria-label': `Select word ${index + 1}: ${text}` }}
+                    slotProps={{ input: { 'aria-label': `Select word ${index + 1}: ${text}` } }}
                     tabIndex={-1}
                   />
                   <ListItemText primary={text} secondary={required ? 'Current word' : annotation.id} />

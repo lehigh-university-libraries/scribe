@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
@@ -272,13 +272,13 @@ func TestRoleOnlyAPIKeyCreationDefaultsScopesAndPreservesRestrictions(t *testing
 		{role: "admin", scopes: []string{"annotations:read"}, read: true},
 	} {
 		t.Run(test.role+fmt.Sprint(test.scopes), func(t *testing.T) {
-			response, err := manager.CreateAPIKey(ctx, connect.NewRequest(&scribev1.CreateAPIKeyRequest{
+			response, err := manager.CreateAPIKey(ctx, &scribev1.CreateAPIKeyRequest{
 				Name: "role-only regression", Role: test.role, Scopes: test.scopes,
-			}))
+			})
 			if err != nil {
 				t.Fatalf("CreateAPIKey: %v", err)
 			}
-			principal, err := manager.apiKeyPrincipal(ctx, response.Msg.GetKey())
+			principal, err := manager.apiKeyPrincipal(ctx, response.GetKey())
 			if err != nil {
 				t.Fatalf("authenticate created key: %v", err)
 			}
@@ -440,22 +440,22 @@ VALUES (?, ?, (SELECT COUNT(*) FROM item_images existing WHERE existing.item_id 
 		WorkspaceID: workspace.ID, WorkspaceRole: "admin",
 		ExternalIssuer: "https://islandora.example", ExternalSubject: "service",
 	}
-	created, err := manager.CreateEditorReviewToken(WithPrincipal(ctx, principal), connect.NewRequest(&scribev1.CreateEditorReviewTokenRequest{
+	created, err := manager.CreateEditorReviewToken(WithPrincipal(ctx, principal), &scribev1.CreateEditorReviewTokenRequest{
 		ItemImageId: imageID, ReviewerSubject: "islandora-user-7", ReviewerName: "Review User",
 		ReviewerEmail: "reviewer@example.org", TokenTtlSeconds: 300, SessionTtlSeconds: 3600,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("CreateEditorReviewToken: %v", err)
 	}
-	reviewURL, err := url.Parse(created.Msg.GetReviewUrl())
+	reviewURL, err := url.Parse(created.GetReviewUrl())
 	if err != nil || reviewURL.Scheme != "https" || reviewURL.Host != "scribe.example" || reviewURL.Path != "/auth/review" || reviewURL.Query().Get("token") == "" {
-		t.Fatalf("review URL = %q/%v", created.Msg.GetReviewUrl(), err)
+		t.Fatalf("review URL = %q/%v", created.GetReviewUrl(), err)
 	}
-	if strings.Contains(created.Msg.GetReviewUrl(), "islandora-user-7") {
+	if strings.Contains(created.GetReviewUrl(), "islandora-user-7") {
 		t.Fatal("raw reviewer subject leaked into review URL")
 	}
 
-	redeemRequest := httptest.NewRequest(http.MethodGet, created.Msg.GetReviewUrl(), nil)
+	redeemRequest := httptest.NewRequest(http.MethodGet, created.GetReviewUrl(), nil)
 	redeemResponse := httptest.NewRecorder()
 	manager.handleEditorReviewRedeem(redeemResponse, redeemRequest)
 	if redeemResponse.Code != http.StatusSeeOther {
@@ -471,7 +471,7 @@ VALUES (?, ?, (SELECT COUNT(*) FROM item_images existing WHERE existing.item_id 
 	}
 
 	replayResponse := httptest.NewRecorder()
-	manager.handleEditorReviewRedeem(replayResponse, httptest.NewRequest(http.MethodGet, created.Msg.GetReviewUrl(), nil))
+	manager.handleEditorReviewRedeem(replayResponse, httptest.NewRequest(http.MethodGet, created.GetReviewUrl(), nil))
 	if replayResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("replayed review URL status = %d, want 401", replayResponse.Code)
 	}

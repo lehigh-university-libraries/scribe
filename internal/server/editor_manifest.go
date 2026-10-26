@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
@@ -17,15 +17,15 @@ import (
 // GetEditorManifest returns a private draft Manifest through Connect. The
 // browser loads these bytes from an object URL, so Scribe does not implement a
 // second Presentation HTTP surface beside Triplet.
-func (h *Handler) GetEditorManifest(ctx context.Context, req *connect.Request[scribev1.GetEditorManifestRequest]) (*connect.Response[scribev1.GetEditorManifestResponse], error) {
-	itemImageID := req.Msg.GetItemImageId()
+func (h *Handler) GetEditorManifest(ctx context.Context, req *scribev1.GetEditorManifestRequest) (*scribev1.GetEditorManifestResponse, error) {
+	itemImageID := req.GetItemImageId()
 	image, err := h.itemImageForRequest(ctx, itemImageID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item image not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "item image not found")
 	}
 	item, err := h.itemForRequest(ctx, image.ItemID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "item not found")
 	}
 	if principal, ok := auth.PrincipalFromContext(ctx); ok && principal.ScopedItemImageID > 0 {
 		// A review handoff is image-scoped even when its image belongs to a
@@ -34,7 +34,7 @@ func (h *Handler) GetEditorManifest(ctx context.Context, req *connect.Request[sc
 		// before any sibling image URL or annotation identity can cross this
 		// delegated boundary.
 		if principal.ScopedItemImageID != image.ID {
-			return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("editor review session is scoped to another item image"))
+			return nil, connect.Errorf(connect.CodePermissionDenied, "editor review session is scoped to another item image")
 		}
 		item.Images = []store.ItemImage{image}
 		// Imported Manifest top-level structures, start values, and extension
@@ -45,13 +45,13 @@ func (h *Handler) GetEditorManifest(ctx context.Context, req *connect.Request[sc
 	}
 	manifest, selectedCanvasID, err := h.buildEditorManifest(ctx, item, itemImageID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("build editor manifest"))
+		return nil, connect.Errorf(connect.CodeInternal, "build editor manifest")
 	}
-	return connect.NewResponse(&scribev1.GetEditorManifestResponse{
+	return &scribev1.GetEditorManifestResponse{
 		Item:             storeItemToProto(item),
 		ManifestJson:     string(manifest),
 		SelectedCanvasId: selectedCanvasID,
-	}), nil
+	}, nil
 }
 
 func (h *Handler) buildEditorManifest(ctx context.Context, item store.Item, selectedItemImageID uint64) ([]byte, string, error) {

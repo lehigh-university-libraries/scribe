@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
@@ -19,7 +18,7 @@ func TestGetModelCatalogAdvertisesTemperaturePerTranscriptionModel(t *testing.T)
 
 	response, err := (&Handler{}).GetModelCatalog(
 		context.Background(),
-		connect.NewRequest(&scribev1.GetModelCatalogRequest{}),
+		&scribev1.GetModelCatalogRequest{},
 	)
 	if err != nil {
 		t.Fatalf("GetModelCatalog() error = %v", err)
@@ -29,7 +28,7 @@ func TestGetModelCatalogAdvertisesTemperaturePerTranscriptionModel(t *testing.T)
 		"gemini-3.5-flash": false,
 		"gemini-2.5-flash": true,
 	}
-	for _, provider := range response.Msg.GetTranscriptionProviders() {
+	for _, provider := range response.GetTranscriptionProviders() {
 		if provider.GetId() != "gemini" {
 			continue
 		}

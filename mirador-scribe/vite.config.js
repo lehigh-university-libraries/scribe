@@ -1,6 +1,6 @@
 import react from '@vitejs/plugin-react';
 import { copyFileSync, mkdirSync } from 'node:fs';
-import pkg from './package.json';
+import pkg from './package.json' with { type: 'json' };
 
 const peers = Object.keys(pkg.peerDependencies || {});
 
@@ -12,7 +12,7 @@ export default {
       formats: ['es', 'cjs'],
       name: 'MiradorScribePlugin',
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: [
         ...peers,
         /^react(\/.*)?$/,

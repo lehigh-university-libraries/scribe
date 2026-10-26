@@ -2,14 +2,12 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
-	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -39,12 +37,16 @@ func TestConnectTelemetryRecordsBoundedMetricsAndRedactedTrace(t *testing.T) {
 		t.Fatalf("newConnectTelemetryInterceptor: %v", err)
 	}
 
-	request := connect.NewRequest(&scribev1.GetItemRequest{})
-	request.Header().Set("Traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
-	handler := interceptor.WrapUnary(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New(sensitive))
+	ctx := trace.ContextWithRemoteSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{0x4b, 0xf9, 0x2f, 0x35, 0x77, 0xb3, 0x4d, 0xa6, 0xa3, 0xce, 0x92, 0x9d, 0x0e, 0x0e, 0x47, 0x36},
+		SpanID:     trace.SpanID{0, 0xf0, 0x67, 0xaa, 0x0b, 0xa9, 2, 0xb7},
+		TraceFlags: trace.FlagsSampled,
+		Remote:     true,
+	}))
+	handler := interceptor.Wrap(func(context.Context, connect.Spec, connect.ServerStream) error {
+		return connect.NewError(connect.CodeInvalidArgument, sensitive)
 	})
-	if _, err := handler(context.Background(), request); connect.CodeOf(err) != connect.CodeInvalidArgument {
+	if err := handler(ctx, connect.Spec{}, fakeConnectStreamingConn{}); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("handler code = %v, want invalid_argument", connect.CodeOf(err))
 	}
 

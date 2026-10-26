@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -137,79 +137,79 @@ func TestListItemsHandlerContinuesWithoutDuplicates(t *testing.T) {
 		UserID:        userID,
 		WorkspaceID:   workspaceID,
 	})
-	first, err := handler.ListItems(requestContext, connect.NewRequest(&scribev1.ListItemsRequest{PageSize: 2}))
+	first, err := handler.ListItems(requestContext, &scribev1.ListItemsRequest{PageSize: 2})
 	if err != nil {
 		t.Fatalf("ListItems(first): %v", err)
 	}
-	if got := protoItemIDs(first.Msg.GetItems()); len(got) != 2 || got[0] != itemIDs[0] || got[1] != itemIDs[1] {
+	if got := protoItemIDs(first.GetItems()); len(got) != 2 || got[0] != itemIDs[0] || got[1] != itemIDs[1] {
 		t.Fatalf("first page ids = %v, want %v", got, itemIDs[:2])
 	}
-	if first.Msg.GetItems()[0].GetImageCount() != 1 || first.Msg.GetItems()[0].GetPreviewImage().GetLabel() != "First page" {
-		t.Fatalf("first summary = %+v, want one bounded preview", first.Msg.GetItems()[0])
+	if first.GetItems()[0].GetImageCount() != 1 || first.GetItems()[0].GetPreviewImage().GetLabel() != "First page" {
+		t.Fatalf("first summary = %+v, want one bounded preview", first.GetItems()[0])
 	}
-	if first.Msg.GetNextPageToken() == "" {
+	if first.GetNextPageToken() == "" {
 		t.Fatal("first page did not return a continuation token")
 	}
-	second, err := handler.ListItems(requestContext, connect.NewRequest(&scribev1.ListItemsRequest{
+	second, err := handler.ListItems(requestContext, &scribev1.ListItemsRequest{
 		PageSize:  2,
-		PageToken: first.Msg.GetNextPageToken(),
-	}))
+		PageToken: first.GetNextPageToken(),
+	})
 	if err != nil {
 		t.Fatalf("ListItems(second): %v", err)
 	}
-	if got := protoItemIDs(second.Msg.GetItems()); len(got) != 1 || got[0] != itemIDs[2] {
+	if got := protoItemIDs(second.GetItems()); len(got) != 1 || got[0] != itemIDs[2] {
 		t.Fatalf("second page ids = %v, want [%s]", got, itemIDs[2])
 	}
-	if second.Msg.GetNextPageToken() != "" {
-		t.Fatalf("last page next token = %q, want empty", second.Msg.GetNextPageToken())
+	if second.GetNextPageToken() != "" {
+		t.Fatalf("last page next token = %q, want empty", second.GetNextPageToken())
 	}
 
-	_, err = handler.ListItems(requestContext, connect.NewRequest(&scribev1.ListItemsRequest{PageToken: "malformed"}))
+	_, err = handler.ListItems(requestContext, &scribev1.ListItemsRequest{PageToken: "malformed"})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("malformed token code = %s, want invalid_argument", connect.CodeOf(err))
 	}
 
-	filteredFirst, err := handler.ListItems(requestContext, connect.NewRequest(&scribev1.ListItemsRequest{
+	filteredFirst, err := handler.ListItems(requestContext, &scribev1.ListItemsRequest{
 		PageSize: 1,
 		Query:    "  Needle  ",
-	}))
+	})
 	if err != nil {
 		t.Fatalf("ListItems(filtered first): %v", err)
 	}
-	if got := protoItemIDs(filteredFirst.Msg.GetItems()); len(got) != 1 || got[0] != itemIDs[0] {
+	if got := protoItemIDs(filteredFirst.GetItems()); len(got) != 1 || got[0] != itemIDs[0] {
 		t.Fatalf("filtered first page ids = %v, want [%s]", got, itemIDs[0])
 	}
-	filteredSecond, err := handler.ListItems(requestContext, connect.NewRequest(&scribev1.ListItemsRequest{
+	filteredSecond, err := handler.ListItems(requestContext, &scribev1.ListItemsRequest{
 		PageSize:  1,
-		PageToken: filteredFirst.Msg.GetNextPageToken(),
+		PageToken: filteredFirst.GetNextPageToken(),
 		Query:     "Needle",
-	}))
+	})
 	if err != nil {
 		t.Fatalf("ListItems(filtered second): %v", err)
 	}
-	if got := protoItemIDs(filteredSecond.Msg.GetItems()); len(got) != 1 || got[0] != itemIDs[1] {
+	if got := protoItemIDs(filteredSecond.GetItems()); len(got) != 1 || got[0] != itemIDs[1] {
 		t.Fatalf("filtered second page ids = %v, want [%s]", got, itemIDs[1])
 	}
-	_, err = handler.ListItems(requestContext, connect.NewRequest(&scribev1.ListItemsRequest{
-		PageToken: filteredFirst.Msg.GetNextPageToken(),
+	_, err = handler.ListItems(requestContext, &scribev1.ListItemsRequest{
+		PageToken: filteredFirst.GetNextPageToken(),
 		Query:     "Haystack",
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("changed-query token code = %s, want invalid_argument", connect.CodeOf(err))
 	}
 
-	literal, err := handler.ListItems(requestContext, connect.NewRequest(&scribev1.ListItemsRequest{Query: "%_"}))
+	literal, err := handler.ListItems(requestContext, &scribev1.ListItemsRequest{Query: "%_"})
 	if err != nil {
 		t.Fatalf("ListItems(literal wildcard): %v", err)
 	}
-	if got := protoItemIDs(literal.Msg.GetItems()); len(got) != 1 || got[0] != itemIDs[0] {
+	if got := protoItemIDs(literal.GetItems()); len(got) != 1 || got[0] != itemIDs[0] {
 		t.Fatalf("literal wildcard filter ids = %v, want [%s]", got, itemIDs[0])
 	}
 }
 
 func TestListItemsHandlerFailsClosedWithoutTokenSigner(t *testing.T) {
 	handler := &Handler{}
-	_, err := handler.ListItems(context.Background(), connect.NewRequest(&scribev1.ListItemsRequest{}))
+	_, err := handler.ListItems(context.Background(), &scribev1.ListItemsRequest{})
 	if connect.CodeOf(err) != connect.CodeInternal {
 		t.Fatalf("missing signer code = %s, want internal", connect.CodeOf(err))
 	}

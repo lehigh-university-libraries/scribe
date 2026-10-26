@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -23,7 +25,7 @@ func TestAnnotationReconciliationPersistsThroughRealConnectSaveReload(t *testing
 	appServer := newTenantScopedServer(t, handler, map[string]testTenantIdentity{
 		"owner": {workspaceID: workspaceID, userID: userID},
 	})
-	client := scribev1connect.NewAnnotationServiceClient(appServer.Client(), appServer.URL)
+	client := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(appServer.Client(), appServer.URL, connecthttp.WithReadMaxBytes(0))))
 
 	seed := func(t *testing.T, name string, build func(string, string) []any) (store.ItemImage, store.AnnotationPage) {
 		t.Helper()
@@ -67,7 +69,7 @@ func TestAnnotationReconciliationPersistsThroughRealConnectSaveReload(t *testing
 		setAnnotationText(reconciliationAnnotation(t, draftItems, courseID), "Revised")
 		setAnnotationText(reconciliationAnnotation(t, draftItems, catalogID), "Course Catalog")
 		current := wordLifecycleSaveAndReload(t, ctx, client, image.ID, wordLifecycleJSON(t, draft), seeded.Revision)
-		words := reconciliationWords(t, wordLifecycleDocument(t, current.Msg.GetAnnotationPageJson())["items"].([]any))
+		words := reconciliationWords(t, wordLifecycleDocument(t, current.GetAnnotationPageJson())["items"].([]any))
 		if got := reconciliationWordTexts(words); got != "Revised Course Catalog" {
 			t.Fatalf("inserted word sequence = %q", got)
 		}
@@ -83,19 +85,19 @@ func TestAnnotationReconciliationPersistsThroughRealConnectSaveReload(t *testing
 
 		// Mirror the browser's fewer-token distribution on the persisted
 		// three-word base. The inserted ID is now the only unmatched LCS item.
-		draft = wordLifecycleDocument(t, current.Msg.GetAnnotationPageJson())
+		draft = wordLifecycleDocument(t, current.GetAnnotationPageJson())
 		draftItems = draft["items"].([]any)
 		setAnnotationText(reconciliationAnnotation(t, draftItems, lineID), "Course Catalog")
 		ordered := reconciliationWords(t, draftItems)
 		setAnnotationText(ordered[0], "Course")
 		setAnnotationText(ordered[1], "Catalog")
 		setAnnotationText(ordered[2], "")
-		current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, wordLifecycleJSON(t, draft), current.Msg.GetRevision())
-		words = reconciliationWords(t, wordLifecycleDocument(t, current.Msg.GetAnnotationPageJson())["items"].([]any))
+		current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, wordLifecycleJSON(t, draft), current.GetRevision())
+		words = reconciliationWords(t, wordLifecycleDocument(t, current.GetAnnotationPageJson())["items"].([]any))
 		if got := reconciliationWordTexts(words); got != "Course Catalog" || len(words) != 2 {
 			t.Fatalf("deleted-token word sequence = %q (%d words)", got, len(words))
 		}
-		if annStringValue(words[0], "id") != courseID || annStringValue(words[1], "id") != catalogID || reconciliationFind(wordLifecycleDocument(t, current.Msg.GetAnnotationPageJson())["items"].([]any), insertedID) != nil {
+		if annStringValue(words[0], "id") != courseID || annStringValue(words[1], "id") != catalogID || reconciliationFind(wordLifecycleDocument(t, current.GetAnnotationPageJson())["items"].([]any), insertedID) != nil {
 			t.Fatalf("token deletion did not remove only the unmatched ID: %#v", words)
 		}
 	})
@@ -128,7 +130,7 @@ func TestAnnotationReconciliationPersistsThroughRealConnectSaveReload(t *testing
 		}
 		line["target"] = target
 		current := wordLifecycleSaveAndReload(t, ctx, client, image.ID, wordLifecycleJSON(t, draft), seeded.Revision)
-		persisted := wordLifecycleDocument(t, current.Msg.GetAnnotationPageJson())["items"].([]any)
+		persisted := wordLifecycleDocument(t, current.GetAnnotationPageJson())["items"].([]any)
 		want := map[string]models.BBox{
 			leftID:  {X1: 30, Y1: 60, X2: 230, Y2: 140},
 			rightID: {X1: 230, Y1: 60, X2: 430, Y2: 140},
@@ -168,9 +170,9 @@ func TestAnnotationReconciliationPersistsThroughRealConnectSaveReload(t *testing
 		// must still remain the durable owner after save/reload.
 		draft["items"] = append([]any{blank}, draftItems...)
 		current := wordLifecycleSaveAndReload(t, ctx, client, image.ID, wordLifecycleJSON(t, draft), seeded.Revision)
-		persisted := wordLifecycleDocument(t, current.Msg.GetAnnotationPageJson())["items"].([]any)
+		persisted := wordLifecycleDocument(t, current.GetAnnotationPageJson())["items"].([]any)
 		if extractAnnotationText(reconciliationAnnotation(t, persisted, existingID)) != "alpha beta" || reconciliationFind(persisted, alphaID) == nil || reconciliationFind(persisted, betaID) == nil {
-			t.Fatalf("overlapping line stole canonical words: %s", current.Msg.GetAnnotationPageJson())
+			t.Fatalf("overlapping line stole canonical words: %s", current.GetAnnotationPageJson())
 		}
 		ownership := assignSpatialWordsToLines(persisted, nil)
 		if len(ownership[existingID]) != 2 || len(ownership[annStringValue(blank, "id")]) != 0 {
@@ -202,7 +204,7 @@ func TestAnnotationReconciliationPersistsThroughRealConnectSaveReload(t *testing
 		}
 		draft["items"] = filtered
 		current := wordLifecycleSaveAndReload(t, ctx, client, image.ID, wordLifecycleJSON(t, draft), seeded.Revision)
-		persisted := wordLifecycleDocument(t, current.Msg.GetAnnotationPageJson())["items"].([]any)
+		persisted := wordLifecycleDocument(t, current.GetAnnotationPageJson())["items"].([]any)
 		for _, id := range []string{deletedLineID, deletedAID, deletedBID} {
 			if reconciliationFind(persisted, id) != nil {
 				t.Fatalf("deleted row resource %q survived reload", id)
@@ -236,12 +238,12 @@ func TestAnnotationReconciliationPersistsThroughRealConnectSaveReload(t *testing
 		four := reconciliationAcceptanceAnnotation(t, annStringValue(draft, "id"), "crud-four", "word", "four", image.CanvasURI, models.BBox{X1: 100, Y1: 0, X2: 200, Y2: 20})
 		draft["items"] = append(filtered, four)
 		current := wordLifecycleSaveAndReload(t, ctx, client, image.ID, wordLifecycleJSON(t, draft), seeded.Revision)
-		persisted := wordLifecycleDocument(t, current.Msg.GetAnnotationPageJson())["items"].([]any)
+		persisted := wordLifecycleDocument(t, current.GetAnnotationPageJson())["items"].([]any)
 		if text := extractAnnotationText(reconciliationAnnotation(t, persisted, lineID)); text != "ONE four three" {
 			t.Fatalf("persisted line text = %q", text)
 		}
 		if reconciliationFind(persisted, twoID) != nil || reconciliationFind(persisted, oneID) == nil || reconciliationFind(persisted, threeID) == nil || reconciliationFind(persisted, annStringValue(four, "id")) == nil {
-			t.Fatalf("persisted word CRUD IDs are incorrect: %s", current.Msg.GetAnnotationPageJson())
+			t.Fatalf("persisted word CRUD IDs are incorrect: %s", current.GetAnnotationPageJson())
 		}
 	})
 }

@@ -15,7 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
@@ -221,29 +222,29 @@ func TestUploadBatchProcessingFailuresPersistOnlyFixedStage(t *testing.T) {
 			appServer := newTenantScopedServer(t, handler, map[string]testTenantIdentity{
 				"workspace": {workspaceID: workspaceID, userID: userID},
 			})
-			itemClient := scribev1connect.NewItemServiceClient(http.DefaultClient, appServer.URL)
+			itemClient := scribev1connect.NewItemServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 
 			imageData := uploadBatchAcceptancePNG(t, color.RGBA{R: 0x20, G: 0x40, B: 0x60, A: 0xff})
 			batchID := "failure-stage-" + uuid.NewString()
-			_, err = itemClient.StartUploadBatch(ctx, tenantConnectRequest("workspace", &scribev1.StartUploadBatchRequest{
+			_, err = itemClient.StartUploadBatch(tenantConnectContext(ctx, "workspace"), &scribev1.StartUploadBatchRequest{
 				BatchId:   batchID,
 				Name:      "Upload failure stage",
 				ContextId: selectedContext.ID,
 				Files:     []*scribev1.UploadBatchFileInput{uploadBatchAcceptanceInput(filename, imageData)},
-			}))
+			})
 			if err != nil {
 				t.Fatalf("StartUploadBatch: %v", err)
 			}
-			_, err = itemClient.UploadItemImage(ctx, tenantConnectRequest("workspace", &scribev1.UploadItemImageRequest{
+			_, err = itemClient.UploadItemImage(tenantConnectContext(ctx, "workspace"), &scribev1.UploadItemImageRequest{
 				BatchId: batchID, Sequence: 1, ImageData: imageData,
-			}))
+			})
 			assertConnectCode(t, err, connect.CodeInternal)
 
-			failed, err := itemClient.GetUploadBatch(ctx, tenantConnectRequest("workspace", &scribev1.GetUploadBatchRequest{BatchId: batchID}))
+			failed, err := itemClient.GetUploadBatch(tenantConnectContext(ctx, "workspace"), &scribev1.GetUploadBatchRequest{BatchId: batchID})
 			if err != nil {
 				t.Fatalf("GetUploadBatch: %v", err)
 			}
-			file := uploadBatchAcceptanceFile(t, failed.Msg.GetBatch(), 1)
+			file := uploadBatchAcceptanceFile(t, failed.GetBatch(), 1)
 			if file.GetStatus() != scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_FAILED || file.GetErrorMessage() != test.want {
 				t.Fatalf("failed upload file = %#v, want fixed error %q", file, test.want)
 			}
@@ -292,7 +293,7 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 	appServer := newTenantScopedServer(t, handler, map[string]testTenantIdentity{
 		"workspace": {workspaceID: workspaceID, userID: userID},
 	})
-	itemClient := scribev1connect.NewItemServiceClient(http.DefaultClient, appServer.URL)
+	itemClient := scribev1connect.NewItemServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 	t.Cleanup(func() {
 		for _, uploadName := range fakeOCR.uploadNames() {
 			_, _ = database.ExecContext(context.Background(), `DELETE FROM resource_cleanup_outbox WHERE kind = 'upload_blob' AND resource_key = ?`, uploadName)
@@ -311,16 +312,16 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 			uploadBatchAcceptanceInput("resume-page-2.png", resumePage2),
 		},
 	}
-	started, err := itemClient.StartUploadBatch(ctx, tenantConnectRequest("workspace", resumeRequest))
+	started, err := itemClient.StartUploadBatch(tenantConnectContext(ctx, "workspace"), resumeRequest)
 	if err != nil {
 		t.Fatalf("StartUploadBatch: %v", err)
 	}
-	if started.Msg.GetItem() == nil || started.Msg.GetBatch() == nil || started.Msg.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_IN_PROGRESS {
-		t.Fatalf("started upload batch = %#v", started.Msg)
+	if started.GetItem() == nil || started.GetBatch() == nil || started.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_IN_PROGRESS {
+		t.Fatalf("started upload batch = %#v", started)
 	}
-	startedItemID := started.Msg.GetItem().GetId()
-	if startedItemID == "" || started.Msg.GetBatch().GetContextId() != selectedContext.ID || len(started.Msg.GetBatch().GetFiles()) != 2 {
-		t.Fatalf("started upload batch identity = %#v", started.Msg.GetBatch())
+	startedItemID := started.GetItem().GetId()
+	if startedItemID == "" || started.GetBatch().GetContextId() != selectedContext.ID || len(started.GetBatch().GetFiles()) != 2 {
+		t.Fatalf("started upload batch identity = %#v", started.GetBatch())
 	}
 	storedBatch, err := items.GetUploadBatch(ctx, workspaceID, resumeBatchID)
 	if err != nil {
@@ -340,34 +341,34 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 	if _, err := contextStore.UpdateForWorkspace(ctx, mutatedContext, workspaceID, userID); err != nil {
 		t.Fatalf("mutate selected context after batch start: %v", err)
 	}
-	restarted, err := itemClient.StartUploadBatch(ctx, tenantConnectRequest("workspace", resumeRequest))
+	restarted, err := itemClient.StartUploadBatch(tenantConnectContext(ctx, "workspace"), resumeRequest)
 	if err != nil {
 		t.Fatalf("replay StartUploadBatch: %v", err)
 	}
-	if restarted.Msg.GetItem().GetId() != startedItemID || restarted.Msg.GetBatch().GetId() != resumeBatchID {
-		t.Fatalf("replayed batch created different state: item=%q batch=%q", restarted.Msg.GetItem().GetId(), restarted.Msg.GetBatch().GetId())
+	if restarted.GetItem().GetId() != startedItemID || restarted.GetBatch().GetId() != resumeBatchID {
+		t.Fatalf("replayed batch created different state: item=%q batch=%q", restarted.GetItem().GetId(), restarted.GetBatch().GetId())
 	}
 
-	firstUpload, err := itemClient.UploadItemImage(ctx, tenantConnectRequest("workspace", &scribev1.UploadItemImageRequest{
+	firstUpload, err := itemClient.UploadItemImage(tenantConnectContext(ctx, "workspace"), &scribev1.UploadItemImageRequest{
 		BatchId: resumeBatchID, Sequence: 1, ImageData: resumePage1,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("UploadItemImage sequence 1: %v", err)
 	}
-	if firstUpload.Msg.GetImage() == nil || firstUpload.Msg.GetTranscriptionJobId() == 0 ||
-		firstUpload.Msg.GetBatch().GetCompletedFiles() != 1 || firstUpload.Msg.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_IN_PROGRESS {
-		t.Fatalf("first upload response = %#v", firstUpload.Msg)
+	if firstUpload.GetImage() == nil || firstUpload.GetTranscriptionJobId() == 0 ||
+		firstUpload.GetBatch().GetCompletedFiles() != 1 || firstUpload.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_IN_PROGRESS {
+		t.Fatalf("first upload response = %#v", firstUpload)
 	}
 
-	_, err = itemClient.UploadItemImage(ctx, tenantConnectRequest("workspace", &scribev1.UploadItemImageRequest{
+	_, err = itemClient.UploadItemImage(tenantConnectContext(ctx, "workspace"), &scribev1.UploadItemImageRequest{
 		BatchId: resumeBatchID, Sequence: 2, ImageData: resumePage2,
-	}))
+	})
 	assertConnectCode(t, err, connect.CodeInternal)
-	partial, err := itemClient.GetUploadBatch(ctx, tenantConnectRequest("workspace", &scribev1.GetUploadBatchRequest{BatchId: resumeBatchID}))
+	partial, err := itemClient.GetUploadBatch(tenantConnectContext(ctx, "workspace"), &scribev1.GetUploadBatchRequest{BatchId: resumeBatchID})
 	if err != nil {
 		t.Fatalf("GetUploadBatch after partial failure: %v", err)
 	}
-	partialBatch := partial.Msg.GetBatch()
+	partialBatch := partial.GetBatch()
 	failedFile := uploadBatchAcceptanceFile(t, partialBatch, 2)
 	if partialBatch.GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_IN_PROGRESS ||
 		partialBatch.GetCompletedFiles() != 1 || partialBatch.GetFailedFiles() != 1 ||
@@ -376,39 +377,39 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 		t.Fatalf("partial upload batch = %#v", partialBatch)
 	}
 
-	retriedUpload, err := itemClient.UploadItemImage(ctx, tenantConnectRequest("workspace", &scribev1.UploadItemImageRequest{
+	retriedUpload, err := itemClient.UploadItemImage(tenantConnectContext(ctx, "workspace"), &scribev1.UploadItemImageRequest{
 		BatchId: resumeBatchID, Sequence: 2, ImageData: resumePage2,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("retry UploadItemImage sequence 2: %v", err)
 	}
-	retriedFile := uploadBatchAcceptanceFile(t, retriedUpload.Msg.GetBatch(), 2)
-	if retriedUpload.Msg.GetImage() == nil || retriedUpload.Msg.GetTranscriptionJobId() == 0 ||
-		retriedUpload.Msg.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_COMPLETED ||
-		retriedUpload.Msg.GetBatch().GetCompletedFiles() != 2 || retriedUpload.Msg.GetBatch().GetFailedFiles() != 0 ||
+	retriedFile := uploadBatchAcceptanceFile(t, retriedUpload.GetBatch(), 2)
+	if retriedUpload.GetImage() == nil || retriedUpload.GetTranscriptionJobId() == 0 ||
+		retriedUpload.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_COMPLETED ||
+		retriedUpload.GetBatch().GetCompletedFiles() != 2 || retriedUpload.GetBatch().GetFailedFiles() != 0 ||
 		retriedFile.GetStatus() != scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_COMPLETED || retriedFile.GetAttemptCount() != 2 {
-		t.Fatalf("retried upload response = %#v", retriedUpload.Msg)
+		t.Fatalf("retried upload response = %#v", retriedUpload)
 	}
 
 	callCountBeforeReplay := len(fakeOCR.recordedCalls())
-	replayedUpload, err := itemClient.UploadItemImage(ctx, tenantConnectRequest("workspace", &scribev1.UploadItemImageRequest{
+	replayedUpload, err := itemClient.UploadItemImage(tenantConnectContext(ctx, "workspace"), &scribev1.UploadItemImageRequest{
 		BatchId: resumeBatchID, Sequence: 1, ImageData: resumePage1,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("replay completed UploadItemImage: %v", err)
 	}
-	if replayedUpload.Msg.GetImage().GetId() != firstUpload.Msg.GetImage().GetId() ||
-		replayedUpload.Msg.GetTranscriptionJobId() != firstUpload.Msg.GetTranscriptionJobId() ||
+	if replayedUpload.GetImage().GetId() != firstUpload.GetImage().GetId() ||
+		replayedUpload.GetTranscriptionJobId() != firstUpload.GetTranscriptionJobId() ||
 		len(fakeOCR.recordedCalls()) != callCountBeforeReplay {
-		t.Fatalf("completed upload replay duplicated work: first=%#v replay=%#v calls=%d/%d", firstUpload.Msg, replayedUpload.Msg, callCountBeforeReplay, len(fakeOCR.recordedCalls()))
+		t.Fatalf("completed upload replay duplicated work: first=%#v replay=%#v calls=%d/%d", firstUpload, replayedUpload, callCountBeforeReplay, len(fakeOCR.recordedCalls()))
 	}
-	completed, err := itemClient.GetUploadBatch(ctx, tenantConnectRequest("workspace", &scribev1.GetUploadBatchRequest{BatchId: resumeBatchID}))
+	completed, err := itemClient.GetUploadBatch(tenantConnectContext(ctx, "workspace"), &scribev1.GetUploadBatchRequest{BatchId: resumeBatchID})
 	if err != nil {
 		t.Fatalf("GetUploadBatch after completion: %v", err)
 	}
-	if completed.Msg.GetItem().GetId() != startedItemID || len(completed.Msg.GetItem().GetImages()) != 2 ||
-		completed.Msg.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_COMPLETED {
-		t.Fatalf("completed durable batch = %#v", completed.Msg)
+	if completed.GetItem().GetId() != startedItemID || len(completed.GetItem().GetImages()) != 2 ||
+		completed.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_COMPLETED {
+		t.Fatalf("completed durable batch = %#v", completed)
 	}
 
 	resumeCalls := fakeOCR.recordedCalls()
@@ -428,10 +429,10 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 		assertUploadBatchProcessingContext(t, call.processingContext, selectedContext)
 	}
 
-	for _, upload := range []*connect.Response[scribev1.UploadItemImageResponse]{firstUpload, retriedUpload} {
-		job, err := jobs.Get(ctx, upload.Msg.GetTranscriptionJobId())
+	for _, upload := range []*scribev1.UploadItemImageResponse{firstUpload, retriedUpload} {
+		job, err := jobs.Get(ctx, upload.GetTranscriptionJobId())
 		if err != nil {
-			t.Fatalf("load durable transcription job %d: %v", upload.Msg.GetTranscriptionJobId(), err)
+			t.Fatalf("load durable transcription job %d: %v", upload.GetTranscriptionJobId(), err)
 		}
 		if job.Status != store.TranscriptionJobStatusPending || job.ContextID == nil || *job.ContextID != selectedContext.ID || job.InputRevision == 0 {
 			t.Fatalf("durable transcription job = %+v", job)
@@ -441,9 +442,9 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 			t.Fatalf("decode durable job context snapshot: %v", err)
 		}
 		assertUploadBatchStoredContext(t, snapshottedContext, selectedContext)
-		imageJobs, err := jobs.ListPage(ctx, workspaceID, upload.Msg.GetImage().GetId(), store.MaxTranscriptionJobPageSize, nil)
+		imageJobs, err := jobs.ListPage(ctx, workspaceID, upload.GetImage().GetId(), store.MaxTranscriptionJobPageSize, nil)
 		if err != nil || len(imageJobs.Jobs) != 1 || imageJobs.Jobs[0].ID != job.ID {
-			t.Fatalf("jobs for image %d = %+v/%v, want only %d", upload.Msg.GetImage().GetId(), imageJobs, err, job.ID)
+			t.Fatalf("jobs for image %d = %+v/%v, want only %d", upload.GetImage().GetId(), imageJobs, err, job.ID)
 		}
 	}
 
@@ -459,26 +460,26 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 			uploadBatchAcceptanceInput("cancel-page-2.png", cancelPage2),
 		},
 	}
-	if _, err := itemClient.StartUploadBatch(ctx, tenantConnectRequest("workspace", cancelRequest)); err != nil {
+	if _, err := itemClient.StartUploadBatch(tenantConnectContext(ctx, "workspace"), cancelRequest); err != nil {
 		t.Fatalf("StartUploadBatch for cancellation: %v", err)
 	}
-	cancelFirstUpload, err := itemClient.UploadItemImage(ctx, tenantConnectRequest("workspace", &scribev1.UploadItemImageRequest{
+	cancelFirstUpload, err := itemClient.UploadItemImage(tenantConnectContext(ctx, "workspace"), &scribev1.UploadItemImageRequest{
 		BatchId: cancelBatchID, Sequence: 1, ImageData: cancelPage1,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("UploadItemImage before cancellation: %v", err)
 	}
-	if cancelFirstUpload.Msg.GetBatch().GetCompletedFiles() != 1 || cancelFirstUpload.Msg.GetTranscriptionJobId() == 0 {
-		t.Fatalf("first cancellation-batch upload = %#v", cancelFirstUpload.Msg)
+	if cancelFirstUpload.GetBatch().GetCompletedFiles() != 1 || cancelFirstUpload.GetTranscriptionJobId() == 0 {
+		t.Fatalf("first cancellation-batch upload = %#v", cancelFirstUpload)
 	}
 
 	blocked, releaseBlockedUpload := fakeOCR.blockNext("cancel-page-2.png")
 	t.Cleanup(releaseBlockedUpload)
 	blockedUploadErr := make(chan error, 1)
 	go func() {
-		_, uploadErr := itemClient.UploadItemImage(context.Background(), tenantConnectRequest("workspace", &scribev1.UploadItemImageRequest{
+		_, uploadErr := itemClient.UploadItemImage(tenantConnectContext(context.Background(), "workspace"), &scribev1.UploadItemImageRequest{
 			BatchId: cancelBatchID, Sequence: 2, ImageData: cancelPage2,
-		}))
+		})
 		blockedUploadErr <- uploadErr
 	}()
 	select {
@@ -487,18 +488,18 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 		t.Fatal("timed out waiting for in-flight segmentation call")
 	}
 
-	canceled, err := itemClient.CancelUploadBatch(ctx, tenantConnectRequest("workspace", &scribev1.CancelUploadBatchRequest{BatchId: cancelBatchID}))
+	canceled, err := itemClient.CancelUploadBatch(tenantConnectContext(ctx, "workspace"), &scribev1.CancelUploadBatchRequest{BatchId: cancelBatchID})
 	if err != nil {
 		t.Fatalf("CancelUploadBatch: %v", err)
 	}
-	canceledBatch := canceled.Msg.GetBatch()
+	canceledBatch := canceled.GetBatch()
 	if canceledBatch.GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_CANCELED || canceledBatch.GetCompletedFiles() != 1 ||
 		uploadBatchAcceptanceFile(t, canceledBatch, 1).GetStatus() != scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_COMPLETED ||
 		uploadBatchAcceptanceFile(t, canceledBatch, 2).GetStatus() != scribev1.UploadBatchFileStatus_UPLOAD_BATCH_FILE_STATUS_CANCELED {
 		t.Fatalf("canceled upload batch = %#v", canceledBatch)
 	}
-	idempotentCancel, err := itemClient.CancelUploadBatch(ctx, tenantConnectRequest("workspace", &scribev1.CancelUploadBatchRequest{BatchId: cancelBatchID}))
-	if err != nil || idempotentCancel.Msg.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_CANCELED {
+	idempotentCancel, err := itemClient.CancelUploadBatch(tenantConnectContext(ctx, "workspace"), &scribev1.CancelUploadBatchRequest{BatchId: cancelBatchID})
+	if err != nil || idempotentCancel.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_CANCELED {
 		t.Fatalf("idempotent CancelUploadBatch = %#v/%v", idempotentCancel, err)
 	}
 
@@ -514,27 +515,27 @@ func TestUploadBatchConnectAcceptanceResumeIdempotencyAndCancellation(t *testing
 		t.Fatalf("segmentation calls after cancellation = %d, want 5", callsAfterCanceledUpload)
 	}
 
-	canceledJob, err := jobs.Get(ctx, cancelFirstUpload.Msg.GetTranscriptionJobId())
+	canceledJob, err := jobs.Get(ctx, cancelFirstUpload.GetTranscriptionJobId())
 	if err != nil || canceledJob.Status != store.TranscriptionJobStatusCanceled {
 		t.Fatalf("committed batch job after cancellation = %+v/%v", canceledJob, err)
 	}
-	canceledState, err := itemClient.GetUploadBatch(ctx, tenantConnectRequest("workspace", &scribev1.GetUploadBatchRequest{BatchId: cancelBatchID}))
+	canceledState, err := itemClient.GetUploadBatch(tenantConnectContext(ctx, "workspace"), &scribev1.GetUploadBatchRequest{BatchId: cancelBatchID})
 	if err != nil {
 		t.Fatalf("GetUploadBatch after cancellation: %v", err)
 	}
-	canceledFile := uploadBatchAcceptanceFile(t, canceledState.Msg.GetBatch(), 2)
-	if canceledState.Msg.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_CANCELED ||
-		len(canceledState.Msg.GetItem().GetImages()) != 1 || canceledFile.GetItemImageId() != 0 || canceledFile.GetTranscriptionJobId() != 0 {
-		t.Fatalf("durable canceled batch state = %#v", canceledState.Msg)
+	canceledFile := uploadBatchAcceptanceFile(t, canceledState.GetBatch(), 2)
+	if canceledState.GetBatch().GetStatus() != scribev1.UploadBatchStatus_UPLOAD_BATCH_STATUS_CANCELED ||
+		len(canceledState.GetItem().GetImages()) != 1 || canceledFile.GetItemImageId() != 0 || canceledFile.GetTranscriptionJobId() != 0 {
+		t.Fatalf("durable canceled batch state = %#v", canceledState)
 	}
 
 	workspaceJobs, err := jobs.ListPage(ctx, workspaceID, 0, store.MaxTranscriptionJobPageSize, nil)
 	if err != nil || len(workspaceJobs.Jobs) != 3 {
 		t.Fatalf("workspace jobs after upload batches = %+v/%v, want exactly three", workspaceJobs, err)
 	}
-	_, err = itemClient.UploadItemImage(ctx, tenantConnectRequest("workspace", &scribev1.UploadItemImageRequest{
+	_, err = itemClient.UploadItemImage(tenantConnectContext(ctx, "workspace"), &scribev1.UploadItemImageRequest{
 		BatchId: cancelBatchID, Sequence: 2, ImageData: cancelPage2,
-	}))
+	})
 	assertConnectCode(t, err, connect.CodeFailedPrecondition)
 	if len(fakeOCR.recordedCalls()) != callsAfterCanceledUpload {
 		t.Fatalf("post-cancel upload reached segmentation: calls=%d, want %d", len(fakeOCR.recordedCalls()), callsAfterCanceledUpload)

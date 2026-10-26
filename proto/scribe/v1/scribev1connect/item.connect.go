@@ -5,392 +5,458 @@
 package scribev1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// ItemServiceName is the fully-qualified name of the ItemService service.
 	ItemServiceName = "scribe.v1.ItemService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// ItemServiceListItemsProcedure is the fully-qualified name of the ItemService's ListItems RPC.
+	// ItemServiceListItemsProcedure is the procedure name of the ItemService's ListItems RPC.
 	ItemServiceListItemsProcedure = "/scribe.v1.ItemService/ListItems"
-	// ItemServiceGetItemProcedure is the fully-qualified name of the ItemService's GetItem RPC.
+	// ItemServiceGetItemProcedure is the procedure name of the ItemService's GetItem RPC.
 	ItemServiceGetItemProcedure = "/scribe.v1.ItemService/GetItem"
-	// ItemServiceGetEditorManifestProcedure is the fully-qualified name of the ItemService's
+	// ItemServiceGetEditorManifestProcedure is the procedure name of the ItemService's
 	// GetEditorManifest RPC.
 	ItemServiceGetEditorManifestProcedure = "/scribe.v1.ItemService/GetEditorManifest"
-	// ItemServicePrepareItemExportProcedure is the fully-qualified name of the ItemService's
+	// ItemServicePrepareItemExportProcedure is the procedure name of the ItemService's
 	// PrepareItemExport RPC.
 	ItemServicePrepareItemExportProcedure = "/scribe.v1.ItemService/PrepareItemExport"
-	// ItemServiceImportManifestProcedure is the fully-qualified name of the ItemService's
-	// ImportManifest RPC.
+	// ItemServiceImportManifestProcedure is the procedure name of the ItemService's ImportManifest RPC.
 	ItemServiceImportManifestProcedure = "/scribe.v1.ItemService/ImportManifest"
-	// ItemServiceStartUploadBatchProcedure is the fully-qualified name of the ItemService's
-	// StartUploadBatch RPC.
+	// ItemServiceStartUploadBatchProcedure is the procedure name of the ItemService's StartUploadBatch
+	// RPC.
 	ItemServiceStartUploadBatchProcedure = "/scribe.v1.ItemService/StartUploadBatch"
-	// ItemServiceGetUploadBatchProcedure is the fully-qualified name of the ItemService's
-	// GetUploadBatch RPC.
+	// ItemServiceGetUploadBatchProcedure is the procedure name of the ItemService's GetUploadBatch RPC.
 	ItemServiceGetUploadBatchProcedure = "/scribe.v1.ItemService/GetUploadBatch"
-	// ItemServiceUploadItemImageProcedure is the fully-qualified name of the ItemService's
-	// UploadItemImage RPC.
+	// ItemServiceUploadItemImageProcedure is the procedure name of the ItemService's UploadItemImage
+	// RPC.
 	ItemServiceUploadItemImageProcedure = "/scribe.v1.ItemService/UploadItemImage"
-	// ItemServiceCancelUploadBatchProcedure is the fully-qualified name of the ItemService's
+	// ItemServiceCancelUploadBatchProcedure is the procedure name of the ItemService's
 	// CancelUploadBatch RPC.
 	ItemServiceCancelUploadBatchProcedure = "/scribe.v1.ItemService/CancelUploadBatch"
-	// ItemServiceDeleteItemProcedure is the fully-qualified name of the ItemService's DeleteItem RPC.
+	// ItemServiceDeleteItemProcedure is the procedure name of the ItemService's DeleteItem RPC.
 	ItemServiceDeleteItemProcedure = "/scribe.v1.ItemService/DeleteItem"
-	// ItemServiceListItemProviderCallAuditsProcedure is the fully-qualified name of the ItemService's
+	// ItemServiceListItemProviderCallAuditsProcedure is the procedure name of the ItemService's
 	// ListItemProviderCallAudits RPC.
 	ItemServiceListItemProviderCallAuditsProcedure = "/scribe.v1.ItemService/ListItemProviderCallAudits"
 )
 
+var (
+	itemServiceListItemsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("ListItems"),
+			Procedure:  ItemServiceListItemsProcedure,
+		}
+	})
+	itemServiceGetItemSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("GetItem"),
+			Procedure:  ItemServiceGetItemProcedure,
+		}
+	})
+	itemServiceGetEditorManifestSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("GetEditorManifest"),
+			Procedure:  ItemServiceGetEditorManifestProcedure,
+		}
+	})
+	itemServicePrepareItemExportSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("PrepareItemExport"),
+			Procedure:  ItemServicePrepareItemExportProcedure,
+		}
+	})
+	itemServiceImportManifestSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("ImportManifest"),
+			Procedure:  ItemServiceImportManifestProcedure,
+		}
+	})
+	itemServiceStartUploadBatchSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("StartUploadBatch"),
+			Procedure:  ItemServiceStartUploadBatchProcedure,
+		}
+	})
+	itemServiceGetUploadBatchSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("GetUploadBatch"),
+			Procedure:  ItemServiceGetUploadBatchProcedure,
+		}
+	})
+	itemServiceUploadItemImageSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("UploadItemImage"),
+			Procedure:  ItemServiceUploadItemImageProcedure,
+		}
+	})
+	itemServiceCancelUploadBatchSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("CancelUploadBatch"),
+			Procedure:  ItemServiceCancelUploadBatchProcedure,
+		}
+	})
+	itemServiceDeleteItemSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("DeleteItem"),
+			Procedure:  ItemServiceDeleteItemProcedure,
+		}
+	})
+	itemServiceListItemProviderCallAuditsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("ListItemProviderCallAudits"),
+			Procedure:  ItemServiceListItemProviderCallAuditsProcedure,
+		}
+	})
+)
+
 // ItemServiceClient is a client for the scribe.v1.ItemService service.
 type ItemServiceClient interface {
-	ListItems(context.Context, *connect.Request[v1.ListItemsRequest]) (*connect.Response[v1.ListItemsResponse], error)
-	GetItem(context.Context, *connect.Request[v1.GetItemRequest]) (*connect.Response[v1.GetItemResponse], error)
-	GetEditorManifest(context.Context, *connect.Request[v1.GetEditorManifestRequest]) (*connect.Response[v1.GetEditorManifestResponse], error)
-	PrepareItemExport(context.Context, *connect.Request[v1.PrepareItemExportRequest]) (*connect.Response[v1.PrepareItemExportResponse], error)
-	ImportManifest(context.Context, *connect.Request[v1.ImportManifestRequest]) (*connect.Response[v1.ImportManifestResponse], error)
-	StartUploadBatch(context.Context, *connect.Request[v1.StartUploadBatchRequest]) (*connect.Response[v1.StartUploadBatchResponse], error)
-	GetUploadBatch(context.Context, *connect.Request[v1.GetUploadBatchRequest]) (*connect.Response[v1.GetUploadBatchResponse], error)
-	UploadItemImage(context.Context, *connect.Request[v1.UploadItemImageRequest]) (*connect.Response[v1.UploadItemImageResponse], error)
-	CancelUploadBatch(context.Context, *connect.Request[v1.CancelUploadBatchRequest]) (*connect.Response[v1.CancelUploadBatchResponse], error)
-	DeleteItem(context.Context, *connect.Request[v1.DeleteItemRequest]) (*connect.Response[v1.DeleteItemResponse], error)
-	ListItemProviderCallAudits(context.Context, *connect.Request[v1.ListItemProviderCallAuditsRequest]) (*connect.Response[v1.ListItemProviderCallAuditsResponse], error)
+	ListItems(context.Context, *v1.ListItemsRequest) (*v1.ListItemsResponse, error)
+	GetItem(context.Context, *v1.GetItemRequest) (*v1.GetItemResponse, error)
+	GetEditorManifest(context.Context, *v1.GetEditorManifestRequest) (*v1.GetEditorManifestResponse, error)
+	PrepareItemExport(context.Context, *v1.PrepareItemExportRequest) (*v1.PrepareItemExportResponse, error)
+	ImportManifest(context.Context, *v1.ImportManifestRequest) (*v1.ImportManifestResponse, error)
+	StartUploadBatch(context.Context, *v1.StartUploadBatchRequest) (*v1.StartUploadBatchResponse, error)
+	GetUploadBatch(context.Context, *v1.GetUploadBatchRequest) (*v1.GetUploadBatchResponse, error)
+	UploadItemImage(context.Context, *v1.UploadItemImageRequest) (*v1.UploadItemImageResponse, error)
+	CancelUploadBatch(context.Context, *v1.CancelUploadBatchRequest) (*v1.CancelUploadBatchResponse, error)
+	DeleteItem(context.Context, *v1.DeleteItemRequest) (*v1.DeleteItemResponse, error)
+	ListItemProviderCallAudits(context.Context, *v1.ListItemProviderCallAuditsRequest) (*v1.ListItemProviderCallAuditsResponse, error)
 }
 
-// NewItemServiceClient constructs a client for the scribe.v1.ItemService service. By default, it
-// uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
-// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
-// connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewItemServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ItemServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	itemServiceMethods := v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods()
-	return &itemServiceClient{
-		listItems: connect.NewClient[v1.ListItemsRequest, v1.ListItemsResponse](
-			httpClient,
-			baseURL+ItemServiceListItemsProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("ListItems")),
-			connect.WithClientOptions(opts...),
-		),
-		getItem: connect.NewClient[v1.GetItemRequest, v1.GetItemResponse](
-			httpClient,
-			baseURL+ItemServiceGetItemProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("GetItem")),
-			connect.WithClientOptions(opts...),
-		),
-		getEditorManifest: connect.NewClient[v1.GetEditorManifestRequest, v1.GetEditorManifestResponse](
-			httpClient,
-			baseURL+ItemServiceGetEditorManifestProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("GetEditorManifest")),
-			connect.WithClientOptions(opts...),
-		),
-		prepareItemExport: connect.NewClient[v1.PrepareItemExportRequest, v1.PrepareItemExportResponse](
-			httpClient,
-			baseURL+ItemServicePrepareItemExportProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("PrepareItemExport")),
-			connect.WithClientOptions(opts...),
-		),
-		importManifest: connect.NewClient[v1.ImportManifestRequest, v1.ImportManifestResponse](
-			httpClient,
-			baseURL+ItemServiceImportManifestProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("ImportManifest")),
-			connect.WithClientOptions(opts...),
-		),
-		startUploadBatch: connect.NewClient[v1.StartUploadBatchRequest, v1.StartUploadBatchResponse](
-			httpClient,
-			baseURL+ItemServiceStartUploadBatchProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("StartUploadBatch")),
-			connect.WithClientOptions(opts...),
-		),
-		getUploadBatch: connect.NewClient[v1.GetUploadBatchRequest, v1.GetUploadBatchResponse](
-			httpClient,
-			baseURL+ItemServiceGetUploadBatchProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("GetUploadBatch")),
-			connect.WithClientOptions(opts...),
-		),
-		uploadItemImage: connect.NewClient[v1.UploadItemImageRequest, v1.UploadItemImageResponse](
-			httpClient,
-			baseURL+ItemServiceUploadItemImageProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("UploadItemImage")),
-			connect.WithClientOptions(opts...),
-		),
-		cancelUploadBatch: connect.NewClient[v1.CancelUploadBatchRequest, v1.CancelUploadBatchResponse](
-			httpClient,
-			baseURL+ItemServiceCancelUploadBatchProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("CancelUploadBatch")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteItem: connect.NewClient[v1.DeleteItemRequest, v1.DeleteItemResponse](
-			httpClient,
-			baseURL+ItemServiceDeleteItemProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("DeleteItem")),
-			connect.WithClientOptions(opts...),
-		),
-		listItemProviderCallAudits: connect.NewClient[v1.ListItemProviderCallAuditsRequest, v1.ListItemProviderCallAuditsResponse](
-			httpClient,
-			baseURL+ItemServiceListItemProviderCallAuditsProcedure,
-			connect.WithSchema(itemServiceMethods.ByName("ListItemProviderCallAudits")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// itemServiceClient implements ItemServiceClient.
-type itemServiceClient struct {
-	listItems                  *connect.Client[v1.ListItemsRequest, v1.ListItemsResponse]
-	getItem                    *connect.Client[v1.GetItemRequest, v1.GetItemResponse]
-	getEditorManifest          *connect.Client[v1.GetEditorManifestRequest, v1.GetEditorManifestResponse]
-	prepareItemExport          *connect.Client[v1.PrepareItemExportRequest, v1.PrepareItemExportResponse]
-	importManifest             *connect.Client[v1.ImportManifestRequest, v1.ImportManifestResponse]
-	startUploadBatch           *connect.Client[v1.StartUploadBatchRequest, v1.StartUploadBatchResponse]
-	getUploadBatch             *connect.Client[v1.GetUploadBatchRequest, v1.GetUploadBatchResponse]
-	uploadItemImage            *connect.Client[v1.UploadItemImageRequest, v1.UploadItemImageResponse]
-	cancelUploadBatch          *connect.Client[v1.CancelUploadBatchRequest, v1.CancelUploadBatchResponse]
-	deleteItem                 *connect.Client[v1.DeleteItemRequest, v1.DeleteItemResponse]
-	listItemProviderCallAudits *connect.Client[v1.ListItemProviderCallAuditsRequest, v1.ListItemProviderCallAuditsResponse]
-}
-
-// ListItems calls scribe.v1.ItemService.ListItems.
-func (c *itemServiceClient) ListItems(ctx context.Context, req *connect.Request[v1.ListItemsRequest]) (*connect.Response[v1.ListItemsResponse], error) {
-	return c.listItems.CallUnary(ctx, req)
-}
-
-// GetItem calls scribe.v1.ItemService.GetItem.
-func (c *itemServiceClient) GetItem(ctx context.Context, req *connect.Request[v1.GetItemRequest]) (*connect.Response[v1.GetItemResponse], error) {
-	return c.getItem.CallUnary(ctx, req)
-}
-
-// GetEditorManifest calls scribe.v1.ItemService.GetEditorManifest.
-func (c *itemServiceClient) GetEditorManifest(ctx context.Context, req *connect.Request[v1.GetEditorManifestRequest]) (*connect.Response[v1.GetEditorManifestResponse], error) {
-	return c.getEditorManifest.CallUnary(ctx, req)
-}
-
-// PrepareItemExport calls scribe.v1.ItemService.PrepareItemExport.
-func (c *itemServiceClient) PrepareItemExport(ctx context.Context, req *connect.Request[v1.PrepareItemExportRequest]) (*connect.Response[v1.PrepareItemExportResponse], error) {
-	return c.prepareItemExport.CallUnary(ctx, req)
-}
-
-// ImportManifest calls scribe.v1.ItemService.ImportManifest.
-func (c *itemServiceClient) ImportManifest(ctx context.Context, req *connect.Request[v1.ImportManifestRequest]) (*connect.Response[v1.ImportManifestResponse], error) {
-	return c.importManifest.CallUnary(ctx, req)
-}
-
-// StartUploadBatch calls scribe.v1.ItemService.StartUploadBatch.
-func (c *itemServiceClient) StartUploadBatch(ctx context.Context, req *connect.Request[v1.StartUploadBatchRequest]) (*connect.Response[v1.StartUploadBatchResponse], error) {
-	return c.startUploadBatch.CallUnary(ctx, req)
-}
-
-// GetUploadBatch calls scribe.v1.ItemService.GetUploadBatch.
-func (c *itemServiceClient) GetUploadBatch(ctx context.Context, req *connect.Request[v1.GetUploadBatchRequest]) (*connect.Response[v1.GetUploadBatchResponse], error) {
-	return c.getUploadBatch.CallUnary(ctx, req)
-}
-
-// UploadItemImage calls scribe.v1.ItemService.UploadItemImage.
-func (c *itemServiceClient) UploadItemImage(ctx context.Context, req *connect.Request[v1.UploadItemImageRequest]) (*connect.Response[v1.UploadItemImageResponse], error) {
-	return c.uploadItemImage.CallUnary(ctx, req)
-}
-
-// CancelUploadBatch calls scribe.v1.ItemService.CancelUploadBatch.
-func (c *itemServiceClient) CancelUploadBatch(ctx context.Context, req *connect.Request[v1.CancelUploadBatchRequest]) (*connect.Response[v1.CancelUploadBatchResponse], error) {
-	return c.cancelUploadBatch.CallUnary(ctx, req)
-}
-
-// DeleteItem calls scribe.v1.ItemService.DeleteItem.
-func (c *itemServiceClient) DeleteItem(ctx context.Context, req *connect.Request[v1.DeleteItemRequest]) (*connect.Response[v1.DeleteItemResponse], error) {
-	return c.deleteItem.CallUnary(ctx, req)
-}
-
-// ListItemProviderCallAudits calls scribe.v1.ItemService.ListItemProviderCallAudits.
-func (c *itemServiceClient) ListItemProviderCallAudits(ctx context.Context, req *connect.Request[v1.ListItemProviderCallAuditsRequest]) (*connect.Response[v1.ListItemProviderCallAuditsResponse], error) {
-	return c.listItemProviderCallAudits.CallUnary(ctx, req)
+// NewItemServiceClient constructs a client for the scribe.v1.ItemService service. Multiple service
+// clients may share a single connect.Client.
+func NewItemServiceClient(client *connect.Client) ItemServiceClient {
+	return &itemServiceClient{client: client}
 }
 
 // ItemServiceHandler is an implementation of the scribe.v1.ItemService service.
 type ItemServiceHandler interface {
-	ListItems(context.Context, *connect.Request[v1.ListItemsRequest]) (*connect.Response[v1.ListItemsResponse], error)
-	GetItem(context.Context, *connect.Request[v1.GetItemRequest]) (*connect.Response[v1.GetItemResponse], error)
-	GetEditorManifest(context.Context, *connect.Request[v1.GetEditorManifestRequest]) (*connect.Response[v1.GetEditorManifestResponse], error)
-	PrepareItemExport(context.Context, *connect.Request[v1.PrepareItemExportRequest]) (*connect.Response[v1.PrepareItemExportResponse], error)
-	ImportManifest(context.Context, *connect.Request[v1.ImportManifestRequest]) (*connect.Response[v1.ImportManifestResponse], error)
-	StartUploadBatch(context.Context, *connect.Request[v1.StartUploadBatchRequest]) (*connect.Response[v1.StartUploadBatchResponse], error)
-	GetUploadBatch(context.Context, *connect.Request[v1.GetUploadBatchRequest]) (*connect.Response[v1.GetUploadBatchResponse], error)
-	UploadItemImage(context.Context, *connect.Request[v1.UploadItemImageRequest]) (*connect.Response[v1.UploadItemImageResponse], error)
-	CancelUploadBatch(context.Context, *connect.Request[v1.CancelUploadBatchRequest]) (*connect.Response[v1.CancelUploadBatchResponse], error)
-	DeleteItem(context.Context, *connect.Request[v1.DeleteItemRequest]) (*connect.Response[v1.DeleteItemResponse], error)
-	ListItemProviderCallAudits(context.Context, *connect.Request[v1.ListItemProviderCallAuditsRequest]) (*connect.Response[v1.ListItemProviderCallAuditsResponse], error)
+	ListItems(context.Context, *v1.ListItemsRequest) (*v1.ListItemsResponse, error)
+	GetItem(context.Context, *v1.GetItemRequest) (*v1.GetItemResponse, error)
+	GetEditorManifest(context.Context, *v1.GetEditorManifestRequest) (*v1.GetEditorManifestResponse, error)
+	PrepareItemExport(context.Context, *v1.PrepareItemExportRequest) (*v1.PrepareItemExportResponse, error)
+	ImportManifest(context.Context, *v1.ImportManifestRequest) (*v1.ImportManifestResponse, error)
+	StartUploadBatch(context.Context, *v1.StartUploadBatchRequest) (*v1.StartUploadBatchResponse, error)
+	GetUploadBatch(context.Context, *v1.GetUploadBatchRequest) (*v1.GetUploadBatchResponse, error)
+	UploadItemImage(context.Context, *v1.UploadItemImageRequest) (*v1.UploadItemImageResponse, error)
+	CancelUploadBatch(context.Context, *v1.CancelUploadBatchRequest) (*v1.CancelUploadBatchResponse, error)
+	DeleteItem(context.Context, *v1.DeleteItemRequest) (*v1.DeleteItemResponse, error)
+	ListItemProviderCallAudits(context.Context, *v1.ListItemProviderCallAuditsRequest) (*v1.ListItemProviderCallAuditsResponse, error)
 }
 
-// NewItemServiceHandler builds an HTTP handler from the service implementation. It returns the path
-// on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewItemServiceHandler(svc ItemServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	itemServiceMethods := v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods()
-	itemServiceListItemsHandler := connect.NewUnaryHandler(
-		ItemServiceListItemsProcedure,
-		svc.ListItems,
-		connect.WithSchema(itemServiceMethods.ByName("ListItems")),
-		connect.WithHandlerOptions(opts...),
+// RegisterItemServiceHandler registers svc as the scribe.v1.ItemService implementation on server.
+func RegisterItemServiceHandler(server *connect.Server, svc ItemServiceHandler) {
+	adapter := itemServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: itemServiceListItemsSpec(), Handler: adapter.listItems},
+		connect.Method{Spec: itemServiceGetItemSpec(), Handler: adapter.getItem},
+		connect.Method{Spec: itemServiceGetEditorManifestSpec(), Handler: adapter.getEditorManifest},
+		connect.Method{Spec: itemServicePrepareItemExportSpec(), Handler: adapter.prepareItemExport},
+		connect.Method{Spec: itemServiceImportManifestSpec(), Handler: adapter.importManifest},
+		connect.Method{Spec: itemServiceStartUploadBatchSpec(), Handler: adapter.startUploadBatch},
+		connect.Method{Spec: itemServiceGetUploadBatchSpec(), Handler: adapter.getUploadBatch},
+		connect.Method{Spec: itemServiceUploadItemImageSpec(), Handler: adapter.uploadItemImage},
+		connect.Method{Spec: itemServiceCancelUploadBatchSpec(), Handler: adapter.cancelUploadBatch},
+		connect.Method{Spec: itemServiceDeleteItemSpec(), Handler: adapter.deleteItem},
+		connect.Method{Spec: itemServiceListItemProviderCallAuditsSpec(), Handler: adapter.listItemProviderCallAudits},
 	)
-	itemServiceGetItemHandler := connect.NewUnaryHandler(
-		ItemServiceGetItemProcedure,
-		svc.GetItem,
-		connect.WithSchema(itemServiceMethods.ByName("GetItem")),
-		connect.WithHandlerOptions(opts...),
-	)
-	itemServiceGetEditorManifestHandler := connect.NewUnaryHandler(
-		ItemServiceGetEditorManifestProcedure,
-		svc.GetEditorManifest,
-		connect.WithSchema(itemServiceMethods.ByName("GetEditorManifest")),
-		connect.WithHandlerOptions(opts...),
-	)
-	itemServicePrepareItemExportHandler := connect.NewUnaryHandler(
-		ItemServicePrepareItemExportProcedure,
-		svc.PrepareItemExport,
-		connect.WithSchema(itemServiceMethods.ByName("PrepareItemExport")),
-		connect.WithHandlerOptions(opts...),
-	)
-	itemServiceImportManifestHandler := connect.NewUnaryHandler(
-		ItemServiceImportManifestProcedure,
-		svc.ImportManifest,
-		connect.WithSchema(itemServiceMethods.ByName("ImportManifest")),
-		connect.WithHandlerOptions(opts...),
-	)
-	itemServiceStartUploadBatchHandler := connect.NewUnaryHandler(
-		ItemServiceStartUploadBatchProcedure,
-		svc.StartUploadBatch,
-		connect.WithSchema(itemServiceMethods.ByName("StartUploadBatch")),
-		connect.WithHandlerOptions(opts...),
-	)
-	itemServiceGetUploadBatchHandler := connect.NewUnaryHandler(
-		ItemServiceGetUploadBatchProcedure,
-		svc.GetUploadBatch,
-		connect.WithSchema(itemServiceMethods.ByName("GetUploadBatch")),
-		connect.WithHandlerOptions(opts...),
-	)
-	itemServiceUploadItemImageHandler := connect.NewUnaryHandler(
-		ItemServiceUploadItemImageProcedure,
-		svc.UploadItemImage,
-		connect.WithSchema(itemServiceMethods.ByName("UploadItemImage")),
-		connect.WithHandlerOptions(opts...),
-	)
-	itemServiceCancelUploadBatchHandler := connect.NewUnaryHandler(
-		ItemServiceCancelUploadBatchProcedure,
-		svc.CancelUploadBatch,
-		connect.WithSchema(itemServiceMethods.ByName("CancelUploadBatch")),
-		connect.WithHandlerOptions(opts...),
-	)
-	itemServiceDeleteItemHandler := connect.NewUnaryHandler(
-		ItemServiceDeleteItemProcedure,
-		svc.DeleteItem,
-		connect.WithSchema(itemServiceMethods.ByName("DeleteItem")),
-		connect.WithHandlerOptions(opts...),
-	)
-	itemServiceListItemProviderCallAuditsHandler := connect.NewUnaryHandler(
-		ItemServiceListItemProviderCallAuditsProcedure,
-		svc.ListItemProviderCallAudits,
-		connect.WithSchema(itemServiceMethods.ByName("ListItemProviderCallAudits")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/scribe.v1.ItemService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case ItemServiceListItemsProcedure:
-			itemServiceListItemsHandler.ServeHTTP(w, r)
-		case ItemServiceGetItemProcedure:
-			itemServiceGetItemHandler.ServeHTTP(w, r)
-		case ItemServiceGetEditorManifestProcedure:
-			itemServiceGetEditorManifestHandler.ServeHTTP(w, r)
-		case ItemServicePrepareItemExportProcedure:
-			itemServicePrepareItemExportHandler.ServeHTTP(w, r)
-		case ItemServiceImportManifestProcedure:
-			itemServiceImportManifestHandler.ServeHTTP(w, r)
-		case ItemServiceStartUploadBatchProcedure:
-			itemServiceStartUploadBatchHandler.ServeHTTP(w, r)
-		case ItemServiceGetUploadBatchProcedure:
-			itemServiceGetUploadBatchHandler.ServeHTTP(w, r)
-		case ItemServiceUploadItemImageProcedure:
-			itemServiceUploadItemImageHandler.ServeHTTP(w, r)
-		case ItemServiceCancelUploadBatchProcedure:
-			itemServiceCancelUploadBatchHandler.ServeHTTP(w, r)
-		case ItemServiceDeleteItemProcedure:
-			itemServiceDeleteItemHandler.ServeHTTP(w, r)
-		case ItemServiceListItemProviderCallAuditsProcedure:
-			itemServiceListItemProviderCallAuditsHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedItemServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedItemServiceHandler struct{}
 
-func (UnimplementedItemServiceHandler) ListItems(context.Context, *connect.Request[v1.ListItemsRequest]) (*connect.Response[v1.ListItemsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.ListItems is not implemented"))
+func (UnimplementedItemServiceHandler) ListItems(context.Context, *v1.ListItemsRequest) (*v1.ListItemsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.ListItems is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) GetItem(context.Context, *connect.Request[v1.GetItemRequest]) (*connect.Response[v1.GetItemResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.GetItem is not implemented"))
+func (UnimplementedItemServiceHandler) GetItem(context.Context, *v1.GetItemRequest) (*v1.GetItemResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.GetItem is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) GetEditorManifest(context.Context, *connect.Request[v1.GetEditorManifestRequest]) (*connect.Response[v1.GetEditorManifestResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.GetEditorManifest is not implemented"))
+func (UnimplementedItemServiceHandler) GetEditorManifest(context.Context, *v1.GetEditorManifestRequest) (*v1.GetEditorManifestResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.GetEditorManifest is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) PrepareItemExport(context.Context, *connect.Request[v1.PrepareItemExportRequest]) (*connect.Response[v1.PrepareItemExportResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.PrepareItemExport is not implemented"))
+func (UnimplementedItemServiceHandler) PrepareItemExport(context.Context, *v1.PrepareItemExportRequest) (*v1.PrepareItemExportResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.PrepareItemExport is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) ImportManifest(context.Context, *connect.Request[v1.ImportManifestRequest]) (*connect.Response[v1.ImportManifestResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.ImportManifest is not implemented"))
+func (UnimplementedItemServiceHandler) ImportManifest(context.Context, *v1.ImportManifestRequest) (*v1.ImportManifestResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.ImportManifest is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) StartUploadBatch(context.Context, *connect.Request[v1.StartUploadBatchRequest]) (*connect.Response[v1.StartUploadBatchResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.StartUploadBatch is not implemented"))
+func (UnimplementedItemServiceHandler) StartUploadBatch(context.Context, *v1.StartUploadBatchRequest) (*v1.StartUploadBatchResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.StartUploadBatch is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) GetUploadBatch(context.Context, *connect.Request[v1.GetUploadBatchRequest]) (*connect.Response[v1.GetUploadBatchResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.GetUploadBatch is not implemented"))
+func (UnimplementedItemServiceHandler) GetUploadBatch(context.Context, *v1.GetUploadBatchRequest) (*v1.GetUploadBatchResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.GetUploadBatch is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) UploadItemImage(context.Context, *connect.Request[v1.UploadItemImageRequest]) (*connect.Response[v1.UploadItemImageResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.UploadItemImage is not implemented"))
+func (UnimplementedItemServiceHandler) UploadItemImage(context.Context, *v1.UploadItemImageRequest) (*v1.UploadItemImageResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.UploadItemImage is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) CancelUploadBatch(context.Context, *connect.Request[v1.CancelUploadBatchRequest]) (*connect.Response[v1.CancelUploadBatchResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.CancelUploadBatch is not implemented"))
+func (UnimplementedItemServiceHandler) CancelUploadBatch(context.Context, *v1.CancelUploadBatchRequest) (*v1.CancelUploadBatchResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.CancelUploadBatch is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) DeleteItem(context.Context, *connect.Request[v1.DeleteItemRequest]) (*connect.Response[v1.DeleteItemResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.DeleteItem is not implemented"))
+func (UnimplementedItemServiceHandler) DeleteItem(context.Context, *v1.DeleteItemRequest) (*v1.DeleteItemResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.DeleteItem is not implemented")
 }
 
-func (UnimplementedItemServiceHandler) ListItemProviderCallAudits(context.Context, *connect.Request[v1.ListItemProviderCallAuditsRequest]) (*connect.Response[v1.ListItemProviderCallAuditsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ItemService.ListItemProviderCallAudits is not implemented"))
+func (UnimplementedItemServiceHandler) ListItemProviderCallAudits(context.Context, *v1.ListItemProviderCallAuditsRequest) (*v1.ListItemProviderCallAuditsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.ListItemProviderCallAudits is not implemented")
+}
+
+type itemServiceClient struct {
+	client *connect.Client
+}
+
+func (c *itemServiceClient) ListItems(ctx context.Context, req *v1.ListItemsRequest) (*v1.ListItemsResponse, error) {
+	var res v1.ListItemsResponse
+	if err := c.client.CallUnary(ctx, itemServiceListItemsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) GetItem(ctx context.Context, req *v1.GetItemRequest) (*v1.GetItemResponse, error) {
+	var res v1.GetItemResponse
+	if err := c.client.CallUnary(ctx, itemServiceGetItemSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) GetEditorManifest(ctx context.Context, req *v1.GetEditorManifestRequest) (*v1.GetEditorManifestResponse, error) {
+	var res v1.GetEditorManifestResponse
+	if err := c.client.CallUnary(ctx, itemServiceGetEditorManifestSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) PrepareItemExport(ctx context.Context, req *v1.PrepareItemExportRequest) (*v1.PrepareItemExportResponse, error) {
+	var res v1.PrepareItemExportResponse
+	if err := c.client.CallUnary(ctx, itemServicePrepareItemExportSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) ImportManifest(ctx context.Context, req *v1.ImportManifestRequest) (*v1.ImportManifestResponse, error) {
+	var res v1.ImportManifestResponse
+	if err := c.client.CallUnary(ctx, itemServiceImportManifestSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) StartUploadBatch(ctx context.Context, req *v1.StartUploadBatchRequest) (*v1.StartUploadBatchResponse, error) {
+	var res v1.StartUploadBatchResponse
+	if err := c.client.CallUnary(ctx, itemServiceStartUploadBatchSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) GetUploadBatch(ctx context.Context, req *v1.GetUploadBatchRequest) (*v1.GetUploadBatchResponse, error) {
+	var res v1.GetUploadBatchResponse
+	if err := c.client.CallUnary(ctx, itemServiceGetUploadBatchSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) UploadItemImage(ctx context.Context, req *v1.UploadItemImageRequest) (*v1.UploadItemImageResponse, error) {
+	var res v1.UploadItemImageResponse
+	if err := c.client.CallUnary(ctx, itemServiceUploadItemImageSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) CancelUploadBatch(ctx context.Context, req *v1.CancelUploadBatchRequest) (*v1.CancelUploadBatchResponse, error) {
+	var res v1.CancelUploadBatchResponse
+	if err := c.client.CallUnary(ctx, itemServiceCancelUploadBatchSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) DeleteItem(ctx context.Context, req *v1.DeleteItemRequest) (*v1.DeleteItemResponse, error) {
+	var res v1.DeleteItemResponse
+	if err := c.client.CallUnary(ctx, itemServiceDeleteItemSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *itemServiceClient) ListItemProviderCallAudits(ctx context.Context, req *v1.ListItemProviderCallAuditsRequest) (*v1.ListItemProviderCallAuditsResponse, error) {
+	var res v1.ListItemProviderCallAuditsResponse
+	if err := c.client.CallUnary(ctx, itemServiceListItemProviderCallAuditsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type itemServiceHandler struct{ svc ItemServiceHandler }
+
+func (h itemServiceHandler) listItems(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListItemsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListItems(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) getItem(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetItemRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetItem(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) getEditorManifest(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetEditorManifestRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetEditorManifest(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) prepareItemExport(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.PrepareItemExportRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.PrepareItemExport(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) importManifest(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ImportManifestRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ImportManifest(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) startUploadBatch(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.StartUploadBatchRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.StartUploadBatch(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) getUploadBatch(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetUploadBatchRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetUploadBatch(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) uploadItemImage(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UploadItemImageRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UploadItemImage(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) cancelUploadBatch(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CancelUploadBatchRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CancelUploadBatch(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) deleteItem(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteItemRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteItem(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h itemServiceHandler) listItemProviderCallAudits(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListItemProviderCallAuditsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListItemProviderCallAudits(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }
