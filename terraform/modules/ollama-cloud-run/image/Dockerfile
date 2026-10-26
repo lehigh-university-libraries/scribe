@@ -12,7 +12,8 @@ ENV \
   OLLAMA_MODEL=${OLLAMA_MODEL}
 
 RUN test -n "${OLLAMA_MODEL}" && printf '%s' "${OLLAMA_MODEL_DIGEST}" | grep -Eq '^[0-9a-f]{64}$'
-RUN ollama serve & \
+RUN set -eu; \
+    ollama serve & \
     server_pid=$!; \
     trap 'kill "$server_pid" 2>/dev/null || true' EXIT; \
     sleep 5; \
