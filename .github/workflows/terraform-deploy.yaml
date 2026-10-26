@@ -123,6 +123,15 @@ jobs:
           --project "$GCLOUD_PROJECT" --freshness=1d --limit=5
           --format='table(timestamp,textPayload)'
 
+      - name: Report recent Ollama HTTP failures
+        if: always() && inputs.environment == 'production'
+        continue-on-error: true
+        run: >-
+          gcloud logging read
+          'resource.type="cloud_run_revision" AND resource.labels.service_name="ollama-glm-ocr-bf16" AND httpRequest.status>=400'
+          --project "$GCLOUD_PROJECT" --freshness=1d --limit=10
+          --format='table(timestamp,httpRequest.status)'
+
       - name: Delete the preview workspace
         if: inputs.action == 'destroy' && inputs.pr_number != ''
         run: |
