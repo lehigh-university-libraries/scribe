@@ -114,6 +114,15 @@ jobs:
             make tf-prod ACTION="$ACTION"
           fi
 
+      - name: Report recent production OCR readiness failures
+        if: always() && inputs.environment == 'production'
+        continue-on-error: true
+        run: >-
+          gcloud logging read
+          'resource.type="cloud_run_job" AND resource.labels.job_name="scribe-prod-ocr-readiness" AND textPayload=~"^ocr readiness failed: (image-contract|(segment|layout|ollama)-(token|request|timeout|contract))$"'
+          --project "$GCLOUD_PROJECT" --freshness=1d --limit=5
+          --format='table(timestamp,textPayload)'
+
       - name: Delete the preview workspace
         if: inputs.action == 'destroy' && inputs.pr_number != ''
         run: |

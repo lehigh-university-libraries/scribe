@@ -91,6 +91,9 @@ backend job checks the deployed API and worker image digests, canonical origin,
 and database readiness over HTTPS. The OCR job sends a real image through the
 registered private OCR endpoints. These jobs have no database, upload, or secret
 access. A failed probe fails deployment.
+The production workflow reports up to five recent OCR probe failure markers
+after a plan or apply. Diagnostics contain only the failed stage, never tokens,
+endpoint URLs, or inference responses.
 
 ## Configuration and destruction
 
