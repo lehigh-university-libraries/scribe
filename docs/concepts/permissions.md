@@ -8,6 +8,9 @@ rules.
 The workspace roles are:
 
 - `admin`: membership and workspace administration
+- `write`: edit workspace resources
+- `create`: create new items
+- `read`: view resources without mutation
 
 Every workspace can be shared, including the one created at first login.
 Administrators can add an email address before that person has signed in.
@@ -15,9 +18,6 @@ Scribe reserves the user identity and workspace role without sending email or
 creating sign-in credentials. The person signs in with Google using that
 verified email address to access the existing membership. Adding an existing
 member again does not change their role or profile.
-- `write`: edit workspace resources
-- `create`: create new items
-- `read`: view resources without mutation
 
 Authorization checks are side-effect free. Importing a manifest, resolving a
 remote resource, starting provider work, or creating an index is an explicit
