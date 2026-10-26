@@ -5,395 +5,463 @@
 package scribev1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// ContextServiceName is the fully-qualified name of the ContextService service.
 	ContextServiceName = "scribe.v1.ContextService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// ContextServiceListContextsProcedure is the fully-qualified name of the ContextService's
-	// ListContexts RPC.
-	ContextServiceListContextsProcedure = "/scribe.v1.ContextService/ListContexts"
-	// ContextServiceGetContextProcedure is the fully-qualified name of the ContextService's GetContext
+	// ContextServiceListContextsProcedure is the procedure name of the ContextService's ListContexts
 	// RPC.
+	ContextServiceListContextsProcedure = "/scribe.v1.ContextService/ListContexts"
+	// ContextServiceGetContextProcedure is the procedure name of the ContextService's GetContext RPC.
 	ContextServiceGetContextProcedure = "/scribe.v1.ContextService/GetContext"
-	// ContextServiceCreateContextProcedure is the fully-qualified name of the ContextService's
-	// CreateContext RPC.
+	// ContextServiceCreateContextProcedure is the procedure name of the ContextService's CreateContext
+	// RPC.
 	ContextServiceCreateContextProcedure = "/scribe.v1.ContextService/CreateContext"
-	// ContextServiceUpdateContextProcedure is the fully-qualified name of the ContextService's
-	// UpdateContext RPC.
+	// ContextServiceUpdateContextProcedure is the procedure name of the ContextService's UpdateContext
+	// RPC.
 	ContextServiceUpdateContextProcedure = "/scribe.v1.ContextService/UpdateContext"
-	// ContextServiceDeleteContextProcedure is the fully-qualified name of the ContextService's
-	// DeleteContext RPC.
+	// ContextServiceDeleteContextProcedure is the procedure name of the ContextService's DeleteContext
+	// RPC.
 	ContextServiceDeleteContextProcedure = "/scribe.v1.ContextService/DeleteContext"
-	// ContextServiceListSelectionRulesProcedure is the fully-qualified name of the ContextService's
+	// ContextServiceListSelectionRulesProcedure is the procedure name of the ContextService's
 	// ListSelectionRules RPC.
 	ContextServiceListSelectionRulesProcedure = "/scribe.v1.ContextService/ListSelectionRules"
-	// ContextServiceCreateSelectionRuleProcedure is the fully-qualified name of the ContextService's
+	// ContextServiceCreateSelectionRuleProcedure is the procedure name of the ContextService's
 	// CreateSelectionRule RPC.
 	ContextServiceCreateSelectionRuleProcedure = "/scribe.v1.ContextService/CreateSelectionRule"
-	// ContextServiceDeleteSelectionRuleProcedure is the fully-qualified name of the ContextService's
+	// ContextServiceDeleteSelectionRuleProcedure is the procedure name of the ContextService's
 	// DeleteSelectionRule RPC.
 	ContextServiceDeleteSelectionRuleProcedure = "/scribe.v1.ContextService/DeleteSelectionRule"
-	// ContextServiceResolveContextProcedure is the fully-qualified name of the ContextService's
+	// ContextServiceResolveContextProcedure is the procedure name of the ContextService's
 	// ResolveContext RPC.
 	ContextServiceResolveContextProcedure = "/scribe.v1.ContextService/ResolveContext"
-	// ContextServiceGetModelCatalogProcedure is the fully-qualified name of the ContextService's
+	// ContextServiceGetModelCatalogProcedure is the procedure name of the ContextService's
 	// GetModelCatalog RPC.
 	ContextServiceGetModelCatalogProcedure = "/scribe.v1.ContextService/GetModelCatalog"
-	// ContextServiceGetContextMetricsProcedure is the fully-qualified name of the ContextService's
+	// ContextServiceGetContextMetricsProcedure is the procedure name of the ContextService's
 	// GetContextMetrics RPC.
 	ContextServiceGetContextMetricsProcedure = "/scribe.v1.ContextService/GetContextMetrics"
 )
 
+var (
+	contextServiceListContextsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("ListContexts"),
+			Procedure:  ContextServiceListContextsProcedure,
+		}
+	})
+	contextServiceGetContextSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("GetContext"),
+			Procedure:  ContextServiceGetContextProcedure,
+		}
+	})
+	contextServiceCreateContextSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("CreateContext"),
+			Procedure:  ContextServiceCreateContextProcedure,
+		}
+	})
+	contextServiceUpdateContextSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("UpdateContext"),
+			Procedure:  ContextServiceUpdateContextProcedure,
+		}
+	})
+	contextServiceDeleteContextSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("DeleteContext"),
+			Procedure:  ContextServiceDeleteContextProcedure,
+		}
+	})
+	contextServiceListSelectionRulesSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("ListSelectionRules"),
+			Procedure:  ContextServiceListSelectionRulesProcedure,
+		}
+	})
+	contextServiceCreateSelectionRuleSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("CreateSelectionRule"),
+			Procedure:  ContextServiceCreateSelectionRuleProcedure,
+		}
+	})
+	contextServiceDeleteSelectionRuleSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("DeleteSelectionRule"),
+			Procedure:  ContextServiceDeleteSelectionRuleProcedure,
+		}
+	})
+	contextServiceResolveContextSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("ResolveContext"),
+			Procedure:  ContextServiceResolveContextProcedure,
+		}
+	})
+	contextServiceGetModelCatalogSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("GetModelCatalog"),
+			Procedure:  ContextServiceGetModelCatalogProcedure,
+		}
+	})
+	contextServiceGetContextMetricsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods().ByName("GetContextMetrics"),
+			Procedure:  ContextServiceGetContextMetricsProcedure,
+		}
+	})
+)
+
 // ContextServiceClient is a client for the scribe.v1.ContextService service.
 type ContextServiceClient interface {
-	ListContexts(context.Context, *connect.Request[v1.ListContextsRequest]) (*connect.Response[v1.ListContextsResponse], error)
-	GetContext(context.Context, *connect.Request[v1.GetContextRequest]) (*connect.Response[v1.GetContextResponse], error)
-	CreateContext(context.Context, *connect.Request[v1.CreateContextRequest]) (*connect.Response[v1.CreateContextResponse], error)
-	UpdateContext(context.Context, *connect.Request[v1.UpdateContextRequest]) (*connect.Response[v1.UpdateContextResponse], error)
-	DeleteContext(context.Context, *connect.Request[v1.DeleteContextRequest]) (*connect.Response[v1.DeleteContextResponse], error)
-	ListSelectionRules(context.Context, *connect.Request[v1.ListSelectionRulesRequest]) (*connect.Response[v1.ListSelectionRulesResponse], error)
-	CreateSelectionRule(context.Context, *connect.Request[v1.CreateSelectionRuleRequest]) (*connect.Response[v1.CreateSelectionRuleResponse], error)
-	DeleteSelectionRule(context.Context, *connect.Request[v1.DeleteSelectionRuleRequest]) (*connect.Response[v1.DeleteSelectionRuleResponse], error)
-	ResolveContext(context.Context, *connect.Request[v1.ResolveContextRequest]) (*connect.Response[v1.ResolveContextResponse], error)
-	GetModelCatalog(context.Context, *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error)
-	GetContextMetrics(context.Context, *connect.Request[v1.GetContextMetricsRequest]) (*connect.Response[v1.GetContextMetricsResponse], error)
+	ListContexts(context.Context, *v1.ListContextsRequest) (*v1.ListContextsResponse, error)
+	GetContext(context.Context, *v1.GetContextRequest) (*v1.GetContextResponse, error)
+	CreateContext(context.Context, *v1.CreateContextRequest) (*v1.CreateContextResponse, error)
+	UpdateContext(context.Context, *v1.UpdateContextRequest) (*v1.UpdateContextResponse, error)
+	DeleteContext(context.Context, *v1.DeleteContextRequest) (*v1.DeleteContextResponse, error)
+	ListSelectionRules(context.Context, *v1.ListSelectionRulesRequest) (*v1.ListSelectionRulesResponse, error)
+	CreateSelectionRule(context.Context, *v1.CreateSelectionRuleRequest) (*v1.CreateSelectionRuleResponse, error)
+	DeleteSelectionRule(context.Context, *v1.DeleteSelectionRuleRequest) (*v1.DeleteSelectionRuleResponse, error)
+	ResolveContext(context.Context, *v1.ResolveContextRequest) (*v1.ResolveContextResponse, error)
+	GetModelCatalog(context.Context, *v1.GetModelCatalogRequest) (*v1.GetModelCatalogResponse, error)
+	GetContextMetrics(context.Context, *v1.GetContextMetricsRequest) (*v1.GetContextMetricsResponse, error)
 }
 
-// NewContextServiceClient constructs a client for the scribe.v1.ContextService service. By default,
-// it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and
-// sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC()
-// or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewContextServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ContextServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	contextServiceMethods := v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods()
-	return &contextServiceClient{
-		listContexts: connect.NewClient[v1.ListContextsRequest, v1.ListContextsResponse](
-			httpClient,
-			baseURL+ContextServiceListContextsProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("ListContexts")),
-			connect.WithClientOptions(opts...),
-		),
-		getContext: connect.NewClient[v1.GetContextRequest, v1.GetContextResponse](
-			httpClient,
-			baseURL+ContextServiceGetContextProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("GetContext")),
-			connect.WithClientOptions(opts...),
-		),
-		createContext: connect.NewClient[v1.CreateContextRequest, v1.CreateContextResponse](
-			httpClient,
-			baseURL+ContextServiceCreateContextProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("CreateContext")),
-			connect.WithClientOptions(opts...),
-		),
-		updateContext: connect.NewClient[v1.UpdateContextRequest, v1.UpdateContextResponse](
-			httpClient,
-			baseURL+ContextServiceUpdateContextProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("UpdateContext")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteContext: connect.NewClient[v1.DeleteContextRequest, v1.DeleteContextResponse](
-			httpClient,
-			baseURL+ContextServiceDeleteContextProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("DeleteContext")),
-			connect.WithClientOptions(opts...),
-		),
-		listSelectionRules: connect.NewClient[v1.ListSelectionRulesRequest, v1.ListSelectionRulesResponse](
-			httpClient,
-			baseURL+ContextServiceListSelectionRulesProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("ListSelectionRules")),
-			connect.WithClientOptions(opts...),
-		),
-		createSelectionRule: connect.NewClient[v1.CreateSelectionRuleRequest, v1.CreateSelectionRuleResponse](
-			httpClient,
-			baseURL+ContextServiceCreateSelectionRuleProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("CreateSelectionRule")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteSelectionRule: connect.NewClient[v1.DeleteSelectionRuleRequest, v1.DeleteSelectionRuleResponse](
-			httpClient,
-			baseURL+ContextServiceDeleteSelectionRuleProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("DeleteSelectionRule")),
-			connect.WithClientOptions(opts...),
-		),
-		resolveContext: connect.NewClient[v1.ResolveContextRequest, v1.ResolveContextResponse](
-			httpClient,
-			baseURL+ContextServiceResolveContextProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("ResolveContext")),
-			connect.WithClientOptions(opts...),
-		),
-		getModelCatalog: connect.NewClient[v1.GetModelCatalogRequest, v1.GetModelCatalogResponse](
-			httpClient,
-			baseURL+ContextServiceGetModelCatalogProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("GetModelCatalog")),
-			connect.WithClientOptions(opts...),
-		),
-		getContextMetrics: connect.NewClient[v1.GetContextMetricsRequest, v1.GetContextMetricsResponse](
-			httpClient,
-			baseURL+ContextServiceGetContextMetricsProcedure,
-			connect.WithSchema(contextServiceMethods.ByName("GetContextMetrics")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// contextServiceClient implements ContextServiceClient.
-type contextServiceClient struct {
-	listContexts        *connect.Client[v1.ListContextsRequest, v1.ListContextsResponse]
-	getContext          *connect.Client[v1.GetContextRequest, v1.GetContextResponse]
-	createContext       *connect.Client[v1.CreateContextRequest, v1.CreateContextResponse]
-	updateContext       *connect.Client[v1.UpdateContextRequest, v1.UpdateContextResponse]
-	deleteContext       *connect.Client[v1.DeleteContextRequest, v1.DeleteContextResponse]
-	listSelectionRules  *connect.Client[v1.ListSelectionRulesRequest, v1.ListSelectionRulesResponse]
-	createSelectionRule *connect.Client[v1.CreateSelectionRuleRequest, v1.CreateSelectionRuleResponse]
-	deleteSelectionRule *connect.Client[v1.DeleteSelectionRuleRequest, v1.DeleteSelectionRuleResponse]
-	resolveContext      *connect.Client[v1.ResolveContextRequest, v1.ResolveContextResponse]
-	getModelCatalog     *connect.Client[v1.GetModelCatalogRequest, v1.GetModelCatalogResponse]
-	getContextMetrics   *connect.Client[v1.GetContextMetricsRequest, v1.GetContextMetricsResponse]
-}
-
-// ListContexts calls scribe.v1.ContextService.ListContexts.
-func (c *contextServiceClient) ListContexts(ctx context.Context, req *connect.Request[v1.ListContextsRequest]) (*connect.Response[v1.ListContextsResponse], error) {
-	return c.listContexts.CallUnary(ctx, req)
-}
-
-// GetContext calls scribe.v1.ContextService.GetContext.
-func (c *contextServiceClient) GetContext(ctx context.Context, req *connect.Request[v1.GetContextRequest]) (*connect.Response[v1.GetContextResponse], error) {
-	return c.getContext.CallUnary(ctx, req)
-}
-
-// CreateContext calls scribe.v1.ContextService.CreateContext.
-func (c *contextServiceClient) CreateContext(ctx context.Context, req *connect.Request[v1.CreateContextRequest]) (*connect.Response[v1.CreateContextResponse], error) {
-	return c.createContext.CallUnary(ctx, req)
-}
-
-// UpdateContext calls scribe.v1.ContextService.UpdateContext.
-func (c *contextServiceClient) UpdateContext(ctx context.Context, req *connect.Request[v1.UpdateContextRequest]) (*connect.Response[v1.UpdateContextResponse], error) {
-	return c.updateContext.CallUnary(ctx, req)
-}
-
-// DeleteContext calls scribe.v1.ContextService.DeleteContext.
-func (c *contextServiceClient) DeleteContext(ctx context.Context, req *connect.Request[v1.DeleteContextRequest]) (*connect.Response[v1.DeleteContextResponse], error) {
-	return c.deleteContext.CallUnary(ctx, req)
-}
-
-// ListSelectionRules calls scribe.v1.ContextService.ListSelectionRules.
-func (c *contextServiceClient) ListSelectionRules(ctx context.Context, req *connect.Request[v1.ListSelectionRulesRequest]) (*connect.Response[v1.ListSelectionRulesResponse], error) {
-	return c.listSelectionRules.CallUnary(ctx, req)
-}
-
-// CreateSelectionRule calls scribe.v1.ContextService.CreateSelectionRule.
-func (c *contextServiceClient) CreateSelectionRule(ctx context.Context, req *connect.Request[v1.CreateSelectionRuleRequest]) (*connect.Response[v1.CreateSelectionRuleResponse], error) {
-	return c.createSelectionRule.CallUnary(ctx, req)
-}
-
-// DeleteSelectionRule calls scribe.v1.ContextService.DeleteSelectionRule.
-func (c *contextServiceClient) DeleteSelectionRule(ctx context.Context, req *connect.Request[v1.DeleteSelectionRuleRequest]) (*connect.Response[v1.DeleteSelectionRuleResponse], error) {
-	return c.deleteSelectionRule.CallUnary(ctx, req)
-}
-
-// ResolveContext calls scribe.v1.ContextService.ResolveContext.
-func (c *contextServiceClient) ResolveContext(ctx context.Context, req *connect.Request[v1.ResolveContextRequest]) (*connect.Response[v1.ResolveContextResponse], error) {
-	return c.resolveContext.CallUnary(ctx, req)
-}
-
-// GetModelCatalog calls scribe.v1.ContextService.GetModelCatalog.
-func (c *contextServiceClient) GetModelCatalog(ctx context.Context, req *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error) {
-	return c.getModelCatalog.CallUnary(ctx, req)
-}
-
-// GetContextMetrics calls scribe.v1.ContextService.GetContextMetrics.
-func (c *contextServiceClient) GetContextMetrics(ctx context.Context, req *connect.Request[v1.GetContextMetricsRequest]) (*connect.Response[v1.GetContextMetricsResponse], error) {
-	return c.getContextMetrics.CallUnary(ctx, req)
+// NewContextServiceClient constructs a client for the scribe.v1.ContextService service. Multiple
+// service clients may share a single connect.Client.
+func NewContextServiceClient(client *connect.Client) ContextServiceClient {
+	return &contextServiceClient{client: client}
 }
 
 // ContextServiceHandler is an implementation of the scribe.v1.ContextService service.
 type ContextServiceHandler interface {
-	ListContexts(context.Context, *connect.Request[v1.ListContextsRequest]) (*connect.Response[v1.ListContextsResponse], error)
-	GetContext(context.Context, *connect.Request[v1.GetContextRequest]) (*connect.Response[v1.GetContextResponse], error)
-	CreateContext(context.Context, *connect.Request[v1.CreateContextRequest]) (*connect.Response[v1.CreateContextResponse], error)
-	UpdateContext(context.Context, *connect.Request[v1.UpdateContextRequest]) (*connect.Response[v1.UpdateContextResponse], error)
-	DeleteContext(context.Context, *connect.Request[v1.DeleteContextRequest]) (*connect.Response[v1.DeleteContextResponse], error)
-	ListSelectionRules(context.Context, *connect.Request[v1.ListSelectionRulesRequest]) (*connect.Response[v1.ListSelectionRulesResponse], error)
-	CreateSelectionRule(context.Context, *connect.Request[v1.CreateSelectionRuleRequest]) (*connect.Response[v1.CreateSelectionRuleResponse], error)
-	DeleteSelectionRule(context.Context, *connect.Request[v1.DeleteSelectionRuleRequest]) (*connect.Response[v1.DeleteSelectionRuleResponse], error)
-	ResolveContext(context.Context, *connect.Request[v1.ResolveContextRequest]) (*connect.Response[v1.ResolveContextResponse], error)
-	GetModelCatalog(context.Context, *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error)
-	GetContextMetrics(context.Context, *connect.Request[v1.GetContextMetricsRequest]) (*connect.Response[v1.GetContextMetricsResponse], error)
+	ListContexts(context.Context, *v1.ListContextsRequest) (*v1.ListContextsResponse, error)
+	GetContext(context.Context, *v1.GetContextRequest) (*v1.GetContextResponse, error)
+	CreateContext(context.Context, *v1.CreateContextRequest) (*v1.CreateContextResponse, error)
+	UpdateContext(context.Context, *v1.UpdateContextRequest) (*v1.UpdateContextResponse, error)
+	DeleteContext(context.Context, *v1.DeleteContextRequest) (*v1.DeleteContextResponse, error)
+	ListSelectionRules(context.Context, *v1.ListSelectionRulesRequest) (*v1.ListSelectionRulesResponse, error)
+	CreateSelectionRule(context.Context, *v1.CreateSelectionRuleRequest) (*v1.CreateSelectionRuleResponse, error)
+	DeleteSelectionRule(context.Context, *v1.DeleteSelectionRuleRequest) (*v1.DeleteSelectionRuleResponse, error)
+	ResolveContext(context.Context, *v1.ResolveContextRequest) (*v1.ResolveContextResponse, error)
+	GetModelCatalog(context.Context, *v1.GetModelCatalogRequest) (*v1.GetModelCatalogResponse, error)
+	GetContextMetrics(context.Context, *v1.GetContextMetricsRequest) (*v1.GetContextMetricsResponse, error)
 }
 
-// NewContextServiceHandler builds an HTTP handler from the service implementation. It returns the
-// path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewContextServiceHandler(svc ContextServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	contextServiceMethods := v1.File_scribe_v1_context_proto.Services().ByName("ContextService").Methods()
-	contextServiceListContextsHandler := connect.NewUnaryHandler(
-		ContextServiceListContextsProcedure,
-		svc.ListContexts,
-		connect.WithSchema(contextServiceMethods.ByName("ListContexts")),
-		connect.WithHandlerOptions(opts...),
+// RegisterContextServiceHandler registers svc as the scribe.v1.ContextService implementation on
+// server.
+func RegisterContextServiceHandler(server *connect.Server, svc ContextServiceHandler) {
+	adapter := contextServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: contextServiceListContextsSpec(), Handler: adapter.listContexts},
+		connect.Method{Spec: contextServiceGetContextSpec(), Handler: adapter.getContext},
+		connect.Method{Spec: contextServiceCreateContextSpec(), Handler: adapter.createContext},
+		connect.Method{Spec: contextServiceUpdateContextSpec(), Handler: adapter.updateContext},
+		connect.Method{Spec: contextServiceDeleteContextSpec(), Handler: adapter.deleteContext},
+		connect.Method{Spec: contextServiceListSelectionRulesSpec(), Handler: adapter.listSelectionRules},
+		connect.Method{Spec: contextServiceCreateSelectionRuleSpec(), Handler: adapter.createSelectionRule},
+		connect.Method{Spec: contextServiceDeleteSelectionRuleSpec(), Handler: adapter.deleteSelectionRule},
+		connect.Method{Spec: contextServiceResolveContextSpec(), Handler: adapter.resolveContext},
+		connect.Method{Spec: contextServiceGetModelCatalogSpec(), Handler: adapter.getModelCatalog},
+		connect.Method{Spec: contextServiceGetContextMetricsSpec(), Handler: adapter.getContextMetrics},
 	)
-	contextServiceGetContextHandler := connect.NewUnaryHandler(
-		ContextServiceGetContextProcedure,
-		svc.GetContext,
-		connect.WithSchema(contextServiceMethods.ByName("GetContext")),
-		connect.WithHandlerOptions(opts...),
-	)
-	contextServiceCreateContextHandler := connect.NewUnaryHandler(
-		ContextServiceCreateContextProcedure,
-		svc.CreateContext,
-		connect.WithSchema(contextServiceMethods.ByName("CreateContext")),
-		connect.WithHandlerOptions(opts...),
-	)
-	contextServiceUpdateContextHandler := connect.NewUnaryHandler(
-		ContextServiceUpdateContextProcedure,
-		svc.UpdateContext,
-		connect.WithSchema(contextServiceMethods.ByName("UpdateContext")),
-		connect.WithHandlerOptions(opts...),
-	)
-	contextServiceDeleteContextHandler := connect.NewUnaryHandler(
-		ContextServiceDeleteContextProcedure,
-		svc.DeleteContext,
-		connect.WithSchema(contextServiceMethods.ByName("DeleteContext")),
-		connect.WithHandlerOptions(opts...),
-	)
-	contextServiceListSelectionRulesHandler := connect.NewUnaryHandler(
-		ContextServiceListSelectionRulesProcedure,
-		svc.ListSelectionRules,
-		connect.WithSchema(contextServiceMethods.ByName("ListSelectionRules")),
-		connect.WithHandlerOptions(opts...),
-	)
-	contextServiceCreateSelectionRuleHandler := connect.NewUnaryHandler(
-		ContextServiceCreateSelectionRuleProcedure,
-		svc.CreateSelectionRule,
-		connect.WithSchema(contextServiceMethods.ByName("CreateSelectionRule")),
-		connect.WithHandlerOptions(opts...),
-	)
-	contextServiceDeleteSelectionRuleHandler := connect.NewUnaryHandler(
-		ContextServiceDeleteSelectionRuleProcedure,
-		svc.DeleteSelectionRule,
-		connect.WithSchema(contextServiceMethods.ByName("DeleteSelectionRule")),
-		connect.WithHandlerOptions(opts...),
-	)
-	contextServiceResolveContextHandler := connect.NewUnaryHandler(
-		ContextServiceResolveContextProcedure,
-		svc.ResolveContext,
-		connect.WithSchema(contextServiceMethods.ByName("ResolveContext")),
-		connect.WithHandlerOptions(opts...),
-	)
-	contextServiceGetModelCatalogHandler := connect.NewUnaryHandler(
-		ContextServiceGetModelCatalogProcedure,
-		svc.GetModelCatalog,
-		connect.WithSchema(contextServiceMethods.ByName("GetModelCatalog")),
-		connect.WithHandlerOptions(opts...),
-	)
-	contextServiceGetContextMetricsHandler := connect.NewUnaryHandler(
-		ContextServiceGetContextMetricsProcedure,
-		svc.GetContextMetrics,
-		connect.WithSchema(contextServiceMethods.ByName("GetContextMetrics")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/scribe.v1.ContextService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case ContextServiceListContextsProcedure:
-			contextServiceListContextsHandler.ServeHTTP(w, r)
-		case ContextServiceGetContextProcedure:
-			contextServiceGetContextHandler.ServeHTTP(w, r)
-		case ContextServiceCreateContextProcedure:
-			contextServiceCreateContextHandler.ServeHTTP(w, r)
-		case ContextServiceUpdateContextProcedure:
-			contextServiceUpdateContextHandler.ServeHTTP(w, r)
-		case ContextServiceDeleteContextProcedure:
-			contextServiceDeleteContextHandler.ServeHTTP(w, r)
-		case ContextServiceListSelectionRulesProcedure:
-			contextServiceListSelectionRulesHandler.ServeHTTP(w, r)
-		case ContextServiceCreateSelectionRuleProcedure:
-			contextServiceCreateSelectionRuleHandler.ServeHTTP(w, r)
-		case ContextServiceDeleteSelectionRuleProcedure:
-			contextServiceDeleteSelectionRuleHandler.ServeHTTP(w, r)
-		case ContextServiceResolveContextProcedure:
-			contextServiceResolveContextHandler.ServeHTTP(w, r)
-		case ContextServiceGetModelCatalogProcedure:
-			contextServiceGetModelCatalogHandler.ServeHTTP(w, r)
-		case ContextServiceGetContextMetricsProcedure:
-			contextServiceGetContextMetricsHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedContextServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedContextServiceHandler struct{}
 
-func (UnimplementedContextServiceHandler) ListContexts(context.Context, *connect.Request[v1.ListContextsRequest]) (*connect.Response[v1.ListContextsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.ListContexts is not implemented"))
+func (UnimplementedContextServiceHandler) ListContexts(context.Context, *v1.ListContextsRequest) (*v1.ListContextsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.ListContexts is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) GetContext(context.Context, *connect.Request[v1.GetContextRequest]) (*connect.Response[v1.GetContextResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.GetContext is not implemented"))
+func (UnimplementedContextServiceHandler) GetContext(context.Context, *v1.GetContextRequest) (*v1.GetContextResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.GetContext is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) CreateContext(context.Context, *connect.Request[v1.CreateContextRequest]) (*connect.Response[v1.CreateContextResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.CreateContext is not implemented"))
+func (UnimplementedContextServiceHandler) CreateContext(context.Context, *v1.CreateContextRequest) (*v1.CreateContextResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.CreateContext is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) UpdateContext(context.Context, *connect.Request[v1.UpdateContextRequest]) (*connect.Response[v1.UpdateContextResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.UpdateContext is not implemented"))
+func (UnimplementedContextServiceHandler) UpdateContext(context.Context, *v1.UpdateContextRequest) (*v1.UpdateContextResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.UpdateContext is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) DeleteContext(context.Context, *connect.Request[v1.DeleteContextRequest]) (*connect.Response[v1.DeleteContextResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.DeleteContext is not implemented"))
+func (UnimplementedContextServiceHandler) DeleteContext(context.Context, *v1.DeleteContextRequest) (*v1.DeleteContextResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.DeleteContext is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) ListSelectionRules(context.Context, *connect.Request[v1.ListSelectionRulesRequest]) (*connect.Response[v1.ListSelectionRulesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.ListSelectionRules is not implemented"))
+func (UnimplementedContextServiceHandler) ListSelectionRules(context.Context, *v1.ListSelectionRulesRequest) (*v1.ListSelectionRulesResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.ListSelectionRules is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) CreateSelectionRule(context.Context, *connect.Request[v1.CreateSelectionRuleRequest]) (*connect.Response[v1.CreateSelectionRuleResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.CreateSelectionRule is not implemented"))
+func (UnimplementedContextServiceHandler) CreateSelectionRule(context.Context, *v1.CreateSelectionRuleRequest) (*v1.CreateSelectionRuleResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.CreateSelectionRule is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) DeleteSelectionRule(context.Context, *connect.Request[v1.DeleteSelectionRuleRequest]) (*connect.Response[v1.DeleteSelectionRuleResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.DeleteSelectionRule is not implemented"))
+func (UnimplementedContextServiceHandler) DeleteSelectionRule(context.Context, *v1.DeleteSelectionRuleRequest) (*v1.DeleteSelectionRuleResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.DeleteSelectionRule is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) ResolveContext(context.Context, *connect.Request[v1.ResolveContextRequest]) (*connect.Response[v1.ResolveContextResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.ResolveContext is not implemented"))
+func (UnimplementedContextServiceHandler) ResolveContext(context.Context, *v1.ResolveContextRequest) (*v1.ResolveContextResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.ResolveContext is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) GetModelCatalog(context.Context, *connect.Request[v1.GetModelCatalogRequest]) (*connect.Response[v1.GetModelCatalogResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.GetModelCatalog is not implemented"))
+func (UnimplementedContextServiceHandler) GetModelCatalog(context.Context, *v1.GetModelCatalogRequest) (*v1.GetModelCatalogResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.GetModelCatalog is not implemented")
 }
 
-func (UnimplementedContextServiceHandler) GetContextMetrics(context.Context, *connect.Request[v1.GetContextMetricsRequest]) (*connect.Response[v1.GetContextMetricsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.ContextService.GetContextMetrics is not implemented"))
+func (UnimplementedContextServiceHandler) GetContextMetrics(context.Context, *v1.GetContextMetricsRequest) (*v1.GetContextMetricsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ContextService.GetContextMetrics is not implemented")
+}
+
+type contextServiceClient struct {
+	client *connect.Client
+}
+
+func (c *contextServiceClient) ListContexts(ctx context.Context, req *v1.ListContextsRequest) (*v1.ListContextsResponse, error) {
+	var res v1.ListContextsResponse
+	if err := c.client.CallUnary(ctx, contextServiceListContextsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) GetContext(ctx context.Context, req *v1.GetContextRequest) (*v1.GetContextResponse, error) {
+	var res v1.GetContextResponse
+	if err := c.client.CallUnary(ctx, contextServiceGetContextSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) CreateContext(ctx context.Context, req *v1.CreateContextRequest) (*v1.CreateContextResponse, error) {
+	var res v1.CreateContextResponse
+	if err := c.client.CallUnary(ctx, contextServiceCreateContextSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) UpdateContext(ctx context.Context, req *v1.UpdateContextRequest) (*v1.UpdateContextResponse, error) {
+	var res v1.UpdateContextResponse
+	if err := c.client.CallUnary(ctx, contextServiceUpdateContextSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) DeleteContext(ctx context.Context, req *v1.DeleteContextRequest) (*v1.DeleteContextResponse, error) {
+	var res v1.DeleteContextResponse
+	if err := c.client.CallUnary(ctx, contextServiceDeleteContextSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) ListSelectionRules(ctx context.Context, req *v1.ListSelectionRulesRequest) (*v1.ListSelectionRulesResponse, error) {
+	var res v1.ListSelectionRulesResponse
+	if err := c.client.CallUnary(ctx, contextServiceListSelectionRulesSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) CreateSelectionRule(ctx context.Context, req *v1.CreateSelectionRuleRequest) (*v1.CreateSelectionRuleResponse, error) {
+	var res v1.CreateSelectionRuleResponse
+	if err := c.client.CallUnary(ctx, contextServiceCreateSelectionRuleSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) DeleteSelectionRule(ctx context.Context, req *v1.DeleteSelectionRuleRequest) (*v1.DeleteSelectionRuleResponse, error) {
+	var res v1.DeleteSelectionRuleResponse
+	if err := c.client.CallUnary(ctx, contextServiceDeleteSelectionRuleSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) ResolveContext(ctx context.Context, req *v1.ResolveContextRequest) (*v1.ResolveContextResponse, error) {
+	var res v1.ResolveContextResponse
+	if err := c.client.CallUnary(ctx, contextServiceResolveContextSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) GetModelCatalog(ctx context.Context, req *v1.GetModelCatalogRequest) (*v1.GetModelCatalogResponse, error) {
+	var res v1.GetModelCatalogResponse
+	if err := c.client.CallUnary(ctx, contextServiceGetModelCatalogSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *contextServiceClient) GetContextMetrics(ctx context.Context, req *v1.GetContextMetricsRequest) (*v1.GetContextMetricsResponse, error) {
+	var res v1.GetContextMetricsResponse
+	if err := c.client.CallUnary(ctx, contextServiceGetContextMetricsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type contextServiceHandler struct{ svc ContextServiceHandler }
+
+func (h contextServiceHandler) listContexts(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListContextsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListContexts(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) getContext(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetContextRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetContext(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) createContext(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateContextRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateContext(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) updateContext(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.UpdateContextRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.UpdateContext(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) deleteContext(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteContextRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteContext(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) listSelectionRules(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListSelectionRulesRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListSelectionRules(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) createSelectionRule(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateSelectionRuleRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateSelectionRule(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) deleteSelectionRule(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteSelectionRuleRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteSelectionRule(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) resolveContext(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ResolveContextRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ResolveContext(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) getModelCatalog(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetModelCatalogRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetModelCatalog(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h contextServiceHandler) getContextMetrics(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetContextMetricsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetContextMetrics(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

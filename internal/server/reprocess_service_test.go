@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
@@ -143,20 +143,20 @@ func TestReprocessItemImageRevisionFenceIdempotencyAndOCRHistory(t *testing.T) {
 		t.Fatalf("load original OCR run: %v", err)
 	}
 
-	_, err = handler.ReprocessItemImage(ctx, connect.NewRequest(&scribev1.ReprocessItemImageRequest{
+	_, err = handler.ReprocessItemImage(ctx, &scribev1.ReprocessItemImageRequest{
 		ItemImageId: image.ID,
 		ContextId:   primaryContext.ID,
-	}))
+	})
 	assertReprocessConnectCode(t, err, connect.CodeInvalidArgument)
 	if fakeOCR.transientCalls != 0 {
 		t.Fatalf("processor calls after missing revision = %d, want 0", fakeOCR.transientCalls)
 	}
 
-	_, err = handler.ReprocessItemImage(ctx, connect.NewRequest(&scribev1.ReprocessItemImageRequest{
+	_, err = handler.ReprocessItemImage(ctx, &scribev1.ReprocessItemImageRequest{
 		ItemImageId:      image.ID,
 		ContextId:        foreignContext.ID,
 		ExpectedRevision: basePage.Revision,
-	}))
+	})
 	assertReprocessConnectCode(t, err, connect.CodeNotFound)
 	if fakeOCR.transientCalls != 0 {
 		t.Fatalf("processor calls after foreign context = %d, want 0", fakeOCR.transientCalls)
@@ -168,13 +168,13 @@ func TestReprocessItemImageRevisionFenceIdempotencyAndOCRHistory(t *testing.T) {
 		ContextId:        primaryContext.ID,
 		ExpectedRevision: basePage.Revision + 100,
 	}
-	_, err = handler.ReprocessItemImage(ctx, connect.NewRequest(staleRequest))
+	_, err = handler.ReprocessItemImage(ctx, staleRequest)
 	assertReprocessConnectCode(t, err, connect.CodeAborted)
 	if fakeOCR.transientCalls != 0 {
 		t.Fatalf("processor calls after stale revision = %d, want 0", fakeOCR.transientCalls)
 	}
 	assertNoReprocessReservation(t, database, image.ID, staleRequest.GetExpectedRevision())
-	_, err = handler.ReprocessItemImage(ctx, connect.NewRequest(staleRequest))
+	_, err = handler.ReprocessItemImage(ctx, staleRequest)
 	assertReprocessConnectCode(t, err, connect.CodeAborted)
 	if fakeOCR.transientCalls != 0 {
 		t.Fatalf("processor calls after repeated stale revision = %d, want 0", fakeOCR.transientCalls)
@@ -219,7 +219,7 @@ WHERE workspace_id = ? AND source = 'image-reprocess' AND idempotency_key = ?`,
 		t.Fatalf("abandoned reservation was not expired in progress: %+v", abandonedBefore)
 	}
 	for attempt := 0; attempt < 2; attempt++ {
-		_, err = handler.ReprocessItemImage(ctx, connect.NewRequest(abandonedRequest))
+		_, err = handler.ReprocessItemImage(ctx, abandonedRequest)
 		assertReprocessConnectCode(t, err, connect.CodeAborted)
 		if fakeOCR.transientCalls != 0 {
 			t.Fatalf("processor calls after abandoned stale revision = %d, want 0", fakeOCR.transientCalls)
@@ -236,7 +236,7 @@ WHERE workspace_id = ? AND source = 'image-reprocess' AND idempotency_key = ?`,
 		ContextId:        primaryContext.ID,
 		ExpectedRevision: basePage.Revision,
 	}
-	response, err := handler.ReprocessItemImage(ctx, connect.NewRequest(request))
+	response, err := handler.ReprocessItemImage(ctx, request)
 	if err != nil {
 		t.Fatalf("ReprocessItemImage: %v", err)
 	}
@@ -249,29 +249,29 @@ WHERE workspace_id = ? AND source = 'image-reprocess' AND idempotency_key = ?`,
 	if !fakeOCR.lastContext.SegmentOnly {
 		t.Fatal("reprocess did not force segment-only processing")
 	}
-	if response.Msg.GetSessionId() != fakeOCR.result.SessionID ||
-		response.Msg.GetContextId() != primaryContext.ID ||
-		response.Msg.GetCanonicalRevision() != basePage.Revision+1 ||
-		response.Msg.GetTranscriptionJobId() == 0 {
-		t.Fatalf("reprocess response = %+v", response.Msg)
+	if response.GetSessionId() != fakeOCR.result.SessionID ||
+		response.GetContextId() != primaryContext.ID ||
+		response.GetCanonicalRevision() != basePage.Revision+1 ||
+		response.GetTranscriptionJobId() == 0 {
+		t.Fatalf("reprocess response = %+v", response)
 	}
 
-	replayed, err := handler.ReprocessItemImage(ctx, connect.NewRequest(request))
+	replayed, err := handler.ReprocessItemImage(ctx, request)
 	if err != nil {
 		t.Fatalf("replay ReprocessItemImage: %v", err)
 	}
 	if fakeOCR.transientCalls != 1 {
 		t.Fatalf("processor calls after exact replay = %d, want 1", fakeOCR.transientCalls)
 	}
-	if !proto.Equal(response.Msg, replayed.Msg) {
-		t.Fatalf("replayed response differs\nfirst:  %+v\nreplay: %+v", response.Msg, replayed.Msg)
+	if !proto.Equal(response, replayed) {
+		t.Fatalf("replayed response differs\nfirst:  %+v\nreplay: %+v", response, replayed)
 	}
 
-	_, err = handler.ReprocessItemImage(ctx, connect.NewRequest(&scribev1.ReprocessItemImageRequest{
+	_, err = handler.ReprocessItemImage(ctx, &scribev1.ReprocessItemImageRequest{
 		ItemImageId:      image.ID,
 		ContextId:        otherContext.ID,
 		ExpectedRevision: basePage.Revision,
-	}))
+	})
 	assertReprocessConnectCode(t, err, connect.CodeAlreadyExists)
 	if fakeOCR.transientCalls != 1 {
 		t.Fatalf("processor calls after mismatched replay = %d, want 1", fakeOCR.transientCalls)

@@ -8,7 +8,7 @@ data "google_service_account" "service" {
 }
 
 module "service" {
-  source = "https://github.com/libops/terraform-cloudrun-v2/archive/8718cd663a74fd33f45306321b4f2b11c83814d5.tar.gz//terraform-cloudrun-v2-8718cd663a74fd33f45306321b4f2b11c83814d5?archive=tar.gz"
+  source = "../cloud-run-service"
 
   name                             = var.name
   project                          = var.project_id

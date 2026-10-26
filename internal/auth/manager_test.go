@@ -11,7 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
@@ -68,8 +69,8 @@ func TestPreviewAnonymousManagerIsIsolatedAndEmitsNoOAuthRedirect(t *testing.T) 
 		t.Fatalf("preview OAuth response = %d/%q", oauthResponse.Code, oauthResponse.Header().Get("Location"))
 	}
 
-	me, err := manager.GetAuthMe(WithPrincipal(context.Background(), principal), connect.NewRequest(&scribev1.GetAuthMeRequest{}))
-	if err != nil || !me.Msg.GetAuthenticated() || me.Msg.GetLoginUrl() != "" || me.Msg.GetLogoutUrl() != "" {
+	me, err := manager.GetAuthMe(WithPrincipal(context.Background(), principal), &scribev1.GetAuthMeRequest{})
+	if err != nil || !me.GetAuthenticated() || me.GetLoginUrl() != "" || me.GetLogoutUrl() != "" {
 		t.Fatalf("preview GetAuthMe = %+v/%v", me, err)
 	}
 }
@@ -208,9 +209,9 @@ func TestAmbiguousVaultWriteRetainsHiddenLocatorUntilReconciled(t *testing.T) {
 		UserID: 7, WorkspaceID: 8, WorkspaceRole: "admin", Authenticated: true, AuthType: "session",
 	})
 
-	_, err := manager.CreateProviderSecret(ctx, connect.NewRequest(&scribev1.CreateProviderSecretRequest{
+	_, err := manager.CreateProviderSecret(ctx, &scribev1.CreateProviderSecretRequest{
 		Provider: "openai", Name: "tracked ambiguous write", ApiKey: "opaque-secret", Scope: "user",
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeInternal {
 		t.Fatalf("CreateProviderSecret error = %v, want internal", err)
 	}
@@ -244,10 +245,10 @@ func TestAmbiguousActivationResponseReturnsCommittedActiveSecret(t *testing.T) {
 		UserID: 7, WorkspaceID: 8, WorkspaceRole: "admin", Authenticated: true, AuthType: "session",
 	})
 
-	response, err := manager.CreateProviderSecret(ctx, connect.NewRequest(&scribev1.CreateProviderSecretRequest{
+	response, err := manager.CreateProviderSecret(ctx, &scribev1.CreateProviderSecretRequest{
 		Provider: "openai", Name: "committed activation", ApiKey: "opaque-secret", Scope: "user",
-	}))
-	if err != nil || response.Msg.GetProviderSecret().GetId() != 41 {
+	})
+	if err != nil || response.GetProviderSecret().GetId() != 41 {
 		t.Fatalf("CreateProviderSecret response/error = %+v/%v, want committed secret", response, err)
 	}
 	if repository.secret == nil || repository.secret.LifecycleState != store.ProviderSecretActive {
@@ -266,14 +267,14 @@ func TestProviderSecretDefaultsToWorkspaceForDurableProcessing(t *testing.T) {
 		UserID: 7, WorkspaceID: 8, WorkspaceRole: "admin", Authenticated: true, AuthType: "session",
 	})
 
-	response, err := manager.CreateProviderSecret(ctx, connect.NewRequest(&scribev1.CreateProviderSecretRequest{
+	response, err := manager.CreateProviderSecret(ctx, &scribev1.CreateProviderSecretRequest{
 		Provider: "openai", Name: "queued processing", ApiKey: "opaque-secret",
-	}))
+	})
 	if err != nil {
 		t.Fatalf("CreateProviderSecret: %v", err)
 	}
-	if response.Msg.GetProviderSecret().GetScope() != "workspace" || repository.secret == nil || repository.secret.UserID != nil {
-		t.Fatalf("default provider secret = response %+v / stored %+v, want workspace scope", response.Msg.GetProviderSecret(), repository.secret)
+	if response.GetProviderSecret().GetScope() != "workspace" || repository.secret == nil || repository.secret.UserID != nil {
+		t.Fatalf("default provider secret = response %+v / stored %+v, want workspace scope", response.GetProviderSecret(), repository.secret)
 	}
 }
 
@@ -290,24 +291,24 @@ func TestPersistenceFailuresUseInternalCodeWithoutStoreDetails(t *testing.T) {
 	})
 
 	apiManager := &Manager{apiKeys: store.NewAPIKeyStore(databasePool)}
-	_, err = apiManager.CreateAPIKey(ctx, connect.NewRequest(&scribev1.CreateAPIKeyRequest{Name: "test", Role: "read"}))
+	_, err = apiManager.CreateAPIKey(ctx, &scribev1.CreateAPIKeyRequest{Name: "test", Role: "read"})
 	if connect.CodeOf(err) != connect.CodeInternal || strings.Contains(strings.ToLower(err.Error()), "database") || strings.Contains(strings.ToLower(err.Error()), "sql") {
 		t.Fatalf("CreateAPIKey persistence error = %v, want sanitized internal", err)
 	}
 
 	vault := &successfulAuthVault{}
 	secretManager := &Manager{providerSecrets: store.NewProviderSecretStore(databasePool), vault: vault}
-	_, err = secretManager.CreateProviderSecret(ctx, connect.NewRequest(&scribev1.CreateProviderSecretRequest{
+	_, err = secretManager.CreateProviderSecret(ctx, &scribev1.CreateProviderSecretRequest{
 		Provider: "openai", Name: "test", ApiKey: "short", Scope: "user",
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument || vault.writes != 0 {
 		t.Fatalf("short CreateProviderSecret = %v with %d Vault writes, want invalid argument before persistence", err, vault.writes)
 	}
 
 	const opaqueAPIKey = " secret-key "
-	_, err = secretManager.CreateProviderSecret(ctx, connect.NewRequest(&scribev1.CreateProviderSecretRequest{
+	_, err = secretManager.CreateProviderSecret(ctx, &scribev1.CreateProviderSecretRequest{
 		Provider: "openai", Name: "test", ApiKey: opaqueAPIKey, Scope: "user",
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeInternal || strings.Contains(strings.ToLower(err.Error()), "database") || strings.Contains(strings.ToLower(err.Error()), "sql") {
 		t.Fatalf("CreateProviderSecret persistence error = %v, want sanitized internal", err)
 	}
@@ -319,7 +320,7 @@ func TestPersistenceFailuresUseInternalCodeWithoutStoreDetails(t *testing.T) {
 	}
 
 	workspaceManager := &Manager{identities: store.NewIdentityStore(databasePool)}
-	_, err = workspaceManager.CreateWorkspace(ctx, connect.NewRequest(&scribev1.CreateWorkspaceRequest{Name: "test"}))
+	_, err = workspaceManager.CreateWorkspace(ctx, &scribev1.CreateWorkspaceRequest{Name: "test"})
 	if connect.CodeOf(err) != connect.CodeInternal || strings.Contains(strings.ToLower(err.Error()), "database") || strings.Contains(strings.ToLower(err.Error()), "sql") {
 		t.Fatalf("CreateWorkspace persistence error = %v, want sanitized internal", err)
 	}
@@ -365,21 +366,22 @@ func TestNewManagerWithoutPublicBaseURLEnablesAuth(t *testing.T) {
 func TestGetAuthMeAnonymousDescriptorSurvivesHTTPMiddleware(t *testing.T) {
 	t.Parallel()
 	manager := &Manager{}
-	path, rpcHandler := scribev1connect.NewAuthServiceHandler(manager, connect.WithInterceptors(manager.Interceptor()))
+	rpcServer := connect.NewServer(manager.Interceptor())
+	scribev1connect.RegisterAuthServiceHandler(rpcServer, manager)
 	mux := http.NewServeMux()
-	mux.Handle(path, rpcHandler)
+	connecthttp.Mount(mux, rpcServer)
 	server := httptest.NewServer(manager.Middleware(mux))
 	t.Cleanup(server.Close)
 
-	client := scribev1connect.NewAuthServiceClient(http.DefaultClient, server.URL)
-	response, err := client.GetAuthMe(context.Background(), connect.NewRequest(&scribev1.GetAuthMeRequest{}))
+	client := scribev1connect.NewAuthServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, server.URL, connecthttp.WithReadMaxBytes(0))))
+	response, err := client.GetAuthMe(context.Background(), &scribev1.GetAuthMeRequest{})
 	if err != nil {
 		t.Fatalf("anonymous GetAuthMe: %v", err)
 	}
-	if response.Msg.GetAuthenticated() {
+	if response.GetAuthenticated() {
 		t.Fatal("anonymous GetAuthMe reported an authenticated principal")
 	}
-	if _, err := client.ListAPIKeys(context.Background(), connect.NewRequest(&scribev1.ListAPIKeysRequest{})); connect.CodeOf(err) != connect.CodeUnauthenticated {
+	if _, err := client.ListAPIKeys(context.Background(), &scribev1.ListAPIKeysRequest{}); connect.CodeOf(err) != connect.CodeUnauthenticated {
 		t.Fatalf("anonymous protected RPC error = %v, want unauthenticated", err)
 	}
 

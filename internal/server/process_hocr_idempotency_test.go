@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
@@ -67,12 +67,12 @@ FOR UPDATE`, workspaceID, userID).Scan(&role); err != nil {
 		IdempotencyKey: "process-hocr-external-zero-blob-quota",
 	}
 	type processResult struct {
-		response *connect.Response[scribev1.ProcessHOCRResponse]
+		response *scribev1.ProcessHOCRResponse
 		err      error
 	}
 	resultCh := make(chan processResult, 1)
 	go func() {
-		response, processErr := handler.ProcessHOCR(ctx, connect.NewRequest(request))
+		response, processErr := handler.ProcessHOCR(ctx, request)
 		resultCh <- processResult{response: response, err: processErr}
 	}()
 
@@ -137,7 +137,7 @@ WHERE workspace_id = ?`, workspaceID).Scan(
 		t.Fatalf("release ProcessHOCR quota observer: %v", err)
 	}
 	blockerCommitted = true
-	var first *connect.Response[scribev1.ProcessHOCRResponse]
+	var first *scribev1.ProcessHOCRResponse
 	select {
 	case result := <-resultCh:
 		if result.err != nil {
@@ -148,10 +148,10 @@ WHERE workspace_id = ?`, workspaceID).Scan(
 		t.Fatal("timed out waiting for ProcessHOCR after quota inspection")
 	}
 	t.Cleanup(func() {
-		_ = items.DeleteForWorkspace(context.Background(), first.Msg.GetItemId(), workspaceID)
+		_ = items.DeleteForWorkspace(context.Background(), first.GetItemId(), workspaceID)
 	})
 
-	persistedImage, err := items.GetImageForWorkspace(ctx, first.Msg.GetItemImageId(), workspaceID)
+	persistedImage, err := items.GetImageForWorkspace(ctx, first.GetItemImageId(), workspaceID)
 	if err != nil {
 		t.Fatalf("load external hOCR image: %v", err)
 	}
@@ -173,17 +173,17 @@ WHERE workspace_id = ?`, workspaceID).Scan(
 		t.Fatalf("external hOCR committed quota = before %+v / after %+v", usageBefore, usageAfter)
 	}
 
-	replayed, err := handler.ProcessHOCR(ctx, connect.NewRequest(request))
+	replayed, err := handler.ProcessHOCR(ctx, request)
 	if err != nil {
 		t.Fatalf("replay external hOCR import: %v", err)
 	}
-	if replayed.Msg.GetItemId() != first.Msg.GetItemId() || replayed.Msg.GetItemImageId() != first.Msg.GetItemImageId() {
+	if replayed.GetItemId() != first.GetItemId() || replayed.GetItemImageId() != first.GetItemImageId() {
 		t.Fatalf(
 			"replayed external hOCR IDs = %q/%d, want %q/%d",
-			replayed.Msg.GetItemId(),
-			replayed.Msg.GetItemImageId(),
-			first.Msg.GetItemId(),
-			first.Msg.GetItemImageId(),
+			replayed.GetItemId(),
+			replayed.GetItemImageId(),
+			first.GetItemId(),
+			first.GetItemImageId(),
 		)
 	}
 	usageAfterReplay, err := items.GetStorageQuotaUsage(ctx, workspaceID)
@@ -219,27 +219,27 @@ func TestProcessHOCRCommitsAndReplaysOneIdempotentResult(t *testing.T) {
 		ExternalReferenceId: "islandora:1234",
 	}
 
-	first, err := handler.ProcessHOCR(ctx, connect.NewRequest(request))
+	first, err := handler.ProcessHOCR(ctx, request)
 	if err != nil {
 		t.Fatalf("first ProcessHOCR: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = items.DeleteForWorkspace(context.Background(), first.Msg.GetItemId(), workspaceID)
+		_ = items.DeleteForWorkspace(context.Background(), first.GetItemId(), workspaceID)
 	})
-	second, err := handler.ProcessHOCR(ctx, connect.NewRequest(request))
+	second, err := handler.ProcessHOCR(ctx, request)
 	if err != nil {
 		t.Fatalf("replayed ProcessHOCR: %v", err)
 	}
-	if first.Msg.GetItemId() != second.Msg.GetItemId() || first.Msg.GetItemImageId() != second.Msg.GetItemImageId() {
-		t.Fatalf("replay result = %q/%d, want %q/%d", second.Msg.GetItemId(), second.Msg.GetItemImageId(), first.Msg.GetItemId(), first.Msg.GetItemImageId())
+	if first.GetItemId() != second.GetItemId() || first.GetItemImageId() != second.GetItemImageId() {
+		t.Fatalf("replay result = %q/%d, want %q/%d", second.GetItemId(), second.GetItemImageId(), first.GetItemId(), first.GetItemImageId())
 	}
-	if first.Msg.GetSessionId() == "" || first.Msg.GetSessionId() == first.Msg.GetItemId() || first.Msg.GetSessionId() != second.Msg.GetSessionId() {
-		t.Fatalf("hOCR provenance session = first %q second %q item %q", first.Msg.GetSessionId(), second.Msg.GetSessionId(), first.Msg.GetItemId())
+	if first.GetSessionId() == "" || first.GetSessionId() == first.GetItemId() || first.GetSessionId() != second.GetSessionId() {
+		t.Fatalf("hOCR provenance session = first %q second %q item %q", first.GetSessionId(), second.GetSessionId(), first.GetItemId())
 	}
-	if first.Msg.GetTranscriptionJobId() != 0 || second.Msg.GetTranscriptionJobId() != 0 {
-		t.Fatalf("synchronous hOCR job ids = %d/%d, want zero", first.Msg.GetTranscriptionJobId(), second.Msg.GetTranscriptionJobId())
+	if first.GetTranscriptionJobId() != 0 || second.GetTranscriptionJobId() != 0 {
+		t.Fatalf("synchronous hOCR job ids = %d/%d, want zero", first.GetTranscriptionJobId(), second.GetTranscriptionJobId())
 	}
-	storedItem, err := items.GetForWorkspace(ctx, first.Msg.GetItemId(), workspaceID)
+	storedItem, err := items.GetForWorkspace(ctx, first.GetItemId(), workspaceID)
 	if err != nil {
 		t.Fatalf("load hOCR item: %v", err)
 	}
@@ -249,20 +249,20 @@ func TestProcessHOCRCommitsAndReplaysOneIdempotentResult(t *testing.T) {
 
 	mismatch := proto.Clone(request).(*scribev1.ProcessHOCRRequest)
 	mismatch.Hocr = strings.Replace(minimalHOCR, "Course", "Changed", 1)
-	if _, err := handler.ProcessHOCR(ctx, connect.NewRequest(mismatch)); connect.CodeOf(err) != connect.CodeAlreadyExists {
+	if _, err := handler.ProcessHOCR(ctx, mismatch); connect.CodeOf(err) != connect.CodeAlreadyExists {
 		t.Fatalf("mismatched replay error = %v/%v, want already_exists", connect.CodeOf(err), err)
 	}
 	var itemCount, imageCount, pageCount, runCount int
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM items WHERE workspace_id = ? AND source_type = 'hocr'`, workspaceID).Scan(&itemCount); err != nil {
 		t.Fatalf("count hOCR items: %v", err)
 	}
-	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM item_images WHERE item_id = ?`, first.Msg.GetItemId()).Scan(&imageCount); err != nil {
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM item_images WHERE item_id = ?`, first.GetItemId()).Scan(&imageCount); err != nil {
 		t.Fatalf("count hOCR images: %v", err)
 	}
-	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM annotation_pages WHERE workspace_id = ? AND item_image_id = ?`, workspaceID, first.Msg.GetItemImageId()).Scan(&pageCount); err != nil {
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM annotation_pages WHERE workspace_id = ? AND item_image_id = ?`, workspaceID, first.GetItemImageId()).Scan(&pageCount); err != nil {
 		t.Fatalf("count canonical pages: %v", err)
 	}
-	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM ocr_runs WHERE item_image_id = ?`, first.Msg.GetItemImageId()).Scan(&runCount); err != nil {
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM ocr_runs WHERE item_image_id = ?`, first.GetItemImageId()).Scan(&runCount); err != nil {
 		t.Fatalf("count OCR runs: %v", err)
 	}
 	if itemCount != 1 || imageCount != 1 || pageCount != 1 || runCount != 1 {
@@ -273,7 +273,7 @@ func TestProcessHOCRCommitsAndReplaysOneIdempotentResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load hOCR idempotency result: %v", err)
 	}
-	if reservation.Status != store.ExternalRequestStatusCompleted || reservation.ItemID != first.Msg.GetItemId() || reservation.ItemImageID != first.Msg.GetItemImageId() || reservation.SessionID != first.Msg.GetSessionId() || reservation.TranscriptionJobID != 0 {
+	if reservation.Status != store.ExternalRequestStatusCompleted || reservation.ItemID != first.GetItemId() || reservation.ItemImageID != first.GetItemImageId() || reservation.SessionID != first.GetSessionId() || reservation.TranscriptionJobID != 0 {
 		t.Fatalf("hOCR idempotency result = %#v", reservation)
 	}
 }

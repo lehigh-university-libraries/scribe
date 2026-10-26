@@ -36,7 +36,7 @@ jobs:
   images:
     if: github.event_name == 'push'
     needs: [lint-test]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     environment: production
     permissions:
@@ -103,7 +103,7 @@ jobs:
   # push, or when a :main image is missing (first deploy, new model).
   ocr-changes:
     if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment: production
     permissions:
       contents: read
@@ -158,7 +158,7 @@ jobs:
 
   foundation:
     if: inputs.action != 'destroy-preview'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     environment: production
     permissions:

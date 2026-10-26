@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   contracts-and-lint:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -37,7 +37,7 @@ jobs:
         run: ./ci/run-ci.sh contracts
 
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 35
     env:
       SCRIBE_REQUIRE_TEST_DB: "true"
@@ -61,7 +61,7 @@ jobs:
         run: ./ci/run-ci.sh test
 
   browser:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     env:
       COMPOSE_PROJECT_NAME: scribe-browser-${{ github.run_id }}-${{ github.run_attempt }}
@@ -83,7 +83,7 @@ jobs:
           retention-days: 7
 
   security:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -130,7 +130,7 @@ jobs:
         run: rm -f .secret-scan-regression/credential.txt; rmdir .secret-scan-regression 2>/dev/null || true
 
   infrastructure-and-docs:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -149,7 +149,7 @@ jobs:
         run: ./ci/run-ci.sh infrastructure
 
   recovery-smoke:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

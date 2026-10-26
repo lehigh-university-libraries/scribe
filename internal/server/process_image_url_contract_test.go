@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
@@ -75,31 +75,31 @@ func TestProcessImageURLReturnsDurableJobAndProvenanceSession(t *testing.T) {
 		IdempotencyKey:      "process-image-contract",
 		ExternalReferenceId: "islandora:5678",
 	}
-	response, err := handler.ProcessImageURL(ctx, connect.NewRequest(request))
+	response, err := handler.ProcessImageURL(ctx, request)
 	if err != nil {
 		t.Fatalf("ProcessImageURL: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = items.DeleteForWorkspace(context.Background(), response.Msg.GetItemId(), workspaceID)
+		_ = items.DeleteForWorkspace(context.Background(), response.GetItemId(), workspaceID)
 	})
-	if response.Msg.GetTranscriptionJobId() == 0 {
+	if response.GetTranscriptionJobId() == 0 {
 		t.Fatal("ProcessImageURL returned no durable transcription job ID")
 	}
-	if !strings.HasPrefix(response.Msg.GetSessionId(), "processing_") || response.Msg.GetSessionId() == response.Msg.GetItemId() {
-		t.Fatalf("ProcessImageURL session/item = %q/%q", response.Msg.GetSessionId(), response.Msg.GetItemId())
+	if !strings.HasPrefix(response.GetSessionId(), "processing_") || response.GetSessionId() == response.GetItemId() {
+		t.Fatalf("ProcessImageURL session/item = %q/%q", response.GetSessionId(), response.GetItemId())
 	}
-	job, err := jobs.Get(ctx, response.Msg.GetTranscriptionJobId())
-	if err != nil || job.ItemImageID != response.Msg.GetItemImageId() || job.Status != store.TranscriptionJobStatusPending {
+	job, err := jobs.Get(ctx, response.GetTranscriptionJobId())
+	if err != nil || job.ItemImageID != response.GetItemImageId() || job.Status != store.TranscriptionJobStatusPending {
 		t.Fatalf("returned transcription job = %+v/%v", job, err)
 	}
-	item, err := items.GetForWorkspace(ctx, response.Msg.GetItemId(), workspaceID)
+	item, err := items.GetForWorkspace(ctx, response.GetItemId(), workspaceID)
 	if err != nil {
 		t.Fatalf("load ProcessImageURL item: %v", err)
 	}
 	if item.ExternalReferenceID != request.GetExternalReferenceId() || item.CallerIdempotencyKey != request.GetIdempotencyKey() || item.Metadata["repository"] != "islandora" {
 		t.Fatalf("ProcessImageURL correlation data = %+v", item)
 	}
-	persistedImage, err := items.GetImageForWorkspace(ctx, response.Msg.GetItemImageId(), workspaceID)
+	persistedImage, err := items.GetImageForWorkspace(ctx, response.GetItemImageId(), workspaceID)
 	if err != nil {
 		t.Fatalf("load ProcessImageURL image: %v", err)
 	}
@@ -114,16 +114,16 @@ func TestProcessImageURLReturnsDurableJobAndProvenanceSession(t *testing.T) {
 		t.Fatalf("ProcessImageURL external reference quota = before %+v / after %+v; want no owned blob bytes and one item/image", usageBefore, usageAfter)
 	}
 
-	replayed, err := handler.ProcessImageURL(ctx, connect.NewRequest(request))
+	replayed, err := handler.ProcessImageURL(ctx, request)
 	if err != nil {
 		t.Fatalf("replay ProcessImageURL: %v", err)
 	}
-	if replayed.Msg.GetTranscriptionJobId() != response.Msg.GetTranscriptionJobId() || replayed.Msg.GetSessionId() != response.Msg.GetSessionId() {
-		t.Fatalf("replayed job/session = %d/%q, want %d/%q", replayed.Msg.GetTranscriptionJobId(), replayed.Msg.GetSessionId(), response.Msg.GetTranscriptionJobId(), response.Msg.GetSessionId())
+	if replayed.GetTranscriptionJobId() != response.GetTranscriptionJobId() || replayed.GetSessionId() != response.GetSessionId() {
+		t.Fatalf("replayed job/session = %d/%q, want %d/%q", replayed.GetTranscriptionJobId(), replayed.GetSessionId(), response.GetTranscriptionJobId(), response.GetSessionId())
 	}
 	mismatch := proto.Clone(request).(*scribev1.ProcessImageURLRequest)
 	mismatch.ExternalReferenceId = "islandora:different"
-	if _, err := handler.ProcessImageURL(ctx, connect.NewRequest(mismatch)); connect.CodeOf(err) != connect.CodeAlreadyExists {
+	if _, err := handler.ProcessImageURL(ctx, mismatch); connect.CodeOf(err) != connect.CodeAlreadyExists {
 		t.Fatalf("correlation-mismatched replay error = %v/%v, want already_exists", connect.CodeOf(err), err)
 	}
 }

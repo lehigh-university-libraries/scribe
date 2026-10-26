@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/proxytrust"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -170,66 +170,52 @@ func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
 	}
 }
 
-func (m *Manager) Interceptor() connect.Interceptor {
-	return authzInterceptor{manager: m}
+func (m *Manager) Interceptor() connect.ServerInterceptor {
+	return authzInterceptor{manager: m}.Wrap
 }
 
 type authzInterceptor struct {
 	manager *Manager
 }
 
-func (i authzInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+func (i authzInterceptor) Wrap(next connect.ServerFunc) connect.ServerFunc {
+	return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
 		principal := i.manager.connectPrincipal(ctx)
-		if err := i.manager.authorizeConnectRequest(ctx, principal, req.Spec().Procedure, req.Any()); err != nil {
-			return nil, err
-		}
-		return next(ctx, req)
-	}
-}
-
-func (i authzInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-func (i authzInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		principal := i.manager.connectPrincipal(ctx)
-		rule, err := extractAuthzRule(conn.Spec().Procedure)
+		rule, err := extractAuthzRule(spec.Procedure)
 		if err != nil {
-			return connect.NewError(connect.CodePermissionDenied, err)
+			return connect.NewError(connect.CodePermissionDenied, err.Error()).WithCause(err)
 		}
 		if rule == nil {
-			return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no authz rule for %s", conn.Spec().Procedure))
+			return connect.Errorf(connect.CodePermissionDenied, "no authz rule for %s", spec.Procedure)
 		}
 		if rule.GetAllowAnonymous() {
-			return next(ctx, conn)
+			return next(ctx, spec, stream)
 		}
 		if principal.Anonymous() {
-			return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+			return connect.Errorf(connect.CodeUnauthenticated, "authentication required")
 		}
 		if rule.GetSessionOnly() && !strings.EqualFold(principal.AuthType, "session") {
-			return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("session authentication required"))
+			return connect.Errorf(connect.CodePermissionDenied, "session authentication required")
 		}
 		if strings.TrimSpace(rule.GetResourceIdField()) == "" {
-			if err := i.manager.authorizeConnectRule(ctx, principal, conn.Spec().Procedure, rule, nil); err != nil {
+			if err := i.manager.authorizeConnectRule(ctx, principal, spec.Procedure, rule, nil); err != nil {
 				return err
 			}
-			return next(ctx, conn)
+			return next(ctx, spec, stream)
 		}
-		return next(ctx, &authzStreamingHandlerConn{
-			StreamingHandlerConn: conn,
-			manager:              i.manager,
-			ctx:                  ctx,
-			principal:            principal,
-			procedure:            conn.Spec().Procedure,
-			rule:                 rule,
+		return next(ctx, spec, &authzStreamingHandlerConn{
+			ServerStream: stream,
+			manager:      i.manager,
+			ctx:          ctx,
+			principal:    principal,
+			procedure:    spec.Procedure,
+			rule:         rule,
 		})
 	}
 }
 
 type authzStreamingHandlerConn struct {
-	connect.StreamingHandlerConn
+	connect.ServerStream
 	manager   *Manager
 	ctx       context.Context
 	principal Principal
@@ -238,7 +224,7 @@ type authzStreamingHandlerConn struct {
 }
 
 func (c *authzStreamingHandlerConn) Receive(msg any) error {
-	if err := c.StreamingHandlerConn.Receive(msg); err != nil {
+	if err := c.ServerStream.Receive(msg); err != nil {
 		return err
 	}
 	return c.manager.authorizeConnectRule(c.ctx, c.principal, c.procedure, c.rule, msg)
@@ -255,10 +241,10 @@ func (m *Manager) connectPrincipal(ctx context.Context) Principal {
 func (m *Manager) authorizeConnectRequest(ctx context.Context, principal Principal, procedure string, request any) error {
 	rule, err := extractAuthzRule(procedure)
 	if err != nil {
-		return connect.NewError(connect.CodePermissionDenied, err)
+		return connect.NewError(connect.CodePermissionDenied, err.Error()).WithCause(err)
 	}
 	if rule == nil {
-		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no authz rule for %s", procedure))
+		return connect.Errorf(connect.CodePermissionDenied, "no authz rule for %s", procedure)
 	}
 	return m.authorizeConnectRule(ctx, principal, procedure, rule, request)
 }
@@ -268,10 +254,10 @@ func (m *Manager) authorizeConnectRule(ctx context.Context, principal Principal,
 		return nil
 	}
 	if principal.Anonymous() {
-		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+		return connect.Errorf(connect.CodeUnauthenticated, "authentication required")
 	}
 	if rule.GetSessionOnly() && !strings.EqualFold(principal.AuthType, "session") {
-		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("session authentication required"))
+		return connect.Errorf(connect.CodePermissionDenied, "session authentication required")
 	}
 	if principal.ScopedItemImageID > 0 {
 		if err := m.authorizeEditorReviewSessionRequest(ctx, principal, procedure, rule, request); err != nil {
@@ -283,25 +269,25 @@ func (m *Manager) authorizeConnectRule(ctx context.Context, principal Principal,
 	if resourceIDField == "" {
 		allowed, authErr := m.authorizeProcedure(ctx, principal, procedure, rule.GetLevel())
 		if authErr != nil {
-			return connect.NewError(connect.CodeInternal, authErr)
+			return connect.NewError(connect.CodeInternal, authErr.Error()).WithCause(authErr)
 		}
 		if !allowed {
-			return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("permission denied"))
+			return connect.Errorf(connect.CodePermissionDenied, "permission denied")
 		}
 		return nil
 	}
 
 	resourceID, ok := extractFieldValue(request, resourceIDField)
 	if !ok || strings.TrimSpace(resourceID) == "" {
-		return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("%s is required", resourceIDField))
+		return connect.Errorf(connect.CodeInvalidArgument, "%s is required", resourceIDField)
 	}
 
 	allowed, authErr := m.authorizeResource(ctx, principal, procedure, rule.GetResource(), rule.GetLevel(), resourceID)
 	if authErr != nil {
-		return connect.NewError(connect.CodeInternal, authErr)
+		return connect.NewError(connect.CodeInternal, authErr.Error()).WithCause(authErr)
 	}
 	if !allowed {
-		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("permission denied"))
+		return connect.Errorf(connect.CodePermissionDenied, "permission denied")
 	}
 	return nil
 }

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
@@ -340,11 +340,11 @@ func TestLocalAnnotationCRUDSavedAsWholePagesPreservesCanonicalProperties(t *tes
 		t.Fatalf("seed canonical page: %v", err)
 	}
 	otherImage := createServerTestItemImage(t, database, store.AnonymousWorkspaceID, store.AnonymousUserID, "https://source.example/canvas/"+uuid.NewString())
-	_, err = h.EnrichAnnotation(ctx, connect.NewRequest(&scribev1.EnrichAnnotationRequest{
+	_, err = h.EnrichAnnotation(ctx, &scribev1.EnrichAnnotationRequest{
 		ItemImageId:    otherImage.ID,
 		Scope:          "page",
 		AnnotationJson: saved.Payload,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("enrich page through a different item image = %v, want not_found", err)
 	}
@@ -356,15 +356,15 @@ func TestLocalAnnotationCRUDSavedAsWholePagesPreservesCanonicalProperties(t *tes
 		TranscriptionProvider: "ollama",
 		TranscriptionModel:    "glm-ocr:bf16",
 	})
-	enrichResponse, err := h.EnrichAnnotation(ctx, connect.NewRequest(&scribev1.EnrichAnnotationRequest{
+	enrichResponse, err := h.EnrichAnnotation(ctx, &scribev1.EnrichAnnotationRequest{
 		ItemImageId:    image.ID,
 		Scope:          "page",
 		AnnotationJson: saved.Payload,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("page-scope EnrichAnnotation authorization: %v", err)
 	}
-	assertCanonicalPageProperties(t, enrichResponse.Msg.GetAnnotationJson())
+	assertCanonicalPageProperties(t, enrichResponse.GetAnnotationJson())
 
 	annotationID, err := iiif.AnnotationID(pageID, "created")
 	if err != nil {
@@ -377,50 +377,50 @@ func TestLocalAnnotationCRUDSavedAsWholePagesPreservesCanonicalProperties(t *tes
 	}
 	draft["items"] = append(draft["items"].([]any), mustDecodeAnnotation(annotation))
 	payload, _ := json.Marshal(draft)
-	afterCreate, err := h.SaveAnnotationPage(ctx, connect.NewRequest(&scribev1.SaveAnnotationPageRequest{
+	afterCreate, err := h.SaveAnnotationPage(ctx, &scribev1.SaveAnnotationPageRequest{
 		ItemImageId:        image.ID,
 		AnnotationPageJson: string(payload),
 		ExpectedRevision:   saved.Revision,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("save local create: %v", err)
 	}
-	if afterCreate.Msg.GetRevision() != saved.Revision+1 {
-		t.Fatalf("create revision = %d; want %d", afterCreate.Msg.GetRevision(), saved.Revision+1)
+	if afterCreate.GetRevision() != saved.Revision+1 {
+		t.Fatalf("create revision = %d; want %d", afterCreate.GetRevision(), saved.Revision+1)
 	}
-	assertCanonicalPageProperties(t, afterCreate.Msg.GetAnnotationPageJson())
+	assertCanonicalPageProperties(t, afterCreate.GetAnnotationPageJson())
 
 	updated := canonicalMutationTestAnnotation(annotationID, canvasURI, "updated")
-	if err := json.Unmarshal([]byte(afterCreate.Msg.GetAnnotationPageJson()), &draft); err != nil {
+	if err := json.Unmarshal([]byte(afterCreate.GetAnnotationPageJson()), &draft); err != nil {
 		t.Fatalf("decode draft after create: %v", err)
 	}
 	draft["items"] = []any{mustDecodeAnnotation(updated)}
 	payload, _ = json.Marshal(draft)
-	afterUpdate, err := h.SaveAnnotationPage(ctx, connect.NewRequest(&scribev1.SaveAnnotationPageRequest{
+	afterUpdate, err := h.SaveAnnotationPage(ctx, &scribev1.SaveAnnotationPageRequest{
 		ItemImageId:        image.ID,
 		AnnotationPageJson: string(payload),
-		ExpectedRevision:   afterCreate.Msg.GetRevision(),
-	}))
+		ExpectedRevision:   afterCreate.GetRevision(),
+	})
 	if err != nil {
 		t.Fatalf("save local update: %v", err)
 	}
-	assertCanonicalPageProperties(t, afterUpdate.Msg.GetAnnotationPageJson())
+	assertCanonicalPageProperties(t, afterUpdate.GetAnnotationPageJson())
 
-	if err := json.Unmarshal([]byte(afterUpdate.Msg.GetAnnotationPageJson()), &draft); err != nil {
+	if err := json.Unmarshal([]byte(afterUpdate.GetAnnotationPageJson()), &draft); err != nil {
 		t.Fatalf("decode draft after update: %v", err)
 	}
 	draft["items"] = []any{}
 	payload, _ = json.Marshal(draft)
-	afterDelete, err := h.SaveAnnotationPage(ctx, connect.NewRequest(&scribev1.SaveAnnotationPageRequest{
+	afterDelete, err := h.SaveAnnotationPage(ctx, &scribev1.SaveAnnotationPageRequest{
 		ItemImageId:        image.ID,
 		AnnotationPageJson: string(payload),
-		ExpectedRevision:   afterUpdate.Msg.GetRevision(),
-	}))
+		ExpectedRevision:   afterUpdate.GetRevision(),
+	})
 	if err != nil {
 		t.Fatalf("save local delete: %v", err)
 	}
-	assertCanonicalPageProperties(t, afterDelete.Msg.GetAnnotationPageJson())
-	items, err := annotationItemsFromPage(afterDelete.Msg.GetAnnotationPageJson())
+	assertCanonicalPageProperties(t, afterDelete.GetAnnotationPageJson())
+	items, err := annotationItemsFromPage(afterDelete.GetAnnotationPageJson())
 	if err != nil || len(items) != 0 {
 		t.Fatalf("items after delete = %#v, %v; want none", items, err)
 	}

@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"connectrpc.com/validate"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
@@ -30,10 +31,10 @@ import (
 // compressed body to bypass a smaller route limit.
 const maxConnectReadBytes = maxImageRequestBytes
 
-func connectHandlerOptions(authManager *auth.Manager) []connect.HandlerOption {
-	interceptors := []connect.Interceptor{
-		connectRecoveryInterceptor{},
-		connectErrorSanitizerInterceptor{},
+func connectServerInterceptors(authManager *auth.Manager) []connect.ServerInterceptor {
+	interceptors := []connect.ServerInterceptor{
+		connectRecoveryInterceptor{}.Wrap,
+		connectErrorSanitizerInterceptor{}.Wrap,
 	}
 	telemetryInterceptor, err := newConnectTelemetryInterceptor(
 		otel.Meter("github.com/lehigh-university-libraries/scribe/internal/server"),
@@ -42,19 +43,16 @@ func connectHandlerOptions(authManager *auth.Manager) []connect.HandlerOption {
 	if err != nil {
 		slog.Warn("connect telemetry is unavailable", "error_type", fmt.Sprintf("%T", err))
 	} else {
-		interceptors = append(interceptors, telemetryInterceptor)
+		interceptors = append(interceptors, telemetryInterceptor.Wrap)
 	}
 	interceptors = append(interceptors,
-		connectLoggingInterceptor{},
-		validate.NewInterceptor(),
+		connectLoggingInterceptor{}.Wrap,
+		validate.NewServerInterceptor(),
 	)
 	if authManager != nil {
 		interceptors = append(interceptors, authManager.Interceptor())
 	}
-	return []connect.HandlerOption{
-		connect.WithInterceptors(interceptors...),
-		connect.WithReadMaxBytes(maxConnectReadBytes),
-	}
+	return interceptors
 }
 
 type connectTelemetryInterceptor struct {
@@ -92,39 +90,19 @@ func newConnectTelemetryInterceptor(meter metric.Meter, tracer trace.Tracer) (co
 	}, nil
 }
 
-func (interceptor connectTelemetryInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (response connect.AnyResponse, err error) {
-		procedure := boundedConnectProcedure(req.Spec().Procedure)
+func (interceptor connectTelemetryInterceptor) Wrap(next connect.ServerFunc) connect.ServerFunc {
+	return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) (err error) {
+		procedure := boundedConnectProcedure(spec.Procedure)
 		ctx, span := interceptor.startSpan(ctx, procedure)
 		start := time.Now()
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				interceptor.finish(ctx, span, procedure, start, connect.NewError(connect.CodeInternal, fmt.Errorf("internal server error")))
+				interceptor.finish(ctx, span, procedure, start, connect.Errorf(connect.CodeInternal, "internal server error"))
 				panic(recovered)
 			}
 			interceptor.finish(ctx, span, procedure, start, err)
 		}()
-		return next(ctx, req)
-	}
-}
-
-func (interceptor connectTelemetryInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-func (interceptor connectTelemetryInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return func(ctx context.Context, conn connect.StreamingHandlerConn) (err error) {
-		procedure := boundedConnectProcedure(conn.Spec().Procedure)
-		ctx, span := interceptor.startSpan(ctx, procedure)
-		start := time.Now()
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				interceptor.finish(ctx, span, procedure, start, connect.NewError(connect.CodeInternal, fmt.Errorf("internal server error")))
-				panic(recovered)
-			}
-			interceptor.finish(ctx, span, procedure, start, err)
-		}()
-		return next(ctx, conn)
+		return next(ctx, spec, stream)
 	}
 }
 
@@ -194,39 +172,19 @@ func boundedConnectProcedure(raw string) connectProcedure {
 	return connectProcedure{name: raw, service: parts[0], method: parts[1]}
 }
 
-func registerConnectServices(mux *http.ServeMux, handler *Handler, authManager *auth.Manager, opts ...connect.HandlerOption) {
-	services := []struct {
-		register func(*Handler, ...connect.HandlerOption) (string, http.Handler)
-	}{
-		{register: func(h *Handler, opts ...connect.HandlerOption) (string, http.Handler) {
-			return scribev1connect.NewImageProcessingServiceHandler(h, opts...)
-		}},
-		{register: func(h *Handler, opts ...connect.HandlerOption) (string, http.Handler) {
-			return scribev1connect.NewItemServiceHandler(h, opts...)
-		}},
-		{register: func(h *Handler, opts ...connect.HandlerOption) (string, http.Handler) {
-			return scribev1connect.NewContextServiceHandler(h, opts...)
-		}},
-		{register: func(h *Handler, opts ...connect.HandlerOption) (string, http.Handler) {
-			return scribev1connect.NewAnnotationServiceHandler(h, opts...)
-		}},
-		{register: func(h *Handler, opts ...connect.HandlerOption) (string, http.Handler) {
-			return scribev1connect.NewTranscriptionServiceHandler(h, opts...)
-		}},
-		{register: func(h *Handler, opts ...connect.HandlerOption) (string, http.Handler) {
-			return scribev1connect.NewWebhookServiceHandler(h, opts...)
-		}},
-	}
-	for _, service := range services {
-		path, svcHandler := service.register(handler, opts...)
-		mux.Handle(path, svcHandler)
-	}
+func registerConnectServices(mux *http.ServeMux, handler *Handler, authManager *auth.Manager, interceptors ...connect.ServerInterceptor) {
+	server := connect.NewServer(interceptors...)
+	scribev1connect.RegisterImageProcessingServiceHandler(server, handler)
+	scribev1connect.RegisterItemServiceHandler(server, handler)
+	scribev1connect.RegisterContextServiceHandler(server, handler)
+	scribev1connect.RegisterAnnotationServiceHandler(server, handler)
+	scribev1connect.RegisterTranscriptionServiceHandler(server, handler)
+	scribev1connect.RegisterWebhookServiceHandler(server, handler)
 	if authManager != nil {
-		path, svcHandler := scribev1connect.NewWorkspaceServiceHandler(authManager, opts...)
-		mux.Handle(path, svcHandler)
-		path, svcHandler = scribev1connect.NewAuthServiceHandler(authManager, opts...)
-		mux.Handle(path, svcHandler)
+		scribev1connect.RegisterWorkspaceServiceHandler(server, authManager)
+		scribev1connect.RegisterAuthServiceHandler(server, authManager)
 	}
+	connecthttp.Mount(mux, server, connecthttp.WithReadMaxBytes(maxConnectReadBytes))
 }
 
 // connectErrorSanitizerInterceptor keeps database, provider, and internal
@@ -235,20 +193,9 @@ func registerConnectServices(mux *http.ServeMux, handler *Handler, authManager *
 // responses, document text, credentials, and persistence topology.
 type connectErrorSanitizerInterceptor struct{}
 
-func (connectErrorSanitizerInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-		response, err := next(ctx, req)
-		return response, sanitizeConnectError(err)
-	}
-}
-
-func (connectErrorSanitizerInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-func (connectErrorSanitizerInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		return sanitizeConnectError(next(ctx, conn))
+func (connectErrorSanitizerInterceptor) Wrap(next connect.ServerFunc) connect.ServerFunc {
+	return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
+		return sanitizeConnectError(next(ctx, spec, stream))
 	}
 }
 
@@ -258,12 +205,12 @@ func sanitizeConnectError(err error) error {
 	}
 	switch connect.CodeOf(err) {
 	case connect.CodeInternal, connect.CodeUnknown, connect.CodeDataLoss:
-		return connect.NewError(connect.CodeOf(err), fmt.Errorf("internal server error"))
+		return connect.Errorf(connect.CodeOf(err), "internal server error")
 	case connect.CodeUnavailable:
 		if message, ok := publicUnavailableConnectMessage(err); ok {
-			return connect.NewError(connect.CodeUnavailable, errors.New(message))
+			return connect.NewError(connect.CodeUnavailable, message)
 		}
-		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("service unavailable"))
+		return connect.Errorf(connect.CodeUnavailable, "service unavailable")
 	default:
 		return err
 	}
@@ -287,32 +234,15 @@ func publicUnavailableConnectMessage(err error) (string, bool) {
 
 type connectRecoveryInterceptor struct{}
 
-func (connectRecoveryInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (resp connect.AnyResponse, err error) {
+func (connectRecoveryInterceptor) Wrap(next connect.ServerFunc) connect.ServerFunc {
+	return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) (err error) {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				logConnectPanic("connect rpc panic", req.Spec().Procedure, recovered)
-				resp = nil
-				err = connect.NewError(connect.CodeInternal, fmt.Errorf("internal server error"))
+				logConnectPanic("connect streaming rpc panic", spec.Procedure, recovered)
+				err = connect.Errorf(connect.CodeInternal, "internal server error")
 			}
 		}()
-		return next(ctx, req)
-	}
-}
-
-func (connectRecoveryInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-func (connectRecoveryInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return func(ctx context.Context, conn connect.StreamingHandlerConn) (err error) {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				logConnectPanic("connect streaming rpc panic", conn.Spec().Procedure, recovered)
-				err = connect.NewError(connect.CodeInternal, fmt.Errorf("internal server error"))
-			}
-		}()
-		return next(ctx, conn)
+		return next(ctx, spec, stream)
 	}
 }
 
@@ -355,13 +285,13 @@ func connectPanicLocation() (string, string, int) {
 
 type connectLoggingInterceptor struct{}
 
-func (connectLoggingInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
-	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+func (connectLoggingInterceptor) Wrap(next connect.ServerFunc) connect.ServerFunc {
+	return func(ctx context.Context, spec connect.Spec, stream connect.ServerStream) error {
 		start := time.Now()
-		resp, err := next(ctx, req)
+		err := next(ctx, spec, stream)
 		code := connectLogCode(err)
 		attrs := []any{
-			"procedure", req.Spec().Procedure,
+			"procedure", spec.Procedure,
 			"code", code,
 			"duration_ms", time.Since(start).Milliseconds(),
 		}
@@ -369,28 +299,6 @@ func (connectLoggingInterceptor) WrapUnary(next connect.UnaryFunc) connect.Unary
 			attrs = append(attrs, "error_type", fmt.Sprintf("%T", err))
 		}
 		slog.Info("connect rpc", attrs...)
-		return resp, err
-	}
-}
-
-func (connectLoggingInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
-	return next
-}
-
-func (connectLoggingInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
-	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		start := time.Now()
-		err := next(ctx, conn)
-		code := connectLogCode(err)
-		attrs := []any{
-			"procedure", conn.Spec().Procedure,
-			"code", code,
-			"duration_ms", time.Since(start).Milliseconds(),
-		}
-		if err != nil && connectErrorNeedsDiagnosticLog(connect.CodeOf(err)) {
-			attrs = append(attrs, "error_type", fmt.Sprintf("%T", err))
-		}
-		slog.Info("connect streaming rpc", attrs...)
 		return err
 	}
 }

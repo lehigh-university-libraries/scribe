@@ -5,306 +5,348 @@
 package scribev1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// AuthServiceName is the fully-qualified name of the AuthService service.
 	AuthServiceName = "scribe.v1.AuthService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// AuthServiceGetAuthMeProcedure is the fully-qualified name of the AuthService's GetAuthMe RPC.
+	// AuthServiceGetAuthMeProcedure is the procedure name of the AuthService's GetAuthMe RPC.
 	AuthServiceGetAuthMeProcedure = "/scribe.v1.AuthService/GetAuthMe"
-	// AuthServiceListAPIKeysProcedure is the fully-qualified name of the AuthService's ListAPIKeys RPC.
+	// AuthServiceListAPIKeysProcedure is the procedure name of the AuthService's ListAPIKeys RPC.
 	AuthServiceListAPIKeysProcedure = "/scribe.v1.AuthService/ListAPIKeys"
-	// AuthServiceCreateAPIKeyProcedure is the fully-qualified name of the AuthService's CreateAPIKey
-	// RPC.
+	// AuthServiceCreateAPIKeyProcedure is the procedure name of the AuthService's CreateAPIKey RPC.
 	AuthServiceCreateAPIKeyProcedure = "/scribe.v1.AuthService/CreateAPIKey"
-	// AuthServiceDeleteAPIKeyProcedure is the fully-qualified name of the AuthService's DeleteAPIKey
-	// RPC.
+	// AuthServiceDeleteAPIKeyProcedure is the procedure name of the AuthService's DeleteAPIKey RPC.
 	AuthServiceDeleteAPIKeyProcedure = "/scribe.v1.AuthService/DeleteAPIKey"
-	// AuthServiceListProviderSecretsProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceListProviderSecretsProcedure is the procedure name of the AuthService's
 	// ListProviderSecrets RPC.
 	AuthServiceListProviderSecretsProcedure = "/scribe.v1.AuthService/ListProviderSecrets"
-	// AuthServiceCreateProviderSecretProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceCreateProviderSecretProcedure is the procedure name of the AuthService's
 	// CreateProviderSecret RPC.
 	AuthServiceCreateProviderSecretProcedure = "/scribe.v1.AuthService/CreateProviderSecret"
-	// AuthServiceDeleteProviderSecretProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceDeleteProviderSecretProcedure is the procedure name of the AuthService's
 	// DeleteProviderSecret RPC.
 	AuthServiceDeleteProviderSecretProcedure = "/scribe.v1.AuthService/DeleteProviderSecret"
-	// AuthServiceCreateEditorReviewTokenProcedure is the fully-qualified name of the AuthService's
+	// AuthServiceCreateEditorReviewTokenProcedure is the procedure name of the AuthService's
 	// CreateEditorReviewToken RPC.
 	AuthServiceCreateEditorReviewTokenProcedure = "/scribe.v1.AuthService/CreateEditorReviewToken"
 )
 
+var (
+	authServiceGetAuthMeSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("GetAuthMe"),
+			Procedure:  AuthServiceGetAuthMeProcedure,
+		}
+	})
+	authServiceListAPIKeysSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("ListAPIKeys"),
+			Procedure:  AuthServiceListAPIKeysProcedure,
+		}
+	})
+	authServiceCreateAPIKeySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("CreateAPIKey"),
+			Procedure:  AuthServiceCreateAPIKeyProcedure,
+		}
+	})
+	authServiceDeleteAPIKeySpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("DeleteAPIKey"),
+			Procedure:  AuthServiceDeleteAPIKeyProcedure,
+		}
+	})
+	authServiceListProviderSecretsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("ListProviderSecrets"),
+			Procedure:  AuthServiceListProviderSecretsProcedure,
+		}
+	})
+	authServiceCreateProviderSecretSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("CreateProviderSecret"),
+			Procedure:  AuthServiceCreateProviderSecretProcedure,
+		}
+	})
+	authServiceDeleteProviderSecretSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("DeleteProviderSecret"),
+			Procedure:  AuthServiceDeleteProviderSecretProcedure,
+		}
+	})
+	authServiceCreateEditorReviewTokenSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods().ByName("CreateEditorReviewToken"),
+			Procedure:  AuthServiceCreateEditorReviewTokenProcedure,
+		}
+	})
+)
+
 // AuthServiceClient is a client for the scribe.v1.AuthService service.
 type AuthServiceClient interface {
-	GetAuthMe(context.Context, *connect.Request[v1.GetAuthMeRequest]) (*connect.Response[v1.GetAuthMeResponse], error)
-	ListAPIKeys(context.Context, *connect.Request[v1.ListAPIKeysRequest]) (*connect.Response[v1.ListAPIKeysResponse], error)
-	CreateAPIKey(context.Context, *connect.Request[v1.CreateAPIKeyRequest]) (*connect.Response[v1.CreateAPIKeyResponse], error)
-	DeleteAPIKey(context.Context, *connect.Request[v1.DeleteAPIKeyRequest]) (*connect.Response[v1.DeleteAPIKeyResponse], error)
-	ListProviderSecrets(context.Context, *connect.Request[v1.ListProviderSecretsRequest]) (*connect.Response[v1.ListProviderSecretsResponse], error)
-	CreateProviderSecret(context.Context, *connect.Request[v1.CreateProviderSecretRequest]) (*connect.Response[v1.CreateProviderSecretResponse], error)
-	DeleteProviderSecret(context.Context, *connect.Request[v1.DeleteProviderSecretRequest]) (*connect.Response[v1.DeleteProviderSecretResponse], error)
-	CreateEditorReviewToken(context.Context, *connect.Request[v1.CreateEditorReviewTokenRequest]) (*connect.Response[v1.CreateEditorReviewTokenResponse], error)
+	GetAuthMe(context.Context, *v1.GetAuthMeRequest) (*v1.GetAuthMeResponse, error)
+	ListAPIKeys(context.Context, *v1.ListAPIKeysRequest) (*v1.ListAPIKeysResponse, error)
+	CreateAPIKey(context.Context, *v1.CreateAPIKeyRequest) (*v1.CreateAPIKeyResponse, error)
+	DeleteAPIKey(context.Context, *v1.DeleteAPIKeyRequest) (*v1.DeleteAPIKeyResponse, error)
+	ListProviderSecrets(context.Context, *v1.ListProviderSecretsRequest) (*v1.ListProviderSecretsResponse, error)
+	CreateProviderSecret(context.Context, *v1.CreateProviderSecretRequest) (*v1.CreateProviderSecretResponse, error)
+	DeleteProviderSecret(context.Context, *v1.DeleteProviderSecretRequest) (*v1.DeleteProviderSecretResponse, error)
+	CreateEditorReviewToken(context.Context, *v1.CreateEditorReviewTokenRequest) (*v1.CreateEditorReviewTokenResponse, error)
 }
 
-// NewAuthServiceClient constructs a client for the scribe.v1.AuthService service. By default, it
-// uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
-// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
-// connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) AuthServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	authServiceMethods := v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods()
-	return &authServiceClient{
-		getAuthMe: connect.NewClient[v1.GetAuthMeRequest, v1.GetAuthMeResponse](
-			httpClient,
-			baseURL+AuthServiceGetAuthMeProcedure,
-			connect.WithSchema(authServiceMethods.ByName("GetAuthMe")),
-			connect.WithClientOptions(opts...),
-		),
-		listAPIKeys: connect.NewClient[v1.ListAPIKeysRequest, v1.ListAPIKeysResponse](
-			httpClient,
-			baseURL+AuthServiceListAPIKeysProcedure,
-			connect.WithSchema(authServiceMethods.ByName("ListAPIKeys")),
-			connect.WithClientOptions(opts...),
-		),
-		createAPIKey: connect.NewClient[v1.CreateAPIKeyRequest, v1.CreateAPIKeyResponse](
-			httpClient,
-			baseURL+AuthServiceCreateAPIKeyProcedure,
-			connect.WithSchema(authServiceMethods.ByName("CreateAPIKey")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteAPIKey: connect.NewClient[v1.DeleteAPIKeyRequest, v1.DeleteAPIKeyResponse](
-			httpClient,
-			baseURL+AuthServiceDeleteAPIKeyProcedure,
-			connect.WithSchema(authServiceMethods.ByName("DeleteAPIKey")),
-			connect.WithClientOptions(opts...),
-		),
-		listProviderSecrets: connect.NewClient[v1.ListProviderSecretsRequest, v1.ListProviderSecretsResponse](
-			httpClient,
-			baseURL+AuthServiceListProviderSecretsProcedure,
-			connect.WithSchema(authServiceMethods.ByName("ListProviderSecrets")),
-			connect.WithClientOptions(opts...),
-		),
-		createProviderSecret: connect.NewClient[v1.CreateProviderSecretRequest, v1.CreateProviderSecretResponse](
-			httpClient,
-			baseURL+AuthServiceCreateProviderSecretProcedure,
-			connect.WithSchema(authServiceMethods.ByName("CreateProviderSecret")),
-			connect.WithClientOptions(opts...),
-		),
-		deleteProviderSecret: connect.NewClient[v1.DeleteProviderSecretRequest, v1.DeleteProviderSecretResponse](
-			httpClient,
-			baseURL+AuthServiceDeleteProviderSecretProcedure,
-			connect.WithSchema(authServiceMethods.ByName("DeleteProviderSecret")),
-			connect.WithClientOptions(opts...),
-		),
-		createEditorReviewToken: connect.NewClient[v1.CreateEditorReviewTokenRequest, v1.CreateEditorReviewTokenResponse](
-			httpClient,
-			baseURL+AuthServiceCreateEditorReviewTokenProcedure,
-			connect.WithSchema(authServiceMethods.ByName("CreateEditorReviewToken")),
-			connect.WithClientOptions(opts...),
-		),
-	}
-}
-
-// authServiceClient implements AuthServiceClient.
-type authServiceClient struct {
-	getAuthMe               *connect.Client[v1.GetAuthMeRequest, v1.GetAuthMeResponse]
-	listAPIKeys             *connect.Client[v1.ListAPIKeysRequest, v1.ListAPIKeysResponse]
-	createAPIKey            *connect.Client[v1.CreateAPIKeyRequest, v1.CreateAPIKeyResponse]
-	deleteAPIKey            *connect.Client[v1.DeleteAPIKeyRequest, v1.DeleteAPIKeyResponse]
-	listProviderSecrets     *connect.Client[v1.ListProviderSecretsRequest, v1.ListProviderSecretsResponse]
-	createProviderSecret    *connect.Client[v1.CreateProviderSecretRequest, v1.CreateProviderSecretResponse]
-	deleteProviderSecret    *connect.Client[v1.DeleteProviderSecretRequest, v1.DeleteProviderSecretResponse]
-	createEditorReviewToken *connect.Client[v1.CreateEditorReviewTokenRequest, v1.CreateEditorReviewTokenResponse]
-}
-
-// GetAuthMe calls scribe.v1.AuthService.GetAuthMe.
-func (c *authServiceClient) GetAuthMe(ctx context.Context, req *connect.Request[v1.GetAuthMeRequest]) (*connect.Response[v1.GetAuthMeResponse], error) {
-	return c.getAuthMe.CallUnary(ctx, req)
-}
-
-// ListAPIKeys calls scribe.v1.AuthService.ListAPIKeys.
-func (c *authServiceClient) ListAPIKeys(ctx context.Context, req *connect.Request[v1.ListAPIKeysRequest]) (*connect.Response[v1.ListAPIKeysResponse], error) {
-	return c.listAPIKeys.CallUnary(ctx, req)
-}
-
-// CreateAPIKey calls scribe.v1.AuthService.CreateAPIKey.
-func (c *authServiceClient) CreateAPIKey(ctx context.Context, req *connect.Request[v1.CreateAPIKeyRequest]) (*connect.Response[v1.CreateAPIKeyResponse], error) {
-	return c.createAPIKey.CallUnary(ctx, req)
-}
-
-// DeleteAPIKey calls scribe.v1.AuthService.DeleteAPIKey.
-func (c *authServiceClient) DeleteAPIKey(ctx context.Context, req *connect.Request[v1.DeleteAPIKeyRequest]) (*connect.Response[v1.DeleteAPIKeyResponse], error) {
-	return c.deleteAPIKey.CallUnary(ctx, req)
-}
-
-// ListProviderSecrets calls scribe.v1.AuthService.ListProviderSecrets.
-func (c *authServiceClient) ListProviderSecrets(ctx context.Context, req *connect.Request[v1.ListProviderSecretsRequest]) (*connect.Response[v1.ListProviderSecretsResponse], error) {
-	return c.listProviderSecrets.CallUnary(ctx, req)
-}
-
-// CreateProviderSecret calls scribe.v1.AuthService.CreateProviderSecret.
-func (c *authServiceClient) CreateProviderSecret(ctx context.Context, req *connect.Request[v1.CreateProviderSecretRequest]) (*connect.Response[v1.CreateProviderSecretResponse], error) {
-	return c.createProviderSecret.CallUnary(ctx, req)
-}
-
-// DeleteProviderSecret calls scribe.v1.AuthService.DeleteProviderSecret.
-func (c *authServiceClient) DeleteProviderSecret(ctx context.Context, req *connect.Request[v1.DeleteProviderSecretRequest]) (*connect.Response[v1.DeleteProviderSecretResponse], error) {
-	return c.deleteProviderSecret.CallUnary(ctx, req)
-}
-
-// CreateEditorReviewToken calls scribe.v1.AuthService.CreateEditorReviewToken.
-func (c *authServiceClient) CreateEditorReviewToken(ctx context.Context, req *connect.Request[v1.CreateEditorReviewTokenRequest]) (*connect.Response[v1.CreateEditorReviewTokenResponse], error) {
-	return c.createEditorReviewToken.CallUnary(ctx, req)
+// NewAuthServiceClient constructs a client for the scribe.v1.AuthService service. Multiple service
+// clients may share a single connect.Client.
+func NewAuthServiceClient(client *connect.Client) AuthServiceClient {
+	return &authServiceClient{client: client}
 }
 
 // AuthServiceHandler is an implementation of the scribe.v1.AuthService service.
 type AuthServiceHandler interface {
-	GetAuthMe(context.Context, *connect.Request[v1.GetAuthMeRequest]) (*connect.Response[v1.GetAuthMeResponse], error)
-	ListAPIKeys(context.Context, *connect.Request[v1.ListAPIKeysRequest]) (*connect.Response[v1.ListAPIKeysResponse], error)
-	CreateAPIKey(context.Context, *connect.Request[v1.CreateAPIKeyRequest]) (*connect.Response[v1.CreateAPIKeyResponse], error)
-	DeleteAPIKey(context.Context, *connect.Request[v1.DeleteAPIKeyRequest]) (*connect.Response[v1.DeleteAPIKeyResponse], error)
-	ListProviderSecrets(context.Context, *connect.Request[v1.ListProviderSecretsRequest]) (*connect.Response[v1.ListProviderSecretsResponse], error)
-	CreateProviderSecret(context.Context, *connect.Request[v1.CreateProviderSecretRequest]) (*connect.Response[v1.CreateProviderSecretResponse], error)
-	DeleteProviderSecret(context.Context, *connect.Request[v1.DeleteProviderSecretRequest]) (*connect.Response[v1.DeleteProviderSecretResponse], error)
-	CreateEditorReviewToken(context.Context, *connect.Request[v1.CreateEditorReviewTokenRequest]) (*connect.Response[v1.CreateEditorReviewTokenResponse], error)
+	GetAuthMe(context.Context, *v1.GetAuthMeRequest) (*v1.GetAuthMeResponse, error)
+	ListAPIKeys(context.Context, *v1.ListAPIKeysRequest) (*v1.ListAPIKeysResponse, error)
+	CreateAPIKey(context.Context, *v1.CreateAPIKeyRequest) (*v1.CreateAPIKeyResponse, error)
+	DeleteAPIKey(context.Context, *v1.DeleteAPIKeyRequest) (*v1.DeleteAPIKeyResponse, error)
+	ListProviderSecrets(context.Context, *v1.ListProviderSecretsRequest) (*v1.ListProviderSecretsResponse, error)
+	CreateProviderSecret(context.Context, *v1.CreateProviderSecretRequest) (*v1.CreateProviderSecretResponse, error)
+	DeleteProviderSecret(context.Context, *v1.DeleteProviderSecretRequest) (*v1.DeleteProviderSecretResponse, error)
+	CreateEditorReviewToken(context.Context, *v1.CreateEditorReviewTokenRequest) (*v1.CreateEditorReviewTokenResponse, error)
 }
 
-// NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
-// on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	authServiceMethods := v1.File_scribe_v1_auth_proto.Services().ByName("AuthService").Methods()
-	authServiceGetAuthMeHandler := connect.NewUnaryHandler(
-		AuthServiceGetAuthMeProcedure,
-		svc.GetAuthMe,
-		connect.WithSchema(authServiceMethods.ByName("GetAuthMe")),
-		connect.WithHandlerOptions(opts...),
+// RegisterAuthServiceHandler registers svc as the scribe.v1.AuthService implementation on server.
+func RegisterAuthServiceHandler(server *connect.Server, svc AuthServiceHandler) {
+	adapter := authServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: authServiceGetAuthMeSpec(), Handler: adapter.getAuthMe},
+		connect.Method{Spec: authServiceListAPIKeysSpec(), Handler: adapter.listAPIKeys},
+		connect.Method{Spec: authServiceCreateAPIKeySpec(), Handler: adapter.createAPIKey},
+		connect.Method{Spec: authServiceDeleteAPIKeySpec(), Handler: adapter.deleteAPIKey},
+		connect.Method{Spec: authServiceListProviderSecretsSpec(), Handler: adapter.listProviderSecrets},
+		connect.Method{Spec: authServiceCreateProviderSecretSpec(), Handler: adapter.createProviderSecret},
+		connect.Method{Spec: authServiceDeleteProviderSecretSpec(), Handler: adapter.deleteProviderSecret},
+		connect.Method{Spec: authServiceCreateEditorReviewTokenSpec(), Handler: adapter.createEditorReviewToken},
 	)
-	authServiceListAPIKeysHandler := connect.NewUnaryHandler(
-		AuthServiceListAPIKeysProcedure,
-		svc.ListAPIKeys,
-		connect.WithSchema(authServiceMethods.ByName("ListAPIKeys")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceCreateAPIKeyHandler := connect.NewUnaryHandler(
-		AuthServiceCreateAPIKeyProcedure,
-		svc.CreateAPIKey,
-		connect.WithSchema(authServiceMethods.ByName("CreateAPIKey")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceDeleteAPIKeyHandler := connect.NewUnaryHandler(
-		AuthServiceDeleteAPIKeyProcedure,
-		svc.DeleteAPIKey,
-		connect.WithSchema(authServiceMethods.ByName("DeleteAPIKey")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceListProviderSecretsHandler := connect.NewUnaryHandler(
-		AuthServiceListProviderSecretsProcedure,
-		svc.ListProviderSecrets,
-		connect.WithSchema(authServiceMethods.ByName("ListProviderSecrets")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceCreateProviderSecretHandler := connect.NewUnaryHandler(
-		AuthServiceCreateProviderSecretProcedure,
-		svc.CreateProviderSecret,
-		connect.WithSchema(authServiceMethods.ByName("CreateProviderSecret")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceDeleteProviderSecretHandler := connect.NewUnaryHandler(
-		AuthServiceDeleteProviderSecretProcedure,
-		svc.DeleteProviderSecret,
-		connect.WithSchema(authServiceMethods.ByName("DeleteProviderSecret")),
-		connect.WithHandlerOptions(opts...),
-	)
-	authServiceCreateEditorReviewTokenHandler := connect.NewUnaryHandler(
-		AuthServiceCreateEditorReviewTokenProcedure,
-		svc.CreateEditorReviewToken,
-		connect.WithSchema(authServiceMethods.ByName("CreateEditorReviewToken")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/scribe.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case AuthServiceGetAuthMeProcedure:
-			authServiceGetAuthMeHandler.ServeHTTP(w, r)
-		case AuthServiceListAPIKeysProcedure:
-			authServiceListAPIKeysHandler.ServeHTTP(w, r)
-		case AuthServiceCreateAPIKeyProcedure:
-			authServiceCreateAPIKeyHandler.ServeHTTP(w, r)
-		case AuthServiceDeleteAPIKeyProcedure:
-			authServiceDeleteAPIKeyHandler.ServeHTTP(w, r)
-		case AuthServiceListProviderSecretsProcedure:
-			authServiceListProviderSecretsHandler.ServeHTTP(w, r)
-		case AuthServiceCreateProviderSecretProcedure:
-			authServiceCreateProviderSecretHandler.ServeHTTP(w, r)
-		case AuthServiceDeleteProviderSecretProcedure:
-			authServiceDeleteProviderSecretHandler.ServeHTTP(w, r)
-		case AuthServiceCreateEditorReviewTokenProcedure:
-			authServiceCreateEditorReviewTokenHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
 }
 
 // UnimplementedAuthServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAuthServiceHandler struct{}
 
-func (UnimplementedAuthServiceHandler) GetAuthMe(context.Context, *connect.Request[v1.GetAuthMeRequest]) (*connect.Response[v1.GetAuthMeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.GetAuthMe is not implemented"))
+func (UnimplementedAuthServiceHandler) GetAuthMe(context.Context, *v1.GetAuthMeRequest) (*v1.GetAuthMeResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AuthService.GetAuthMe is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) ListAPIKeys(context.Context, *connect.Request[v1.ListAPIKeysRequest]) (*connect.Response[v1.ListAPIKeysResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.ListAPIKeys is not implemented"))
+func (UnimplementedAuthServiceHandler) ListAPIKeys(context.Context, *v1.ListAPIKeysRequest) (*v1.ListAPIKeysResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AuthService.ListAPIKeys is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) CreateAPIKey(context.Context, *connect.Request[v1.CreateAPIKeyRequest]) (*connect.Response[v1.CreateAPIKeyResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.CreateAPIKey is not implemented"))
+func (UnimplementedAuthServiceHandler) CreateAPIKey(context.Context, *v1.CreateAPIKeyRequest) (*v1.CreateAPIKeyResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AuthService.CreateAPIKey is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) DeleteAPIKey(context.Context, *connect.Request[v1.DeleteAPIKeyRequest]) (*connect.Response[v1.DeleteAPIKeyResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.DeleteAPIKey is not implemented"))
+func (UnimplementedAuthServiceHandler) DeleteAPIKey(context.Context, *v1.DeleteAPIKeyRequest) (*v1.DeleteAPIKeyResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AuthService.DeleteAPIKey is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) ListProviderSecrets(context.Context, *connect.Request[v1.ListProviderSecretsRequest]) (*connect.Response[v1.ListProviderSecretsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.ListProviderSecrets is not implemented"))
+func (UnimplementedAuthServiceHandler) ListProviderSecrets(context.Context, *v1.ListProviderSecretsRequest) (*v1.ListProviderSecretsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AuthService.ListProviderSecrets is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) CreateProviderSecret(context.Context, *connect.Request[v1.CreateProviderSecretRequest]) (*connect.Response[v1.CreateProviderSecretResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.CreateProviderSecret is not implemented"))
+func (UnimplementedAuthServiceHandler) CreateProviderSecret(context.Context, *v1.CreateProviderSecretRequest) (*v1.CreateProviderSecretResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AuthService.CreateProviderSecret is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) DeleteProviderSecret(context.Context, *connect.Request[v1.DeleteProviderSecretRequest]) (*connect.Response[v1.DeleteProviderSecretResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.DeleteProviderSecret is not implemented"))
+func (UnimplementedAuthServiceHandler) DeleteProviderSecret(context.Context, *v1.DeleteProviderSecretRequest) (*v1.DeleteProviderSecretResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AuthService.DeleteProviderSecret is not implemented")
 }
 
-func (UnimplementedAuthServiceHandler) CreateEditorReviewToken(context.Context, *connect.Request[v1.CreateEditorReviewTokenRequest]) (*connect.Response[v1.CreateEditorReviewTokenResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.AuthService.CreateEditorReviewToken is not implemented"))
+func (UnimplementedAuthServiceHandler) CreateEditorReviewToken(context.Context, *v1.CreateEditorReviewTokenRequest) (*v1.CreateEditorReviewTokenResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AuthService.CreateEditorReviewToken is not implemented")
+}
+
+type authServiceClient struct {
+	client *connect.Client
+}
+
+func (c *authServiceClient) GetAuthMe(ctx context.Context, req *v1.GetAuthMeRequest) (*v1.GetAuthMeResponse, error) {
+	var res v1.GetAuthMeResponse
+	if err := c.client.CallUnary(ctx, authServiceGetAuthMeSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) ListAPIKeys(ctx context.Context, req *v1.ListAPIKeysRequest) (*v1.ListAPIKeysResponse, error) {
+	var res v1.ListAPIKeysResponse
+	if err := c.client.CallUnary(ctx, authServiceListAPIKeysSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) CreateAPIKey(ctx context.Context, req *v1.CreateAPIKeyRequest) (*v1.CreateAPIKeyResponse, error) {
+	var res v1.CreateAPIKeyResponse
+	if err := c.client.CallUnary(ctx, authServiceCreateAPIKeySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) DeleteAPIKey(ctx context.Context, req *v1.DeleteAPIKeyRequest) (*v1.DeleteAPIKeyResponse, error) {
+	var res v1.DeleteAPIKeyResponse
+	if err := c.client.CallUnary(ctx, authServiceDeleteAPIKeySpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) ListProviderSecrets(ctx context.Context, req *v1.ListProviderSecretsRequest) (*v1.ListProviderSecretsResponse, error) {
+	var res v1.ListProviderSecretsResponse
+	if err := c.client.CallUnary(ctx, authServiceListProviderSecretsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) CreateProviderSecret(ctx context.Context, req *v1.CreateProviderSecretRequest) (*v1.CreateProviderSecretResponse, error) {
+	var res v1.CreateProviderSecretResponse
+	if err := c.client.CallUnary(ctx, authServiceCreateProviderSecretSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) DeleteProviderSecret(ctx context.Context, req *v1.DeleteProviderSecretRequest) (*v1.DeleteProviderSecretResponse, error) {
+	var res v1.DeleteProviderSecretResponse
+	if err := c.client.CallUnary(ctx, authServiceDeleteProviderSecretSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *authServiceClient) CreateEditorReviewToken(ctx context.Context, req *v1.CreateEditorReviewTokenRequest) (*v1.CreateEditorReviewTokenResponse, error) {
+	var res v1.CreateEditorReviewTokenResponse
+	if err := c.client.CallUnary(ctx, authServiceCreateEditorReviewTokenSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+type authServiceHandler struct{ svc AuthServiceHandler }
+
+func (h authServiceHandler) getAuthMe(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetAuthMeRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetAuthMe(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) listAPIKeys(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListAPIKeysRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListAPIKeys(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) createAPIKey(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateAPIKeyRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateAPIKey(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) deleteAPIKey(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteAPIKeyRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteAPIKey(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) listProviderSecrets(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListProviderSecretsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListProviderSecrets(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) createProviderSecret(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateProviderSecretRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateProviderSecret(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) deleteProviderSecret(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.DeleteProviderSecretRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.DeleteProviderSecret(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h authServiceHandler) createEditorReviewToken(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateEditorReviewTokenRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateEditorReviewToken(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
 }

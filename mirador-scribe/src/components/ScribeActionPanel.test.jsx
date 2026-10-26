@@ -237,8 +237,9 @@ describe('ScribeActionPanel', () => {
     const toolbarActions = [...textActions.querySelectorAll('button[aria-label]')];
     const deleteAction = toolbarActions.at(-1);
     expect(deleteAction?.getAttribute('aria-label')).toBe('Delete the line "one two three"');
-    expect(deleteAction?.className).toContain('MuiButton-containedError');
-    expect(deleteAction?.querySelector('[data-testid="DeleteOutlineIcon"]')).not.toBeNull();
+    expect(deleteAction?.className).toContain('MuiButton-contained');
+    expect(deleteAction?.className).toContain('MuiButton-colorError');
+    expect(deleteAction?.querySelector('[data-testid="DeleteOutlineOutlinedIcon"]')).not.toBeNull();
   });
 
   it('deletes the focused word rather than its line and disables deletion without a target', async () => {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
@@ -137,17 +137,17 @@ func TestContextAndRuleHandlersPaginateWithoutTenantLeakage(t *testing.T) {
 		if pageNumber > 1000 {
 			t.Fatal("context pagination did not terminate")
 		}
-		page, err := handler.ListContexts(requestContext, connect.NewRequest(&scribev1.ListContextsRequest{
+		page, err := handler.ListContexts(requestContext, &scribev1.ListContextsRequest{
 			PageSize:  1,
 			PageToken: pageToken,
-		}))
+		})
 		if err != nil {
 			t.Fatalf("list context page %d: %v", pageNumber, err)
 		}
-		for _, contextValue := range page.Msg.GetContexts() {
+		for _, contextValue := range page.GetContexts() {
 			contextIDs[contextValue.GetId()]++
 		}
-		pageToken = page.Msg.GetNextPageToken()
+		pageToken = page.GetNextPageToken()
 		if pageToken == "" {
 			break
 		}
@@ -161,15 +161,15 @@ func TestContextAndRuleHandlersPaginateWithoutTenantLeakage(t *testing.T) {
 		t.Fatalf("foreign context %d leaked into owner page", foreignContext.ID)
 	}
 
-	firstContextPage, err := handler.ListContexts(requestContext, connect.NewRequest(&scribev1.ListContextsRequest{PageSize: 1}))
-	if err != nil || firstContextPage.Msg.GetNextPageToken() == "" {
-		t.Fatalf("first context page token = %q/%v", firstContextPage.Msg.GetNextPageToken(), err)
+	firstContextPage, err := handler.ListContexts(requestContext, &scribev1.ListContextsRequest{PageSize: 1})
+	if err != nil || firstContextPage.GetNextPageToken() == "" {
+		t.Fatalf("first context page token = %q/%v", firstContextPage.GetNextPageToken(), err)
 	}
-	_, err = handler.ListContexts(requestContext, connect.NewRequest(&scribev1.ListContextsRequest{
+	_, err = handler.ListContexts(requestContext, &scribev1.ListContextsRequest{
 		SystemOnly: true,
 		PageSize:   1,
-		PageToken:  firstContextPage.Msg.GetNextPageToken(),
-	}))
+		PageToken:  firstContextPage.GetNextPageToken(),
+	})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("changed context filter token code = %s, want invalid_argument", connect.CodeOf(err))
 	}
@@ -180,17 +180,17 @@ func TestContextAndRuleHandlersPaginateWithoutTenantLeakage(t *testing.T) {
 		if pageNumber > 1000 {
 			t.Fatal("selection rule pagination did not terminate")
 		}
-		page, err := handler.ListSelectionRules(requestContext, connect.NewRequest(&scribev1.ListSelectionRulesRequest{
+		page, err := handler.ListSelectionRules(requestContext, &scribev1.ListSelectionRulesRequest{
 			PageSize:  1,
 			PageToken: pageToken,
-		}))
+		})
 		if err != nil {
 			t.Fatalf("list rule page %d: %v", pageNumber, err)
 		}
-		for _, rule := range page.Msg.GetRules() {
+		for _, rule := range page.GetRules() {
 			ruleIDs[rule.GetId()]++
 		}
-		pageToken = page.Msg.GetNextPageToken()
+		pageToken = page.GetNextPageToken()
 		if pageToken == "" {
 			break
 		}
@@ -204,15 +204,15 @@ func TestContextAndRuleHandlersPaginateWithoutTenantLeakage(t *testing.T) {
 		t.Fatalf("foreign rule %d leaked into owner page", foreignRule.ID)
 	}
 
-	firstRulePage, err := handler.ListSelectionRules(requestContext, connect.NewRequest(&scribev1.ListSelectionRulesRequest{PageSize: 1}))
-	if err != nil || firstRulePage.Msg.GetNextPageToken() == "" {
-		t.Fatalf("first rule page token = %q/%v", firstRulePage.Msg.GetNextPageToken(), err)
+	firstRulePage, err := handler.ListSelectionRules(requestContext, &scribev1.ListSelectionRulesRequest{PageSize: 1})
+	if err != nil || firstRulePage.GetNextPageToken() == "" {
+		t.Fatalf("first rule page token = %q/%v", firstRulePage.GetNextPageToken(), err)
 	}
-	_, err = handler.ListSelectionRules(requestContext, connect.NewRequest(&scribev1.ListSelectionRulesRequest{
+	_, err = handler.ListSelectionRules(requestContext, &scribev1.ListSelectionRulesRequest{
 		ContextId: ownerContexts[0].ID,
 		PageSize:  1,
-		PageToken: firstRulePage.Msg.GetNextPageToken(),
-	}))
+		PageToken: firstRulePage.GetNextPageToken(),
+	})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("changed rule filter token code = %s, want invalid_argument", connect.CodeOf(err))
 	}

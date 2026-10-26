@@ -5,235 +5,289 @@
 package scribev1connect
 
 import (
-	connect "connectrpc.com/connect"
+	connect "connectrpc.com/connect/v2"
 	context "context"
-	errors "errors"
 	v1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
-	http "net/http"
-	strings "strings"
+	sync "sync"
 )
-
-// This is a compile-time assertion to ensure that this generated file and the connect package are
-// compatible. If you get a compiler error that this constant is not defined, this code was
-// generated with a version of connect newer than the one compiled into your binary. You can fix the
-// problem by either regenerating this code with an older version of connect or updating the connect
-// version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// TranscriptionServiceName is the fully-qualified name of the TranscriptionService service.
 	TranscriptionServiceName = "scribe.v1.TranscriptionService"
 )
 
-// These constants are the fully-qualified names of the RPCs defined in this package. They're
-// exposed at runtime as Spec.Procedure and as the final two segments of the HTTP route.
+// These constants are the procedure names of the RPCs defined in this package. They're exposed at
+// runtime as Spec.Procedure and as the final two segments of the HTTP route.
 //
 // Note that these are different from the fully-qualified method names used by
 // google.golang.org/protobuf/reflect/protoreflect. To convert from these constants to
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// TranscriptionServiceCreateTranscriptionJobProcedure is the fully-qualified name of the
+	// TranscriptionServiceCreateTranscriptionJobProcedure is the procedure name of the
 	// TranscriptionService's CreateTranscriptionJob RPC.
 	TranscriptionServiceCreateTranscriptionJobProcedure = "/scribe.v1.TranscriptionService/CreateTranscriptionJob"
-	// TranscriptionServiceCancelTranscriptionJobProcedure is the fully-qualified name of the
+	// TranscriptionServiceCancelTranscriptionJobProcedure is the procedure name of the
 	// TranscriptionService's CancelTranscriptionJob RPC.
 	TranscriptionServiceCancelTranscriptionJobProcedure = "/scribe.v1.TranscriptionService/CancelTranscriptionJob"
-	// TranscriptionServiceGetTranscriptionJobProcedure is the fully-qualified name of the
+	// TranscriptionServiceGetTranscriptionJobProcedure is the procedure name of the
 	// TranscriptionService's GetTranscriptionJob RPC.
 	TranscriptionServiceGetTranscriptionJobProcedure = "/scribe.v1.TranscriptionService/GetTranscriptionJob"
-	// TranscriptionServiceListTranscriptionJobsProcedure is the fully-qualified name of the
+	// TranscriptionServiceListTranscriptionJobsProcedure is the procedure name of the
 	// TranscriptionService's ListTranscriptionJobs RPC.
 	TranscriptionServiceListTranscriptionJobsProcedure = "/scribe.v1.TranscriptionService/ListTranscriptionJobs"
-	// TranscriptionServiceStreamTranscriptionJobProcedure is the fully-qualified name of the
+	// TranscriptionServiceStreamTranscriptionJobProcedure is the procedure name of the
 	// TranscriptionService's StreamTranscriptionJob RPC.
 	TranscriptionServiceStreamTranscriptionJobProcedure = "/scribe.v1.TranscriptionService/StreamTranscriptionJob"
+)
+
+var (
+	transcriptionServiceCreateTranscriptionJobSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_transcription_proto.Services().ByName("TranscriptionService").Methods().ByName("CreateTranscriptionJob"),
+			Procedure:  TranscriptionServiceCreateTranscriptionJobProcedure,
+		}
+	})
+	transcriptionServiceCancelTranscriptionJobSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_transcription_proto.Services().ByName("TranscriptionService").Methods().ByName("CancelTranscriptionJob"),
+			Procedure:  TranscriptionServiceCancelTranscriptionJobProcedure,
+		}
+	})
+	transcriptionServiceGetTranscriptionJobSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_transcription_proto.Services().ByName("TranscriptionService").Methods().ByName("GetTranscriptionJob"),
+			Procedure:  TranscriptionServiceGetTranscriptionJobProcedure,
+		}
+	})
+	transcriptionServiceListTranscriptionJobsSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_transcription_proto.Services().ByName("TranscriptionService").Methods().ByName("ListTranscriptionJobs"),
+			Procedure:  TranscriptionServiceListTranscriptionJobsProcedure,
+		}
+	})
+	transcriptionServiceStreamTranscriptionJobSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeServer,
+			Schema:     v1.File_scribe_v1_transcription_proto.Services().ByName("TranscriptionService").Methods().ByName("StreamTranscriptionJob"),
+			Procedure:  TranscriptionServiceStreamTranscriptionJobProcedure,
+		}
+	})
 )
 
 // TranscriptionServiceClient is a client for the scribe.v1.TranscriptionService service.
 type TranscriptionServiceClient interface {
 	// CreateTranscriptionJob enqueues a new batch transcription job for an image.
-	CreateTranscriptionJob(context.Context, *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error)
+	CreateTranscriptionJob(context.Context, *v1.CreateTranscriptionJobRequest) (*v1.CreateTranscriptionJobResponse, error)
 	// CancelTranscriptionJob fences any active worker and is idempotent for a
 	// job that is already canceled.
-	CancelTranscriptionJob(context.Context, *connect.Request[v1.CancelTranscriptionJobRequest]) (*connect.Response[v1.CancelTranscriptionJobResponse], error)
+	CancelTranscriptionJob(context.Context, *v1.CancelTranscriptionJobRequest) (*v1.CancelTranscriptionJobResponse, error)
 	// GetTranscriptionJob returns the current state of a job (for polling).
-	GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error)
+	GetTranscriptionJob(context.Context, *v1.GetTranscriptionJobRequest) (*v1.GetTranscriptionJobResponse, error)
 	// ListTranscriptionJobs lists jobs, optionally filtered by item image.
-	ListTranscriptionJobs(context.Context, *connect.Request[v1.ListTranscriptionJobsRequest]) (*connect.Response[v1.ListTranscriptionJobsResponse], error)
+	ListTranscriptionJobs(context.Context, *v1.ListTranscriptionJobsRequest) (*v1.ListTranscriptionJobsResponse, error)
 	// StreamTranscriptionJob streams job updates in real time until the job
 	// reaches a terminal state (completed or failed).
-	StreamTranscriptionJob(context.Context, *connect.Request[v1.StreamTranscriptionJobRequest]) (*connect.ServerStreamForClient[v1.StreamTranscriptionJobResponse], error)
+	StreamTranscriptionJob(context.Context, *v1.StreamTranscriptionJobRequest) (TranscriptionServiceStreamTranscriptionJobClientStream, error)
 }
 
 // NewTranscriptionServiceClient constructs a client for the scribe.v1.TranscriptionService service.
-// By default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped
-// responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
-// connect.WithGRPC() or connect.WithGRPCWeb() options.
-//
-// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
-// http://api.acme.com or https://acme.com/grpc).
-func NewTranscriptionServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) TranscriptionServiceClient {
-	baseURL = strings.TrimRight(baseURL, "/")
-	transcriptionServiceMethods := v1.File_scribe_v1_transcription_proto.Services().ByName("TranscriptionService").Methods()
-	return &transcriptionServiceClient{
-		createTranscriptionJob: connect.NewClient[v1.CreateTranscriptionJobRequest, v1.CreateTranscriptionJobResponse](
-			httpClient,
-			baseURL+TranscriptionServiceCreateTranscriptionJobProcedure,
-			connect.WithSchema(transcriptionServiceMethods.ByName("CreateTranscriptionJob")),
-			connect.WithClientOptions(opts...),
-		),
-		cancelTranscriptionJob: connect.NewClient[v1.CancelTranscriptionJobRequest, v1.CancelTranscriptionJobResponse](
-			httpClient,
-			baseURL+TranscriptionServiceCancelTranscriptionJobProcedure,
-			connect.WithSchema(transcriptionServiceMethods.ByName("CancelTranscriptionJob")),
-			connect.WithClientOptions(opts...),
-		),
-		getTranscriptionJob: connect.NewClient[v1.GetTranscriptionJobRequest, v1.GetTranscriptionJobResponse](
-			httpClient,
-			baseURL+TranscriptionServiceGetTranscriptionJobProcedure,
-			connect.WithSchema(transcriptionServiceMethods.ByName("GetTranscriptionJob")),
-			connect.WithClientOptions(opts...),
-		),
-		listTranscriptionJobs: connect.NewClient[v1.ListTranscriptionJobsRequest, v1.ListTranscriptionJobsResponse](
-			httpClient,
-			baseURL+TranscriptionServiceListTranscriptionJobsProcedure,
-			connect.WithSchema(transcriptionServiceMethods.ByName("ListTranscriptionJobs")),
-			connect.WithClientOptions(opts...),
-		),
-		streamTranscriptionJob: connect.NewClient[v1.StreamTranscriptionJobRequest, v1.StreamTranscriptionJobResponse](
-			httpClient,
-			baseURL+TranscriptionServiceStreamTranscriptionJobProcedure,
-			connect.WithSchema(transcriptionServiceMethods.ByName("StreamTranscriptionJob")),
-			connect.WithClientOptions(opts...),
-		),
+// Multiple service clients may share a single connect.Client.
+func NewTranscriptionServiceClient(client *connect.Client) TranscriptionServiceClient {
+	return &transcriptionServiceClient{client: client}
+}
+
+// TranscriptionServiceStreamTranscriptionJobClientStream is the client stream for the
+// TranscriptionService's StreamTranscriptionJob RPC.
+type TranscriptionServiceStreamTranscriptionJobClientStream struct {
+	stream connect.ClientStream
+}
+
+// Receive returns the next response message from the server.
+func (s TranscriptionServiceStreamTranscriptionJobClientStream) Receive() (*v1.StreamTranscriptionJobResponse, error) {
+	var res v1.StreamTranscriptionJobResponse
+	if err := s.stream.Receive(&res); err != nil {
+		return nil, err
 	}
+	return &res, nil
 }
 
-// transcriptionServiceClient implements TranscriptionServiceClient.
-type transcriptionServiceClient struct {
-	createTranscriptionJob *connect.Client[v1.CreateTranscriptionJobRequest, v1.CreateTranscriptionJobResponse]
-	cancelTranscriptionJob *connect.Client[v1.CancelTranscriptionJobRequest, v1.CancelTranscriptionJobResponse]
-	getTranscriptionJob    *connect.Client[v1.GetTranscriptionJobRequest, v1.GetTranscriptionJobResponse]
-	listTranscriptionJobs  *connect.Client[v1.ListTranscriptionJobsRequest, v1.ListTranscriptionJobsResponse]
-	streamTranscriptionJob *connect.Client[v1.StreamTranscriptionJobRequest, v1.StreamTranscriptionJobResponse]
-}
-
-// CreateTranscriptionJob calls scribe.v1.TranscriptionService.CreateTranscriptionJob.
-func (c *transcriptionServiceClient) CreateTranscriptionJob(ctx context.Context, req *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error) {
-	return c.createTranscriptionJob.CallUnary(ctx, req)
-}
-
-// CancelTranscriptionJob calls scribe.v1.TranscriptionService.CancelTranscriptionJob.
-func (c *transcriptionServiceClient) CancelTranscriptionJob(ctx context.Context, req *connect.Request[v1.CancelTranscriptionJobRequest]) (*connect.Response[v1.CancelTranscriptionJobResponse], error) {
-	return c.cancelTranscriptionJob.CallUnary(ctx, req)
-}
-
-// GetTranscriptionJob calls scribe.v1.TranscriptionService.GetTranscriptionJob.
-func (c *transcriptionServiceClient) GetTranscriptionJob(ctx context.Context, req *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error) {
-	return c.getTranscriptionJob.CallUnary(ctx, req)
-}
-
-// ListTranscriptionJobs calls scribe.v1.TranscriptionService.ListTranscriptionJobs.
-func (c *transcriptionServiceClient) ListTranscriptionJobs(ctx context.Context, req *connect.Request[v1.ListTranscriptionJobsRequest]) (*connect.Response[v1.ListTranscriptionJobsResponse], error) {
-	return c.listTranscriptionJobs.CallUnary(ctx, req)
-}
-
-// StreamTranscriptionJob calls scribe.v1.TranscriptionService.StreamTranscriptionJob.
-func (c *transcriptionServiceClient) StreamTranscriptionJob(ctx context.Context, req *connect.Request[v1.StreamTranscriptionJobRequest]) (*connect.ServerStreamForClient[v1.StreamTranscriptionJobResponse], error) {
-	return c.streamTranscriptionJob.CallServerStream(ctx, req)
+// Close releases the stream's resources. It is idempotent and is typically deferred to clean up a
+// stream abandoned before io.EOF.
+func (s TranscriptionServiceStreamTranscriptionJobClientStream) Close() error {
+	return s.stream.Close()
 }
 
 // TranscriptionServiceHandler is an implementation of the scribe.v1.TranscriptionService service.
 type TranscriptionServiceHandler interface {
 	// CreateTranscriptionJob enqueues a new batch transcription job for an image.
-	CreateTranscriptionJob(context.Context, *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error)
+	CreateTranscriptionJob(context.Context, *v1.CreateTranscriptionJobRequest) (*v1.CreateTranscriptionJobResponse, error)
 	// CancelTranscriptionJob fences any active worker and is idempotent for a
 	// job that is already canceled.
-	CancelTranscriptionJob(context.Context, *connect.Request[v1.CancelTranscriptionJobRequest]) (*connect.Response[v1.CancelTranscriptionJobResponse], error)
+	CancelTranscriptionJob(context.Context, *v1.CancelTranscriptionJobRequest) (*v1.CancelTranscriptionJobResponse, error)
 	// GetTranscriptionJob returns the current state of a job (for polling).
-	GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error)
+	GetTranscriptionJob(context.Context, *v1.GetTranscriptionJobRequest) (*v1.GetTranscriptionJobResponse, error)
 	// ListTranscriptionJobs lists jobs, optionally filtered by item image.
-	ListTranscriptionJobs(context.Context, *connect.Request[v1.ListTranscriptionJobsRequest]) (*connect.Response[v1.ListTranscriptionJobsResponse], error)
+	ListTranscriptionJobs(context.Context, *v1.ListTranscriptionJobsRequest) (*v1.ListTranscriptionJobsResponse, error)
 	// StreamTranscriptionJob streams job updates in real time until the job
 	// reaches a terminal state (completed or failed).
-	StreamTranscriptionJob(context.Context, *connect.Request[v1.StreamTranscriptionJobRequest], *connect.ServerStream[v1.StreamTranscriptionJobResponse]) error
+	StreamTranscriptionJob(context.Context, *v1.StreamTranscriptionJobRequest, TranscriptionServiceStreamTranscriptionJobServerStream) error
 }
 
-// NewTranscriptionServiceHandler builds an HTTP handler from the service implementation. It returns
-// the path on which to mount the handler and the handler itself.
-//
-// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
-// and JSON codecs. They also support gzip compression.
-func NewTranscriptionServiceHandler(svc TranscriptionServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	transcriptionServiceMethods := v1.File_scribe_v1_transcription_proto.Services().ByName("TranscriptionService").Methods()
-	transcriptionServiceCreateTranscriptionJobHandler := connect.NewUnaryHandler(
-		TranscriptionServiceCreateTranscriptionJobProcedure,
-		svc.CreateTranscriptionJob,
-		connect.WithSchema(transcriptionServiceMethods.ByName("CreateTranscriptionJob")),
-		connect.WithHandlerOptions(opts...),
+// RegisterTranscriptionServiceHandler registers svc as the scribe.v1.TranscriptionService
+// implementation on server.
+func RegisterTranscriptionServiceHandler(server *connect.Server, svc TranscriptionServiceHandler) {
+	adapter := transcriptionServiceHandler{svc: svc}
+	server.Register(
+		connect.Method{Spec: transcriptionServiceCreateTranscriptionJobSpec(), Handler: adapter.createTranscriptionJob},
+		connect.Method{Spec: transcriptionServiceCancelTranscriptionJobSpec(), Handler: adapter.cancelTranscriptionJob},
+		connect.Method{Spec: transcriptionServiceGetTranscriptionJobSpec(), Handler: adapter.getTranscriptionJob},
+		connect.Method{Spec: transcriptionServiceListTranscriptionJobsSpec(), Handler: adapter.listTranscriptionJobs},
+		connect.Method{Spec: transcriptionServiceStreamTranscriptionJobSpec(), Handler: adapter.streamTranscriptionJob},
 	)
-	transcriptionServiceCancelTranscriptionJobHandler := connect.NewUnaryHandler(
-		TranscriptionServiceCancelTranscriptionJobProcedure,
-		svc.CancelTranscriptionJob,
-		connect.WithSchema(transcriptionServiceMethods.ByName("CancelTranscriptionJob")),
-		connect.WithHandlerOptions(opts...),
-	)
-	transcriptionServiceGetTranscriptionJobHandler := connect.NewUnaryHandler(
-		TranscriptionServiceGetTranscriptionJobProcedure,
-		svc.GetTranscriptionJob,
-		connect.WithSchema(transcriptionServiceMethods.ByName("GetTranscriptionJob")),
-		connect.WithHandlerOptions(opts...),
-	)
-	transcriptionServiceListTranscriptionJobsHandler := connect.NewUnaryHandler(
-		TranscriptionServiceListTranscriptionJobsProcedure,
-		svc.ListTranscriptionJobs,
-		connect.WithSchema(transcriptionServiceMethods.ByName("ListTranscriptionJobs")),
-		connect.WithHandlerOptions(opts...),
-	)
-	transcriptionServiceStreamTranscriptionJobHandler := connect.NewServerStreamHandler(
-		TranscriptionServiceStreamTranscriptionJobProcedure,
-		svc.StreamTranscriptionJob,
-		connect.WithSchema(transcriptionServiceMethods.ByName("StreamTranscriptionJob")),
-		connect.WithHandlerOptions(opts...),
-	)
-	return "/scribe.v1.TranscriptionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case TranscriptionServiceCreateTranscriptionJobProcedure:
-			transcriptionServiceCreateTranscriptionJobHandler.ServeHTTP(w, r)
-		case TranscriptionServiceCancelTranscriptionJobProcedure:
-			transcriptionServiceCancelTranscriptionJobHandler.ServeHTTP(w, r)
-		case TranscriptionServiceGetTranscriptionJobProcedure:
-			transcriptionServiceGetTranscriptionJobHandler.ServeHTTP(w, r)
-		case TranscriptionServiceListTranscriptionJobsProcedure:
-			transcriptionServiceListTranscriptionJobsHandler.ServeHTTP(w, r)
-		case TranscriptionServiceStreamTranscriptionJobProcedure:
-			transcriptionServiceStreamTranscriptionJobHandler.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
-		}
-	})
+}
+
+// TranscriptionServiceStreamTranscriptionJobServerStream is the server stream for the
+// TranscriptionService's StreamTranscriptionJob RPC.
+type TranscriptionServiceStreamTranscriptionJobServerStream struct {
+	stream connect.ServerStream
+}
+
+// SendHeaders flushes the response headers without a message. The first Send does this implicitly.
+func (s TranscriptionServiceStreamTranscriptionJobServerStream) SendHeaders() error {
+	return s.stream.SendHeaders()
+}
+
+// Send sends a response message to the client.
+func (s TranscriptionServiceStreamTranscriptionJobServerStream) Send(res *v1.StreamTranscriptionJobResponse) error {
+	return s.stream.Send(res)
 }
 
 // UnimplementedTranscriptionServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedTranscriptionServiceHandler struct{}
 
-func (UnimplementedTranscriptionServiceHandler) CreateTranscriptionJob(context.Context, *connect.Request[v1.CreateTranscriptionJobRequest]) (*connect.Response[v1.CreateTranscriptionJobResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.CreateTranscriptionJob is not implemented"))
+func (UnimplementedTranscriptionServiceHandler) CreateTranscriptionJob(context.Context, *v1.CreateTranscriptionJobRequest) (*v1.CreateTranscriptionJobResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.TranscriptionService.CreateTranscriptionJob is not implemented")
 }
 
-func (UnimplementedTranscriptionServiceHandler) CancelTranscriptionJob(context.Context, *connect.Request[v1.CancelTranscriptionJobRequest]) (*connect.Response[v1.CancelTranscriptionJobResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.CancelTranscriptionJob is not implemented"))
+func (UnimplementedTranscriptionServiceHandler) CancelTranscriptionJob(context.Context, *v1.CancelTranscriptionJobRequest) (*v1.CancelTranscriptionJobResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.TranscriptionService.CancelTranscriptionJob is not implemented")
 }
 
-func (UnimplementedTranscriptionServiceHandler) GetTranscriptionJob(context.Context, *connect.Request[v1.GetTranscriptionJobRequest]) (*connect.Response[v1.GetTranscriptionJobResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.GetTranscriptionJob is not implemented"))
+func (UnimplementedTranscriptionServiceHandler) GetTranscriptionJob(context.Context, *v1.GetTranscriptionJobRequest) (*v1.GetTranscriptionJobResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.TranscriptionService.GetTranscriptionJob is not implemented")
 }
 
-func (UnimplementedTranscriptionServiceHandler) ListTranscriptionJobs(context.Context, *connect.Request[v1.ListTranscriptionJobsRequest]) (*connect.Response[v1.ListTranscriptionJobsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.ListTranscriptionJobs is not implemented"))
+func (UnimplementedTranscriptionServiceHandler) ListTranscriptionJobs(context.Context, *v1.ListTranscriptionJobsRequest) (*v1.ListTranscriptionJobsResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.TranscriptionService.ListTranscriptionJobs is not implemented")
 }
 
-func (UnimplementedTranscriptionServiceHandler) StreamTranscriptionJob(context.Context, *connect.Request[v1.StreamTranscriptionJobRequest], *connect.ServerStream[v1.StreamTranscriptionJobResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("scribe.v1.TranscriptionService.StreamTranscriptionJob is not implemented"))
+func (UnimplementedTranscriptionServiceHandler) StreamTranscriptionJob(context.Context, *v1.StreamTranscriptionJobRequest, TranscriptionServiceStreamTranscriptionJobServerStream) error {
+	return connect.NewError(connect.CodeUnimplemented, "scribe.v1.TranscriptionService.StreamTranscriptionJob is not implemented")
+}
+
+type transcriptionServiceClient struct {
+	client *connect.Client
+}
+
+func (c *transcriptionServiceClient) CreateTranscriptionJob(ctx context.Context, req *v1.CreateTranscriptionJobRequest) (*v1.CreateTranscriptionJobResponse, error) {
+	var res v1.CreateTranscriptionJobResponse
+	if err := c.client.CallUnary(ctx, transcriptionServiceCreateTranscriptionJobSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *transcriptionServiceClient) CancelTranscriptionJob(ctx context.Context, req *v1.CancelTranscriptionJobRequest) (*v1.CancelTranscriptionJobResponse, error) {
+	var res v1.CancelTranscriptionJobResponse
+	if err := c.client.CallUnary(ctx, transcriptionServiceCancelTranscriptionJobSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *transcriptionServiceClient) GetTranscriptionJob(ctx context.Context, req *v1.GetTranscriptionJobRequest) (*v1.GetTranscriptionJobResponse, error) {
+	var res v1.GetTranscriptionJobResponse
+	if err := c.client.CallUnary(ctx, transcriptionServiceGetTranscriptionJobSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *transcriptionServiceClient) ListTranscriptionJobs(ctx context.Context, req *v1.ListTranscriptionJobsRequest) (*v1.ListTranscriptionJobsResponse, error) {
+	var res v1.ListTranscriptionJobsResponse
+	if err := c.client.CallUnary(ctx, transcriptionServiceListTranscriptionJobsSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *transcriptionServiceClient) StreamTranscriptionJob(ctx context.Context, req *v1.StreamTranscriptionJobRequest) (TranscriptionServiceStreamTranscriptionJobClientStream, error) {
+	stream, err := c.client.CallServerStream(ctx, transcriptionServiceStreamTranscriptionJobSpec(), req)
+	if err != nil {
+		return TranscriptionServiceStreamTranscriptionJobClientStream{}, err
+	}
+	return TranscriptionServiceStreamTranscriptionJobClientStream{stream: stream}, nil
+}
+
+type transcriptionServiceHandler struct{ svc TranscriptionServiceHandler }
+
+func (h transcriptionServiceHandler) createTranscriptionJob(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CreateTranscriptionJobRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CreateTranscriptionJob(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h transcriptionServiceHandler) cancelTranscriptionJob(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.CancelTranscriptionJobRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.CancelTranscriptionJob(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h transcriptionServiceHandler) getTranscriptionJob(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.GetTranscriptionJobRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.GetTranscriptionJob(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h transcriptionServiceHandler) listTranscriptionJobs(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ListTranscriptionJobsRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ListTranscriptionJobs(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h transcriptionServiceHandler) streamTranscriptionJob(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.StreamTranscriptionJobRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	return h.svc.StreamTranscriptionJob(ctx, &req, TranscriptionServiceStreamTranscriptionJobServerStream{stream: stream})
 }

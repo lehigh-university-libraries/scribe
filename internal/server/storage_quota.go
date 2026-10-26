@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
@@ -76,7 +76,7 @@ func configuredStorageQuotaLimits() store.StorageQuotaLimits {
 
 func (h *Handler) reserveStorageQuota(ctx context.Context, request store.StorageQuotaRequest) (store.StorageQuotaReservation, error) {
 	if h == nil || h.items == nil {
-		return store.StorageQuotaReservation{}, connect.NewError(connect.CodeInternal, fmt.Errorf("storage quota repository is not configured"))
+		return store.StorageQuotaReservation{}, connect.Errorf(connect.CodeInternal, "storage quota repository is not configured")
 	}
 	reservation, err := h.items.ReserveStorageQuota(ctx, h.currentWorkspaceID(ctx), request, configuredStorageQuotaLimits())
 	if err != nil {
@@ -95,9 +95,9 @@ func (h *Handler) resizeStorageQuota(ctx context.Context, reservation store.Stor
 
 func storageQuotaConnectError(err error) error {
 	if errors.Is(err, store.ErrStorageQuotaExceeded) {
-		return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("workspace storage quota is exhausted"))
+		return connect.Errorf(connect.CodeResourceExhausted, "workspace storage quota is exhausted")
 	}
-	return connect.NewError(connect.CodeInternal, fmt.Errorf("storage quota admission failed: %w", err))
+	return connect.NewError(connect.CodeInternal, fmt.Errorf("storage quota admission failed: %w", err).Error()).WithCause(err)
 }
 
 func (h *Handler) releaseStorageQuota(reservation store.StorageQuotaReservation) {
