@@ -189,8 +189,6 @@ jobs:
           gcloud services enable serviceusage.googleapis.com --project="$GCLOUD_PROJECT"
           terraform -chdir=terraform/foundation init -input=false -lockfile=readonly \
             -backend-config="bucket=${TF_STATE_BUCKET}" -backend-config="prefix=scribe-foundation"
-          # One-time recovery: the owning run 40347044604 is cancelled.
-          terraform -chdir=terraform/foundation force-unlock -force 1793027579839886
           if [ "$ACTION" = apply ]; then
             terraform -chdir=terraform/foundation apply -input=false -auto-approve -var="project_id=${GCLOUD_PROJECT}"
           else

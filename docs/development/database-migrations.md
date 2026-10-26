@@ -39,6 +39,12 @@ acceptable.
 `0001_initial.sql` is immutable; use additive versioned files for schema work.
 The initial migration is pinned by an executable checksum assertion.
 
+`0004_unify_workspaces.sql` removes the personal workspace flag without changing
+workspace IDs, memberships, or content. Every workspace supports renaming and
+sharing. Login creates an ordinary workspace when a user has no memberships;
+otherwise the oldest accessible workspace is the default. Login never restores
+a removed membership or promotes an existing member.
+
 `0002_islandora_editor_review.sql` replaces the old process-configured,
 unsigned webhook delivery queue with workspace-owned signed subscriptions.
 Existing unsigned queue rows have no subscription identity or receiver-known

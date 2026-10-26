@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 	db "github.com/lehigh-university-libraries/scribe/internal/db"
 )
 
@@ -32,7 +33,6 @@ type Workspace struct {
 	ID          uint64    `json:"id"`
 	Name        string    `json:"name"`
 	Slug        string    `json:"slug"`
-	IsPersonal  bool      `json:"is_personal"`
 	OwnerUserID *uint64   `json:"owner_user_id,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -186,7 +186,7 @@ func (s *IdentityStore) ensureGoogleIdentity(ctx context.Context, profile Google
 	if err != nil {
 		return User{}, Workspace{}, fmt.Errorf("reload Google identity: %w", err)
 	}
-	workspaceRow, err := ensurePersonalWorkspaceTx(ctx, queries, rowToUser(userRow))
+	workspaceRow, err := ensureDefaultWorkspaceTx(ctx, queries, rowToUser(userRow))
 	if err != nil {
 		return User{}, Workspace{}, err
 	}
@@ -214,7 +214,7 @@ func isIdentityConvergenceError(err error) bool {
 	}
 	switch mysqlErr.Number {
 	case 1020, // record changed between a consistent read and a locking read
-		1062, // duplicate email, subject, personal workspace, or membership
+		1062, // duplicate email, subject, default workspace, or membership
 		1205, // lock wait timeout while another identity transaction commits
 		1213: // deadlock victim during absent-key gap-lock convergence
 		return true
@@ -307,7 +307,7 @@ func (s *IdentityStore) GetSession(ctx context.Context, rawToken string) (Identi
 	if err != nil {
 		return IdentitySession{}, err
 	}
-	workspace, err := s.getPersonalWorkspace(ctx, user.ID)
+	workspace, err := s.getDefaultWorkspace(ctx, user.ID)
 	if err != nil {
 		return IdentitySession{}, err
 	}
@@ -322,47 +322,43 @@ func (s *IdentityStore) DeleteSession(ctx context.Context, rawToken string) erro
 	return s.q.DeleteAuthSessionByTokenHash(ctx, hashSessionToken(rawToken))
 }
 
-func ensurePersonalWorkspaceTx(ctx context.Context, queries *db.Queries, user User) (Workspace, error) {
-	row, err := queries.GetPersonalWorkspaceByUserID(ctx, user.ID)
+func ensureDefaultWorkspaceTx(ctx context.Context, queries *db.Queries, user User) (Workspace, error) {
+	row, err := queries.GetDefaultWorkspaceByUserID(ctx, user.ID)
 	if err == nil {
 		if err := queries.EnsureStorageQuotaUsage(ctx, row.ID); err != nil {
-			return Workspace{}, fmt.Errorf("repair personal workspace quota row: %w", err)
-		}
-		if err := queries.CreateWorkspaceMember(ctx, row.ID, user.ID, "admin"); err != nil {
-			return Workspace{}, fmt.Errorf("repair personal workspace membership: %w", err)
+			return Workspace{}, fmt.Errorf("repair default workspace quota row: %w", err)
 		}
 		return rowToWorkspace(row), nil
 	}
 	if err != sql.ErrNoRows {
-		return Workspace{}, fmt.Errorf("get personal workspace: %w", err)
+		return Workspace{}, fmt.Errorf("get default workspace: %w", err)
 	}
 	ownerUserID := user.ID
 	createdByUserID := user.ID
 	workspaceID, err := queries.CreateWorkspace(ctx, db.CreateWorkspaceParams{
 		OwnerUserID:     &ownerUserID,
-		Name:            personalWorkspaceName(user),
-		Slug:            fmt.Sprintf("user-%d-personal", user.ID),
-		IsPersonal:      true,
+		Name:            defaultWorkspaceName(user),
+		Slug:            fmt.Sprintf("user-%d-%s", user.ID, uuid.NewString()),
 		CreatedByUserID: &createdByUserID,
 	})
 	if err != nil {
-		return Workspace{}, fmt.Errorf("create personal workspace: %w", err)
+		return Workspace{}, fmt.Errorf("create default workspace: %w", err)
 	}
 	if err := queries.EnsureStorageQuotaUsage(ctx, workspaceID); err != nil {
-		return Workspace{}, fmt.Errorf("create personal workspace quota row: %w", err)
+		return Workspace{}, fmt.Errorf("create default workspace quota row: %w", err)
 	}
 	if err := queries.CreateWorkspaceMember(ctx, workspaceID, user.ID, "admin"); err != nil {
-		return Workspace{}, fmt.Errorf("create personal workspace membership: %w", err)
+		return Workspace{}, fmt.Errorf("create default workspace membership: %w", err)
 	}
-	row, err = queries.GetPersonalWorkspaceByUserID(ctx, user.ID)
+	row, err = queries.GetDefaultWorkspaceByUserID(ctx, user.ID)
 	if err != nil {
-		return Workspace{}, fmt.Errorf("reload personal workspace: %w", err)
+		return Workspace{}, fmt.Errorf("reload default workspace: %w", err)
 	}
 	return rowToWorkspace(row), nil
 }
 
-func (s *IdentityStore) getPersonalWorkspace(ctx context.Context, userID uint64) (Workspace, error) {
-	row, err := s.q.GetPersonalWorkspaceByUserID(ctx, userID)
+func (s *IdentityStore) getDefaultWorkspace(ctx context.Context, userID uint64) (Workspace, error) {
+	row, err := s.q.GetDefaultWorkspaceByUserID(ctx, userID)
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -382,7 +378,7 @@ func (s *IdentityStore) GetWorkspaceAccess(ctx context.Context, userID, workspac
 
 func (s *IdentityStore) ResolveWorkspaceAccess(ctx context.Context, userID, requestedWorkspaceID uint64) (WorkspaceAccess, error) {
 	if requestedWorkspaceID == 0 {
-		workspace, err := s.getPersonalWorkspace(ctx, userID)
+		workspace, err := s.getDefaultWorkspace(ctx, userID)
 		if err != nil {
 			return WorkspaceAccess{}, err
 		}
@@ -406,7 +402,7 @@ func (s *IdentityStore) ListWorkspaceAccessByUser(ctx context.Context, userID ui
 	return out, nil
 }
 
-func personalWorkspaceName(user User) string {
+func defaultWorkspaceName(user User) string {
 	if name := strings.TrimSpace(user.Name); name != "" && !strings.EqualFold(name, user.Email) {
 		return fmt.Sprintf("%s Workspace", name)
 	}
@@ -446,12 +442,11 @@ func rowToUser(row db.User) User {
 
 func rowToWorkspace(row db.Workspace) Workspace {
 	workspace := Workspace{
-		ID:         row.ID,
-		Name:       row.Name,
-		Slug:       row.Slug,
-		IsPersonal: row.IsPersonal,
-		CreatedAt:  row.CreatedAt,
-		UpdatedAt:  row.UpdatedAt,
+		ID:        row.ID,
+		Name:      row.Name,
+		Slug:      row.Slug,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
 	}
 	if ownerUserID, ok := uint64PtrFromNullInt64(row.OwnerUserID); ok {
 		workspace.OwnerUserID = ownerUserID

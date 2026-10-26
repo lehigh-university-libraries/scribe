@@ -62,8 +62,6 @@ func (m *Manager) UpdateWorkspace(ctx context.Context, req *scribev1.UpdateWorks
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			return nil, connect.Errorf(connect.CodeNotFound, "workspace not found")
-		case errors.Is(err, store.ErrPersonalWorkspaceImmutable):
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err.Error()).WithCause(err)
 		default:
 			return nil, connect.Errorf(connect.CodeInternal, "update workspace persistence failed")
 		}
@@ -163,8 +161,6 @@ func workspaceMutationError(err error) error {
 		return connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	case errors.Is(err, store.ErrLastWorkspaceAdmin):
 		return connect.NewError(connect.CodeFailedPrecondition, err.Error()).WithCause(err)
-	case errors.Is(err, store.ErrPersonalWorkspaceImmutable):
-		return connect.NewError(connect.CodeFailedPrecondition, err.Error()).WithCause(err)
 	case errors.Is(err, store.ErrWorkspaceAccessLimit), errors.Is(err, store.ErrWorkspaceMemberLimit):
 		return connect.NewError(connect.CodeResourceExhausted, err.Error()).WithCause(err)
 	default:
@@ -174,12 +170,11 @@ func workspaceMutationError(err error) error {
 
 func workspaceToProto(workspace store.Workspace) *scribev1.Workspace {
 	protoWorkspace := &scribev1.Workspace{
-		Id:         workspace.ID,
-		Name:       workspace.Name,
-		Slug:       workspace.Slug,
-		IsPersonal: workspace.IsPersonal,
-		CreatedAt:  workspace.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:  workspace.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		Id:        workspace.ID,
+		Name:      workspace.Name,
+		Slug:      workspace.Slug,
+		CreatedAt: workspace.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt: workspace.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 	if workspace.OwnerUserID != nil {
 		protoWorkspace.OwnerUserId = *workspace.OwnerUserID

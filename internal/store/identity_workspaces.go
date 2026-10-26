@@ -13,13 +13,12 @@ import (
 )
 
 var (
-	ErrInvalidWorkspaceRole       = errors.New("invalid workspace role")
-	ErrPersonalWorkspaceImmutable = errors.New("personal workspace cannot be modified")
-	ErrLastWorkspaceAdmin         = errors.New("workspace must retain at least one admin")
-	ErrWorkspaceMemberExists      = errors.New("workspace member already exists")
-	ErrWorkspaceUserNotFound      = errors.New("workspace user not found")
-	ErrWorkspaceAccessLimit       = errors.New("user workspace limit reached")
-	ErrWorkspaceMemberLimit       = errors.New("workspace member limit reached")
+	ErrInvalidWorkspaceRole  = errors.New("invalid workspace role")
+	ErrLastWorkspaceAdmin    = errors.New("workspace must retain at least one admin")
+	ErrWorkspaceMemberExists = errors.New("workspace member already exists")
+	ErrWorkspaceUserNotFound = errors.New("workspace user not found")
+	ErrWorkspaceAccessLimit  = errors.New("user workspace limit reached")
+	ErrWorkspaceMemberLimit  = errors.New("workspace member limit reached")
 )
 
 const (
@@ -89,7 +88,6 @@ func (s *IdentityStore) CreateWorkspaceForUser(ctx context.Context, userID uint6
 			OwnerUserID:     &ownerUserID,
 			Name:            name,
 			Slug:            slug,
-			IsPersonal:      false,
 			CreatedByUserID: &createdByUserID,
 		})
 		if err != nil {
@@ -121,14 +119,6 @@ func (s *IdentityStore) UpdateWorkspaceName(ctx context.Context, workspaceID uin
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Workspace{}, fmt.Errorf("workspace name is required")
-	}
-
-	workspace, err := s.GetWorkspace(ctx, workspaceID)
-	if err != nil {
-		return Workspace{}, err
-	}
-	if workspace.IsPersonal {
-		return Workspace{}, ErrPersonalWorkspaceImmutable
 	}
 
 	rows, err := s.q.UpdateWorkspaceName(ctx, workspaceID, name)
@@ -181,12 +171,9 @@ func (s *IdentityStore) AddWorkspaceMemberByEmail(ctx context.Context, workspace
 	}
 	defer func() { _ = tx.Rollback() }()
 	queries := s.q.WithTx(tx)
-	workspace, err := queries.LockWorkspace(ctx, workspaceID)
+	_, err = queries.LockWorkspace(ctx, workspaceID)
 	if err != nil {
 		return WorkspaceMember{}, err
-	}
-	if workspace.IsPersonal {
-		return WorkspaceMember{}, ErrPersonalWorkspaceImmutable
 	}
 	if _, err := queries.LockUserForIdentityAdmissionManual(ctx, user.ID); err != nil {
 		return WorkspaceMember{}, fmt.Errorf("lock workspace member user: %w", err)
@@ -229,12 +216,9 @@ func (s *IdentityStore) UpdateWorkspaceMemberRole(ctx context.Context, workspace
 	}
 	defer func() { _ = tx.Rollback() }()
 	queries := s.q.WithTx(tx)
-	workspace, err := queries.LockWorkspace(ctx, workspaceID)
+	_, err = queries.LockWorkspace(ctx, workspaceID)
 	if err != nil {
 		return WorkspaceMember{}, fmt.Errorf("lock workspace: %w", err)
-	}
-	if workspace.IsPersonal {
-		return WorkspaceMember{}, ErrPersonalWorkspaceImmutable
 	}
 	currentRole, err := queries.LockWorkspaceMemberRole(ctx, workspaceID, userID)
 	if err != nil {
@@ -270,12 +254,9 @@ func (s *IdentityStore) RemoveWorkspaceMember(ctx context.Context, workspaceID, 
 	}
 	defer func() { _ = tx.Rollback() }()
 	queries := s.q.WithTx(tx)
-	workspace, err := queries.LockWorkspace(ctx, workspaceID)
+	_, err = queries.LockWorkspace(ctx, workspaceID)
 	if err != nil {
 		return fmt.Errorf("lock workspace: %w", err)
-	}
-	if workspace.IsPersonal {
-		return ErrPersonalWorkspaceImmutable
 	}
 	currentRole, err := queries.LockWorkspaceMemberRole(ctx, workspaceID, userID)
 	if err != nil {

@@ -11,13 +11,68 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
 
+func TestLoginWorkspaceSupportsCollaborationAndHonorsMembershipChanges(t *testing.T) {
+	database := annotationTestDB(t)
+	ctx := context.Background()
+	identities := store.NewIdentityStore(database)
+	profile := store.GoogleProfile{
+		Subject: fmt.Sprintf("collaborate-%d", time.Now().UnixNano()),
+		Email:   fmt.Sprintf("collaborate-%d@example.test", time.Now().UnixNano()),
+		Name:    "Workspace creator",
+	}
+	t.Cleanup(func() { cleanupGoogleIdentityFixture(database, profile) })
+	owner, workspace, err := identities.EnsureGoogleUser(ctx, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberProfile := store.GoogleProfile{
+		Subject: fmt.Sprintf("collaborator-%d", time.Now().UnixNano()),
+		Email:   fmt.Sprintf("collaborator-%d@example.test", time.Now().UnixNano()),
+		Name:    "Collaborator",
+	}
+	t.Cleanup(func() { cleanupGoogleIdentityFixture(database, memberProfile) })
+	member, _, err := identities.EnsureGoogleUser(ctx, memberProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := identities.UpdateWorkspaceName(ctx, workspace.ID, "Shared collection"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := identities.AddWorkspaceMemberByEmail(ctx, workspace.ID, member.Email, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := identities.UpdateWorkspaceMemberRole(ctx, workspace.ID, owner.ID, "read"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := identities.EnsureGoogleUser(ctx, profile); err != nil {
+		t.Fatal(err)
+	}
+	access, err := identities.GetWorkspaceAccess(ctx, owner.ID, workspace.ID)
+	if err != nil || access.Role != "read" {
+		t.Fatalf("login restored creator privileges: %+v/%v", access, err)
+	}
+	if err := identities.RemoveWorkspaceMember(ctx, workspace.ID, member.ID); !errors.Is(err, store.ErrLastWorkspaceAdmin) {
+		t.Fatalf("removing last administrator = %v", err)
+	}
+	if err := identities.RemoveWorkspaceMember(ctx, workspace.ID, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, replacement, err := identities.EnsureGoogleUser(ctx, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement.ID == workspace.ID {
+		t.Fatal("login restored revoked workspace access")
+	}
+	if _, err := identities.GetWorkspaceAccess(ctx, owner.ID, workspace.ID); err == nil {
+		t.Fatal("removed creator regained access")
+	}
+}
+
 func TestConcurrentAdminDemotionAndRemovalRetainOneAdministrator(t *testing.T) {
 	database := annotationTestDB(t)
 	ctx := context.Background()
 	firstUser, workspaceID := createUploadBatchIdentity(t, database)
-	if _, err := database.ExecContext(ctx, `UPDATE workspaces SET is_personal = FALSE WHERE id = ?`, workspaceID); err != nil {
-		t.Fatalf("make collaborative workspace: %v", err)
-	}
 	result, err := database.ExecContext(ctx, `
 INSERT INTO users (name, email, google_subject)
 VALUES (?, ?, ?)

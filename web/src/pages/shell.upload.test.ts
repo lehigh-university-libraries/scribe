@@ -71,7 +71,7 @@ vi.mock("../api/workspaces", () => ({
 }));
 
 const authWorkspace = { id: 7n, name: "Manuscripts", role: "admin" };
-const workspace = { id: 7n, name: "Manuscripts", role: "admin", isPersonal: false };
+const workspace = { id: 7n, name: "Manuscripts", role: "admin" };
 
 async function waitFor(assertion: () => void): Promise<void> {
   const deadline = Date.now() + 1000;
@@ -1351,6 +1351,9 @@ describe("annotation upload actions", () => {
     expect(role).toBeTruthy();
     expect(form).toBeTruthy();
 
+    expect(email!.disabled).toBe(false);
+    expect(role!.disabled).toBe(false);
+    expect(form!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
     email!.value = "member@example.test";
     role!.value = "read";
     form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));

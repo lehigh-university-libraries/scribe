@@ -63,8 +63,8 @@ func TestConcurrentEnsureGoogleUserConvergesAndRepairsIdentityGraph(t *testing.T
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE google_subject = ?`, profile.Subject).Scan(&users); err != nil {
 		t.Fatalf("count converged users: %v", err)
 	}
-	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspaces WHERE owner_user_id = ? AND is_personal = TRUE`, userID).Scan(&workspaces); err != nil {
-		t.Fatalf("count converged personal workspaces: %v", err)
+	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspaces WHERE owner_user_id = ?`, userID).Scan(&workspaces); err != nil {
+		t.Fatalf("count converged workspaces: %v", err)
 	}
 	if err := database.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND role = 'admin'`, workspaceID, userID).Scan(&memberships); err != nil {
 		t.Fatalf("count converged workspace memberships: %v", err)
@@ -76,9 +76,6 @@ func TestConcurrentEnsureGoogleUserConvergesAndRepairsIdentityGraph(t *testing.T
 		t.Fatalf("converged identity graph = users:%d workspaces:%d memberships:%d quotas:%d, want 1 each", users, workspaces, memberships, quotaRows)
 	}
 
-	if _, err := database.ExecContext(ctx, `DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?`, workspaceID, userID); err != nil {
-		t.Fatalf("remove membership for recovery fixture: %v", err)
-	}
 	if _, err := database.ExecContext(ctx, `DELETE FROM storage_quota_usage WHERE workspace_id = ?`, workspaceID); err != nil {
 		t.Fatalf("remove quota row for recovery fixture: %v", err)
 	}

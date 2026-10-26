@@ -5,7 +5,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"time"
 )
 
@@ -135,7 +134,6 @@ type CreateWorkspaceParams struct {
 	OwnerUserID     *uint64
 	Name            string
 	Slug            string
-	IsPersonal      bool
 	CreatedByUserID *uint64
 }
 
@@ -152,7 +150,6 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		OwnerUserID:     ownerUserID,
 		Name:            arg.Name,
 		Slug:            arg.Slug,
-		IsPersonal:      arg.IsPersonal,
 		CreatedByUserID: createdByUserID,
 	})
 	if err != nil {
@@ -161,12 +158,8 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 	return lastInsertID(res)
 }
 
-func (q *Queries) GetPersonalWorkspaceByUserID(ctx context.Context, userID uint64) (Workspace, error) {
-	converted, err := uint64ToInt64(userID)
-	if err != nil {
-		return Workspace{}, err
-	}
-	return q.GetPersonalWorkspaceByUserIDManual(ctx, sql.NullInt64{Int64: converted, Valid: true})
+func (q *Queries) GetDefaultWorkspaceByUserID(ctx context.Context, userID uint64) (Workspace, error) {
+	return q.GetDefaultWorkspaceByUserIDManual(ctx, userID)
 }
 
 type WorkspaceAccess struct {

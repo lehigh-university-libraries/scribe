@@ -525,8 +525,8 @@ func createServerTestWorkspace(t *testing.T, database *sql.DB) (uint64, uint64) 
 		t.Fatalf("load test user ID: %v", err)
 	}
 	result, err = tx.ExecContext(ctx, `
-INSERT INTO workspaces (owner_user_id, name, slug, is_personal, created_by_user_id)
-VALUES (?, ?, ?, TRUE, ?)`, userID, "annotation-workspace-"+suffix, "annotation-workspace-"+suffix, userID)
+INSERT INTO workspaces (owner_user_id, name, slug, created_by_user_id)
+VALUES (?, ?, ?, ?)`, userID, "annotation-workspace-"+suffix, "annotation-workspace-"+suffix, userID)
 	if err != nil {
 		t.Fatalf("create test workspace: %v", err)
 	}

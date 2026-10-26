@@ -1229,7 +1229,7 @@ func createTestWorkspace(t *testing.T, db *sql.DB, userID uint64, name string) u
 
 	slug := fmt.Sprintf("%s-%d", store.Slugify(name), time.Now().UnixNano())
 	result, err := tx.ExecContext(ctx,
-		`INSERT INTO workspaces (owner_user_id, name, slug, is_personal, created_by_user_id) VALUES (?, ?, ?, FALSE, ?)`,
+		`INSERT INTO workspaces (owner_user_id, name, slug, created_by_user_id) VALUES (?, ?, ?, ?)`,
 		userID,
 		name,
 		slug,

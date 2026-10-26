@@ -1133,7 +1133,7 @@ func createUploadBatchIdentity(t *testing.T, databasePool *sql.DB) (uint64, uint
 		t.Fatalf("upload batch user id: %v", err)
 	}
 	workspaceResult, err := databasePool.Exec(
-		`INSERT INTO workspaces (owner_user_id, name, slug, is_personal, created_by_user_id) VALUES (?, ?, ?, TRUE, ?)`,
+		`INSERT INTO workspaces (owner_user_id, name, slug, created_by_user_id) VALUES (?, ?, ?, ?)`,
 		userIDRaw,
 		"upload-batch-"+suffix,
 		"upload-batch-"+suffix,

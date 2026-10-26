@@ -108,9 +108,6 @@ func TestConcurrentWorkspaceMemberAdmissionEnforcesMemberLimit(t *testing.T) {
 	database := annotationTestDB(t)
 	ctx := context.Background()
 	_, workspaceID := createUploadBatchIdentity(t, database)
-	if _, err := database.ExecContext(ctx, `UPDATE workspaces SET is_personal = FALSE WHERE id = ?`, workspaceID); err != nil {
-		t.Fatalf("make collaborative workspace: %v", err)
-	}
 	emailPrefix := "member-admission-" + uuid.NewString()
 	t.Cleanup(func() {
 		_, _ = database.Exec(`DELETE FROM users WHERE email LIKE ?`, emailPrefix+"%")
