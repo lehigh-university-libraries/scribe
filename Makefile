@@ -123,7 +123,7 @@ install-security-tools: ## Install pinned gosec and govulncheck under .tools/bin
 	@./ci/toolchain-check.sh --go
 	@mkdir -p "$(TOOLS_BIN)"
 	@echo "Installing pinned security scanners in $(TOOLS_BIN)..."
-	@GOBIN="$(TOOLS_BIN)" "$(GO_CMD)" install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+	@GOBIN="$(TOOLS_BIN)" "$(GO_CMD)" install github.com/securego/gosec/v2/cmd/gosec@v2.30.0
 	@GOBIN="$(TOOLS_BIN)" "$(GO_CMD)" install golang.org/x/vuln/cmd/govulncheck@v1.6.0
 
 install-doc-tools: ## Build the pinned local Zensical documentation image

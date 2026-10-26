@@ -27,7 +27,7 @@ func run(args []string) error {
 		return fmt.Errorf("usage: openapi-postprocess <generated-openapi.yaml>")
 	}
 	path := filepath.Clean(args[0])
-	info, err := os.Stat(path)
+	info, err := os.Stat(path) // #nosec G703 -- This local generation CLI intentionally accepts its file path from the invoking developer.
 	if err != nil {
 		return fmt.Errorf("stat generated OpenAPI: %w", err)
 	}
@@ -71,7 +71,7 @@ func replaceFile(path string, content []byte, mode os.FileMode) error {
 	if err := temporary.Close(); err != nil {
 		return fmt.Errorf("close temporary OpenAPI: %w", err)
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
+	if err := os.Rename(temporaryPath, path); err != nil { // #nosec G703 -- Both paths belong to the developer-selected local output file.
 		return fmt.Errorf("replace generated OpenAPI: %w", err)
 	}
 	return nil

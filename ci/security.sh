@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly EXPECTED_GOSEC_MODULE="github.com/securego/gosec/v2"
-readonly EXPECTED_GOSEC_VERSION="v2.28.0"
+readonly EXPECTED_GOSEC_VERSION="v2.30.0"
 readonly EXPECTED_GOVULNCHECK_MODULE="golang.org/x/vuln"
 readonly EXPECTED_GOVULNCHECK_VERSION="v1.6.0"
 

@@ -46,7 +46,7 @@ first_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}
 second_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${containers[1]}")"
 run_test() {
  local phase="$1"
- runner="$(docker create --network "$network" --workdir /app --env "TRIPLET_SQL_FIRST=http://$first_ip:8082" --env "TRIPLET_SQL_SECOND=http://$second_ip:8082" --env TRIPLET_PRESENTATION_WRITE_TOKEN --env "TRIPLET_SQL_PHASE=$phase" --mount type=volume,src=scribe-go-test-mod-cache-v1,dst=/go/pkg/mod --mount type=volume,src=scribe-go-test-build-cache-v1,dst=/root/.cache/go-build golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 go test ./internal/iiif -run '^TestTripletSQLReplicas$' -count=1)"
+ runner="$(docker create --network "$network" --workdir /app --env "TRIPLET_SQL_FIRST=http://$first_ip:8082" --env "TRIPLET_SQL_SECOND=http://$second_ip:8082" --env TRIPLET_PRESENTATION_WRITE_TOKEN --env "TRIPLET_SQL_PHASE=$phase" --mount type=volume,src=scribe-go-test-mod-cache-v1,dst=/go/pkg/mod --mount type=volume,src=scribe-go-test-build-cache-v1,dst=/root/.cache/go-build golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c go test ./internal/iiif -run '^TestTripletSQLReplicas$' -count=1)"
  tar -cf - go.mod go.sum internal | docker cp - "$runner:/app"
  docker start -a "$runner"
  docker rm "$runner" >/dev/null

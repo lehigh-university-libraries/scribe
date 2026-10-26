@@ -54,7 +54,7 @@ jobs:
           workload_identity_provider: ${{ secrets.GCLOUD_OIDC_POOL }}
           service_account: ${{ secrets.GSA }}
           token_format: access_token
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           registry: us-docker.pkg.dev
           username: oauth2accesstoken
@@ -182,7 +182,7 @@ jobs:
           version: 576.0.0
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: 1.16.4
+          terraform_version: 1.17.0
       - name: Terraform ${{ env.ACTION }} foundation
         run: |
           # Terraform cannot manage project services until Service Usage is on.

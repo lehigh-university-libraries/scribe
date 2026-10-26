@@ -5,8 +5,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Keep this image version identical to web's @playwright/test dependency.
 # renovate: datasource=docker depName=mcr.microsoft.com/playwright
-PLAYWRIGHT_TEST_IMAGE="${PLAYWRIGHT_TEST_IMAGE:-mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27}"
-GO_TEST_IMAGE="${GO_TEST_IMAGE:-golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414}"
+PLAYWRIGHT_TEST_IMAGE="${PLAYWRIGHT_TEST_IMAGE:-mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea}"
+GO_TEST_IMAGE="${GO_TEST_IMAGE:-golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Error: Docker is required to run Chromium acceptance tests." >&2
