@@ -15,6 +15,11 @@ INSERT INTO users (
   NOW()
 );
 
+-- name: EnsureUserByEmailManual :execresult
+INSERT INTO users (name, email)
+VALUES (sqlc.arg(name), sqlc.narg(email))
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id);
+
 -- name: GetUserManual :one
 SELECT
   id,

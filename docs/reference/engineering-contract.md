@@ -70,6 +70,9 @@ operations page, and the executable acceptance contract in the same review.
 - Every workspace supports collaboration, including the one created at login.
   Membership roles govern access; login does not restore revoked memberships or
   privileges. A workspace must retain at least one administrator.
+- Administrators may add workspace members by email before their first login.
+  Reserved user identities have no sign-in credentials or site privileges;
+  only a Google-verified email may claim the existing membership at login.
 
 - API keys stay hashed, sessions stay secure, body capture stays disabled, and
   audit retention stays bounded.

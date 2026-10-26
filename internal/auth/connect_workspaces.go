@@ -153,8 +153,6 @@ func workspaceMutationError(err error) error {
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return connect.Errorf(connect.CodeNotFound, "workspace member not found")
-	case errors.Is(err, store.ErrWorkspaceUserNotFound):
-		return connect.NewError(connect.CodeNotFound, err.Error()).WithCause(err)
 	case errors.Is(err, store.ErrWorkspaceMemberExists):
 		return connect.NewError(connect.CodeAlreadyExists, err.Error()).WithCause(err)
 	case errors.Is(err, store.ErrInvalidWorkspaceRole):

@@ -4,12 +4,52 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 )
+
+func TestWorkspaceMemberCanBeAddedBeforeFirstSignIn(t *testing.T) {
+	database := annotationTestDB(t)
+	ctx := context.Background()
+	identities := store.NewIdentityStore(database)
+	ownerProfile := store.GoogleProfile{Subject: fmt.Sprintf("invite-owner-%d", time.Now().UnixNano()), Email: fmt.Sprintf("invite-owner-%d@example.test", time.Now().UnixNano()), Name: "Owner"}
+	t.Cleanup(func() { cleanupGoogleIdentityFixture(database, ownerProfile) })
+	_, workspace, err := identities.EnsureGoogleUser(ctx, ownerProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := store.GoogleProfile{Subject: fmt.Sprintf("invitee-%d", time.Now().UnixNano()), Email: fmt.Sprintf("invitee-%d@example.test", time.Now().UnixNano()), Name: "New colleague"}
+	t.Cleanup(func() { cleanupGoogleIdentityFixture(database, profile) })
+	member, err := identities.AddWorkspaceMemberByEmail(ctx, workspace.ID, " "+strings.ToUpper(profile.Email)+" ", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.Role != "admin" || member.User.Email != profile.Email || member.User.GoogleSubject != "" || member.User.IsAdmin || !member.User.LastLoginAt.IsZero() {
+		t.Fatalf("reserved identity has incorrect access or login state: %+v", member)
+	}
+	user, defaultWorkspace, err := identities.EnsureGoogleUser(ctx, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.ID != member.User.ID || user.GoogleSubject != profile.Subject || defaultWorkspace.ID != workspace.ID {
+		t.Fatalf("first login did not claim the reserved membership: %+v/%+v", user, defaultWorkspace)
+	}
+	access, err := identities.GetWorkspaceAccess(ctx, user.ID, workspace.ID)
+	if err != nil || access.Role != "admin" {
+		t.Fatalf("claimed membership = %+v/%v", access, err)
+	}
+	if _, err := identities.AddWorkspaceMemberByEmail(ctx, workspace.ID, profile.Email, "read"); !errors.Is(err, store.ErrWorkspaceMemberExists) {
+		t.Fatalf("duplicate invitation changed membership: %v", err)
+	}
+	user, err = identities.GetUser(ctx, user.ID)
+	if err != nil || user.Name != profile.Name || user.GoogleSubject != profile.Subject || user.IsAdmin {
+		t.Fatalf("re-adding a member overwrote their identity: %+v/%v", user, err)
+	}
+}
 
 func TestLoginWorkspaceSupportsCollaborationAndHonorsMembershipChanges(t *testing.T) {
 	database := annotationTestDB(t)

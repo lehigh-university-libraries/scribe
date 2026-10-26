@@ -276,6 +276,21 @@ func (q *Queries) DeleteWorkspaceMemberManual(ctx context.Context, arg DeleteWor
 	return q.db.ExecContext(ctx, deleteWorkspaceMemberManual, arg.WorkspaceID, arg.UserID)
 }
 
+const ensureUserByEmailManual = `-- name: EnsureUserByEmailManual :execresult
+INSERT INTO users (name, email)
+VALUES (?, ?)
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+`
+
+type EnsureUserByEmailManualParams struct {
+	Name  string         `json:"name"`
+	Email sql.NullString `json:"email"`
+}
+
+func (q *Queries) EnsureUserByEmailManual(ctx context.Context, arg EnsureUserByEmailManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, ensureUserByEmailManual, arg.Name, arg.Email)
+}
+
 const getAuthSessionByTokenHashManual = `-- name: GetAuthSessionByTokenHashManual :one
 SELECT
   id,

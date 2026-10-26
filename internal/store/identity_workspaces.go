@@ -16,7 +16,6 @@ var (
 	ErrInvalidWorkspaceRole  = errors.New("invalid workspace role")
 	ErrLastWorkspaceAdmin    = errors.New("workspace must retain at least one admin")
 	ErrWorkspaceMemberExists = errors.New("workspace member already exists")
-	ErrWorkspaceUserNotFound = errors.New("workspace user not found")
 	ErrWorkspaceAccessLimit  = errors.New("user workspace limit reached")
 	ErrWorkspaceMemberLimit  = errors.New("workspace member limit reached")
 )
@@ -157,14 +156,6 @@ func (s *IdentityStore) AddWorkspaceMemberByEmail(ctx context.Context, workspace
 		return WorkspaceMember{}, err
 	}
 
-	user, err := s.q.GetUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return WorkspaceMember{}, ErrWorkspaceUserNotFound
-		}
-		return WorkspaceMember{}, fmt.Errorf("lookup member by email: %w", err)
-	}
-
 	tx, err := s.pool.BeginTx(ctx, nil)
 	if err != nil {
 		return WorkspaceMember{}, fmt.Errorf("add workspace member: begin transaction: %w", err)
@@ -175,15 +166,16 @@ func (s *IdentityStore) AddWorkspaceMemberByEmail(ctx context.Context, workspace
 	if err != nil {
 		return WorkspaceMember{}, err
 	}
-	if _, err := queries.LockUserForIdentityAdmissionManual(ctx, user.ID); err != nil {
-		return WorkspaceMember{}, fmt.Errorf("lock workspace member user: %w", err)
-	}
 	memberCount, err := queries.CountWorkspaceMembersManual(ctx, workspaceID)
 	if err != nil {
 		return WorkspaceMember{}, fmt.Errorf("count workspace members: %w", err)
 	}
 	if memberCount >= MaxWorkspaceMembers {
 		return WorkspaceMember{}, ErrWorkspaceMemberLimit
+	}
+	user, err := queries.EnsureUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return WorkspaceMember{}, fmt.Errorf("reserve workspace member identity: %w", err)
 	}
 	accessCount, err := queries.CountWorkspaceAccessByUserManual(ctx, user.ID)
 	if err != nil {

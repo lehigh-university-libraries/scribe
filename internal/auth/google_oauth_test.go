@@ -2,7 +2,23 @@ package auth
 
 import (
 	"testing"
+
+	"github.com/markbates/goth"
 )
+
+func TestGoogleProfileRequiresVerifiedEmailBeforeClaimingMembership(t *testing.T) {
+	for _, verified := range []any{nil, false, "true", true} {
+		user := goth.User{UserID: "google-subject", Email: "member@example.test", RawData: map[string]any{"verified_email": verified}}
+		profile, err := googleProfileFromUser(user)
+		if verified == true {
+			if err != nil || profile.Email != user.Email || profile.Subject != user.UserID {
+				t.Fatalf("verified identity = %+v/%v", profile, err)
+			}
+		} else if err == nil {
+			t.Fatalf("email verification %v accepted", verified)
+		}
+	}
+}
 
 func TestGoogleProviderUsesBoundedHTTPClient(t *testing.T) {
 	t.Parallel()

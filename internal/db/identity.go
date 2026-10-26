@@ -66,6 +66,20 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 	}, nil
 }
 
+// EnsureUserByEmail reserves a verified-login identity without granting sign-in
+// credentials or changing an existing user's profile or site privileges.
+func (q *Queries) EnsureUserByEmail(ctx context.Context, email string) (User, error) {
+	result, err := q.EnsureUserByEmailManual(ctx, EnsureUserByEmailManualParams{Name: email, Email: nullString(email)})
+	if err != nil {
+		return User{}, err
+	}
+	id, err := lastInsertID(result)
+	if err != nil {
+		return User{}, err
+	}
+	return q.GetUser(ctx, id)
+}
+
 func (q *Queries) GetUserByGoogleSubject(ctx context.Context, subject string) (User, error) {
 	row, err := q.GetUserByGoogleSubjectManual(ctx, nullString(subject))
 	if err != nil {
