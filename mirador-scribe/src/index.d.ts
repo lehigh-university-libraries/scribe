@@ -1,5 +1,6 @@
 import type {
   ScribeActiveCanvasEventDetail,
+  ScribeEditorStateRequestEventDetail,
   ScribeAnnotationAdapterConstructor,
   ScribeAnnotationAdapterInstance,
   ScribeAnnotationMutationEventDetail,
@@ -22,6 +23,7 @@ import type {
 } from './types/scribe';
 
 export type {
+  ScribeEditorStateRequestEventDetail,
   AnnotationChange,
   AnnotationCorrectionMetric,
   EditOperationCounts,
@@ -78,6 +80,7 @@ export type {
 declare global {
   interface DocumentEventMap {
     'scribe:active-canvas': CustomEvent<ScribeActiveCanvasEventDetail>;
+    'scribe:request-editor-state': CustomEvent<ScribeEditorStateRequestEventDetail>;
     'scribe:annotation-mutation': CustomEvent<ScribeAnnotationMutationEventDetail>;
     'scribe:dirty-state': CustomEvent<ScribeDirtyStateEventDetail>;
     'scribe:edit-metrics': CustomEvent<ScribeEditMetricsEventDetail>;

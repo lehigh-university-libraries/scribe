@@ -120,6 +120,16 @@ describe('ScribeCompanionWindow', () => {
     });
     expect(adapter.loadSnapshot).toHaveBeenCalledOnce();
     expect(document.querySelector('button[aria-label="Publish edits"]')?.disabled).toBe(false);
+
+    latestState = undefined;
+    document.dispatchEvent(new CustomEvent('scribe:request-editor-state', {
+      detail: { canvasId: 'another-canvas', windowId },
+    }));
+    expect(latestState).toBeUndefined();
+    document.dispatchEvent(new CustomEvent('scribe:request-editor-state', {
+      detail: { canvasId, windowId },
+    }));
+    expect(latestState).toMatchObject({ canvasId, windowId, overlayMode: 'read', sessionStatus: 'ready' });
   });
 
   it('keeps loose-word placement adjacent when no line owns the word', async () => {

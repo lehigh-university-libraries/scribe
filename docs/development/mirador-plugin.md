@@ -33,6 +33,10 @@ bridge payloads and the corresponding `DocumentEventMap` live in
 that crosses between the plugin and application shell.
 
 Every bridge payload carries the exact Mirador `windowId` and IIIF `canvasId`.
+Mirador lazy-loads the viewer independently of its companion. After subscribing
+to draft updates, the overlay emits `scribe:request-editor-state` with those
+IDs; only the matching companion republishes its current `scribe:editor-state`.
+This handshake keeps the initial overlay correct regardless of mounting order.
 Background processing payloads additionally carry `itemImageId`. Receivers
 must require all applicable identities; an omitted ID is never interpreted as
 a broadcast. Mirador's current window Canvas is authoritative during page

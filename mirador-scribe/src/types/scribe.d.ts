@@ -7,6 +7,12 @@
  */
 export type RawIIIFProperties = Record<string, unknown>;
 
+/** Requests the current draft state when a viewer mounts after its companion. */
+export interface ScribeEditorStateRequestEventDetail {
+  canvasId: string;
+  windowId: string;
+}
+
 export interface IIIFTextualBody extends RawIIIFProperties {
   id?: string;
   type?: string;

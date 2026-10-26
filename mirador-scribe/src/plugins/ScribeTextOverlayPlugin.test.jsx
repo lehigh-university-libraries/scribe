@@ -70,6 +70,30 @@ afterEach(async () => {
 });
 
 describe('ScribeTextOverlayPlugin', () => {
+  it('requests the current state when the overlay mounts after its companion', async () => {
+    const handleRequest = (event) => {
+      if (event.detail.windowId !== windowId || event.detail.canvasId !== canvasId) return;
+      document.dispatchEvent(new CustomEvent('scribe:editor-state', {
+        detail: { canvasId, windowId, overlayMode: 'outline' },
+      }));
+    };
+    document.addEventListener('scribe:request-editor-state', handleRequest);
+    try {
+      container = document.createElement('div');
+      document.body.appendChild(container);
+      root = createRoot(container);
+      await act(async () => root.render(<ScribeTextOverlayPlugin
+        annotationPage={{ id: 'page-1', items: [line()], type: 'AnnotationPage' }}
+        canvasId={canvasId}
+        selectedAnnotationId=""
+        viewer={viewer()}
+        windowId={windowId}
+      />));
+      expect(viewerCanvas.querySelector('[data-scribe-granularity="line"]')).not.toBeNull();
+    } finally {
+      document.removeEventListener('scribe:request-editor-state', handleRequest);
+    }
+  });
   it('removes every granularity marker when the overlay is off', async () => {
     const annotation = line();
     container = document.createElement('div');
