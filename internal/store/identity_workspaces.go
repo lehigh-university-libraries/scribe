@@ -166,16 +166,18 @@ func (s *IdentityStore) AddWorkspaceMemberByEmail(ctx context.Context, workspace
 	if err != nil {
 		return WorkspaceMember{}, err
 	}
+	// The upsert locks the user before any count query establishes a read
+	// snapshot, serializing admission across different workspaces as well.
+	user, err := queries.EnsureUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return WorkspaceMember{}, fmt.Errorf("reserve workspace member identity: %w", err)
+	}
 	memberCount, err := queries.CountWorkspaceMembersManual(ctx, workspaceID)
 	if err != nil {
 		return WorkspaceMember{}, fmt.Errorf("count workspace members: %w", err)
 	}
 	if memberCount >= MaxWorkspaceMembers {
 		return WorkspaceMember{}, ErrWorkspaceMemberLimit
-	}
-	user, err := queries.EnsureUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
-	if err != nil {
-		return WorkspaceMember{}, fmt.Errorf("reserve workspace member identity: %w", err)
 	}
 	accessCount, err := queries.CountWorkspaceAccessByUserManual(ctx, user.ID)
 	if err != nil {

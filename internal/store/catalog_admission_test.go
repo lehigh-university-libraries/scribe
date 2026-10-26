@@ -102,6 +102,27 @@ VALUES (?, ?, ?, ?)`, userID, fmt.Sprintf("seed workspace %d", index), fmt.Sprin
 	})
 	assertOneAdmissionAtLimit(t, results, store.ErrWorkspaceAccessLimit)
 	assertTableCount(t, database, "workspace_members", "user_id", userID, store.MaxWorkspaceAccessPerUser)
+
+	// Leave one slot, then race membership additions in different workspaces.
+	if _, err := database.ExecContext(ctx, `DELETE FROM workspace_members WHERE user_id = ? AND workspace_id <> ? LIMIT 1`, userID, personalWorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	_, firstTarget := createUploadBatchIdentity(t, database)
+	_, secondTarget := createUploadBatchIdentity(t, database)
+	if _, err := database.ExecContext(ctx, `UPDATE users SET email = ? WHERE id = ?`, "admission-"+uuid.NewString()+"@example.test", userID); err != nil {
+		t.Fatal(err)
+	}
+	user, err := identities.GetUser(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []uint64{firstTarget, secondTarget}
+	results = runConcurrentAdmissions(func(index int) error {
+		_, err := identities.AddWorkspaceMemberByEmail(ctx, targets[index], user.Email, "read")
+		return err
+	})
+	assertOneAdmissionAtLimit(t, results, store.ErrWorkspaceAccessLimit)
+	assertTableCount(t, database, "workspace_members", "user_id", userID, store.MaxWorkspaceAccessPerUser)
 }
 
 func TestConcurrentWorkspaceMemberAdmissionEnforcesMemberLimit(t *testing.T) {
