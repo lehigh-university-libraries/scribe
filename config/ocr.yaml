@@ -28,4 +28,4 @@ ollama:
     skip_neg: true
   models:
     glm-ocr:bf16:
-      manifest_digest: "6effedd0dc8aec66ad86c94b8099395376e212f22c87a9d7147c422f7e447be4"
+      manifest_digest: "89d735dd9c07791953756edd275e5501464df61288b1cd5486c5c50c8c058b32"
