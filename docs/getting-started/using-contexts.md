@@ -18,8 +18,9 @@ ingest forms.
   the workspace has not set one.
 - Choose a named context when the material needs a particular layout detector
   or transcription model.
-- For a manifest, imported OCR is preserved. The context drives Canvases that
-  have no imported OCR and any explicit reprocessing request.
+- For a manifest, imported OCR is preserved unless `ignore_existing_ocr` is
+  enabled. The context drives Canvases without imported OCR and explicit
+  reprocessing requests.
 
 The selected context applies to the new processing request. Changing the
 workspace default later does not silently reprocess existing items or alter the
@@ -77,10 +78,13 @@ transcribed from its own crop; columns and narrow marginal notes retain their
 original bounds. Newspaper layout orders the detected lines by column; lines
 outside the detected layout regions remain available at the end in Kraken order.
 
-Transcription choices are glm-ocr:bf16, gemini-3.1-pro-preview,
-gemini-3.8-flash, and registered OpenAI vision models. Segmentation does not
-perform recognition. Tesseract, custom automatic detectors, and CATMuS
-recognition are no longer available.
+Transcription choices include glm-ocr:bf16, gemini-3.1-pro-preview,
+gemini-3.8-flash, registered OpenAI vision models, and native Kraken recognition.
+Choose the **Kraken** transcription provider with **Kraken** BLLA segmentation
+and `catmus-medieval` for medieval manuscripts or `mccatmus` for letters.
+Kraken contexts recognize the whole page and produce line and word annotations
+without a per-line LLM call. Reprocess the page to run recognition again;
+per-annotation enrichment is unavailable for these contexts.
 
 These are starting selections, not a measured ranking for your collections.
 Compare representative pages before declaring a model best for a collection.

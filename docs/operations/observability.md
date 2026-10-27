@@ -5,6 +5,11 @@ workspace, provider, model, job ID, attempt, status, and latency. Never log
 prompts, transcription previews, API keys, OAuth tokens, identity-token URLs,
 cookies, or raw provider response bodies by default.
 
+Exhausted IIIF upstream fetches log `IIIF upstream fetch failed` with `source`
+set to `manifest` or `hocr`. HTTP failures include `status`; transport failures
+include a fixed `reason` such as `dns`, `tls_certificate`, `timeout`, or
+`transport`. These diagnostics omit URLs, response bodies, and exception text.
+
 Each process uses a random telemetry instance ID so Cloud Run replicas cannot
 write competing points to the same metric series. Export failures include the
 categorical gRPC status code without recording provider error messages.

@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,6 +24,30 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/worklimit"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
+
+func TestIIIFTransportDiagnosticsAreCategorical(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want string
+	}{
+		{context.Canceled, "canceled"},
+		{context.DeadlineExceeded, "timeout"},
+		{&net.DNSError{Name: "private.invalid", Err: "secret"}, "dns"},
+		{x509.UnknownAuthorityError{}, "tls_certificate"},
+		{x509.HostnameError{Host: "private.invalid"}, "tls_certificate"},
+		{x509.CertificateInvalidError{}, "tls_certificate"},
+		{&net.DNSError{IsTimeout: true}, "dns"},
+		{&net.OpError{Err: context.DeadlineExceeded}, "timeout"},
+		{errors.New("https://private.invalid/?token=secret"), "transport"},
+	} {
+		if got := iiifTransportFailureCategory(fmt.Errorf("private wrapper: %w", test.err)); got != test.want {
+			t.Fatalf("category = %q, want %q", got, test.want)
+		}
+	}
+	if iiifSourceCategory(errManifestDocumentUnavailable) != "manifest" || iiifSourceCategory(errManifestHOCRSourceUnavailable) != "hocr" {
+		t.Fatal("incorrect IIIF source categories")
+	}
+}
 
 func TestEnforceManifestCanvasLimitCountsDeclaredV2AndV3Canvases(t *testing.T) {
 	tests := []struct {

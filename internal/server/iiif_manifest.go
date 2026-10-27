@@ -2,10 +2,13 @@ package server
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -107,12 +110,16 @@ func fetchIIIFUpstreamResponse(ctx context.Context, rawURL, accept string, unava
 		req := requestTemplate.Clone(ctx)
 		resp, requestErr := safehttp.Do(req)
 		if requestErr == nil && (!iiifUpstreamStatusRetryable(resp.StatusCode) || attempt == maxIIIFUpstreamFetchAttempts) {
+			if resp.StatusCode >= http.StatusBadRequest {
+				slog.WarnContext(ctx, "IIIF upstream fetch failed", "source", iiifSourceCategory(unavailableError), "status", resp.StatusCode)
+			}
 			return resp, nil
 		}
 		if requestErr != nil && attempt == maxIIIFUpstreamFetchAttempts {
 			if resp != nil {
 				_ = resp.Body.Close()
 			}
+			slog.WarnContext(ctx, "IIIF upstream fetch failed", "source", iiifSourceCategory(unavailableError), "reason", iiifTransportFailureCategory(requestErr))
 			return nil, requestErr
 		}
 
@@ -126,6 +133,36 @@ func fetchIIIFUpstreamResponse(ctx context.Context, rawURL, accept string, unava
 		}
 	}
 	return nil, fmt.Errorf("IIIF upstream fetch attempts exhausted")
+}
+
+func iiifSourceCategory(err error) string {
+	if errors.Is(err, errManifestHOCRSourceUnavailable) {
+		return "hocr"
+	}
+	return "manifest"
+}
+
+// Keep diagnostics categorical: transport errors can contain signed URLs.
+func iiifTransportFailureCategory(err error) string {
+	var dns *net.DNSError
+	var authority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var certificate x509.CertificateInvalidError
+	var network net.Error
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.As(err, &dns):
+		return "dns"
+	case errors.As(err, &authority), errors.As(err, &hostname), errors.As(err, &certificate):
+		return "tls_certificate"
+	case errors.As(err, &network) && network.Timeout():
+		return "timeout"
+	default:
+		return "transport"
+	}
 }
 
 func iiifUpstreamStatusRetryable(status int) bool {

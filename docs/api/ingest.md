@@ -103,7 +103,10 @@ Presentation 3 manifests may use an array `@context` and an image `Choice`.
 Scribe selects the first supported public image resource while preserving the
 imported Canvas as target/provenance. `seeAlso` hOCR is optional: when it is
 absent, import commits a valid empty canonical AnnotationPage and a fenced
-transcription job for the selected context.
+transcription job for the selected context. Set `ignore_existing_ocr` to true
+(`ignoreExistingOcr` in JSON) to skip all existing hOCR sources and schedule
+transcription for every Canvas. The flag is part of the idempotent request
+identity, so changing it requires a new idempotency key.
 
 Every declared Canvas must have a unique absolute ID and a supported painting
 image; Scribe rejects the whole manifest instead of silently dropping an
