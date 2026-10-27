@@ -57,6 +57,20 @@ func TestEmbeddedMigrationsAreOrderedAndChecksummed(t *testing.T) {
 	}
 }
 
+func TestEmbeddedMigrationsPreserveReleasedHistoryPrefix(t *testing.T) {
+	t.Parallel()
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Production has already applied these migrations. New migrations must
+	// follow this prefix so upgrades cannot introduce a gap in the ledger.
+	released := []string{"0001_initial", "0002_islandora_editor_review", "0003_transcription_checkpoint", "0004_unify_workspaces"}
+	if err := validateMigrationVersions(migrations, released); err != nil {
+		t.Fatalf("released database cannot upgrade: %v", err)
+	}
+}
+
 func TestApplicationMigrationsDoNotMaskPartialSchemas(t *testing.T) {
 	t.Parallel()
 

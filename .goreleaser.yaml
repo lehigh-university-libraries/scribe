@@ -66,18 +66,3 @@ release:
   draft: true
   use_existing_draft: true
   replace_existing_artifacts: true
-
-homebrew_casks:
-  - name: scribe
-    binaries:
-      - scribe-api
-      - scribe-worker
-    homepage: "https://github.com/lehigh-university-libraries/scribe"
-    description: "IIIF-native handwritten document segmentation, transcription, and correction services"
-    commit_author:
-      name: joecorall
-      email: jjc223@lehigh.edu
-    repository:
-      owner: lehigh-university-libraries
-      name: homebrew
-      token: "{{ .Env.HOMEBREW_REPO_TOKEN }}"

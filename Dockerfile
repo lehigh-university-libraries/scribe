@@ -39,7 +39,7 @@ RUN apk add --no-cache \
     curl=8.23.0-r0 \
     jq=1.8.2-r0 \
     openssl=3.5.9-r0 \
-    python3=3.14.8-r0 \
+    python3=3.14.10-r1 \
     py3-pip=26.1.2-r0 \
     poppler-utils=25.12.0-r1
 COPY config/pdf/requirements.txt /app/pdf-requirements.txt
