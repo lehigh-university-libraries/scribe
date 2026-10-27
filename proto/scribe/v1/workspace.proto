@@ -19,7 +19,8 @@ message Workspace {
   uint64 id = 1;
   string name = 2;
   string slug = 3;
-  bool is_personal = 4;
+  reserved 4;
+  reserved "is_personal";
   uint64 owner_user_id = 5;
   string created_at = 6;
   string updated_at = 7;

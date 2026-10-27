@@ -119,8 +119,8 @@ if PATH="$TEST_DIR/bin:$PATH" FAKE_ZENSICAL_VERSION=0.0.50 FAKE_TOOL_LOG="$tool_
   echo "documentation build accepted an unreviewed Zensical version" >&2
   exit 1
 fi
-grep -F 'Zensical 0.0.65 is required' "$TEST_DIR/zensical.err" >/dev/null
-PATH="$TEST_DIR/bin:$PATH" FAKE_ZENSICAL_VERSION=0.0.65 FAKE_TOOL_LOG="$tool_log" \
+grep -F 'Zensical 0.0.72 is required' "$TEST_DIR/zensical.err" >/dev/null
+PATH="$TEST_DIR/bin:$PATH" FAKE_ZENSICAL_VERSION=0.0.72 FAKE_TOOL_LOG="$tool_log" \
   "$ROOT_DIR/ci/docs.sh" build >/dev/null
 grep -F 'zensical build --clean' "$tool_log" >/dev/null
 
@@ -130,9 +130,9 @@ if PATH="$TEST_DIR/bin:/usr/bin:/bin" FAKE_GOSEC_VERSION=v2.27.0 FAKE_GOVULNCHEC
   echo "security scan accepted an unreviewed gosec module" >&2
   exit 1
 fi
-grep -F 'gosec v2.28.0 is required' "$TEST_DIR/security.err" >/dev/null
+grep -F 'gosec v2.30.0 is required' "$TEST_DIR/security.err" >/dev/null
 
-if PATH="$TEST_DIR/bin:/usr/bin:/bin" SCRIBE_GOVULNCHECK=true FAKE_GOSEC_VERSION=v2.28.0 FAKE_GOVULNCHECK_VERSION=v1.5.4 \
+if PATH="$TEST_DIR/bin:/usr/bin:/bin" SCRIBE_GOVULNCHECK=true FAKE_GOSEC_VERSION=v2.30.0 FAKE_GOVULNCHECK_VERSION=v1.5.4 \
   "$ROOT_DIR/ci/security.sh" \
   >/dev/null 2>"$TEST_DIR/govulncheck.err"; then
   echo "security scan accepted an unreviewed govulncheck module" >&2

@@ -4,6 +4,13 @@ Deploying Scribe is Terraform apply in the selected workspace. Terraform resolve
 API, frontend, Triplet, and OCR GAR tags to immutable digests. The deployment has
 no VM, Cloud Compose, Traefik, or cloud Vault dependency.
 
+The OCR wrappers use the repository's `terraform/modules/cloud-run-service`
+module with Google providers v8. It vendors the MIT-licensed
+`libops/terraform-cloudrun-v2` source at commit
+`8718cd663a74fd33f45306321b4f2b11c83814d5` because the upstream provider
+constraint excludes v8. Module and resource names retain their Terraform state
+addresses. Review a workspace plan before applying the provider upgrade.
+
 | Environment | Workspace | Public service | Images | Database |
 | --- | --- | --- | --- | --- |
 | Production | prod | scribe | main | Regional Cloud SQL MySQL 8.4 |
@@ -84,6 +91,9 @@ backend job checks the deployed API and worker image digests, canonical origin,
 and database readiness over HTTPS. The OCR job sends a real image through the
 registered private OCR endpoints. These jobs have no database, upload, or secret
 access. A failed probe fails deployment.
+The production workflow reports up to five recent OCR probe failure markers
+after a plan or apply. Diagnostics contain only the failed stage, never tokens,
+endpoint URLs, or inference responses.
 
 ## Configuration and destruction
 

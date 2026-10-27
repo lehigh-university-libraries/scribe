@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
@@ -122,16 +121,16 @@ WHERE workspace_id = ? AND id = ?`, string(sourceManifest), store.AnonymousWorks
 	}
 
 	handler := &Handler{items: store.NewItemStore(database), annotations: annotations}
-	response, err := handler.GetEditorManifest(context.Background(), connect.NewRequest(&scribev1.GetEditorManifestRequest{
+	response, err := handler.GetEditorManifest(context.Background(), &scribev1.GetEditorManifestRequest{
 		ItemImageId: image.ID,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("GetEditorManifest: %v", err)
 	}
-	if response.Msg.GetItem() == nil || response.Msg.GetItem().GetId() != image.ItemID || response.Msg.GetSelectedCanvasId() != canvasID {
-		t.Fatalf("editor manifest identity = %#v", response.Msg)
+	if response.GetItem() == nil || response.GetItem().GetId() != image.ItemID || response.GetSelectedCanvasId() != canvasID {
+		t.Fatalf("editor manifest identity = %#v", response)
 	}
-	manifestBytes := []byte(response.Msg.GetManifestJson())
+	manifestBytes := []byte(response.GetManifestJson())
 	if err := iiif.ValidateManifest(manifestBytes); err != nil {
 		t.Fatalf("editor Manifest is invalid: %v", err)
 	}
@@ -175,11 +174,11 @@ WHERE workspace_id = ? AND id = ?`, string(sourceManifest), store.AnonymousWorks
 		ScopedItemID:      image.ItemID,
 		ScopedItemImageID: image.ID,
 	})
-	reviewResponse, err := handler.GetEditorManifest(reviewContext, connect.NewRequest(&scribev1.GetEditorManifestRequest{ItemImageId: image.ID}))
+	reviewResponse, err := handler.GetEditorManifest(reviewContext, &scribev1.GetEditorManifestRequest{ItemImageId: image.ID})
 	if err != nil {
 		t.Fatalf("GetEditorManifest for review session: %v", err)
 	}
-	if got := reviewResponse.Msg.GetItem().GetImages(); len(got) != 1 || got[0].GetId() != image.ID {
+	if got := reviewResponse.GetItem().GetImages(); len(got) != 1 || got[0].GetId() != image.ID {
 		t.Fatalf("review item exposed sibling images: %+v", got)
 	}
 	var reviewManifest struct {
@@ -187,16 +186,16 @@ WHERE workspace_id = ? AND id = ?`, string(sourceManifest), store.AnonymousWorks
 			ID string `json:"id"`
 		} `json:"items"`
 	}
-	if err := json.Unmarshal([]byte(reviewResponse.Msg.GetManifestJson()), &reviewManifest); err != nil {
+	if err := json.Unmarshal([]byte(reviewResponse.GetManifestJson()), &reviewManifest); err != nil {
 		t.Fatal(err)
 	}
 	if len(reviewManifest.Items) != 1 || reviewManifest.Items[0].ID != canvasID {
 		t.Fatalf("review Manifest exposed sibling canvases: %+v", reviewManifest.Items)
 	}
-	if strings.Contains(reviewResponse.Msg.GetManifestJson(), secondCanvasID) ||
-		strings.Contains(reviewResponse.Msg.GetManifestJson(), "ex:manifestSibling") ||
-		strings.Contains(reviewResponse.Msg.GetManifestJson(), "ex:canvasSibling") {
-		t.Fatalf("review Manifest retained sibling source provenance: %s", reviewResponse.Msg.GetManifestJson())
+	if strings.Contains(reviewResponse.GetManifestJson(), secondCanvasID) ||
+		strings.Contains(reviewResponse.GetManifestJson(), "ex:manifestSibling") ||
+		strings.Contains(reviewResponse.GetManifestJson(), "ex:canvasSibling") {
+		t.Fatalf("review Manifest retained sibling source provenance: %s", reviewResponse.GetManifestJson())
 	}
 }
 

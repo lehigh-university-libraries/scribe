@@ -5529,9 +5529,6 @@ components:
         slug:
           type: string
           title: slug
-        isPersonal:
-          type: boolean
-          title: is_personal
         ownerUserId:
           type:
             - integer

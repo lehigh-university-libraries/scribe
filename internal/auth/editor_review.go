@@ -21,7 +21,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
@@ -145,35 +145,35 @@ func editorReviewerSubjectHash(issuer, subject string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func (m *Manager) CreateEditorReviewToken(ctx context.Context, req *connect.Request[scribev1.CreateEditorReviewTokenRequest]) (*connect.Response[scribev1.CreateEditorReviewTokenResponse], error) {
+func (m *Manager) CreateEditorReviewToken(ctx context.Context, req *scribev1.CreateEditorReviewTokenRequest) (*scribev1.CreateEditorReviewTokenResponse, error) {
 	principal, ok := PrincipalFromContext(ctx)
 	if !ok || principal.AuthType != "external_jwt" || strings.TrimSpace(principal.ExternalIssuer) == "" {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("registered external JWT authentication is required"))
+		return nil, connect.Errorf(connect.CodePermissionDenied, "registered external JWT authentication is required")
 	}
 	if m.reviewTokens == nil || m.identities == nil || m.items == nil {
-		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("editor review handoff is not configured"))
+		return nil, connect.Errorf(connect.CodeUnavailable, "editor review handoff is not configured")
 	}
-	subject := strings.TrimSpace(req.Msg.GetReviewerSubject())
-	name := strings.TrimSpace(req.Msg.GetReviewerName())
-	email, err := normalizeReviewerEmail(req.Msg.GetReviewerEmail())
+	subject := strings.TrimSpace(req.GetReviewerSubject())
+	name := strings.TrimSpace(req.GetReviewerName())
+	email, err := normalizeReviewerEmail(req.GetReviewerEmail())
 	if err != nil || !boundedReviewIdentity(subject, 255) || !boundedReviewIdentity(name, 255) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("reviewer identity is invalid"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "reviewer identity is invalid")
 	}
-	image, err := m.items.GetImageForWorkspace(ctx, req.Msg.GetItemImageId(), principal.WorkspaceID)
+	image, err := m.items.GetImageForWorkspace(ctx, req.GetItemImageId(), principal.WorkspaceID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item image not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "item image not found")
 	}
-	tokenTTL, err := boundedReviewDuration(req.Msg.GetTokenTtlSeconds(), defaultEditorReviewTokenTTL, minimumEditorReviewTokenTTL, maximumEditorReviewTokenTTL)
+	tokenTTL, err := boundedReviewDuration(req.GetTokenTtlSeconds(), defaultEditorReviewTokenTTL, minimumEditorReviewTokenTTL, maximumEditorReviewTokenTTL)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("token_ttl_seconds is outside the supported range"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "token_ttl_seconds is outside the supported range")
 	}
-	sessionTTL, err := boundedReviewDuration(req.Msg.GetSessionTtlSeconds(), defaultEditorReviewSessionTTL, minimumEditorReviewSessionTTL, maximumEditorReviewSessionTTL)
+	sessionTTL, err := boundedReviewDuration(req.GetSessionTtlSeconds(), defaultEditorReviewSessionTTL, minimumEditorReviewSessionTTL, maximumEditorReviewSessionTTL)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("session_ttl_seconds is outside the supported range"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "session_ttl_seconds is outside the supported range")
 	}
 	rawToken, claims, err := m.reviewTokens.issue(principal.WorkspaceID, image.ItemID, image.ID, tokenTTL)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create editor review token"))
+		return nil, connect.Errorf(connect.CodeInternal, "create editor review token")
 	}
 	if err := m.identities.CreateEditorReviewGrant(ctx, store.EditorReviewGrant{
 		ID:                  claims.ID,
@@ -190,24 +190,24 @@ func (m *Manager) CreateEditorReviewToken(ctx context.Context, req *connect.Requ
 	}); err != nil {
 		switch {
 		case errors.Is(err, store.ErrEditorReviewTokenLimit):
-			return nil, connect.NewError(connect.CodeResourceExhausted, err)
+			return nil, connect.NewError(connect.CodeResourceExhausted, err.Error()).WithCause(err)
 		case errors.Is(err, store.ErrEditorReviewTokenInvalid):
-			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("editor review grant is no longer authorized"))
+			return nil, connect.Errorf(connect.CodeFailedPrecondition, "editor review grant is no longer authorized")
 		default:
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("persist editor review token"))
+			return nil, connect.Errorf(connect.CodeInternal, "persist editor review token")
 		}
 	}
 	reviewURL, err := m.editorReviewURL(rawToken)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create editor review URL"))
+		return nil, connect.Errorf(connect.CodeInternal, "create editor review URL")
 	}
-	return connect.NewResponse(&scribev1.CreateEditorReviewTokenResponse{
+	return &scribev1.CreateEditorReviewTokenResponse{
 		ReviewUrl:   reviewURL,
 		ExpiresAt:   time.Unix(claims.ExpiresAt, 0).UTC().Format(time.RFC3339),
 		WorkspaceId: claims.WorkspaceID,
 		ItemId:      claims.ItemID,
 		ItemImageId: claims.ItemImageID,
-	}), nil
+	}, nil
 }
 
 func (m *Manager) handleEditorReviewRedeem(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +291,7 @@ func (m *Manager) editorReviewSessionPrincipal(ctx context.Context, rawToken str
 
 func (m *Manager) authorizeEditorReviewSessionRequest(ctx context.Context, principal Principal, procedure string, rule *optionsv1.AuthzRule, request any) error {
 	deny := func() error {
-		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("editor review session is scoped to one item image"))
+		return connect.Errorf(connect.CodePermissionDenied, "editor review session is scoped to one item image")
 	}
 	switch rule.GetResource() {
 	case optionsv1.ResourceType_RESOURCE_TYPE_ITEM_IMAGE:

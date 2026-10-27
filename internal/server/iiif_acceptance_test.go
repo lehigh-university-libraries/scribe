@@ -11,7 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
@@ -106,10 +107,10 @@ func newTenantScopedServer(t *testing.T, h *Handler, tenants map[string]testTena
 	return server
 }
 
-func tenantConnectRequest[T any](tenant string, message *T) *connect.Request[T] {
-	request := connect.NewRequest(message)
-	request.Header().Set(testTenantHeader, tenant)
-	return request
+func tenantConnectContext(ctx context.Context, tenant string) context.Context {
+	ctx, info := connect.NewClientContext(ctx)
+	info.RequestHeader().Set(testTenantHeader, tenant)
+	return ctx
 }
 
 func testAnnotationExportFormat(t *testing.T, format string) scribev1.AnnotationExportFormat {
@@ -137,15 +138,12 @@ func tenantAnnotationExport(
 	format string,
 ) (int, string) {
 	t.Helper()
-	request := connect.NewRequest(&scribev1.ExportAnnotationPageRequest{
+	request := &scribev1.ExportAnnotationPageRequest{
 		ItemImageId: itemImageID, ExpectedRevision: revision, Format: testAnnotationExportFormat(t, format),
-	})
-	if tenant != "" {
-		request.Header().Set(testTenantHeader, tenant)
 	}
-	response, err := client.ExportAnnotationPage(context.Background(), request)
+	response, err := client.ExportAnnotationPage(tenantConnectContext(context.Background(), tenant), request)
 	if err == nil {
-		return http.StatusOK, string(response.Msg.GetContent())
+		return http.StatusOK, string(response.GetContent())
 	}
 	switch connect.CodeOf(err) {
 	case connect.CodeNotFound:
@@ -406,17 +404,17 @@ func TestPresentation3ArrayContextChoiceImportAndLibopsEmission(t *testing.T) {
 		"workspace": {workspaceID: workspaceID, userID: userID},
 	})
 
-	itemClient := scribev1connect.NewItemServiceClient(http.DefaultClient, appServer.URL)
-	annotationClient := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
-	created, err := itemClient.ImportManifest(context.Background(), tenantConnectRequest("workspace", &scribev1.ImportManifestRequest{
+	itemClient := scribev1connect.NewItemServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
+	annotationClient := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
+	created, err := itemClient.ImportManifest(tenantConnectContext(context.Background(), "workspace"), &scribev1.ImportManifestRequest{
 		Name:           "Presentation 3 Choice import",
 		ManifestUrl:    source.URL + "/manifest",
 		IdempotencyKey: "presentation-3-choice-import",
-	}))
+	})
 	if err != nil {
 		t.Fatalf("ImportManifest Presentation 3 Choice import: %v", err)
 	}
-	item := created.Msg.GetItem()
+	item := created.GetItem()
 	if item == nil || len(item.GetImages()) != 1 {
 		t.Fatalf("ImportManifest images = %#v, want one imported Canvas", item)
 	}
@@ -436,13 +434,13 @@ func TestPresentation3ArrayContextChoiceImportAndLibopsEmission(t *testing.T) {
 		t.Fatalf("bounded raw source Manifest was not retained: %v", err)
 	}
 
-	editorManifest, err := itemClient.GetEditorManifest(context.Background(), tenantConnectRequest("workspace", &scribev1.GetEditorManifestRequest{
+	editorManifest, err := itemClient.GetEditorManifest(tenantConnectContext(context.Background(), "workspace"), &scribev1.GetEditorManifestRequest{
 		ItemImageId: image.GetId(),
-	}))
+	})
 	if err != nil {
 		t.Fatalf("GetEditorManifest: %v", err)
 	}
-	emittedManifest := []byte(editorManifest.Msg.GetManifestJson())
+	emittedManifest := []byte(editorManifest.GetManifestJson())
 	if err := iiif.ValidateManifest(emittedManifest); err != nil {
 		t.Fatalf("emitted manifest failed libops validation: %v", err)
 	}
@@ -476,20 +474,20 @@ func TestPresentation3ArrayContextChoiceImportAndLibopsEmission(t *testing.T) {
 		t.Fatalf("embedded painting Annotation redundantly defines @context: %#v", paintingAnnotation)
 	}
 
-	pageResponse, err := annotationClient.GetAnnotationPage(context.Background(), tenantConnectRequest("workspace", &scribev1.GetAnnotationPageRequest{
+	pageResponse, err := annotationClient.GetAnnotationPage(tenantConnectContext(context.Background(), "workspace"), &scribev1.GetAnnotationPageRequest{
 		ItemImageId: image.GetId(),
-	}))
+	})
 	if err != nil {
 		t.Fatalf("GetAnnotationPage after Choice import: %v", err)
 	}
-	if err := iiif.ValidateAnnotationPage([]byte(pageResponse.Msg.GetAnnotationPageJson())); err != nil {
+	if err := iiif.ValidateAnnotationPage([]byte(pageResponse.GetAnnotationPageJson())); err != nil {
 		t.Fatalf("emitted AnnotationPage failed libops/Text Granularity validation: %v", err)
 	}
-	if pageResponse.Msg.GetCanvasUri() != importedCanvas {
-		t.Fatalf("emitted page Canvas = %q, want imported target/provenance", pageResponse.Msg.GetCanvasUri())
+	if pageResponse.GetCanvasUri() != importedCanvas {
+		t.Fatalf("emitted page Canvas = %q, want imported target/provenance", pageResponse.GetCanvasUri())
 	}
 	var canonicalPage map[string]any
-	if err := iiif.DecodeJSON([]byte(pageResponse.Msg.GetAnnotationPageJson()), &canonicalPage); err != nil {
+	if err := iiif.DecodeJSON([]byte(pageResponse.GetAnnotationPageJson()), &canonicalPage); err != nil {
 		t.Fatal(err)
 	}
 	pageItems := canonicalPage["items"].([]any)
@@ -497,7 +495,7 @@ func TestPresentation3ArrayContextChoiceImportAndLibopsEmission(t *testing.T) {
 		t.Fatal("imported hOCR did not create a canonical child Annotation")
 	}
 	childID := pageItems[0].(map[string]any)["id"].(string)
-	childPayload, err := iiif.AnnotationFromPage([]byte(pageResponse.Msg.GetAnnotationPageJson()), childID)
+	childPayload, err := iiif.AnnotationFromPage([]byte(pageResponse.GetAnnotationPageJson()), childID)
 	if err != nil {
 		t.Fatalf("materialize canonical child Annotation: %v", err)
 	}
@@ -520,17 +518,17 @@ func TestImportedCanvasIdentityIsProvenanceNotTenantKey(t *testing.T) {
 		"a": {workspaceID: workspaceA, userID: userA},
 		"b": {workspaceID: workspaceB, userID: userB},
 	})
-	client := scribev1connect.NewItemServiceClient(http.DefaultClient, appServer.URL)
-	annotationClient := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
+	client := scribev1connect.NewItemServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
+	annotationClient := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 	importFor := func(tenant string) *scribev1.Item {
 		t.Helper()
-		response, err := client.ImportManifest(context.Background(), tenantConnectRequest(tenant, &scribev1.ImportManifestRequest{
+		response, err := client.ImportManifest(tenantConnectContext(context.Background(), tenant), &scribev1.ImportManifestRequest{
 			Name: "Shared source", ManifestUrl: source.URL + "/manifest", IdempotencyKey: "same-key-is-workspace-scoped",
-		}))
+		})
 		if err != nil {
 			t.Fatalf("ImportManifest tenant %s: %v", tenant, err)
 		}
-		return response.Msg.GetItem()
+		return response.GetItem()
 	}
 	itemA := importFor("a")
 	itemB := importFor("b")
@@ -543,60 +541,60 @@ func TestImportedCanvasIdentityIsProvenanceNotTenantKey(t *testing.T) {
 	if imageA.GetId() == imageB.GetId() || imageA.GetCanvasUri() != wantCanvas || imageB.GetCanvasUri() != wantCanvas {
 		t.Fatalf("shared Canvas/import identities = A %#v / B %#v", imageA, imageB)
 	}
-	pageA, err := annotationClient.GetAnnotationPage(context.Background(), tenantConnectRequest("a", &scribev1.GetAnnotationPageRequest{ItemImageId: imageA.GetId()}))
+	pageA, err := annotationClient.GetAnnotationPage(tenantConnectContext(context.Background(), "a"), &scribev1.GetAnnotationPageRequest{ItemImageId: imageA.GetId()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	pageB, err := annotationClient.GetAnnotationPage(context.Background(), tenantConnectRequest("b", &scribev1.GetAnnotationPageRequest{ItemImageId: imageB.GetId()}))
+	pageB, err := annotationClient.GetAnnotationPage(tenantConnectContext(context.Background(), "b"), &scribev1.GetAnnotationPageRequest{ItemImageId: imageB.GetId()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	pageIDA, _ := iiif.AnnotationPageID(handler.publicAnnotationBaseURL(), imageA.GetId())
 	pageIDB, _ := iiif.AnnotationPageID(handler.publicAnnotationBaseURL(), imageB.GetId())
-	if pageIDA == pageIDB || !strings.Contains(pageA.Msg.GetAnnotationPageJson(), pageIDA) || !strings.Contains(pageB.Msg.GetAnnotationPageJson(), pageIDB) || pageA.Msg.GetCanvasUri() != wantCanvas || pageB.Msg.GetCanvasUri() != wantCanvas {
-		t.Fatalf("tenant pages did not separate ownership from target: A %#v / B %#v", pageA.Msg, pageB.Msg)
+	if pageIDA == pageIDB || !strings.Contains(pageA.GetAnnotationPageJson(), pageIDA) || !strings.Contains(pageB.GetAnnotationPageJson(), pageIDB) || pageA.GetCanvasUri() != wantCanvas || pageB.GetCanvasUri() != wantCanvas {
+		t.Fatalf("tenant pages did not separate ownership from target: A %#v / B %#v", pageA, pageB)
 	}
-	if _, err := annotationClient.GetAnnotationPage(context.Background(), tenantConnectRequest("a", &scribev1.GetAnnotationPageRequest{ItemImageId: imageB.GetId()})); connect.CodeOf(err) != connect.CodeNotFound {
+	if _, err := annotationClient.GetAnnotationPage(tenantConnectContext(context.Background(), "a"), &scribev1.GetAnnotationPageRequest{ItemImageId: imageB.GetId()}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("tenant A read tenant B page error = %v, want not_found", err)
 	}
-	initialExport, err := annotationClient.ExportAnnotationPage(context.Background(), tenantConnectRequest("a", &scribev1.ExportAnnotationPageRequest{
-		ItemImageId: imageA.GetId(), ExpectedRevision: pageA.Msg.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
-	}))
-	if err != nil || initialExport.Msg.GetRevision() != pageA.Msg.GetRevision() || len(initialExport.Msg.GetContent()) == 0 {
+	initialExport, err := annotationClient.ExportAnnotationPage(tenantConnectContext(context.Background(), "a"), &scribev1.ExportAnnotationPageRequest{
+		ItemImageId: imageA.GetId(), ExpectedRevision: pageA.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
+	})
+	if err != nil || initialExport.GetRevision() != pageA.GetRevision() || len(initialExport.GetContent()) == 0 {
 		t.Fatalf("tenant A exact-revision export = %#v/%v", initialExport, err)
 	}
-	if _, err := annotationClient.ExportAnnotationPage(context.Background(), tenantConnectRequest("a", &scribev1.ExportAnnotationPageRequest{
-		ItemImageId: imageB.GetId(), ExpectedRevision: pageB.Msg.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
-	})); connect.CodeOf(err) != connect.CodeNotFound {
+	if _, err := annotationClient.ExportAnnotationPage(tenantConnectContext(context.Background(), "a"), &scribev1.ExportAnnotationPageRequest{
+		ItemImageId: imageB.GetId(), ExpectedRevision: pageB.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
+	}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("tenant A export of tenant B page error = %v, want not_found", err)
 	}
 	const correctedExportText = "tenant A exact canonical export"
-	savedA, err := annotationClient.SaveAnnotationPage(context.Background(), tenantConnectRequest("a", &scribev1.SaveAnnotationPageRequest{
-		ItemImageId: imageA.GetId(), AnnotationPageJson: replaceFirstAnnotationText(t, pageA.Msg.GetAnnotationPageJson(), correctedExportText), ExpectedRevision: pageA.Msg.GetRevision(),
-	}))
+	savedA, err := annotationClient.SaveAnnotationPage(tenantConnectContext(context.Background(), "a"), &scribev1.SaveAnnotationPageRequest{
+		ItemImageId: imageA.GetId(), AnnotationPageJson: replaceFirstAnnotationText(t, pageA.GetAnnotationPageJson(), correctedExportText), ExpectedRevision: pageA.GetRevision(),
+	})
 	if err != nil {
 		t.Fatalf("save tenant A export correction: %v", err)
 	}
-	if _, err := annotationClient.ExportAnnotationPage(context.Background(), tenantConnectRequest("a", &scribev1.ExportAnnotationPageRequest{
-		ItemImageId: imageA.GetId(), ExpectedRevision: pageA.Msg.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
-	})); connect.CodeOf(err) != connect.CodeAborted {
+	if _, err := annotationClient.ExportAnnotationPage(tenantConnectContext(context.Background(), "a"), &scribev1.ExportAnnotationPageRequest{
+		ItemImageId: imageA.GetId(), ExpectedRevision: pageA.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
+	}); connect.CodeOf(err) != connect.CodeAborted {
 		t.Fatalf("stale canonical export error = %v, want aborted", err)
 	}
-	currentExport, err := annotationClient.ExportAnnotationPage(context.Background(), tenantConnectRequest("a", &scribev1.ExportAnnotationPageRequest{
-		ItemImageId: imageA.GetId(), ExpectedRevision: savedA.Msg.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
-	}))
-	if err != nil || currentExport.Msg.GetRevision() != savedA.Msg.GetRevision() || !strings.Contains(string(currentExport.Msg.GetContent()), correctedExportText) {
+	currentExport, err := annotationClient.ExportAnnotationPage(tenantConnectContext(context.Background(), "a"), &scribev1.ExportAnnotationPageRequest{
+		ItemImageId: imageA.GetId(), ExpectedRevision: savedA.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
+	})
+	if err != nil || currentExport.GetRevision() != savedA.GetRevision() || !strings.Contains(string(currentExport.GetContent()), correctedExportText) {
 		t.Fatalf("current canonical export = %#v/%v", currentExport, err)
 	}
-	tenantBExport, err := annotationClient.ExportAnnotationPage(context.Background(), tenantConnectRequest("b", &scribev1.ExportAnnotationPageRequest{
-		ItemImageId: imageB.GetId(), ExpectedRevision: pageB.Msg.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
-	}))
-	if err != nil || strings.Contains(string(tenantBExport.Msg.GetContent()), correctedExportText) {
+	tenantBExport, err := annotationClient.ExportAnnotationPage(tenantConnectContext(context.Background(), "b"), &scribev1.ExportAnnotationPageRequest{
+		ItemImageId: imageB.GetId(), ExpectedRevision: pageB.GetRevision(), Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT,
+	})
+	if err != nil || strings.Contains(string(tenantBExport.GetContent()), correctedExportText) {
 		t.Fatalf("tenant B canonical export leaked tenant A correction: %#v/%v", tenantBExport, err)
 	}
-	if _, err := client.GetEditorManifest(context.Background(), tenantConnectRequest("a", &scribev1.GetEditorManifestRequest{
+	if _, err := client.GetEditorManifest(tenantConnectContext(context.Background(), "a"), &scribev1.GetEditorManifestRequest{
 		ItemImageId: imageB.GetId(),
-	})); connect.CodeOf(err) != connect.CodeNotFound {
+	}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("tenant A editor-manifest access to tenant B error = %v, want not_found", err)
 	}
 	var duplicates int
@@ -630,41 +628,41 @@ func TestPresentation3ChoiceWithoutHOCRCreatesEmptyCanonicalPageAndIdempotentJob
 	appServer := newTenantScopedServer(t, handler, map[string]testTenantIdentity{
 		"workspace": {workspaceID: workspaceID, userID: userID},
 	})
-	itemClient := scribev1connect.NewItemServiceClient(http.DefaultClient, appServer.URL)
-	annotationClient := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
+	itemClient := scribev1connect.NewItemServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
+	annotationClient := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 	request := &scribev1.ImportManifestRequest{
 		Name: "Image-only Choice", ManifestUrl: source.URL + "/manifest",
 		ContextId: processingContext.ID, IdempotencyKey: "no-hocr-choice-import",
 	}
-	created, err := itemClient.ImportManifest(context.Background(), tenantConnectRequest("workspace", request))
+	created, err := itemClient.ImportManifest(tenantConnectContext(context.Background(), "workspace"), request)
 	if err != nil {
 		t.Fatalf("ImportManifest no-hOCR Choice: %v", err)
 	}
-	item := created.Msg.GetItem()
+	item := created.GetItem()
 	if item == nil || len(item.GetImages()) != 1 {
 		t.Fatalf("created no-hOCR item = %#v", item)
 	}
 	image := item.GetImages()[0]
-	pageResponse, err := annotationClient.GetAnnotationPage(context.Background(), tenantConnectRequest("workspace", &scribev1.GetAnnotationPageRequest{ItemImageId: image.GetId()}))
+	pageResponse, err := annotationClient.GetAnnotationPage(tenantConnectContext(context.Background(), "workspace"), &scribev1.GetAnnotationPageRequest{ItemImageId: image.GetId()})
 	if err != nil {
 		t.Fatalf("GetAnnotationPage no-hOCR Choice: %v", err)
 	}
-	if err := iiif.ValidateAnnotationPage([]byte(pageResponse.Msg.GetAnnotationPageJson())); err != nil {
+	if err := iiif.ValidateAnnotationPage([]byte(pageResponse.GetAnnotationPageJson())); err != nil {
 		t.Fatalf("empty canonical page failed libops validation: %v", err)
 	}
 	var page struct {
 		Items []any `json:"items"`
 	}
-	if err := json.Unmarshal([]byte(pageResponse.Msg.GetAnnotationPageJson()), &page); err != nil || len(page.Items) != 0 {
+	if err := json.Unmarshal([]byte(pageResponse.GetAnnotationPageJson()), &page); err != nil || len(page.Items) != 0 {
 		t.Fatalf("empty canonical page items = %#v/%v", page.Items, err)
 	}
-	editorManifest, err := itemClient.GetEditorManifest(context.Background(), tenantConnectRequest("workspace", &scribev1.GetEditorManifestRequest{
+	editorManifest, err := itemClient.GetEditorManifest(tenantConnectContext(context.Background(), "workspace"), &scribev1.GetEditorManifestRequest{
 		ItemImageId: image.GetId(),
-	}))
+	})
 	if err != nil {
 		t.Fatalf("GetEditorManifest before OCR: %v", err)
 	}
-	imageOnlyManifest := editorManifest.Msg.GetManifestJson()
+	imageOnlyManifest := editorManifest.GetManifestJson()
 	if strings.Contains(imageOnlyManifest, `"seeAlso"`) {
 		t.Fatalf("empty image-only manifest advertised a nonexistent hOCR export: %s", imageOnlyManifest)
 	}
@@ -672,7 +670,7 @@ func TestPresentation3ChoiceWithoutHOCRCreatesEmptyCanonicalPageAndIdempotentJob
 		t.Fatalf("image-only manifest before OCR failed libops validation: %v", err)
 	}
 	active, err := jobs.GetActiveByItemImage(context.Background(), image.GetId())
-	if err != nil || active.Status != store.TranscriptionJobStatusPending || active.InputRevision != pageResponse.Msg.GetRevision() {
+	if err != nil || active.Status != store.TranscriptionJobStatusPending || active.InputRevision != pageResponse.GetRevision() {
 		t.Fatalf("no-hOCR transcription job = %+v/%v", active, err)
 	}
 	if err := handler.processQueuedTranscriptionJob(context.Background(), active.ID); err != nil {
@@ -688,12 +686,12 @@ func TestPresentation3ChoiceWithoutHOCRCreatesEmptyCanonicalPageAndIdempotentJob
 	if fakeOCR.segmentCalls != 1 || fakeOCR.transcriptionCalls != 1 || !fakeOCR.lastSegmentation.SegmentOnly {
 		t.Fatalf("image-only processing calls/context = segment %d transcription %d context %+v", fakeOCR.segmentCalls, fakeOCR.transcriptionCalls, fakeOCR.lastSegmentation)
 	}
-	processed, err := annotationClient.GetAnnotationPage(context.Background(), tenantConnectRequest("workspace", &scribev1.GetAnnotationPageRequest{ItemImageId: image.GetId()}))
+	processed, err := annotationClient.GetAnnotationPage(tenantConnectContext(context.Background(), "workspace"), &scribev1.GetAnnotationPageRequest{ItemImageId: image.GetId()})
 	if err != nil {
 		t.Fatalf("reload processed image-only page: %v", err)
 	}
-	if processed.Msg.GetRevision() != pageResponse.Msg.GetRevision()+1 {
-		t.Fatalf("processed page revision = %d, want %d", processed.Msg.GetRevision(), pageResponse.Msg.GetRevision()+1)
+	if processed.GetRevision() != pageResponse.GetRevision()+1 {
+		t.Fatalf("processed page revision = %d, want %d", processed.GetRevision(), pageResponse.GetRevision()+1)
 	}
 	storedProcessed, err := annotations.LoadPage(context.Background(), workspaceID, image.GetId())
 	if err != nil {
@@ -702,13 +700,13 @@ func TestPresentation3ChoiceWithoutHOCRCreatesEmptyCanonicalPageAndIdempotentJob
 	if storedProcessed.UpdatedByUserID != nil {
 		t.Fatalf("worker save attributed to item creator %d; want explicit system attribution", *storedProcessed.UpdatedByUserID)
 	}
-	if err := iiif.ValidateAnnotationPage([]byte(processed.Msg.GetAnnotationPageJson())); err != nil {
+	if err := iiif.ValidateAnnotationPage([]byte(processed.GetAnnotationPageJson())); err != nil {
 		t.Fatalf("processed image-only page failed libops validation: %v", err)
 	}
 	var processedDocument struct {
 		Items []map[string]any `json:"items"`
 	}
-	if err := json.Unmarshal([]byte(processed.Msg.GetAnnotationPageJson()), &processedDocument); err != nil {
+	if err := json.Unmarshal([]byte(processed.GetAnnotationPageJson()), &processedDocument); err != nil {
 		t.Fatalf("decode processed image-only page: %v", err)
 	}
 	wordCount := 0
@@ -717,23 +715,23 @@ func TestPresentation3ChoiceWithoutHOCRCreatesEmptyCanonicalPageAndIdempotentJob
 			wordCount++
 		}
 	}
-	if wordCount != 3 || !strings.Contains(processed.Msg.GetAnnotationPageJson(), "final") || !strings.Contains(processed.Msg.GetAnnotationPageJson(), "corrected") {
-		t.Fatalf("processed page words/text = %d/%s", wordCount, processed.Msg.GetAnnotationPageJson())
+	if wordCount != 3 || !strings.Contains(processed.GetAnnotationPageJson(), "final") || !strings.Contains(processed.GetAnnotationPageJson(), "corrected") {
+		t.Fatalf("processed page words/text = %d/%s", wordCount, processed.GetAnnotationPageJson())
 	}
 
-	editedJSON := replaceFirstAnnotationText(t, processed.Msg.GetAnnotationPageJson(), "reviewed")
-	saved, err := annotationClient.SaveAnnotationPage(context.Background(), tenantConnectRequest("workspace", &scribev1.SaveAnnotationPageRequest{
-		ItemImageId: image.GetId(), AnnotationPageJson: editedJSON, ExpectedRevision: processed.Msg.GetRevision(),
-	}))
+	editedJSON := replaceFirstAnnotationText(t, processed.GetAnnotationPageJson(), "reviewed")
+	saved, err := annotationClient.SaveAnnotationPage(tenantConnectContext(context.Background(), "workspace"), &scribev1.SaveAnnotationPageRequest{
+		ItemImageId: image.GetId(), AnnotationPageJson: editedJSON, ExpectedRevision: processed.GetRevision(),
+	})
 	if err != nil {
 		t.Fatalf("save processed image-only correction: %v", err)
 	}
-	reloaded, err := annotationClient.GetAnnotationPage(context.Background(), tenantConnectRequest("workspace", &scribev1.GetAnnotationPageRequest{ItemImageId: image.GetId()}))
-	if err != nil || reloaded.Msg.GetRevision() != saved.Msg.GetRevision() || !strings.Contains(reloaded.Msg.GetAnnotationPageJson(), "reviewed") {
+	reloaded, err := annotationClient.GetAnnotationPage(tenantConnectContext(context.Background(), "workspace"), &scribev1.GetAnnotationPageRequest{ItemImageId: image.GetId()})
+	if err != nil || reloaded.GetRevision() != saved.GetRevision() || !strings.Contains(reloaded.GetAnnotationPageJson(), "reviewed") {
 		t.Fatalf("save/reload image-only correction = %#v/%v", reloaded, err)
 	}
 	for _, format := range []string{"txt", "hocr", "pagexml", "alto"} {
-		status, exported := tenantAnnotationExport(t, annotationClient, "workspace", image.GetId(), saved.Msg.GetRevision(), format)
+		status, exported := tenantAnnotationExport(t, annotationClient, "workspace", image.GetId(), saved.GetRevision(), format)
 		if status != http.StatusOK || !strings.Contains(exported, "reviewed") || !strings.Contains(exported, "corrected") || !strings.Contains(exported, "text") {
 			t.Fatalf("processed image-only %s export status/body = %d/%q", format, status, exported)
 		}
@@ -746,8 +744,8 @@ func TestPresentation3ChoiceWithoutHOCRCreatesEmptyCanonicalPageAndIdempotentJob
 	if fakeOCR.segmentCalls != segmentCalls || fakeOCR.transcriptionCalls != transcriptionCalls {
 		t.Fatal("completed job replay invoked providers")
 	}
-	replayed, err := itemClient.ImportManifest(context.Background(), tenantConnectRequest("workspace", request))
-	if err != nil || replayed.Msg.GetItem().GetId() != item.GetId() {
+	replayed, err := itemClient.ImportManifest(tenantConnectContext(context.Background(), "workspace"), request)
+	if err != nil || replayed.GetItem().GetId() != item.GetId() {
 		t.Fatalf("idempotent no-hOCR replay = %#v/%v", replayed, err)
 	}
 	var itemCount int
@@ -757,13 +755,13 @@ func TestPresentation3ChoiceWithoutHOCRCreatesEmptyCanonicalPageAndIdempotentJob
 
 	createAnother := func(name, key string) (*scribev1.Item, store.TranscriptionJob) {
 		t.Helper()
-		response, createErr := itemClient.ImportManifest(context.Background(), tenantConnectRequest("workspace", &scribev1.ImportManifestRequest{
+		response, createErr := itemClient.ImportManifest(tenantConnectContext(context.Background(), "workspace"), &scribev1.ImportManifestRequest{
 			Name: name, ManifestUrl: source.URL + "/manifest", ContextId: processingContext.ID, IdempotencyKey: key,
-		}))
+		})
 		if createErr != nil {
 			t.Fatalf("ImportManifest %s: %v", name, createErr)
 		}
-		createdItem := response.Msg.GetItem()
+		createdItem := response.GetItem()
 		createdJob, jobErr := jobs.GetActiveByItemImage(context.Background(), createdItem.GetImages()[0].GetId())
 		if jobErr != nil {
 			t.Fatalf("load %s job: %v", name, jobErr)
@@ -826,23 +824,23 @@ func TestSameManifestIsIsolatedAcrossWorkspaces(t *testing.T) {
 		"workspace-a": {workspaceID: workspaceA, userID: userA},
 		"workspace-b": {workspaceID: workspaceB, userID: userB},
 	})
-	itemClient := scribev1connect.NewItemServiceClient(http.DefaultClient, appServer.URL)
-	annotationClient := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
+	itemClient := scribev1connect.NewItemServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
+	annotationClient := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 
 	createItem := func(tenant, name string) *scribev1.Item {
 		t.Helper()
-		response, err := itemClient.ImportManifest(context.Background(), tenantConnectRequest(tenant, &scribev1.ImportManifestRequest{
+		response, err := itemClient.ImportManifest(tenantConnectContext(context.Background(), tenant), &scribev1.ImportManifestRequest{
 			Name:           name,
 			ManifestUrl:    source.URL + "/manifest",
 			IdempotencyKey: "shared-manifest-across-workspaces",
-		}))
+		})
 		if err != nil {
 			t.Fatalf("%s ImportManifest: %v", tenant, err)
 		}
-		if response.Msg.GetItem() == nil || len(response.Msg.GetItem().GetImages()) != 1 {
-			t.Fatalf("%s ImportManifest response = %#v", tenant, response.Msg)
+		if response.GetItem() == nil || len(response.GetItem().GetImages()) != 1 {
+			t.Fatalf("%s ImportManifest response = %#v", tenant, response)
 		}
-		return response.Msg.GetItem()
+		return response.GetItem()
 	}
 	itemA := createItem("workspace-a", "Workspace A manuscript")
 	itemB := createItem("workspace-b", "Workspace B manuscript")
@@ -856,8 +854,8 @@ func TestSameManifestIsIsolatedAcrossWorkspaces(t *testing.T) {
 		t.Fatalf("same-manifest identities = image %d/%d canvas %q/%q", imageA.GetId(), imageB.GetId(), imageA.GetCanvasUri(), imageB.GetCanvasUri())
 	}
 
-	getPage := func(tenant string, itemImageID uint64) (*connect.Response[scribev1.GetAnnotationPageResponse], error) {
-		return annotationClient.GetAnnotationPage(context.Background(), tenantConnectRequest(tenant, &scribev1.GetAnnotationPageRequest{ItemImageId: itemImageID}))
+	getPage := func(tenant string, itemImageID uint64) (*scribev1.GetAnnotationPageResponse, error) {
+		return annotationClient.GetAnnotationPage(tenantConnectContext(context.Background(), tenant), &scribev1.GetAnnotationPageRequest{ItemImageId: itemImageID})
 	}
 	pageA, err := getPage("workspace-a", imageA.GetId())
 	if err != nil {
@@ -871,56 +869,56 @@ func TestSameManifestIsIsolatedAcrossWorkspaces(t *testing.T) {
 	assertConnectCode(t, err, connect.CodeNotFound)
 	_, err = getPage("workspace-b", imageA.GetId())
 	assertConnectCode(t, err, connect.CodeNotFound)
-	if pageA.Msg.GetAnnotationPageJson() == pageB.Msg.GetAnnotationPageJson() {
+	if pageA.GetAnnotationPageJson() == pageB.GetAnnotationPageJson() {
 		t.Fatal("workspace pages unexpectedly share canonical page identity")
 	}
 
 	const workspaceAEdit = "Workspace A private correction"
-	editedPageA := replaceFirstAnnotationText(t, pageA.Msg.GetAnnotationPageJson(), workspaceAEdit)
-	savedA, err := annotationClient.SaveAnnotationPage(context.Background(), tenantConnectRequest("workspace-a", &scribev1.SaveAnnotationPageRequest{
+	editedPageA := replaceFirstAnnotationText(t, pageA.GetAnnotationPageJson(), workspaceAEdit)
+	savedA, err := annotationClient.SaveAnnotationPage(tenantConnectContext(context.Background(), "workspace-a"), &scribev1.SaveAnnotationPageRequest{
 		ItemImageId:        imageA.GetId(),
 		AnnotationPageJson: editedPageA,
-		ExpectedRevision:   pageA.Msg.GetRevision(),
-	}))
+		ExpectedRevision:   pageA.GetRevision(),
+	})
 	if err != nil {
 		t.Fatalf("workspace A save own page: %v", err)
 	}
-	if savedA.Msg.GetRevision() <= pageA.Msg.GetRevision() || !strings.Contains(savedA.Msg.GetAnnotationPageJson(), workspaceAEdit) {
-		t.Fatalf("workspace A save did not commit correction: %#v", savedA.Msg)
+	if savedA.GetRevision() <= pageA.GetRevision() || !strings.Contains(savedA.GetAnnotationPageJson(), workspaceAEdit) {
+		t.Fatalf("workspace A save did not commit correction: %#v", savedA)
 	}
 
-	_, err = annotationClient.SaveAnnotationPage(context.Background(), tenantConnectRequest("workspace-b", &scribev1.SaveAnnotationPageRequest{
+	_, err = annotationClient.SaveAnnotationPage(tenantConnectContext(context.Background(), "workspace-b"), &scribev1.SaveAnnotationPageRequest{
 		ItemImageId:        imageA.GetId(),
-		AnnotationPageJson: savedA.Msg.GetAnnotationPageJson(),
-		ExpectedRevision:   savedA.Msg.GetRevision(),
-	}))
+		AnnotationPageJson: savedA.GetAnnotationPageJson(),
+		ExpectedRevision:   savedA.GetRevision(),
+	})
 	assertConnectCode(t, err, connect.CodeNotFound)
-	_, err = annotationClient.SaveAnnotationPage(context.Background(), tenantConnectRequest("workspace-a", &scribev1.SaveAnnotationPageRequest{
+	_, err = annotationClient.SaveAnnotationPage(tenantConnectContext(context.Background(), "workspace-a"), &scribev1.SaveAnnotationPageRequest{
 		ItemImageId:        imageB.GetId(),
-		AnnotationPageJson: pageB.Msg.GetAnnotationPageJson(),
-		ExpectedRevision:   pageB.Msg.GetRevision(),
-	}))
+		AnnotationPageJson: pageB.GetAnnotationPageJson(),
+		ExpectedRevision:   pageB.GetRevision(),
+	})
 	assertConnectCode(t, err, connect.CodeNotFound)
 	reloadedA, err := getPage("workspace-a", imageA.GetId())
 	if err != nil {
 		t.Fatalf("reload workspace A after denied mutation: %v", err)
 	}
-	if reloadedA.Msg.GetRevision() != savedA.Msg.GetRevision() || !strings.Contains(reloadedA.Msg.GetAnnotationPageJson(), workspaceAEdit) {
+	if reloadedA.GetRevision() != savedA.GetRevision() || !strings.Contains(reloadedA.GetAnnotationPageJson(), workspaceAEdit) {
 		t.Fatal("denied cross-workspace mutation changed workspace A page")
 	}
 	reloadedB, err := getPage("workspace-b", imageB.GetId())
 	if err != nil {
 		t.Fatalf("reload workspace B page: %v", err)
 	}
-	if strings.Contains(reloadedB.Msg.GetAnnotationPageJson(), workspaceAEdit) {
+	if strings.Contains(reloadedB.GetAnnotationPageJson(), workspaceAEdit) {
 		t.Fatal("workspace A correction leaked into workspace B canonical page")
 	}
 
-	searchCanvas := func(tenant string, itemImageID uint64) (*connect.Response[scribev1.SearchAnnotationsResponse], error) {
-		return annotationClient.SearchAnnotations(context.Background(), tenantConnectRequest(tenant, &scribev1.SearchAnnotationsRequest{
+	searchCanvas := func(tenant string, itemImageID uint64) (*scribev1.SearchAnnotationsResponse, error) {
+		return annotationClient.SearchAnnotations(tenantConnectContext(context.Background(), tenant), &scribev1.SearchAnnotationsRequest{
 			ItemImageId: itemImageID,
 			CanvasUri:   imageA.GetCanvasUri(),
-		}))
+		})
 	}
 	searchA, err := searchCanvas("workspace-a", imageA.GetId())
 	if err != nil {
@@ -930,21 +928,21 @@ func TestSameManifestIsIsolatedAcrossWorkspaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace B search shared Canvas: %v", err)
 	}
-	if !strings.Contains(searchA.Msg.GetAnnotationPageJson(), workspaceAEdit) || strings.Contains(searchB.Msg.GetAnnotationPageJson(), workspaceAEdit) {
+	if !strings.Contains(searchA.GetAnnotationPageJson(), workspaceAEdit) || strings.Contains(searchB.GetAnnotationPageJson(), workspaceAEdit) {
 		t.Fatal("shared Canvas search was not scoped to each workspace's canonical page")
 	}
-	_, err = annotationClient.SearchAnnotations(context.Background(), tenantConnectRequest("workspace-a", &scribev1.SearchAnnotationsRequest{
+	_, err = annotationClient.SearchAnnotations(tenantConnectContext(context.Background(), "workspace-a"), &scribev1.SearchAnnotationsRequest{
 		ItemImageId: imageA.GetId(),
 		CanvasUri:   imageA.GetCanvasUri() + "&mismatch=true",
-	}))
+	})
 	assertConnectCode(t, err, connect.CodeNotFound)
-	_, err = annotationClient.SearchAnnotations(context.Background(), tenantConnectRequest("workspace-b", &scribev1.SearchAnnotationsRequest{
+	_, err = annotationClient.SearchAnnotations(tenantConnectContext(context.Background(), "workspace-b"), &scribev1.SearchAnnotationsRequest{
 		ItemImageId: imageA.GetId(),
-	}))
+	})
 	assertConnectCode(t, err, connect.CodeNotFound)
-	_, err = annotationClient.SearchAnnotations(context.Background(), tenantConnectRequest("workspace-a", &scribev1.SearchAnnotationsRequest{
+	_, err = annotationClient.SearchAnnotations(tenantConnectContext(context.Background(), "workspace-a"), &scribev1.SearchAnnotationsRequest{
 		ItemImageId: imageB.GetId(),
-	}))
+	})
 	assertConnectCode(t, err, connect.CodeNotFound)
 
 	indexA, err := annotations.SearchIndex(context.Background(), workspaceA, imageA.GetId())
@@ -965,24 +963,24 @@ func TestSameManifestIsIsolatedAcrossWorkspaces(t *testing.T) {
 	if len(crossIndex) != 0 {
 		t.Fatalf("workspace A saw %d workspace B index rows", len(crossIndex))
 	}
-	annotationID := firstAnnotationID(t, savedA.Msg.GetAnnotationPageJson())
-	_, err = annotationClient.GetAnnotation(context.Background(), tenantConnectRequest("workspace-b", &scribev1.GetAnnotationRequest{ItemImageId: imageA.GetId(), Id: annotationID}))
+	annotationID := firstAnnotationID(t, savedA.GetAnnotationPageJson())
+	_, err = annotationClient.GetAnnotation(tenantConnectContext(context.Background(), "workspace-b"), &scribev1.GetAnnotationRequest{ItemImageId: imageA.GetId(), Id: annotationID})
 	assertConnectCode(t, err, connect.CodeNotFound)
-	annotationIDB := firstAnnotationID(t, pageB.Msg.GetAnnotationPageJson())
-	_, err = annotationClient.GetAnnotation(context.Background(), tenantConnectRequest("workspace-a", &scribev1.GetAnnotationRequest{ItemImageId: imageB.GetId(), Id: annotationIDB}))
+	annotationIDB := firstAnnotationID(t, pageB.GetAnnotationPageJson())
+	_, err = annotationClient.GetAnnotation(tenantConnectContext(context.Background(), "workspace-a"), &scribev1.GetAnnotationRequest{ItemImageId: imageB.GetId(), Id: annotationIDB})
 	assertConnectCode(t, err, connect.CodeNotFound)
 
 	for _, format := range []string{"txt", "hocr", "pagexml", "alto"} {
-		status, exported := tenantAnnotationExport(t, annotationClient, "workspace-a", imageA.GetId(), savedA.Msg.GetRevision(), format)
+		status, exported := tenantAnnotationExport(t, annotationClient, "workspace-a", imageA.GetId(), savedA.GetRevision(), format)
 		if status != http.StatusOK || !strings.Contains(exported, workspaceAEdit) {
 			t.Fatalf("workspace A %s export status/body = %d/%q", format, status, exported)
 		}
-		status, exported = tenantAnnotationExport(t, annotationClient, "workspace-b", imageA.GetId(), savedA.Msg.GetRevision(), format)
+		status, exported = tenantAnnotationExport(t, annotationClient, "workspace-b", imageA.GetId(), savedA.GetRevision(), format)
 		if status != http.StatusNotFound || strings.Contains(exported, workspaceAEdit) {
 			t.Fatalf("workspace B cross %s export status/body = %d/%q", format, status, exported)
 		}
 	}
-	hocrAURL := fmt.Sprintf("%s/v1/item-images/%d/annotations/revisions/%d/hocr", appServer.URL, imageA.GetId(), savedA.Msg.GetRevision())
+	hocrAURL := fmt.Sprintf("%s/v1/item-images/%d/annotations/revisions/%d/hocr", appServer.URL, imageA.GetId(), savedA.GetRevision())
 	status, canonicalHOCR := tenantGET(t, hocrAURL, "workspace-a")
 	if status != http.StatusOK || !strings.Contains(canonicalHOCR, workspaceAEdit) {
 		t.Fatalf("workspace A canonical hOCR status/body = %d/%q", status, canonicalHOCR)
@@ -991,23 +989,23 @@ func TestSameManifestIsIsolatedAcrossWorkspaces(t *testing.T) {
 	if status != http.StatusNotFound || strings.Contains(canonicalHOCR, workspaceAEdit) {
 		t.Fatalf("workspace B cross hOCR status/body = %d/%q", status, canonicalHOCR)
 	}
-	status, _ = tenantAnnotationExport(t, annotationClient, "workspace-b", imageB.GetId(), pageB.Msg.GetRevision(), "txt")
+	status, _ = tenantAnnotationExport(t, annotationClient, "workspace-b", imageB.GetId(), pageB.GetRevision(), "txt")
 	if status != http.StatusOK {
 		t.Fatalf("workspace B own export status = %d", status)
 	}
-	status, _ = tenantAnnotationExport(t, annotationClient, "workspace-a", imageB.GetId(), pageB.Msg.GetRevision(), "txt")
+	status, _ = tenantAnnotationExport(t, annotationClient, "workspace-a", imageB.GetId(), pageB.GetRevision(), "txt")
 	if status != http.StatusNotFound {
 		t.Fatalf("workspace A reverse cross export status = %d", status)
 	}
 
-	publishedA, err := annotationClient.PublishItemImageEdits(context.Background(), tenantConnectRequest("workspace-a", &scribev1.PublishItemImageEditsRequest{
+	publishedA, err := annotationClient.PublishItemImageEdits(tenantConnectContext(context.Background(), "workspace-a"), &scribev1.PublishItemImageEditsRequest{
 		ItemImageId:      imageA.GetId(),
-		ExpectedRevision: savedA.Msg.GetRevision(),
-	}))
+		ExpectedRevision: savedA.GetRevision(),
+	})
 	if err != nil {
 		t.Fatalf("workspace A publish own page: %v", err)
 	}
-	if !strings.Contains(publishedA.Msg.GetAnnotationPageJson(), workspaceAEdit) {
+	if !strings.Contains(publishedA.GetAnnotationPageJson(), workspaceAEdit) {
 		t.Fatal("workspace A publication did not read its canonical revision")
 	}
 	resources, err := handler.buildPublishedPresentationResources(context.Background(), imageA.GetId())
@@ -1016,7 +1014,7 @@ func TestSameManifestIsIsolatedAcrossWorkspaces(t *testing.T) {
 	}
 	var publicPage []byte
 	for _, resource := range resources {
-		if resource.ID == publishedA.Msg.GetPublicUrl() {
+		if resource.ID == publishedA.GetPublicUrl() {
 			publicPage = resource.Payload
 			break
 		}
@@ -1024,21 +1022,21 @@ func TestSameManifestIsIsolatedAcrossWorkspaces(t *testing.T) {
 	if len(publicPage) == 0 || !strings.Contains(string(publicPage), workspaceAEdit) {
 		t.Fatalf("published canonical graph page = %q", publicPage)
 	}
-	_, err = annotationClient.PublishItemImageEdits(context.Background(), tenantConnectRequest("workspace-b", &scribev1.PublishItemImageEditsRequest{
+	_, err = annotationClient.PublishItemImageEdits(tenantConnectContext(context.Background(), "workspace-b"), &scribev1.PublishItemImageEditsRequest{
 		ItemImageId:      imageA.GetId(),
-		ExpectedRevision: savedA.Msg.GetRevision(),
-	}))
+		ExpectedRevision: savedA.GetRevision(),
+	})
 	assertConnectCode(t, err, connect.CodeNotFound)
-	if _, err := annotationClient.PublishItemImageEdits(context.Background(), tenantConnectRequest("workspace-b", &scribev1.PublishItemImageEditsRequest{
+	if _, err := annotationClient.PublishItemImageEdits(tenantConnectContext(context.Background(), "workspace-b"), &scribev1.PublishItemImageEditsRequest{
 		ItemImageId:      imageB.GetId(),
-		ExpectedRevision: pageB.Msg.GetRevision(),
-	})); err != nil {
+		ExpectedRevision: pageB.GetRevision(),
+	}); err != nil {
 		t.Fatalf("workspace B publish own page: %v", err)
 	}
-	_, err = annotationClient.PublishItemImageEdits(context.Background(), tenantConnectRequest("workspace-a", &scribev1.PublishItemImageEditsRequest{
+	_, err = annotationClient.PublishItemImageEdits(tenantConnectContext(context.Background(), "workspace-a"), &scribev1.PublishItemImageEditsRequest{
 		ItemImageId:      imageB.GetId(),
-		ExpectedRevision: pageB.Msg.GetRevision(),
-	}))
+		ExpectedRevision: pageB.GetRevision(),
+	})
 	assertConnectCode(t, err, connect.CodeNotFound)
 }
 
@@ -1094,7 +1092,7 @@ func TestCanonicalHOCRAndExportDoNotFallbackToOCRRun(t *testing.T) {
 			}
 		})
 	}
-	annotationClient := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
+	annotationClient := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 	status, exportBody := tenantAnnotationExport(t, annotationClient, "", image.ID, 1, "hocr")
 	if status == http.StatusOK || strings.Contains(exportBody, provenanceOnly) {
 		t.Fatalf("canonical export without a page status/body = %d/%q", status, exportBody)
@@ -1206,7 +1204,7 @@ func TestCanonicalHOCRAndExportDoNotRequireOCRRun(t *testing.T) {
 	if err != nil || staleResponse.StatusCode != http.StatusConflict || strings.Contains(string(staleBody), canonicalOnly) {
 		t.Fatalf("stale revisioned hOCR = %d/%q/%v, want conflict without canonical text", staleResponse.StatusCode, staleBody, err)
 	}
-	annotationClient := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
+	annotationClient := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 	status, exported := tenantAnnotationExport(t, annotationClient, "", image.ID, savedPage.Revision, "hocr")
 	if status != http.StatusOK || !strings.Contains(exported, canonicalOnly) {
 		t.Fatalf("canonical export without OCR run status/body = %d/%q", status, exported)

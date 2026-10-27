@@ -1,5 +1,11 @@
 # Add a Connect RPC
 
+Connect Go v2 handlers accept and return plain protobuf messages. Register the
+generated service methods on a `connect.Server` and mount it with
+`connecthttp.Mount`. Request and response headers live in `connect.CallInfo`
+on the context. Unified server interceptors enforce authorization when each
+decoded request is received, before application logic runs.
+
 1. Add the request, response, validation rules, and service method under
    `proto/scribe/v1`.
 2. Add the protobuf `scribe.v1.options.v1.authz` method option. This is the

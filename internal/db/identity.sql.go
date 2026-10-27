@@ -171,10 +171,8 @@ INSERT INTO workspaces (
   owner_user_id,
   name,
   slug,
-  is_personal,
   created_by_user_id
 ) VALUES (
-  ?,
   ?,
   ?,
   ?,
@@ -186,7 +184,6 @@ type CreateWorkspaceManualParams struct {
 	OwnerUserID     sql.NullInt64 `json:"owner_user_id"`
 	Name            string        `json:"name"`
 	Slug            string        `json:"slug"`
-	IsPersonal      bool          `json:"is_personal"`
 	CreatedByUserID sql.NullInt64 `json:"created_by_user_id"`
 }
 
@@ -195,7 +192,6 @@ func (q *Queries) CreateWorkspaceManual(ctx context.Context, arg CreateWorkspace
 		arg.OwnerUserID,
 		arg.Name,
 		arg.Slug,
-		arg.IsPersonal,
 		arg.CreatedByUserID,
 	)
 }
@@ -280,6 +276,21 @@ func (q *Queries) DeleteWorkspaceMemberManual(ctx context.Context, arg DeleteWor
 	return q.db.ExecContext(ctx, deleteWorkspaceMemberManual, arg.WorkspaceID, arg.UserID)
 }
 
+const ensureUserByEmailManual = `-- name: EnsureUserByEmailManual :execresult
+INSERT INTO users (name, email)
+VALUES (?, ?)
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+`
+
+type EnsureUserByEmailManualParams struct {
+	Name  string         `json:"name"`
+	Email sql.NullString `json:"email"`
+}
+
+func (q *Queries) EnsureUserByEmailManual(ctx context.Context, arg EnsureUserByEmailManualParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, ensureUserByEmailManual, arg.Name, arg.Email)
+}
+
 const getAuthSessionByTokenHashManual = `-- name: GetAuthSessionByTokenHashManual :one
 SELECT
   id,
@@ -309,31 +320,30 @@ func (q *Queries) GetAuthSessionByTokenHashManual(ctx context.Context, tokenHash
 	return i, err
 }
 
-const getPersonalWorkspaceByUserIDManual = `-- name: GetPersonalWorkspaceByUserIDManual :one
+const getDefaultWorkspaceByUserIDManual = `-- name: GetDefaultWorkspaceByUserIDManual :one
 SELECT
-  id,
-  owner_user_id,
-  name,
-  slug,
-  is_personal,
-  created_by_user_id,
-  created_at,
-  updated_at
-FROM workspaces
-WHERE owner_user_id = ?
-  AND is_personal = TRUE
+  w.id,
+  w.owner_user_id,
+  w.name,
+  w.slug,
+  w.created_by_user_id,
+  w.created_at,
+  w.updated_at
+FROM workspaces w
+JOIN workspace_members wm ON wm.workspace_id = w.id
+WHERE wm.user_id = ?
+ORDER BY w.id
 LIMIT 1
 `
 
-func (q *Queries) GetPersonalWorkspaceByUserIDManual(ctx context.Context, userID sql.NullInt64) (Workspace, error) {
-	row := q.db.QueryRowContext(ctx, getPersonalWorkspaceByUserIDManual, userID)
+func (q *Queries) GetDefaultWorkspaceByUserIDManual(ctx context.Context, userID uint64) (Workspace, error) {
+	row := q.db.QueryRowContext(ctx, getDefaultWorkspaceByUserIDManual, userID)
 	var i Workspace
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerUserID,
 		&i.Name,
 		&i.Slug,
-		&i.IsPersonal,
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -476,7 +486,7 @@ func (q *Queries) GetUserManual(ctx context.Context, id uint64) (GetUserManualRo
 }
 
 const getWorkspaceAccessManual = `-- name: GetWorkspaceAccessManual :one
-SELECT w.id, w.owner_user_id, w.name, w.slug, w.is_personal, w.created_by_user_id, w.created_at, w.updated_at, wm.role
+SELECT w.id, w.owner_user_id, w.name, w.slug, w.created_by_user_id, w.created_at, w.updated_at, wm.role
 FROM workspaces w
 JOIN workspace_members wm ON wm.workspace_id = w.id
 WHERE w.id = ?
@@ -502,7 +512,6 @@ func (q *Queries) GetWorkspaceAccessManual(ctx context.Context, arg GetWorkspace
 		&i.Workspace.OwnerUserID,
 		&i.Workspace.Name,
 		&i.Workspace.Slug,
-		&i.Workspace.IsPersonal,
 		&i.Workspace.CreatedByUserID,
 		&i.Workspace.CreatedAt,
 		&i.Workspace.UpdatedAt,
@@ -517,7 +526,6 @@ SELECT
   owner_user_id,
   name,
   slug,
-  is_personal,
   created_by_user_id,
   created_at,
   updated_at
@@ -534,7 +542,6 @@ func (q *Queries) GetWorkspaceManual(ctx context.Context, id uint64) (Workspace,
 		&i.OwnerUserID,
 		&i.Name,
 		&i.Slug,
-		&i.IsPersonal,
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -588,11 +595,11 @@ func (q *Queries) GetWorkspaceMemberManual(ctx context.Context, arg GetWorkspace
 }
 
 const listWorkspaceAccessByUserManual = `-- name: ListWorkspaceAccessByUserManual :many
-SELECT w.id, w.owner_user_id, w.name, w.slug, w.is_personal, w.created_by_user_id, w.created_at, w.updated_at, wm.role
+SELECT w.id, w.owner_user_id, w.name, w.slug, w.created_by_user_id, w.created_at, w.updated_at, wm.role
 FROM workspaces w
 JOIN workspace_members wm ON wm.workspace_id = w.id
 WHERE wm.user_id = ?
-ORDER BY w.is_personal DESC, w.name ASC
+ORDER BY w.id
 LIMIT 50
 `
 
@@ -615,7 +622,6 @@ func (q *Queries) ListWorkspaceAccessByUserManual(ctx context.Context, userID ui
 			&i.Workspace.OwnerUserID,
 			&i.Workspace.Name,
 			&i.Workspace.Slug,
-			&i.Workspace.IsPersonal,
 			&i.Workspace.CreatedByUserID,
 			&i.Workspace.CreatedAt,
 			&i.Workspace.UpdatedAt,
@@ -779,7 +785,6 @@ SELECT
   owner_user_id,
   name,
   slug,
-  is_personal,
   created_by_user_id,
   created_at,
   updated_at
@@ -796,7 +801,6 @@ func (q *Queries) LockWorkspaceManual(ctx context.Context, id uint64) (Workspace
 		&i.OwnerUserID,
 		&i.Name,
 		&i.Slug,
-		&i.IsPersonal,
 		&i.CreatedByUserID,
 		&i.CreatedAt,
 		&i.UpdatedAt,

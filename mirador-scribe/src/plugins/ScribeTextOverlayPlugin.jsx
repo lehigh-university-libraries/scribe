@@ -343,6 +343,10 @@ export function ScribeTextOverlayPlugin({
       setEditorState(detail);
     };
     document.addEventListener('scribe:editor-state', handleEditorState);
+    // Mirador lazy-loads the viewer, so the companion may have published first.
+    document.dispatchEvent(new CustomEvent('scribe:request-editor-state', {
+      detail: { canvasId, windowId },
+    }));
     return () => document.removeEventListener('scribe:editor-state', handleEditorState);
   }, [canvasId, windowId]);
 

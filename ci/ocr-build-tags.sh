@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GO_TEST_IMAGE="${GO_TEST_IMAGE:-golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414}"
+GO_TEST_IMAGE="${GO_TEST_IMAGE:-golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Error: docker is required to test OCR build tags." >&2

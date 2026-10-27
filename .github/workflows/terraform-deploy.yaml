@@ -33,7 +33,7 @@ permissions:
 
 jobs:
   terraform:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 180
     environment: ${{ inputs.environment }}
     concurrency:
@@ -72,7 +72,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: 1.16.4
+          terraform_version: 1.17.0
           terraform_wrapper: false
 
       - name: Export configured Terraform variables
@@ -113,6 +113,24 @@ jobs:
           else
             make tf-prod ACTION="$ACTION"
           fi
+
+      - name: Report recent production OCR readiness failures
+        if: always() && inputs.environment == 'production'
+        continue-on-error: true
+        run: >-
+          gcloud logging read
+          'resource.type="cloud_run_job" AND resource.labels.job_name="scribe-prod-ocr-readiness" AND textPayload=~"^ocr readiness failed: (image-contract|(segment|layout|ollama)-(token|request|timeout|contract))$"'
+          --project "$GCLOUD_PROJECT" --freshness=1d --limit=5
+          --format='table(timestamp,textPayload)'
+
+      - name: Report recent Ollama HTTP failures
+        if: always() && inputs.environment == 'production'
+        continue-on-error: true
+        run: >-
+          gcloud logging read
+          'resource.type="cloud_run_revision" AND resource.labels.service_name="ollama-glm-ocr-bf16" AND httpRequest.status>=400'
+          --project "$GCLOUD_PROJECT" --freshness=1d --limit=10
+          --format='table(timestamp,httpRequest.status)'
 
       - name: Delete the preview workspace
         if: inputs.action == 'destroy' && inputs.pr_number != ''

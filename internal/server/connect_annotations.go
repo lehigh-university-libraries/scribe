@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
@@ -19,82 +19,82 @@ import (
 
 // --- AnnotationService Connect handlers ---
 
-func (h *Handler) GetAnnotationPage(ctx context.Context, req *connect.Request[scribev1.GetAnnotationPageRequest]) (*connect.Response[scribev1.GetAnnotationPageResponse], error) {
-	page, err := h.currentAnnotationPage(ctx, req.Msg.GetItemImageId())
+func (h *Handler) GetAnnotationPage(ctx context.Context, req *scribev1.GetAnnotationPageRequest) (*scribev1.GetAnnotationPageResponse, error) {
+	page, err := h.currentAnnotationPage(ctx, req.GetItemImageId())
 	if err != nil {
 		return nil, annotationConnectError(err)
 	}
-	return connect.NewResponse(&scribev1.GetAnnotationPageResponse{
+	return &scribev1.GetAnnotationPageResponse{
 		ItemImageId:        page.ItemImageID,
 		CanvasUri:          page.CanvasURI,
 		AnnotationPageJson: page.Payload,
 		Revision:           page.Revision,
 		UpdatedAt:          page.UpdatedAt.UTC().Format(time.RFC3339Nano),
-	}), nil
+	}, nil
 }
 
-func (h *Handler) SaveAnnotationPage(ctx context.Context, req *connect.Request[scribev1.SaveAnnotationPageRequest]) (*connect.Response[scribev1.SaveAnnotationPageResponse], error) {
+func (h *Handler) SaveAnnotationPage(ctx context.Context, req *scribev1.SaveAnnotationPageRequest) (*scribev1.SaveAnnotationPageResponse, error) {
 	page, metric, err := h.saveCanonicalAnnotationPage(
 		ctx,
-		req.Msg.GetItemImageId(),
-		req.Msg.GetAnnotationPageJson(),
-		req.Msg.GetExpectedRevision(),
+		req.GetItemImageId(),
+		req.GetAnnotationPageJson(),
+		req.GetExpectedRevision(),
 	)
 	if err != nil {
 		return nil, annotationConnectError(err)
 	}
-	return connect.NewResponse(&scribev1.SaveAnnotationPageResponse{
+	return &scribev1.SaveAnnotationPageResponse{
 		ItemImageId:        page.ItemImageID,
 		CanvasUri:          page.CanvasURI,
 		AnnotationPageJson: page.Payload,
 		Revision:           page.Revision,
 		UpdatedAt:          page.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		Correction:         annotationCorrectionMetricResponse(metric),
-	}), nil
+	}, nil
 }
 
 func annotationConnectError(err error) error {
 	switch {
 	case errors.Is(err, store.ErrAnnotationRevisionConflict):
-		return connect.NewError(connect.CodeAborted, err)
+		return connect.NewError(connect.CodeAborted, err.Error()).WithCause(err)
 	case errors.Is(err, store.ErrAnnotationPageNotFound), errors.Is(err, store.ErrAnnotationPageResource):
-		return connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation page not found"))
+		return connect.Errorf(connect.CodeNotFound, "annotation page not found")
 	case errors.Is(err, errInvalidAnnotationPage):
-		return connect.NewError(connect.CodeInvalidArgument, err)
+		return connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	default:
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("annotation persistence failed"))
+		return connect.Errorf(connect.CodeInternal, "annotation persistence failed")
 	}
 }
 
-func (h *Handler) SearchAnnotations(ctx context.Context, req *connect.Request[scribev1.SearchAnnotationsRequest]) (*connect.Response[scribev1.SearchAnnotationsResponse], error) {
-	canvasURI := strings.TrimSpace(req.Msg.GetCanvasUri())
-	itemImageID := req.Msg.GetItemImageId()
+func (h *Handler) SearchAnnotations(ctx context.Context, req *scribev1.SearchAnnotationsRequest) (*scribev1.SearchAnnotationsResponse, error) {
+	canvasURI := strings.TrimSpace(req.GetCanvasUri())
+	itemImageID := req.GetItemImageId()
 	page, err := h.currentAnnotationPage(ctx, itemImageID)
 	if err != nil {
 		return nil, annotationConnectError(err)
 	}
 	if canvasURI != "" && canvasURI != page.CanvasURI {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation page not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "annotation page not found")
 	}
 	payload := page.Payload
-	granularity := annotationGranularityName(req.Msg.GetGranularity())
+	granularity := annotationGranularityName(req.GetGranularity())
 	if granularity != "all" {
 		var document map[string]any
 		if err := iiif.DecodeJSON([]byte(page.Payload), &document); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
 		items, _ := document["items"].([]any)
 		document["items"] = filterAnnotationsByGranularity(items, granularity)
 		filtered, err := json.Marshal(document)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
 		payload = string(filtered)
 	}
-	return connect.NewResponse(&scribev1.SearchAnnotationsResponse{
+	return &scribev1.SearchAnnotationsResponse{
 		AnnotationPageJson: payload,
 		Revision:           page.Revision,
-	}), nil
+	}, nil
 }
 
 func annotationGranularityName(value scribev1.AnnotationGranularity) string {
@@ -133,84 +133,84 @@ func filterAnnotationsByGranularity(items []any, granularity string) []any {
 	return filtered
 }
 
-func (h *Handler) GetAnnotation(ctx context.Context, req *connect.Request[scribev1.GetAnnotationRequest]) (*connect.Response[scribev1.GetAnnotationResponse], error) {
-	itemImageID := req.Msg.GetItemImageId()
+func (h *Handler) GetAnnotation(ctx context.Context, req *scribev1.GetAnnotationRequest) (*scribev1.GetAnnotationResponse, error) {
+	itemImageID := req.GetItemImageId()
 	if _, err := h.itemImageForRequest(ctx, itemImageID); err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "annotation not found")
 	}
-	id := strings.TrimSpace(req.Msg.GetId())
+	id := strings.TrimSpace(req.GetId())
 	if id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("id is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "id is required")
 	}
 	entry, err := h.annotations.GetIndexEntry(ctx, h.currentWorkspaceID(ctx), id)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "annotation not found")
 	}
 	if entry.ItemImageID != itemImageID {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "annotation not found")
 	}
-	return connect.NewResponse(&scribev1.GetAnnotationResponse{AnnotationJson: entry.Payload}), nil
+	return &scribev1.GetAnnotationResponse{AnnotationJson: entry.Payload}, nil
 }
 
-func (h *Handler) SplitLineIntoWords(ctx context.Context, req *connect.Request[scribev1.SplitLineIntoWordsRequest]) (*connect.Response[scribev1.SplitLineIntoWordsResponse], error) {
-	transformed, err := h.transformAnnotationDraft(ctx, req.Msg.GetItemImageId(), req.Msg.GetAnnotationPageJson(), func(draft *annotationDraft) error {
-		return splitDraftLineIntoWords(draft, req.Msg.GetSelectedAnnotationId(), req.Msg.GetWords())
+func (h *Handler) SplitLineIntoWords(ctx context.Context, req *scribev1.SplitLineIntoWordsRequest) (*scribev1.SplitLineIntoWordsResponse, error) {
+	transformed, err := h.transformAnnotationDraft(ctx, req.GetItemImageId(), req.GetAnnotationPageJson(), func(draft *annotationDraft) error {
+		return splitDraftLineIntoWords(draft, req.GetSelectedAnnotationId(), req.GetWords())
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&scribev1.SplitLineIntoWordsResponse{AnnotationPageJson: transformed}), nil
+	return &scribev1.SplitLineIntoWordsResponse{AnnotationPageJson: transformed}, nil
 }
 
-func (h *Handler) SplitPageIntoWords(ctx context.Context, req *connect.Request[scribev1.SplitPageIntoWordsRequest]) (*connect.Response[scribev1.SplitPageIntoWordsResponse], error) {
-	transformed, err := h.transformAnnotationDraft(ctx, req.Msg.GetItemImageId(), req.Msg.GetAnnotationPageJson(), splitDraftPageIntoWords)
+func (h *Handler) SplitPageIntoWords(ctx context.Context, req *scribev1.SplitPageIntoWordsRequest) (*scribev1.SplitPageIntoWordsResponse, error) {
+	transformed, err := h.transformAnnotationDraft(ctx, req.GetItemImageId(), req.GetAnnotationPageJson(), splitDraftPageIntoWords)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&scribev1.SplitPageIntoWordsResponse{AnnotationPageJson: transformed}), nil
+	return &scribev1.SplitPageIntoWordsResponse{AnnotationPageJson: transformed}, nil
 }
 
-func (h *Handler) SplitLineIntoTwoLines(ctx context.Context, req *connect.Request[scribev1.SplitLineIntoTwoLinesRequest]) (*connect.Response[scribev1.SplitLineIntoTwoLinesResponse], error) {
-	transformed, err := h.transformAnnotationDraft(ctx, req.Msg.GetItemImageId(), req.Msg.GetAnnotationPageJson(), func(draft *annotationDraft) error {
-		return splitDraftLineIntoTwo(draft, req.Msg.GetSelectedAnnotationId(), int(req.Msg.GetSplitAtWord()))
+func (h *Handler) SplitLineIntoTwoLines(ctx context.Context, req *scribev1.SplitLineIntoTwoLinesRequest) (*scribev1.SplitLineIntoTwoLinesResponse, error) {
+	transformed, err := h.transformAnnotationDraft(ctx, req.GetItemImageId(), req.GetAnnotationPageJson(), func(draft *annotationDraft) error {
+		return splitDraftLineIntoTwo(draft, req.GetSelectedAnnotationId(), int(req.GetSplitAtWord()))
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&scribev1.SplitLineIntoTwoLinesResponse{AnnotationPageJson: transformed}), nil
+	return &scribev1.SplitLineIntoTwoLinesResponse{AnnotationPageJson: transformed}, nil
 }
 
-func (h *Handler) JoinLines(ctx context.Context, req *connect.Request[scribev1.JoinLinesRequest]) (*connect.Response[scribev1.JoinLinesResponse], error) {
-	transformed, err := h.transformAnnotationDraft(ctx, req.Msg.GetItemImageId(), req.Msg.GetAnnotationPageJson(), func(draft *annotationDraft) error {
-		return joinDraftLines(draft, req.Msg.GetSelectedAnnotationIds())
+func (h *Handler) JoinLines(ctx context.Context, req *scribev1.JoinLinesRequest) (*scribev1.JoinLinesResponse, error) {
+	transformed, err := h.transformAnnotationDraft(ctx, req.GetItemImageId(), req.GetAnnotationPageJson(), func(draft *annotationDraft) error {
+		return joinDraftLines(draft, req.GetSelectedAnnotationIds())
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&scribev1.JoinLinesResponse{AnnotationPageJson: transformed}), nil
+	return &scribev1.JoinLinesResponse{AnnotationPageJson: transformed}, nil
 }
 
-func (h *Handler) JoinWordsIntoLine(ctx context.Context, req *connect.Request[scribev1.JoinWordsIntoLineRequest]) (*connect.Response[scribev1.JoinWordsIntoLineResponse], error) {
-	transformed, err := h.transformAnnotationDraft(ctx, req.Msg.GetItemImageId(), req.Msg.GetAnnotationPageJson(), func(draft *annotationDraft) error {
-		return joinDraftWordsIntoLine(draft, req.Msg.GetSelectedAnnotationIds())
+func (h *Handler) JoinWordsIntoLine(ctx context.Context, req *scribev1.JoinWordsIntoLineRequest) (*scribev1.JoinWordsIntoLineResponse, error) {
+	transformed, err := h.transformAnnotationDraft(ctx, req.GetItemImageId(), req.GetAnnotationPageJson(), func(draft *annotationDraft) error {
+		return joinDraftWordsIntoLine(draft, req.GetSelectedAnnotationIds())
 	})
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&scribev1.JoinWordsIntoLineResponse{AnnotationPageJson: transformed}), nil
+	return &scribev1.JoinWordsIntoLineResponse{AnnotationPageJson: transformed}, nil
 }
 
 func (h *Handler) transformAnnotationDraft(ctx context.Context, itemImageID uint64, raw string, transform func(*annotationDraft) error) (string, error) {
 	if h.items == nil {
-		return "", connect.NewError(connect.CodeInternal, fmt.Errorf("annotation repository is not configured"))
+		return "", connect.Errorf(connect.CodeInternal, "annotation repository is not configured")
 	}
 	image, err := h.itemImageForRequest(ctx, itemImageID)
 	if err != nil {
-		return "", connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation page not found"))
+		return "", connect.Errorf(connect.CodeNotFound, "annotation page not found")
 	}
 	canvasURI := strings.TrimSpace(image.CanvasURI)
 	if canvasURI == "" {
-		return "", connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation page not found"))
+		return "", connect.Errorf(connect.CodeNotFound, "annotation page not found")
 	}
 	draft, err := decodeAnnotationDraft(raw, iiif.PageIdentity{
 		PublicBaseURL: h.publicAnnotationBaseURL(),
@@ -218,66 +218,66 @@ func (h *Handler) transformAnnotationDraft(ctx context.Context, itemImageID uint
 		CanvasURI:     canvasURI,
 	})
 	if err != nil {
-		return "", connect.NewError(connect.CodeInvalidArgument, err)
+		return "", connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	if err := transform(draft); err != nil {
-		return "", connect.NewError(connect.CodeInvalidArgument, err)
+		return "", connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	transformed, err := draft.encode()
 	if err != nil {
-		return "", connect.NewError(connect.CodeInvalidArgument, err)
+		return "", connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	return transformed, nil
 }
 
-func (h *Handler) ExportAnnotationPage(ctx context.Context, req *connect.Request[scribev1.ExportAnnotationPageRequest]) (*connect.Response[scribev1.ExportAnnotationPageResponse], error) {
-	itemImageID := req.Msg.GetItemImageId()
-	format, err := annotationExportFormatName(req.Msg.GetFormat())
+func (h *Handler) ExportAnnotationPage(ctx context.Context, req *scribev1.ExportAnnotationPageRequest) (*scribev1.ExportAnnotationPageResponse, error) {
+	itemImageID := req.GetItemImageId()
+	format, err := annotationExportFormatName(req.GetFormat())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, maxPreparedExportDuration)
 	defer cancel()
 	release, allowed := h.exportLimiter.TryAcquire(fmt.Sprintf("workspace:%d", h.currentWorkspaceID(ctx)))
 	if !allowed {
-		return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("export concurrency limit exceeded"))
+		return nil, connect.Errorf(connect.CodeResourceExhausted, "export concurrency limit exceeded")
 	}
 	defer release()
-	exportPage, err := h.loadCanonicalExportPage(ctx, itemImageID, req.Msg.GetExpectedRevision())
+	exportPage, err := h.loadCanonicalExportPage(ctx, itemImageID, req.GetExpectedRevision())
 	if err != nil {
 		switch {
 		case errors.Is(err, context.Canceled):
-			return nil, connect.NewError(connect.CodeCanceled, fmt.Errorf("canonical annotation export canceled"))
+			return nil, connect.Errorf(connect.CodeCanceled, "canonical annotation export canceled")
 		case errors.Is(err, context.DeadlineExceeded):
-			return nil, connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("canonical annotation export timed out"))
+			return nil, connect.Errorf(connect.CodeDeadlineExceeded, "canonical annotation export timed out")
 		case errors.Is(err, errItemExportRevisionConflict):
-			return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("canonical annotations changed; reload before exporting"))
+			return nil, connect.Errorf(connect.CodeAborted, "canonical annotations changed; reload before exporting")
 		case errors.Is(err, store.ErrAnnotationPageNotFound):
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation page not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "annotation page not found")
 		default:
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("canonical annotation export failed"))
+			return nil, connect.Errorf(connect.CodeInternal, "canonical annotation export failed")
 		}
 	}
 	content, mediaType, extension, err := renderAnnotationExport(exportPage.Page.Payload, int(exportPage.Image.Width), int(exportPage.Image.Height), format)
 	if err != nil {
 		if errors.Is(err, errItemExportOutputLimit) {
-			return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("canonical annotation export exceeds the output-byte limit"))
+			return nil, connect.Errorf(connect.CodeResourceExhausted, "canonical annotation export exceeds the output-byte limit")
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("canonical annotation export failed"))
+		return nil, connect.Errorf(connect.CodeInternal, "canonical annotation export failed")
 	}
 	if err := ctx.Err(); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("canonical annotation export timed out"))
+			return nil, connect.Errorf(connect.CodeDeadlineExceeded, "canonical annotation export timed out")
 		}
-		return nil, connect.NewError(connect.CodeCanceled, fmt.Errorf("canonical annotation export canceled"))
+		return nil, connect.Errorf(connect.CodeCanceled, "canonical annotation export canceled")
 	}
-	return connect.NewResponse(&scribev1.ExportAnnotationPageResponse{
+	return &scribev1.ExportAnnotationPageResponse{
 		ItemImageId: itemImageID,
 		Revision:    exportPage.Page.Revision,
 		MediaType:   mediaType,
 		Content:     []byte(content),
 		Filename:    fmt.Sprintf("item-%d.%s", itemImageID, extension),
-	}), nil
+	}, nil
 }
 
 func annotationExportFormatName(format scribev1.AnnotationExportFormat) (string, error) {
@@ -295,43 +295,43 @@ func annotationExportFormatName(format scribev1.AnnotationExportFormat) (string,
 	}
 }
 
-func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scribev1.EnrichAnnotationRequest]) (*connect.Response[scribev1.EnrichAnnotationResponse], error) {
-	itemImageID := req.Msg.GetItemImageId()
+func (h *Handler) EnrichAnnotation(ctx context.Context, req *scribev1.EnrichAnnotationRequest) (*scribev1.EnrichAnnotationResponse, error) {
+	itemImageID := req.GetItemImageId()
 	if itemImageID == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_image_id is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "item_image_id is required")
 	}
-	annotationJSON := strings.TrimSpace(req.Msg.GetAnnotationJson())
+	annotationJSON := strings.TrimSpace(req.GetAnnotationJson())
 	if annotationJSON == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("annotation_json is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "annotation_json is required")
 	}
-	scope := strings.ToLower(strings.TrimSpace(req.Msg.GetScope()))
+	scope := strings.ToLower(strings.TrimSpace(req.GetScope()))
 	if scope == "" {
 		scope = "line"
 	}
 	switch scope {
 	case "page":
 		if err := h.authorizeAnnotationPageJSON(ctx, itemImageID, annotationJSON); err != nil {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation page not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "annotation page not found")
 		}
 	case "line":
 		if err := h.authorizeAnnotationJSON(ctx, itemImageID, annotationJSON); err != nil {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("annotation not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "annotation not found")
 		}
 	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("scope must be line or page"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "scope must be line or page")
 	}
 
 	var processingContext store.Context
-	if req.Msg.GetContextId() > 0 {
-		c, err := h.contextForRead(ctx, req.Msg.GetContextId())
+	if req.GetContextId() > 0 {
+		c, err := h.contextForRead(ctx, req.GetContextId())
 		if err != nil {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "context not found")
 		}
 		processingContext = c
 	} else {
 		c, _, err := h.contexts.ResolveForWorkspace(ctx, h.currentWorkspaceID(ctx), nil)
 		if err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve context: %w", err))
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve context: %w", err).Error()).WithCause(err)
 		}
 		processingContext = c
 	}
@@ -340,11 +340,11 @@ func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scr
 		providerregistry.New(config.Get().Config),
 	)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("processing context is not executable"))
+		return nil, connect.Errorf(connect.CodeFailedPrecondition, "processing context is not executable")
 	}
 
 	if processingContext.TranscriptionProvider == "kraken" {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("kraken contexts require whole-page reprocessing"))
+		return nil, connect.Errorf(connect.CodeFailedPrecondition, "kraken contexts require whole-page reprocessing")
 	}
 
 	releaseProcessing, err := h.acquireTranscriptionProcessingSlot(ctx, h.currentWorkspaceID(ctx), processingContext)
@@ -363,25 +363,25 @@ func (h *Handler) EnrichAnnotation(ctx context.Context, req *connect.Request[scr
 	if enrichErr != nil {
 		return nil, annotationEnrichmentConnectError(enrichErr)
 	}
-	return connect.NewResponse(&scribev1.EnrichAnnotationResponse{AnnotationJson: enriched}), nil
+	return &scribev1.EnrichAnnotationResponse{AnnotationJson: enriched}, nil
 }
 
 func annotationEnrichmentConnectError(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):
-		return connect.NewError(connect.CodeCanceled, fmt.Errorf("annotation enrichment canceled"))
+		return connect.Errorf(connect.CodeCanceled, "annotation enrichment canceled")
 	case errors.Is(err, context.DeadlineExceeded):
-		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("annotation enrichment deadline exceeded"))
+		return connect.Errorf(connect.CodeDeadlineExceeded, "annotation enrichment deadline exceeded")
 	case errors.Is(err, errInvalidAnnotationEnrichmentInput):
-		return connect.NewError(connect.CodeInvalidArgument, err)
+		return connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	case errors.Is(err, errEmptyAnnotationTranscription):
-		return connect.NewError(connect.CodeFailedPrecondition, errEmptyAnnotationTranscription)
+		return connect.NewError(connect.CodeFailedPrecondition, errEmptyAnnotationTranscription.Error()).WithCause(errEmptyAnnotationTranscription)
 	case errors.Is(err, hocr.ErrPermanentProviderRequest):
-		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("transcription provider rejected the configured credential or context"))
+		return connect.Errorf(connect.CodeFailedPrecondition, "transcription provider rejected the configured credential or context")
 	case errors.Is(err, hocr.ErrRetryableProviderRequest):
-		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("transcription provider is temporarily unavailable"))
+		return connect.Errorf(connect.CodeUnavailable, "transcription provider is temporarily unavailable")
 	default:
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("annotation enrichment failed"))
+		return connect.Errorf(connect.CodeInternal, "annotation enrichment failed")
 	}
 }
 

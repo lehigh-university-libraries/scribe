@@ -187,7 +187,7 @@ func TestGeminiThinkingPolicyIsServerOwned(t *testing.T) {
 			t.Fatal(err)
 		}
 		cfg := payload["generationConfig"].(map[string]any)
-		if cfg["thinkingConfig"].(map[string]any)["thinkingLevel"] != "minimal" || cfg["maxOutputTokens"] != float64(2048) {
+		if cfg["thinkingConfig"].(map[string]any)["thinkingLevel"] != "MINIMAL" || cfg["maxOutputTokens"] != float64(2048) {
 			t.Fatalf("config=%#v", cfg)
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"café"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":3,"thoughtsTokenCount":12}}`)), Header: make(http.Header)}, nil

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/database"
 	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
@@ -550,13 +550,13 @@ func TestManifestIngestLoadsHOCRAnnotations(t *testing.T) {
 
 	// The editor loads its draft Manifest through the typed application API;
 	// Triplet is the only HTTP server for published Presentation resources.
-	editorManifest, err := h.GetEditorManifest(context.Background(), connect.NewRequest(&scribev1.GetEditorManifestRequest{
+	editorManifest, err := h.GetEditorManifest(context.Background(), &scribev1.GetEditorManifestRequest{
 		ItemImageId: numericItemImageID,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("GetEditorManifest: %v", err)
 	}
-	itemManifestPayload := []byte(editorManifest.Msg.GetManifestJson())
+	itemManifestPayload := []byte(editorManifest.GetManifestJson())
 	if err := iiif.ValidateManifest(itemManifestPayload); err != nil {
 		t.Fatalf("item manifest failed libops IIIF validation: %v", err)
 	}
@@ -805,9 +805,9 @@ func TestGetAnnotationPageDoesNotInitializeMissingCanonicalPage(t *testing.T) {
 		t.Fatalf("create ocr run: %v", err)
 	}
 
-	if _, err := h.GetAnnotationPage(context.Background(), connect.NewRequest(&scribev1.GetAnnotationPageRequest{
+	if _, err := h.GetAnnotationPage(context.Background(), &scribev1.GetAnnotationPageRequest{
 		ItemImageId: img.ID,
-	})); connect.CodeOf(err) != connect.CodeNotFound {
+	}); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("GetAnnotationPage error = %v; want not_found", err)
 	}
 
@@ -873,13 +873,13 @@ func TestGetEditorManifestDoesNotOverwriteExistingCanvasURI(t *testing.T) {
 		t.Fatalf("initialize canonical page: %v", err)
 	}
 
-	editorManifest, err := h.GetEditorManifest(context.Background(), connect.NewRequest(&scribev1.GetEditorManifestRequest{
+	editorManifest, err := h.GetEditorManifest(context.Background(), &scribev1.GetEditorManifestRequest{
 		ItemImageId: img.ID,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("GetEditorManifest: %v", err)
 	}
-	if err := iiif.ValidateManifest([]byte(editorManifest.Msg.GetManifestJson())); err != nil {
+	if err := iiif.ValidateManifest([]byte(editorManifest.GetManifestJson())); err != nil {
 		t.Fatalf("editor Manifest failed IIIF validation: %v", err)
 	}
 
@@ -1113,15 +1113,15 @@ func TestSearchAnnotationsUsesTypedGranularityAndPreservesCanvasQuery(t *testing
 	if len(page.Items) != 5 {
 		t.Fatalf("search returned %d items; want 5 when requesting all granularities", len(page.Items))
 	}
-	wordResponse, err := h.SearchAnnotations(context.Background(), connect.NewRequest(&scribev1.SearchAnnotationsRequest{
+	wordResponse, err := h.SearchAnnotations(context.Background(), &scribev1.SearchAnnotationsRequest{
 		ItemImageId: img.ID,
 		CanvasUri:   canvasURI,
 		Granularity: scribev1.AnnotationGranularity_ANNOTATION_GRANULARITY_WORD,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("typed word SearchAnnotations: %v", err)
 	}
-	if err := json.Unmarshal([]byte(wordResponse.Msg.GetAnnotationPageJson()), &page); err != nil {
+	if err := json.Unmarshal([]byte(wordResponse.GetAnnotationPageJson()), &page); err != nil {
 		t.Fatalf("decode typed word search page: %v", err)
 	}
 	if len(page.Items) != 3 {
@@ -1268,14 +1268,14 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 	}
 	saveAnnotationText := func(t *testing.T, annotationID, text string) {
 		t.Helper()
-		current, err := h.GetAnnotationPage(context.Background(), connect.NewRequest(&scribev1.GetAnnotationPageRequest{
+		current, err := h.GetAnnotationPage(context.Background(), &scribev1.GetAnnotationPageRequest{
 			ItemImageId: parsedItemImageID,
-		}))
+		})
 		if err != nil {
 			t.Fatalf("GetAnnotationPage: %v", err)
 		}
 		var page map[string]any
-		if err := json.Unmarshal([]byte(current.Msg.GetAnnotationPageJson()), &page); err != nil {
+		if err := json.Unmarshal([]byte(current.GetAnnotationPageJson()), &page); err != nil {
 			t.Fatalf("decode canonical annotation page: %v", err)
 		}
 		items, _ := page["items"].([]any)
@@ -1299,11 +1299,11 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 		if err != nil {
 			t.Fatalf("encode canonical annotation page: %v", err)
 		}
-		if _, err := h.SaveAnnotationPage(context.Background(), connect.NewRequest(&scribev1.SaveAnnotationPageRequest{
+		if _, err := h.SaveAnnotationPage(context.Background(), &scribev1.SaveAnnotationPageRequest{
 			ItemImageId:        parsedItemImageID,
 			AnnotationPageJson: string(payload),
-			ExpectedRevision:   current.Msg.GetRevision(),
-		})); err != nil {
+			ExpectedRevision:   current.GetRevision(),
+		}); err != nil {
 			t.Fatalf("SaveAnnotationPage: %v", err)
 		}
 	}
@@ -1382,15 +1382,15 @@ func TestAnnotationPageRevisionSaveSemantics(t *testing.T) {
 	}
 
 	// --- Step 5: hOCR is derived from canonical state; provenance is unchanged ---
-	currentForExport, err := h.GetAnnotationPage(context.Background(), connect.NewRequest(&scribev1.GetAnnotationPageRequest{
+	currentForExport, err := h.GetAnnotationPage(context.Background(), &scribev1.GetAnnotationPageRequest{
 		ItemImageId: parsedItemImageID,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("step 5: load canonical revision: %v", err)
 	}
 	hocrURL := fmt.Sprintf(
 		"%s/v1/item-images/%s/annotations/revisions/%d/hocr",
-		appServer.URL, itemImageID, currentForExport.Msg.GetRevision(),
+		appServer.URL, itemImageID, currentForExport.GetRevision(),
 	)
 	hocrResp, err := http.Get(hocrURL)
 	if err != nil {

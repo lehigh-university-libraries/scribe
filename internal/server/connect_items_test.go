@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
@@ -84,19 +84,19 @@ func TestItemNameAndMetadataAdmissionLimits(t *testing.T) {
 	}
 
 	handler := &Handler{}
-	_, err := handler.ImportManifest(context.Background(), connect.NewRequest(&scribev1.ImportManifestRequest{
+	_, err := handler.ImportManifest(context.Background(), &scribev1.ImportManifestRequest{
 		Name:           strings.Repeat("x", maxItemNameRunes+1),
 		ManifestUrl:    "https://iiif.example.test/manifest",
 		IdempotencyKey: "oversized-name",
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("oversized ImportManifest name error = %v, want invalid_argument", err)
 	}
-	_, err = handler.ImportManifest(context.Background(), connect.NewRequest(&scribev1.ImportManifestRequest{
+	_, err = handler.ImportManifest(context.Background(), &scribev1.ImportManifestRequest{
 		ManifestUrl:    "https://iiif.example.test/manifest",
 		Metadata:       "null",
 		IdempotencyKey: "null-metadata",
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("null ImportManifest metadata error = %v, want invalid_argument", err)
 	}

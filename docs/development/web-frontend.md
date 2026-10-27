@@ -9,6 +9,11 @@ operations or canonical IIIF mutations in the shell.
 The existing Tailwind 4 PostCSS plugin handles vendor prefixing; no separate
 Autoprefixer pass is needed.
 
+The editor uses Mirador 4.3 with MUI 9. Vite 8's Rolldown configuration assigns
+vendor chunks explicitly without recursively pulling their dependencies into
+the Mirador chunk; existing bundle budgets remain enforced. Vitest 5 runs both
+package suites, and the plugin requires MUI 9 from its consumer.
+
 The frontend routes both `/iiif/` image requests and `/presentation/` requests
 to the configured Triplet origin. Image requests preserve the encoded source
 identifier and reader credentials so Triplet can fetch authorized uploads from

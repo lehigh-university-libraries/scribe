@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/providerregistry"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -17,22 +17,22 @@ import (
 
 // --- ContextService Connect handlers ---
 
-func (h *Handler) ListContexts(ctx context.Context, req *connect.Request[scribev1.ListContextsRequest]) (*connect.Response[scribev1.ListContextsResponse], error) {
+func (h *Handler) ListContexts(ctx context.Context, req *scribev1.ListContextsRequest) (*scribev1.ListContextsResponse, error) {
 	if h.itemPageTokens == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("context pagination is not configured"))
+		return nil, connect.Errorf(connect.CodeInternal, "context pagination is not configured")
 	}
 	workspaceID := h.currentWorkspaceID(ctx)
-	pageSize, cursor, err := normalizeContextPageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), workspaceID, req.Msg.GetSystemOnly(), h.itemPageTokens)
+	pageSize, cursor, err := normalizeContextPageRequest(req.GetPageSize(), req.GetPageToken(), workspaceID, req.GetSystemOnly(), h.itemPageTokens)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	page, err := h.contexts.ListPageForWorkspace(ctx, workspaceID, req.Msg.GetSystemOnly(), pageSize, cursor)
+	page, err := h.contexts.ListPageForWorkspace(ctx, workspaceID, req.GetSystemOnly(), pageSize, cursor)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-	nextPageToken, err := h.itemPageTokens.encodeContextPage(page.NextCursor, workspaceID, req.Msg.GetSystemOnly())
+	nextPageToken, err := h.itemPageTokens.encodeContextPage(page.NextCursor, workspaceID, req.GetSystemOnly())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("encode context page token"))
+		return nil, connect.Errorf(connect.CodeInternal, "encode context page token")
 	}
 	resp := &scribev1.ListContextsResponse{
 		Contexts:      make([]*scribev1.Context, 0, len(page.Contexts)),
@@ -41,21 +41,21 @@ func (h *Handler) ListContexts(ctx context.Context, req *connect.Request[scribev
 	for _, c := range page.Contexts {
 		resp.Contexts = append(resp.Contexts, storeContextToProto(c))
 	}
-	return connect.NewResponse(resp), nil
+	return resp, nil
 }
 
-func (h *Handler) GetContext(ctx context.Context, req *connect.Request[scribev1.GetContextRequest]) (*connect.Response[scribev1.GetContextResponse], error) {
-	c, err := h.contextForRead(ctx, req.Msg.GetContextId())
+func (h *Handler) GetContext(ctx context.Context, req *scribev1.GetContextRequest) (*scribev1.GetContextResponse, error) {
+	c, err := h.contextForRead(ctx, req.GetContextId())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "context not found")
 	}
-	return connect.NewResponse(&scribev1.GetContextResponse{Context: storeContextToProto(c)}), nil
+	return &scribev1.GetContextResponse{Context: storeContextToProto(c)}, nil
 }
 
-func (h *Handler) CreateContext(ctx context.Context, req *connect.Request[scribev1.CreateContextRequest]) (*connect.Response[scribev1.CreateContextResponse], error) {
-	contextValue := protoContextToStore(req.Msg.GetContext())
+func (h *Handler) CreateContext(ctx context.Context, req *scribev1.CreateContextRequest) (*scribev1.CreateContextResponse, error) {
+	contextValue := protoContextToStore(req.GetContext())
 	if err := validateContextSelection(contextValue); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	userID := h.currentUserID(ctx)
 	workspaceID := h.currentWorkspaceID(ctx)
@@ -63,49 +63,49 @@ func (h *Handler) CreateContext(ctx context.Context, req *connect.Request[scribe
 	contextValue.WorkspaceID = &workspaceID
 	c, err := h.contexts.Create(ctx, contextValue)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-	return connect.NewResponse(&scribev1.CreateContextResponse{Context: storeContextToProto(c)}), nil
+	return &scribev1.CreateContextResponse{Context: storeContextToProto(c)}, nil
 }
 
-func (h *Handler) UpdateContext(ctx context.Context, req *connect.Request[scribev1.UpdateContextRequest]) (*connect.Response[scribev1.UpdateContextResponse], error) {
-	contextValue := protoContextToStore(req.Msg.GetContext())
+func (h *Handler) UpdateContext(ctx context.Context, req *scribev1.UpdateContextRequest) (*scribev1.UpdateContextResponse, error) {
+	contextValue := protoContextToStore(req.GetContext())
 	if err := validateContextSelection(contextValue); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	c, err := h.contexts.UpdateForWorkspace(ctx, contextValue, h.currentWorkspaceID(ctx), h.currentUserID(ctx))
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-	return connect.NewResponse(&scribev1.UpdateContextResponse{Context: storeContextToProto(c)}), nil
+	return &scribev1.UpdateContextResponse{Context: storeContextToProto(c)}, nil
 }
 
-func (h *Handler) DeleteContext(ctx context.Context, req *connect.Request[scribev1.DeleteContextRequest]) (*connect.Response[scribev1.DeleteContextResponse], error) {
-	if err := h.contexts.DeleteForWorkspace(ctx, req.Msg.GetContextId(), h.currentWorkspaceID(ctx)); err != nil {
+func (h *Handler) DeleteContext(ctx context.Context, req *scribev1.DeleteContextRequest) (*scribev1.DeleteContextResponse, error) {
+	if err := h.contexts.DeleteForWorkspace(ctx, req.GetContextId(), h.currentWorkspaceID(ctx)); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "context not found")
 		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-	return connect.NewResponse(&scribev1.DeleteContextResponse{}), nil
+	return &scribev1.DeleteContextResponse{}, nil
 }
 
-func (h *Handler) ListSelectionRules(ctx context.Context, req *connect.Request[scribev1.ListSelectionRulesRequest]) (*connect.Response[scribev1.ListSelectionRulesResponse], error) {
+func (h *Handler) ListSelectionRules(ctx context.Context, req *scribev1.ListSelectionRulesRequest) (*scribev1.ListSelectionRulesResponse, error) {
 	if h.itemPageTokens == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("selection rule pagination is not configured"))
+		return nil, connect.Errorf(connect.CodeInternal, "selection rule pagination is not configured")
 	}
 	workspaceID := h.currentWorkspaceID(ctx)
-	pageSize, cursor, err := normalizeSelectionRulePageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), workspaceID, req.Msg.GetContextId(), h.itemPageTokens)
+	pageSize, cursor, err := normalizeSelectionRulePageRequest(req.GetPageSize(), req.GetPageToken(), workspaceID, req.GetContextId(), h.itemPageTokens)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	page, err := h.contexts.ListRulePageForWorkspace(ctx, workspaceID, req.Msg.GetContextId(), pageSize, cursor)
+	page, err := h.contexts.ListRulePageForWorkspace(ctx, workspaceID, req.GetContextId(), pageSize, cursor)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-	nextPageToken, err := h.itemPageTokens.encodeSelectionRulePage(page.NextCursor, workspaceID, req.Msg.GetContextId())
+	nextPageToken, err := h.itemPageTokens.encodeSelectionRulePage(page.NextCursor, workspaceID, req.GetContextId())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("encode selection rule page token"))
+		return nil, connect.Errorf(connect.CodeInternal, "encode selection rule page token")
 	}
 	resp := &scribev1.ListSelectionRulesResponse{
 		Rules:         make([]*scribev1.ContextSelectionRule, 0, len(page.Rules)),
@@ -114,46 +114,46 @@ func (h *Handler) ListSelectionRules(ctx context.Context, req *connect.Request[s
 	for _, r := range page.Rules {
 		resp.Rules = append(resp.Rules, storeRuleToProto(r))
 	}
-	return connect.NewResponse(resp), nil
+	return resp, nil
 }
 
-func (h *Handler) CreateSelectionRule(ctx context.Context, req *connect.Request[scribev1.CreateSelectionRuleRequest]) (*connect.Response[scribev1.CreateSelectionRuleResponse], error) {
-	r, err := h.contexts.CreateRuleForWorkspace(ctx, h.currentWorkspaceID(ctx), protoRuleToStore(req.Msg.GetRule()))
+func (h *Handler) CreateSelectionRule(ctx context.Context, req *scribev1.CreateSelectionRuleRequest) (*scribev1.CreateSelectionRuleResponse, error) {
+	r, err := h.contexts.CreateRuleForWorkspace(ctx, h.currentWorkspaceID(ctx), protoRuleToStore(req.GetRule()))
 	if err != nil {
 		if errors.Is(err, store.ErrSelectionRuleLimit) {
-			return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("workspace selection rule limit reached"))
+			return nil, connect.Errorf(connect.CodeResourceExhausted, "workspace selection rule limit reached")
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "context not found")
 		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-	return connect.NewResponse(&scribev1.CreateSelectionRuleResponse{Rule: storeRuleToProto(r)}), nil
+	return &scribev1.CreateSelectionRuleResponse{Rule: storeRuleToProto(r)}, nil
 }
 
-func (h *Handler) DeleteSelectionRule(ctx context.Context, req *connect.Request[scribev1.DeleteSelectionRuleRequest]) (*connect.Response[scribev1.DeleteSelectionRuleResponse], error) {
-	if err := h.contexts.DeleteRuleForWorkspace(ctx, h.currentWorkspaceID(ctx), req.Msg.GetRuleId()); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+func (h *Handler) DeleteSelectionRule(ctx context.Context, req *scribev1.DeleteSelectionRuleRequest) (*scribev1.DeleteSelectionRuleResponse, error) {
+	if err := h.contexts.DeleteRuleForWorkspace(ctx, h.currentWorkspaceID(ctx), req.GetRuleId()); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-	return connect.NewResponse(&scribev1.DeleteSelectionRuleResponse{}), nil
+	return &scribev1.DeleteSelectionRuleResponse{}, nil
 }
 
-func (h *Handler) ResolveContext(ctx context.Context, req *connect.Request[scribev1.ResolveContextRequest]) (*connect.Response[scribev1.ResolveContextResponse], error) {
-	metadata, err := decodeContextMetadataJSON(req.Msg.GetMetadataJson())
+func (h *Handler) ResolveContext(ctx context.Context, req *scribev1.ResolveContextRequest) (*scribev1.ResolveContextResponse, error) {
+	metadata, err := decodeContextMetadataJSON(req.GetMetadataJson())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("metadata_json must be a bounded flat JSON object"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "metadata_json must be a bounded flat JSON object")
 	}
 	c, isDefault, err := h.contexts.ResolveForWorkspace(ctx, h.currentWorkspaceID(ctx), metadata)
 	if err != nil {
 		return nil, resolveContextConnectError(err)
 	}
-	return connect.NewResponse(&scribev1.ResolveContextResponse{
+	return &scribev1.ResolveContextResponse{
 		Context:   storeContextToProto(c),
 		IsDefault: isDefault,
-	}), nil
+	}, nil
 }
 
-func (h *Handler) GetModelCatalog(ctx context.Context, req *connect.Request[scribev1.GetModelCatalogRequest]) (*connect.Response[scribev1.GetModelCatalogResponse], error) {
+func (h *Handler) GetModelCatalog(ctx context.Context, req *scribev1.GetModelCatalogRequest) (*scribev1.GetModelCatalogResponse, error) {
 	registry := providerregistry.New(config.Get().Config)
 	catalog := registry.Catalog()
 	response := &scribev1.GetModelCatalogResponse{}
@@ -172,33 +172,33 @@ func (h *Handler) GetModelCatalog(ctx context.Context, req *connect.Request[scri
 	for _, model := range catalog.SegmentationModels {
 		response.SegmentationModels = append(response.SegmentationModels, modelDescriptorToProto(model))
 	}
-	return connect.NewResponse(response), nil
+	return response, nil
 }
 
-func (h *Handler) GetContextMetrics(ctx context.Context, req *connect.Request[scribev1.GetContextMetricsRequest]) (*connect.Response[scribev1.GetContextMetricsResponse], error) {
-	contextID := req.Msg.GetContextId()
+func (h *Handler) GetContextMetrics(ctx context.Context, req *scribev1.GetContextMetricsRequest) (*scribev1.GetContextMetricsResponse, error) {
+	contextID := req.GetContextId()
 	if _, err := h.contextForRead(ctx, contextID); err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "context not found")
 	}
 	metric, err := h.ocrRuns.GetContextMetrics(ctx, h.currentWorkspaceID(ctx), contextID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get context metrics: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get context metrics: %w", err).Error()).WithCause(err)
 	}
 	totalRuns, err := uint64FromNonNegativeInt64(metric.TotalRuns)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get context metrics: invalid total run count"))
+		return nil, connect.Errorf(connect.CodeInternal, "get context metrics: invalid total run count")
 	}
 	correctedRuns, err := uint64FromNonNegativeInt64(metric.CorrectedRuns)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("get context metrics: invalid corrected run count"))
+		return nil, connect.Errorf(connect.CodeInternal, "get context metrics: invalid corrected run count")
 	}
-	return connect.NewResponse(&scribev1.GetContextMetricsResponse{Metrics: &scribev1.ContextMetrics{
+	return &scribev1.GetContextMetricsResponse{Metrics: &scribev1.ContextMetrics{
 		InputTokens: metric.InputTokens, OutputTokens: metric.OutputTokens, ThoughtTokens: metric.ThoughtTokens, BilledOutputTokens: metric.OutputTokens + metric.ThoughtTokens,
 		ContextId:              metric.ContextID,
 		TotalRuns:              totalRuns,
 		CorrectedRuns:          correctedRuns,
 		AvgLevenshteinDistance: metric.AvgLevenshteinDistance,
-	}}), nil
+	}}, nil
 }
 
 func modelDescriptorToProto(model providerregistry.Model) *scribev1.ModelDescriptor {

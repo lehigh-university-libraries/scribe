@@ -998,7 +998,6 @@ type Workspace struct {
 	OwnerUserID     sql.NullInt64 `json:"owner_user_id"`
 	Name            string        `json:"name"`
 	Slug            string        `json:"slug"`
-	IsPersonal      bool          `json:"is_personal"`
 	CreatedByUserID sql.NullInt64 `json:"created_by_user_id"`
 	CreatedAt       time.Time     `json:"created_at"`
 	UpdatedAt       time.Time     `json:"updated_at"`

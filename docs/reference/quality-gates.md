@@ -53,8 +53,8 @@ the digest-pinned Python image with an exact `pip-tools` version. Release images
 install it with both `--require-hashes` and `--only-binary=:all:`.
 
 The code-generation, documentation, and security entrypoints also inspect host
-tool versions before execution: Buf 1.72.0, sqlc v1.31.1, Zensical 0.0.65,
-gosec module v2.28.0, and govulncheck module v1.6.0. Fixture tests independently
+tool versions before execution: Buf 1.72.0, sqlc v1.31.1, Zensical 0.0.72,
+gosec module v2.30.0, and govulncheck module v1.6.0. Fixture tests independently
 prove that each unreviewed version fails before the tool can operate.
 
 `make docs-build` is the one strict documentation build path used by local CI,
@@ -106,8 +106,11 @@ files are removed by an exit trap.
 `config/ocr.yaml`: every service is emitted with the right baked model, service
 names match Terraform's, and invalid catalogs (missing artifacts, unknown
 defaults, colliding default filenames, mutable bases, reserved IDs) are
-rejected. `make ocr-build-tags` runs the Kraken installer behavior plus the
-default, `remoteocr`, and `localocr` Go build combinations. The installer proves
+rejected. Ollama image tests execute the model-baking instruction with a stub
+CLI and reject failed pulls, missing models, and mismatched digests. They also
+require the catalog and Dockerfile to pin the same Ollama base image.
+`make ocr-build-tags` runs the Kraken installer behavior plus the default,
+`remoteocr`, and `localocr` Go build combinations. The installer proves
 that a matching model digest is accepted and a tampered artifact is rejected
 before the file can be copied into the runtime image.
 

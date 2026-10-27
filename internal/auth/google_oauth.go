@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lehigh-university-libraries/scribe/internal/servicehttp"
+	"github.com/markbates/goth"
 	"github.com/markbates/goth/providers/google"
 )
 
@@ -127,16 +128,31 @@ func (m *GoogleOAuthManager) CompleteAuth(ctx context.Context, callbackURL, code
 		return GoogleProfile{}, OAuthState{}, fmt.Errorf("fetch google user: %w", err)
 	}
 
+	profile, err := googleProfileFromUser(user)
+	if err != nil {
+		return GoogleProfile{}, OAuthState{}, err
+	}
+	return profile, stateValue, nil
+}
+
+func googleProfileFromUser(user goth.User) (GoogleProfile, error) {
+	verified, _ := user.RawData["verified_email"].(bool)
+	if !verified {
+		return GoogleProfile{}, fmt.Errorf("google account email is not verified")
+	}
 	subject := strings.TrimSpace(user.UserID)
 	if subject == "" {
 		if rawSub, ok := user.RawData["sub"].(string); ok {
 			subject = strings.TrimSpace(rawSub)
 		}
 	}
+	if subject == "" || strings.TrimSpace(user.Email) == "" {
+		return GoogleProfile{}, fmt.Errorf("google account identity is incomplete")
+	}
 	return GoogleProfile{
 		Subject:    subject,
 		Email:      strings.TrimSpace(user.Email),
 		Name:       strings.TrimSpace(user.Name),
 		PictureURL: strings.TrimSpace(user.AvatarURL),
-	}, stateValue, nil
+	}, nil
 }

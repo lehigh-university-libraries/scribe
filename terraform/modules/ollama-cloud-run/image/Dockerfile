@@ -1,4 +1,4 @@
-ARG OLLAMA_BASE_IMAGE=ollama/ollama:0.34.4@sha256:8262851b2846b87c649eddf3e76beb270c52f4d1bc94559f47efde16b0841551
+ARG OLLAMA_BASE_IMAGE=ollama/ollama:0.40.11@sha256:dea72d1e22270fe095b68fdf756d2b489d615643c5a2eaebbc5f569181e322d8
 FROM ${OLLAMA_BASE_IMAGE}
 
 ARG OLLAMA_MODEL
@@ -12,7 +12,8 @@ ENV \
   OLLAMA_MODEL=${OLLAMA_MODEL}
 
 RUN test -n "${OLLAMA_MODEL}" && printf '%s' "${OLLAMA_MODEL_DIGEST}" | grep -Eq '^[0-9a-f]{64}$'
-RUN ollama serve & \
+RUN set -eu; \
+    ollama serve & \
     server_pid=$!; \
     trap 'kill "$server_pid" 2>/dev/null || true' EXIT; \
     sleep 5; \

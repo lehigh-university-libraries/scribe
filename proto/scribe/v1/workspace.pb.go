@@ -104,7 +104,6 @@ type Workspace struct {
 	Id            uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Slug          string                 `protobuf:"bytes,3,opt,name=slug,proto3" json:"slug,omitempty"`
-	IsPersonal    bool                   `protobuf:"varint,4,opt,name=is_personal,json=isPersonal,proto3" json:"is_personal,omitempty"`
 	OwnerUserId   uint64                 `protobuf:"varint,5,opt,name=owner_user_id,json=ownerUserId,proto3" json:"owner_user_id,omitempty"`
 	CreatedAt     string                 `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     string                 `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
@@ -161,13 +160,6 @@ func (x *Workspace) GetSlug() string {
 		return x.Slug
 	}
 	return ""
-}
-
-func (x *Workspace) GetIsPersonal() bool {
-	if x != nil {
-		return x.IsPersonal
-	}
-	return false
 }
 
 func (x *Workspace) GetOwnerUserId() uint64 {
@@ -978,18 +970,16 @@ const file_scribe_v1_workspace_proto_rawDesc = "" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x1f\n" +
 	"\vpicture_url\x18\x04 \x01(\tR\n" +
 	"pictureUrl\x12\x19\n" +
-	"\bis_admin\x18\x05 \x01(\bR\aisAdmin\"\xc6\x01\n" +
+	"\bis_admin\x18\x05 \x01(\bR\aisAdmin\"\xb8\x01\n" +
 	"\tWorkspace\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
-	"\x04slug\x18\x03 \x01(\tR\x04slug\x12\x1f\n" +
-	"\vis_personal\x18\x04 \x01(\bR\n" +
-	"isPersonal\x12\"\n" +
+	"\x04slug\x18\x03 \x01(\tR\x04slug\x12\"\n" +
 	"\rowner_user_id\x18\x05 \x01(\x04R\vownerUserId\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\tR\tupdatedAt\"Y\n" +
+	"updated_at\x18\a \x01(\tR\tupdatedAtJ\x04\b\x04\x10\x05R\vis_personal\"Y\n" +
 	"\x0fWorkspaceAccess\x122\n" +
 	"\tworkspace\x18\x01 \x01(\v2\x14.scribe.v1.WorkspaceR\tworkspace\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\"\x93\x01\n" +

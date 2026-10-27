@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
@@ -27,6 +27,7 @@ import (
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	"github.com/lehigh-university-libraries/scribe/internal/worklimit"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
+	"github.com/lehigh-university-libraries/scribe/proto/scribe/v1/scribev1connect"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -659,8 +660,8 @@ func TestTranscriptionStreamRejectsEleventhWorkspaceConnectionBeforePolling(t *t
 	handler := &Handler{sseLimiter: limiter}
 	err := handler.StreamTranscriptionJob(
 		context.Background(),
-		connect.NewRequest(&scribev1.StreamTranscriptionJobRequest{JobId: 99}),
-		nil,
+		&scribev1.StreamTranscriptionJobRequest{JobId: 99},
+		scribev1connect.TranscriptionServiceStreamTranscriptionJobServerStream{},
 	)
 	if connect.CodeOf(err) != connect.CodeResourceExhausted {
 		t.Fatalf("eleventh stream error = %v, want resource_exhausted", err)
@@ -1233,7 +1234,7 @@ func createTestWorkspace(t *testing.T, db *sql.DB, userID uint64, name string) u
 
 	slug := fmt.Sprintf("%s-%d", store.Slugify(name), time.Now().UnixNano())
 	result, err := tx.ExecContext(ctx,
-		`INSERT INTO workspaces (owner_user_id, name, slug, is_personal, created_by_user_id) VALUES (?, ?, ?, FALSE, ?)`,
+		`INSERT INTO workspaces (owner_user_id, name, slug, created_by_user_id) VALUES (?, ?, ?, ?)`,
 		userID,
 		name,
 		slug,

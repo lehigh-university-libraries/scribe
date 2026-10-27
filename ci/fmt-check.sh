@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
 # renovate: datasource=docker depName=golang
-GO_IMAGE="${GO_IMAGE:-golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414}"
+GO_IMAGE="${GO_IMAGE:-golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c}"
 
 go_files=()
 while IFS= read -r go_file; do

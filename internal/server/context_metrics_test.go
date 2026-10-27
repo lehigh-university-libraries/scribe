@@ -5,7 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
@@ -91,27 +92,27 @@ func TestSaveAnnotationPageCommitsCorrectionMetricWithCanonicalRevision(t *testi
 	appServer := newTenantScopedServer(t, handler, map[string]testTenantIdentity{
 		"workspace": {workspaceID: workspaceID, userID: userID},
 	})
-	client := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
+	client := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 	edited := replaceServerPageText(t, seeded.Payload, "cut")
-	saved, err := client.SaveAnnotationPage(ctx, tenantConnectRequest("workspace", &scribev1.SaveAnnotationPageRequest{
+	saved, err := client.SaveAnnotationPage(tenantConnectContext(ctx, "workspace"), &scribev1.SaveAnnotationPageRequest{
 		ItemImageId:        image.ID,
 		AnnotationPageJson: edited,
 		ExpectedRevision:   seeded.Revision,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("SaveAnnotationPage canonical metric edit: %v", err)
 	}
-	if saved.Msg.GetRevision() != seeded.Revision+1 {
-		t.Fatalf("saved canonical metric revision = %d, want %d", saved.Msg.GetRevision(), seeded.Revision+1)
+	if saved.GetRevision() != seeded.Revision+1 {
+		t.Fatalf("saved canonical metric revision = %d, want %d", saved.GetRevision(), seeded.Revision+1)
 	}
 	corrected, err := runStore.GetByItemImageID(ctx, image.ID)
 	if err != nil {
 		t.Fatalf("load committed canonical metric: %v", err)
 	}
-	if corrected.CanonicalRevision == nil || *corrected.CanonicalRevision != saved.Msg.GetRevision() || corrected.LevenshteinDistance != 1 {
-		t.Fatalf("committed canonical metric = revision %v distance %d, want revision %d distance 1", corrected.CanonicalRevision, corrected.LevenshteinDistance, saved.Msg.GetRevision())
+	if corrected.CanonicalRevision == nil || *corrected.CanonicalRevision != saved.GetRevision() || corrected.LevenshteinDistance != 1 {
+		t.Fatalf("committed canonical metric = revision %v distance %d, want revision %d distance 1", corrected.CanonicalRevision, corrected.LevenshteinDistance, saved.GetRevision())
 	}
-	if got := saved.Msg.GetCorrection(); got == nil || got.GetLevenshteinDistance() != 1 || got.GetBaselineCharacters() != 3 || got.GetCorrectedCharacters() != 3 {
+	if got := saved.GetCorrection(); got == nil || got.GetLevenshteinDistance() != 1 || got.GetBaselineCharacters() != 3 || got.GetCorrectedCharacters() != 3 {
 		t.Fatalf("save response correction metric = %v, want distance 1 over 3 baseline and 3 corrected characters", got)
 	}
 	audits := store.NewProviderCallAuditStore(database)
@@ -130,26 +131,26 @@ func TestSaveAnnotationPageCommitsCorrectionMetricWithCanonicalRevision(t *testi
 		t.Fatalf("committed context metric = %+v, want one corrected run at distance 1", aggregate)
 	}
 
-	_, err = client.SaveAnnotationPage(ctx, tenantConnectRequest("workspace", &scribev1.SaveAnnotationPageRequest{
+	_, err = client.SaveAnnotationPage(tenantConnectContext(ctx, "workspace"), &scribev1.SaveAnnotationPageRequest{
 		ItemImageId:        image.ID,
 		AnnotationPageJson: replaceServerPageText(t, seeded.Payload, "dog"),
 		ExpectedRevision:   seeded.Revision,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeAborted {
 		t.Fatalf("stale SaveAnnotationPage error = %v, want aborted", err)
 	}
-	reloaded, err := client.GetAnnotationPage(ctx, tenantConnectRequest("workspace", &scribev1.GetAnnotationPageRequest{ItemImageId: image.ID}))
+	reloaded, err := client.GetAnnotationPage(tenantConnectContext(ctx, "workspace"), &scribev1.GetAnnotationPageRequest{ItemImageId: image.ID})
 	if err != nil {
 		t.Fatalf("reload canonical page after stale save: %v", err)
 	}
-	if reloaded.Msg.GetRevision() != saved.Msg.GetRevision() || reloaded.Msg.GetAnnotationPageJson() != saved.Msg.GetAnnotationPageJson() {
-		t.Fatalf("stale save changed canonical page: got revision %d, want %d", reloaded.Msg.GetRevision(), saved.Msg.GetRevision())
+	if reloaded.GetRevision() != saved.GetRevision() || reloaded.GetAnnotationPageJson() != saved.GetAnnotationPageJson() {
+		t.Fatalf("stale save changed canonical page: got revision %d, want %d", reloaded.GetRevision(), saved.GetRevision())
 	}
 	afterConflict, err := runStore.GetByItemImageID(ctx, image.ID)
 	if err != nil {
 		t.Fatalf("load canonical metric after stale save: %v", err)
 	}
-	if afterConflict.CanonicalRevision == nil || *afterConflict.CanonicalRevision != saved.Msg.GetRevision() || afterConflict.LevenshteinDistance != 1 {
+	if afterConflict.CanonicalRevision == nil || *afterConflict.CanonicalRevision != saved.GetRevision() || afterConflict.LevenshteinDistance != 1 {
 		t.Fatalf("stale save changed canonical metric = revision %v distance %d", afterConflict.CanonicalRevision, afterConflict.LevenshteinDistance)
 	}
 }
@@ -266,13 +267,13 @@ func TestGetContextMetricsScopesSharedSystemContextToWorkspace(t *testing.T) {
 		UserID:        firstUserID,
 		WorkspaceID:   firstWorkspaceID,
 	})
-	response, err := handler.GetContextMetrics(requestContext, connect.NewRequest(&scribev1.GetContextMetricsRequest{
+	response, err := handler.GetContextMetrics(requestContext, &scribev1.GetContextMetricsRequest{
 		ContextId: systemContext.ID,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("GetContextMetrics handler: %v", err)
 	}
-	got := response.Msg.GetMetrics()
+	got := response.GetMetrics()
 	if got.GetTotalRuns() != 1 || got.GetCorrectedRuns() != 1 || got.GetAvgLevenshteinDistance() != 7 {
 		t.Fatalf("handler metrics = %#v; want only first workspace", got)
 	}

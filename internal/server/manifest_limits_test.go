@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
@@ -318,9 +318,9 @@ func TestSourceManifestBudgetRejectsBeforeTenantContentWrite(t *testing.T) {
 	storedKey := fmt.Sprintf("%x", digest[:])
 	registerManifestImportFixtureCleanup(t, database, source.URL+"/manifest", storedKey)
 
-	_, err := handler.ImportManifest(context.Background(), connect.NewRequest(&scribev1.ImportManifestRequest{
+	_, err := handler.ImportManifest(context.Background(), &scribev1.ImportManifestRequest{
 		Name: "Source budget", ManifestUrl: source.URL + "/manifest", IdempotencyKey: idempotencyKey,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "source manifest") {
 		t.Fatalf("source manifest budget error = %v", err)
 	}
@@ -366,11 +366,11 @@ func TestOversizedManifestIsRejectedBeforeTenantContentWrite(t *testing.T) {
 	storedKey := fmt.Sprintf("%x", idempotencyDigest[:])
 	registerManifestImportFixtureCleanup(t, database, manifestSource.URL+"/manifest", storedKey)
 
-	_, err := handler.ImportManifest(ctx, connect.NewRequest(&scribev1.ImportManifestRequest{
+	_, err := handler.ImportManifest(ctx, &scribev1.ImportManifestRequest{
 		Name:           "Oversized manifest",
 		ManifestUrl:    manifestSource.URL + "/manifest",
 		IdempotencyKey: idempotencyKey,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "3 canvases") || !strings.Contains(err.Error(), "maximum is 2") {
 		t.Fatalf("CreateItem oversized manifest error = %v", err)
 	}
@@ -417,11 +417,11 @@ func TestManifestHOCRAggregateBudgetRejectsBeforeTenantContentWrite(t *testing.T
 	storedKey := fmt.Sprintf("%x", idempotencyDigest[:])
 	registerManifestImportFixtureCleanup(t, database, manifestSource.URL+"/manifest", storedKey)
 
-	_, err := handler.ImportManifest(ctx, connect.NewRequest(&scribev1.ImportManifestRequest{
+	_, err := handler.ImportManifest(ctx, &scribev1.ImportManifestRequest{
 		Name:           "Oversized hOCR aggregate",
 		ManifestUrl:    manifestSource.URL + "/manifest",
 		IdempotencyKey: idempotencyKey,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "manifest import byte budget") {
 		t.Fatalf("CreateItem aggregate hOCR error = %v", err)
 	}
@@ -461,9 +461,9 @@ func TestManifestImportDeadlineBoundsWholeHOCRFanout(t *testing.T) {
 	digest := sha256.Sum256([]byte(idempotencyKey))
 	storedKey := fmt.Sprintf("%x", digest[:])
 	registerManifestImportFixtureCleanup(t, database, manifestSource.URL+"/manifest", storedKey)
-	_, err := handler.ImportManifest(context.Background(), connect.NewRequest(&scribev1.ImportManifestRequest{
+	_, err := handler.ImportManifest(context.Background(), &scribev1.ImportManifestRequest{
 		Name: "Timed manifest", ManifestUrl: manifestSource.URL + "/manifest", IdempotencyKey: idempotencyKey,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeDeadlineExceeded {
 		t.Fatalf("manifest aggregate deadline error = %v, want deadline_exceeded", err)
 	}
@@ -509,10 +509,10 @@ func TestOversizedManifestLabelIsRejectedBeforeHOCRFetchOrTenantContentWrite(t *
 	digest := sha256.Sum256([]byte(idempotencyKey))
 	storedKey := fmt.Sprintf("%x", digest[:])
 	registerManifestImportFixtureCleanup(t, database, manifestSource.URL+"/manifest", storedKey)
-	_, err := handler.ImportManifest(ctx, connect.NewRequest(&scribev1.ImportManifestRequest{
+	_, err := handler.ImportManifest(ctx, &scribev1.ImportManifestRequest{
 		ManifestUrl:    manifestSource.URL + "/manifest",
 		IdempotencyKey: idempotencyKey,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "at most 255 characters") {
 		t.Fatalf("CreateItem oversized manifest label error = %v", err)
 	}
@@ -621,11 +621,11 @@ func TestParallelManifestFetchesShareBoundedWorkspaceImportSlot(t *testing.T) {
 		registerManifestImportFixtureCleanup(t, database, manifestSource.URL, fmt.Sprintf("%x", digest[:]))
 	}
 	request := func(key string) {
-		_, requestErr := handler.ImportManifest(context.Background(), connect.NewRequest(&scribev1.ImportManifestRequest{
+		_, requestErr := handler.ImportManifest(context.Background(), &scribev1.ImportManifestRequest{
 			Name:           "Import slot",
 			ManifestUrl:    manifestSource.URL,
 			IdempotencyKey: key,
-		}))
+		})
 		results <- requestErr
 	}
 	go request(firstKey)
@@ -680,9 +680,9 @@ func TestImportManifestRejectsForeignContextBeforeReservationOrFetch(t *testing.
 	requestCtx := auth.WithPrincipal(context.Background(), auth.Principal{
 		UserID: userID, Authenticated: true, WorkspaceID: workspaceID, WorkspaceRole: "editor",
 	})
-	_, err = handler.ImportManifest(requestCtx, connect.NewRequest(&scribev1.ImportManifestRequest{
+	_, err = handler.ImportManifest(requestCtx, &scribev1.ImportManifestRequest{
 		Name: "Foreign context", ManifestUrl: source.URL, ContextId: foreignContext.ID, IdempotencyKey: key,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("foreign context error = %v, want not_found", err)
 	}
@@ -731,7 +731,7 @@ func TestImportManifestCompletedReplayDoesNotRefetchSource(t *testing.T) {
 	request := &scribev1.ImportManifestRequest{
 		Name: "Replay without source", ManifestUrl: manifestURL, IdempotencyKey: key,
 	}
-	created, err := handler.ImportManifest(context.Background(), connect.NewRequest(request))
+	created, err := handler.ImportManifest(context.Background(), request)
 	if err != nil {
 		source.Close()
 		t.Fatalf("initial manifest import: %v", err)
@@ -741,12 +741,12 @@ func TestImportManifestCompletedReplayDoesNotRefetchSource(t *testing.T) {
 
 	replayCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	replayed, err := handler.ImportManifest(replayCtx, connect.NewRequest(request))
+	replayed, err := handler.ImportManifest(replayCtx, request)
 	if err != nil {
 		t.Fatalf("completed replay with unavailable source: %v", err)
 	}
-	if replayed.Msg.GetItem().GetId() != created.Msg.GetItem().GetId() {
-		t.Fatalf("replayed item = %q, want %q", replayed.Msg.GetItem().GetId(), created.Msg.GetItem().GetId())
+	if replayed.GetItem().GetId() != created.GetItem().GetId() {
+		t.Fatalf("replayed item = %q, want %q", replayed.GetItem().GetId(), created.GetItem().GetId())
 	}
 	if got := requests.Load(); got != requestsAfterCommit {
 		t.Fatalf("completed replay issued %d additional source requests", got-requestsAfterCommit)

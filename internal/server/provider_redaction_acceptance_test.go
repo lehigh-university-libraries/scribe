@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
@@ -153,15 +152,15 @@ func TestProviderRedactionAcrossRegisteredAdapterLogsAndListedAudit(t *testing.T
 	listHandler := &Handler{items: itemStore, providerCallAudits: audits}
 	listed, err := listHandler.ListItemProviderCallAudits(
 		ctx,
-		connect.NewRequest(&scribev1.ListItemProviderCallAuditsRequest{ItemId: itemID, Limit: 10}),
+		&scribev1.ListItemProviderCallAuditsRequest{ItemId: itemID, Limit: 10},
 	)
 	if err != nil {
 		t.Fatalf("ListItemProviderCallAudits() error = %v", err)
 	}
-	if len(listed.Msg.GetAudits()) != 1 {
-		t.Fatalf("listed provider audits = %d, want 1", len(listed.Msg.GetAudits()))
+	if len(listed.GetAudits()) != 1 {
+		t.Fatalf("listed provider audits = %d, want 1", len(listed.GetAudits()))
 	}
-	audit := listed.Msg.GetAudits()[0]
+	audit := listed.GetAudits()[0]
 	if audit.GetProvider() != "openai" ||
 		audit.GetModel() != model ||
 		audit.GetOperation() != "transcribe_image" ||
@@ -201,22 +200,22 @@ func TestProviderRedactionAcrossRegisteredAdapterLogsAndListedAudit(t *testing.T
 	}
 	listedAfterSuccess, err := listHandler.ListItemProviderCallAudits(
 		ctx,
-		connect.NewRequest(&scribev1.ListItemProviderCallAuditsRequest{ItemId: itemID, Limit: 10}),
+		&scribev1.ListItemProviderCallAuditsRequest{ItemId: itemID, Limit: 10},
 	)
 	if err != nil {
 		t.Fatalf("ListItemProviderCallAudits() after success error = %v", err)
 	}
-	if len(listedAfterSuccess.Msg.GetAudits()) != 2 {
-		t.Fatalf("listed provider audits after success = %d, want 2", len(listedAfterSuccess.Msg.GetAudits()))
+	if len(listedAfterSuccess.GetAudits()) != 2 {
+		t.Fatalf("listed provider audits after success = %d, want 2", len(listedAfterSuccess.GetAudits()))
 	}
-	for _, persisted := range listedAfterSuccess.Msg.GetAudits() {
+	for _, persisted := range listedAfterSuccess.GetAudits() {
 		if persisted.GetModel() != model {
 			t.Fatalf("persisted provider audit model = %q, want registered model %q", persisted.GetModel(), model)
 		}
 	}
 
 	logOutput := logs.String()
-	listedAudit := listedAfterSuccess.Msg.String()
+	listedAudit := listedAfterSuccess.String()
 	for _, sentinel := range []string{providerCredential, responseContent, untrustedModel} {
 		if strings.Contains(providerErr.Error(), sentinel) {
 			t.Fatalf("returned provider error leaked %q: %q", sentinel, providerErr)

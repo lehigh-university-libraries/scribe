@@ -61,7 +61,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "src"),
       "mirador-scribe": path.resolve(__dirname, "../mirador-scribe/src/index.js"),
-      // Do not alias MUI package directories: doing so bypasses MUI 7's
+      // Do not alias MUI package directories: doing so bypasses MUI's
       // conditional exports and forces its CommonJS build into Mirador's ESM.
       // `dedupe` below still gives the linked plugin one dependency instance.
       react: path.resolve(__dirname, "node_modules/react"),
@@ -153,20 +153,27 @@ export default defineConfig({
     // explicit route/chunk budgets into build failures; this warning remains a
     // useful local signal before a budget is exceeded.
     chunkSizeWarningLimit: 1800,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes("node_modules") && !id.includes("mirador-scribe")) return undefined;
-          if (id.includes("mirador") || id.includes("mirador-scribe") || id.includes("openseadragon")) {
-            return "mirador";
-          }
-          if (id.includes("@mui") || id.includes("@emotion") || id.includes("prop-types")) {
-            return "mui";
-          }
-          if (id.includes("/react/") || id.includes("/react-dom/") || id.endsWith("/react/index.js") || id.endsWith("/react-dom/index.js")) {
-            return "react-vendor";
-          }
-          return undefined;
+        strictExecutionOrder: true,
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [{
+            debugName: "scribe-vendors",
+            name(id) {
+              if (!id.includes("node_modules") && !id.includes("mirador-scribe")) return undefined;
+              if (id.includes("mirador") || id.includes("mirador-scribe") || id.includes("openseadragon")) {
+                return "mirador";
+              }
+              if (id.includes("@mui") || id.includes("@emotion") || id.includes("prop-types")) {
+                return "mui";
+              }
+              if (id.includes("/react/") || id.includes("/react-dom/") || id.endsWith("/react/index.js") || id.endsWith("/react-dom/index.js")) {
+                return "react-vendor";
+              }
+              return undefined;
+            }
+          }]
         }
       }
     }

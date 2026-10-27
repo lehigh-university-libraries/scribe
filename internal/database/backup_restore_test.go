@@ -94,7 +94,7 @@ VALUES (?, ?, FALSE, CURRENT_TIMESTAMP(6))`,
 	const workspaceID = 99002
 	if _, err := db.Exec(`INSERT INTO workspaces
   (id, owner_user_id, name, slug, is_personal, created_by_user_id)
-VALUES (?, 1, 'Migration upgrade workspace', 'migration-upgrade-workspace', FALSE, 1)`, workspaceID); err != nil {
+VALUES (?, 1, 'Migration upgrade workspace', 'migration-upgrade-workspace', TRUE, 1)`, workspaceID); err != nil {
 		t.Fatalf("insert released workspace fixture: %v", err)
 	}
 	if _, err := db.Exec(`INSERT INTO items
@@ -117,6 +117,15 @@ VALUES ('migration-upgrade-event', 'https://legacy.example/hooks/scribe', ?, 'pe
 func assertReleasedInitialMigrationUpgrade(t *testing.T, db *sql.DB) {
 	t.Helper()
 	ctx := context.Background()
+
+	var workspaceName string
+	if err := db.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = 99002`).Scan(&workspaceName); err != nil || workspaceName != "Migration upgrade workspace" {
+		t.Fatalf("upgrade did not preserve the initial workspace: %q/%v", workspaceName, err)
+	}
+	var personalColumns int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'workspaces' AND column_name = 'is_personal'`).Scan(&personalColumns); err != nil || personalColumns != 0 {
+		t.Fatalf("personal workspace flag remains after upgrade: %d/%v", personalColumns, err)
+	}
 
 	var externalReferenceID, callerIdempotencyKey, metadata string
 	if err := db.QueryRowContext(ctx, `SELECT external_reference_id, caller_idempotency_key, metadata

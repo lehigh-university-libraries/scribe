@@ -747,7 +747,7 @@ func createAnnotationTestResource(t *testing.T, db *sql.DB, suffix, canvasURI st
 	}
 	userID, _ := result.LastInsertId()
 	result, err = db.Exec(
-		`INSERT INTO workspaces (owner_user_id, name, slug, is_personal, created_by_user_id) VALUES (?, ?, ?, TRUE, ?)`,
+		`INSERT INTO workspaces (owner_user_id, name, slug, created_by_user_id) VALUES (?, ?, ?, ?)`,
 		userID, "annotation-test-"+suffix, "annotation-test-"+suffix, userID,
 	)
 	if err != nil {

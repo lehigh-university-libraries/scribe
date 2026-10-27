@@ -465,7 +465,7 @@ export function ScribeCompanionWindow({
   }, [canvasId, drawMode, windowId]);
 
   useEffect(() => {
-    document.dispatchEvent(new CustomEvent('scribe:editor-state', {
+    const publishState = () => document.dispatchEvent(new CustomEvent('scribe:editor-state', {
       detail: {
         annotationPage: localPage || serverPage || null,
         canJoinLines,
@@ -487,6 +487,15 @@ export function ScribeCompanionWindow({
         windowId,
       },
     }));
+    /** @param {CustomEvent<import('../types/scribe').ScribeEditorStateRequestEventDetail>} event */
+    const handleRequest = (event) => {
+      if (event.detail?.windowId === windowId && event.detail?.canvasId === canvasId) {
+        publishState();
+      }
+    };
+    document.addEventListener('scribe:request-editor-state', handleRequest);
+    publishState();
+    return () => document.removeEventListener('scribe:request-editor-state', handleRequest);
   }, [
     canJoinLines,
     canJoinWords,
@@ -499,6 +508,7 @@ export function ScribeCompanionWindow({
     localPage,
     overlayMode,
     session.pendingRemoteIds,
+    session.revision,
     session.status,
     saveDisabled,
     selectedAnnotation,

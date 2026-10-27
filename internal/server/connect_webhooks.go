@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/safehttp"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
@@ -24,54 +24,54 @@ func (h *Handler) SetWebhookSubscriptionStore(subscriptions *store.WebhookSubscr
 	}
 }
 
-func (h *Handler) CreateWebhook(ctx context.Context, req *connect.Request[scribev1.CreateWebhookRequest]) (*connect.Response[scribev1.CreateWebhookResponse], error) {
+func (h *Handler) CreateWebhook(ctx context.Context, req *scribev1.CreateWebhookRequest) (*scribev1.CreateWebhookResponse, error) {
 	if h.webhookSubscriptions == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("webhook subscription repository is not configured"))
+		return nil, connect.Errorf(connect.CodeInternal, "webhook subscription repository is not configured")
 	}
-	targetURL, err := normalizeWebhookTargetURL(req.Msg.GetTargetUrl())
+	targetURL, err := normalizeWebhookTargetURL(req.GetTargetUrl())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	subscription, err := h.webhookSubscriptions.Create(ctx, req.Msg.GetWorkspaceId(), targetURL, req.Msg.GetSecret())
+	subscription, err := h.webhookSubscriptions.Create(ctx, req.GetWorkspaceId(), targetURL, req.GetSecret())
 	if err != nil {
 		switch {
 		case errors.Is(err, store.ErrWebhookSubscriptionExists):
-			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+			return nil, connect.NewError(connect.CodeAlreadyExists, err.Error()).WithCause(err)
 		case errors.Is(err, store.ErrWebhookSubscriptionLimit):
-			return nil, connect.NewError(connect.CodeResourceExhausted, err)
+			return nil, connect.NewError(connect.CodeResourceExhausted, err.Error()).WithCause(err)
 		default:
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create webhook subscription: %w", err))
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("create webhook subscription: %w", err).Error()).WithCause(err)
 		}
 	}
-	return connect.NewResponse(&scribev1.CreateWebhookResponse{Webhook: webhookSubscriptionToProto(subscription)}), nil
+	return &scribev1.CreateWebhookResponse{Webhook: webhookSubscriptionToProto(subscription)}, nil
 }
 
-func (h *Handler) ListWebhooks(ctx context.Context, req *connect.Request[scribev1.ListWebhooksRequest]) (*connect.Response[scribev1.ListWebhooksResponse], error) {
+func (h *Handler) ListWebhooks(ctx context.Context, req *scribev1.ListWebhooksRequest) (*scribev1.ListWebhooksResponse, error) {
 	if h.webhookSubscriptions == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("webhook subscription repository is not configured"))
+		return nil, connect.Errorf(connect.CodeInternal, "webhook subscription repository is not configured")
 	}
-	subscriptions, err := h.webhookSubscriptions.List(ctx, req.Msg.GetWorkspaceId())
+	subscriptions, err := h.webhookSubscriptions.List(ctx, req.GetWorkspaceId())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list webhook subscriptions: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list webhook subscriptions: %w", err).Error()).WithCause(err)
 	}
 	response := &scribev1.ListWebhooksResponse{Webhooks: make([]*scribev1.WebhookSubscription, 0, len(subscriptions))}
 	for _, subscription := range subscriptions {
 		response.Webhooks = append(response.Webhooks, webhookSubscriptionToProto(subscription))
 	}
-	return connect.NewResponse(response), nil
+	return response, nil
 }
 
-func (h *Handler) DeleteWebhook(ctx context.Context, req *connect.Request[scribev1.DeleteWebhookRequest]) (*connect.Response[scribev1.DeleteWebhookResponse], error) {
+func (h *Handler) DeleteWebhook(ctx context.Context, req *scribev1.DeleteWebhookRequest) (*scribev1.DeleteWebhookResponse, error) {
 	if h.webhookSubscriptions == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("webhook subscription repository is not configured"))
+		return nil, connect.Errorf(connect.CodeInternal, "webhook subscription repository is not configured")
 	}
-	if err := h.webhookSubscriptions.Delete(ctx, req.Msg.GetWorkspaceId(), req.Msg.GetWebhookId()); err != nil {
+	if err := h.webhookSubscriptions.Delete(ctx, req.GetWorkspaceId(), req.GetWebhookId()); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("webhook subscription not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "webhook subscription not found")
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("delete webhook subscription: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("delete webhook subscription: %w", err).Error()).WithCause(err)
 	}
-	return connect.NewResponse(&scribev1.DeleteWebhookResponse{}), nil
+	return &scribev1.DeleteWebhookResponse{}, nil
 }
 
 func webhookSubscriptionToProto(subscription store.WebhookSubscription) *scribev1.WebhookSubscription {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -40,11 +40,11 @@ func TestProcessHOCRRejectsLocalUploadAliasingBeforeCreatingReference(t *testing
 		WorkspaceRole: "write",
 	})
 
-	_, err := handler.ProcessHOCR(attackerCtx, connect.NewRequest(&scribev1.ProcessHOCRRequest{
+	_, err := handler.ProcessHOCR(attackerCtx, &scribev1.ProcessHOCRRequest{
 		Hocr:           "<html><body></body></html>",
 		ImageUrl:       victimURL,
 		IdempotencyKey: "reject-cross-workspace-upload-alias",
-	}))
+	})
 	if err == nil || connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("ProcessHOCR local upload error = %v/%v, want invalid_argument", connect.CodeOf(err), err)
 	}
@@ -60,12 +60,12 @@ func TestProcessHOCRRejectsLocalUploadAliasingBeforeCreatingReference(t *testing
 func TestProcessHOCRRequiresExactlyOneImageSource(t *testing.T) {
 	t.Parallel()
 
-	_, err := (&Handler{}).ProcessHOCR(context.Background(), connect.NewRequest(&scribev1.ProcessHOCRRequest{
+	_, err := (&Handler{}).ProcessHOCR(context.Background(), &scribev1.ProcessHOCRRequest{
 		Hocr:           "<html><body></body></html>",
 		ImageUrl:       "https://images.example.test/page.jpg",
 		ImageData:      []byte("also-inline"),
 		IdempotencyKey: "ambiguous-image-source",
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "exactly one") {
 		t.Fatalf("ambiguous image source error = %v/%v, want invalid_argument", connect.CodeOf(err), err)
 	}

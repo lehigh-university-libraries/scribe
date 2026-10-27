@@ -5,7 +5,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"time"
 )
 
@@ -65,6 +64,20 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		CreatedAt:     row.CreatedAt,
 		UpdatedAt:     row.UpdatedAt,
 	}, nil
+}
+
+// EnsureUserByEmail reserves a verified-login identity without granting sign-in
+// credentials or changing an existing user's profile or site privileges.
+func (q *Queries) EnsureUserByEmail(ctx context.Context, email string) (User, error) {
+	result, err := q.EnsureUserByEmailManual(ctx, EnsureUserByEmailManualParams{Name: email, Email: nullString(email)})
+	if err != nil {
+		return User{}, err
+	}
+	id, err := lastInsertID(result)
+	if err != nil {
+		return User{}, err
+	}
+	return q.GetUser(ctx, id)
 }
 
 func (q *Queries) GetUserByGoogleSubject(ctx context.Context, subject string) (User, error) {
@@ -135,7 +148,6 @@ type CreateWorkspaceParams struct {
 	OwnerUserID     *uint64
 	Name            string
 	Slug            string
-	IsPersonal      bool
 	CreatedByUserID *uint64
 }
 
@@ -152,7 +164,6 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		OwnerUserID:     ownerUserID,
 		Name:            arg.Name,
 		Slug:            arg.Slug,
-		IsPersonal:      arg.IsPersonal,
 		CreatedByUserID: createdByUserID,
 	})
 	if err != nil {
@@ -161,12 +172,8 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 	return lastInsertID(res)
 }
 
-func (q *Queries) GetPersonalWorkspaceByUserID(ctx context.Context, userID uint64) (Workspace, error) {
-	converted, err := uint64ToInt64(userID)
-	if err != nil {
-		return Workspace{}, err
-	}
-	return q.GetPersonalWorkspaceByUserIDManual(ctx, sql.NullInt64{Int64: converted, Valid: true})
+func (q *Queries) GetDefaultWorkspaceByUserID(ctx context.Context, userID uint64) (Workspace, error) {
+	return q.GetDefaultWorkspaceByUserIDManual(ctx, userID)
 }
 
 type WorkspaceAccess struct {

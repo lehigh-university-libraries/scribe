@@ -17,7 +17,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/db"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
@@ -78,22 +78,22 @@ const (
 
 // --- ItemService Connect handlers ---
 
-func (h *Handler) ListItems(ctx context.Context, req *connect.Request[scribev1.ListItemsRequest]) (*connect.Response[scribev1.ListItemsResponse], error) {
+func (h *Handler) ListItems(ctx context.Context, req *scribev1.ListItemsRequest) (*scribev1.ListItemsResponse, error) {
 	if h.itemPageTokens == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("item pagination is not configured"))
+		return nil, connect.Errorf(connect.CodeInternal, "item pagination is not configured")
 	}
 	workspaceID := h.currentWorkspaceID(ctx)
-	pageSize, query, cursor, err := normalizeItemPageRequest(req.Msg.GetPageSize(), req.Msg.GetPageToken(), workspaceID, req.Msg.GetQuery(), h.itemPageTokens)
+	pageSize, query, cursor, err := normalizeItemPageRequest(req.GetPageSize(), req.GetPageToken(), workspaceID, req.GetQuery(), h.itemPageTokens)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	page, err := h.items.ListPage(ctx, workspaceID, pageSize, query, cursor)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
 	nextPageToken, err := h.itemPageTokens.encode(page.NextCursor, workspaceID, query)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("encode item page token"))
+		return nil, connect.Errorf(connect.CodeInternal, "encode item page token")
 	}
 	resp := &scribev1.ListItemsResponse{
 		Items:         make([]*scribev1.ItemSummary, 0, len(page.Items)),
@@ -102,17 +102,17 @@ func (h *Handler) ListItems(ctx context.Context, req *connect.Request[scribev1.L
 	for _, it := range page.Items {
 		resp.Items = append(resp.Items, storeItemSummaryToProto(it))
 	}
-	return connect.NewResponse(resp), nil
+	return resp, nil
 }
 
-func (h *Handler) GetItem(ctx context.Context, req *connect.Request[scribev1.GetItemRequest]) (*connect.Response[scribev1.GetItemResponse], error) {
-	it, err := h.itemForRequest(ctx, req.Msg.GetItemId())
+func (h *Handler) GetItem(ctx context.Context, req *scribev1.GetItemRequest) (*scribev1.GetItemResponse, error) {
+	it, err := h.itemForRequest(ctx, req.GetItemId())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "item not found")
 	}
 	revisions, err := h.annotations.ListItemRevisions(ctx, h.currentWorkspaceID(ctx), it.ID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("load item annotation revisions"))
+		return nil, connect.Errorf(connect.CodeInternal, "load item annotation revisions")
 	}
 	response := &scribev1.GetItemResponse{
 		Item:                storeItemToProto(it),
@@ -124,104 +124,104 @@ func (h *Handler) GetItem(ctx context.Context, req *connect.Request[scribev1.Get
 			Revision:    revision.Revision,
 		})
 	}
-	return connect.NewResponse(response), nil
+	return response, nil
 }
 
-func (h *Handler) PrepareItemExport(ctx context.Context, req *connect.Request[scribev1.PrepareItemExportRequest]) (*connect.Response[scribev1.PrepareItemExportResponse], error) {
+func (h *Handler) PrepareItemExport(ctx context.Context, req *scribev1.PrepareItemExportRequest) (*scribev1.PrepareItemExportResponse, error) {
 	if h.itemExportTokens == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("item export signer is not configured"))
+		return nil, connect.Errorf(connect.CodeInternal, "item export signer is not configured")
 	}
-	format, err := itemExportFormatName(req.Msg.GetFormat())
+	format, err := itemExportFormatName(req.GetFormat())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	expected := make(map[uint64]uint64, len(req.Msg.GetExpectedRevisions()))
-	for _, entry := range req.Msg.GetExpectedRevisions() {
+	expected := make(map[uint64]uint64, len(req.GetExpectedRevisions()))
+	for _, entry := range req.GetExpectedRevisions() {
 		if entry == nil || entry.GetItemImageId() == 0 || entry.GetRevision() == 0 {
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("every expected revision requires an item image and revision"))
+			return nil, connect.Errorf(connect.CodeInvalidArgument, "every expected revision requires an item image and revision")
 		}
 		if _, duplicate := expected[entry.GetItemImageId()]; duplicate {
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("expected revisions must contain unique item image IDs"))
+			return nil, connect.Errorf(connect.CodeInvalidArgument, "expected revisions must contain unique item image IDs")
 		}
 		expected[entry.GetItemImageId()] = entry.GetRevision()
 	}
 	workspaceID := h.currentWorkspaceID(ctx)
 	release, allowed := h.exportLimiter.TryAcquire(fmt.Sprintf("workspace:%d", workspaceID))
 	if !allowed {
-		return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("export concurrency limit exceeded"))
+		return nil, connect.Errorf(connect.CodeResourceExhausted, "export concurrency limit exceeded")
 	}
 	defer release()
-	plan, err := h.loadCanonicalItemExportSnapshot(ctx, req.Msg.GetItemId(), format, expected)
+	plan, err := h.loadCanonicalItemExportSnapshot(ctx, req.GetItemId(), format, expected)
 	if err != nil {
 		switch {
 		case errors.Is(err, context.Canceled):
-			return nil, connect.NewError(connect.CodeCanceled, fmt.Errorf("item export preparation canceled"))
+			return nil, connect.Errorf(connect.CodeCanceled, "item export preparation canceled")
 		case errors.Is(err, context.DeadlineExceeded):
-			return nil, connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("item export preparation timed out"))
+			return nil, connect.Errorf(connect.CodeDeadlineExceeded, "item export preparation timed out")
 		case errors.Is(err, errItemExportRevisionConflict):
-			return nil, connect.NewError(connect.CodeAborted, fmt.Errorf("canonical annotations changed; reload before exporting"))
+			return nil, connect.Errorf(connect.CodeAborted, "canonical annotations changed; reload before exporting")
 		case errors.Is(err, errItemExportSourceLimit):
-			return nil, connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("item export exceeds the source-byte limit"))
+			return nil, connect.Errorf(connect.CodeResourceExhausted, "item export exceeds the source-byte limit")
 		case errors.Is(err, errItemExportInvalid):
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid item export request"))
+			return nil, connect.Errorf(connect.CodeInvalidArgument, "invalid item export request")
 		default:
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("prepare item export failed"))
+			return nil, connect.Errorf(connect.CodeInternal, "prepare item export failed")
 		}
 	}
 	token, expiresAt, err := h.itemExportTokens.encode(workspaceID, plan)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("prepare item export failed"))
+		return nil, connect.Errorf(connect.CodeInternal, "prepare item export failed")
 	}
 	revisions := make([]*scribev1.ItemImageRevision, 0, len(plan.Pages))
 	for _, page := range plan.Pages {
 		revisions = append(revisions, &scribev1.ItemImageRevision{ItemImageId: page.Image.ID, Revision: page.Page.Revision})
 	}
-	return connect.NewResponse(&scribev1.PrepareItemExportResponse{
+	return &scribev1.PrepareItemExportResponse{
 		DownloadUrl: "/v1/item-exports/" + token,
 		Filename:    plan.Filename,
 		MediaType:   plan.MediaType,
 		Revisions:   revisions,
 		ExpiresAt:   expiresAt.Format(time.RFC3339Nano),
-	}), nil
+	}, nil
 }
 
-func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scribev1.ImportManifestRequest]) (*connect.Response[scribev1.ImportManifestResponse], error) {
+func (h *Handler) ImportManifest(ctx context.Context, req *scribev1.ImportManifestRequest) (*scribev1.ImportManifestResponse, error) {
 	workspaceID := h.currentWorkspaceID(ctx)
-	name := strings.TrimSpace(req.Msg.GetName())
+	name := strings.TrimSpace(req.GetName())
 	requestedName := name
 	if err := validateItemName(name); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	manifestURL := strings.TrimSpace(req.Msg.GetManifestUrl())
+	manifestURL := strings.TrimSpace(req.GetManifestUrl())
 	if manifestURL == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("manifest_url is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "manifest_url is required")
 	}
-	rawIdempotencyKey := strings.TrimSpace(req.Msg.GetIdempotencyKey())
+	rawIdempotencyKey := strings.TrimSpace(req.GetIdempotencyKey())
 	if rawIdempotencyKey == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("idempotency_key is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "idempotency_key is required")
 	}
-	metadata, err := normalizeItemMetadata(req.Msg.GetMetadata())
+	metadata, err := normalizeItemMetadata(req.GetMetadata())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	externalReferenceID, err := normalizeExternalReferenceID(req.Msg.GetExternalReferenceId())
+	externalReferenceID, err := normalizeExternalReferenceID(req.GetExternalReferenceId())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	if h.transcriptionJobs == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("manifest idempotency repository is not configured"))
+		return nil, connect.Errorf(connect.CodeInternal, "manifest idempotency repository is not configured")
 	}
 
 	var requestedContextID *uint64
-	if req.Msg.GetContextId() > 0 {
+	if req.GetContextId() > 0 {
 		// A caller-selected context is part of the authorization boundary even
 		// when every Canvas happens to contain hOCR and no processing job is
 		// needed. Reject foreign IDs before reserving capacity or contacting an
 		// external server.
-		if _, err := h.contextForRead(ctx, req.Msg.GetContextId()); err != nil {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
+		if _, err := h.contextForRead(ctx, req.GetContextId()); err != nil {
+			return nil, connect.Errorf(connect.CodeNotFound, "context not found")
 		}
-		value := req.Msg.GetContextId()
+		value := req.GetContextId()
 		requestedContextID = &value
 	}
 
@@ -232,24 +232,24 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 		workspaceID,
 		"item-create",
 		fmt.Sprintf("%x", digest[:]),
-		stableRequestHash(requestedName, "manifest", manifestURL, metadata, externalReferenceID, strconv.FormatUint(req.Msg.GetContextId(), 10), strconv.FormatBool(req.Msg.GetIgnoreExistingOcr())),
+		stableRequestHash(requestedName, "manifest", manifestURL, metadata, externalReferenceID, strconv.FormatUint(req.GetContextId(), 10), strconv.FormatBool(req.GetIgnoreExistingOcr())),
 		"",
 	)
 	if err != nil {
 		if errors.Is(err, store.ErrExternalRequestMismatch) {
-			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+			return nil, connect.NewError(connect.CodeAlreadyExists, err.Error()).WithCause(err)
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reserve item creation: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reserve item creation: %w", err).Error()).WithCause(err)
 	}
 	if !created {
 		if reservation.Status == store.ExternalRequestStatusCompleted && reservation.ItemID != "" {
 			existing, loadErr := h.itemForRequest(ctx, reservation.ItemID)
 			if loadErr != nil {
-				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload idempotent item creation"))
+				return nil, connect.Errorf(connect.CodeInternal, "reload idempotent item creation")
 			}
-			return connect.NewResponse(&scribev1.ImportManifestResponse{Item: storeItemToProto(existing)}), nil
+			return &scribev1.ImportManifestResponse{Item: storeItemToProto(existing)}, nil
 		}
-		return nil, connect.NewError(connect.CodeAlreadyExists, fmt.Errorf("item creation is already in progress"))
+		return nil, connect.Errorf(connect.CodeAlreadyExists, "item creation is already in progress")
 	}
 	itemReservation = reservation
 	failItemReservation := func(processingErr error) {
@@ -295,7 +295,7 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 	prefetchedCanvases, extractErr := extractCanvasesFromManifest(m)
 	if extractErr != nil {
 		failItemReservation(extractErr)
-		return nil, connect.NewError(connect.CodeInvalidArgument, extractErr)
+		return nil, connect.NewError(connect.CodeInvalidArgument, extractErr.Error()).WithCause(extractErr)
 	}
 	if name == "" || name == manifestURL {
 		if label := extractManifestLabel(m); label != "" {
@@ -307,15 +307,15 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 	}
 	if nameErr := validateItemName(name); nameErr != nil {
 		failItemReservation(nameErr)
-		return nil, connect.NewError(connect.CodeInvalidArgument, nameErr)
+		return nil, connect.NewError(connect.CodeInvalidArgument, nameErr.Error()).WithCause(nameErr)
 	}
 	sourceBytes := uint64(len(sourceManifest))
 	if sourceBytes > h.maxManifestImportBytes {
 		budgetErr := fmt.Errorf("%w: source manifest and imported hOCR exceed %d bytes", errManifestImportBudgetExceeded, h.maxManifestImportBytes)
 		failItemReservation(budgetErr)
-		return nil, connect.NewError(connect.CodeResourceExhausted, budgetErr)
+		return nil, connect.NewError(connect.CodeResourceExhausted, budgetErr.Error()).WithCause(budgetErr)
 	}
-	if req.Msg.GetIgnoreExistingOcr() {
+	if req.GetIgnoreExistingOcr() {
 		prefetchedCanvases = withoutExistingManifestOCR(prefetchedCanvases)
 	}
 	manifestDurableBytes := sourceBytes
@@ -327,7 +327,7 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 	if hocrDurableBytes > h.maxManifestImportBytes-sourceBytes {
 		budgetErr := fmt.Errorf("%w: source manifest and imported hOCR exceed %d bytes", errManifestImportBudgetExceeded, h.maxManifestImportBytes)
 		failItemReservation(budgetErr)
-		return nil, connect.NewError(connect.CodeResourceExhausted, budgetErr)
+		return nil, connect.NewError(connect.CodeResourceExhausted, budgetErr.Error()).WithCause(budgetErr)
 	}
 	manifestDurableBytes += hocrDurableBytes
 	cancelImport()
@@ -364,57 +364,57 @@ func (h *Handler) ImportManifest(ctx context.Context, req *connect.Request[scrib
 		if errors.Is(commitErr, store.ErrStorageQuotaExceeded) {
 			return nil, storageQuotaConnectError(commitErr)
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("commit manifest ingest: %w", commitErr))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("commit manifest ingest: %w", commitErr).Error()).WithCause(commitErr)
 	}
 	for _, jobID := range committed.TranscriptionJobIDs {
 		h.publishTranscriptionJob(ctx, jobID)
 	}
-	return connect.NewResponse(&scribev1.ImportManifestResponse{Item: storeItemToProto(committed.Item)}), nil
+	return &scribev1.ImportManifestResponse{Item: storeItemToProto(committed.Item)}, nil
 }
 
-func (h *Handler) StartUploadBatch(ctx context.Context, req *connect.Request[scribev1.StartUploadBatchRequest]) (*connect.Response[scribev1.StartUploadBatchResponse], error) {
-	batchID := strings.TrimSpace(req.Msg.GetBatchId())
-	metadata, err := normalizeItemMetadata(req.Msg.GetMetadata())
+func (h *Handler) StartUploadBatch(ctx context.Context, req *scribev1.StartUploadBatchRequest) (*scribev1.StartUploadBatchResponse, error) {
+	batchID := strings.TrimSpace(req.GetBatchId())
+	metadata, err := normalizeItemMetadata(req.GetMetadata())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	externalReferenceID, err := normalizeExternalReferenceID(req.Msg.GetExternalReferenceId())
+	externalReferenceID, err := normalizeExternalReferenceID(req.GetExternalReferenceId())
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
-	files, requestHash, err := normalizeUploadBatchRequest(req.Msg)
+	files, requestHash, err := normalizeUploadBatchRequest(req)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	workspaceID := h.currentWorkspaceID(ctx)
 	if existing, loadErr := h.items.GetUploadBatch(ctx, workspaceID, batchID); loadErr == nil {
 		if existing.RequestHash != requestHash {
-			return nil, connect.NewError(connect.CodeAlreadyExists, store.ErrUploadBatchRequestMismatch)
+			return nil, connect.NewError(connect.CodeAlreadyExists, store.ErrUploadBatchRequestMismatch.Error()).WithCause(store.ErrUploadBatchRequestMismatch)
 		}
 		item, itemErr := h.itemForRequest(ctx, existing.ItemID)
 		if itemErr != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("load upload batch item: %w", itemErr))
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("load upload batch item: %w", itemErr).Error()).WithCause(itemErr)
 		}
-		return connect.NewResponse(&scribev1.StartUploadBatchResponse{Item: storeItemToProto(item), Batch: storeUploadBatchToProto(existing)}), nil
+		return &scribev1.StartUploadBatchResponse{Item: storeItemToProto(item), Batch: storeUploadBatchToProto(existing)}, nil
 	} else if !errors.Is(loadErr, store.ErrUploadBatchNotFound) {
-		return nil, connect.NewError(connect.CodeInternal, loadErr)
+		return nil, connect.NewError(connect.CodeInternal, loadErr.Error()).WithCause(loadErr)
 	}
 
-	resolvedContext, err := h.resolveContext(ctx, req.Msg.GetContextId(), metadata)
+	resolvedContext, err := h.resolveContext(ctx, req.GetContextId(), metadata)
 	if err != nil {
 		return nil, resolveContextConnectError(err)
 	}
-	name := strings.TrimSpace(req.Msg.GetName())
+	name := strings.TrimSpace(req.GetName())
 	if name == "" {
 		name = files[0].Filename
 	}
 	if err := validateItemName(name); err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	batchQuota := store.StorageQuotaRequest{Items: 1, Images: uint64(len(files))}
 	for _, file := range files {
 		if batchQuota.Bytes > ^uint64(0)-file.Size {
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("declared batch size overflows quota accounting"))
+			return nil, connect.Errorf(connect.CodeInvalidArgument, "declared batch size overflows quota accounting")
 		}
 		batchQuota.Bytes += file.Size
 	}
@@ -438,15 +438,15 @@ func (h *Handler) StartUploadBatch(ctx context.Context, req *connect.Request[scr
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrUploadBatchRequestMismatch) {
-			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+			return nil, connect.NewError(connect.CodeAlreadyExists, err.Error()).WithCause(err)
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("start upload batch: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("start upload batch: %w", err).Error()).WithCause(err)
 	}
 	item, err := h.itemForRequest(ctx, batch.ItemID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("load upload batch item: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("load upload batch item: %w", err).Error()).WithCause(err)
 	}
-	return connect.NewResponse(&scribev1.StartUploadBatchResponse{Item: storeItemToProto(item), Batch: storeUploadBatchToProto(batch)}), nil
+	return &scribev1.StartUploadBatchResponse{Item: storeItemToProto(item), Batch: storeUploadBatchToProto(batch)}, nil
 }
 
 func validateItemName(name string) error {
@@ -486,35 +486,35 @@ func normalizeExternalReferenceID(raw string) (string, error) {
 	return normalized, nil
 }
 
-func (h *Handler) GetUploadBatch(ctx context.Context, req *connect.Request[scribev1.GetUploadBatchRequest]) (*connect.Response[scribev1.GetUploadBatchResponse], error) {
-	batch, err := h.items.GetUploadBatch(ctx, h.currentWorkspaceID(ctx), strings.TrimSpace(req.Msg.GetBatchId()))
+func (h *Handler) GetUploadBatch(ctx context.Context, req *scribev1.GetUploadBatchRequest) (*scribev1.GetUploadBatchResponse, error) {
+	batch, err := h.items.GetUploadBatch(ctx, h.currentWorkspaceID(ctx), strings.TrimSpace(req.GetBatchId()))
 	if err != nil {
 		if errors.Is(err, store.ErrUploadBatchNotFound) {
-			return nil, connect.NewError(connect.CodeNotFound, err)
+			return nil, connect.NewError(connect.CodeNotFound, err.Error()).WithCause(err)
 		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
 	item, err := h.itemForRequest(ctx, batch.ItemID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("load upload batch item: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("load upload batch item: %w", err).Error()).WithCause(err)
 	}
-	return connect.NewResponse(&scribev1.GetUploadBatchResponse{Item: storeItemToProto(item), Batch: storeUploadBatchToProto(batch)}), nil
+	return &scribev1.GetUploadBatchResponse{Item: storeItemToProto(item), Batch: storeUploadBatchToProto(batch)}, nil
 }
 
-func (h *Handler) CancelUploadBatch(ctx context.Context, req *connect.Request[scribev1.CancelUploadBatchRequest]) (*connect.Response[scribev1.CancelUploadBatchResponse], error) {
-	batch, err := h.items.CancelUploadBatch(ctx, h.currentWorkspaceID(ctx), strings.TrimSpace(req.Msg.GetBatchId()))
+func (h *Handler) CancelUploadBatch(ctx context.Context, req *scribev1.CancelUploadBatchRequest) (*scribev1.CancelUploadBatchResponse, error) {
+	batch, err := h.items.CancelUploadBatch(ctx, h.currentWorkspaceID(ctx), strings.TrimSpace(req.GetBatchId()))
 	if err != nil {
 		return nil, uploadBatchConnectError(err)
 	}
-	return connect.NewResponse(&scribev1.CancelUploadBatchResponse{Batch: storeUploadBatchToProto(batch)}), nil
+	return &scribev1.CancelUploadBatchResponse{Batch: storeUploadBatchToProto(batch)}, nil
 }
 
-func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scribev1.UploadItemImageRequest]) (*connect.Response[scribev1.UploadItemImageResponse], error) {
-	batchID := strings.TrimSpace(req.Msg.GetBatchId())
-	imageData := req.Msg.GetImageData()
+func (h *Handler) UploadItemImage(ctx context.Context, req *scribev1.UploadItemImageRequest) (*scribev1.UploadItemImageResponse, error) {
+	batchID := strings.TrimSpace(req.GetBatchId())
+	imageData := req.GetImageData()
 	imageWidth, imageHeight, err := ocrhandlers.UploadedImageDimensions(imageData)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	contentDigest := sha256.Sum256(imageData)
 	workspaceID := h.currentWorkspaceID(ctx)
@@ -522,7 +522,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		ctx,
 		workspaceID,
 		batchID,
-		req.Msg.GetSequence(),
+		req.GetSequence(),
 		uint64(len(imageData)),
 		fmt.Sprintf("%x", contentDigest[:]),
 	)
@@ -533,14 +533,14 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		item, itemErr := h.itemForRequest(ctx, batch.ItemID)
 		image, imageErr := h.items.GetImageForWorkspace(ctx, batchFile.ItemImageID, workspaceID)
 		if itemErr != nil || imageErr != nil || batchFile.TranscriptionJobID == 0 {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload completed batch upload"))
+			return nil, connect.Errorf(connect.CodeInternal, "reload completed batch upload")
 		}
-		return connect.NewResponse(&scribev1.UploadItemImageResponse{
+		return &scribev1.UploadItemImageResponse{
 			Item:               storeItemToProto(item),
 			Image:              storeItemImageToProto(image),
 			TranscriptionJobId: batchFile.TranscriptionJobID,
 			Batch:              storeUploadBatchToProto(batch),
-		}), nil
+		}, nil
 	}
 	attemptCommitted := false
 	attemptPublicError := uploadBatchFailureMessage(uploadBatchFailureAdmission, nil)
@@ -600,7 +600,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
 	contextID := processingContext.ID
 	pctx := processingContextFromStore(processingContext)
@@ -674,7 +674,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
 	if err := renewBeforeSideEffect(); err != nil {
 		return nil, uploadBatchConnectError(err)
@@ -684,7 +684,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("initialize annotations: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("initialize annotations: %w", err).Error()).WithCause(err)
 	}
 	if err := renewBeforeSideEffect(); err != nil {
 		return nil, uploadBatchConnectError(err)
@@ -705,7 +705,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload uploaded item: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload uploaded item: %w", err).Error()).WithCause(err)
 	}
 	if err := renewBeforeSideEffect(); err != nil {
 		return nil, uploadBatchConnectError(err)
@@ -722,12 +722,12 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *connect.Request[scri
 	}
 	attemptCommitted = true
 	h.publishTranscriptionJob(ctx, jobID)
-	return connect.NewResponse(&scribev1.UploadItemImageResponse{
+	return &scribev1.UploadItemImageResponse{
 		Item:               storeItemToProto(item),
 		Image:              storeItemImageToProto(img),
 		TranscriptionJobId: jobID,
 		Batch:              storeUploadBatchToProto(batch),
-	}), nil
+	}, nil
 }
 
 func uploadBatchFailureMessage(stage uploadBatchFailureStage, err error) string {
@@ -824,15 +824,15 @@ func writeHashField(target hash.Hash, value string) {
 func uploadBatchConnectError(err error) error {
 	switch {
 	case errors.Is(err, store.ErrUploadBatchNotFound):
-		return connect.NewError(connect.CodeNotFound, err)
+		return connect.NewError(connect.CodeNotFound, err.Error()).WithCause(err)
 	case errors.Is(err, store.ErrUploadBatchFileMismatch):
-		return connect.NewError(connect.CodeInvalidArgument, err)
+		return connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	case errors.Is(err, store.ErrUploadBatchFileInProgress):
-		return connect.NewError(connect.CodeAlreadyExists, err)
+		return connect.NewError(connect.CodeAlreadyExists, err.Error()).WithCause(err)
 	case errors.Is(err, store.ErrUploadBatchCanceled), errors.Is(err, store.ErrUploadBatchCompleted), errors.Is(err, store.ErrUploadBatchFileAttemptsExhausted), errors.Is(err, store.ErrUploadBatchFileFence):
-		return connect.NewError(connect.CodeFailedPrecondition, err)
+		return connect.NewError(connect.CodeFailedPrecondition, err.Error()).WithCause(err)
 	default:
-		return connect.NewError(connect.CodeInternal, err)
+		return connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
 }
 
@@ -875,32 +875,32 @@ func newUploadBatchLeaseHeartbeat(parent context.Context, ticks <-chan time.Time
 	return leaseCtx, stop, failures
 }
 
-func (h *Handler) DeleteItem(ctx context.Context, req *connect.Request[scribev1.DeleteItemRequest]) (*connect.Response[scribev1.DeleteItemResponse], error) {
-	if err := h.items.DeleteForWorkspace(ctx, req.Msg.GetItemId(), h.currentWorkspaceID(ctx)); err != nil {
+func (h *Handler) DeleteItem(ctx context.Context, req *scribev1.DeleteItemRequest) (*scribev1.DeleteItemResponse, error) {
+	if err := h.items.DeleteForWorkspace(ctx, req.GetItemId(), h.currentWorkspaceID(ctx)); err != nil {
 		if isNotFoundError(err) {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "item not found")
 		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
 	h.wakeWorkerMaintenance(ctx)
-	return connect.NewResponse(&scribev1.DeleteItemResponse{}), nil
+	return &scribev1.DeleteItemResponse{}, nil
 }
 
-func (h *Handler) ListItemProviderCallAudits(ctx context.Context, req *connect.Request[scribev1.ListItemProviderCallAuditsRequest]) (*connect.Response[scribev1.ListItemProviderCallAuditsResponse], error) {
-	itemID := strings.TrimSpace(req.Msg.GetItemId())
+func (h *Handler) ListItemProviderCallAudits(ctx context.Context, req *scribev1.ListItemProviderCallAuditsRequest) (*scribev1.ListItemProviderCallAuditsResponse, error) {
+	itemID := strings.TrimSpace(req.GetItemId())
 	if _, err := h.itemForRequest(ctx, itemID); err != nil {
-		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item not found"))
+		return nil, connect.Errorf(connect.CodeNotFound, "item not found")
 	}
-	limit := int(req.Msg.GetLimit())
+	limit := int(req.GetLimit())
 	if limit == 0 {
 		limit = 100
 	}
 	if h.providerCallAudits == nil {
-		return connect.NewResponse(&scribev1.ListItemProviderCallAuditsResponse{}), nil
+		return &scribev1.ListItemProviderCallAuditsResponse{}, nil
 	}
 	audits, err := h.providerCallAudits.ListByItem(ctx, h.currentWorkspaceID(ctx), itemID, limit)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list provider call audits: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list provider call audits: %w", err).Error()).WithCause(err)
 	}
 	response := &scribev1.ListItemProviderCallAuditsResponse{Audits: make([]*scribev1.ProviderCallAudit, 0, len(audits))}
 	for _, audit := range audits {
@@ -930,7 +930,7 @@ func (h *Handler) ListItemProviderCallAudits(ctx context.Context, req *connect.R
 		}
 		response.Audits = append(response.Audits, entry)
 	}
-	return connect.NewResponse(response), nil
+	return response, nil
 }
 
 func (h *Handler) queueUnreferencedUploads(ctx context.Context, workspaceID uint64, images []store.ItemImage) {
@@ -983,11 +983,11 @@ func (h *Handler) acquireManifestImportSlot(ctx context.Context, workspaceID uin
 	}
 	switch {
 	case errors.Is(err, context.Canceled):
-		return nil, connect.NewError(connect.CodeCanceled, fmt.Errorf("manifest import canceled"))
+		return nil, connect.Errorf(connect.CodeCanceled, "manifest import canceled")
 	case errors.Is(err, context.DeadlineExceeded):
-		return nil, connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("manifest import deadline exceeded"))
+		return nil, connect.Errorf(connect.CodeDeadlineExceeded, "manifest import deadline exceeded")
 	default:
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("acquire manifest import capacity: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("acquire manifest import capacity: %w", err).Error()).WithCause(err)
 	}
 }
 
@@ -1094,25 +1094,25 @@ func (h *Handler) commitManifestItem(ctx context.Context, request manifestItemCo
 func manifestImportConnectError(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled):
-		return connect.NewError(connect.CodeCanceled, fmt.Errorf("manifest import canceled"))
+		return connect.Errorf(connect.CodeCanceled, "manifest import canceled")
 	case errors.Is(err, context.DeadlineExceeded):
-		return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("manifest import timed out"))
+		return connect.Errorf(connect.CodeDeadlineExceeded, "manifest import timed out")
 	case errors.Is(err, errManifestImportBudgetExceeded):
-		return connect.NewError(connect.CodeResourceExhausted, err)
+		return connect.NewError(connect.CodeResourceExhausted, err.Error()).WithCause(err)
 	case errors.Is(err, errManifestDocumentUnavailable):
-		return connect.NewError(connect.CodeUnavailable, errors.New(manifestDocumentUnavailableMessage))
+		return connect.NewError(connect.CodeUnavailable, manifestDocumentUnavailableMessage)
 	case errors.Is(err, errManifestHOCRSourceUnavailable):
-		return connect.NewError(connect.CodeUnavailable, errors.New(manifestHOCRUnavailableMessage))
+		return connect.NewError(connect.CodeUnavailable, manifestHOCRUnavailableMessage)
 	case errors.Is(err, errManifestDocumentSourceRejected):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New(manifestDocumentRejectedMessage))
+		return connect.NewError(connect.CodeFailedPrecondition, manifestDocumentRejectedMessage)
 	case errors.Is(err, errManifestHOCRSourceRejected):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New(manifestHOCRRejectedMessage))
+		return connect.NewError(connect.CodeFailedPrecondition, manifestHOCRRejectedMessage)
 	case errors.Is(err, errManifestSourceUnavailable):
-		return connect.NewError(connect.CodeUnavailable, fmt.Errorf("manifest source is temporarily unavailable"))
+		return connect.Errorf(connect.CodeUnavailable, "manifest source is temporarily unavailable")
 	case errors.Is(err, errManifestSourceRejected):
-		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("manifest source rejected the import request"))
+		return connect.Errorf(connect.CodeFailedPrecondition, "manifest source rejected the import request")
 	default:
-		return connect.NewError(connect.CodeInvalidArgument, err)
+		return connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
@@ -32,19 +32,19 @@ var _ scribev1connect.TranscriptionServiceHandler = (*Handler)(nil)
 
 func (h *Handler) CreateTranscriptionJob(
 	ctx context.Context,
-	req *connect.Request[scribev1.CreateTranscriptionJobRequest],
-) (*connect.Response[scribev1.CreateTranscriptionJobResponse], error) {
-	itemImageID := req.Msg.GetItemImageId()
+	req *scribev1.CreateTranscriptionJobRequest,
+) (*scribev1.CreateTranscriptionJobResponse, error) {
+	itemImageID := req.GetItemImageId()
 	if itemImageID == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_image_id is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "item_image_id is required")
 	}
 
 	var contextID *uint64
-	if req.Msg.GetContextId() > 0 {
-		if _, err := h.contextForRead(ctx, req.Msg.GetContextId()); err != nil {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("context not found"))
+	if req.GetContextId() > 0 {
+		if _, err := h.contextForRead(ctx, req.GetContextId()); err != nil {
+			return nil, connect.Errorf(connect.CodeNotFound, "context not found")
 		}
-		v := req.Msg.GetContextId()
+		v := req.GetContextId()
 		contextID = &v
 	}
 
@@ -53,125 +53,125 @@ func (h *Handler) CreateTranscriptionJob(
 		return nil, transcriptionJobConnectError("create job", err)
 	}
 
-	return connect.NewResponse(&scribev1.CreateTranscriptionJobResponse{JobId: jobID}), nil
+	return &scribev1.CreateTranscriptionJobResponse{JobId: jobID}, nil
 }
 
 func transcriptionJobConnectError(operation string, err error) error {
 	var quotaErr *store.TranscriptionJobQuotaExceededError
 	switch {
 	case errors.As(err, &quotaErr):
-		return connect.NewError(connect.CodeResourceExhausted, quotaErr)
+		return connect.NewError(connect.CodeResourceExhausted, quotaErr.Error()).WithCause(quotaErr)
 	case errors.Is(err, store.ErrTranscriptionCanonicalPageRequired):
-		return connect.NewError(connect.CodeFailedPrecondition, store.ErrTranscriptionCanonicalPageRequired)
+		return connect.NewError(connect.CodeFailedPrecondition, store.ErrTranscriptionCanonicalPageRequired.Error()).WithCause(store.ErrTranscriptionCanonicalPageRequired)
 	default:
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("%s: %w", operation, err))
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("%s: %w", operation, err).Error())
 	}
 }
 
 func transcriptionJobReadConnectError(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
-		return connect.NewError(connect.CodeNotFound, fmt.Errorf("transcription job not found"))
+		return connect.Errorf(connect.CodeNotFound, "transcription job not found")
 	}
-	return connect.NewError(connect.CodeInternal, fmt.Errorf("load transcription job: %w", err))
+	return connect.NewError(connect.CodeInternal, "load transcription job").WithCause(err)
 }
 
 func (h *Handler) CancelTranscriptionJob(
 	ctx context.Context,
-	req *connect.Request[scribev1.CancelTranscriptionJobRequest],
-) (*connect.Response[scribev1.CancelTranscriptionJobResponse], error) {
-	jobID := req.Msg.GetJobId()
+	req *scribev1.CancelTranscriptionJobRequest,
+) (*scribev1.CancelTranscriptionJobResponse, error) {
+	jobID := req.GetJobId()
 	job, err := h.transcriptionJobs.Get(ctx, jobID)
 	if err != nil {
 		return nil, transcriptionJobReadConnectError(err)
 	}
 	if job.Status == store.TranscriptionJobStatusCanceled {
-		return connect.NewResponse(&scribev1.CancelTranscriptionJobResponse{Job: storeJobToProto(job)}), nil
+		return &scribev1.CancelTranscriptionJobResponse{Job: storeJobToProto(job)}, nil
 	}
 	if job.Status == store.TranscriptionJobStatusCompleted || job.Status == store.TranscriptionJobStatusFailed || job.Status == store.TranscriptionJobStatusSuperseded {
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("transcription job is already terminal"))
+		return nil, connect.Errorf(connect.CodeFailedPrecondition, "transcription job is already terminal")
 	}
 	if err := h.transcriptionJobs.Cancel(ctx, jobID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("transcription job is already terminal"))
+			return nil, connect.Errorf(connect.CodeFailedPrecondition, "transcription job is already terminal")
 		}
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("cancel transcription job: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("cancel transcription job: %w", err).Error()).WithCause(err)
 	}
 	job, err = h.transcriptionJobs.Get(ctx, jobID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload canceled transcription job: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("reload canceled transcription job: %w", err).Error()).WithCause(err)
 	}
 	h.publishEvent("dev.scribe.transcription.canceled", subjectForItemImage(job.ItemImageID), map[string]any{
 		"jobId":         job.ID,
 		"itemImageId":   job.ItemImageID,
 		"attemptNumber": job.AttemptCount,
 	})
-	return connect.NewResponse(&scribev1.CancelTranscriptionJobResponse{Job: storeJobToProto(job)}), nil
+	return &scribev1.CancelTranscriptionJobResponse{Job: storeJobToProto(job)}, nil
 }
 
 func (h *Handler) GetTranscriptionJob(
 	ctx context.Context,
-	req *connect.Request[scribev1.GetTranscriptionJobRequest],
-) (*connect.Response[scribev1.GetTranscriptionJobResponse], error) {
-	job, err := h.transcriptionJobs.Get(ctx, req.Msg.GetJobId())
+	req *scribev1.GetTranscriptionJobRequest,
+) (*scribev1.GetTranscriptionJobResponse, error) {
+	job, err := h.transcriptionJobs.Get(ctx, req.GetJobId())
 	if err != nil {
 		return nil, transcriptionJobReadConnectError(err)
 	}
-	return connect.NewResponse(&scribev1.GetTranscriptionJobResponse{Job: storeJobToProto(job)}), nil
+	return &scribev1.GetTranscriptionJobResponse{Job: storeJobToProto(job)}, nil
 }
 
 func (h *Handler) ListTranscriptionJobs(
 	ctx context.Context,
-	req *connect.Request[scribev1.ListTranscriptionJobsRequest],
-) (*connect.Response[scribev1.ListTranscriptionJobsResponse], error) {
+	req *scribev1.ListTranscriptionJobsRequest,
+) (*scribev1.ListTranscriptionJobsResponse, error) {
 	if h.itemPageTokens == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("transcription job pagination is not configured"))
+		return nil, connect.Errorf(connect.CodeInternal, "transcription job pagination is not configured")
 	}
 	workspaceID := h.currentWorkspaceID(ctx)
-	itemImageID := req.Msg.GetItemImageId()
+	itemImageID := req.GetItemImageId()
 	if itemImageID != 0 {
 		if _, err := h.itemImageForRequest(ctx, itemImageID); err != nil {
-			return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("item image not found"))
+			return nil, connect.Errorf(connect.CodeNotFound, "item image not found")
 		}
 	}
 	pageSize, cursor, err := normalizeTranscriptionJobPageRequest(
-		req.Msg.GetPageSize(), req.Msg.GetPageToken(), workspaceID, itemImageID, h.itemPageTokens,
+		req.GetPageSize(), req.GetPageToken(), workspaceID, itemImageID, h.itemPageTokens,
 	)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error()).WithCause(err)
 	}
 	page, err := h.transcriptionJobs.ListPage(ctx, workspaceID, itemImageID, pageSize, cursor)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("list transcription jobs"))
+		return nil, connect.Errorf(connect.CodeInternal, "list transcription jobs")
 	}
 	nextPageToken, err := h.itemPageTokens.encodeTranscriptionJobPage(page.NextCursor, workspaceID, itemImageID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("encode transcription job page token"))
+		return nil, connect.Errorf(connect.CodeInternal, "encode transcription job page token")
 	}
 	protoJobs := make([]*scribev1.TranscriptionJobSummary, 0, len(page.Jobs))
 	for _, j := range page.Jobs {
 		protoJobs = append(protoJobs, storeJobSummaryToProto(j))
 	}
-	return connect.NewResponse(&scribev1.ListTranscriptionJobsResponse{
+	return &scribev1.ListTranscriptionJobsResponse{
 		Jobs:          protoJobs,
 		NextPageToken: nextPageToken,
-	}), nil
+	}, nil
 }
 
 // StreamTranscriptionJob sends a TranscriptionJob message every time the job
 // is updated until the job reaches a terminal state or the client disconnects.
 func (h *Handler) StreamTranscriptionJob(
 	ctx context.Context,
-	req *connect.Request[scribev1.StreamTranscriptionJobRequest],
-	stream *connect.ServerStream[scribev1.StreamTranscriptionJobResponse],
+	req *scribev1.StreamTranscriptionJobRequest,
+	stream scribev1connect.TranscriptionServiceStreamTranscriptionJobServerStream,
 ) error {
 	if h.sseLimiter != nil {
 		release, allowed := h.sseLimiter.Acquire(h.currentWorkspaceID(ctx))
 		if !allowed {
-			return connect.NewError(connect.CodeResourceExhausted, fmt.Errorf("stream connection limit exceeded"))
+			return connect.Errorf(connect.CodeResourceExhausted, "stream connection limit exceeded")
 		}
 		defer release()
 	}
-	jobID := req.Msg.GetJobId()
+	jobID := req.GetJobId()
 	pollInterval := 500 * time.Millisecond
 	timer := time.NewTimer(0)
 	defer timer.Stop()

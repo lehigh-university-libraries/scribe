@@ -85,14 +85,14 @@ if ((${#workflow_files[@]} == 0)); then
 fi
 if command -v actionlint >/dev/null 2>&1 && host_actionlint_is_pinned &&
   command -v shellcheck >/dev/null 2>&1 && host_shellcheck_is_pinned; then
-  actionlint "${workflow_files[@]}"
+  actionlint -config-file .github/actionlint.yaml "${workflow_files[@]}"
 elif command -v docker >/dev/null 2>&1; then
   if command -v actionlint >/dev/null 2>&1 || command -v shellcheck >/dev/null 2>&1; then
     echo "Installed actionlint/ShellCheck pair is not ${EXPECTED_ACTIONLINT_VERSION}/${EXPECTED_SHELLCHECK_VERSION}; using the pinned container." >&2
   fi
   actionlint_image="rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667"
   actionlint_id="$(
-    docker create -w /repo "${actionlint_image}" \
+    docker create -w /repo "${actionlint_image}" -config-file .github/actionlint.yaml \
       "${workflow_files[@]}"
   )"
   if ! copy_repo_to_container "${actionlint_id}"; then

@@ -1,11 +1,11 @@
 import { startTransition } from 'react';
 import PropTypes from 'prop-types';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
-import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutlineOutlined';
 import AddBoxOutlinedIcon from '@mui/icons-material/AddBoxOutlined';
 import BorderColorOutlinedIcon from '@mui/icons-material/BorderColorOutlined';
 import CallSplitOutlinedIcon from '@mui/icons-material/CallSplitOutlined';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import HorizontalSplitOutlinedIcon from '@mui/icons-material/HorizontalSplitOutlined';
 import MergeTypeOutlinedIcon from '@mui/icons-material/MergeTypeOutlined';
 import PublishOutlinedIcon from '@mui/icons-material/PublishOutlined';
@@ -470,7 +470,7 @@ export default function ScribeActionPanel({
                 >
                   View and modes
                 </Typography>
-                <Stack aria-label="View and modes" direction="row" flexWrap="wrap" role="group" useFlexGap spacing={0.5}>
+                <Stack aria-label="View and modes" direction="row" sx={{ flexWrap: "wrap" }} role="group" useFlexGap spacing={0.5}>
                   <OverlayModeSwitch
                     disabled={isBusy}
                     onSelect={onSelectOverlayMode}
@@ -527,7 +527,7 @@ export default function ScribeActionPanel({
                 >
                   Text and page actions
                 </Typography>
-                <Stack aria-label="Text and page actions" direction="row" flexWrap="wrap" role="group" useFlexGap spacing={0.5}>
+                <Stack aria-label="Text and page actions" direction="row" sx={{ flexWrap: "wrap" }} role="group" useFlexGap spacing={0.5}>
                   <ToolbarAction
                     title={t('scribeEditorSplitWords')}
                     label="Split to words"

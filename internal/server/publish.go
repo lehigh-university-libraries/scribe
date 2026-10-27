@@ -2,22 +2,21 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
 	scribev1 "github.com/lehigh-university-libraries/scribe/proto/scribe/v1"
 )
 
-func (h *Handler) PublishItemImageEdits(ctx context.Context, req *connect.Request[scribev1.PublishItemImageEditsRequest]) (*connect.Response[scribev1.PublishItemImageEditsResponse], error) {
-	itemImageID := req.Msg.GetItemImageId()
+func (h *Handler) PublishItemImageEdits(ctx context.Context, req *scribev1.PublishItemImageEditsRequest) (*scribev1.PublishItemImageEditsResponse, error) {
+	itemImageID := req.GetItemImageId()
 	if itemImageID == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("item_image_id is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "item_image_id is required")
 	}
-	if req.Msg.GetExpectedRevision() == 0 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("expected_revision is required"))
+	if req.GetExpectedRevision() == 0 {
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "expected_revision is required")
 	}
 	userID := h.currentUserID(ctx)
 	var publishedBy *uint64
@@ -25,7 +24,7 @@ func (h *Handler) PublishItemImageEdits(ctx context.Context, req *connect.Reques
 		publishedBy = &userID
 	}
 	published, err := h.annotations.PublishPage(ctx, h.currentWorkspaceID(ctx), itemImageID, store.AnnotationPublicationOptions{
-		ExpectedRevision:  req.Msg.GetExpectedRevision(),
+		ExpectedRevision:  req.GetExpectedRevision(),
 		PublishedByUserID: publishedBy,
 		EventID:           uuid.NewString(),
 		EventType:         "dev.scribe.annotations.published",
@@ -34,12 +33,12 @@ func (h *Handler) PublishItemImageEdits(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, annotationConnectError(err)
 	}
-	return connect.NewResponse(&scribev1.PublishItemImageEditsResponse{
+	return &scribev1.PublishItemImageEditsResponse{
 		ItemImageId:        itemImageID,
 		CanvasUri:          published.CanvasURI,
 		AnnotationPageJson: published.Payload,
 		PublishedAt:        published.PublishedAt.UTC().Format(time.RFC3339Nano),
 		PublishedRevision:  published.PublishedRevision,
 		PublicUrl:          published.PageID,
-	}), nil
+	}, nil
 }

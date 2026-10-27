@@ -13,7 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/models"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -63,33 +64,33 @@ func TestSplitPageIntoWordsTransformsEveryLineInOnePersistedRPC(t *testing.T) {
 		"owner": {workspaceID: workspaceID, userID: userID},
 		"other": {workspaceID: otherWorkspaceID, userID: otherUserID},
 	})
-	client := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
-	_, err = client.SplitPageIntoWords(ctx, tenantConnectRequest("other", &scribev1.SplitPageIntoWordsRequest{
+	client := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
+	_, err = client.SplitPageIntoWords(tenantConnectContext(ctx, "other"), &scribev1.SplitPageIntoWordsRequest{
 		ItemImageId: image.ID, AnnotationPageJson: seeded.Payload,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("cross-workspace page split error = %v, want not_found", err)
 	}
-	response, err := client.SplitPageIntoWords(ctx, tenantConnectRequest("owner", &scribev1.SplitPageIntoWordsRequest{
+	response, err := client.SplitPageIntoWords(tenantConnectContext(ctx, "owner"), &scribev1.SplitPageIntoWordsRequest{
 		ItemImageId: image.ID, AnnotationPageJson: seeded.Payload,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("SplitPageIntoWords: %v", err)
 	}
-	persisted := wordLifecycleSaveAndReload(t, ctx, client, image.ID, response.Msg.GetAnnotationPageJson(), seeded.Revision)
-	if got := wordLifecycleAnnotations(t, persisted.Msg.GetAnnotationPageJson(), "line"); len(got) != 2 {
+	persisted := wordLifecycleSaveAndReload(t, ctx, client, image.ID, response.GetAnnotationPageJson(), seeded.Revision)
+	if got := wordLifecycleAnnotations(t, persisted.GetAnnotationPageJson(), "line"); len(got) != 2 {
 		t.Fatalf("persisted page-split line count = %d, want 2", len(got))
 	}
-	words := wordLifecycleWordSnapshot(t, persisted.Msg.GetAnnotationPageJson())
+	words := wordLifecycleWordSnapshot(t, persisted.GetAnnotationPageJson())
 	wordLifecycleAssertTexts(t, words, []string{"alpha", "beta", "gamma", "delta", "epsilon"})
 
-	repeated, err := client.SplitPageIntoWords(ctx, tenantConnectRequest("owner", &scribev1.SplitPageIntoWordsRequest{
-		ItemImageId: image.ID, AnnotationPageJson: persisted.Msg.GetAnnotationPageJson(),
-	}))
+	repeated, err := client.SplitPageIntoWords(tenantConnectContext(ctx, "owner"), &scribev1.SplitPageIntoWordsRequest{
+		ItemImageId: image.ID, AnnotationPageJson: persisted.GetAnnotationPageJson(),
+	})
 	if err != nil {
 		t.Fatalf("repeat SplitPageIntoWords: %v", err)
 	}
-	repeatedWords := wordLifecycleWordSnapshot(t, repeated.Msg.GetAnnotationPageJson())
+	repeatedWords := wordLifecycleWordSnapshot(t, repeated.GetAnnotationPageJson())
 	wordLifecycleAssertStableWords(t, words, repeatedWords)
 }
 
@@ -147,41 +148,41 @@ func TestWordStructuralLifecyclePersistsAcrossCanonicalPublicAndExports(t *testi
 		"owner": {workspaceID: workspaceID, userID: userID},
 		"other": {workspaceID: otherWorkspaceID, userID: otherUserID},
 	})
-	client := scribev1connect.NewAnnotationServiceClient(http.DefaultClient, appServer.URL)
+	client := scribev1connect.NewAnnotationServiceClient(connect.NewClient(connecthttp.NewTransport(http.DefaultClient, appServer.URL, connecthttp.WithReadMaxBytes(0))))
 
 	// Ownership is keyed by the requested item image, never by an imported
 	// Canvas URI that another tenant can share.
-	_, err = client.SplitLineIntoWords(ctx, tenantConnectRequest("other", &scribev1.SplitLineIntoWordsRequest{
+	_, err = client.SplitLineIntoWords(tenantConnectContext(ctx, "other"), &scribev1.SplitLineIntoWordsRequest{
 		ItemImageId: image.ID, AnnotationPageJson: seeded.Payload, SelectedAnnotationId: lineID,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("cross-workspace structural transform error = %v, want not_found", err)
 	}
 
 	// Exploding a line retains the line and adds the finest-granularity words.
-	splitWords, err := client.SplitLineIntoWords(ctx, tenantConnectRequest("owner", &scribev1.SplitLineIntoWordsRequest{
+	splitWords, err := client.SplitLineIntoWords(tenantConnectContext(ctx, "owner"), &scribev1.SplitLineIntoWordsRequest{
 		ItemImageId: image.ID, AnnotationPageJson: seeded.Payload, SelectedAnnotationId: lineID,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("SplitLineIntoWords: %v", err)
 	}
-	current := wordLifecycleSaveAndReload(t, ctx, client, image.ID, splitWords.Msg.GetAnnotationPageJson(), seeded.Revision)
-	if got := wordLifecycleAnnotations(t, current.Msg.GetAnnotationPageJson(), "line"); len(got) != 1 {
+	current := wordLifecycleSaveAndReload(t, ctx, client, image.ID, splitWords.GetAnnotationPageJson(), seeded.Revision)
+	if got := wordLifecycleAnnotations(t, current.GetAnnotationPageJson(), "line"); len(got) != 1 {
 		t.Fatalf("line count after word split = %d, want 1", len(got))
 	}
-	initialWords := wordLifecycleWordSnapshot(t, current.Msg.GetAnnotationPageJson())
+	initialWords := wordLifecycleWordSnapshot(t, current.GetAnnotationPageJson())
 	wordLifecycleAssertTexts(t, initialWords, []string{"alpha", "beta", "gamma", "delta"})
-	wordLifecycleAssertExtensions(t, current.Msg.GetAnnotationPageJson())
+	wordLifecycleAssertExtensions(t, current.GetAnnotationPageJson())
 
 	// Word CRUD is a local full-page edit committed through the same revision
 	// CAS; there is no second per-annotation persistence path.
-	draft := wordLifecycleDocument(t, current.Msg.GetAnnotationPageJson())
+	draft := wordLifecycleDocument(t, current.GetAnnotationPageJson())
 	draftItems := draft["items"].([]any)
-	currentLine := wordLifecycleAnnotationByGranularity(t, current.Msg.GetAnnotationPageJson(), "line")
+	currentLine := wordLifecycleAnnotationByGranularity(t, current.GetAnnotationPageJson(), "line")
 	setAnnotationText(currentLine, "alpha BETA delta epsilon")
-	beta := wordLifecycleAnnotationByText(t, current.Msg.GetAnnotationPageJson(), "word", "beta")
+	beta := wordLifecycleAnnotationByText(t, current.GetAnnotationPageJson(), "word", "beta")
 	setAnnotationText(beta, "BETA")
-	gammaID := annStringValue(wordLifecycleAnnotationByText(t, current.Msg.GetAnnotationPageJson(), "word", "gamma"), "id")
+	gammaID := annStringValue(wordLifecycleAnnotationByText(t, current.GetAnnotationPageJson(), "word", "gamma"), "id")
 	extraWordID, err := iiif.AnnotationID(pageID, "word-lifecycle-extra")
 	if err != nil {
 		t.Fatal(err)
@@ -206,26 +207,26 @@ func TestWordStructuralLifecyclePersistsAcrossCanonicalPublicAndExports(t *testi
 		}
 	}
 	draft["items"] = append(updatedItems, extraWord)
-	current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, wordLifecycleJSON(t, draft), current.Msg.GetRevision())
-	crudWords := wordLifecycleWordSnapshot(t, current.Msg.GetAnnotationPageJson())
+	current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, wordLifecycleJSON(t, draft), current.GetRevision())
+	crudWords := wordLifecycleWordSnapshot(t, current.GetAnnotationPageJson())
 	wordLifecycleAssertTexts(t, crudWords, []string{"alpha", "BETA", "delta", "epsilon"})
-	wordLifecycleAssertExtensions(t, current.Msg.GetAnnotationPageJson())
+	wordLifecycleAssertExtensions(t, current.GetAnnotationPageJson())
 
 	// Persist and reload the split state before joining. This is the regression
 	// boundary for retained words at the two new lines' shared Y coordinate.
-	currentLine = wordLifecycleAnnotationByGranularity(t, current.Msg.GetAnnotationPageJson(), "line")
-	splitLines, err := client.SplitLineIntoTwoLines(ctx, tenantConnectRequest("owner", &scribev1.SplitLineIntoTwoLinesRequest{
-		ItemImageId: image.ID, AnnotationPageJson: current.Msg.GetAnnotationPageJson(), SelectedAnnotationId: annStringValue(currentLine, "id"), SplitAtWord: 2,
-	}))
+	currentLine = wordLifecycleAnnotationByGranularity(t, current.GetAnnotationPageJson(), "line")
+	splitLines, err := client.SplitLineIntoTwoLines(tenantConnectContext(ctx, "owner"), &scribev1.SplitLineIntoTwoLinesRequest{
+		ItemImageId: image.ID, AnnotationPageJson: current.GetAnnotationPageJson(), SelectedAnnotationId: annStringValue(currentLine, "id"), SplitAtWord: 2,
+	})
 	if err != nil {
 		t.Fatalf("SplitLineIntoTwoLines: %v", err)
 	}
-	current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, splitLines.Msg.GetAnnotationPageJson(), current.Msg.GetRevision())
-	lines := wordLifecycleAnnotations(t, current.Msg.GetAnnotationPageJson(), "line")
+	current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, splitLines.GetAnnotationPageJson(), current.GetRevision())
+	lines := wordLifecycleAnnotations(t, current.GetAnnotationPageJson(), "line")
 	if len(lines) != 2 {
 		t.Fatalf("persisted split line count = %d, want 2", len(lines))
 	}
-	splitSnapshot := wordLifecycleWordSnapshot(t, current.Msg.GetAnnotationPageJson())
+	splitSnapshot := wordLifecycleWordSnapshot(t, current.GetAnnotationPageJson())
 	wordLifecycleAssertStableWords(t, crudWords, splitSnapshot)
 	expectedBoxes := map[string]models.BBox{
 		"alpha":   {X1: 0, Y1: 0, X2: 125, Y2: 20},
@@ -234,51 +235,51 @@ func TestWordStructuralLifecyclePersistsAcrossCanonicalPublicAndExports(t *testi
 		"epsilon": {X1: 400, Y1: 20, X2: 500, Y2: 40},
 	}
 	wordLifecycleAssertBoxes(t, splitSnapshot, expectedBoxes)
-	wordLifecycleAssertExtensions(t, current.Msg.GetAnnotationPageJson())
+	wordLifecycleAssertExtensions(t, current.GetAnnotationPageJson())
 
 	// Reverse caller order to prove text/ID derivation follows geometry rather
 	// than selection order.
-	joinedLines, err := client.JoinLines(ctx, tenantConnectRequest("owner", &scribev1.JoinLinesRequest{
-		ItemImageId: image.ID, AnnotationPageJson: current.Msg.GetAnnotationPageJson(),
+	joinedLines, err := client.JoinLines(tenantConnectContext(ctx, "owner"), &scribev1.JoinLinesRequest{
+		ItemImageId: image.ID, AnnotationPageJson: current.GetAnnotationPageJson(),
 		SelectedAnnotationIds: []string{annStringValue(lines[1], "id"), annStringValue(lines[0], "id")},
-	}))
+	})
 	if err != nil {
 		t.Fatalf("JoinLines: %v", err)
 	}
-	current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, joinedLines.Msg.GetAnnotationPageJson(), current.Msg.GetRevision())
-	if got := extractAnnotationText(wordLifecycleAnnotationByGranularity(t, current.Msg.GetAnnotationPageJson(), "line")); got != "alpha BETA delta epsilon" {
+	current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, joinedLines.GetAnnotationPageJson(), current.GetRevision())
+	if got := extractAnnotationText(wordLifecycleAnnotationByGranularity(t, current.GetAnnotationPageJson(), "line")); got != "alpha BETA delta epsilon" {
 		t.Fatalf("joined line text = %q", got)
 	}
-	wordLifecycleAssertIdenticalWords(t, splitSnapshot, wordLifecycleWordSnapshot(t, current.Msg.GetAnnotationPageJson()))
+	wordLifecycleAssertIdenticalWords(t, splitSnapshot, wordLifecycleWordSnapshot(t, current.GetAnnotationPageJson()))
 
-	wordIDs := wordLifecycleIDs(t, current.Msg.GetAnnotationPageJson(), "word")
+	wordIDs := wordLifecycleIDs(t, current.GetAnnotationPageJson(), "word")
 	sort.Sort(sort.Reverse(sort.StringSlice(wordIDs)))
-	joinedWords, err := client.JoinWordsIntoLine(ctx, tenantConnectRequest("owner", &scribev1.JoinWordsIntoLineRequest{
-		ItemImageId: image.ID, AnnotationPageJson: current.Msg.GetAnnotationPageJson(), SelectedAnnotationIds: wordIDs,
-	}))
+	joinedWords, err := client.JoinWordsIntoLine(tenantConnectContext(ctx, "owner"), &scribev1.JoinWordsIntoLineRequest{
+		ItemImageId: image.ID, AnnotationPageJson: current.GetAnnotationPageJson(), SelectedAnnotationIds: wordIDs,
+	})
 	if err != nil {
 		t.Fatalf("JoinWordsIntoLine: %v", err)
 	}
-	current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, joinedWords.Msg.GetAnnotationPageJson(), current.Msg.GetRevision())
-	finalWords := wordLifecycleWordSnapshot(t, current.Msg.GetAnnotationPageJson())
+	current = wordLifecycleSaveAndReload(t, ctx, client, image.ID, joinedWords.GetAnnotationPageJson(), current.GetRevision())
+	finalWords := wordLifecycleWordSnapshot(t, current.GetAnnotationPageJson())
 	wordLifecycleAssertIdenticalWords(t, splitSnapshot, finalWords)
-	wordLifecycleAssertPageCounter(t, current.Msg.GetAnnotationPageJson())
-	finalPage := current.Msg.GetAnnotationPageJson()
+	wordLifecycleAssertPageCounter(t, current.GetAnnotationPageJson())
+	finalPage := current.GetAnnotationPageJson()
 
-	published, err := client.PublishItemImageEdits(ctx, tenantConnectRequest("owner", &scribev1.PublishItemImageEditsRequest{
-		ItemImageId: image.ID, ExpectedRevision: current.Msg.GetRevision(),
-	}))
+	published, err := client.PublishItemImageEdits(tenantConnectContext(ctx, "owner"), &scribev1.PublishItemImageEditsRequest{
+		ItemImageId: image.ID, ExpectedRevision: current.GetRevision(),
+	})
 	if err != nil {
 		t.Fatalf("PublishItemImageEdits: %v", err)
 	}
-	wordLifecycleAssertIdenticalWords(t, finalWords, wordLifecycleWordSnapshot(t, published.Msg.GetAnnotationPageJson()))
-	wordLifecycleAssertSemanticPageEquality(t, finalPage, published.Msg.GetAnnotationPageJson())
+	wordLifecycleAssertIdenticalWords(t, finalWords, wordLifecycleWordSnapshot(t, published.GetAnnotationPageJson()))
+	wordLifecycleAssertSemanticPageEquality(t, finalPage, published.GetAnnotationPageJson())
 
 	// Publishing atomically enqueues the immutable snapshot. Exercise the same
 	// durable delivery worker and HTTP boundary used in production, then
 	// dereference the exact public URL returned by the Connect operation.
 	handler.dispatchAnnotationMirrors(ctx)
-	publicRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, published.Msg.GetPublicUrl(), nil)
+	publicRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, published.GetPublicUrl(), nil)
 	if err != nil {
 		t.Fatalf("create public AnnotationPage request: %v", err)
 	}
@@ -303,7 +304,7 @@ func TestWordStructuralLifecyclePersistsAcrossCanonicalPublicAndExports(t *testi
 	wordLifecycleAssertPageCounter(t, publicPage)
 
 	for _, format := range []string{"txt", "hocr", "pagexml", "alto"} {
-		status, exported := tenantAnnotationExport(t, client, "owner", image.ID, current.Msg.GetRevision(), format)
+		status, exported := tenantAnnotationExport(t, client, "owner", image.ID, current.GetRevision(), format)
 		if status != http.StatusOK {
 			t.Fatalf("%s export status/body = %d/%q", format, status, exported)
 		}
@@ -322,20 +323,20 @@ func TestWordStructuralLifecyclePersistsAcrossCanonicalPublicAndExports(t *testi
 	}
 }
 
-func wordLifecycleSaveAndReload(t *testing.T, ctx context.Context, client scribev1connect.AnnotationServiceClient, itemImageID uint64, page string, revision uint64) *connect.Response[scribev1.GetAnnotationPageResponse] {
+func wordLifecycleSaveAndReload(t *testing.T, ctx context.Context, client scribev1connect.AnnotationServiceClient, itemImageID uint64, page string, revision uint64) *scribev1.GetAnnotationPageResponse {
 	t.Helper()
-	saved, err := client.SaveAnnotationPage(ctx, tenantConnectRequest("owner", &scribev1.SaveAnnotationPageRequest{
+	saved, err := client.SaveAnnotationPage(tenantConnectContext(ctx, "owner"), &scribev1.SaveAnnotationPageRequest{
 		ItemImageId: itemImageID, AnnotationPageJson: page, ExpectedRevision: revision,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("SaveAnnotationPage(revision=%d): %v", revision, err)
 	}
-	reloaded, err := client.GetAnnotationPage(ctx, tenantConnectRequest("owner", &scribev1.GetAnnotationPageRequest{ItemImageId: itemImageID}))
+	reloaded, err := client.GetAnnotationPage(tenantConnectContext(ctx, "owner"), &scribev1.GetAnnotationPageRequest{ItemImageId: itemImageID})
 	if err != nil {
 		t.Fatalf("GetAnnotationPage: %v", err)
 	}
-	if reloaded.Msg.GetRevision() != saved.Msg.GetRevision() || reloaded.Msg.GetAnnotationPageJson() != saved.Msg.GetAnnotationPageJson() {
-		t.Fatalf("save/reload drift at revision %d", saved.Msg.GetRevision())
+	if reloaded.GetRevision() != saved.GetRevision() || reloaded.GetAnnotationPageJson() != saved.GetAnnotationPageJson() {
+		t.Fatalf("save/reload drift at revision %d", saved.GetRevision())
 	}
 	return reloaded
 }

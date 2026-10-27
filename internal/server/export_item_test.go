@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
 	"github.com/lehigh-university-libraries/scribe/internal/auth"
 	dbstore "github.com/lehigh-university-libraries/scribe/internal/db"
@@ -77,14 +77,14 @@ func TestMultiCanvasItemExportsCanonicalPages(t *testing.T) {
 
 	handler := NewHandler(nil, itemStore, nil, annotationStore, nil, nil, nil, nil)
 	handler.itemExportTokens = testItemExportTokenCodec(t)
-	snapshot, err := handler.GetItem(ctx, connect.NewRequest(&scribev1.GetItemRequest{ItemId: item.ID}))
+	snapshot, err := handler.GetItem(ctx, &scribev1.GetItemRequest{ItemId: item.ID})
 	if err != nil {
 		t.Fatalf("GetItem export snapshot: %v", err)
 	}
-	if len(snapshot.Msg.GetAnnotationRevisions()) != len(expectedRevisions) {
-		t.Fatalf("GetItem revision count = %d, want %d", len(snapshot.Msg.GetAnnotationRevisions()), len(expectedRevisions))
+	if len(snapshot.GetAnnotationRevisions()) != len(expectedRevisions) {
+		t.Fatalf("GetItem revision count = %d, want %d", len(snapshot.GetAnnotationRevisions()), len(expectedRevisions))
 	}
-	for index, revision := range snapshot.Msg.GetAnnotationRevisions() {
+	for index, revision := range snapshot.GetAnnotationRevisions() {
 		if revision.GetItemImageId() != expectedRevisions[index].GetItemImageId() || revision.GetRevision() != expectedRevisions[index].GetRevision() {
 			t.Fatalf("GetItem revision %d = %+v, want %+v", index, revision, expectedRevisions[index])
 		}
@@ -141,9 +141,9 @@ func TestMultiCanvasItemExportsCanonicalPages(t *testing.T) {
 		{ItemImageId: expectedRevisions[0].GetItemImageId(), Revision: expectedRevisions[0].GetRevision() + 1},
 		expectedRevisions[1],
 	}
-	_, err = handler.PrepareItemExport(ctx, connect.NewRequest(&scribev1.PrepareItemExportRequest{
+	_, err = handler.PrepareItemExport(ctx, &scribev1.PrepareItemExportRequest{
 		ItemId: item.ID, Format: scribev1.AnnotationExportFormat_ANNOTATION_EXPORT_FORMAT_PLAIN_TEXT, ExpectedRevisions: staleExpected,
-	}))
+	})
 	if connect.CodeOf(err) != connect.CodeAborted {
 		t.Fatalf("stale PrepareItemExport = %v, want aborted", err)
 	}
@@ -179,13 +179,13 @@ func TestMultiCanvasItemExportsCanonicalPages(t *testing.T) {
 
 func prepareItemExportURL(t *testing.T, handler *Handler, itemID, format string, expectedRevisions []*scribev1.ItemImageRevision) string {
 	t.Helper()
-	response, err := handler.PrepareItemExport(context.Background(), connect.NewRequest(&scribev1.PrepareItemExportRequest{
+	response, err := handler.PrepareItemExport(context.Background(), &scribev1.PrepareItemExportRequest{
 		ItemId: itemID, Format: testAnnotationExportFormat(t, format), ExpectedRevisions: expectedRevisions,
-	}))
+	})
 	if err != nil {
 		t.Fatalf("PrepareItemExport(%s): %v", format, err)
 	}
-	return response.Msg.GetDownloadUrl()
+	return response.GetDownloadUrl()
 }
 
 func exportItemRequest(t *testing.T, handler *Handler, itemID, format string, expectedRevisions []*scribev1.ItemImageRevision) *httptest.ResponseRecorder {

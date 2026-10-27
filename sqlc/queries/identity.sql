@@ -15,6 +15,11 @@ INSERT INTO users (
   NOW()
 );
 
+-- name: EnsureUserByEmailManual :execresult
+INSERT INTO users (name, email)
+VALUES (sqlc.arg(name), sqlc.narg(email))
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id);
+
 -- name: GetUserManual :one
 SELECT
   id,
@@ -152,29 +157,27 @@ INSERT INTO workspaces (
   owner_user_id,
   name,
   slug,
-  is_personal,
   created_by_user_id
 ) VALUES (
   sqlc.narg(owner_user_id),
   sqlc.arg(name),
   sqlc.arg(slug),
-  sqlc.arg(is_personal),
   sqlc.narg(created_by_user_id)
 );
 
--- name: GetPersonalWorkspaceByUserIDManual :one
+-- name: GetDefaultWorkspaceByUserIDManual :one
 SELECT
-  id,
-  owner_user_id,
-  name,
-  slug,
-  is_personal,
-  created_by_user_id,
-  created_at,
-  updated_at
-FROM workspaces
-WHERE owner_user_id = sqlc.arg(user_id)
-  AND is_personal = TRUE
+  w.id,
+  w.owner_user_id,
+  w.name,
+  w.slug,
+  w.created_by_user_id,
+  w.created_at,
+  w.updated_at
+FROM workspaces w
+JOIN workspace_members wm ON wm.workspace_id = w.id
+WHERE wm.user_id = sqlc.arg(user_id)
+ORDER BY w.id
 LIMIT 1;
 
 -- name: CreateWorkspaceMemberManual :exec
@@ -201,7 +204,7 @@ SELECT sqlc.embed(w), wm.role
 FROM workspaces w
 JOIN workspace_members wm ON wm.workspace_id = w.id
 WHERE wm.user_id = sqlc.arg(user_id)
-ORDER BY w.is_personal DESC, w.name ASC
+ORDER BY w.id
 LIMIT 50;
 
 -- name: CountWorkspaceAccessByUserManual :one
@@ -213,7 +216,6 @@ SELECT
   owner_user_id,
   name,
   slug,
-  is_personal,
   created_by_user_id,
   created_at,
   updated_at
@@ -276,7 +278,6 @@ SELECT
   owner_user_id,
   name,
   slug,
-  is_personal,
   created_by_user_id,
   created_at,
   updated_at
