@@ -152,6 +152,172 @@ address as the MySQL username with the current deployment.
 
 ## Configuration and destruction
 
+### Database sizing and commitment proposal
+
+The default SQL tier is `db-custom-1-3840` (one dedicated vCPU, 3.75 GiB).
+Production retains regional HA; dev and previews remain zonal. This replaces
+the previous two-vCPU, 7.5-GiB default. The reported steady load of under
+900 MiB and 10% CPU suggests this candidate has headroom, but verify peak
+memory, CPU, connections, query latency, and processing concurrency against
+live monitoring before applying. A tier change can interrupt MySQL for several
+minutes. Verify backup/PITR health first, then check application readiness and
+the same metrics after resizing. Restore `cloud_sql_tier=db-custom-2-7680`
+through Terraform if the smaller instance cannot sustain the workload.
+
+Commitment purchases must be restricted to the `prod` workspace. Dev and preview
+plans must create no commitments, even when given production purchase inputs.
+Do not put purchase resources in foundation or shared service modules. Any
+future Terraform purchase implementation must gate resource creation directly
+on `terraform.workspace == "prod"` and verify prod, dev, and preview plans.
+No commitment purchase automation is currently configured.
+
+Propose a one-year Cloud SQL commitment for the resized production instance's
+continuous CPU and memory spend only, after confirming its live tier and
+region, existing commitments, billing currency, and account-specific rates.
+Do not include dev, previews, storage, backups, or networking. SQL CUDs give
+a [25% one-year discount](https://docs.cloud.google.com/sql/docs/mysql/cud)
+on eligible usage. At identical regional unit rates, halving both CPU and
+memory halves compute cost; adding the CUD reduces that component to 37.5%
+of the previous on-demand compute cost. Total invoice savings will be smaller
+because storage and other charges remain.
+
+For illustration only, using the pricing page's default Iowa HA rates of
+$0.0826/vCPU-hour and $0.014/GiB-hour, with 730 hours/month:
+
+| Production SQL compute | Hourly USD | Monthly USD | Annual USD |
+| --- | ---: | ---: | ---: |
+| Previous default, on demand | 0.270200 | 197.25 | 2,366.95 |
+| Proposed default, on demand | 0.135100 | 98.62 | 1,183.48 |
+| Proposed default, one-year CUD | 0.101325 | 73.97 | 887.61 |
+
+The October 28, 2026 billing report confirms these unit rates in `us-east5`:
+42 regional vCPU-hours cost $3.4692 and 150 regional GiB-hours cost $2.10.
+The smaller HA instance therefore has a proposed new-model one-year commitment
+of **$0.101325/hour**, or approximately **$887.61 over 8,760 hours**. This is
+compute only; storage, backups, and networking remain additional. Confirm
+existing commitments and the account's purchase model before ordering.
+The new spend-based model uses discounted hourly spend as the purchase amount;
+the legacy model uses on-demand equivalent spend. Confirm the account's model
+before entering an amount. Commitments are billed monthly and cannot be
+cancelled; they are not a prepaid credit balance.
+
+Cloud Run's configured minimum instance counts are zero. The operator-approved
+purchase sizing basis is the most recent ten complete calendar days in the
+supplied report, October 18-27, 2026, rather than an hourly minimum. Exclude
+GPU and network charges. The current
+[Compute flexible CUD](https://docs.cloud.google.com/run/cud) offers 17% for
+one-year request-based usage and 28% for instance-based usage and jobs. Size
+the purchase using the observed billing-mode mix:
+
+| Ten-day eligible usage | Net on-demand USD | One-year multiplier | Discounted USD |
+| --- | ---: | ---: | ---: |
+| Instance-based services and jobs | 14.069879 | 0.72 | 10.130313 |
+| Request-based services | 5.095897 | 0.83 | 4.229594 |
+| Total | 19.165776 | | 14.359907 |
+
+Divide by 240 hours: the eligible on-demand average is $0.0798574/hour and
+the new-model discounted commitment is $0.059832947/hour. Propose a one-year
+Compute flexible commitment rounded down to **$0.0598/hour**, approximately
+**$43.65/month or $523.85 over 8,760 hours**. The report also contains
+$0.926129 of GPU charges in this window, which remain on demand.
+Daily totals cannot prove continuous hourly utilization or distinguish runtime
+workspaces; this sizing assumes the report was filtered to the intended project
+and represents expected production use. Unused hourly commitment is still
+charged, and bursts above coverage remain on demand. The commitment fee is not
+a ceiling on total Cloud Run spend.
+
+The supplied daily billing report covers September 29 through October 28,
+2026, including a partial current day. Excluding October 28 leaves 29 calendar
+days and $341.17 of net project charges, with recent usage potentially still
+arriving. Cloud SQL accounts for $137.31, Cloud Run $131.24, Compute Engine
+$38.19, Gemini API $21.64, Artifact Registry $8.26, and other services $4.53.
+The empty CUD recommendations response is not an inventory of active orders.
+
+Cloud Run daily charges fell from roughly $24/day on October 9-11 to roughly
+$0.45/day on October 15-25, with later bursts. Historical instance-based spend
+must not determine a new commitment after migration to request-based billing.
+The operator selected the last ten days as the commitment sizing basis above.
+GPU charges ($2.52 across the full report) are excluded from that commitment.
+
+N4 VM CPU and memory account for $20.32 but have no reported charges after
+October 8; do not buy a VM commitment for this historical footprint. Remaining
+Compute Engine charges are principally disk and static IP charges. The report
+does not establish another ongoing eligible service requiring a commitment.
+Gemini API spend does not by itself prove eligibility for a Vertex AI/Gemini
+Enterprise savings plan; verify exact eligible SKUs before proposing one.
+
+CUD benefits apply automatically at the billing-account level; SQL is regional
+and Compute flexible commitments can span projects and regions. A production
+Terraform gate restricts purchase execution, not benefit allocation. If dev and
+production share a billing account, production-only benefit attribution needs
+separate billing-scope verification before purchase. The pinned Google provider
+does not currently expose a spend-based procurement order resource; do not
+substitute a Compute Engine regional resource commitment or an apply-time
+purchase script.
+
+### Purchase the production commitments manually
+
+The pinned Google and Google Beta providers have no native resource for either
+Cloud SQL spend-based CUDs or the Compute flexible CUD used by Cloud Run.
+Purchase both once through Cloud Billing. Terraform applies in prod, dev, and
+preview perform no commitment purchases and cannot duplicate or renew them.
+
+Use a Billing Account Administrator identity. Find the billing account linked
+to the production project:
+
+```bash
+gcloud billing projects describe lehigh-lyrasis-catalyst \
+  --format='value(billingAccountName)'
+```
+
+1. Open **Billing** in Google Cloud console and select that linked account.
+2. Open **Committed use discounts (CUDs)**. Inspect existing active and pending
+   commitments first; purchase only coverage not already committed.
+3. Confirm production SQL is running `db-custom-1-3840` with regional HA in
+   `us-east5` before buying the smaller SQL commitment.
+4. Select **Purchase CUD** and enter the SQL purchase below. Verify that the
+   amount field uses the new model's **discounted hourly spend**, in USD.
+5. Review the preview summary, region, one-year term, recurring commitment fee,
+   and service-specific terms, then finalize the purchase.
+6. Repeat for **Compute flexible** to cover Cloud Run. A new Cloud Run-specific
+   regional commitment is not the product to select; Compute flexible covers
+   eligible Cloud Run usage across regions.
+
+| Purchase field | Cloud SQL | Cloud Run through Compute flexible |
+| --- | --- | --- |
+| Suggested name | `scribe-prod-sql-1yr` | `scribe-prod-run-1yr` |
+| Product | Cloud SQL | Compute flexible |
+| Term | 1 year | 1 year |
+| Region | `us-east5` | Global / all regions |
+| Discounted hourly commitment, USD | `0.101325` | `0.0598` |
+| Approximate monthly commitment, 730 hours | $73.97 | $43.65 |
+| Approximate annual obligation, 8,760 hours | $887.61 | $523.85 |
+
+If the console identifies the account as using legacy on-demand-equivalent
+amounts, do not paste discounted amounts into that field. SQL's corresponding
+on-demand coverage is $0.1351/hour. Recalculate the Compute flexible purchase
+using the account's offer and displayed pricing model before proceeding.
+If the console rounds an amount, use its final displayed fee when recording
+the purchase. These fees exclude storage, backups, GPUs, network charges, and
+usage beyond hourly coverage. Unused hourly coverage does not carry forward.
+
+After each purchase, verify the order is listed as pending or active, and
+record its order ID, billing account, amount, currency, scope, start/end dates,
+and renewal setting in the operator's billing record. The proposals above are
+not evidence of a completed purchase. Recheck the CUD analysis report after
+billing data arrives to confirm coverage and utilization. CUDs apply
+automatically; no Cloud Run revision or SQL deployment setting attaches them.
+Keep renewal manual so a later year is reviewed against current production
+usage. An accidental purchase cannot be undone with Terraform; contact Cloud
+Billing Support.
+
+These are production-budget purchases. Billing-account-wide benefits may also
+cover eligible dev or other-project usage sharing the account; the manual
+purchase process does not enforce production-only benefit attribution.
+
+See Google's [purchase instructions](https://docs.cloud.google.com/docs/cuds-spend-based)
+and [Cloud Run Compute flexible CUD guide](https://docs.cloud.google.com/run/cud).
+
 Allowed ingress CIDRs are enforced by the Cloud Run frontend. It accepts only
 the reviewed direct run.app forwarding topology, establishes external HTTPS,
 and forwards one validated client address to the loopback API. Custom load

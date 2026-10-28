@@ -20,7 +20,7 @@ monitoring_notification_channels = [
 # Terraform resolves API, frontend, and Triplet GAR tags to immutable digests.
 # image_tag = "main"
 network_ip_cidr_range = "10.42.0.0/24"
-cloud_sql_tier = "db-custom-2-7680"
+cloud_sql_tier = "db-custom-1-3840"
 worker_max_instances = 3
 
 # Runtime admission defaults come from ../config.yaml. Omit them here so a

@@ -272,8 +272,8 @@ variable "ocr_image_tag" {
 }
 variable "cloud_sql_tier" {
   type        = string
-  default     = "db-custom-2-7680"
-  description = "Cloud SQL Enterprise machine tier."
+  default     = "db-custom-1-3840"
+  description = "Cloud SQL Enterprise machine tier (1 dedicated vCPU and 3.75 GiB by default)."
 }
 variable "api_max_instances" {
   type    = number
