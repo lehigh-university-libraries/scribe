@@ -46,6 +46,15 @@ read dev/prod credentials or create provider secrets.
 
 The foundation root owns enabled project APIs and the shared Artifact Registry.
 Apply it before application workspaces. It contains no Cloud Compose module.
+It enables the Recommender API (`recommender.googleapis.com`) for cost and
+instance-sizing recommendations; reading recommendations also requires the
+appropriate project or billing-account IAM permissions.
+Foundation also grants `jjc223@lehigh.edu` Cloud SQL Viewer and Cloud SQL Client
+on the project for instance inspection and Auth Proxy connectivity. These
+additive IAM memberships are owned once by foundation, independently of runtime
+workspaces. They do not grant instance administration, Secret Manager access,
+or database login privileges. SQL connections still require database credentials
+and network access to the private PSC endpoint; the instance has no public IP.
 
 ```bash
 terraform -chdir=terraform/foundation init -backend-config=bucket=YOUR_STATE_BUCKET -backend-config=prefix=scribe-foundation
@@ -94,6 +103,52 @@ access. A failed probe fails deployment.
 The production workflow reports up to five recent OCR probe failure markers
 after a plan or apply. Diagnostics contain only the failed stage, never tokens,
 endpoint URLs, or inference responses.
+
+## Operator SQL connection using IAM
+
+Foundation grants `jjc223@lehigh.edu` `roles/cloudsql.viewer` for inspection
+and `roles/cloudsql.client` for IAM-authorized Cloud SQL Auth Proxy connections.
+Apply foundation before trying these commands. Use the pinned Cloud SQL Auth
+Proxy version recorded in `terraform/managed_runtime.tf` and a MySQL client.
+
+Run the proxy on an operator host with network access to the deployment's PSC
+endpoint and resolution of its private Cloud DNS record. A normal laptop or
+Cloud Shell session without that connectivity cannot reach this private-only
+instance. IAM grants do not establish a network route; Scribe does not provision
+an operator VPN or bastion.
+
+Authenticate the CLI and the proxy's Application Default Credentials as the
+same operator, then start the proxy bound to loopback:
+
+```bash
+gcloud auth login jjc223@lehigh.edu
+gcloud auth application-default login
+PROJECT=lehigh-lyrasis-catalyst
+INSTANCE=scribe-mysql
+CONNECTION_NAME=$(gcloud sql instances describe "$INSTANCE" \
+  --project="$PROJECT" --format='value(connectionName)')
+cloud-sql-proxy --psc --address=127.0.0.1 --port=13306 "$CONNECTION_NAME"
+```
+
+In another terminal, connect with an operator-provisioned MySQL account. The
+password prompt keeps the password out of shell history and process arguments:
+
+```bash
+mysql --protocol=TCP --host=127.0.0.1 --port=13306 \
+  --user=YOUR_DATABASE_USER --password scribe
+```
+
+Check the selected database with `SELECT DATABASE(), CURRENT_USER();` and stop
+the proxy with Ctrl-C after use. Use a separately authorized account for the
+`triplet` database. The foundation grant does not expose application passwords
+or create a MySQL account.
+
+This is [IAM-authorized proxy connectivity](https://docs.cloud.google.com/sql/docs/mysql/connect-auth-proxy).
+Passwordless [IAM database login](https://docs.cloud.google.com/sql/docs/mysql/iam-logins)
+additionally requires the `cloudsql_iam_authentication` flag, an instance IAM
+database user, `roles/cloudsql.instanceUser`, and explicit SQL privileges.
+Those are currently unconfigured: do not use `--auto-iam-authn` or an email
+address as the MySQL username with the current deployment.
 
 ## Configuration and destruction
 

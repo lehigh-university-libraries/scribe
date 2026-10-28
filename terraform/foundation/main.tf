@@ -34,7 +34,7 @@ resource "google_project_service_identity" "pubsub" {
 }
 
 resource "google_project_service" "runtime" {
-  for_each           = toset(["run.googleapis.com", "compute.googleapis.com", "sqladmin.googleapis.com", "dns.googleapis.com", "servicedirectory.googleapis.com", "pubsub.googleapis.com", "cloudscheduler.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "monitoring.googleapis.com", "logging.googleapis.com"])
+  for_each           = toset(["run.googleapis.com", "compute.googleapis.com", "sqladmin.googleapis.com", "dns.googleapis.com", "servicedirectory.googleapis.com", "pubsub.googleapis.com", "cloudscheduler.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "monitoring.googleapis.com", "logging.googleapis.com", "recommender.googleapis.com"])
   project            = var.project_id
   service            = each.value
   disable_on_destroy = false
@@ -49,6 +49,14 @@ resource "google_project_service" "artifact_registry" {
   deletion_policy    = "ABANDON"
 
   depends_on = [google_project_service.control_plane]
+}
+
+resource "google_project_iam_member" "sql_operator" {
+  for_each = toset(["roles/cloudsql.viewer", "roles/cloudsql.client"])
+
+  project = var.project_id
+  role    = each.value
+  member  = "user:jjc223@lehigh.edu"
 }
 
 resource "google_project_service" "cloud_trace" {
