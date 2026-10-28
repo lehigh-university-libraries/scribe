@@ -592,6 +592,15 @@ func (h *Handler) saveCanonicalAnnotationPage(ctx context.Context, itemImageID u
 				BaselineCharacters:  utf8.RuneCountInString(baselineText),
 				CorrectedCharacters: utf8.RuneCountInString(correctedText),
 			}
+			profile := "generic"
+			if item, err := h.items.GetForWorkspace(ctx, image.ItemID, h.currentWorkspaceID(ctx)); err == nil && item.DocumentType != "" {
+				profile = item.DocumentType
+			} else if run.ContextID != nil {
+				if c, err := h.contexts.Get(ctx, *run.ContextID); err == nil {
+					profile = c.DocumentProfile()
+				}
+			}
+			correctionMetric.SegmentationCorrection = segmentationCorrection(ctx, run, normalized, int(image.Width), int(image.Height), profile)
 		case errors.Is(runErr, sql.ErrNoRows):
 			// Pages imported without an OCR run remain valid canonical resources;
 			// there is simply no model baseline against which to score them.

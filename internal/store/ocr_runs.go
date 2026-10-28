@@ -12,18 +12,20 @@ import (
 )
 
 type OCRRun struct {
-	SessionID           string    `json:"session_id"`
-	ItemImageID         *uint64   `json:"item_image_id,omitempty"`
-	ContextID           *uint64   `json:"context_id,omitempty"`
-	ImageURL            string    `json:"image_url"`
-	Provider            string    `json:"provider"`
-	Model               string    `json:"model"`
-	OriginalHOCR        string    `json:"original_hocr"`
-	OriginalText        string    `json:"original_text"`
-	CanonicalRevision   *uint64   `json:"canonical_revision,omitempty"`
-	LevenshteinDistance int       `json:"levenshtein_distance"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	OriginalPage           string    `json:"original_page,omitempty"`
+	SegmentationCorrection string    `json:"segmentation_correction,omitempty"`
+	SessionID              string    `json:"session_id"`
+	ItemImageID            *uint64   `json:"item_image_id,omitempty"`
+	ContextID              *uint64   `json:"context_id,omitempty"`
+	ImageURL               string    `json:"image_url"`
+	Provider               string    `json:"provider"`
+	Model                  string    `json:"model"`
+	OriginalHOCR           string    `json:"original_hocr"`
+	OriginalText           string    `json:"original_text"`
+	CanonicalRevision      *uint64   `json:"canonical_revision,omitempty"`
+	LevenshteinDistance    int       `json:"levenshtein_distance"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 type OCRRunStore struct {
@@ -162,6 +164,7 @@ func insertCurrentOCRRun(ctx context.Context, queries *db.Queries, run OCRRun) e
 		provider = "unknown"
 	}
 	if err := queries.InsertOCRRun(ctx, db.InsertOCRRunParams{
+		OriginalPage: run.OriginalPage,
 		SessionID:    strings.TrimSpace(run.SessionID),
 		ItemImageID:  *run.ItemImageID,
 		ContextID:    uint64ToNullInt64(run.ContextID),
@@ -213,15 +216,17 @@ func uint64ToNullInt64(v *uint64) sql.NullInt64 {
 
 func rowToOCRRun(row db.OCRRun) OCRRun {
 	run := OCRRun{
-		SessionID:           row.SessionID,
-		ImageURL:            row.ImageURL,
-		Provider:            row.Provider,
-		Model:               row.Model,
-		OriginalHOCR:        row.OriginalHocr,
-		OriginalText:        row.OriginalText,
-		LevenshteinDistance: int(row.LevenshteinDistance),
-		CreatedAt:           row.CreatedAt,
-		UpdatedAt:           row.UpdatedAt,
+		OriginalPage:           row.OriginalPage,
+		SegmentationCorrection: row.SegmentationCorrection,
+		SessionID:              row.SessionID,
+		ImageURL:               row.ImageURL,
+		Provider:               row.Provider,
+		Model:                  row.Model,
+		OriginalHOCR:           row.OriginalHocr,
+		OriginalText:           row.OriginalText,
+		LevenshteinDistance:    int(row.LevenshteinDistance),
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
 	}
 	if row.ItemImageID > 0 {
 		v := row.ItemImageID

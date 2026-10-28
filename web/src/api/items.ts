@@ -20,6 +20,10 @@ function client() {
   return createClient(ItemService, getTransport());
 }
 
+export async function setItemDocumentType(itemId: string, documentType: string): Promise<void> {
+  await client().setItemDocumentType({ itemId, documentType });
+}
+
 export type ItemPage = Pick<ListItemsResponse, "items" | "nextPageToken">;
 
 export interface ListItemsOptions {

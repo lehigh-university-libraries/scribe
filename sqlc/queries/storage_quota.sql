@@ -239,7 +239,7 @@ SELECT
   ) AS UNSIGNED) AS upload_blob_bytes,
   CAST((
     SELECT
-      COALESCE(SUM(OCTET_LENGTH(orun.original_hocr) + OCTET_LENGTH(orun.original_text)), 0)
+      COALESCE(SUM(OCTET_LENGTH(orun.original_hocr) + OCTET_LENGTH(orun.original_text) + COALESCE(OCTET_LENGTH(orun.original_page), 0) + COALESCE(OCTET_LENGTH(orun.segmentation_correction), 0)), 0)
     FROM ocr_runs orun
     JOIN item_images ii ON ii.id = orun.item_image_id
     JOIN items i ON i.id = ii.item_id
@@ -248,6 +248,9 @@ SELECT
     SELECT COALESCE(SUM(OCTET_LENGTH(ap.payload)), 0)
     FROM annotation_pages ap
     WHERE ap.workspace_id = w.id
+  ) + (
+    SELECT COALESCE(SUM(OCTET_LENGTH(gt.payload) + OCTET_LENGTH(gt.original_page) + OCTET_LENGTH(gt.transcript)), 0)
+    FROM annotation_ground_truth gt WHERE gt.workspace_id = w.id
   ) + (
     SELECT COALESCE(SUM(OCTET_LENGTH(a.payload)), 0)
     FROM annotations a
@@ -301,7 +304,7 @@ ORDER BY w.id;
 -- name: GetItemImageDurableDatabaseBytes :one
 SELECT CAST(COALESCE(SUM(payloads.byte_count), 0) AS UNSIGNED) AS database_bytes
 FROM (
-  SELECT OCTET_LENGTH(orun.original_hocr) + OCTET_LENGTH(orun.original_text) AS byte_count
+  SELECT OCTET_LENGTH(orun.original_hocr) + OCTET_LENGTH(orun.original_text) + COALESCE(OCTET_LENGTH(orun.original_page), 0) + COALESCE(OCTET_LENGTH(orun.segmentation_correction), 0) AS byte_count
   FROM ocr_runs orun
   WHERE orun.item_image_id = sqlc.arg(item_image_id)
   UNION ALL
@@ -309,6 +312,10 @@ FROM (
   FROM annotation_pages ap
   WHERE ap.workspace_id = sqlc.arg(workspace_id)
     AND ap.item_image_id = sqlc.arg(item_image_id)
+  UNION ALL
+  SELECT OCTET_LENGTH(gt.payload) + OCTET_LENGTH(gt.original_page) + OCTET_LENGTH(gt.transcript)
+  FROM annotation_ground_truth gt
+  WHERE gt.workspace_id = sqlc.arg(workspace_id) AND gt.item_image_id = sqlc.arg(item_image_id)
   UNION ALL
   SELECT OCTET_LENGTH(a.payload)
   FROM annotations a
@@ -335,7 +342,7 @@ FROM (
   WHERE i.workspace_id = sqlc.arg(workspace_id)
     AND i.id = sqlc.arg(item_id)
   UNION ALL
-  SELECT OCTET_LENGTH(orun.original_hocr) + OCTET_LENGTH(orun.original_text) AS byte_count
+  SELECT OCTET_LENGTH(orun.original_hocr) + OCTET_LENGTH(orun.original_text) + COALESCE(OCTET_LENGTH(orun.original_page), 0) + COALESCE(OCTET_LENGTH(orun.segmentation_correction), 0) AS byte_count
   FROM ocr_runs orun
   JOIN item_images ii ON ii.id = orun.item_image_id
   JOIN items i ON i.id = ii.item_id
@@ -347,6 +354,10 @@ FROM (
   JOIN item_images ii ON ii.id = ap.item_image_id
   WHERE ap.workspace_id = sqlc.arg(workspace_id)
     AND ii.item_id = sqlc.arg(item_id)
+  UNION ALL
+  SELECT OCTET_LENGTH(gt.payload) + OCTET_LENGTH(gt.original_page) + OCTET_LENGTH(gt.transcript)
+  FROM annotation_ground_truth gt JOIN item_images ii ON ii.id = gt.item_image_id
+  WHERE gt.workspace_id = sqlc.arg(workspace_id) AND ii.item_id = sqlc.arg(item_id)
   UNION ALL
   SELECT OCTET_LENGTH(a.payload)
   FROM annotations a

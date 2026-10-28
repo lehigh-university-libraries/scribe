@@ -596,6 +596,20 @@ type Annotation struct {
 	UpdatedAt       time.Time      `json:"updated_at"`
 }
 
+type AnnotationGroundTruth struct {
+	WorkspaceID    uint64        `json:"workspace_id"`
+	ItemImageID    uint64        `json:"item_image_id"`
+	Revision       uint64        `json:"revision"`
+	ContextID      sql.NullInt64 `json:"context_id"`
+	DocumentType   string        `json:"document_type"`
+	Payload        string        `json:"payload"`
+	OriginalPage   string        `json:"original_page"`
+	ImageUrl       string        `json:"image_url"`
+	Transcript     string        `json:"transcript"`
+	MarkedByUserID sql.NullInt64 `json:"marked_by_user_id"`
+	MarkedAt       time.Time     `json:"marked_at"`
+}
+
 type AnnotationMirrorOutbox struct {
 	ItemImageID   uint64                       `json:"item_image_id"`
 	Revision      uint64                       `json:"revision"`
@@ -671,6 +685,7 @@ type Context struct {
 	DefaultScopeID        sql.NullInt64   `json:"default_scope_id"`
 	CreatedAt             time.Time       `json:"created_at"`
 	UpdatedAt             time.Time       `json:"updated_at"`
+	DocumentType          string          `json:"document_type"`
 }
 
 type ContextSelectionRule struct {
@@ -764,6 +779,7 @@ type Item struct {
 	UpdatedAt            time.Time       `json:"updated_at"`
 	ExternalReferenceID  string          `json:"external_reference_id"`
 	CallerIdempotencyKey string          `json:"caller_idempotency_key"`
+	DocumentType         sql.NullString  `json:"document_type"`
 }
 
 type ItemImage struct {
@@ -783,20 +799,22 @@ type ItemImage struct {
 }
 
 type OcrRun struct {
-	SessionID           string        `json:"session_id"`
-	WorkspaceID         uint64        `json:"workspace_id"`
-	ItemImageID         uint64        `json:"item_image_id"`
-	ContextID           sql.NullInt64 `json:"context_id"`
-	ContextScopeID      sql.NullInt64 `json:"context_scope_id"`
-	ImageUrl            string        `json:"image_url"`
-	Provider            string        `json:"provider"`
-	Model               string        `json:"model"`
-	OriginalHocr        string        `json:"original_hocr"`
-	OriginalText        string        `json:"original_text"`
-	CanonicalRevision   sql.NullInt64 `json:"canonical_revision"`
-	LevenshteinDistance int32         `json:"levenshtein_distance"`
-	CreatedAt           time.Time     `json:"created_at"`
-	UpdatedAt           time.Time     `json:"updated_at"`
+	SessionID              string         `json:"session_id"`
+	WorkspaceID            uint64         `json:"workspace_id"`
+	ItemImageID            uint64         `json:"item_image_id"`
+	ContextID              sql.NullInt64  `json:"context_id"`
+	ContextScopeID         sql.NullInt64  `json:"context_scope_id"`
+	ImageUrl               string         `json:"image_url"`
+	Provider               string         `json:"provider"`
+	Model                  string         `json:"model"`
+	OriginalHocr           string         `json:"original_hocr"`
+	OriginalText           string         `json:"original_text"`
+	CanonicalRevision      sql.NullInt64  `json:"canonical_revision"`
+	LevenshteinDistance    int32          `json:"levenshtein_distance"`
+	CreatedAt              time.Time      `json:"created_at"`
+	UpdatedAt              time.Time      `json:"updated_at"`
+	OriginalPage           sql.NullString `json:"original_page"`
+	SegmentationCorrection sql.NullString `json:"segmentation_correction"`
 }
 
 type ProviderCallAudit struct {

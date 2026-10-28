@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/lehigh-university-libraries/htr/pkg/ocrpage"
 	"reflect"
 	"sort"
 	"strings"
@@ -558,6 +559,30 @@ func splitDraftLineIntoTwo(draft *annotationDraft, annotationID string, requeste
 	if err != nil {
 		return err
 	}
+	geometry, err := annotationLineGeometry(line.annotation)
+	if err != nil {
+		return err
+	}
+	if len(geometry.Baseline) > 1 {
+		left, right := ocrpage.SplitBaselineX(geometry.Baseline, line.x1+(line.x2-line.x1)*splitAt/len(lineTokens))
+		for _, part := range []struct {
+			annotation map[string]any
+			points     []ocrpage.Point
+		}{{lineA, left}, {lineB, right}} {
+			mapped, err := annotationLineGeometry(part.annotation)
+			if err != nil {
+				return err
+			}
+			y1, y2 := line.y1, boundary
+			if part.annotation["id"] == idB {
+				y1, y2 = boundary, line.y2
+			}
+			for i := range part.points {
+				part.points[i].Y = y1 + (part.points[i].Y-line.y1)*(y2-y1)/(line.y2-line.y1)
+			}
+			replaceLineGeometry(part.annotation, mapped.Polygon, part.points)
+		}
+	}
 
 	for index, word := range words {
 		y1, y2 := line.y1, boundary
@@ -741,7 +766,32 @@ func mergeLocatedAnnotations(draft *annotationDraft, values []locatedAnnotation,
 	if err != nil {
 		return nil, err
 	}
-	return deriveTextAnnotation(template, mergedID, granularity, draft.identity.CanvasURI, minX, minY, maxX, maxY, strings.Join(texts, " "))
+	merged, err := deriveTextAnnotation(template, mergedID, granularity, draft.identity.CanvasURI, minX, minY, maxX, maxY, strings.Join(texts, " "))
+	if err != nil {
+		return nil, err
+	}
+	if granularity == "line" {
+		var baseline []ocrpage.Point
+		complete := true
+		for _, value := range values {
+			geometry, err := annotationLineGeometry(value.annotation)
+			if err != nil {
+				return nil, err
+			}
+			if len(geometry.Baseline) < 2 {
+				complete = false
+				break
+			}
+			baseline = append(baseline, geometry.Baseline...)
+		}
+		// A merged line falls back to its explicit union box. It has a baseline
+		// only when every input supplied one; missing geometry is never guessed.
+		if !complete {
+			baseline = nil
+		}
+		replaceLineGeometry(merged, nil, baseline)
+	}
+	return merged, nil
 }
 
 func annotationUnion(values []locatedAnnotation) (int, int, int, int) {

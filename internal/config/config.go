@@ -215,13 +215,23 @@ type DatabaseConfig struct {
 }
 
 type LLMConfig struct {
-	Provider                  string       `yaml:"provider"`
-	DefaultSystemPrompt       string       `yaml:"default_system_prompt"`
-	SegmentationModel         string       `yaml:"segmentation_model"`
-	LineTranscribeConcurrency int          `yaml:"line_transcribe_concurrency"`
-	Ollama                    OllamaConfig `yaml:"ollama"`
-	OpenAI                    OpenAIConfig `yaml:"openai"`
-	Gemini                    GeminiConfig `yaml:"gemini"`
+	Mistral                   HTTPProviderConfig `yaml:"mistral_ocr"`
+	OpenAICompatible          HTTPProviderConfig `yaml:"openai_compatible"`
+	Provider                  string             `yaml:"provider"`
+	DefaultSystemPrompt       string             `yaml:"default_system_prompt"`
+	SegmentationModel         string             `yaml:"segmentation_model"`
+	LineTranscribeConcurrency int                `yaml:"line_transcribe_concurrency"`
+	Ollama                    OllamaConfig       `yaml:"ollama"`
+	OpenAI                    OpenAIConfig       `yaml:"openai"`
+	Gemini                    GeminiConfig       `yaml:"gemini"`
+}
+
+// HTTPProviderConfig declares administrator-owned endpoints and model keys.
+// Credentials are workspace provider secrets, never configuration URLs.
+type HTTPProviderConfig struct {
+	URL    string   `yaml:"url"`
+	Model  string   `yaml:"model"`
+	Models []string `yaml:"models"`
 }
 
 // LineConcurrency also supports config.Init callers that bypass validation.
@@ -920,8 +930,15 @@ func validateServiceEndpoints(cfg Config) error {
 		audience string
 	}{
 		{name: "llm.ollama", url: cfg.LLM.Ollama.URL, audience: cfg.LLM.Ollama.Audience},
+		{name: "llm.mistral_ocr", url: cfg.LLM.Mistral.URL},
+		{name: "llm.openai_compatible", url: cfg.LLM.OpenAICompatible.URL},
 		{name: "segmentation_service", url: cfg.Segmentation.URL, audience: cfg.Segmentation.Audience},
 		{name: "pdf_export_url", url: cfg.PDFExportURL},
+	}
+	for name, provider := range map[string]HTTPProviderConfig{"mistral_ocr": cfg.LLM.Mistral, "openai_compatible": cfg.LLM.OpenAICompatible} {
+		if len(provider.Models) > 0 && (provider.URL == "" || !slices.Contains(provider.Models, provider.Model)) {
+			return fmt.Errorf("llm.%s requires a URL and a registered default model", name)
+		}
 	}
 	for _, endpoint := range endpoints {
 		if err := validateServiceEndpoint(endpoint.name, endpoint.url, endpoint.audience); err != nil {

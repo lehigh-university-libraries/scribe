@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/lehigh-university-libraries/htr/pkg/ocrpage"
+	"math"
 	"strings"
 
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
@@ -212,10 +214,32 @@ func textBodyWithValue(raw any, text string) any {
 }
 
 func targetWithFragment(raw any, canvasURI string, x1, y1, x2, y2 int) (map[string]any, error) {
+	annotation := map[string]any{"target": raw}
+	oldX1, oldY1, oldX2, oldY2, geometryErr := parseXYWH(extractFragment(annotation))
 	xywh := fmt.Sprintf("%d,%d,%d,%d", x1, y1, maxInt(1, x2-x1), maxInt(1, y2-y1))
 	target, err := iiif.ReplaceTargetPixelXYWH(raw, canvasURI, xywh)
 	if err != nil {
 		return nil, fmt.Errorf("replace annotation target geometry: %w", err)
+	}
+	if geometryErr == nil && oldX2 > oldX1 && oldY2 > oldY1 {
+		selectors, ok := target["selector"].([]any)
+		if !ok {
+			selectors = []any{target["selector"]}
+		}
+		for _, value := range selectors {
+			selector, ok := value.(map[string]any)
+			if !ok || selector["type"] != "SvgSelector" {
+				continue
+			}
+			svg, _ := selector["value"].(string)
+			mapped, err := ocrpage.MapSVGPoints(svg, func(p ocrpage.Point) ocrpage.Point {
+				return ocrpage.Point{X: x1 + int(math.Round(float64(p.X-oldX1)*float64(x2-x1)/float64(oldX2-oldX1))), Y: y1 + int(math.Round(float64(p.Y-oldY1)*float64(y2-y1)/float64(oldY2-oldY1)))}
+			})
+			if err != nil {
+				return nil, err
+			}
+			selector["value"] = mapped
+		}
 	}
 	return target, nil
 }
@@ -246,6 +270,17 @@ func structuralPropertyProjection(annotation map[string]any) (map[string]any, er
 		delete(target, "@id")
 		if _, err := clearFirstFragmentValue(target["selector"]); err != nil {
 			return nil, err
+		}
+		selectors, ok := target["selector"].([]any)
+		if !ok {
+			selectors = []any{target["selector"]}
+		}
+		for _, value := range selectors {
+			if selector, ok := value.(map[string]any); ok && selector["type"] == "SvgSelector" {
+				delete(selector, "value")
+				delete(selector, "id")
+				delete(selector, "@id")
+			}
 		}
 	}
 	return projection, nil

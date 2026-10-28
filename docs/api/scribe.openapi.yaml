@@ -76,6 +76,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/scribe.v1.ExportAnnotationPageResponse'
+  /scribe.v1.AnnotationService/ExportGroundTruth:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: ExportGroundTruth
+      operationId: scribe.v1.AnnotationService.ExportGroundTruth
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.ExportGroundTruthRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.ExportGroundTruthResponse'
   /scribe.v1.AnnotationService/GetAnnotation:
     post:
       tags:
@@ -216,6 +251,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/scribe.v1.JoinWordsIntoLineResponse'
+  /scribe.v1.AnnotationService/MarkGroundTruth:
+    post:
+      tags:
+        - scribe.v1.AnnotationService
+      summary: MarkGroundTruth
+      operationId: scribe.v1.AnnotationService.MarkGroundTruth
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.MarkGroundTruthRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.MarkGroundTruthResponse'
   /scribe.v1.AnnotationService/PublishItemImageEdits:
     post:
       tags:
@@ -1560,6 +1630,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/scribe.v1.PrepareItemExportResponse'
+  /scribe.v1.ItemService/SetItemDocumentType:
+    post:
+      tags:
+        - scribe.v1.ItemService
+      summary: SetItemDocumentType
+      operationId: scribe.v1.ItemService.SetItemDocumentType
+      parameters:
+        - name: Connect-Protocol-Version
+          in: header
+          required: true
+          schema:
+            $ref: '#/components/schemas/connect-protocol-version'
+        - name: Connect-Timeout-Ms
+          in: header
+          schema:
+            $ref: '#/components/schemas/connect-timeout-header'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/scribe.v1.SetItemDocumentTypeRequest'
+        required: true
+      responses:
+        default:
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/connect.error'
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/scribe.v1.SetItemDocumentTypeResponse'
   /scribe.v1.ItemService/StartUploadBatch:
     post:
       tags:
@@ -2395,6 +2500,10 @@ components:
     scribe.v1.AnnotationCorrectionMetric:
       type: object
       properties:
+        segmentationJson:
+          type: string
+          title: segmentation_json
+          description: htr's component report, including fallback and calibration status.
         levenshteinDistance:
           type: integer
           title: levenshtein_distance
@@ -2567,7 +2676,7 @@ components:
           type: string
           title: segmentation_model
           maxLength: 255
-          pattern: ^[a-z0-9][a-z0-9._:-]{0,254}$
+          pattern: ^[a-z0-9][a-z0-9._:+-]{0,254}$
           description: Server-registered segmentation model (Kraken BLLA or newspaper layout).
         transcriptionProvider:
           type: string
@@ -2597,11 +2706,18 @@ components:
         updatedAt:
           type: string
           title: updated_at
+        documentType:
+          type: string
+          title: document_type
+          maxLength: 64
+          pattern: ^[a-z][a-z0-9_-]{0,63}$
+          description: Segmentation evaluation policy; registered by htr's profile registry.
       title: Context
       required:
         - name
         - segmentationModel
         - transcriptionProvider
+        - documentType
       additionalProperties: false
       description: Context bundles all processing parameters for a pipeline run.
     scribe.v1.ContextMetrics:
@@ -3115,6 +3231,20 @@ components:
       type: object
       title: DeleteWorkspaceMemberResponse
       additionalProperties: false
+    scribe.v1.DocumentTypeDescriptor:
+      type: object
+      properties:
+        id:
+          type: string
+          title: id
+        description:
+          type: string
+          title: description
+        calibrated:
+          type: boolean
+          title: calibrated
+      title: DocumentTypeDescriptor
+      additionalProperties: false
     scribe.v1.EnrichAnnotationRequest:
       type: object
       properties:
@@ -3223,6 +3353,35 @@ components:
           title: filename
       title: ExportAnnotationPageResponse
       additionalProperties: false
+    scribe.v1.ExportGroundTruthRequest:
+      type: object
+      properties:
+        contextId:
+          type:
+            - integer
+            - string
+          title: context_id
+          maximum: 9223372036854776000
+          format: int64
+          description: Select a context or an item (including an upload batch's item).
+        itemId:
+          type: string
+          title: item_id
+          maxLength: 255
+      title: ExportGroundTruthRequest
+      additionalProperties: false
+    scribe.v1.ExportGroundTruthResponse:
+      type: object
+      properties:
+        content:
+          type: string
+          title: content
+          format: byte
+        filename:
+          type: string
+          title: filename
+      title: ExportGroundTruthResponse
+      additionalProperties: false
     scribe.v1.GetAnnotationPageRequest:
       type: object
       properties:
@@ -3264,6 +3423,9 @@ components:
         updatedAt:
           type: string
           title: updated_at
+        groundTruth:
+          type: boolean
+          title: ground_truth
       title: GetAnnotationPageResponse
       additionalProperties: false
     scribe.v1.GetAnnotationRequest:
@@ -3443,6 +3605,11 @@ components:
           items:
             $ref: '#/components/schemas/scribe.v1.ModelDescriptor'
           title: segmentation_models
+        documentTypes:
+          type: array
+          items:
+            $ref: '#/components/schemas/scribe.v1.DocumentTypeDescriptor'
+          title: document_types
       title: GetModelCatalogResponse
       additionalProperties: false
     scribe.v1.GetOCRRunRequest:
@@ -3461,6 +3628,9 @@ components:
     scribe.v1.GetOCRRunResponse:
       type: object
       properties:
+        segmentationCorrectionJson:
+          type: string
+          title: segmentation_correction_json
         sessionId:
           type: string
           title: session_id
@@ -3649,6 +3819,12 @@ components:
           description: |-
             Stable identifier assigned by an external repository (for example, an
              Islandora PID). It is indexed and searchable within the workspace.
+        documentType:
+          type: string
+          title: document_type
+          maxLength: 64
+          pattern: ^$|^[a-z][a-z0-9_-]{0,63}$
+          description: Empty inherits the processing context's document type.
       title: Item
       additionalProperties: false
       description: Item is the primary container for one or more images to be processed.
@@ -4093,6 +4269,42 @@ components:
             $ref: '#/components/schemas/scribe.v1.WorkspaceAccess'
           title: workspaces
       title: ListWorkspacesResponse
+      additionalProperties: false
+    scribe.v1.MarkGroundTruthRequest:
+      type: object
+      properties:
+        itemImageId:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: item_image_id
+          format: int64
+        expectedRevision:
+          exclusiveMinimum: 0
+          type:
+            - integer
+            - string
+          title: expected_revision
+          format: int64
+        marked:
+          type: boolean
+          title: marked
+      title: MarkGroundTruthRequest
+      additionalProperties: false
+    scribe.v1.MarkGroundTruthResponse:
+      type: object
+      properties:
+        marked:
+          type: boolean
+          title: marked
+        revision:
+          type:
+            - integer
+            - string
+          title: revision
+          format: int64
+      title: MarkGroundTruthResponse
       additionalProperties: false
     scribe.v1.ModelDescriptor:
       type: object
@@ -4779,6 +4991,26 @@ components:
           title: revision
           format: int64
       title: SearchAnnotationsResponse
+      additionalProperties: false
+    scribe.v1.SetItemDocumentTypeRequest:
+      type: object
+      properties:
+        itemId:
+          type: string
+          title: item_id
+          maxLength: 255
+          minLength: 1
+        documentType:
+          type: string
+          title: document_type
+          maxLength: 64
+          pattern: ^$|^[a-z][a-z0-9_-]{0,63}$
+          description: Empty restores context inheritance.
+      title: SetItemDocumentTypeRequest
+      additionalProperties: false
+    scribe.v1.SetItemDocumentTypeResponse:
+      type: object
+      title: SetItemDocumentTypeResponse
       additionalProperties: false
     scribe.v1.SplitLineIntoTwoLinesRequest:
       type: object

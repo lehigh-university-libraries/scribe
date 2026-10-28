@@ -150,6 +150,7 @@ export const overlayModeOptions = Object.freeze([
  * @property {VoidAction} onSave
  * @property {(mode: OverlayMode) => void} onSelectOverlayMode
  * @property {VoidAction} onUndo
+ * @property {(id: string, type: string) => void} [onRegionType]
  * @property {string[]} pendingRemoteIds
  * @property {boolean} saveDisabled
  * @property {boolean} revisionConflict
@@ -413,6 +414,7 @@ export default function ScribeActionPanel({
   onSave,
   onSelectOverlayMode,
   onUndo,
+  onRegionType,
   pendingRemoteIds,
   saveDisabled,
   revisionConflict,
@@ -696,12 +698,27 @@ export default function ScribeActionPanel({
         ) : null}
       </Box>
 
+      {annotations.some((annotation) => annotation.textGranularity === 'block') ? (
+        <Box sx={{ p: 1 }}>
+          <Typography variant="subtitle2">Region types</Typography>
+          {annotations.filter((annotation) => annotation.textGranularity === 'block').map((annotation, index) => {
+            const bodies = Array.isArray(annotation.body) ? annotation.body : [annotation.body];
+            const type = bodies.find((body) => body && typeof body === 'object' && body.purpose === 'classifying');
+            return <label key={annotation.id} style={{ display: 'block' }}>Region {index + 1}{' '}
+              <select aria-label={`Region ${index + 1} type`} disabled={isBusy || !onRegionType} value={type && typeof type === 'object' ? type.value : 'unknown'} onChange={(event) => onRegionType?.(annotation.id || '', event.target.value)}>
+                {['text','heading','caption','header','footer','page-number','marginalia','footnote','list','drop-capital','signature','table','field','image','math','separator','advert','noise','unknown'].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>;
+          })}
+        </Box>
+      ) : null}
       <StructuralEditDialogs structuralEdits={structuralEdits} />
     </CompanionWindow>
   );
 }
 
 ScribeActionPanel.propTypes = {
+  onRegionType: PropTypes.func,
   annotations: PropTypes.arrayOf(PropTypes.shape({
     body: PropTypes.oneOfType([PropTypes.array, PropTypes.object, PropTypes.string]),
     id: PropTypes.string,

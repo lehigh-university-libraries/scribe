@@ -866,6 +866,15 @@ export function ScribeCompanionWindow({
       onSave={handleSave}
       onSelectOverlayMode={selectOverlayMode}
       onUndo={handleUndo}
+      onRegionType={(annotationId, type) => {
+        if (!localPage || editingIsBlocked()) return;
+        const next = structuredClone(localPage);
+        const region = next.items.find((annotation) => annotation.id === annotationId && annotation.textGranularity === 'block');
+        if (!region) return;
+        const bodies = Array.isArray(region.body) ? region.body : region.body && typeof region.body === 'object' ? [region.body] : typeof region.body === 'string' ? [{ type:'TextualBody', value:region.body }] : [];
+        region.body = [...bodies.filter((body) => body.purpose !== 'classifying'), { type:'TextualBody', purpose:'classifying', value:type }];
+        pushHistory(next);
+      }}
       pendingRemoteIds={session.pendingRemoteIds}
       saveDisabled={saveDisabled}
       revisionConflict={revisionConflict}

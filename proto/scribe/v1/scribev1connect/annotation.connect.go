@@ -24,6 +24,12 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// AnnotationServiceMarkGroundTruthProcedure is the procedure name of the AnnotationService's
+	// MarkGroundTruth RPC.
+	AnnotationServiceMarkGroundTruthProcedure = "/scribe.v1.AnnotationService/MarkGroundTruth"
+	// AnnotationServiceExportGroundTruthProcedure is the procedure name of the AnnotationService's
+	// ExportGroundTruth RPC.
+	AnnotationServiceExportGroundTruthProcedure = "/scribe.v1.AnnotationService/ExportGroundTruth"
 	// AnnotationServiceGetAnnotationPageProcedure is the procedure name of the AnnotationService's
 	// GetAnnotationPage RPC.
 	AnnotationServiceGetAnnotationPageProcedure = "/scribe.v1.AnnotationService/GetAnnotationPage"
@@ -63,6 +69,20 @@ const (
 )
 
 var (
+	annotationServiceMarkGroundTruthSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("MarkGroundTruth"),
+			Procedure:  AnnotationServiceMarkGroundTruthProcedure,
+		}
+	})
+	annotationServiceExportGroundTruthSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_annotation_proto.Services().ByName("AnnotationService").Methods().ByName("ExportGroundTruth"),
+			Procedure:  AnnotationServiceExportGroundTruthProcedure,
+		}
+	})
 	annotationServiceGetAnnotationPageSpec = sync.OnceValue(func() connect.Spec {
 		return connect.Spec{
 			StreamType: connect.StreamTypeUnary,
@@ -151,6 +171,8 @@ var (
 
 // AnnotationServiceClient is a client for the scribe.v1.AnnotationService service.
 type AnnotationServiceClient interface {
+	MarkGroundTruth(context.Context, *v1.MarkGroundTruthRequest) (*v1.MarkGroundTruthResponse, error)
+	ExportGroundTruth(context.Context, *v1.ExportGroundTruthRequest) (*v1.ExportGroundTruthResponse, error)
 	GetAnnotationPage(context.Context, *v1.GetAnnotationPageRequest) (*v1.GetAnnotationPageResponse, error)
 	SaveAnnotationPage(context.Context, *v1.SaveAnnotationPageRequest) (*v1.SaveAnnotationPageResponse, error)
 	SearchAnnotations(context.Context, *v1.SearchAnnotationsRequest) (*v1.SearchAnnotationsResponse, error)
@@ -176,6 +198,8 @@ func NewAnnotationServiceClient(client *connect.Client) AnnotationServiceClient 
 
 // AnnotationServiceHandler is an implementation of the scribe.v1.AnnotationService service.
 type AnnotationServiceHandler interface {
+	MarkGroundTruth(context.Context, *v1.MarkGroundTruthRequest) (*v1.MarkGroundTruthResponse, error)
+	ExportGroundTruth(context.Context, *v1.ExportGroundTruthRequest) (*v1.ExportGroundTruthResponse, error)
 	GetAnnotationPage(context.Context, *v1.GetAnnotationPageRequest) (*v1.GetAnnotationPageResponse, error)
 	SaveAnnotationPage(context.Context, *v1.SaveAnnotationPageRequest) (*v1.SaveAnnotationPageResponse, error)
 	SearchAnnotations(context.Context, *v1.SearchAnnotationsRequest) (*v1.SearchAnnotationsResponse, error)
@@ -198,6 +222,8 @@ type AnnotationServiceHandler interface {
 func RegisterAnnotationServiceHandler(server *connect.Server, svc AnnotationServiceHandler) {
 	adapter := annotationServiceHandler{svc: svc}
 	server.Register(
+		connect.Method{Spec: annotationServiceMarkGroundTruthSpec(), Handler: adapter.markGroundTruth},
+		connect.Method{Spec: annotationServiceExportGroundTruthSpec(), Handler: adapter.exportGroundTruth},
 		connect.Method{Spec: annotationServiceGetAnnotationPageSpec(), Handler: adapter.getAnnotationPage},
 		connect.Method{Spec: annotationServiceSaveAnnotationPageSpec(), Handler: adapter.saveAnnotationPage},
 		connect.Method{Spec: annotationServiceSearchAnnotationsSpec(), Handler: adapter.searchAnnotations},
@@ -215,6 +241,14 @@ func RegisterAnnotationServiceHandler(server *connect.Server, svc AnnotationServ
 
 // UnimplementedAnnotationServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedAnnotationServiceHandler struct{}
+
+func (UnimplementedAnnotationServiceHandler) MarkGroundTruth(context.Context, *v1.MarkGroundTruthRequest) (*v1.MarkGroundTruthResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.MarkGroundTruth is not implemented")
+}
+
+func (UnimplementedAnnotationServiceHandler) ExportGroundTruth(context.Context, *v1.ExportGroundTruthRequest) (*v1.ExportGroundTruthResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.ExportGroundTruth is not implemented")
+}
 
 func (UnimplementedAnnotationServiceHandler) GetAnnotationPage(context.Context, *v1.GetAnnotationPageRequest) (*v1.GetAnnotationPageResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.AnnotationService.GetAnnotationPage is not implemented")
@@ -266,6 +300,22 @@ func (UnimplementedAnnotationServiceHandler) ExportAnnotationPage(context.Contex
 
 type annotationServiceClient struct {
 	client *connect.Client
+}
+
+func (c *annotationServiceClient) MarkGroundTruth(ctx context.Context, req *v1.MarkGroundTruthRequest) (*v1.MarkGroundTruthResponse, error) {
+	var res v1.MarkGroundTruthResponse
+	if err := c.client.CallUnary(ctx, annotationServiceMarkGroundTruthSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *annotationServiceClient) ExportGroundTruth(ctx context.Context, req *v1.ExportGroundTruthRequest) (*v1.ExportGroundTruthResponse, error) {
+	var res v1.ExportGroundTruthResponse
+	if err := c.client.CallUnary(ctx, annotationServiceExportGroundTruthSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 func (c *annotationServiceClient) GetAnnotationPage(ctx context.Context, req *v1.GetAnnotationPageRequest) (*v1.GetAnnotationPageResponse, error) {
@@ -365,6 +415,30 @@ func (c *annotationServiceClient) ExportAnnotationPage(ctx context.Context, req 
 }
 
 type annotationServiceHandler struct{ svc AnnotationServiceHandler }
+
+func (h annotationServiceHandler) markGroundTruth(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.MarkGroundTruthRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.MarkGroundTruth(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
+
+func (h annotationServiceHandler) exportGroundTruth(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.ExportGroundTruthRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.ExportGroundTruth(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
 
 func (h annotationServiceHandler) getAnnotationPage(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
 	var req v1.GetAnnotationPageRequest

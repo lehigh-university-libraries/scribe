@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lehigh-university-libraries/htr/pkg/ocrpage"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadblob"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadref"
@@ -32,6 +33,21 @@ type hocrProcessor interface {
 	SetProviderCallAuditLogger(hocr.ProviderCallAuditLogger)
 	TranscribeImageWithContext(context.Context, string, string, string) (string, error)
 	ProcessImageWithContext(context.Context, string, hocr.ProcessingContext) (string, string, string, error)
+}
+
+func (h *Handler) processImage(ctx context.Context, path string, pctx hocr.ProcessingContext) (string, string, string, *ocrpage.Page, error) {
+	if segmenter, ok := h.hocrService.(interface {
+		SegmentImageWithContext(context.Context, string, hocr.ProcessingContext) (ocrpage.Page, string, error)
+	}); ok && pctx.SegmentOnly {
+		page, provider, err := segmenter.SegmentImageWithContext(ctx, path, pctx)
+		if err != nil {
+			return "", provider, "", nil, err
+		}
+		data, err := ocrpage.WriteHOCR(page, ocrpage.HOCROptions{})
+		return string(data), provider, "", &page, err
+	}
+	data, provider, model, err := h.hocrService.ProcessImageWithContext(ctx, path, pctx)
+	return data, provider, model, nil, err
 }
 
 type uploadObjectStore interface {
@@ -368,7 +384,7 @@ func (h *Handler) ProcessImageURLTransientWithContext(ctx context.Context, image
 
 	sessionID := "processing_" + uuid.NewString()
 	ctx = hocr.WithProviderCallMetadata(ctx, 0, sessionID, nil, nil)
-	hocrXML, provider, model, err := h.hocrService.ProcessImageWithContext(ctx, temporaryPath, pctx)
+	hocrXML, provider, model, page, err := h.processImage(ctx, temporaryPath, pctx)
 	if err != nil {
 		return nil, fmt.Errorf("process image with context: %w", err)
 	}
@@ -378,6 +394,7 @@ func (h *Handler) ProcessImageURLTransientWithContext(ctx context.Context, image
 	}
 	plainText := hocr.PlainText(parsedHOCR.Lines)
 	return &ProcessResult{
+		Page:       page,
 		SessionID:  sessionID,
 		HOCR:       hocrXML,
 		PlainText:  plainText,
@@ -469,7 +486,7 @@ func (h *Handler) processDataWithContext(ctx context.Context, imageData []byte, 
 	sessionID := "processing_" + uuid.NewString()
 	ctx = hocr.WithProviderCallMetadata(ctx, 0, sessionID, nil, nil)
 
-	hocrXML, provider, model, err := h.hocrService.ProcessImageWithContext(ctx, imageFilePath, pctx)
+	hocrXML, provider, model, page, err := h.processImage(ctx, imageFilePath, pctx)
 	if err != nil {
 		processingErr := markUploadProcessingFailure(ErrSegmentationOutputFailure, fmt.Errorf("process image with context: %w", err))
 		return nil, cleanupOnFailure(processingErr)
@@ -486,6 +503,7 @@ func (h *Handler) processDataWithContext(ctx context.Context, imageData []byte, 
 	}
 
 	return &ProcessResult{
+		Page:        page,
 		SessionID:   sessionID,
 		HOCR:        hocrXML,
 		PlainText:   plainText,

@@ -4,6 +4,7 @@ SELECT
   user_id,
   workspace_id,
   name,
+  document_type,
   source_type,
   source_url,
   source_manifest,
@@ -16,6 +17,17 @@ FROM items
 WHERE id = sqlc.arg(id)
   AND workspace_id = sqlc.arg(workspace_id)
 LIMIT 1;
+
+-- name: SetItemDocumentType :execrows
+UPDATE items
+SET document_type = sqlc.narg(document_type)
+WHERE id = sqlc.arg(id) AND workspace_id = sqlc.arg(workspace_id);
+
+-- name: GetDocumentTypeForItemImage :one
+SELECT i.document_type
+FROM items i JOIN item_images ii ON ii.item_id = i.id AND ii.workspace_id = i.workspace_id
+WHERE ii.id = sqlc.arg(item_image_id) AND i.workspace_id = sqlc.arg(workspace_id)
+LOCK IN SHARE MODE;
 
 -- name: DeleteItemForWorkspaceManual :execresult
 DELETE FROM items

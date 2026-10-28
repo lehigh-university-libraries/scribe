@@ -292,7 +292,7 @@ func (s *TranscriptionJobStore) Create(ctx context.Context, itemImageID uint64, 
 	if err != nil {
 		return 0, fmt.Errorf("lock transcription job workspace: %w", err)
 	}
-	lockedContext, contextSnapshot, err := lockContextSnapshotForWorkspace(ctx, queries, processingContext.ID, workspaceID)
+	lockedContext, contextSnapshot, err := lockContextSnapshotForWorkspace(ctx, queries, processingContext.ID, workspaceID, itemImageID)
 	if err != nil {
 		return 0, fmt.Errorf("lock transcription job context: %w", err)
 	}

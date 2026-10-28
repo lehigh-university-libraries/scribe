@@ -159,6 +159,12 @@ WHERE target.workspace_id = sqlc.arg(workspace_id)
   AND (sqlc.arg(item_image_id) = 0 OR target.id = sqlc.arg(item_image_id))
   AND page.workspace_id = sqlc.arg(workspace_id);
 
+-- name: DeleteGroundTruthForItemResourceGraph :exec
+DELETE gt FROM annotation_ground_truth gt JOIN item_images target ON target.id = gt.item_image_id
+WHERE target.workspace_id = sqlc.arg(workspace_id) AND target.item_id = sqlc.arg(item_id)
+  AND (sqlc.arg(item_image_id) = 0 OR target.id = sqlc.arg(item_image_id))
+  AND gt.workspace_id = sqlc.arg(workspace_id);
+
 -- name: DeleteUploadBatchesForItemResourceGraph :exec
 DELETE FROM upload_batches
 WHERE workspace_id = sqlc.arg(workspace_id)

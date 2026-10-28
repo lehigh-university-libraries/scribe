@@ -2,14 +2,11 @@ package worddetection
 
 import (
 	"context"
+	"github.com/lehigh-university-libraries/htr/pkg/remoteocr"
 )
 
 // WordBox represents a detected word with its bounding box
-type WordBox struct {
-	X, Y, Width, Height int
-	Text                string // Detected text (if available)
-	Confidence          float64
-}
+type WordBox = remoteocr.Box
 
 // DetectionResult contains the results from a word detection provider
 type DetectionResult struct {

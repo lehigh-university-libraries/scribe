@@ -10,6 +10,7 @@ import (
 )
 
 type InsertOCRRunParams struct {
+	OriginalPage string
 	SessionID    string
 	ItemImageID  uint64
 	ContextID    sql.NullInt64
@@ -26,6 +27,7 @@ func (q *Queries) InsertOCRRun(ctx context.Context, arg InsertOCRRunParams) erro
 		return err
 	}
 	res, err := q.InsertOCRRunManual(ctx, InsertOCRRunManualParams{
+		OriginalPage: nullableString(arg.OriginalPage),
 		SessionID:    arg.SessionID,
 		ItemImageID:  sql.NullInt64{Int64: itemImageID, Valid: true},
 		ContextID:    arg.ContextID,
@@ -39,18 +41,20 @@ func (q *Queries) InsertOCRRun(ctx context.Context, arg InsertOCRRunParams) erro
 }
 
 type OCRRun struct {
-	SessionID           string
-	ItemImageID         uint64
-	ContextID           sql.NullInt64
-	ImageURL            string
-	Provider            string
-	Model               string
-	OriginalHocr        string
-	OriginalText        string
-	CanonicalRevision   sql.NullInt64
-	LevenshteinDistance int32
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	OriginalPage           string
+	SegmentationCorrection string
+	SessionID              string
+	ItemImageID            uint64
+	ContextID              sql.NullInt64
+	ImageURL               string
+	Provider               string
+	Model                  string
+	OriginalHocr           string
+	OriginalText           string
+	CanonicalRevision      sql.NullInt64
+	LevenshteinDistance    int32
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 func (q *Queries) GetOCRRun(ctx context.Context, sessionID string) (OCRRun, error) {
@@ -59,18 +63,20 @@ func (q *Queries) GetOCRRun(ctx context.Context, sessionID string) (OCRRun, erro
 		return OCRRun{}, err
 	}
 	return OCRRun{
-		SessionID:           row.SessionID,
-		ItemImageID:         row.ItemImageID,
-		ContextID:           row.ContextID,
-		ImageURL:            row.ImageUrl,
-		Provider:            row.Provider,
-		Model:               row.Model,
-		OriginalHocr:        row.OriginalHocr,
-		OriginalText:        row.OriginalText,
-		CanonicalRevision:   row.CanonicalRevision,
-		LevenshteinDistance: row.LevenshteinDistance,
-		CreatedAt:           row.CreatedAt,
-		UpdatedAt:           row.UpdatedAt,
+		OriginalPage:           row.OriginalPage.String,
+		SegmentationCorrection: row.SegmentationCorrection.String,
+		SessionID:              row.SessionID,
+		ItemImageID:            row.ItemImageID,
+		ContextID:              row.ContextID,
+		ImageURL:               row.ImageUrl,
+		Provider:               row.Provider,
+		Model:                  row.Model,
+		OriginalHocr:           row.OriginalHocr,
+		OriginalText:           row.OriginalText,
+		CanonicalRevision:      row.CanonicalRevision,
+		LevenshteinDistance:    row.LevenshteinDistance,
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
 	}, nil
 }
 
@@ -80,17 +86,19 @@ func (q *Queries) GetOCRRunByItemImageID(ctx context.Context, itemImageID uint64
 		return OCRRun{}, err
 	}
 	return OCRRun{
-		SessionID:           row.SessionID,
-		ItemImageID:         row.ItemImageID,
-		ContextID:           row.ContextID,
-		ImageURL:            row.ImageUrl,
-		Provider:            row.Provider,
-		Model:               row.Model,
-		OriginalHocr:        row.OriginalHocr,
-		OriginalText:        row.OriginalText,
-		CanonicalRevision:   row.CanonicalRevision,
-		LevenshteinDistance: row.LevenshteinDistance,
-		CreatedAt:           row.CreatedAt,
-		UpdatedAt:           row.UpdatedAt,
+		OriginalPage:           row.OriginalPage.String,
+		SegmentationCorrection: row.SegmentationCorrection.String,
+		SessionID:              row.SessionID,
+		ItemImageID:            row.ItemImageID,
+		ContextID:              row.ContextID,
+		ImageURL:               row.ImageUrl,
+		Provider:               row.Provider,
+		Model:                  row.Model,
+		OriginalHocr:           row.OriginalHocr,
+		OriginalText:           row.OriginalText,
+		CanonicalRevision:      row.CanonicalRevision,
+		LevenshteinDistance:    row.LevenshteinDistance,
+		CreatedAt:              row.CreatedAt,
+		UpdatedAt:              row.UpdatedAt,
 	}, nil
 }

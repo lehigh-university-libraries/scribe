@@ -6,15 +6,17 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/lehigh-university-libraries/htr/pkg/ocrpage"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
 	"github.com/lehigh-university-libraries/scribe/internal/utils"
 )
 
 type ProcessResult struct {
-	SessionID string `json:"session_id"`
-	HOCR      string `json:"hocr"`
-	PlainText string `json:"plain_text"`
-	ImageURL  string `json:"image_url"`
+	Page      *ocrpage.Page `json:"-"`
+	SessionID string        `json:"session_id"`
+	HOCR      string        `json:"hocr"`
+	PlainText string        `json:"plain_text"`
+	ImageURL  string        `json:"image_url"`
 	// StoredBytes is the exact physical size when ImageURL identifies an
 	// immutable Scribe-owned upload. It is zero when the result deliberately
 	// retains an externally owned image reference; it is never an estimate of

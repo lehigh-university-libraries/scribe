@@ -24,6 +24,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// ItemServiceSetItemDocumentTypeProcedure is the procedure name of the ItemService's
+	// SetItemDocumentType RPC.
+	ItemServiceSetItemDocumentTypeProcedure = "/scribe.v1.ItemService/SetItemDocumentType"
 	// ItemServiceListItemsProcedure is the procedure name of the ItemService's ListItems RPC.
 	ItemServiceListItemsProcedure = "/scribe.v1.ItemService/ListItems"
 	// ItemServiceGetItemProcedure is the procedure name of the ItemService's GetItem RPC.
@@ -55,6 +58,13 @@ const (
 )
 
 var (
+	itemServiceSetItemDocumentTypeSpec = sync.OnceValue(func() connect.Spec {
+		return connect.Spec{
+			StreamType: connect.StreamTypeUnary,
+			Schema:     v1.File_scribe_v1_item_proto.Services().ByName("ItemService").Methods().ByName("SetItemDocumentType"),
+			Procedure:  ItemServiceSetItemDocumentTypeProcedure,
+		}
+	})
 	itemServiceListItemsSpec = sync.OnceValue(func() connect.Spec {
 		return connect.Spec{
 			StreamType: connect.StreamTypeUnary,
@@ -136,6 +146,7 @@ var (
 
 // ItemServiceClient is a client for the scribe.v1.ItemService service.
 type ItemServiceClient interface {
+	SetItemDocumentType(context.Context, *v1.SetItemDocumentTypeRequest) (*v1.SetItemDocumentTypeResponse, error)
 	ListItems(context.Context, *v1.ListItemsRequest) (*v1.ListItemsResponse, error)
 	GetItem(context.Context, *v1.GetItemRequest) (*v1.GetItemResponse, error)
 	GetEditorManifest(context.Context, *v1.GetEditorManifestRequest) (*v1.GetEditorManifestResponse, error)
@@ -157,6 +168,7 @@ func NewItemServiceClient(client *connect.Client) ItemServiceClient {
 
 // ItemServiceHandler is an implementation of the scribe.v1.ItemService service.
 type ItemServiceHandler interface {
+	SetItemDocumentType(context.Context, *v1.SetItemDocumentTypeRequest) (*v1.SetItemDocumentTypeResponse, error)
 	ListItems(context.Context, *v1.ListItemsRequest) (*v1.ListItemsResponse, error)
 	GetItem(context.Context, *v1.GetItemRequest) (*v1.GetItemResponse, error)
 	GetEditorManifest(context.Context, *v1.GetEditorManifestRequest) (*v1.GetEditorManifestResponse, error)
@@ -174,6 +186,7 @@ type ItemServiceHandler interface {
 func RegisterItemServiceHandler(server *connect.Server, svc ItemServiceHandler) {
 	adapter := itemServiceHandler{svc: svc}
 	server.Register(
+		connect.Method{Spec: itemServiceSetItemDocumentTypeSpec(), Handler: adapter.setItemDocumentType},
 		connect.Method{Spec: itemServiceListItemsSpec(), Handler: adapter.listItems},
 		connect.Method{Spec: itemServiceGetItemSpec(), Handler: adapter.getItem},
 		connect.Method{Spec: itemServiceGetEditorManifestSpec(), Handler: adapter.getEditorManifest},
@@ -190,6 +203,10 @@ func RegisterItemServiceHandler(server *connect.Server, svc ItemServiceHandler) 
 
 // UnimplementedItemServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedItemServiceHandler struct{}
+
+func (UnimplementedItemServiceHandler) SetItemDocumentType(context.Context, *v1.SetItemDocumentTypeRequest) (*v1.SetItemDocumentTypeResponse, error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.SetItemDocumentType is not implemented")
+}
 
 func (UnimplementedItemServiceHandler) ListItems(context.Context, *v1.ListItemsRequest) (*v1.ListItemsResponse, error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, "scribe.v1.ItemService.ListItems is not implemented")
@@ -237,6 +254,14 @@ func (UnimplementedItemServiceHandler) ListItemProviderCallAudits(context.Contex
 
 type itemServiceClient struct {
 	client *connect.Client
+}
+
+func (c *itemServiceClient) SetItemDocumentType(ctx context.Context, req *v1.SetItemDocumentTypeRequest) (*v1.SetItemDocumentTypeResponse, error) {
+	var res v1.SetItemDocumentTypeResponse
+	if err := c.client.CallUnary(ctx, itemServiceSetItemDocumentTypeSpec(), req, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
 }
 
 func (c *itemServiceClient) ListItems(ctx context.Context, req *v1.ListItemsRequest) (*v1.ListItemsResponse, error) {
@@ -328,6 +353,18 @@ func (c *itemServiceClient) ListItemProviderCallAudits(ctx context.Context, req 
 }
 
 type itemServiceHandler struct{ svc ItemServiceHandler }
+
+func (h itemServiceHandler) setItemDocumentType(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
+	var req v1.SetItemDocumentTypeRequest
+	if err := stream.Receive(&req); err != nil {
+		return err
+	}
+	res, err := h.svc.SetItemDocumentType(ctx, &req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(res)
+}
 
 func (h itemServiceHandler) listItems(ctx context.Context, _ connect.Spec, stream connect.ServerStream) error {
 	var req v1.ListItemsRequest

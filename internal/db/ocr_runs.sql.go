@@ -26,6 +26,7 @@ SELECT
   run.levenshtein_distance,
   run.created_at,
   run.updated_at
+  ,run.original_page, run.segmentation_correction
 FROM current_ocr_runs current_run
 JOIN ocr_runs run
   ON run.session_id = current_run.session_id
@@ -51,6 +52,8 @@ func (q *Queries) GetOCRRunByItemImageIDManual(ctx context.Context, itemImageID 
 		&i.LevenshteinDistance,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OriginalPage,
+		&i.SegmentationCorrection,
 	)
 	return i, err
 }
@@ -71,6 +74,7 @@ SELECT
   levenshtein_distance,
   created_at,
   updated_at
+  ,original_page, segmentation_correction
 FROM ocr_runs
 WHERE session_id = ?
 `
@@ -93,6 +97,8 @@ func (q *Queries) GetOCRRunManual(ctx context.Context, sessionID string) (OcrRun
 		&i.LevenshteinDistance,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OriginalPage,
+		&i.SegmentationCorrection,
 	)
 	return i, err
 }
@@ -108,13 +114,15 @@ INSERT INTO ocr_runs (
   provider,
   model,
   original_hocr,
-  original_text
+  original_text,
+  original_page
 ) SELECT
   ?,
   ii.workspace_id,
   ?,
   ?,
   c.scope_id,
+  ?,
   ?,
   ?,
   ?,
@@ -129,14 +137,15 @@ WHERE ii.id = ?
 `
 
 type InsertOCRRunManualParams struct {
-	SessionID    string        `json:"session_id"`
-	ItemImageID  sql.NullInt64 `json:"item_image_id"`
-	ContextID    sql.NullInt64 `json:"context_id"`
-	ImageUrl     string        `json:"image_url"`
-	Provider     string        `json:"provider"`
-	Model        string        `json:"model"`
-	OriginalHocr string        `json:"original_hocr"`
-	OriginalText string        `json:"original_text"`
+	SessionID    string         `json:"session_id"`
+	ItemImageID  sql.NullInt64  `json:"item_image_id"`
+	ContextID    sql.NullInt64  `json:"context_id"`
+	ImageUrl     string         `json:"image_url"`
+	Provider     string         `json:"provider"`
+	Model        string         `json:"model"`
+	OriginalHocr string         `json:"original_hocr"`
+	OriginalText string         `json:"original_text"`
+	OriginalPage sql.NullString `json:"original_page"`
 }
 
 func (q *Queries) InsertOCRRunManual(ctx context.Context, arg InsertOCRRunManualParams) (sql.Result, error) {
@@ -149,6 +158,7 @@ func (q *Queries) InsertOCRRunManual(ctx context.Context, arg InsertOCRRunManual
 		arg.Model,
 		arg.OriginalHocr,
 		arg.OriginalText,
+		arg.OriginalPage,
 		arg.ContextID,
 		arg.ItemImageID,
 		arg.ContextID,

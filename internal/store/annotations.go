@@ -100,7 +100,8 @@ type AnnotationIndexEntry struct {
 // before it is persisted. Keeping the metric update in the page transaction
 // prevents a revision and its correction score from drifting apart.
 type AnnotationCorrectionMetric struct {
-	LevenshteinDistance int
+	SegmentationCorrection string
+	LevenshteinDistance    int
 	// BaselineCharacters and CorrectedCharacters are code-point counts of the
 	// normalized texts that produced the distance. They are returned to the
 	// editor for display and are not persisted.
@@ -707,7 +708,7 @@ func (s *AnnotationStore) savePage(
 				return annotationPageSaveResult{}, admissionErr
 			}
 		}
-		lockedContext, snapshot, contextErr := lockContextSnapshotForWorkspace(ctx, queries, options.reprocess.Context.ID, page.WorkspaceID)
+		lockedContext, snapshot, contextErr := lockContextSnapshotForWorkspace(ctx, queries, options.reprocess.Context.ID, page.WorkspaceID, page.ItemImageID)
 		if contextErr != nil {
 			return annotationPageSaveResult{}, fmt.Errorf("lock reprocess context: %w", contextErr)
 		}
@@ -783,6 +784,12 @@ func (s *AnnotationStore) savePage(
 			ItemImageID:         page.ItemImageID,
 		}); metricErr != nil {
 			return annotationPageSaveResult{}, fmt.Errorf("save annotation correction metric: %w", metricErr)
+		}
+		if err := queries.SetSegmentationCorrection(ctx, db.SetSegmentationCorrectionParams{
+			ItemImageID: page.ItemImageID, Revision: nullableUint64(stored.Revision),
+			SegmentationCorrection: sql.NullString{String: options.metric.SegmentationCorrection, Valid: options.metric.SegmentationCorrection != ""},
+		}); err != nil {
+			return annotationPageSaveResult{}, fmt.Errorf("save segmentation correction: %w", err)
 		}
 	}
 	if options.reprocess != nil {

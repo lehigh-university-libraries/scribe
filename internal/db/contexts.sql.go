@@ -98,12 +98,14 @@ INSERT INTO contexts (
   name,
   description,
   is_default,
+  document_type,
   segmentation_model,
   transcription_provider,
   transcription_model,
   temperature,
   system_prompt
 ) VALUES (
+  ?,
   ?,
   ?,
   ?,
@@ -123,6 +125,7 @@ type CreateContextManualParams struct {
 	Name                  string          `json:"name"`
 	Description           sql.NullString  `json:"description"`
 	IsDefault             bool            `json:"is_default"`
+	DocumentType          string          `json:"document_type"`
 	SegmentationModel     string          `json:"segmentation_model"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
@@ -137,6 +140,7 @@ func (q *Queries) CreateContextManual(ctx context.Context, arg CreateContextManu
 		arg.Name,
 		arg.Description,
 		arg.IsDefault,
+		arg.DocumentType,
 		arg.SegmentationModel,
 		arg.TranscriptionProvider,
 		arg.TranscriptionModel,
@@ -244,7 +248,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE id = ?
 `
@@ -268,6 +273,7 @@ func (q *Queries) GetContextManual(ctx context.Context, id uint64) (Context, err
 		&i.DefaultScopeID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DocumentType,
 	)
 	return i, err
 }
@@ -288,7 +294,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE is_default = TRUE
   AND (workspace_id = ? OR workspace_id IS NULL)
@@ -315,6 +322,7 @@ func (q *Queries) GetDefaultContextForWorkspaceManual(ctx context.Context, works
 		&i.DefaultScopeID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DocumentType,
 	)
 	return i, err
 }
@@ -335,7 +343,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE is_default = TRUE
   AND workspace_id IS NULL
@@ -361,6 +370,7 @@ func (q *Queries) GetDefaultContextManual(ctx context.Context) (Context, error) 
 		&i.DefaultScopeID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DocumentType,
 	)
 	return i, err
 }
@@ -433,7 +443,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE workspace_id IS NULL
   AND name = ?
@@ -459,6 +470,7 @@ func (q *Queries) GetSystemContextByNameManual(ctx context.Context, name string)
 		&i.DefaultScopeID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DocumentType,
 	)
 	return i, err
 }
@@ -493,7 +505,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE (
     workspace_id IS NULL
@@ -561,6 +574,7 @@ func (q *Queries) ListContextsPageForWorkspaceManual(ctx context.Context, arg Li
 			&i.DefaultScopeID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DocumentType,
 		); err != nil {
 			return nil, err
 		}
@@ -733,7 +747,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE id = ?
 LIMIT 1
@@ -759,6 +774,7 @@ func (q *Queries) LockContextByIDForUseManual(ctx context.Context, contextID uin
 		&i.DefaultScopeID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DocumentType,
 	)
 	return i, err
 }
@@ -798,7 +814,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE id = ?
   AND scope_id IN (0, ?)
@@ -830,6 +847,7 @@ func (q *Queries) LockContextForUseManual(ctx context.Context, arg LockContextFo
 		&i.DefaultScopeID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DocumentType,
 	)
 	return i, err
 }
@@ -874,6 +892,7 @@ SET
   name = ?,
   description = ?,
   is_default = ?,
+  document_type = ?,
   segmentation_model = ?,
   transcription_provider = ?,
   transcription_model = ?,
@@ -886,6 +905,7 @@ type UpdateContextManualParams struct {
 	Name                  string          `json:"name"`
 	Description           sql.NullString  `json:"description"`
 	IsDefault             bool            `json:"is_default"`
+	DocumentType          string          `json:"document_type"`
 	SegmentationModel     string          `json:"segmentation_model"`
 	TranscriptionProvider string          `json:"transcription_provider"`
 	TranscriptionModel    string          `json:"transcription_model"`
@@ -899,6 +919,7 @@ func (q *Queries) UpdateContextManual(ctx context.Context, arg UpdateContextManu
 		arg.Name,
 		arg.Description,
 		arg.IsDefault,
+		arg.DocumentType,
 		arg.SegmentationModel,
 		arg.TranscriptionProvider,
 		arg.TranscriptionModel,

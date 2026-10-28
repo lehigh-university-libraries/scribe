@@ -378,7 +378,7 @@ func TestSegmentationErrorRedactionDoesNotExposeDetectorDiagnostics(t *testing.T
 func TestDetectWithModelAuditsRedactedRemoteSegmentationFailure(t *testing.T) {
 	const privateResponse = "PRIVATE_SEGMENTOR_RESPONSE_BODY"
 	segmentorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/segment" {
+		if request.URL.Path != "/v2/segment" {
 			t.Fatalf("segmentor request path = %q", request.URL.Path)
 		}
 		http.Error(w, privateResponse, http.StatusForbidden)
@@ -428,11 +428,11 @@ func TestDetectWithModelAuditsRedactedRemoteSegmentationFailure(t *testing.T) {
 func TestDetectWithModelReturnsRedactedInvalidProviderGeometry(t *testing.T) {
 	const privateText = "PRIVATE_SEGMENTOR_DOCUMENT_TEXT"
 	segmentorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/segment" {
+		if request.URL.Path != "/v2/segment" {
 			t.Fatalf("segmentor request path = %q", request.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprintf(w, `{"provider":"scribe","words":[{"X":95,"Y":1,"Width":10,"Height":10,"Text":%q,"Confidence":0.9}]}`, privateText)
+		_, _ = fmt.Fprintf(w, `{"htrPage":1,"width":110,"height":100,"regions":[{"id":"r","box":{"x1":0,"y1":0,"x2":110,"y2":100},"lines":[{"id":"l","box":{"x1":95,"y1":1,"x2":105,"y2":11},"text":%q}]}]}`, privateText)
 	}))
 	t.Cleanup(segmentorServer.Close)
 	config.Init(config.Runtime{Config: config.Config{

@@ -14,6 +14,7 @@ func (q *Queries) GetItemForWorkspace(ctx context.Context, id string, workspaceI
 		return Item{}, err
 	}
 	return Item{
+		DocumentType:         row.DocumentType,
 		ID:                   row.ID,
 		UserID:               row.UserID,
 		WorkspaceID:          row.WorkspaceID,

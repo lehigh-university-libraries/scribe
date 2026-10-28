@@ -11,6 +11,8 @@ import (
 	"github.com/lehigh-university-libraries/htr/pkg/httpclient"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	"github.com/lehigh-university-libraries/htr/pkg/remoteocr"
+	"github.com/lehigh-university-libraries/htr/pkg/segment"
+	segmentremote "github.com/lehigh-university-libraries/htr/pkg/segment/remote"
 	"github.com/lehigh-university-libraries/scribe/internal/gcpidentity"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
@@ -40,6 +42,7 @@ const (
 // to HTR's generic OCR client.
 type Client struct {
 	remote *remoteocr.Client
+	pages  *segmentremote.Client
 	images tripletImageClient
 }
 
@@ -72,7 +75,28 @@ func NewClientForEndpoint(baseURL, audience string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{remote: remote, images: imageservice.New()}, nil
+	pages, err := segmentremote.NewClient(segmentremote.Options{
+		Endpoint: baseURL, Authenticator: authenticator, Timeout: InferenceRequestTimeout,
+		MaxImageBytes: uploadlimits.MaxImageBytes, MaxRequestBytes: uploadlimits.MaxMultipartBodyBytes,
+		MaxResponseBytes: maxSegmentorResponseBytes, V1Fallback: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Client{remote: remote, pages: pages, images: imageservice.New()}, nil
+}
+
+// Segment preserves the canonical v2 geometry; older services fall back only
+// when they explicitly report that the v2 route does not exist.
+func (c *Client) Segment(ctx context.Context, imagePath, model string, hints segment.Hints) (segment.Result, error) {
+	image, err := c.prepareImage(ctx, imagePath)
+	if err != nil {
+		return segment.Result{}, err
+	}
+	if c.pages == nil {
+		return segment.Result{}, providers.NewError(providers.ErrorInvalidRequest, 0, false, nil)
+	}
+	return c.pages.Segment(ctx, segment.Request{Image: image, Model: strings.TrimSpace(model), Hints: hints})
 }
 
 // Enabled reports whether the HTR remote client is ready.
@@ -88,14 +112,7 @@ func (c *Client) DetectWords(ctx context.Context, imagePath, model string) ([]wo
 	if err != nil {
 		return nil, "", err
 	}
-	words := make([]worddetection.WordBox, len(result.Words))
-	for index, box := range result.Words {
-		words[index] = worddetection.WordBox{
-			X: box.X, Y: box.Y, Width: box.Width, Height: box.Height,
-			Text: box.Text, Confidence: box.Confidence,
-		}
-	}
-	return words, result.Provider, nil
+	return result.Words, result.Provider, nil
 }
 
 func segmentorAuthenticator(endpointRaw, audienceRaw string) (httpclient.Authenticator, error) {

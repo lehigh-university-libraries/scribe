@@ -95,6 +95,8 @@ export function renderItemActions(item: ItemSummary, exportState?: ItemExportAct
     <div class="mt-4 flex flex-wrap items-center gap-2">
       ${openHref ? html`<a href="${openHref}" class="${primary}">Open editor</a>` : html`<span class="rounded-md border px-3 py-2 text-xs text-muted-foreground">No images</span>`}
       <button data-item-logs="${item.id}" class="${buttons}" type="button">Logs</button>
+      <button data-item-profile="${item.id}" class="${buttons}" type="button">Document type</button>
+      <button data-item-gt-export="${item.id}" class="${buttons}" type="button">Export ground truth</button>
       ${openHref ? html`
         <details class="relative" name="item-download">
           <summary class="${buttons} cursor-pointer list-none" aria-busy="${exportBusy ? "true" : "false"}">${exportBusy ? "Preparing…" : "Download ▾"}</summary>

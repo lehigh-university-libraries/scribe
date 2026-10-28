@@ -36,6 +36,11 @@ message Item {
   // Stable identifier assigned by an external repository (for example, an
   // Islandora PID). It is indexed and searchable within the workspace.
   string external_reference_id = 10;
+  // Empty inherits the processing context's document type.
+  string document_type = 11 [(buf.validate.field).string = {
+    pattern: "^$|^[a-z][a-z0-9_-]{0,63}$"
+    max_len: 64
+  }];
 }
 
 // ItemSummary is the bounded library representation of an item. The complete
@@ -77,6 +82,17 @@ message GetItemRequest {
     (buf.validate.field).string.pattern = ".*\\S.*"
   ];
 }
+
+message SetItemDocumentTypeRequest {
+  string item_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  // Empty restores context inheritance.
+  string document_type = 2 [(buf.validate.field).string = {
+    pattern: "^$|^[a-z][a-z0-9_-]{0,63}$"
+    max_len: 64
+  }];
+}
+
+message SetItemDocumentTypeResponse {}
 
 message GetItemResponse {
   Item item = 1;
@@ -367,6 +383,13 @@ message ListItemProviderCallAuditsResponse {
 }
 
 service ItemService {
+  rpc SetItemDocumentType(SetItemDocumentTypeRequest) returns (SetItemDocumentTypeResponse) {
+    option (scribe.v1.options.v1.authz) = {
+      resource: RESOURCE_TYPE_ITEM
+      level: ACCESS_LEVEL_WRITE
+      resource_id_field: "item_id"
+    };
+  }
   rpc ListItems(ListItemsRequest) returns (ListItemsResponse) {
     option (scribe.v1.options.v1.authz) = {
       resource: RESOURCE_TYPE_USER

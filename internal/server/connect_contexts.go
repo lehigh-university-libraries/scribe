@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"connectrpc.com/connect/v2"
+	"github.com/lehigh-university-libraries/htr/pkg/segeval"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/providerregistry"
 	"github.com/lehigh-university-libraries/scribe/internal/store"
@@ -157,6 +158,9 @@ func (h *Handler) GetModelCatalog(ctx context.Context, req *scribev1.GetModelCat
 	registry := providerregistry.New(config.Get().Config)
 	catalog := registry.Catalog()
 	response := &scribev1.GetModelCatalogResponse{}
+	for _, p := range segeval.Profiles() {
+		response.DocumentTypes = append(response.DocumentTypes, &scribev1.DocumentTypeDescriptor{Id: p.Name, Description: p.Description, Calibrated: p.Calibrated})
+	}
 	for _, descriptor := range catalog.TranscriptionProviders {
 		provider := &scribev1.ProviderDescriptor{
 			Id:                   descriptor.ID,
@@ -211,9 +215,15 @@ func modelDescriptorToProto(model providerregistry.Model) *scribev1.ModelDescrip
 }
 
 func validateContextSelection(contextValue store.Context) error {
+	if _, ok := segeval.Lookup(contextValue.DocumentProfile()); !ok {
+		return fmt.Errorf("unknown document type")
+	}
 	registry := providerregistry.New(config.Get().Config)
 	if err := registry.ValidateSegmentation(contextValue.SegmentationModel); err != nil {
 		return err
+	}
+	if segmentor, _, _, err := registry.ResolveSegmentor(contextValue.SegmentationModel); err == nil && segmentor.Capabilities.OutputGranularity == "region" {
+		return fmt.Errorf("this segmentor provides regions only; select layout+kraken for line transcription")
 	}
 	if strings.EqualFold(contextValue.TranscriptionProvider, "kraken") && contextValue.SegmentationModel != "kraken" {
 		return fmt.Errorf("native Kraken recognition requires BLLA segmentation")
@@ -230,6 +240,7 @@ func validateContextSelection(contextValue store.Context) error {
 
 func storeContextToProto(c store.Context) *scribev1.Context {
 	proto := &scribev1.Context{
+		DocumentType:          c.DocumentProfile(),
 		Id:                    c.ID,
 		Name:                  c.Name,
 		Description:           c.Description,
@@ -253,6 +264,7 @@ func protoContextToStore(p *scribev1.Context) store.Context {
 		return store.Context{}
 	}
 	c := store.Context{
+		DocumentType:          p.GetDocumentType(),
 		ID:                    p.GetId(),
 		Name:                  p.GetName(),
 		Description:           p.GetDescription(),

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/lehigh-university-libraries/htr/pkg/gemini"
+	"github.com/lehigh-university-libraries/htr/pkg/mistral"
 	"github.com/lehigh-university-libraries/htr/pkg/openai"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
 	"github.com/lehigh-university-libraries/scribe/internal/uploadlimits"
@@ -14,6 +15,19 @@ const (
 	providerAPIKeyField = "api_key"
 	openAIAPIKeyField   = providerAPIKeyField
 )
+
+func newMistralClient(descriptor Provider, model string) (providers.Client, error) {
+	endpoint, err := registeredProviderEndpoint(descriptor, model, EndpointVendor)
+	if err != nil {
+		return nil, err
+	}
+	client, err := mistral.NewClient(mistral.Options{
+		Endpoint: endpoint.URL, HTTPClient: descriptor.vendorHTTPClient,
+		APIKey: providerCredentialSource(descriptor), Timeout: descriptor.Limits.Timeout,
+		MaxImageBytes: uploadlimits.MaxImageBytes, MaxResponseBytes: descriptor.Limits.MaxResponseBytes,
+	})
+	return bindRegisteredModel(client, model, err)
+}
 
 func newOpenAIClient(descriptor Provider, model string) (providers.Client, error) {
 	endpoint, err := registeredProviderEndpoint(descriptor, model, EndpointVendor)

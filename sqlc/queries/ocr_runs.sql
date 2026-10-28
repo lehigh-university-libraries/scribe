@@ -9,7 +9,8 @@ INSERT INTO ocr_runs (
   provider,
   model,
   original_hocr,
-  original_text
+  original_text,
+  original_page
 ) SELECT
   sqlc.arg(session_id),
   ii.workspace_id,
@@ -20,7 +21,8 @@ INSERT INTO ocr_runs (
   sqlc.arg(provider),
   sqlc.arg(model),
   sqlc.arg(original_hocr),
-  sqlc.arg(original_text)
+  sqlc.arg(original_text),
+  sqlc.narg(original_page)
 FROM item_images ii
 LEFT JOIN contexts c
   ON c.id = sqlc.narg(context_id)
@@ -51,6 +53,7 @@ SELECT
   levenshtein_distance,
   created_at,
   updated_at
+  ,original_page, segmentation_correction
 FROM ocr_runs
 WHERE session_id = sqlc.arg(session_id);
 
@@ -70,6 +73,7 @@ SELECT
   run.levenshtein_distance,
   run.created_at,
   run.updated_at
+  ,run.original_page, run.segmentation_correction
 FROM current_ocr_runs current_run
 JOIN ocr_runs run
   ON run.session_id = current_run.session_id

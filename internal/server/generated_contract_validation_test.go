@@ -149,7 +149,7 @@ func TestGeneratedMutationContractsAcceptBoundedInputs(t *testing.T) {
 		&scribev1.CreateProviderSecretRequest{Provider: "openai", Name: "production", ApiKey: "secret-key", Scope: "workspace"},
 		&scribev1.AddWorkspaceMemberRequest{WorkspaceId: 1, Email: "writer@example.org", Role: "write"},
 		&scribev1.CreateContextRequest{Context: &scribev1.Context{
-			Name: "OCR", SegmentationModel: "layout", TranscriptionProvider: "tesseract",
+			Name: "OCR", SegmentationModel: "layout+kraken", TranscriptionProvider: "tesseract", DocumentType: "generic",
 		}},
 		&scribev1.CreateSelectionRuleRequest{Rule: &scribev1.ContextSelectionRule{
 			ContextId:  1,

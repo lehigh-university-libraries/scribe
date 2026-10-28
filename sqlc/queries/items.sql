@@ -4,6 +4,7 @@ INSERT INTO items (
   user_id,
   workspace_id,
   name,
+  document_type,
   source_type,
   source_url,
   source_manifest,
@@ -15,6 +16,7 @@ INSERT INTO items (
   sqlc.arg(user_id),
   sqlc.arg(workspace_id),
   sqlc.arg(name),
+  sqlc.narg(document_type),
   sqlc.arg(source_type),
   sqlc.narg(source_url),
   sqlc.narg(source_manifest),
@@ -29,6 +31,7 @@ SELECT
   user_id,
   workspace_id,
   name,
+  document_type,
   source_type,
   source_url,
   source_manifest,
@@ -216,3 +219,7 @@ UPDATE item_images
 SET canvas_uri = sqlc.arg(canvas_uri)
 WHERE id = sqlc.arg(id)
   AND (canvas_uri IS NULL OR canvas_uri = '');
+
+-- name: UpdateItemDocumentType :execresult
+UPDATE items SET document_type = sqlc.narg(document_type)
+WHERE id = sqlc.arg(item_id) AND workspace_id = sqlc.arg(workspace_id);

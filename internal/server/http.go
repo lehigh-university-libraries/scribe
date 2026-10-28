@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lehigh-university-libraries/htr/pkg/ocrpage"
 	"io"
 	"log/slog"
 	"net/http"
@@ -777,7 +778,7 @@ func lineAnnotationText(line models.HOCRLine) string {
 }
 
 func buildLineAnnotations(sessionID, canvasID string, lines []models.HOCRLine) []any {
-	items := make([]any, 0, len(lines))
+	native := make([]ocrpage.Line, 0, len(lines))
 	for i, line := range lines {
 		width := line.BBox.X2 - line.BBox.X1
 		height := line.BBox.Y2 - line.BBox.Y1
@@ -789,14 +790,17 @@ func buildLineAnnotations(sessionID, canvasID string, lines []models.HOCRLine) [
 		if lineID == "" {
 			lineID = fmt.Sprintf("line-%d", i+1)
 		}
-		annID := annotationID(sessionID, "line", lineID)
-		items = append(items, transcriptionAnnotation(annID, "line", text, canvasID, line.BBox))
+		native = append(native, ocrpage.Line{ID: lineID, Text: text, Box: ocrpage.Rect(line.BBox)})
+	}
+	items, err := pageAnnotations(sessionID, canvasID, ocrpage.FromLines(0, 0, native), ocrpage.LevelLine)
+	if err != nil {
+		return nil
 	}
 	return items
 }
 
 func buildWordAnnotations(sessionID, canvasID string, words []models.HOCRWord) []any {
-	items := make([]any, 0, len(words))
+	line := ocrpage.Line{}
 	for i, word := range words {
 		width := word.BBox.X2 - word.BBox.X1
 		height := word.BBox.Y2 - word.BBox.Y1
@@ -807,8 +811,13 @@ func buildWordAnnotations(sessionID, canvasID string, words []models.HOCRWord) [
 		if wordID == "" {
 			wordID = fmt.Sprintf("word-%d", i+1)
 		}
-		annID := annotationID(sessionID, "word", wordID)
-		items = append(items, transcriptionAnnotation(annID, "word", strings.TrimSpace(word.Text), canvasID, word.BBox))
+		box := ocrpage.Rect(word.BBox)
+		line.Box = line.Box.Union(box)
+		line.Words = append(line.Words, ocrpage.Word{ID: wordID, Text: strings.TrimSpace(word.Text), Box: box})
+	}
+	items, err := pageAnnotations(sessionID, canvasID, ocrpage.FromLines(0, 0, []ocrpage.Line{line}), ocrpage.LevelWord)
+	if err != nil {
+		return nil
 	}
 	return items
 }
@@ -867,7 +876,7 @@ func (h *Handler) internalAnnotationBaseURL() string {
 	return base
 }
 
-func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run store.OCRRun, itemImageID uint64, parsed *hocr.Document) error {
+func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run store.OCRRun, itemImageID uint64, parsed *hocr.Document, pages ...*ocrpage.Page) error {
 	img, err := h.itemImageForRequest(ctx, itemImageID)
 	if err != nil {
 		return fmt.Errorf("get item image: %w", err)
@@ -898,6 +907,12 @@ func (h *Handler) ensureItemImageCanvasAndAnnotations(ctx context.Context, run s
 		}
 		items = append(items, buildLineAnnotations(annotationScopeID, canvasURI, document.Lines)...)
 		items = append(items, buildWordAnnotations(annotationScopeID, canvasURI, document.Words)...)
+	}
+	if len(pages) > 0 && pages[0] != nil {
+		items, err = pageAnnotations(annotationScopeID, canvasURI, *pages[0])
+		if err != nil {
+			return err
+		}
 	}
 	created, err := h.createInitialAnnotationPage(ctx, img, items)
 	if err != nil {
@@ -1189,24 +1204,33 @@ func renderCanonicalExportPage(page canonicalExportPage, format string) (string,
 // browser download adapters. Its only input state is one committed canonical
 // AnnotationPage plus the owning Canvas dimensions.
 func renderAnnotationExport(annotationPageJSON string, canvasWidth, canvasHeight int, format string) (string, string, string, error) {
-	lines, pageW, pageH, err := annotationPageToHOCRLinesWithDimensions(annotationPageJSON, canvasWidth, canvasHeight)
+	page, err := readExportPage(annotationPageJSON, canvasWidth, canvasHeight)
 	if err != nil {
 		return "", "", "", fmt.Errorf("no annotations available: %w", err)
 	}
 
 	var content, mediaType, extension string
+	var data []byte
 	switch format {
 	case "hocr":
-		content, mediaType, extension = hocr.ConvertHOCRLinesToXML(lines, pageW, pageH), "text/vnd.hocr+html; charset=utf-8", "hocr"
+		data, err = ocrpage.WriteHOCR(page, ocrpage.HOCROptions{})
+		mediaType, extension = "text/vnd.hocr+html; charset=utf-8", "hocr"
 	case "pagexml":
-		content, mediaType, extension = linesToPageXML(lines, pageW, pageH), "application/vnd.prima.page+xml; charset=utf-8", "xml"
+		data, err = ocrpage.WritePageXML(page, ocrpage.PageXMLOptions{})
+		mediaType, extension = "application/vnd.prima.page+xml; charset=utf-8", "xml"
 	case "alto":
-		content, mediaType, extension = linesToALTOXML(lines, pageW, pageH), "application/alto+xml; charset=utf-8", "xml"
+		data, err = ocrpage.WriteALTO(page)
+		mediaType, extension = "application/alto+xml; charset=utf-8", "xml"
 	case "txt":
-		content, mediaType, extension = linesToPlainText(lines), "text/plain; charset=utf-8", "txt"
+		data, err = ocrpage.WriteText(page)
+		mediaType, extension = "text/plain; charset=utf-8", "txt"
 	default:
 		return "", "", "", fmt.Errorf("format must be one of: hocr, pagexml, alto, txt")
 	}
+	if err != nil {
+		return "", "", "", err
+	}
+	content = string(data)
 	if len(content) > maxExportedPageBytes {
 		return "", "", "", fmt.Errorf("%w: page maximum is %d bytes", errItemExportOutputLimit, maxExportedPageBytes)
 	}

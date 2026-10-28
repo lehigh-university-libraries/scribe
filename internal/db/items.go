@@ -13,6 +13,7 @@ import (
 )
 
 type CreateItemParams struct {
+	DocumentType         string
 	ID                   string
 	UserID               uint64
 	WorkspaceID          uint64
@@ -27,6 +28,7 @@ type CreateItemParams struct {
 
 func (q *Queries) CreateItem(ctx context.Context, arg CreateItemParams) error {
 	return q.CreateItemManual(ctx, CreateItemManualParams{
+		DocumentType:         nullableString(arg.DocumentType),
 		ID:                   arg.ID,
 		UserID:               arg.UserID,
 		WorkspaceID:          arg.WorkspaceID,
@@ -46,6 +48,7 @@ func (q *Queries) GetItem(ctx context.Context, id string) (Item, error) {
 		return Item{}, err
 	}
 	return Item{
+		DocumentType:         row.DocumentType,
 		ID:                   row.ID,
 		UserID:               row.UserID,
 		WorkspaceID:          row.WorkspaceID,

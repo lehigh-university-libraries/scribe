@@ -1,9 +1,9 @@
 import { create } from "@bufbuild/protobuf";
-import { getAnnotationPage } from "../api/annotations";
+import { exportGroundTruth, getAnnotationPage } from "../api/annotations";
 import { createAPIKey, createProviderSecret, deleteAPIKey, deleteProviderSecret, getAuthMe, listAPIKeys, listProviderSecrets, logout, type APIKeyRecord, type GetAuthMeResponse, type ProviderSecretRecord } from "../api/auth";
 import { createContext, getContextMetrics, getModelCatalog, listContexts, type ContextMetrics } from "../api/context";
 import { subscribeToEvents } from "../api/events";
-import { deleteItem, getItemExportSnapshot, importManifest, listItemProviderCallAudits, listItems, prepareItemExport, UploadBatchCancellationError, uploadItemImages } from "../api/items";
+import { deleteItem, getItem, getItemExportSnapshot, importManifest, listItemProviderCallAudits, listItems, prepareItemExport, setItemDocumentType, UploadBatchCancellationError, uploadItemImages } from "../api/items";
 import { processImageURL, reprocessItemImage } from "../api/processing";
 import { addWorkspaceMember, createWorkspace, deleteWorkspaceMember, listWorkspaceMembers, listWorkspaces, updateWorkspace, updateWorkspaceMember } from "../api/workspaces";
 import { applyWorkspaceToLocation, getCurrentWorkspaceId, setCurrentWorkspaceId, syncWorkspaceSelectionFromLocation, workspaceAwarePath } from "../lib/workspace";
@@ -741,10 +741,11 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
     setHTML(drawer, html`
       <div class="flex items-start justify-between gap-4"><h2 id="shell-panel-heading" class="text-2xl font-semibold">OCR context library</h2><button id="shell-panel-close" class="${buttons}" type="button">Close</button></div>
       ${state.auth?.authenticated ? html`
-        <form id="contexts-create-form" class="${card} mt-5 grid gap-3"><input id="contexts-name" aria-label="Context name" class="${input}" placeholder="Name" required /><label class="grid gap-1 text-sm">Transcription provider<select id="contexts-provider" class="${input}">${providerOptions}</select></label><label class="grid gap-1 text-sm">Transcription model<select id="contexts-model" class="${input}">${modelOptions}</select></label><label class="grid gap-1 text-sm">Segmentation model<select id="contexts-segmentation" class="${input}">${segmentationOptions}</select></label><textarea id="contexts-description" aria-label="Context description" class="${input}" placeholder="Description"></textarea><textarea id="contexts-system-prompt" aria-label="System prompt" class="${input}" placeholder="System prompt"></textarea><label id="contexts-temperature-label" class="grid gap-1 text-sm">Temperature<input id="contexts-temperature" class="${input}" type="number" min="0" max="2" step="0.05" placeholder="Provider default" /></label><label><input id="contexts-default" type="checkbox" /> Set as default</label><button class="${primary}" type="submit">Create context</button><p id="contexts-status" aria-live="polite" class="text-sm text-muted-foreground"></p></form>
-        <div class="mt-5 grid gap-3">${state.contexts.map((ctx, index) => html`<article class="${card}"><h3 class="font-semibold">${ctx.name}</h3><p class="text-sm text-muted-foreground">${ctx.transcriptionProvider} · ${ctx.transcriptionModel || "default"}</p><p class="mt-2 text-xs text-muted-foreground">Runs ${metrics[index]?.totalRuns ?? 0} · Input ${metrics[index]?.inputTokens ?? 0} · Billed output ${metrics[index]?.billedOutputTokens ?? 0} (thoughts ${metrics[index]?.thoughtTokens ?? 0})</p></article>`)}</div>
+        <form id="contexts-create-form" class="${card} mt-5 grid gap-3"><input id="contexts-name" aria-label="Context name" class="${input}" placeholder="Name" required /><label class="grid gap-1 text-sm">Transcription provider<select id="contexts-provider" class="${input}">${providerOptions}</select></label><label class="grid gap-1 text-sm">Transcription model<select id="contexts-model" class="${input}">${modelOptions}</select></label><label class="grid gap-1 text-sm">Segmentation model<select id="contexts-segmentation" class="${input}">${segmentationOptions}</select></label><label class="grid gap-1 text-sm">Document type<select id="contexts-document-type" class="${input}">${(state.modelCatalog?.documentTypes ?? [{id: "generic", description: "General layout"}]).map((profile) => html`<option value="${profile.id}">${profile.id}</option>`)}</select><span class="text-xs text-muted-foreground">Controls how segmentation quality is measured and which layout features are requested</span></label><textarea id="contexts-description" aria-label="Context description" class="${input}" placeholder="Description"></textarea><textarea id="contexts-system-prompt" aria-label="System prompt" class="${input}" placeholder="System prompt"></textarea><label id="contexts-temperature-label" class="grid gap-1 text-sm">Temperature<input id="contexts-temperature" class="${input}" type="number" min="0" max="2" step="0.05" placeholder="Provider default" /></label><label><input id="contexts-default" type="checkbox" /> Set as default</label><button class="${primary}" type="submit">Create context</button><p id="contexts-status" aria-live="polite" class="text-sm text-muted-foreground"></p></form>
+        <div class="mt-5 grid gap-3">${state.contexts.map((ctx, index) => html`<article class="${card}"><h3 class="font-semibold">${ctx.name}</h3><p class="text-xs text-muted-foreground">Context ID: ${ctx.id}</p><button type="button" data-context-gt-export="${ctx.id}" class="${buttons}">Export ground truth</button><p class="text-sm text-muted-foreground">${ctx.transcriptionProvider} · ${ctx.transcriptionModel || "default"}</p><p class="mt-2 text-xs text-muted-foreground">Runs ${metrics[index]?.totalRuns ?? 0} · Input ${metrics[index]?.inputTokens ?? 0} · Billed output ${metrics[index]?.billedOutputTokens ?? 0} (thoughts ${metrics[index]?.thoughtTokens ?? 0})</p></article>`)}</div>
       ` : html`<a href="${loginHref(state.auth)}" class="${primary} mt-5">Sign in with Google</a>`}
     `);
+    drawer.querySelectorAll<HTMLButtonElement>("[data-context-gt-export]").forEach((button) => button.addEventListener("click", () => void downloadGroundTruth(BigInt(button.dataset.contextGtExport ?? "0"))));
     document.getElementById("shell-panel-close")?.addEventListener("click", () => void openPanel(null));
     const providerSelect = document.getElementById("contexts-provider") as HTMLSelectElement | null;
     const modelSelect = document.getElementById("contexts-model") as HTMLSelectElement | null;
@@ -791,6 +792,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         name,
         description: (document.getElementById("contexts-description") as HTMLTextAreaElement).value.trim(),
         isDefault: (document.getElementById("contexts-default") as HTMLInputElement).checked,
+        documentType: (document.getElementById("contexts-document-type") as HTMLSelectElement).value || "generic",
         segmentationModel: (document.getElementById("contexts-segmentation") as HTMLInputElement).value.trim() || "kraken",
         transcriptionProvider: (document.getElementById("contexts-provider") as HTMLInputElement).value.trim() || "ollama",
         transcriptionModel: (document.getElementById("contexts-model") as HTMLInputElement).value.trim(),
@@ -963,6 +965,40 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
   }
 
   function bindSharedItemActions() {
+    app.querySelectorAll<HTMLButtonElement>("[data-item-gt-export]").forEach((button) => button.addEventListener("click", () => void downloadGroundTruth(0n,button.dataset.itemGtExport ?? "")));
+    app.querySelectorAll<HTMLButtonElement>("[data-item-profile]").forEach((button) => button.addEventListener("click", async () => {
+      const itemId = button.dataset.itemProfile ?? "";
+      const loadGeneration = ++modalLoadGeneration;
+      modalReturnFocus = button;
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+      modal.setAttribute("aria-hidden", "false");
+      modalTitle.textContent = "Document type";
+      setHTML(modalBody, html`<p>Loading document type…</p>`);
+      syncDialogInertness();
+      (document.getElementById("shell-modal-close") as HTMLButtonElement | null)?.focus();
+      try {
+        const item = await getItem(itemId);
+        if (loadGeneration !== modalLoadGeneration) return;
+        setHTML(modalBody, html`<label class="grid gap-2">Document type<select id="item-document-type" class="${input}"${canWriteWorkspace(state) ? "" : " disabled"}><option value="">Inherit processing context</option>${(state.modelCatalog?.documentTypes ?? []).map((profile) => html`<option value="${profile.id}">${profile.id}</option>`)}</select></label><p class="mt-2 text-sm text-muted-foreground">Controls how segmentation quality is measured and which layout features are requested. Applies to future processing.</p><p id="item-document-type-status" role="status"></p>`);
+        const select = modalBody.querySelector<HTMLSelectElement>("#item-document-type")!;
+        select.value = item.documentType;
+        select.addEventListener("change", async () => {
+          select.disabled = true;
+          const status = modalBody.querySelector<HTMLElement>("#item-document-type-status")!;
+          try {
+            await setItemDocumentType(item.id, select.value);
+            item.documentType = select.value;
+            status.textContent = "Document type saved.";
+          } catch (error) {
+            select.value = item.documentType;
+            status.textContent = `Save failed: ${String(error)}`;
+          } finally { select.disabled = false; }
+        });
+      } catch (error) {
+        if (loadGeneration === modalLoadGeneration) setHTML(modalBody, html`<p role="alert">Could not load document type: ${String(error)}</p>`);
+      }
+    }));
     app.querySelectorAll<HTMLButtonElement>("[data-item-logs]").forEach((button) => button.addEventListener("click", () => void openLogsModal(button.dataset.itemLogs ?? "")));
     app.querySelectorAll<HTMLButtonElement>("[data-item-export]").forEach((button) => button.addEventListener("click", () => {
       const itemId = button.dataset.itemExport ?? "";
@@ -988,6 +1024,21 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
         renderAll();
       }
     }));
+  }
+
+  async function downloadGroundTruth(contextID: bigint, itemID = ""): Promise<void> {
+    try {
+      const content = await exportGroundTruth(contextID,itemID);
+      const url = URL.createObjectURL(new Blob([new Uint8Array(content)], {type:"application/zip"}));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "ground-truth.zip";
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url),1000);
+    } catch (error) {
+      state.dataError = `Ground truth export failed: ${String(error)}`;
+      renderAll();
+    }
   }
 
   function renderDrawer() {

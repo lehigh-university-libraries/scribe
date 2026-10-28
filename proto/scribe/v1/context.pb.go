@@ -40,8 +40,10 @@ type Context struct {
 	SystemPrompt          string   `protobuf:"bytes,11,opt,name=system_prompt,json=systemPrompt,proto3" json:"system_prompt,omitempty"`
 	CreatedAt             string   `protobuf:"bytes,13,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt             string   `protobuf:"bytes,14,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Segmentation evaluation policy; registered by htr's profile registry.
+	DocumentType  string `protobuf:"bytes,17,opt,name=document_type,json=documentType,proto3" json:"document_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Context) Reset() {
@@ -154,6 +156,13 @@ func (x *Context) GetCreatedAt() string {
 func (x *Context) GetUpdatedAt() string {
 	if x != nil {
 		return x.UpdatedAt
+	}
+	return ""
+}
+
+func (x *Context) GetDocumentType() string {
+	if x != nil {
+		return x.DocumentType
 	}
 	return ""
 }
@@ -1319,9 +1328,10 @@ func (*GetModelCatalogRequest) Descriptor() ([]byte, []int) {
 }
 
 type GetModelCatalogResponse struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	TranscriptionProviders []*ProviderDescriptor  `protobuf:"bytes,1,rep,name=transcription_providers,json=transcriptionProviders,proto3" json:"transcription_providers,omitempty"`
-	SegmentationModels     []*ModelDescriptor     `protobuf:"bytes,2,rep,name=segmentation_models,json=segmentationModels,proto3" json:"segmentation_models,omitempty"`
+	state                  protoimpl.MessageState    `protogen:"open.v1"`
+	TranscriptionProviders []*ProviderDescriptor     `protobuf:"bytes,1,rep,name=transcription_providers,json=transcriptionProviders,proto3" json:"transcription_providers,omitempty"`
+	SegmentationModels     []*ModelDescriptor        `protobuf:"bytes,2,rep,name=segmentation_models,json=segmentationModels,proto3" json:"segmentation_models,omitempty"`
+	DocumentTypes          []*DocumentTypeDescriptor `protobuf:"bytes,3,rep,name=document_types,json=documentTypes,proto3" json:"document_types,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -1370,6 +1380,73 @@ func (x *GetModelCatalogResponse) GetSegmentationModels() []*ModelDescriptor {
 	return nil
 }
 
+func (x *GetModelCatalogResponse) GetDocumentTypes() []*DocumentTypeDescriptor {
+	if x != nil {
+		return x.DocumentTypes
+	}
+	return nil
+}
+
+type DocumentTypeDescriptor struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	Calibrated    bool                   `protobuf:"varint,3,opt,name=calibrated,proto3" json:"calibrated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DocumentTypeDescriptor) Reset() {
+	*x = DocumentTypeDescriptor{}
+	mi := &file_scribe_v1_context_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DocumentTypeDescriptor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DocumentTypeDescriptor) ProtoMessage() {}
+
+func (x *DocumentTypeDescriptor) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_context_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DocumentTypeDescriptor.ProtoReflect.Descriptor instead.
+func (*DocumentTypeDescriptor) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *DocumentTypeDescriptor) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *DocumentTypeDescriptor) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *DocumentTypeDescriptor) GetCalibrated() bool {
+	if x != nil {
+		return x.Calibrated
+	}
+	return false
+}
+
 // ContextMetrics summarizes correction effort against the immutable OCR
 // baseline. Canonical AnnotationPage revisions are the only correction source.
 type ContextMetrics struct {
@@ -1388,7 +1465,7 @@ type ContextMetrics struct {
 
 func (x *ContextMetrics) Reset() {
 	*x = ContextMetrics{}
-	mi := &file_scribe_v1_context_proto_msgTypes[25]
+	mi := &file_scribe_v1_context_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1400,7 +1477,7 @@ func (x *ContextMetrics) String() string {
 func (*ContextMetrics) ProtoMessage() {}
 
 func (x *ContextMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[25]
+	mi := &file_scribe_v1_context_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1413,7 +1490,7 @@ func (x *ContextMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContextMetrics.ProtoReflect.Descriptor instead.
 func (*ContextMetrics) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{25}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ContextMetrics) GetContextId() uint64 {
@@ -1481,7 +1558,7 @@ type GetContextMetricsRequest struct {
 
 func (x *GetContextMetricsRequest) Reset() {
 	*x = GetContextMetricsRequest{}
-	mi := &file_scribe_v1_context_proto_msgTypes[26]
+	mi := &file_scribe_v1_context_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1493,7 +1570,7 @@ func (x *GetContextMetricsRequest) String() string {
 func (*GetContextMetricsRequest) ProtoMessage() {}
 
 func (x *GetContextMetricsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[26]
+	mi := &file_scribe_v1_context_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1506,7 +1583,7 @@ func (x *GetContextMetricsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContextMetricsRequest.ProtoReflect.Descriptor instead.
 func (*GetContextMetricsRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{26}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *GetContextMetricsRequest) GetContextId() uint64 {
@@ -1525,7 +1602,7 @@ type GetContextMetricsResponse struct {
 
 func (x *GetContextMetricsResponse) Reset() {
 	*x = GetContextMetricsResponse{}
-	mi := &file_scribe_v1_context_proto_msgTypes[27]
+	mi := &file_scribe_v1_context_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1537,7 +1614,7 @@ func (x *GetContextMetricsResponse) String() string {
 func (*GetContextMetricsResponse) ProtoMessage() {}
 
 func (x *GetContextMetricsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_context_proto_msgTypes[27]
+	mi := &file_scribe_v1_context_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1550,7 +1627,7 @@ func (x *GetContextMetricsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetContextMetricsResponse.ProtoReflect.Descriptor instead.
 func (*GetContextMetricsResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_context_proto_rawDescGZIP(), []int{27}
+	return file_scribe_v1_context_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetContextMetricsResponse) GetMetrics() *ContextMetrics {
@@ -1564,15 +1641,15 @@ var File_scribe_v1_context_proto protoreflect.FileDescriptor
 
 const file_scribe_v1_context_proto_rawDesc = "" +
 	"\n" +
-	"\x17scribe/v1/context.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xea\x05\n" +
+	"\x17scribe/v1/context.proto\x12\tscribe.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1fscribe/v1/options/v1/auth.proto\"\xb5\x06\n" +
 	"\aContext\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12'\n" +
 	"\x04name\x18\x03 \x01(\tB\x13\xbaH\x10\xc8\x01\x01r\v\x18\xff\x012\x06.*\\S.*R\x04name\x125\n" +
 	"\vdescription\x18\x04 \x01(\tB\x13\xbaH\x10r\x0e\x18\x80 2\t^$|.*\\S.*R\vdescription\x12\x1d\n" +
 	"\n" +
-	"is_default\x18\x05 \x01(\bR\tisDefault\x12Y\n" +
-	"\x12segmentation_model\x18\x06 \x01(\tB*\xbaH'\xc8\x01\x01r\"\x18\xff\x012\x1d^[a-z0-9][a-z0-9._:-]{0,254}$R\x11segmentationModel\x12Z\n" +
+	"is_default\x18\x05 \x01(\bR\tisDefault\x12Z\n" +
+	"\x12segmentation_model\x18\x06 \x01(\tB+\xbaH(\xc8\x01\x01r#\x18\xff\x012\x1e^[a-z0-9][a-z0-9._:+-]{0,254}$R\x11segmentationModel\x12Z\n" +
 	"\x16transcription_provider\x18\b \x01(\tB#\xbaH \xc8\x01\x01r\x1b\x18@2\x17^[a-z][a-z0-9_-]{0,63}$R\x15transcriptionProvider\x12D\n" +
 	"\x13transcription_model\x18\t \x01(\tB\x13\xbaH\x10r\x0e\x18\xff\x012\t^$|.*\\S.*R\x12transcriptionModel\x12>\n" +
 	"\vtemperature\x18\n" +
@@ -1581,7 +1658,8 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\r \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x0e \x01(\tR\tupdatedAtB\x0e\n" +
+	"updated_at\x18\x0e \x01(\tR\tupdatedAt\x12H\n" +
+	"\rdocument_type\x18\x11 \x01(\tB#\xbaH \xc8\x01\x01r\x1b\x18@2\x17^[a-z][a-z0-9_-]{0,63}$R\fdocumentTypeB\x0e\n" +
 	"\f_temperatureJ\x04\b\a\x10\bJ\x04\b\f\x10\rJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11R\x13image_preprocessorsR\x15post_processing_stepsR\x16transcription_base_urlR\x16transcription_audience\"\x89\x01\n" +
 	"\x0fModelDescriptor\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
@@ -1663,10 +1741,17 @@ const file_scribe_v1_context_proto_rawDesc = "" +
 	"\acontext\x18\x01 \x01(\v2\x12.scribe.v1.ContextR\acontext\x12\x1d\n" +
 	"\n" +
 	"is_default\x18\x02 \x01(\bR\tisDefault\"\x18\n" +
-	"\x16GetModelCatalogRequest\"\xbe\x01\n" +
+	"\x16GetModelCatalogRequest\"\x88\x02\n" +
 	"\x17GetModelCatalogResponse\x12V\n" +
 	"\x17transcription_providers\x18\x01 \x03(\v2\x1d.scribe.v1.ProviderDescriptorR\x16transcriptionProviders\x12K\n" +
-	"\x13segmentation_models\x18\x02 \x03(\v2\x1a.scribe.v1.ModelDescriptorR\x12segmentationModels\"\xd0\x02\n" +
+	"\x13segmentation_models\x18\x02 \x03(\v2\x1a.scribe.v1.ModelDescriptorR\x12segmentationModels\x12H\n" +
+	"\x0edocument_types\x18\x03 \x03(\v2!.scribe.v1.DocumentTypeDescriptorR\rdocumentTypes\"j\n" +
+	"\x16DocumentTypeDescriptor\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x1e\n" +
+	"\n" +
+	"calibrated\x18\x03 \x01(\bR\n" +
+	"calibrated\"\xd0\x02\n" +
 	"\x0eContextMetrics\x12\x1d\n" +
 	"\n" +
 	"context_id\x18\x01 \x01(\x04R\tcontextId\x12\x1d\n" +
@@ -1716,7 +1801,7 @@ func file_scribe_v1_context_proto_rawDescGZIP() []byte {
 	return file_scribe_v1_context_proto_rawDescData
 }
 
-var file_scribe_v1_context_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_scribe_v1_context_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_scribe_v1_context_proto_goTypes = []any{
 	(*Context)(nil),                     // 0: scribe.v1.Context
 	(*ModelDescriptor)(nil),             // 1: scribe.v1.ModelDescriptor
@@ -1743,9 +1828,10 @@ var file_scribe_v1_context_proto_goTypes = []any{
 	(*ResolveContextResponse)(nil),      // 22: scribe.v1.ResolveContextResponse
 	(*GetModelCatalogRequest)(nil),      // 23: scribe.v1.GetModelCatalogRequest
 	(*GetModelCatalogResponse)(nil),     // 24: scribe.v1.GetModelCatalogResponse
-	(*ContextMetrics)(nil),              // 25: scribe.v1.ContextMetrics
-	(*GetContextMetricsRequest)(nil),    // 26: scribe.v1.GetContextMetricsRequest
-	(*GetContextMetricsResponse)(nil),   // 27: scribe.v1.GetContextMetricsResponse
+	(*DocumentTypeDescriptor)(nil),      // 25: scribe.v1.DocumentTypeDescriptor
+	(*ContextMetrics)(nil),              // 26: scribe.v1.ContextMetrics
+	(*GetContextMetricsRequest)(nil),    // 27: scribe.v1.GetContextMetricsRequest
+	(*GetContextMetricsResponse)(nil),   // 28: scribe.v1.GetContextMetricsResponse
 }
 var file_scribe_v1_context_proto_depIdxs = []int32{
 	1,  // 0: scribe.v1.ProviderDescriptor.models:type_name -> scribe.v1.ModelDescriptor
@@ -1762,34 +1848,35 @@ var file_scribe_v1_context_proto_depIdxs = []int32{
 	0,  // 11: scribe.v1.ResolveContextResponse.context:type_name -> scribe.v1.Context
 	2,  // 12: scribe.v1.GetModelCatalogResponse.transcription_providers:type_name -> scribe.v1.ProviderDescriptor
 	1,  // 13: scribe.v1.GetModelCatalogResponse.segmentation_models:type_name -> scribe.v1.ModelDescriptor
-	25, // 14: scribe.v1.GetContextMetricsResponse.metrics:type_name -> scribe.v1.ContextMetrics
-	5,  // 15: scribe.v1.ContextService.ListContexts:input_type -> scribe.v1.ListContextsRequest
-	7,  // 16: scribe.v1.ContextService.GetContext:input_type -> scribe.v1.GetContextRequest
-	9,  // 17: scribe.v1.ContextService.CreateContext:input_type -> scribe.v1.CreateContextRequest
-	11, // 18: scribe.v1.ContextService.UpdateContext:input_type -> scribe.v1.UpdateContextRequest
-	13, // 19: scribe.v1.ContextService.DeleteContext:input_type -> scribe.v1.DeleteContextRequest
-	15, // 20: scribe.v1.ContextService.ListSelectionRules:input_type -> scribe.v1.ListSelectionRulesRequest
-	17, // 21: scribe.v1.ContextService.CreateSelectionRule:input_type -> scribe.v1.CreateSelectionRuleRequest
-	19, // 22: scribe.v1.ContextService.DeleteSelectionRule:input_type -> scribe.v1.DeleteSelectionRuleRequest
-	21, // 23: scribe.v1.ContextService.ResolveContext:input_type -> scribe.v1.ResolveContextRequest
-	23, // 24: scribe.v1.ContextService.GetModelCatalog:input_type -> scribe.v1.GetModelCatalogRequest
-	26, // 25: scribe.v1.ContextService.GetContextMetrics:input_type -> scribe.v1.GetContextMetricsRequest
-	6,  // 26: scribe.v1.ContextService.ListContexts:output_type -> scribe.v1.ListContextsResponse
-	8,  // 27: scribe.v1.ContextService.GetContext:output_type -> scribe.v1.GetContextResponse
-	10, // 28: scribe.v1.ContextService.CreateContext:output_type -> scribe.v1.CreateContextResponse
-	12, // 29: scribe.v1.ContextService.UpdateContext:output_type -> scribe.v1.UpdateContextResponse
-	14, // 30: scribe.v1.ContextService.DeleteContext:output_type -> scribe.v1.DeleteContextResponse
-	16, // 31: scribe.v1.ContextService.ListSelectionRules:output_type -> scribe.v1.ListSelectionRulesResponse
-	18, // 32: scribe.v1.ContextService.CreateSelectionRule:output_type -> scribe.v1.CreateSelectionRuleResponse
-	20, // 33: scribe.v1.ContextService.DeleteSelectionRule:output_type -> scribe.v1.DeleteSelectionRuleResponse
-	22, // 34: scribe.v1.ContextService.ResolveContext:output_type -> scribe.v1.ResolveContextResponse
-	24, // 35: scribe.v1.ContextService.GetModelCatalog:output_type -> scribe.v1.GetModelCatalogResponse
-	27, // 36: scribe.v1.ContextService.GetContextMetrics:output_type -> scribe.v1.GetContextMetricsResponse
-	26, // [26:37] is the sub-list for method output_type
-	15, // [15:26] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	25, // 14: scribe.v1.GetModelCatalogResponse.document_types:type_name -> scribe.v1.DocumentTypeDescriptor
+	26, // 15: scribe.v1.GetContextMetricsResponse.metrics:type_name -> scribe.v1.ContextMetrics
+	5,  // 16: scribe.v1.ContextService.ListContexts:input_type -> scribe.v1.ListContextsRequest
+	7,  // 17: scribe.v1.ContextService.GetContext:input_type -> scribe.v1.GetContextRequest
+	9,  // 18: scribe.v1.ContextService.CreateContext:input_type -> scribe.v1.CreateContextRequest
+	11, // 19: scribe.v1.ContextService.UpdateContext:input_type -> scribe.v1.UpdateContextRequest
+	13, // 20: scribe.v1.ContextService.DeleteContext:input_type -> scribe.v1.DeleteContextRequest
+	15, // 21: scribe.v1.ContextService.ListSelectionRules:input_type -> scribe.v1.ListSelectionRulesRequest
+	17, // 22: scribe.v1.ContextService.CreateSelectionRule:input_type -> scribe.v1.CreateSelectionRuleRequest
+	19, // 23: scribe.v1.ContextService.DeleteSelectionRule:input_type -> scribe.v1.DeleteSelectionRuleRequest
+	21, // 24: scribe.v1.ContextService.ResolveContext:input_type -> scribe.v1.ResolveContextRequest
+	23, // 25: scribe.v1.ContextService.GetModelCatalog:input_type -> scribe.v1.GetModelCatalogRequest
+	27, // 26: scribe.v1.ContextService.GetContextMetrics:input_type -> scribe.v1.GetContextMetricsRequest
+	6,  // 27: scribe.v1.ContextService.ListContexts:output_type -> scribe.v1.ListContextsResponse
+	8,  // 28: scribe.v1.ContextService.GetContext:output_type -> scribe.v1.GetContextResponse
+	10, // 29: scribe.v1.ContextService.CreateContext:output_type -> scribe.v1.CreateContextResponse
+	12, // 30: scribe.v1.ContextService.UpdateContext:output_type -> scribe.v1.UpdateContextResponse
+	14, // 31: scribe.v1.ContextService.DeleteContext:output_type -> scribe.v1.DeleteContextResponse
+	16, // 32: scribe.v1.ContextService.ListSelectionRules:output_type -> scribe.v1.ListSelectionRulesResponse
+	18, // 33: scribe.v1.ContextService.CreateSelectionRule:output_type -> scribe.v1.CreateSelectionRuleResponse
+	20, // 34: scribe.v1.ContextService.DeleteSelectionRule:output_type -> scribe.v1.DeleteSelectionRuleResponse
+	22, // 35: scribe.v1.ContextService.ResolveContext:output_type -> scribe.v1.ResolveContextResponse
+	24, // 36: scribe.v1.ContextService.GetModelCatalog:output_type -> scribe.v1.GetModelCatalogResponse
+	28, // 37: scribe.v1.ContextService.GetContextMetrics:output_type -> scribe.v1.GetContextMetricsResponse
+	27, // [27:38] is the sub-list for method output_type
+	16, // [16:27] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_scribe_v1_context_proto_init() }
@@ -1804,7 +1891,7 @@ func file_scribe_v1_context_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_context_proto_rawDesc), len(file_scribe_v1_context_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -19,6 +19,7 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
+	"github.com/lehigh-university-libraries/htr/pkg/ocrpage"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/db"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
@@ -114,6 +115,7 @@ func resolveContextConnectError(err error) error {
 // processingContextFromStore converts a store.Context into an hocr.ProcessingContext.
 func processingContextFromStore(c store.Context) hocr.ProcessingContext {
 	return hocr.ProcessingContext{
+		DocumentType:          c.DocumentProfile(),
 		SegmentationModel:     c.SegmentationModel,
 		TranscriptionProvider: effectiveProvider(c.TranscriptionProvider),
 		TranscriptionModel:    effectiveModel(effectiveProvider(c.TranscriptionProvider), c.TranscriptionModel),
@@ -349,6 +351,7 @@ func (h *Handler) ProcessImageURL(ctx context.Context, req *scribev1.ProcessImag
 		HOCR:                 result.HOCR,
 		PlainText:            result.PlainText,
 		ParsedHOCR:           result.ParsedHOCR,
+		Page:                 result.Page,
 		EnqueueTranscription: true,
 		Reservation:          storageReservation,
 		ExternalRequest:      atomicExternal,
@@ -592,12 +595,13 @@ func (h *Handler) GetOCRRun(ctx context.Context, req *scribev1.GetOCRRunRequest)
 		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
 	resp := &scribev1.GetOCRRunResponse{
-		SessionId:           run.SessionID,
-		ImageUrl:            run.ImageURL,
-		Model:               run.Model,
-		OriginalHocr:        run.OriginalHOCR,
-		OriginalText:        run.OriginalText,
-		LevenshteinDistance: int32FromIntBounded(run.LevenshteinDistance),
+		SegmentationCorrectionJson: run.SegmentationCorrection,
+		SessionId:                  run.SessionID,
+		ImageUrl:                   run.ImageURL,
+		Model:                      run.Model,
+		OriginalHocr:               run.OriginalHOCR,
+		OriginalText:               run.OriginalText,
+		LevenshteinDistance:        int32FromIntBounded(run.LevenshteinDistance),
 	}
 	if run.ItemImageID != nil {
 		resp.ItemImageId = *run.ItemImageID
@@ -665,8 +669,14 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *scribev1.Reproces
 		}
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("resolve processing context: %w", err).Error()).WithCause(err)
 	}
+	item, err := h.items.GetForWorkspace(ctx, img.ItemID, workspaceID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, "load item document type failed").WithCause(err)
+	}
+	if item.DocumentType != "" {
+		resolvedCtx.DocumentType = item.DocumentType
+	}
 	contextID := &resolvedCtx.ID
-
 	reservation, created, err := h.transcriptionJobs.ReserveExternalRequestForItemImage(
 		ctx,
 		workspaceID,
@@ -735,6 +745,12 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *scribev1.Reproces
 	}
 	annotationItems := buildLineAnnotations(annotationScopeID, canvasURI, parsedHOCR.Lines)
 	annotationItems = append(annotationItems, buildWordAnnotations(annotationScopeID, canvasURI, parsedHOCR.Words)...)
+	if result.Page != nil {
+		annotationItems, err = pageAnnotations(annotationScopeID, canvasURI, *result.Page)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, "invalid segmentation geometry").WithCause(err)
+		}
+	}
 	var pageDocument map[string]any
 	if err := iiif.DecodeJSON([]byte(basePage.Payload), &pageDocument); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("decode canonical annotation page: %w", err).Error()).WithCause(err)
@@ -772,6 +788,7 @@ func (h *Handler) ReprocessItemImage(ctx context.Context, req *scribev1.Reproces
 	}
 	commit, err := h.annotations.SavePageAndStartReprocessing(ctx, basePage, expectedRevision, store.AnnotationReprocessCommit{
 		OCRRun: store.OCRRun{
+			OriginalPage: originalPageJSON(result.Page),
 			SessionID:    result.SessionID,
 			ItemImageID:  &itemImageID,
 			ContextID:    contextID,
@@ -893,6 +910,7 @@ func itemContextLabel(resolvedCtx store.Context) string {
 }
 
 type singleFileOCRIngestRequest struct {
+	Page                 *ocrpage.Page
 	SourceType           string
 	SessionID            string
 	ImageURL             string
@@ -957,6 +975,7 @@ func (h *Handler) commitSingleFileOCRIngest(ctx context.Context, request singleF
 		},
 		OCRRun: store.OCRRun{
 			SessionID:    request.SessionID,
+			OriginalPage: originalPageJSON(request.Page),
 			ContextID:    request.ContextID,
 			ImageURL:     request.ImageURL,
 			Provider:     request.Provider,
@@ -973,6 +992,13 @@ func (h *Handler) commitSingleFileOCRIngest(ctx context.Context, request singleF
 			annotationScopeID := fmt.Sprintf("item-image-%d", itemImageID)
 			items := buildLineAnnotations(annotationScopeID, canvasURI, lines)
 			items = append(items, buildWordAnnotations(annotationScopeID, canvasURI, words)...)
+			if request.Page != nil {
+				var err error
+				items, err = pageAnnotations(annotationScopeID, canvasURI, *request.Page)
+				if err != nil {
+					return store.AnnotationPage{}, err
+				}
+			}
 			payload, pageErr := iiif.NewAnnotationPage(iiif.PageIdentity{
 				PublicBaseURL: h.publicAnnotationBaseURL(),
 				ItemImageID:   itemImageID,

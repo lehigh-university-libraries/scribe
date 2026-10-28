@@ -13,6 +13,7 @@ export function renderEditorLayout(app: HTMLElement): void {
               <option value="0">Current context</option>
             </select>
             <button id="reprocess-nav" class="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-xs transition hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50" title="Re-segment the whole page and transcribe every line again with the selected context. Pending edits are saved first.">Reprocess page</button>
+            <button id="ground-truth-nav" class="rounded-md border px-3 py-2 text-sm text-foreground" type="button">Ground truth…</button>
           </nav>
         </div>
         <div class="ml-auto text-right">

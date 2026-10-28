@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lehigh-university-libraries/htr/pkg/ocrpage"
 	"github.com/lehigh-university-libraries/htr/pkg/remoteocr"
 	ocrcatalog "github.com/lehigh-university-libraries/scribe/config"
 	"image"
@@ -170,6 +171,8 @@ func NewHandler() http.Handler {
 		withRequestDeadline(InferenceHandlerTimeout, expensive.Wrap(http.HandlerFunc(handleSegment))),
 	)
 	mux.Handle("POST /v1/ocr", withRequestDeadline(InferenceHandlerTimeout, expensive.Wrap(http.HandlerFunc(handleOCR))))
+	mux.Handle("POST /v2/segment", withRequestDeadline(InferenceHandlerTimeout, expensive.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { handleImageRequest(w, r, false, true) }))))
+	mux.HandleFunc("GET /v2/capabilities", handleCapabilities)
 	return mux
 }
 
@@ -184,6 +187,9 @@ func withRequestDeadline(timeout time.Duration, next http.Handler) http.Handler 
 func handleSegment(w http.ResponseWriter, r *http.Request) { handleImage(w, r, false) }
 func handleOCR(w http.ResponseWriter, r *http.Request)     { handleImage(w, r, true) }
 func handleImage(w http.ResponseWriter, r *http.Request, recognize bool) {
+	handleImageRequest(w, r, recognize, false)
+}
+func handleImageRequest(w http.ResponseWriter, r *http.Request, recognize, page bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, uploadlimits.MaxMultipartBodyBytes)
 	if err := r.ParseMultipartForm(uploadlimits.MultipartMemoryBytes); err != nil { // #nosec G120 -- request body is capped with http.MaxBytesReader immediately above.
 		http.Error(w, "invalid multipart image request", http.StatusBadRequest)
@@ -229,6 +235,25 @@ func handleImage(w http.ResponseWriter, r *http.Request, recognize bool) {
 		return
 	}
 	defer cleanupPrepared()
+	if page {
+		result, err := segmentPreparedPage(r.Context(), preparedPath, model, r.FormValue("hints"))
+		if err != nil {
+			writeProcessingFailure(w, "segment page", err)
+			return
+		}
+		data, err := ocrpage.WriteJSON(result.Page)
+		if err != nil {
+			writeProcessingFailure(w, "encode page", err)
+			return
+		}
+		if len(data) > int(maxSegmentorResponseBytes) {
+			writeProcessingFailure(w, "encode page", errors.New("segmentation page exceeds limit"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
+		return
+	}
 
 	if recognize {
 		artifact, ok := ocrcatalog.RecognitionModels()[model]

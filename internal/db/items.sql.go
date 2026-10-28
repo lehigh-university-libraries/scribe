@@ -85,6 +85,7 @@ INSERT INTO items (
   user_id,
   workspace_id,
   name,
+  document_type,
   source_type,
   source_url,
   source_manifest,
@@ -92,6 +93,7 @@ INSERT INTO items (
   external_reference_id,
   caller_idempotency_key
 ) VALUES (
+  ?,
   ?,
   ?,
   ?,
@@ -110,6 +112,7 @@ type CreateItemManualParams struct {
 	UserID               uint64          `json:"user_id"`
 	WorkspaceID          uint64          `json:"workspace_id"`
 	Name                 string          `json:"name"`
+	DocumentType         sql.NullString  `json:"document_type"`
 	SourceType           ItemsSourceType `json:"source_type"`
 	SourceUrl            sql.NullString  `json:"source_url"`
 	SourceManifest       sql.NullString  `json:"source_manifest"`
@@ -124,6 +127,7 @@ func (q *Queries) CreateItemManual(ctx context.Context, arg CreateItemManualPara
 		arg.UserID,
 		arg.WorkspaceID,
 		arg.Name,
+		arg.DocumentType,
 		arg.SourceType,
 		arg.SourceUrl,
 		arg.SourceManifest,
@@ -180,6 +184,7 @@ SELECT
   user_id,
   workspace_id,
   name,
+  document_type,
   source_type,
   source_url,
   source_manifest,
@@ -197,6 +202,7 @@ type GetItemManualRow struct {
 	UserID               uint64          `json:"user_id"`
 	WorkspaceID          uint64          `json:"workspace_id"`
 	Name                 string          `json:"name"`
+	DocumentType         sql.NullString  `json:"document_type"`
 	SourceType           ItemsSourceType `json:"source_type"`
 	SourceUrl            sql.NullString  `json:"source_url"`
 	SourceManifest       sql.NullString  `json:"source_manifest"`
@@ -215,6 +221,7 @@ func (q *Queries) GetItemManual(ctx context.Context, id string) (GetItemManualRo
 		&i.UserID,
 		&i.WorkspaceID,
 		&i.Name,
+		&i.DocumentType,
 		&i.SourceType,
 		&i.SourceUrl,
 		&i.SourceManifest,
@@ -553,6 +560,21 @@ func (q *Queries) SetItemImageCanvasURIIfMissingManual(ctx context.Context, arg 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateItemDocumentType = `-- name: UpdateItemDocumentType :execresult
+UPDATE items SET document_type = ?
+WHERE id = ? AND workspace_id = ?
+`
+
+type UpdateItemDocumentTypeParams struct {
+	DocumentType sql.NullString `json:"document_type"`
+	ItemID       string         `json:"item_id"`
+	WorkspaceID  uint64         `json:"workspace_id"`
+}
+
+func (q *Queries) UpdateItemDocumentType(ctx context.Context, arg UpdateItemDocumentTypeParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, updateItemDocumentType, arg.DocumentType, arg.ItemID, arg.WorkspaceID)
 }
 
 const updateItemImageCanvasURIManual = `-- name: UpdateItemImageCanvasURIManual :exec

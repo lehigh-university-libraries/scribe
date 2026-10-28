@@ -57,6 +57,11 @@ tool versions before execution: Buf 1.72.0, sqlc v1.31.1, Zensical 0.0.72,
 gosec module v2.30.0, and govulncheck module v1.6.0. Fixture tests independently
 prove that each unreviewed version fails before the tool can operate.
 
+The pinned golangci-lint runs with the minimum compiler declared in `go.mod`
+for both host and container analysis, because its importer does not yet read
+Go 1.27 export data. Application builds and tests retain the runtime compiler
+pin in `.go-version`.
+
 `make docs-build` is the one strict documentation build path used by local CI,
 the hosted infrastructure/documentation job, and GitHub Pages. `make docs`
 remains a convenience alias. The Pages workflow uploads the same ignored

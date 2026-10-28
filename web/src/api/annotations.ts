@@ -15,12 +15,14 @@ function client() {
 export type AnnotationPage = CanonicalIIIFAnnotationPage;
 
 export interface AnnotationCorrectionMetric {
+  segmentationJson?: string;
   levenshteinDistance: number;
   baselineCharacters: number;
   correctedCharacters: number;
 }
 
 export interface AnnotationPageSnapshot {
+  groundTruth?: boolean;
   page: AnnotationPage;
   revision: string;
   updatedAt: string;
@@ -69,11 +71,20 @@ function parseAnnotationPage(raw: string): AnnotationPage {
 export async function getAnnotationPage(itemImageId: string): Promise<AnnotationPageSnapshot> {
   const resp = await client().getAnnotationPage({ itemImageId: BigInt(itemImageId) });
   return {
+    ...(resp.groundTruth ? { groundTruth: true } : {}),
     canvasUri: resp.canvasUri,
     page: parseAnnotationPage(resp.annotationPageJson),
     revision: resp.revision.toString(),
     updatedAt: resp.updatedAt,
   };
+}
+
+export async function markGroundTruth(itemImageId: string, expectedRevision: string, marked: boolean): Promise<void> {
+  await client().markGroundTruth({ itemImageId: BigInt(itemImageId), expectedRevision: BigInt(expectedRevision), marked });
+}
+
+export async function exportGroundTruth(contextId = 0n, itemId = ""): Promise<Uint8Array> {
+  return (await client().exportGroundTruth({ contextId, itemId })).content;
 }
 
 export async function saveAnnotationPage(
@@ -94,6 +105,7 @@ export async function saveAnnotationPage(
           baselineCharacters: resp.correction.baselineCharacters,
           correctedCharacters: resp.correction.correctedCharacters,
           levenshteinDistance: resp.correction.levenshteinDistance,
+          ...(resp.correction.segmentationJson ? { segmentationJson: resp.correction.segmentationJson } : {}),
         }
         : null,
       page: parseAnnotationPage(resp.annotationPageJson),

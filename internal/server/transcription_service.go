@@ -1234,6 +1234,12 @@ func (h *Handler) segmentTranscriptionJobPage(
 	scope := fmt.Sprintf("transcription-job-%d-segmentation", job.ID)
 	items := buildLineAnnotations(scope, image.CanvasURI, parsedHOCR.Lines)
 	items = append(items, buildWordAnnotations(scope, image.CanvasURI, parsedHOCR.Words)...)
+	if result.Page != nil {
+		items, err = pageAnnotations(scope, image.CanvasURI, *result.Page)
+		if err != nil {
+			return nil, permanentTranscriptionFailure("segmentation produced invalid page geometry")
+		}
+	}
 	if len(items) == 0 {
 		return nil, permanentTranscriptionFailure("segmentation produced no usable annotations")
 	}

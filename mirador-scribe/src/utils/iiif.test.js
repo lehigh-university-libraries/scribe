@@ -16,6 +16,16 @@ import {
 } from './iiif';
 
 describe('IIIF editor utilities', () => {
+  it('translates and scales real polygons and baselines with a resized box', () => {
+    const annotation = { target: { source: 'https://example.org/canvas', selector: [
+      { type: 'FragmentSelector', value: 'xywh=10,20,100,40' },
+      { type: 'SvgSelector', value: '<svg><polygon points="10,20 110,20 110,60 10,60"/><polyline class="baseline" points="10,50 110,55"/></svg>' },
+    ] } };
+    const result = updateAnnotationBBox(annotation, { x: 20, y: 40, w: 200, h: 80 });
+    expect(result.target.selector[1].value).toContain('points="20,40 220,40 220,120 20,120"');
+    expect(result.target.selector[1].value).toContain('points="20,100 220,110"');
+    expect(annotation.target.selector[1].value).toContain('points="10,50 110,55"');
+  });
   it('finds companion content only in the requested Mirador window', () => {
     const state = {
       companionWindows: {

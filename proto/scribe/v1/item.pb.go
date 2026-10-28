@@ -251,8 +251,10 @@ type Item struct {
 	// Stable identifier assigned by an external repository (for example, an
 	// Islandora PID). It is indexed and searchable within the workspace.
 	ExternalReferenceId string `protobuf:"bytes,10,opt,name=external_reference_id,json=externalReferenceId,proto3" json:"external_reference_id,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Empty inherits the processing context's document type.
+	DocumentType  string `protobuf:"bytes,11,opt,name=document_type,json=documentType,proto3" json:"document_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Item) Reset() {
@@ -351,6 +353,13 @@ func (x *Item) GetUpdatedAt() string {
 func (x *Item) GetExternalReferenceId() string {
 	if x != nil {
 		return x.ExternalReferenceId
+	}
+	return ""
+}
+
+func (x *Item) GetDocumentType() string {
+	if x != nil {
+		return x.DocumentType
 	}
 	return ""
 }
@@ -620,6 +629,95 @@ func (x *GetItemRequest) GetItemId() string {
 	return ""
 }
 
+type SetItemDocumentTypeRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	ItemId string                 `protobuf:"bytes,1,opt,name=item_id,json=itemId,proto3" json:"item_id,omitempty"`
+	// Empty restores context inheritance.
+	DocumentType  string `protobuf:"bytes,2,opt,name=document_type,json=documentType,proto3" json:"document_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetItemDocumentTypeRequest) Reset() {
+	*x = SetItemDocumentTypeRequest{}
+	mi := &file_scribe_v1_item_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetItemDocumentTypeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetItemDocumentTypeRequest) ProtoMessage() {}
+
+func (x *SetItemDocumentTypeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetItemDocumentTypeRequest.ProtoReflect.Descriptor instead.
+func (*SetItemDocumentTypeRequest) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SetItemDocumentTypeRequest) GetItemId() string {
+	if x != nil {
+		return x.ItemId
+	}
+	return ""
+}
+
+func (x *SetItemDocumentTypeRequest) GetDocumentType() string {
+	if x != nil {
+		return x.DocumentType
+	}
+	return ""
+}
+
+type SetItemDocumentTypeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetItemDocumentTypeResponse) Reset() {
+	*x = SetItemDocumentTypeResponse{}
+	mi := &file_scribe_v1_item_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetItemDocumentTypeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetItemDocumentTypeResponse) ProtoMessage() {}
+
+func (x *SetItemDocumentTypeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_scribe_v1_item_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetItemDocumentTypeResponse.ProtoReflect.Descriptor instead.
+func (*SetItemDocumentTypeResponse) Descriptor() ([]byte, []int) {
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{7}
+}
+
 type GetItemResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Item  *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
@@ -633,7 +731,7 @@ type GetItemResponse struct {
 
 func (x *GetItemResponse) Reset() {
 	*x = GetItemResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[6]
+	mi := &file_scribe_v1_item_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -645,7 +743,7 @@ func (x *GetItemResponse) String() string {
 func (*GetItemResponse) ProtoMessage() {}
 
 func (x *GetItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[6]
+	mi := &file_scribe_v1_item_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -658,7 +756,7 @@ func (x *GetItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetItemResponse.ProtoReflect.Descriptor instead.
 func (*GetItemResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{6}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetItemResponse) GetItem() *Item {
@@ -688,7 +786,7 @@ type GetEditorManifestRequest struct {
 
 func (x *GetEditorManifestRequest) Reset() {
 	*x = GetEditorManifestRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[7]
+	mi := &file_scribe_v1_item_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -700,7 +798,7 @@ func (x *GetEditorManifestRequest) String() string {
 func (*GetEditorManifestRequest) ProtoMessage() {}
 
 func (x *GetEditorManifestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[7]
+	mi := &file_scribe_v1_item_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -713,7 +811,7 @@ func (x *GetEditorManifestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEditorManifestRequest.ProtoReflect.Descriptor instead.
 func (*GetEditorManifestRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{7}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetEditorManifestRequest) GetItemImageId() uint64 {
@@ -734,7 +832,7 @@ type GetEditorManifestResponse struct {
 
 func (x *GetEditorManifestResponse) Reset() {
 	*x = GetEditorManifestResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[8]
+	mi := &file_scribe_v1_item_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -746,7 +844,7 @@ func (x *GetEditorManifestResponse) String() string {
 func (*GetEditorManifestResponse) ProtoMessage() {}
 
 func (x *GetEditorManifestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[8]
+	mi := &file_scribe_v1_item_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -759,7 +857,7 @@ func (x *GetEditorManifestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetEditorManifestResponse.ProtoReflect.Descriptor instead.
 func (*GetEditorManifestResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{8}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetEditorManifestResponse) GetItem() *Item {
@@ -796,7 +894,7 @@ type ItemImageRevision struct {
 
 func (x *ItemImageRevision) Reset() {
 	*x = ItemImageRevision{}
-	mi := &file_scribe_v1_item_proto_msgTypes[9]
+	mi := &file_scribe_v1_item_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -808,7 +906,7 @@ func (x *ItemImageRevision) String() string {
 func (*ItemImageRevision) ProtoMessage() {}
 
 func (x *ItemImageRevision) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[9]
+	mi := &file_scribe_v1_item_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -821,7 +919,7 @@ func (x *ItemImageRevision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ItemImageRevision.ProtoReflect.Descriptor instead.
 func (*ItemImageRevision) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{9}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ItemImageRevision) GetItemImageId() uint64 {
@@ -849,7 +947,7 @@ type PrepareItemExportRequest struct {
 
 func (x *PrepareItemExportRequest) Reset() {
 	*x = PrepareItemExportRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[10]
+	mi := &file_scribe_v1_item_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -861,7 +959,7 @@ func (x *PrepareItemExportRequest) String() string {
 func (*PrepareItemExportRequest) ProtoMessage() {}
 
 func (x *PrepareItemExportRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[10]
+	mi := &file_scribe_v1_item_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -874,7 +972,7 @@ func (x *PrepareItemExportRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareItemExportRequest.ProtoReflect.Descriptor instead.
 func (*PrepareItemExportRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{10}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PrepareItemExportRequest) GetItemId() string {
@@ -911,7 +1009,7 @@ type PrepareItemExportResponse struct {
 
 func (x *PrepareItemExportResponse) Reset() {
 	*x = PrepareItemExportResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[11]
+	mi := &file_scribe_v1_item_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -923,7 +1021,7 @@ func (x *PrepareItemExportResponse) String() string {
 func (*PrepareItemExportResponse) ProtoMessage() {}
 
 func (x *PrepareItemExportResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[11]
+	mi := &file_scribe_v1_item_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -936,7 +1034,7 @@ func (x *PrepareItemExportResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareItemExportResponse.ProtoReflect.Descriptor instead.
 func (*PrepareItemExportResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{11}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *PrepareItemExportResponse) GetDownloadUrl() string {
@@ -997,7 +1095,7 @@ type ImportManifestRequest struct {
 
 func (x *ImportManifestRequest) Reset() {
 	*x = ImportManifestRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[12]
+	mi := &file_scribe_v1_item_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1009,7 +1107,7 @@ func (x *ImportManifestRequest) String() string {
 func (*ImportManifestRequest) ProtoMessage() {}
 
 func (x *ImportManifestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[12]
+	mi := &file_scribe_v1_item_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1022,7 +1120,7 @@ func (x *ImportManifestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportManifestRequest.ProtoReflect.Descriptor instead.
 func (*ImportManifestRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{12}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ImportManifestRequest) GetManifestUrl() string {
@@ -1083,7 +1181,7 @@ type ImportManifestResponse struct {
 
 func (x *ImportManifestResponse) Reset() {
 	*x = ImportManifestResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[13]
+	mi := &file_scribe_v1_item_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1095,7 +1193,7 @@ func (x *ImportManifestResponse) String() string {
 func (*ImportManifestResponse) ProtoMessage() {}
 
 func (x *ImportManifestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[13]
+	mi := &file_scribe_v1_item_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1108,7 +1206,7 @@ func (x *ImportManifestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportManifestResponse.ProtoReflect.Descriptor instead.
 func (*ImportManifestResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{13}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ImportManifestResponse) GetItem() *Item {
@@ -1131,7 +1229,7 @@ type UploadBatchFileInput struct {
 
 func (x *UploadBatchFileInput) Reset() {
 	*x = UploadBatchFileInput{}
-	mi := &file_scribe_v1_item_proto_msgTypes[14]
+	mi := &file_scribe_v1_item_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1143,7 +1241,7 @@ func (x *UploadBatchFileInput) String() string {
 func (*UploadBatchFileInput) ProtoMessage() {}
 
 func (x *UploadBatchFileInput) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[14]
+	mi := &file_scribe_v1_item_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1156,7 +1254,7 @@ func (x *UploadBatchFileInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadBatchFileInput.ProtoReflect.Descriptor instead.
 func (*UploadBatchFileInput) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{14}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *UploadBatchFileInput) GetFilename() string {
@@ -1198,7 +1296,7 @@ type UploadBatchFile struct {
 
 func (x *UploadBatchFile) Reset() {
 	*x = UploadBatchFile{}
-	mi := &file_scribe_v1_item_proto_msgTypes[15]
+	mi := &file_scribe_v1_item_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1210,7 +1308,7 @@ func (x *UploadBatchFile) String() string {
 func (*UploadBatchFile) ProtoMessage() {}
 
 func (x *UploadBatchFile) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[15]
+	mi := &file_scribe_v1_item_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1223,7 +1321,7 @@ func (x *UploadBatchFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadBatchFile.ProtoReflect.Descriptor instead.
 func (*UploadBatchFile) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{15}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UploadBatchFile) GetSequence() uint32 {
@@ -1313,7 +1411,7 @@ type UploadBatch struct {
 
 func (x *UploadBatch) Reset() {
 	*x = UploadBatch{}
-	mi := &file_scribe_v1_item_proto_msgTypes[16]
+	mi := &file_scribe_v1_item_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1325,7 +1423,7 @@ func (x *UploadBatch) String() string {
 func (*UploadBatch) ProtoMessage() {}
 
 func (x *UploadBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[16]
+	mi := &file_scribe_v1_item_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1338,7 +1436,7 @@ func (x *UploadBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadBatch.ProtoReflect.Descriptor instead.
 func (*UploadBatch) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{16}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *UploadBatch) GetId() string {
@@ -1420,7 +1518,7 @@ type StartUploadBatchRequest struct {
 
 func (x *StartUploadBatchRequest) Reset() {
 	*x = StartUploadBatchRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[17]
+	mi := &file_scribe_v1_item_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1432,7 +1530,7 @@ func (x *StartUploadBatchRequest) String() string {
 func (*StartUploadBatchRequest) ProtoMessage() {}
 
 func (x *StartUploadBatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[17]
+	mi := &file_scribe_v1_item_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1445,7 +1543,7 @@ func (x *StartUploadBatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartUploadBatchRequest.ProtoReflect.Descriptor instead.
 func (*StartUploadBatchRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{17}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *StartUploadBatchRequest) GetBatchId() string {
@@ -1500,7 +1598,7 @@ type StartUploadBatchResponse struct {
 
 func (x *StartUploadBatchResponse) Reset() {
 	*x = StartUploadBatchResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[18]
+	mi := &file_scribe_v1_item_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1512,7 +1610,7 @@ func (x *StartUploadBatchResponse) String() string {
 func (*StartUploadBatchResponse) ProtoMessage() {}
 
 func (x *StartUploadBatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[18]
+	mi := &file_scribe_v1_item_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1525,7 +1623,7 @@ func (x *StartUploadBatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartUploadBatchResponse.ProtoReflect.Descriptor instead.
 func (*StartUploadBatchResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{18}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *StartUploadBatchResponse) GetItem() *Item {
@@ -1551,7 +1649,7 @@ type GetUploadBatchRequest struct {
 
 func (x *GetUploadBatchRequest) Reset() {
 	*x = GetUploadBatchRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[19]
+	mi := &file_scribe_v1_item_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1563,7 +1661,7 @@ func (x *GetUploadBatchRequest) String() string {
 func (*GetUploadBatchRequest) ProtoMessage() {}
 
 func (x *GetUploadBatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[19]
+	mi := &file_scribe_v1_item_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1576,7 +1674,7 @@ func (x *GetUploadBatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUploadBatchRequest.ProtoReflect.Descriptor instead.
 func (*GetUploadBatchRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{19}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GetUploadBatchRequest) GetBatchId() string {
@@ -1596,7 +1694,7 @@ type GetUploadBatchResponse struct {
 
 func (x *GetUploadBatchResponse) Reset() {
 	*x = GetUploadBatchResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[20]
+	mi := &file_scribe_v1_item_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1608,7 +1706,7 @@ func (x *GetUploadBatchResponse) String() string {
 func (*GetUploadBatchResponse) ProtoMessage() {}
 
 func (x *GetUploadBatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[20]
+	mi := &file_scribe_v1_item_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1621,7 +1719,7 @@ func (x *GetUploadBatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUploadBatchResponse.ProtoReflect.Descriptor instead.
 func (*GetUploadBatchResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{20}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *GetUploadBatchResponse) GetItem() *Item {
@@ -1647,7 +1745,7 @@ type CancelUploadBatchRequest struct {
 
 func (x *CancelUploadBatchRequest) Reset() {
 	*x = CancelUploadBatchRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[21]
+	mi := &file_scribe_v1_item_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1659,7 +1757,7 @@ func (x *CancelUploadBatchRequest) String() string {
 func (*CancelUploadBatchRequest) ProtoMessage() {}
 
 func (x *CancelUploadBatchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[21]
+	mi := &file_scribe_v1_item_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1672,7 +1770,7 @@ func (x *CancelUploadBatchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelUploadBatchRequest.ProtoReflect.Descriptor instead.
 func (*CancelUploadBatchRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{21}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CancelUploadBatchRequest) GetBatchId() string {
@@ -1691,7 +1789,7 @@ type CancelUploadBatchResponse struct {
 
 func (x *CancelUploadBatchResponse) Reset() {
 	*x = CancelUploadBatchResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[22]
+	mi := &file_scribe_v1_item_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1703,7 +1801,7 @@ func (x *CancelUploadBatchResponse) String() string {
 func (*CancelUploadBatchResponse) ProtoMessage() {}
 
 func (x *CancelUploadBatchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[22]
+	mi := &file_scribe_v1_item_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1716,7 +1814,7 @@ func (x *CancelUploadBatchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelUploadBatchResponse.ProtoReflect.Descriptor instead.
 func (*CancelUploadBatchResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{22}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CancelUploadBatchResponse) GetBatch() *UploadBatch {
@@ -1738,7 +1836,7 @@ type UploadItemImageRequest struct {
 
 func (x *UploadItemImageRequest) Reset() {
 	*x = UploadItemImageRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[23]
+	mi := &file_scribe_v1_item_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1750,7 +1848,7 @@ func (x *UploadItemImageRequest) String() string {
 func (*UploadItemImageRequest) ProtoMessage() {}
 
 func (x *UploadItemImageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[23]
+	mi := &file_scribe_v1_item_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1763,7 +1861,7 @@ func (x *UploadItemImageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadItemImageRequest.ProtoReflect.Descriptor instead.
 func (*UploadItemImageRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{23}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *UploadItemImageRequest) GetBatchId() string {
@@ -1799,7 +1897,7 @@ type UploadItemImageResponse struct {
 
 func (x *UploadItemImageResponse) Reset() {
 	*x = UploadItemImageResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[24]
+	mi := &file_scribe_v1_item_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1811,7 +1909,7 @@ func (x *UploadItemImageResponse) String() string {
 func (*UploadItemImageResponse) ProtoMessage() {}
 
 func (x *UploadItemImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[24]
+	mi := &file_scribe_v1_item_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1824,7 +1922,7 @@ func (x *UploadItemImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadItemImageResponse.ProtoReflect.Descriptor instead.
 func (*UploadItemImageResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{24}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *UploadItemImageResponse) GetItem() *Item {
@@ -1864,7 +1962,7 @@ type DeleteItemRequest struct {
 
 func (x *DeleteItemRequest) Reset() {
 	*x = DeleteItemRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[25]
+	mi := &file_scribe_v1_item_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1876,7 +1974,7 @@ func (x *DeleteItemRequest) String() string {
 func (*DeleteItemRequest) ProtoMessage() {}
 
 func (x *DeleteItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[25]
+	mi := &file_scribe_v1_item_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1889,7 +1987,7 @@ func (x *DeleteItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteItemRequest.ProtoReflect.Descriptor instead.
 func (*DeleteItemRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{25}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *DeleteItemRequest) GetItemId() string {
@@ -1907,7 +2005,7 @@ type DeleteItemResponse struct {
 
 func (x *DeleteItemResponse) Reset() {
 	*x = DeleteItemResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[26]
+	mi := &file_scribe_v1_item_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1919,7 +2017,7 @@ func (x *DeleteItemResponse) String() string {
 func (*DeleteItemResponse) ProtoMessage() {}
 
 func (x *DeleteItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[26]
+	mi := &file_scribe_v1_item_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1932,7 +2030,7 @@ func (x *DeleteItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteItemResponse.ProtoReflect.Descriptor instead.
 func (*DeleteItemResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{26}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{28}
 }
 
 type ProviderCallAudit struct {
@@ -1961,7 +2059,7 @@ type ProviderCallAudit struct {
 
 func (x *ProviderCallAudit) Reset() {
 	*x = ProviderCallAudit{}
-	mi := &file_scribe_v1_item_proto_msgTypes[27]
+	mi := &file_scribe_v1_item_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1973,7 +2071,7 @@ func (x *ProviderCallAudit) String() string {
 func (*ProviderCallAudit) ProtoMessage() {}
 
 func (x *ProviderCallAudit) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[27]
+	mi := &file_scribe_v1_item_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1986,7 +2084,7 @@ func (x *ProviderCallAudit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderCallAudit.ProtoReflect.Descriptor instead.
 func (*ProviderCallAudit) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{27}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ProviderCallAudit) GetId() uint64 {
@@ -2125,7 +2223,7 @@ type ListItemProviderCallAuditsRequest struct {
 
 func (x *ListItemProviderCallAuditsRequest) Reset() {
 	*x = ListItemProviderCallAuditsRequest{}
-	mi := &file_scribe_v1_item_proto_msgTypes[28]
+	mi := &file_scribe_v1_item_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2137,7 +2235,7 @@ func (x *ListItemProviderCallAuditsRequest) String() string {
 func (*ListItemProviderCallAuditsRequest) ProtoMessage() {}
 
 func (x *ListItemProviderCallAuditsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[28]
+	mi := &file_scribe_v1_item_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2150,7 +2248,7 @@ func (x *ListItemProviderCallAuditsRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ListItemProviderCallAuditsRequest.ProtoReflect.Descriptor instead.
 func (*ListItemProviderCallAuditsRequest) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{28}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListItemProviderCallAuditsRequest) GetItemId() string {
@@ -2176,7 +2274,7 @@ type ListItemProviderCallAuditsResponse struct {
 
 func (x *ListItemProviderCallAuditsResponse) Reset() {
 	*x = ListItemProviderCallAuditsResponse{}
-	mi := &file_scribe_v1_item_proto_msgTypes[29]
+	mi := &file_scribe_v1_item_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2188,7 +2286,7 @@ func (x *ListItemProviderCallAuditsResponse) String() string {
 func (*ListItemProviderCallAuditsResponse) ProtoMessage() {}
 
 func (x *ListItemProviderCallAuditsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_scribe_v1_item_proto_msgTypes[29]
+	mi := &file_scribe_v1_item_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2201,7 +2299,7 @@ func (x *ListItemProviderCallAuditsResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use ListItemProviderCallAuditsResponse.ProtoReflect.Descriptor instead.
 func (*ListItemProviderCallAuditsResponse) Descriptor() ([]byte, []int) {
-	return file_scribe_v1_item_proto_rawDescGZIP(), []int{29}
+	return file_scribe_v1_item_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListItemProviderCallAuditsResponse) GetAudits() []*ProviderCallAudit {
@@ -2225,7 +2323,7 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"canvas_uri\x18\x05 \x01(\tR\tcanvasUri\x12\x14\n" +
 	"\x05label\x18\x06 \x01(\tR\x05label\x12\x14\n" +
 	"\x05width\x18\a \x01(\rR\x05width\x12\x16\n" +
-	"\x06height\x18\b \x01(\rR\x06height\"\xbf\x02\n" +
+	"\x06height\x18\b \x01(\rR\x06height\"\x89\x03\n" +
 	"\x04Item\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\x04R\x06userId\x12\x12\n" +
@@ -2241,7 +2339,8 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\n" +
 	"updated_at\x18\t \x01(\tR\tupdatedAt\x122\n" +
 	"\x15external_reference_id\x18\n" +
-	" \x01(\tR\x13externalReferenceId\"\xa0\x02\n" +
+	" \x01(\tR\x13externalReferenceId\x12H\n" +
+	"\rdocument_type\x18\v \x01(\tB#\xbaH r\x1e\x18@2\x1a^$|^[a-z][a-z0-9_-]{0,63}$R\fdocumentType\"\xa0\x02\n" +
 	"\vItemSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
@@ -2264,7 +2363,12 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"\x05items\x18\x01 \x03(\v2\x16.scribe.v1.ItemSummaryR\x05items\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\";\n" +
 	"\x0eGetItemRequest\x12)\n" +
-	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\"\x87\x01\n" +
+	"\aitem_id\x18\x01 \x01(\tB\x10\xbaH\r\xc8\x01\x01r\b2\x06.*\\S.*R\x06itemId\"\x8b\x01\n" +
+	"\x1aSetItemDocumentTypeRequest\x12#\n" +
+	"\aitem_id\x18\x01 \x01(\tB\n" +
+	"\xbaH\ar\x05\x10\x01\x18\xff\x01R\x06itemId\x12H\n" +
+	"\rdocument_type\x18\x02 \x01(\tB#\xbaH r\x1e\x18@2\x1a^$|^[a-z][a-z0-9_-]{0,63}$R\fdocumentType\"\x1d\n" +
+	"\x1bSetItemDocumentTypeResponse\"\x87\x01\n" +
 	"\x0fGetItemResponse\x12#\n" +
 	"\x04item\x18\x01 \x01(\v2\x0f.scribe.v1.ItemR\x04item\x12O\n" +
 	"\x14annotation_revisions\x18\x02 \x03(\v2\x1c.scribe.v1.ItemImageRevisionR\x13annotationRevisions\"J\n" +
@@ -2413,8 +2517,10 @@ const file_scribe_v1_item_proto_rawDesc = "" +
 	"#UPLOAD_BATCH_FILE_STATUS_PROCESSING\x10\x02\x12&\n" +
 	"\"UPLOAD_BATCH_FILE_STATUS_COMPLETED\x10\x03\x12#\n" +
 	"\x1fUPLOAD_BATCH_FILE_STATUS_FAILED\x10\x04\x12%\n" +
-	"!UPLOAD_BATCH_FILE_STATUS_CANCELED\x10\x052\xa2\t\n" +
-	"\vItemService\x12P\n" +
+	"!UPLOAD_BATCH_FILE_STATUS_CANCELED\x10\x052\x9b\n" +
+	"\n" +
+	"\vItemService\x12w\n" +
+	"\x13SetItemDocumentType\x12%.scribe.v1.SetItemDocumentTypeRequest\x1a&.scribe.v1.SetItemDocumentTypeResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x02\"\aitem_id\x12P\n" +
 	"\tListItems\x12\x1b.scribe.v1.ListItemsRequest\x1a\x1c.scribe.v1.ListItemsResponse\"\b\x92\xb5\x18\x04\x10\x02\x18\x01\x12S\n" +
 	"\aGetItem\x12\x19.scribe.v1.GetItemRequest\x1a\x1a.scribe.v1.GetItemResponse\"\x11\x92\xb5\x18\r\x10\x03\x18\x01\"\aitem_id\x12w\n" +
 	"\x11GetEditorManifest\x12#.scribe.v1.GetEditorManifestRequest\x1a$.scribe.v1.GetEditorManifestResponse\"\x17\x92\xb5\x18\x13\x10\x04\x18\x01\"\ritem_image_id\x12q\n" +
@@ -2443,7 +2549,7 @@ func file_scribe_v1_item_proto_rawDescGZIP() []byte {
 }
 
 var file_scribe_v1_item_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_scribe_v1_item_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_scribe_v1_item_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_scribe_v1_item_proto_goTypes = []any{
 	(UploadBatchStatus)(0),                     // 0: scribe.v1.UploadBatchStatus
 	(UploadBatchFileStatus)(0),                 // 1: scribe.v1.UploadBatchFileStatus
@@ -2453,80 +2559,84 @@ var file_scribe_v1_item_proto_goTypes = []any{
 	(*ListItemsRequest)(nil),                   // 5: scribe.v1.ListItemsRequest
 	(*ListItemsResponse)(nil),                  // 6: scribe.v1.ListItemsResponse
 	(*GetItemRequest)(nil),                     // 7: scribe.v1.GetItemRequest
-	(*GetItemResponse)(nil),                    // 8: scribe.v1.GetItemResponse
-	(*GetEditorManifestRequest)(nil),           // 9: scribe.v1.GetEditorManifestRequest
-	(*GetEditorManifestResponse)(nil),          // 10: scribe.v1.GetEditorManifestResponse
-	(*ItemImageRevision)(nil),                  // 11: scribe.v1.ItemImageRevision
-	(*PrepareItemExportRequest)(nil),           // 12: scribe.v1.PrepareItemExportRequest
-	(*PrepareItemExportResponse)(nil),          // 13: scribe.v1.PrepareItemExportResponse
-	(*ImportManifestRequest)(nil),              // 14: scribe.v1.ImportManifestRequest
-	(*ImportManifestResponse)(nil),             // 15: scribe.v1.ImportManifestResponse
-	(*UploadBatchFileInput)(nil),               // 16: scribe.v1.UploadBatchFileInput
-	(*UploadBatchFile)(nil),                    // 17: scribe.v1.UploadBatchFile
-	(*UploadBatch)(nil),                        // 18: scribe.v1.UploadBatch
-	(*StartUploadBatchRequest)(nil),            // 19: scribe.v1.StartUploadBatchRequest
-	(*StartUploadBatchResponse)(nil),           // 20: scribe.v1.StartUploadBatchResponse
-	(*GetUploadBatchRequest)(nil),              // 21: scribe.v1.GetUploadBatchRequest
-	(*GetUploadBatchResponse)(nil),             // 22: scribe.v1.GetUploadBatchResponse
-	(*CancelUploadBatchRequest)(nil),           // 23: scribe.v1.CancelUploadBatchRequest
-	(*CancelUploadBatchResponse)(nil),          // 24: scribe.v1.CancelUploadBatchResponse
-	(*UploadItemImageRequest)(nil),             // 25: scribe.v1.UploadItemImageRequest
-	(*UploadItemImageResponse)(nil),            // 26: scribe.v1.UploadItemImageResponse
-	(*DeleteItemRequest)(nil),                  // 27: scribe.v1.DeleteItemRequest
-	(*DeleteItemResponse)(nil),                 // 28: scribe.v1.DeleteItemResponse
-	(*ProviderCallAudit)(nil),                  // 29: scribe.v1.ProviderCallAudit
-	(*ListItemProviderCallAuditsRequest)(nil),  // 30: scribe.v1.ListItemProviderCallAuditsRequest
-	(*ListItemProviderCallAuditsResponse)(nil), // 31: scribe.v1.ListItemProviderCallAuditsResponse
-	(AnnotationExportFormat)(0),                // 32: scribe.v1.AnnotationExportFormat
+	(*SetItemDocumentTypeRequest)(nil),         // 8: scribe.v1.SetItemDocumentTypeRequest
+	(*SetItemDocumentTypeResponse)(nil),        // 9: scribe.v1.SetItemDocumentTypeResponse
+	(*GetItemResponse)(nil),                    // 10: scribe.v1.GetItemResponse
+	(*GetEditorManifestRequest)(nil),           // 11: scribe.v1.GetEditorManifestRequest
+	(*GetEditorManifestResponse)(nil),          // 12: scribe.v1.GetEditorManifestResponse
+	(*ItemImageRevision)(nil),                  // 13: scribe.v1.ItemImageRevision
+	(*PrepareItemExportRequest)(nil),           // 14: scribe.v1.PrepareItemExportRequest
+	(*PrepareItemExportResponse)(nil),          // 15: scribe.v1.PrepareItemExportResponse
+	(*ImportManifestRequest)(nil),              // 16: scribe.v1.ImportManifestRequest
+	(*ImportManifestResponse)(nil),             // 17: scribe.v1.ImportManifestResponse
+	(*UploadBatchFileInput)(nil),               // 18: scribe.v1.UploadBatchFileInput
+	(*UploadBatchFile)(nil),                    // 19: scribe.v1.UploadBatchFile
+	(*UploadBatch)(nil),                        // 20: scribe.v1.UploadBatch
+	(*StartUploadBatchRequest)(nil),            // 21: scribe.v1.StartUploadBatchRequest
+	(*StartUploadBatchResponse)(nil),           // 22: scribe.v1.StartUploadBatchResponse
+	(*GetUploadBatchRequest)(nil),              // 23: scribe.v1.GetUploadBatchRequest
+	(*GetUploadBatchResponse)(nil),             // 24: scribe.v1.GetUploadBatchResponse
+	(*CancelUploadBatchRequest)(nil),           // 25: scribe.v1.CancelUploadBatchRequest
+	(*CancelUploadBatchResponse)(nil),          // 26: scribe.v1.CancelUploadBatchResponse
+	(*UploadItemImageRequest)(nil),             // 27: scribe.v1.UploadItemImageRequest
+	(*UploadItemImageResponse)(nil),            // 28: scribe.v1.UploadItemImageResponse
+	(*DeleteItemRequest)(nil),                  // 29: scribe.v1.DeleteItemRequest
+	(*DeleteItemResponse)(nil),                 // 30: scribe.v1.DeleteItemResponse
+	(*ProviderCallAudit)(nil),                  // 31: scribe.v1.ProviderCallAudit
+	(*ListItemProviderCallAuditsRequest)(nil),  // 32: scribe.v1.ListItemProviderCallAuditsRequest
+	(*ListItemProviderCallAuditsResponse)(nil), // 33: scribe.v1.ListItemProviderCallAuditsResponse
+	(AnnotationExportFormat)(0),                // 34: scribe.v1.AnnotationExportFormat
 }
 var file_scribe_v1_item_proto_depIdxs = []int32{
 	2,  // 0: scribe.v1.Item.images:type_name -> scribe.v1.ItemImage
 	2,  // 1: scribe.v1.ItemSummary.preview_image:type_name -> scribe.v1.ItemImage
 	4,  // 2: scribe.v1.ListItemsResponse.items:type_name -> scribe.v1.ItemSummary
 	3,  // 3: scribe.v1.GetItemResponse.item:type_name -> scribe.v1.Item
-	11, // 4: scribe.v1.GetItemResponse.annotation_revisions:type_name -> scribe.v1.ItemImageRevision
+	13, // 4: scribe.v1.GetItemResponse.annotation_revisions:type_name -> scribe.v1.ItemImageRevision
 	3,  // 5: scribe.v1.GetEditorManifestResponse.item:type_name -> scribe.v1.Item
-	32, // 6: scribe.v1.PrepareItemExportRequest.format:type_name -> scribe.v1.AnnotationExportFormat
-	11, // 7: scribe.v1.PrepareItemExportRequest.expected_revisions:type_name -> scribe.v1.ItemImageRevision
-	11, // 8: scribe.v1.PrepareItemExportResponse.revisions:type_name -> scribe.v1.ItemImageRevision
+	34, // 6: scribe.v1.PrepareItemExportRequest.format:type_name -> scribe.v1.AnnotationExportFormat
+	13, // 7: scribe.v1.PrepareItemExportRequest.expected_revisions:type_name -> scribe.v1.ItemImageRevision
+	13, // 8: scribe.v1.PrepareItemExportResponse.revisions:type_name -> scribe.v1.ItemImageRevision
 	3,  // 9: scribe.v1.ImportManifestResponse.item:type_name -> scribe.v1.Item
 	1,  // 10: scribe.v1.UploadBatchFile.status:type_name -> scribe.v1.UploadBatchFileStatus
 	0,  // 11: scribe.v1.UploadBatch.status:type_name -> scribe.v1.UploadBatchStatus
-	17, // 12: scribe.v1.UploadBatch.files:type_name -> scribe.v1.UploadBatchFile
-	16, // 13: scribe.v1.StartUploadBatchRequest.files:type_name -> scribe.v1.UploadBatchFileInput
+	19, // 12: scribe.v1.UploadBatch.files:type_name -> scribe.v1.UploadBatchFile
+	18, // 13: scribe.v1.StartUploadBatchRequest.files:type_name -> scribe.v1.UploadBatchFileInput
 	3,  // 14: scribe.v1.StartUploadBatchResponse.item:type_name -> scribe.v1.Item
-	18, // 15: scribe.v1.StartUploadBatchResponse.batch:type_name -> scribe.v1.UploadBatch
+	20, // 15: scribe.v1.StartUploadBatchResponse.batch:type_name -> scribe.v1.UploadBatch
 	3,  // 16: scribe.v1.GetUploadBatchResponse.item:type_name -> scribe.v1.Item
-	18, // 17: scribe.v1.GetUploadBatchResponse.batch:type_name -> scribe.v1.UploadBatch
-	18, // 18: scribe.v1.CancelUploadBatchResponse.batch:type_name -> scribe.v1.UploadBatch
+	20, // 17: scribe.v1.GetUploadBatchResponse.batch:type_name -> scribe.v1.UploadBatch
+	20, // 18: scribe.v1.CancelUploadBatchResponse.batch:type_name -> scribe.v1.UploadBatch
 	3,  // 19: scribe.v1.UploadItemImageResponse.item:type_name -> scribe.v1.Item
 	2,  // 20: scribe.v1.UploadItemImageResponse.image:type_name -> scribe.v1.ItemImage
-	18, // 21: scribe.v1.UploadItemImageResponse.batch:type_name -> scribe.v1.UploadBatch
-	29, // 22: scribe.v1.ListItemProviderCallAuditsResponse.audits:type_name -> scribe.v1.ProviderCallAudit
-	5,  // 23: scribe.v1.ItemService.ListItems:input_type -> scribe.v1.ListItemsRequest
-	7,  // 24: scribe.v1.ItemService.GetItem:input_type -> scribe.v1.GetItemRequest
-	9,  // 25: scribe.v1.ItemService.GetEditorManifest:input_type -> scribe.v1.GetEditorManifestRequest
-	12, // 26: scribe.v1.ItemService.PrepareItemExport:input_type -> scribe.v1.PrepareItemExportRequest
-	14, // 27: scribe.v1.ItemService.ImportManifest:input_type -> scribe.v1.ImportManifestRequest
-	19, // 28: scribe.v1.ItemService.StartUploadBatch:input_type -> scribe.v1.StartUploadBatchRequest
-	21, // 29: scribe.v1.ItemService.GetUploadBatch:input_type -> scribe.v1.GetUploadBatchRequest
-	25, // 30: scribe.v1.ItemService.UploadItemImage:input_type -> scribe.v1.UploadItemImageRequest
-	23, // 31: scribe.v1.ItemService.CancelUploadBatch:input_type -> scribe.v1.CancelUploadBatchRequest
-	27, // 32: scribe.v1.ItemService.DeleteItem:input_type -> scribe.v1.DeleteItemRequest
-	30, // 33: scribe.v1.ItemService.ListItemProviderCallAudits:input_type -> scribe.v1.ListItemProviderCallAuditsRequest
-	6,  // 34: scribe.v1.ItemService.ListItems:output_type -> scribe.v1.ListItemsResponse
-	8,  // 35: scribe.v1.ItemService.GetItem:output_type -> scribe.v1.GetItemResponse
-	10, // 36: scribe.v1.ItemService.GetEditorManifest:output_type -> scribe.v1.GetEditorManifestResponse
-	13, // 37: scribe.v1.ItemService.PrepareItemExport:output_type -> scribe.v1.PrepareItemExportResponse
-	15, // 38: scribe.v1.ItemService.ImportManifest:output_type -> scribe.v1.ImportManifestResponse
-	20, // 39: scribe.v1.ItemService.StartUploadBatch:output_type -> scribe.v1.StartUploadBatchResponse
-	22, // 40: scribe.v1.ItemService.GetUploadBatch:output_type -> scribe.v1.GetUploadBatchResponse
-	26, // 41: scribe.v1.ItemService.UploadItemImage:output_type -> scribe.v1.UploadItemImageResponse
-	24, // 42: scribe.v1.ItemService.CancelUploadBatch:output_type -> scribe.v1.CancelUploadBatchResponse
-	28, // 43: scribe.v1.ItemService.DeleteItem:output_type -> scribe.v1.DeleteItemResponse
-	31, // 44: scribe.v1.ItemService.ListItemProviderCallAudits:output_type -> scribe.v1.ListItemProviderCallAuditsResponse
-	34, // [34:45] is the sub-list for method output_type
-	23, // [23:34] is the sub-list for method input_type
+	20, // 21: scribe.v1.UploadItemImageResponse.batch:type_name -> scribe.v1.UploadBatch
+	31, // 22: scribe.v1.ListItemProviderCallAuditsResponse.audits:type_name -> scribe.v1.ProviderCallAudit
+	8,  // 23: scribe.v1.ItemService.SetItemDocumentType:input_type -> scribe.v1.SetItemDocumentTypeRequest
+	5,  // 24: scribe.v1.ItemService.ListItems:input_type -> scribe.v1.ListItemsRequest
+	7,  // 25: scribe.v1.ItemService.GetItem:input_type -> scribe.v1.GetItemRequest
+	11, // 26: scribe.v1.ItemService.GetEditorManifest:input_type -> scribe.v1.GetEditorManifestRequest
+	14, // 27: scribe.v1.ItemService.PrepareItemExport:input_type -> scribe.v1.PrepareItemExportRequest
+	16, // 28: scribe.v1.ItemService.ImportManifest:input_type -> scribe.v1.ImportManifestRequest
+	21, // 29: scribe.v1.ItemService.StartUploadBatch:input_type -> scribe.v1.StartUploadBatchRequest
+	23, // 30: scribe.v1.ItemService.GetUploadBatch:input_type -> scribe.v1.GetUploadBatchRequest
+	27, // 31: scribe.v1.ItemService.UploadItemImage:input_type -> scribe.v1.UploadItemImageRequest
+	25, // 32: scribe.v1.ItemService.CancelUploadBatch:input_type -> scribe.v1.CancelUploadBatchRequest
+	29, // 33: scribe.v1.ItemService.DeleteItem:input_type -> scribe.v1.DeleteItemRequest
+	32, // 34: scribe.v1.ItemService.ListItemProviderCallAudits:input_type -> scribe.v1.ListItemProviderCallAuditsRequest
+	9,  // 35: scribe.v1.ItemService.SetItemDocumentType:output_type -> scribe.v1.SetItemDocumentTypeResponse
+	6,  // 36: scribe.v1.ItemService.ListItems:output_type -> scribe.v1.ListItemsResponse
+	10, // 37: scribe.v1.ItemService.GetItem:output_type -> scribe.v1.GetItemResponse
+	12, // 38: scribe.v1.ItemService.GetEditorManifest:output_type -> scribe.v1.GetEditorManifestResponse
+	15, // 39: scribe.v1.ItemService.PrepareItemExport:output_type -> scribe.v1.PrepareItemExportResponse
+	17, // 40: scribe.v1.ItemService.ImportManifest:output_type -> scribe.v1.ImportManifestResponse
+	22, // 41: scribe.v1.ItemService.StartUploadBatch:output_type -> scribe.v1.StartUploadBatchResponse
+	24, // 42: scribe.v1.ItemService.GetUploadBatch:output_type -> scribe.v1.GetUploadBatchResponse
+	28, // 43: scribe.v1.ItemService.UploadItemImage:output_type -> scribe.v1.UploadItemImageResponse
+	26, // 44: scribe.v1.ItemService.CancelUploadBatch:output_type -> scribe.v1.CancelUploadBatchResponse
+	30, // 45: scribe.v1.ItemService.DeleteItem:output_type -> scribe.v1.DeleteItemResponse
+	33, // 46: scribe.v1.ItemService.ListItemProviderCallAudits:output_type -> scribe.v1.ListItemProviderCallAuditsResponse
+	35, // [35:47] is the sub-list for method output_type
+	23, // [23:35] is the sub-list for method input_type
 	23, // [23:23] is the sub-list for extension type_name
 	23, // [23:23] is the sub-list for extension extendee
 	0,  // [0:23] is the sub-list for field type_name
@@ -2538,14 +2648,14 @@ func file_scribe_v1_item_proto_init() {
 		return
 	}
 	file_scribe_v1_annotation_proto_init()
-	file_scribe_v1_item_proto_msgTypes[27].OneofWrappers = []any{}
+	file_scribe_v1_item_proto_msgTypes[29].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scribe_v1_item_proto_rawDesc), len(file_scribe_v1_item_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   30,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

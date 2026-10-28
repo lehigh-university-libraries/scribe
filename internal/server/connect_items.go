@@ -19,6 +19,7 @@ import (
 
 	"connectrpc.com/connect/v2"
 	"github.com/google/uuid"
+	"github.com/lehigh-university-libraries/htr/pkg/segeval"
 	"github.com/lehigh-university-libraries/scribe/internal/db"
 	ocrhandlers "github.com/lehigh-university-libraries/scribe/internal/handlers"
 	"github.com/lehigh-university-libraries/scribe/internal/hocr"
@@ -662,6 +663,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *scribev1.UploadItemI
 	}
 	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureOCRRunCommit, nil)
 	if err := h.ocrRuns.Create(leaseCtx, store.OCRRun{
+		OriginalPage: originalPageJSON(result.Page),
 		SessionID:    sessionID,
 		ItemImageID:  &img.ID,
 		ContextID:    &contextID,
@@ -680,7 +682,7 @@ func (h *Handler) UploadItemImage(ctx context.Context, req *scribev1.UploadItemI
 		return nil, uploadBatchConnectError(err)
 	}
 	attemptPublicError = uploadBatchFailureMessage(uploadBatchFailureAnnotationCommit, nil)
-	if err := h.ensureItemImageCanvasAndAnnotations(leaseCtx, store.OCRRun{SessionID: sessionID, ItemImageID: &img.ID, OriginalHOCR: result.HOCR}, img.ID, result.ParsedHOCR); err != nil {
+	if err := h.ensureItemImageCanvasAndAnnotations(leaseCtx, store.OCRRun{SessionID: sessionID, ItemImageID: &img.ID, OriginalHOCR: result.HOCR}, img.ID, result.ParsedHOCR, result.Page); err != nil {
 		if leaseErr := markLeaseFailure(leaseFailure()); leaseErr != nil {
 			return nil, uploadBatchConnectError(leaseErr)
 		}
@@ -873,6 +875,21 @@ func newUploadBatchLeaseHeartbeat(parent context.Context, ticks <-chan time.Time
 		})
 	}
 	return leaseCtx, stop, failures
+}
+
+func (h *Handler) SetItemDocumentType(ctx context.Context, req *scribev1.SetItemDocumentTypeRequest) (*scribev1.SetItemDocumentTypeResponse, error) {
+	if value := req.GetDocumentType(); value != "" {
+		if _, ok := segeval.Lookup(value); !ok {
+			return nil, connect.Errorf(connect.CodeInvalidArgument, "unknown document type")
+		}
+	}
+	if err := h.items.SetDocumentType(ctx, req.GetItemId(), h.currentWorkspaceID(ctx), req.GetDocumentType()); err != nil {
+		if isNotFoundError(err) {
+			return nil, connect.Errorf(connect.CodeNotFound, "item not found")
+		}
+		return nil, connect.NewError(connect.CodeInternal, "update document type failed").WithCause(err)
+	}
+	return &scribev1.SetItemDocumentTypeResponse{}, nil
 }
 
 func (h *Handler) DeleteItem(ctx context.Context, req *scribev1.DeleteItemRequest) (*scribev1.DeleteItemResponse, error) {
@@ -1303,6 +1320,7 @@ func storeItemToProto(it store.Item) *scribev1.Item {
 		}
 	}
 	proto := &scribev1.Item{
+		DocumentType:        it.DocumentType,
 		Id:                  it.ID,
 		UserId:              it.UserID,
 		Name:                it.Name,

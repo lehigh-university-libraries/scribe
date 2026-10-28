@@ -9,6 +9,7 @@ import (
 )
 
 type CreateContextParams struct {
+	DocumentType          string
 	UserID                *uint64
 	WorkspaceID           *uint64
 	Name                  string
@@ -31,6 +32,7 @@ func (q *Queries) CreateContext(ctx context.Context, arg CreateContextParams) (u
 		return 0, err
 	}
 	res, err := q.CreateContextManual(ctx, CreateContextManualParams{
+		DocumentType:          contextDocumentType(arg.DocumentType),
 		UserID:                userID,
 		WorkspaceID:           workspaceID,
 		Name:                  arg.Name,
@@ -102,6 +104,7 @@ func (q *Queries) ListContextsPageForWorkspace(ctx context.Context, arg ListCont
 }
 
 type UpdateContextParams struct {
+	DocumentType          string
 	ID                    uint64
 	Name                  string
 	Description           string
@@ -115,6 +118,7 @@ type UpdateContextParams struct {
 
 func (q *Queries) UpdateContext(ctx context.Context, arg UpdateContextParams) (sql.Result, error) {
 	return q.UpdateContextManual(ctx, UpdateContextManualParams{
+		DocumentType:          contextDocumentType(arg.DocumentType),
 		ID:                    arg.ID,
 		Name:                  arg.Name,
 		Description:           nullableString(arg.Description),
@@ -241,4 +245,10 @@ func (q *Queries) DeleteSelectionRuleForWorkspace(ctx context.Context, workspace
 		WorkspaceID: sql.NullInt64{Int64: workspaceIDParam, Valid: true},
 	})
 	return requireAffectedRow(res, err)
+}
+func contextDocumentType(value string) string {
+	if value == "" {
+		return "generic"
+	}
+	return value
 }

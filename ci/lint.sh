@@ -111,8 +111,12 @@ else
 fi
 
 echo "Running golangci-lint..."
+# The pinned analyzer understands Go 1.26 export data. Use the module's minimum
+# compiler for analysis; builds and tests still use .go-version. Auto-selection
+# can otherwise download Go 1.27 and fail before analyzing any application code.
+lint_toolchain="go$(awk '$1 == "go" { print $2; exit }' go.mod)"
 if command -v golangci-lint >/dev/null 2>&1 && host_golangci_lint_is_pinned; then
-  golangci-lint run
+  GOTOOLCHAIN="$lint_toolchain" golangci-lint run
   exit 0
 fi
 
@@ -126,6 +130,7 @@ fi
 
 container_id="$(
   docker create \
+    -e "GOTOOLCHAIN=$lint_toolchain" \
     --mount "type=volume,src=scribe-go-test-build-cache-v1,dst=/root/.cache/go-build" \
     --mount "type=volume,src=scribe-go-test-mod-cache-v1,dst=/go/pkg/mod" \
     --mount "type=volume,src=scribe-golangci-cache-v1,dst=/root/.cache/golangci-lint" \

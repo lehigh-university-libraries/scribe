@@ -24,7 +24,12 @@ func (h *Handler) GetAnnotationPage(ctx context.Context, req *scribev1.GetAnnota
 	if err != nil {
 		return nil, annotationConnectError(err)
 	}
+	marked, err := h.annotations.HasGroundTruth(ctx, h.currentWorkspaceID(ctx), page.ItemImageID, page.Revision)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, "load ground truth marker failed").WithCause(err)
+	}
 	return &scribev1.GetAnnotationPageResponse{
+		GroundTruth:        marked,
 		ItemImageId:        page.ItemImageID,
 		CanvasUri:          page.CanvasURI,
 		AnnotationPageJson: page.Payload,
@@ -393,6 +398,7 @@ func annotationCorrectionMetricResponse(metric *store.AnnotationCorrectionMetric
 		return nil
 	}
 	return &scribev1.AnnotationCorrectionMetric{
+		SegmentationJson:    metric.SegmentationCorrection,
 		LevenshteinDistance: int32FromIntBounded(metric.LevenshteinDistance),
 		BaselineCharacters:  int32FromIntBounded(metric.BaselineCharacters),
 		CorrectedCharacters: int32FromIntBounded(metric.CorrectedCharacters),

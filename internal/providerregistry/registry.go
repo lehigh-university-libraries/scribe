@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
+	"github.com/lehigh-university-libraries/htr/pkg/segment"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/segmentor"
 	"github.com/lehigh-university-libraries/scribe/internal/worddetection"
@@ -286,6 +287,12 @@ func New(cfg config.Config, configure ...Option) Registry {
 			return ""
 		}),
 	}
+	if c := cfg.LLM.Mistral; len(c.Models) > 0 {
+		providerDescriptors = append(providerDescriptors, newProvider("mistral-ocr", "Mistral OCR", c.Models, c.Model, ExecutionAdapter, Capabilities{}, apiKeySchema(), EndpointPolicy{Mode: EndpointVendor, ServerOwned: true, URL: valueOr(c.URL, "https://api.mistral.ai/v1/ocr")}, newMistralClient, nil, nil))
+	}
+	if c := cfg.LLM.OpenAICompatible; len(c.Models) > 0 {
+		providerDescriptors = append(providerDescriptors, newProvider("openai-compatible", "OpenAI-compatible", c.Models, c.Model, ExecutionAdapter, Capabilities{SystemPrompt: true, Temperature: true}, apiKeySchema(), EndpointPolicy{Mode: EndpointVendor, ServerOwned: true, URL: c.URL}, newOpenAIClient, nil, nil))
+	}
 
 	recognitionIDs := []string{}
 	for id := range ocrcatalog.RecognitionModels() {
@@ -318,8 +325,16 @@ func New(cfg config.Config, configure ...Option) Registry {
 	}
 
 	segmentorMap := map[string]Segmentor{
-		"kraken":     newSegmentor("kraken", "Kraken BLLA", "kraken"),
-		"newspapers": newSegmentor("newspapers", "Newspapers (PP-DocLayoutV3 + Kraken BLLA)", "newspapers"),
+		"kraken": newSegmentor("kraken", "Kraken BLLA", "kraken"),
+		// Cloud parsers are enabled only by an approved model key and an exact
+		// administrator-owned v2 service endpoint. Credentials stay in that service.
+		"textract":     newSegmentor("textract", "AWS Textract", "textract"),
+		"azure-layout": newSegmentor("azure-layout", "Azure Document Intelligence Layout", "azure-layout"),
+	}
+	for id, model := range ocrcatalog.LayoutModels() {
+		descriptor := newSegmentor(id, model.Label, id)
+		descriptor.Capabilities.OutputGranularity = model.Granularity
+		segmentorMap[id] = descriptor
 	}
 	defaultSegmentation := strings.TrimSpace(cfg.LLM.SegmentationModel)
 	if defaultSegmentation == "" {
@@ -696,6 +711,11 @@ func resolveModel(values []Model, id string) (Model, bool) {
 type remoteDetector struct {
 	remote    *segmentor.Client
 	selection string
+}
+
+// Segment retains geometry for consumers that understand the shared page.
+func (d remoteDetector) Segment(ctx context.Context, imagePath string, hints segment.Hints) (segment.Result, error) {
+	return d.remote.Segment(ctx, imagePath, d.selection, hints)
 }
 
 func (d remoteDetector) DetectWords(ctx context.Context, imagePath string) ([]worddetection.WordBox, string, error) {

@@ -66,10 +66,10 @@ worker_segmentation_endpoints="$(
   fail "API and worker local segmentation endpoint maps differ"
 jq -e --arg model "${default_segmentation_model}" '
   type == "object" and
-  keys == ([$model, "newspapers"] | sort) and
+  keys == ([$model, "newspapers", "ppdoclayout", "layout+kraken"] | sort) and
   .[$model] == {"url": "http://segmentor:8080", "audience": ""}
 ' <<<"${api_segmentation_endpoints}" >/dev/null ||
-  fail "local segmentation endpoint map must expose exactly the configured default"
+  fail "local segmentation endpoint map must expose the configured default and layout selections"
 
 [ -f "${CLOUD_COMPOSE_OVERRIDE}" ] ||
   fail "cloud OCR Compose override is missing"

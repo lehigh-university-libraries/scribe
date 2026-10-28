@@ -44,12 +44,32 @@ func (q *Queries) DeleteItemImageForWorkspaceManual(ctx context.Context, arg Del
 	return q.db.ExecContext(ctx, deleteItemImageForWorkspaceManual, arg.ID, arg.WorkspaceID)
 }
 
+const getDocumentTypeForItemImage = `-- name: GetDocumentTypeForItemImage :one
+SELECT i.document_type
+FROM items i JOIN item_images ii ON ii.item_id = i.id AND ii.workspace_id = i.workspace_id
+WHERE ii.id = ? AND i.workspace_id = ?
+LOCK IN SHARE MODE
+`
+
+type GetDocumentTypeForItemImageParams struct {
+	ItemImageID uint64 `json:"item_image_id"`
+	WorkspaceID uint64 `json:"workspace_id"`
+}
+
+func (q *Queries) GetDocumentTypeForItemImage(ctx context.Context, arg GetDocumentTypeForItemImageParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, getDocumentTypeForItemImage, arg.ItemImageID, arg.WorkspaceID)
+	var document_type sql.NullString
+	err := row.Scan(&document_type)
+	return document_type, err
+}
+
 const getItemForWorkspaceManual = `-- name: GetItemForWorkspaceManual :one
 SELECT
   id,
   user_id,
   workspace_id,
   name,
+  document_type,
   source_type,
   source_url,
   source_manifest,
@@ -74,6 +94,7 @@ type GetItemForWorkspaceManualRow struct {
 	UserID               uint64          `json:"user_id"`
 	WorkspaceID          uint64          `json:"workspace_id"`
 	Name                 string          `json:"name"`
+	DocumentType         sql.NullString  `json:"document_type"`
 	SourceType           ItemsSourceType `json:"source_type"`
 	SourceUrl            sql.NullString  `json:"source_url"`
 	SourceManifest       sql.NullString  `json:"source_manifest"`
@@ -92,6 +113,7 @@ func (q *Queries) GetItemForWorkspaceManual(ctx context.Context, arg GetItemForW
 		&i.UserID,
 		&i.WorkspaceID,
 		&i.Name,
+		&i.DocumentType,
 		&i.SourceType,
 		&i.SourceUrl,
 		&i.SourceManifest,
@@ -404,6 +426,26 @@ func (q *Queries) LockItemImageForUseManual(ctx context.Context, arg LockItemIma
 	var item_id string
 	err := row.Scan(&item_id)
 	return item_id, err
+}
+
+const setItemDocumentType = `-- name: SetItemDocumentType :execrows
+UPDATE items
+SET document_type = ?
+WHERE id = ? AND workspace_id = ?
+`
+
+type SetItemDocumentTypeParams struct {
+	DocumentType sql.NullString `json:"document_type"`
+	ID           string         `json:"id"`
+	WorkspaceID  uint64         `json:"workspace_id"`
+}
+
+func (q *Queries) SetItemDocumentType(ctx context.Context, arg SetItemDocumentTypeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setItemDocumentType, arg.DocumentType, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const userCanReadImageURLManual = `-- name: UserCanReadImageURLManual :one

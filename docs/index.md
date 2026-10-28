@@ -9,6 +9,7 @@ Use this documentation according to the task in front of you:
 - [Run Scribe locally](getting-started/index.md).
 - [Choose and configure a processing context](getting-started/using-contexts.md).
 - [Understand the canonical IIIF model](concepts/canonical-iiif.md).
+- [Mark ground truth and compare segmentation](concepts/segmentation-evaluation.md).
 - [Add a provider, segmentor, or RPC](development/index.md).
 - [Integrate an external editor](api/index.md).
 - [Deploy and operate Scribe](operations/index.md).

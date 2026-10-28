@@ -123,6 +123,7 @@ message GetOCRRunRequest {
 }
 
 message GetOCRRunResponse {
+  string segmentation_correction_json = 13;
   string session_id = 1;
   uint64 item_image_id = 2;
   string image_url = 3;

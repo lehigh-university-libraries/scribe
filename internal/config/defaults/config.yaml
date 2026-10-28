@@ -35,6 +35,15 @@ llm:
   default_system_prompt: ""
   segmentation_model: kraken
   line_transcribe_concurrency: 5
+  mistral_ocr:
+    url: "https://api.mistral.ai/v1/ocr"
+    model: "mistral-ocr-latest"
+    models: ["mistral-ocr-latest"]
+  # Enable a server-owned compatible endpoint by registering its model keys.
+  openai_compatible:
+    url: "${OPENAI_COMPATIBLE_URL:-}"
+    model: ""
+    models: []
   ollama:
     url: "${OLLAMA_URL:-http://localhost:11434}"
     audience: "${OLLAMA_AUDIENCE:-}"
@@ -97,7 +106,7 @@ iiif:
 segmentation_service:
   url: "${SEGMENTATION_SERVICE_URL:-}"
   audience: "${SEGMENTATION_SERVICE_AUDIENCE:-}"
-  models: ["kraken", "newspapers"]
+  models: ["kraken", "newspapers", "ppdoclayout", "layout+kraken"]
 
 annotation:
   api_base: /

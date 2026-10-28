@@ -437,15 +437,16 @@ func (x *GetOCRRunRequest) GetItemImageId() uint64 {
 }
 
 type GetOCRRunResponse struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	SessionId           string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	ItemImageId         uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
-	ImageUrl            string                 `protobuf:"bytes,3,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
-	Model               string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
-	OriginalHocr        string                 `protobuf:"bytes,5,opt,name=original_hocr,json=originalHocr,proto3" json:"original_hocr,omitempty"`
-	OriginalText        string                 `protobuf:"bytes,6,opt,name=original_text,json=originalText,proto3" json:"original_text,omitempty"`
-	LevenshteinDistance int32                  `protobuf:"varint,10,opt,name=levenshtein_distance,json=levenshteinDistance,proto3" json:"levenshtein_distance,omitempty"`
-	ContextId           uint64                 `protobuf:"varint,11,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	SegmentationCorrectionJson string                 `protobuf:"bytes,13,opt,name=segmentation_correction_json,json=segmentationCorrectionJson,proto3" json:"segmentation_correction_json,omitempty"`
+	SessionId                  string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	ItemImageId                uint64                 `protobuf:"varint,2,opt,name=item_image_id,json=itemImageId,proto3" json:"item_image_id,omitempty"`
+	ImageUrl                   string                 `protobuf:"bytes,3,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
+	Model                      string                 `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	OriginalHocr               string                 `protobuf:"bytes,5,opt,name=original_hocr,json=originalHocr,proto3" json:"original_hocr,omitempty"`
+	OriginalText               string                 `protobuf:"bytes,6,opt,name=original_text,json=originalText,proto3" json:"original_text,omitempty"`
+	LevenshteinDistance        int32                  `protobuf:"varint,10,opt,name=levenshtein_distance,json=levenshteinDistance,proto3" json:"levenshtein_distance,omitempty"`
+	ContextId                  uint64                 `protobuf:"varint,11,opt,name=context_id,json=contextId,proto3" json:"context_id,omitempty"`
 	// Revision of the canonical AnnotationPage used for this metric. Zero means
 	// the baseline OCR has not yet been corrected through the page API.
 	CanonicalRevision uint64 `protobuf:"varint,12,opt,name=canonical_revision,json=canonicalRevision,proto3" json:"canonical_revision,omitempty"`
@@ -481,6 +482,13 @@ func (x *GetOCRRunResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use GetOCRRunResponse.ProtoReflect.Descriptor instead.
 func (*GetOCRRunResponse) Descriptor() ([]byte, []int) {
 	return file_scribe_v1_process_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *GetOCRRunResponse) GetSegmentationCorrectionJson() string {
+	if x != nil {
+		return x.SegmentationCorrectionJson
+	}
+	return ""
 }
 
 func (x *GetOCRRunResponse) GetSessionId() string {
@@ -776,8 +784,9 @@ const file_scribe_v1_process_proto_rawDesc = "" +
 	"\x14transcription_job_id\x18\a \x01(\x04R\x12transcriptionJobId\"\x88\x01\n" +
 	"\x10GetOCRRunRequest\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId:P\xbaHM\x1aK\n" +
-	"\x16get_ocr_run.identifier\x12\x19item_image_id is required\x1a\x16this.item_image_id > 0\"\x92\x03\n" +
-	"\x11GetOCRRunResponse\x12\x1d\n" +
+	"\x16get_ocr_run.identifier\x12\x19item_image_id is required\x1a\x16this.item_image_id > 0\"\xd4\x03\n" +
+	"\x11GetOCRRunResponse\x12@\n" +
+	"\x1csegmentation_correction_json\x18\r \x01(\tR\x1asegmentationCorrectionJson\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\"\n" +
 	"\ritem_image_id\x18\x02 \x01(\x04R\vitemImageId\x12\x1b\n" +

@@ -52,6 +52,19 @@ owns both selectable recognition models and installed weights. Other runtime
 provider and segmentor capabilities come from registered descriptors and
 endpoint policy.
 
+Layout selection keys (`ppdoclayout`, `layout+kraken`, and the `newspapers`
+alias) come from the same catalog. Terraform and local Compose route them to
+the existing segmentor; they do not create additional services. PP-DocLayout
+alone exposes regions for evaluation; line transcription uses `layout+kraken`.
+
+`llm.mistral_ocr` registers Mistral OCR and uses a workspace provider secret.
+To enable an OpenAI-compatible server, set the administrator-owned
+`llm.openai_compatible.url`, a default model and its approved model list.
+Register its workspace key under `openai-compatible`. Neither endpoint nor
+credentials belong in a context or item. Private Textract/Azure v2 segmentors
+can be enabled with their approved model keys and exact server endpoint maps;
+cloud credentials remain owned by those services.
+
 The segmentor image packages Kraken BLLA for letters/manuscripts and
 PP-DocLayoutV3 for newspaper layout reading order. Both artifacts are pinned
 and checksum-verified during image builds. The native packaged inference CLIs

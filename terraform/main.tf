@@ -133,7 +133,9 @@ locals {
   }
   kraken_segmentation_endpoint_map = merge({
     (local.kraken_default_segmentation_key) = { url = local.segmentor_url, audience = local.segmentor_audience }
-    newspapers                              = { url = local.segmentor_url, audience = local.segmentor_audience }
+    }, {
+    for model in keys(local.ocr_config.layout.models) :
+    model => { url = local.segmentor_url, audience = local.segmentor_audience }
     }, {
     for model, service in local.kraken_segmentation_services :
     model => {
@@ -253,7 +255,7 @@ locals {
     },
     {
       name  = "SEGMENTATION_MODELS_JSON"
-      value = jsonencode(sort(concat(keys(local.kraken_segmentation_models), ["newspapers"])))
+      value = jsonencode(sort(concat(keys(local.kraken_segmentation_models), keys(local.ocr_config.layout.models))))
     },
     {
       name  = "IIIF_BASE"

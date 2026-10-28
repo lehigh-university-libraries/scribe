@@ -213,6 +213,30 @@ func (q *Queries) DeleteExternalRequestsForItemResourceGraph(ctx context.Context
 	return err
 }
 
+const deleteGroundTruthForItemResourceGraph = `-- name: DeleteGroundTruthForItemResourceGraph :exec
+DELETE gt FROM annotation_ground_truth gt JOIN item_images target ON target.id = gt.item_image_id
+WHERE target.workspace_id = ? AND target.item_id = ?
+  AND (? = 0 OR target.id = ?)
+  AND gt.workspace_id = ?
+`
+
+type DeleteGroundTruthForItemResourceGraphParams struct {
+	WorkspaceID uint64 `json:"workspace_id"`
+	ItemID      string `json:"item_id"`
+	ItemImageID uint64 `json:"item_image_id"`
+}
+
+func (q *Queries) DeleteGroundTruthForItemResourceGraph(ctx context.Context, arg DeleteGroundTruthForItemResourceGraphParams) error {
+	_, err := q.db.ExecContext(ctx, deleteGroundTruthForItemResourceGraph,
+		arg.WorkspaceID,
+		arg.ItemID,
+		arg.ItemImageID,
+		arg.ItemImageID,
+		arg.WorkspaceID,
+	)
+	return err
+}
+
 const deleteItemImagesForItemResourceGraph = `-- name: DeleteItemImagesForItemResourceGraph :exec
 DELETE FROM item_images
 WHERE workspace_id = ?

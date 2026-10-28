@@ -69,6 +69,7 @@ export interface CanonicalIIIFAnnotationPage extends IIIFAnnotationPage {
  * its item image. Present on a save response only when a baseline exists.
  */
 export interface AnnotationCorrectionMetric {
+  segmentationJson?: string;
   levenshteinDistance: number;
   baselineCharacters: number;
   correctedCharacters: number;

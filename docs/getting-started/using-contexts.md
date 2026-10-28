@@ -59,6 +59,11 @@ context for new workspace processing.
 
 ## Pick models deliberately
 
+Choose a **Document type** when creating a context. It controls segmentation
+measurement and requested layout features. Items can override it for future
+processing. See [segmentation evaluation and ground truth](../concepts/segmentation-evaluation.md)
+for checked revisions, exports, and correction metrics.
+
 Segmentation finds regions or words; transcription turns the selected image
 regions into text. A strong transcription model cannot recover text that the
 segmentation step did not select, so compare both parts of a context when

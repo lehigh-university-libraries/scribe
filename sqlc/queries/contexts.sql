@@ -5,6 +5,7 @@ INSERT INTO contexts (
   name,
   description,
   is_default,
+  document_type,
   segmentation_model,
   transcription_provider,
   transcription_model,
@@ -16,6 +17,7 @@ INSERT INTO contexts (
   sqlc.arg(name),
   sqlc.narg(description),
   sqlc.arg(is_default),
+  sqlc.arg(document_type),
   sqlc.arg(segmentation_model),
   sqlc.arg(transcription_provider),
   sqlc.arg(transcription_model),
@@ -39,7 +41,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE id = sqlc.arg(id);
 
@@ -59,7 +62,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE id = sqlc.arg(context_id)
   AND scope_id IN (0, sqlc.arg(workspace_id))
@@ -82,7 +86,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE id = sqlc.arg(context_id)
 LIMIT 1
@@ -117,7 +122,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE is_default = TRUE
   AND workspace_id IS NULL
@@ -139,7 +145,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE is_default = TRUE
   AND (workspace_id = sqlc.arg(workspace_id) OR workspace_id IS NULL)
@@ -169,7 +176,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE workspace_id IS NULL
   AND name = sqlc.arg(name)
@@ -191,7 +199,8 @@ SELECT
   scope_id,
   default_scope_id,
   created_at,
-  updated_at
+  updated_at,
+  document_type
 FROM contexts
 WHERE (
     workspace_id IS NULL
@@ -219,6 +228,7 @@ SET
   name = sqlc.arg(name),
   description = sqlc.narg(description),
   is_default = sqlc.arg(is_default),
+  document_type = sqlc.arg(document_type),
   segmentation_model = sqlc.arg(segmentation_model),
   transcription_provider = sqlc.arg(transcription_provider),
   transcription_model = sqlc.arg(transcription_model),

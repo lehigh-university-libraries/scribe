@@ -32,6 +32,7 @@ const (
 var ErrInvalidItemPage = errors.New("invalid item page")
 
 type Item struct {
+	DocumentType         string         `json:"document_type,omitempty"`
 	ID                   string         `json:"id"`
 	UserID               uint64         `json:"user_id"`
 	WorkspaceID          uint64         `json:"workspace_id"`
@@ -169,6 +170,18 @@ func (s *ItemStore) GetForWorkspace(ctx context.Context, id string, workspaceID 
 		storeItem.Images = append(storeItem.Images, rowToItemImage(img))
 	}
 	return storeItem, nil
+}
+
+// SetDocumentType updates only the tenant-owned override; an empty value
+// restores inheritance without modifying any committed OCR snapshot.
+func (s *ItemStore) SetDocumentType(ctx context.Context, id string, workspaceID uint64, documentType string) error {
+	if _, err := s.q.GetItemForWorkspace(ctx, id, workspaceID); err != nil {
+		return err
+	}
+	_, err := s.q.SetItemDocumentType(ctx, db.SetItemDocumentTypeParams{
+		ID: id, WorkspaceID: workspaceID, DocumentType: sql.NullString{String: documentType, Valid: documentType != ""},
+	})
+	return err
 }
 
 // ListPage returns a stable descending (created_at, id) keyset page. Items and
@@ -484,6 +497,11 @@ func deleteItemResourceGraph(ctx context.Context, queries *db.Queries, workspace
 	}); err != nil {
 		return fmt.Errorf("delete annotation index: %w", err)
 	}
+	if err := queries.DeleteGroundTruthForItemResourceGraph(ctx, db.DeleteGroundTruthForItemResourceGraphParams{
+		WorkspaceID: workspaceID, ItemID: itemID, ItemImageID: imageID,
+	}); err != nil {
+		return fmt.Errorf("delete ground truth: %w", err)
+	}
 	if err := queries.DeleteAnnotationPagesForItemResourceGraph(ctx, db.DeleteAnnotationPagesForItemResourceGraphParams{
 		WorkspaceID: workspaceID,
 		ItemID:      itemID,
@@ -786,13 +804,14 @@ func (s *ItemStore) ImageURLReferenceCount(ctx context.Context, imageURL string)
 
 func rowToItem(row db.Item) Item {
 	it := Item{
-		ID:          row.ID,
-		UserID:      row.UserID,
-		WorkspaceID: row.WorkspaceID,
-		Name:        row.Name,
-		SourceType:  string(row.SourceType),
-		CreatedAt:   row.CreatedAt,
-		UpdatedAt:   row.UpdatedAt,
+		DocumentType: row.DocumentType.String,
+		ID:           row.ID,
+		UserID:       row.UserID,
+		WorkspaceID:  row.WorkspaceID,
+		Name:         row.Name,
+		SourceType:   string(row.SourceType),
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
 	}
 	if row.SourceUrl.Valid {
 		it.SourceURL = row.SourceUrl.String

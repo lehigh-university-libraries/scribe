@@ -789,7 +789,7 @@ func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLeve
 		return "items:read"
 	case "/scribe.v1.ItemService/ImportManifest", "/scribe.v1.ItemService/StartUploadBatch", "/scribe.v1.ImageProcessingService/ProcessImageURL", "/scribe.v1.ImageProcessingService/ProcessHOCR":
 		return "items:create"
-	case "/scribe.v1.ItemService/UploadItemImage", "/scribe.v1.ItemService/CancelUploadBatch", "/scribe.v1.ItemService/DeleteItem", "/scribe.v1.ImageProcessingService/ReprocessItemImage":
+	case "/scribe.v1.ItemService/UploadItemImage", "/scribe.v1.ItemService/CancelUploadBatch", "/scribe.v1.ItemService/DeleteItem", "/scribe.v1.ItemService/SetItemDocumentType", "/scribe.v1.ImageProcessingService/ReprocessItemImage":
 		return "items:write"
 	case "/scribe.v1.ContextService/ListContexts", "/scribe.v1.ContextService/GetContext", "/scribe.v1.ContextService/ListSelectionRules", "/scribe.v1.ContextService/ResolveContext", "/scribe.v1.ContextService/GetModelCatalog", "/scribe.v1.ContextService/GetContextMetrics":
 		return "contexts:read"
@@ -809,9 +809,9 @@ func requiredPermissionForProcedure(procedure string, level optionsv1.AccessLeve
 		return "review_tokens:create"
 	case "/scribe.v1.AuthService/CreateProviderSecret", "/scribe.v1.AuthService/DeleteProviderSecret":
 		return "contexts:write"
-	case "/scribe.v1.AnnotationService/GetAnnotationPage", "/scribe.v1.AnnotationService/SearchAnnotations", "/scribe.v1.AnnotationService/GetAnnotation", "/scribe.v1.AnnotationService/ExportAnnotationPage", "/scribe.v1.ItemService/PrepareItemExport":
+	case "/scribe.v1.AnnotationService/GetAnnotationPage", "/scribe.v1.AnnotationService/SearchAnnotations", "/scribe.v1.AnnotationService/GetAnnotation", "/scribe.v1.AnnotationService/ExportAnnotationPage", "/scribe.v1.AnnotationService/ExportGroundTruth", "/scribe.v1.ItemService/PrepareItemExport":
 		return "annotations:read"
-	case "/scribe.v1.AnnotationService/SaveAnnotationPage", "/scribe.v1.AnnotationService/PublishItemImageEdits", "/scribe.v1.AnnotationService/EnrichAnnotation", "/scribe.v1.AnnotationService/SplitLineIntoWords", "/scribe.v1.AnnotationService/SplitPageIntoWords", "/scribe.v1.AnnotationService/SplitLineIntoTwoLines", "/scribe.v1.AnnotationService/JoinLines", "/scribe.v1.AnnotationService/JoinWordsIntoLine":
+	case "/scribe.v1.AnnotationService/MarkGroundTruth", "/scribe.v1.AnnotationService/SaveAnnotationPage", "/scribe.v1.AnnotationService/PublishItemImageEdits", "/scribe.v1.AnnotationService/EnrichAnnotation", "/scribe.v1.AnnotationService/SplitLineIntoWords", "/scribe.v1.AnnotationService/SplitPageIntoWords", "/scribe.v1.AnnotationService/SplitLineIntoTwoLines", "/scribe.v1.AnnotationService/JoinLines", "/scribe.v1.AnnotationService/JoinWordsIntoLine":
 		return "annotations:write"
 	default:
 		return unmappedProcedurePermission

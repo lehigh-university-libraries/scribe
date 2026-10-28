@@ -40,6 +40,7 @@ var (
 
 // Context is the store representation of a processing context.
 type Context struct {
+	DocumentType          string    `json:"document_type"`
 	ID                    uint64    `json:"id"`
 	UserID                *uint64   `json:"user_id,omitempty"`      // creator for non-system contexts
 	WorkspaceID           *uint64   `json:"workspace_id,omitempty"` // nil = system
@@ -53,6 +54,17 @@ type Context struct {
 	SystemPrompt          string    `json:"system_prompt,omitempty"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
+}
+
+// DocumentProfile resolves an omitted internal value without changing queued snapshots.
+func (c Context) DocumentProfile() string {
+	if c.DocumentType != "" {
+		return c.DocumentType
+	}
+	if c.SegmentationModel == "newspapers" || c.SegmentationModel == "layout+kraken" {
+		return "newspaper"
+	}
+	return "generic"
 }
 
 // RuleCondition is a single AND predicate in a selection rule.
@@ -300,6 +312,7 @@ func (s *ContextStore) withSystemContextCatalogLock(ctx context.Context, operati
 
 func contextCreateParams(c Context) db.CreateContextParams {
 	return db.CreateContextParams{
+		DocumentType:          c.DocumentProfile(),
 		UserID:                c.UserID,
 		WorkspaceID:           c.WorkspaceID,
 		Name:                  c.Name,
@@ -315,6 +328,7 @@ func contextCreateParams(c Context) db.CreateContextParams {
 
 func contextUpdateParams(c Context) db.UpdateContextParams {
 	return db.UpdateContextParams{
+		DocumentType:          c.DocumentProfile(),
 		ID:                    c.ID,
 		Name:                  c.Name,
 		Description:           c.Description,
@@ -1016,6 +1030,7 @@ func matchesAll(conditions []RuleCondition, metadata map[string]string) bool {
 
 func rowToContext(row db.Context) Context {
 	c := Context{
+		DocumentType:          row.DocumentType,
 		ID:                    row.ID,
 		Name:                  row.Name,
 		IsDefault:             row.IsDefault,
@@ -1043,7 +1058,7 @@ func rowToContext(row db.Context) Context {
 	return c
 }
 
-func lockContextSnapshotForWorkspace(ctx context.Context, queries *db.Queries, contextID, workspaceID uint64) (Context, json.RawMessage, error) {
+func lockContextSnapshotForWorkspace(ctx context.Context, queries *db.Queries, contextID, workspaceID uint64, itemImageIDs ...uint64) (Context, json.RawMessage, error) {
 	row, err := queries.LockContextForUseManual(ctx, db.LockContextForUseManualParams{
 		ContextID: contextID, WorkspaceID: nullableUint64(workspaceID),
 	})
@@ -1051,6 +1066,15 @@ func lockContextSnapshotForWorkspace(ctx context.Context, queries *db.Queries, c
 		return Context{}, nil, err
 	}
 	locked := rowToContext(row)
+	if len(itemImageIDs) > 0 {
+		value, err := queries.GetDocumentTypeForItemImage(ctx, db.GetDocumentTypeForItemImageParams{ItemImageID: itemImageIDs[0], WorkspaceID: workspaceID})
+		if err != nil {
+			return Context{}, nil, fmt.Errorf("resolve document type: %w", err)
+		}
+		if value.Valid && value.String != "" {
+			locked.DocumentType = value.String
+		}
+	}
 	snapshot, err := json.Marshal(locked)
 	if err != nil {
 		return Context{}, nil, fmt.Errorf("encode locked context snapshot: %w", err)

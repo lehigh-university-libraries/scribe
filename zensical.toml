@@ -19,6 +19,7 @@ nav = [
   {"Concepts" = [
     "concepts/contexts.md",
     "concepts/canonical-iiif.md",
+    "concepts/segmentation-evaluation.md",
     "concepts/processing-pipeline.md",
     "concepts/permissions.md"
   ]},

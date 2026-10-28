@@ -21,7 +21,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/lehigh-university-libraries/htr/pkg/ocrpage"
 	"github.com/lehigh-university-libraries/htr/pkg/providers"
+	"github.com/lehigh-university-libraries/htr/pkg/segment"
 	"github.com/lehigh-university-libraries/scribe/internal/config"
 	"github.com/lehigh-university-libraries/scribe/internal/iiif"
 	"github.com/lehigh-university-libraries/scribe/internal/imageservice"
@@ -67,6 +69,7 @@ type providerCallMetadata struct {
 
 type providerCallMetadataKey struct{}
 type transcriptionOptionsKey struct{}
+type segmentationHintsKey struct{}
 
 const (
 	defaultTranscriptionPrompt = "Transcribe the text in this image, preserving its spelling, punctuation, language, and script. Return ONLY the transcribed text with no additional commentary, numbering, or explanation. If the text is not legible or cannot be read, return exactly: not legible."
@@ -317,6 +320,7 @@ func temperatureFromContext(ctx context.Context) float64 {
 // ProcessingContext carries the parameters from a store.Context into the
 // processing pipeline without importing the store package (avoids cycles).
 type ProcessingContext struct {
+	DocumentType          string
 	SegmentationModel     string // Server-registered line segmentor selection.
 	TranscriptionProvider string
 	TranscriptionModel    string
@@ -335,6 +339,7 @@ func (s *Service) ProcessImageWithContext(ctx context.Context, imagePath string,
 		goCtx = context.Background()
 	}
 	goCtx = WithTranscriptionOptions(goCtx, pctx.SystemPrompt, pctx.Temperature)
+	goCtx = context.WithValue(goCtx, segmentationHintsKey{}, segment.Hints{DocumentType: pctx.DocumentType})
 
 	width, height, err := s.getImageDimensions(goCtx, imagePath)
 	if err != nil {
@@ -375,6 +380,37 @@ func (s *Service) ProcessImageWithContext(ctx context.Context, imagePath string,
 // Selection parsing, trusted endpoint routing, and factory construction all
 // live in providerregistry so every runtime and catalog consumer agrees.
 func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel string, imageWidth, imageHeight int) ([]worddetection.WordBox, string, error) {
+	return s.detectPageWithModel(ctx, imagePath, segModel, imageWidth, imageHeight, nil)
+}
+
+// SegmentImageWithContext returns the explicit geometry alongside the derived
+// hOCR representation. The page is handed to canonical IIIF persistence rather
+// than reconstructed from a lossy hOCR parse.
+func (s *Service) SegmentImageWithContext(ctx context.Context, imagePath string, pctx ProcessingContext) (ocrpage.Page, string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	width, height, err := s.getImageDimensions(ctx, imagePath)
+	if err != nil {
+		return ocrpage.Page{}, "", err
+	}
+	ctx = context.WithValue(ctx, segmentationHintsKey{}, segment.Hints{DocumentType: pctx.DocumentType})
+	var page ocrpage.Page
+	words, provider, err := s.detectPageWithModel(ctx, imagePath, pctx.SegmentationModel, width, height, &page)
+	if err != nil {
+		return ocrpage.Page{}, provider, err
+	}
+	if page.Width == 0 {
+		lines := make([]ocrpage.Line, len(words))
+		for i, box := range words {
+			lines[i] = ocrpage.Line{ID: fmt.Sprintf("line_%d", i), Box: ocrpage.Rect{X1: box.X, Y1: box.Y, X2: box.X + box.Width, Y2: box.Y + box.Height}}
+		}
+		page = ocrpage.FromLines(width, height, lines)
+	}
+	return page, provider, nil
+}
+
+func (s *Service) detectPageWithModel(ctx context.Context, imagePath, segModel string, imageWidth, imageHeight int, page *ocrpage.Page) ([]worddetection.WordBox, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -403,7 +439,27 @@ func (s *Service) detectWithModel(ctx context.Context, imagePath, segModel strin
 	if err != nil {
 		return nil, "", audit(err)
 	}
-	words, provider, err := detector.DetectWords(ctx, imagePath)
+	var words []worddetection.WordBox
+	var provider string
+	if pages, ok := detector.(interface {
+		Segment(context.Context, string, segment.Hints) (segment.Result, error)
+	}); ok {
+		hints, _ := ctx.Value(segmentationHintsKey{}).(segment.Hints)
+		if hints.DocumentType == "" {
+			hints.DocumentType = "generic"
+		}
+		var result segment.Result
+		result, err = pages.Segment(ctx, imagePath, hints)
+		if page != nil && err == nil {
+			*page = result.Page
+		}
+		provider = result.Page.Provenance.Provider
+		for _, line := range result.Page.Lines() {
+			words = append(words, worddetection.WordBox{X: line.Box.X1, Y: line.Box.Y1, Width: line.Box.X2 - line.Box.X1, Height: line.Box.Y2 - line.Box.Y1, Text: line.Text, Confidence: line.Confidence})
+		}
+	} else {
+		words, provider, err = detector.DetectWords(ctx, imagePath)
+	}
 	if err != nil {
 		return nil, provider, audit(err)
 	}

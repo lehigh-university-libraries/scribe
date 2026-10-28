@@ -28,7 +28,7 @@ message Context {
   string segmentation_model = 6 [
     (buf.validate.field).required = true,
     (buf.validate.field).string = {
-      pattern: "^[a-z0-9][a-z0-9._:-]{0,254}$"
+      pattern: "^[a-z0-9][a-z0-9._:+-]{0,254}$"
       max_len: 255
     }
   ];
@@ -55,6 +55,14 @@ message Context {
   }];
   string created_at = 13;
   string updated_at = 14;
+  // Segmentation evaluation policy; registered by htr's profile registry.
+  string document_type = 17 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string = {
+      pattern: "^[a-z][a-z0-9_-]{0,63}$"
+      max_len: 64
+    }
+  ];
 }
 
 // ModelDescriptor is a server-approved model that can be selected by a context.
@@ -232,6 +240,13 @@ message GetModelCatalogRequest {}
 message GetModelCatalogResponse {
   repeated ProviderDescriptor transcription_providers = 1;
   repeated ModelDescriptor segmentation_models = 2;
+  repeated DocumentTypeDescriptor document_types = 3;
+}
+
+message DocumentTypeDescriptor {
+  string id = 1;
+  string description = 2;
+  bool calibrated = 3;
 }
 
 // ContextMetrics summarizes correction effort against the immutable OCR

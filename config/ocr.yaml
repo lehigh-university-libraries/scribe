@@ -7,6 +7,19 @@ artifact_registry:
   ocr_publish_repositories:
     - location: us
       repository: internal
+layout:
+  model_dir: /models/pp-doclayout-v3
+  models:
+    ppdoclayout:
+      label: PP-DocLayoutV3 regions
+      granularity: region
+    layout+kraken:
+      label: PP-DocLayoutV3 + Kraken BLLA
+      granularity: line
+    newspapers:
+      label: Newspapers (PP-DocLayoutV3 + Kraken BLLA)
+      granularity: line
+      alias: layout+kraken
 kraken:
   pip_spec: "kraken==7.0.2"
   default_segmentation_model: kraken

@@ -7,6 +7,7 @@ import scribeMiradorPlugin, {
 import {
   annotationClient,
   getAnnotationPage,
+  markGroundTruth,
   publishItemImageEdits,
 } from "../api/annotations";
 import type { AnnotationPageSnapshot } from "../api/annotations";
@@ -456,6 +457,29 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   const editMetrics = document.getElementById(
     "editor-edit-metrics",
   ) as HTMLParagraphElement;
+
+  document.getElementById("ground-truth-nav")?.addEventListener("click", async () => {
+    const imageID = activeItemImageID;
+    if (!imageID) return;
+    if ([...dirtyWindows.values()].some(Boolean)) {
+      editMetrics.textContent = "Save pending edits before marking this revision as ground truth.";
+      return;
+    }
+    try {
+      const snapshot = await getAnnotationPage(imageID);
+      if (imageID !== activeItemImageID || [...dirtyWindows.values()].some(Boolean)) {
+        editMetrics.textContent = "Save pending edits on the active page before marking ground truth.";
+        return;
+      }
+      const action = snapshot.groundTruth ? "Unmark" : "Mark";
+      if (!window.confirm(`${action} revision ${snapshot.revision} as ground truth? Only mark pages whose layout and text you have fully checked.`)) return;
+      if (imageID !== activeItemImageID || [...dirtyWindows.values()].some(Boolean)) return;
+      await markGroundTruth(imageID, snapshot.revision, !snapshot.groundTruth);
+      if (imageID === activeItemImageID) editMetrics.textContent = `${action === "Mark" ? "Marked" : "Unmarked"} revision ${snapshot.revision} as ground truth. Later edits create an unmarked revision.`;
+    } catch (error) {
+      if (imageID === activeItemImageID) editMetrics.textContent = `Ground truth action failed: ${String(error)}`;
+    }
+  });
   const leaveDialog = document.getElementById("leave-dialog") as HTMLDivElement;
   const leaveCancel = document.getElementById(
     "leave-cancel",
@@ -1743,12 +1767,19 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
   function formatCorrection(correction: {
     levenshteinDistance: number;
     baselineCharacters: number;
+    segmentationJson?: string;
   } | null): string {
     if (!correction) return "";
     const ratio = correction.baselineCharacters > 0
       ? ` (${Math.round((correction.levenshteinDistance / correction.baselineCharacters) * 1000) / 10}% of the model text)`
       : "";
-    return ` Distance from the model baseline: ${correction.levenshteinDistance} characters${ratio}.`;
+    let segmentation = "";
+    try {
+      const metric = JSON.parse(correction.segmentationJson || "null");
+      if (metric && typeof metric.Score === "number") segmentation = ` Segmentation agreement: ${(metric.Score * 100).toFixed(1)}% (${metric.Primary}${metric.Calibrated ? "" : ", uncalibrated"}${metric.FallbackReason ? `; ${metric.FallbackReason}` : ""}).`;
+      else if (metric?.unavailable) segmentation = ` Segmentation: ${metric.unavailable}.`;
+    } catch { /* Older saves may have no segmentation report. */ }
+    return ` Distance from the model baseline: ${correction.levenshteinDistance} characters${ratio}.${segmentation}`;
   }
 
   const handleEditMetrics = (event: Event) => {

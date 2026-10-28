@@ -789,6 +789,22 @@ export function updateRowText(page, row, text) {
 /** @param {IIIFAnnotation} annotation @param {ImageBBox} bbox @returns {IIIFAnnotation} */
 export function updateAnnotationBBox(annotation, { x, y, w, h }) {
   const next = structuredClone(annotation);
+  const old = annotationBBox(annotation);
+  const selectors = next?.target && typeof next.target === 'object' ? next.target.selector : null;
+  if (old.w > 0 && old.h > 0) {
+    for (const selector of (Array.isArray(selectors) ? selectors : [selectors])) {
+      if (selector?.type !== 'SvgSelector' || typeof selector.value !== 'string') continue;
+      selector.value = selector.value.replace(/(<(?:polygon|polyline)\b[^>]*\s+points\s*=\s*["'])([^"']*)(["'])/gu, (_match, prefix, points, quote) => {
+        const coordinates = points.trim().split(/[\s,]+/u).map(Number);
+        if (coordinates.length % 2 || !coordinates.every(Number.isFinite)) throw new Error('invalid SVG geometry');
+        const mapped = [];
+        for (let index = 0; index < coordinates.length; index += 2) {
+          mapped.push(`${Math.round(x + (coordinates[index] - old.x) * w / old.w)},${Math.round(y + (coordinates[index + 1] - old.y) * h / old.h)}`);
+        }
+        return `${prefix}${mapped.join(' ')}${quote}`;
+      });
+    }
+  }
   const value = `pixel:${Math.round(x)},${Math.round(y)},${Math.max(1, Math.round(w))},${Math.max(1, Math.round(h))}`;
   if (typeof next?.target === 'string') {
     const hashIndex = next.target.indexOf('#');
