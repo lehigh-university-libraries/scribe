@@ -6,7 +6,7 @@ import { create } from "@bufbuild/protobuf";
 import type { Context } from "../proto/scribe/v1/context_pb";
 import { ItemSummarySchema } from "../proto/scribe/v1/item_pb";
 import { setHTML } from "../lib/util";
-import { contextOptions, renderItemActions, renderItemCard } from "./shell_helpers";
+import { contextOptions, renderItemActions } from "./shell_helpers";
 
 describe("contextOptions", () => {
   it("keeps resolver-backed Default selected instead of a concrete default row", () => {
@@ -25,7 +25,7 @@ describe("contextOptions", () => {
 });
 
 describe("item delete action", () => {
-  it("is the final, accessible destructive action in cards and sidebar rows", () => {
+  it("is the final, accessible destructive action in item actions", () => {
     const item = create(ItemSummarySchema, {
       createdAt: "2026-08-04T00:00:00Z",
       id: "item-7",
@@ -35,7 +35,7 @@ describe("item delete action", () => {
       sourceType: "image",
     });
 
-    for (const markup of [renderItemCard(item), renderItemActions(item)]) {
+    for (const markup of [renderItemActions(item)]) {
       const container = document.createElement("div");
       setHTML(container, markup);
       const actionButtons = Array.from(container.querySelectorAll<HTMLButtonElement>("button"));

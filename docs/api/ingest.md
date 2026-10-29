@@ -75,7 +75,7 @@ decoding the same document repeatedly.
 
 ## Manifest imports
 
-The library homepage shows the five newest items. Its search covers all items
+The library homepage shows the ten newest items in a table with their metadata and actions. Numeric item names link to their Preserve node. Its search covers all items
 in the current workspace, including names, external references, metadata
 values, and committed OCR text. Sidebar names reveal their actions on hover or
 click; keyboard users can open each disclosure with Enter or Space. Search

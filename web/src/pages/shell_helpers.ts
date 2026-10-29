@@ -116,22 +116,6 @@ export function renderItemActions(item: ItemSummary, exportState?: ItemExportAct
   `;
 }
 
-export function renderItemCard(item: ItemSummary, exportState?: ItemExportActionState): TrustedHTML {
-  return html`
-    <article class="${card}">
-      <div class="flex items-start justify-between gap-4">
-        <div class="min-w-0">
-          <h3 class="truncate text-base font-semibold text-foreground">${item.name || item.id}</h3>
-          <p class="mt-1 truncate text-xs text-muted-foreground">${item.id}</p>
-        </div>
-        <span class="rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground">${item.sourceType}</span>
-      </div>
-      <p class="mt-3 text-xs text-muted-foreground">${item.imageCount.toString()} page${item.imageCount === 1n ? "" : "s"} · ${formatDateTime(item.createdAt)}</p>
-      ${renderItemActions(item, exportState)}
-    </article>
-  `;
-}
-
 export function renderProviderSecrets(secrets: ProviderSecretRecord[]): TrustedHTML {
   if (secrets.length === 0) return html`<p class="text-sm text-muted-foreground">No provider keys saved yet.</p>`;
   return html`<div class="grid gap-2">${secrets.map((secret) => html`

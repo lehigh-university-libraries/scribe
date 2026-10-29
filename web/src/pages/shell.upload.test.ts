@@ -361,14 +361,18 @@ describe("annotation upload actions", () => {
     await waitFor(() => expect(document.querySelector('[data-item-delete="item-delete-once"]')).toBeNull());
   });
 
-  it("shows five recent items while sidebar names disclose their actions", async () => {
-    const items = Array.from({ length: 7 }, (_, index) => itemSummary(`item-${index}`, `Title ${index}`));
+  it("shows ten recent items in a table while sidebar names disclose their actions", async () => {
+    const items = Array.from({ length: 12 }, (_, index) => itemSummary(`item-${index}`, `Title ${index}`));
+    items[0].name = "431833";
     await setupShell("library", vi.fn(), undefined, { items, nextPageToken: "next-page" });
-    expect(document.querySelectorAll("#shell-content article")).toHaveLength(5);
-    expect(document.querySelectorAll("#shell-sidebar [data-item-menu]")).toHaveLength(7);
+    expect(document.querySelectorAll("#shell-content table tbody tr")).toHaveLength(10);
+    expect(document.querySelector("#shell-content table tbody tr")?.textContent).toContain("431833");
+    expect(document.querySelector('#shell-content table tbody tr a[href="https://preserve.lehigh.edu/node/431833"]')?.textContent).toBe("431833");
+    expect(document.querySelector('#shell-content table tbody tr [data-item-logs="item-0"]')).toBeTruthy();
+    expect(document.querySelectorAll("#shell-sidebar [data-item-menu]")).toHaveLength(12);
     const menu = document.querySelector<HTMLDetailsElement>("#shell-sidebar [data-item-menu]")!;
     expect(menu.open).toBe(false);
-    expect(menu.querySelector("summary")?.textContent).toBe("Title 0");
+    expect(menu.querySelector("summary")?.textContent).toBe("431833");
     menu.dispatchEvent(new Event("mouseenter"));
     expect(menu.open).toBe(true);
     menu.dispatchEvent(new Event("mouseleave"));
