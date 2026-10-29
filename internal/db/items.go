@@ -86,12 +86,15 @@ type ItemSummary struct {
 
 // ListItemsPage returns bounded item summaries in descending creation/id order.
 func (q *Queries) ListItemsPage(ctx context.Context, arg ListItemsPageParams) ([]ItemSummary, error) {
+	// MySQL JSON_SEARCH needs a character-typed pattern; passing a prepared
+	// binary value otherwise makes JSON matches case-sensitive.
 	rows, err := q.ListItemSummariesPageManual(ctx, ListItemSummariesPageManualParams{
-		WorkspaceID:     arg.WorkspaceID,
-		FilterPattern:   arg.FilterPattern,
-		CursorCreatedAt: arg.CursorCreatedAt,
-		CursorID:        arg.CursorID,
-		Limit:           arg.PageLimit,
+		WorkspaceID:       arg.WorkspaceID,
+		FilterPattern:     arg.FilterPattern,
+		FilterJsonPattern: arg.FilterPattern,
+		CursorCreatedAt:   arg.CursorCreatedAt,
+		CursorID:          arg.CursorID,
+		Limit:             arg.PageLimit,
 	})
 	if err != nil {
 		return nil, err
@@ -112,11 +115,12 @@ type ItemPreview struct {
 // ListItemPreviewsForItemsPage returns at most one image row per requested item.
 func (q *Queries) ListItemPreviewsForItemsPage(ctx context.Context, arg ListItemsPageParams) ([]ItemPreview, error) {
 	rows, err := q.ListItemPreviewsForItemsPageManual(ctx, ListItemPreviewsForItemsPageManualParams{
-		WorkspaceID:     arg.WorkspaceID,
-		FilterPattern:   arg.FilterPattern,
-		CursorCreatedAt: arg.CursorCreatedAt,
-		CursorID:        arg.CursorID,
-		Limit:           arg.PageLimit,
+		WorkspaceID:       arg.WorkspaceID,
+		FilterPattern:     arg.FilterPattern,
+		FilterJsonPattern: arg.FilterPattern,
+		CursorCreatedAt:   arg.CursorCreatedAt,
+		CursorID:          arg.CursorID,
+		Limit:             arg.PageLimit,
 	})
 	if err != nil {
 		return nil, err

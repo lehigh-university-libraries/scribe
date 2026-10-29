@@ -334,12 +334,12 @@ FROM (
         OR i.id LIKE ? ESCAPE '!'
         OR i.external_reference_id LIKE ? ESCAPE '!'
         OR CAST(i.source_type AS CHAR) LIKE CAST(? AS CHAR) ESCAPE '!'
-        OR JSON_SEARCH(CAST(i.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', ?, '!') IS NOT NULL
+        OR JSON_SEARCH(CAST(i.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4), '!') IS NOT NULL
         OR EXISTS (
           SELECT 1 FROM annotations a
           JOIN item_images image ON image.id = a.item_image_id AND image.workspace_id = a.workspace_id
           WHERE a.workspace_id = i.workspace_id AND image.item_id = i.id
-            AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', ?, '!', '$.body.value', '$.body[*].value') IS NOT NULL
+            AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4), '!', '$.body.value', '$.body[*].value') IS NOT NULL
         )
       )
       AND (
@@ -359,11 +359,12 @@ ORDER BY ranked.item_id ASC
 `
 
 type ListItemPreviewsForItemsPageManualParams struct {
-	WorkspaceID     uint64       `json:"workspace_id"`
-	FilterPattern   string       `json:"filter_pattern"`
-	CursorCreatedAt sql.NullTime `json:"cursor_created_at"`
-	CursorID        string       `json:"cursor_id"`
-	Limit           int32        `json:"limit"`
+	WorkspaceID       uint64       `json:"workspace_id"`
+	FilterPattern     string       `json:"filter_pattern"`
+	FilterJsonPattern interface{}  `json:"filter_json_pattern"`
+	CursorCreatedAt   sql.NullTime `json:"cursor_created_at"`
+	CursorID          string       `json:"cursor_id"`
+	Limit             int32        `json:"limit"`
 }
 
 type ListItemPreviewsForItemsPageManualRow struct {
@@ -390,8 +391,8 @@ func (q *Queries) ListItemPreviewsForItemsPageManual(ctx context.Context, arg Li
 		arg.FilterPattern,
 		arg.FilterPattern,
 		arg.FilterPattern,
-		arg.FilterPattern,
-		arg.FilterPattern,
+		arg.FilterJsonPattern,
+		arg.FilterJsonPattern,
 		arg.CursorCreatedAt,
 		arg.CursorCreatedAt,
 		arg.CursorCreatedAt,
@@ -449,12 +450,12 @@ WHERE items.workspace_id = ?
     OR items.id LIKE ? ESCAPE '!'
     OR items.external_reference_id LIKE ? ESCAPE '!'
     OR CAST(items.source_type AS CHAR) LIKE CAST(? AS CHAR) ESCAPE '!'
-    OR JSON_SEARCH(CAST(items.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', ?, '!') IS NOT NULL
+    OR JSON_SEARCH(CAST(items.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4), '!') IS NOT NULL
     OR EXISTS (
       SELECT 1 FROM annotations a
       JOIN item_images image ON image.id = a.item_image_id AND image.workspace_id = a.workspace_id
       WHERE a.workspace_id = items.workspace_id AND image.item_id = items.id
-        AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', ?, '!', '$.body.value', '$.body[*].value') IS NOT NULL
+        AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', CAST(? AS CHAR CHARACTER SET utf8mb4), '!', '$.body.value', '$.body[*].value') IS NOT NULL
     )
   )
   AND (
@@ -470,11 +471,12 @@ LIMIT ?
 `
 
 type ListItemSummariesPageManualParams struct {
-	WorkspaceID     uint64       `json:"workspace_id"`
-	FilterPattern   string       `json:"filter_pattern"`
-	CursorCreatedAt sql.NullTime `json:"cursor_created_at"`
-	CursorID        string       `json:"cursor_id"`
-	Limit           int32        `json:"limit"`
+	WorkspaceID       uint64       `json:"workspace_id"`
+	FilterPattern     string       `json:"filter_pattern"`
+	FilterJsonPattern interface{}  `json:"filter_json_pattern"`
+	CursorCreatedAt   sql.NullTime `json:"cursor_created_at"`
+	CursorID          string       `json:"cursor_id"`
+	Limit             int32        `json:"limit"`
 }
 
 type ListItemSummariesPageManualRow struct {
@@ -493,8 +495,8 @@ func (q *Queries) ListItemSummariesPageManual(ctx context.Context, arg ListItemS
 		arg.FilterPattern,
 		arg.FilterPattern,
 		arg.FilterPattern,
-		arg.FilterPattern,
-		arg.FilterPattern,
+		arg.FilterJsonPattern,
+		arg.FilterJsonPattern,
 		arg.CursorCreatedAt,
 		arg.CursorCreatedAt,
 		arg.CursorCreatedAt,

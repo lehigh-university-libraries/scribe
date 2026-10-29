@@ -58,12 +58,12 @@ WHERE items.workspace_id = sqlc.arg(workspace_id)
     OR items.id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
     OR items.external_reference_id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
     OR CAST(items.source_type AS CHAR) LIKE CAST(sqlc.arg(filter_pattern) AS CHAR) ESCAPE '!'
-    OR JSON_SEARCH(CAST(items.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', sqlc.arg(filter_pattern), '!') IS NOT NULL
+    OR JSON_SEARCH(CAST(items.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', CAST(sqlc.arg(filter_json_pattern) AS CHAR CHARACTER SET utf8mb4), '!') IS NOT NULL
     OR EXISTS (
       SELECT 1 FROM annotations a
       JOIN item_images image ON image.id = a.item_image_id AND image.workspace_id = a.workspace_id
       WHERE a.workspace_id = items.workspace_id AND image.item_id = items.id
-        AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', sqlc.arg(filter_pattern), '!', '$.body.value', '$.body[*].value') IS NOT NULL
+        AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', CAST(sqlc.arg(filter_json_pattern) AS CHAR CHARACTER SET utf8mb4), '!', '$.body.value', '$.body[*].value') IS NOT NULL
     )
   )
   AND (
@@ -120,12 +120,12 @@ FROM (
         OR i.id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
         OR i.external_reference_id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
         OR CAST(i.source_type AS CHAR) LIKE CAST(sqlc.arg(filter_pattern) AS CHAR) ESCAPE '!'
-        OR JSON_SEARCH(CAST(i.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', sqlc.arg(filter_pattern), '!') IS NOT NULL
+        OR JSON_SEARCH(CAST(i.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', CAST(sqlc.arg(filter_json_pattern) AS CHAR CHARACTER SET utf8mb4), '!') IS NOT NULL
         OR EXISTS (
           SELECT 1 FROM annotations a
           JOIN item_images image ON image.id = a.item_image_id AND image.workspace_id = a.workspace_id
           WHERE a.workspace_id = i.workspace_id AND image.item_id = i.id
-            AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', sqlc.arg(filter_pattern), '!', '$.body.value', '$.body[*].value') IS NOT NULL
+            AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', CAST(sqlc.arg(filter_json_pattern) AS CHAR CHARACTER SET utf8mb4), '!', '$.body.value', '$.body[*].value') IS NOT NULL
         )
       )
       AND (
