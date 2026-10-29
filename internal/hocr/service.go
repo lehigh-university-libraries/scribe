@@ -76,8 +76,9 @@ const (
 )
 
 var (
-	// ErrNoTranscription means the provider completed normally but the selected
-	// image region contained no readable text. Callers may isolate this outcome
+	// ErrNoTranscription means the provider returned no usable transcription,
+	// including an unreadable region, exhausted output, or echoed instructions.
+	// Callers may isolate this outcome
 	// to one segment without treating provider or image-pipeline failures as
 	// equivalent.
 	ErrNoTranscription = errors.New("provider returned no transcription")
@@ -687,6 +688,11 @@ func (s *Service) extractTextWithProvider(
 		Temperature: config.Temperature,
 		Image:       image,
 	})
+	if err == nil && echoedTranscriptionPrompt(ctx, result.Text, config.Prompt) {
+		// Keep billed usage, but never let echoed instructions become OCR state.
+		result.Text = ""
+		err = &providerRequestError{message: "provider repeated transcription instructions", cause: ErrNoTranscription}
+	}
 	redactedErr := redactProviderError(err, nil)
 	record := ProviderCallAuditRecord{
 		Provider: providerName, Model: config.Model, Operation: operation,
@@ -703,6 +709,26 @@ func (s *Service) extractTextWithProvider(
 	}
 	s.auditProviderCall(ctx, record)
 	return result.Text, redactedErr
+}
+
+func echoedTranscriptionPrompt(ctx context.Context, text, prompt string) bool {
+	normalize := func(value string) string { return strings.ToLower(strings.Join(strings.Fields(value), " ")) }
+	text, prompt = normalize(text), normalize(prompt)
+	if prompt == "" {
+		return false
+	}
+	if text == prompt {
+		return true
+	}
+	options, _ := ctx.Value(transcriptionOptionsKey{}).(transcriptionOptions)
+	if instruction := normalize(options.SystemPrompt); instruction != "" && text == instruction {
+		return true
+	}
+	// Match the complete server-owned task instructions, including when a model
+	// inserts them between real lines. Ordinary phrases about transcription or
+	// illegibility remain valid document text.
+	task := normalize(defaultTranscriptionPrompt)
+	return strings.Contains(prompt, task) && strings.Contains(text, task)
 }
 
 func providerImage(imagePath string, data []byte) providers.Image {

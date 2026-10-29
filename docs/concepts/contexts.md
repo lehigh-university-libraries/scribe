@@ -20,6 +20,13 @@ Optional sampling controls are model capabilities, not provider-wide guesses.
 Clients show temperature only when the selected model descriptor advertises it;
 the server validates the same capability when a context is written.
 
+Transcription responses that repeat the complete sent prompt, return only the
+context's custom instructions, or contain the full standard task instructions
+are rejected as having no usable transcription. Billed token usage is retained
+in the metadata-only audit, with a fixed error message instead of the prompt or
+response. Partial phrases such as "not legible" within ordinary prose are
+preserved. Existing annotations are not replaced by rejected region responses.
+
 Context quality is read through the generated Connect
 `ContextService.GetContextMetrics` RPC. It summarizes committed processing and
 correction data; there is no parallel REST metrics route.

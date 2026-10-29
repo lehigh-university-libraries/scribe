@@ -514,3 +514,29 @@ func TestTranscriptionPreservesOrdinaryProseThatSoundsLikeRefusal(t *testing.T) 
 		t.Fatal("failed to recognize the exact unreadable sentinel")
 	}
 }
+
+func TestProviderPromptEchoIsRejectedBeforeTranscriptionOrAudit(t *testing.T) {
+	service := NewService()
+	ctx := WithTranscriptionOptions(t.Context(), "Preserve historical spelling.", nil)
+	prompt := promptFromContext(ctx, defaultTranscriptionPrompt)
+	for _, response := range []string{prompt, "Preserve historical spelling.", defaultTranscriptionPrompt, "A real line.\n" + defaultTranscriptionPrompt + "\nAnother real line.", strings.ToUpper(strings.Join(strings.Fields(defaultTranscriptionPrompt), "\n"))} {
+		var audit ProviderCallAuditRecord
+		service.SetProviderCallAuditLogger(func(_ context.Context, record ProviderCallAuditRecord) { audit = record })
+		text, err := service.extractTextWithProvider(ctx, successfulClient{result: providers.Result{Text: response, Usage: providers.UsageInfo{InputTokens: 23, OutputTokens: 55}}}, "openai", providers.Config{Model: "registered", Prompt: prompt}, providers.Image{}, "transcribe_line")
+		if !errors.Is(err, ErrNoTranscription) || text != "" || errors.Is(err, ErrPermanentProviderRequest) || isRetriableProviderError(err) {
+			t.Fatalf("prompt echo accepted: text=%q err=%v", text, err)
+		}
+		if audit.ErrorMessage == "" || audit.InputTokens != 23 || audit.OutputTokens != 55 {
+			t.Fatalf("failed call audit: %+v", audit)
+		}
+		if strings.Contains(err.Error(), "historical") || strings.Contains(audit.ErrorMessage, "Transcribe") {
+			t.Fatal("prompt leaked into diagnostic")
+		}
+	}
+	for _, response := range []string{"A real line.", "Please preserve historical spelling.", "Return only the transcribed text.", "The text in this image is not legible."} {
+		text, err := service.extractTextWithProvider(ctx, successfulClient{result: providers.Result{Text: response}}, "openai", providers.Config{Model: "registered", Prompt: prompt}, providers.Image{}, "transcribe_line")
+		if err != nil || text != response {
+			t.Fatalf("legitimate text rejected: %q %v", text, err)
+		}
+	}
+}
