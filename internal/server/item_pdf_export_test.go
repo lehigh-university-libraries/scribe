@@ -82,6 +82,47 @@ func TestPDFItemExportUsesOrderedCanonicalTextAndImages(t *testing.T) {
 	}
 }
 
+func TestPDFItemExportKeepsPagesWithoutText(t *testing.T) {
+	plan, handler, _ := testPDFExportPlan(t)
+	canvas := "https://source.example/canvas/1"
+	payload, err := iiif.NewAnnotationPage(iiif.PageIdentity{
+		PublicBaseURL: "https://scribe.example", ItemImageID: 1, CanvasURI: canvas,
+	}, []any{transcriptionAnnotation("https://scribe.example/line/1", "line", "", canvas, models.BBox{X1: 5, Y1: 5, X2: 75, Y2: 20})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Pages[0].Page.Payload = string(payload)
+	converter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		archive := tar.NewReader(r.Body)
+		pages := 0
+		for {
+			header, err := archive.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if strings.HasSuffix(header.Name, ".hocr") {
+				pages++
+			}
+		}
+		if pages != 2 {
+			t.Errorf("converter received %d hOCR pages, want 2", pages)
+		}
+		_, _ = io.WriteString(w, "%PDF-1.7\nconverter output\n%%EOF\n")
+	}))
+	defer converter.Close()
+	handler.pdfExportURL = converter.URL
+	t.Setenv("TMPDIR", t.TempDir())
+	_, cleanup, err := handler.stagePDFItemExport(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("a page without text failed the PDF export: %v", err)
+	}
+	cleanup()
+}
+
 func TestPDFItemExportRejectsConverterFailuresAndTruncatedOutput(t *testing.T) {
 	for _, test := range []struct {
 		name   string
