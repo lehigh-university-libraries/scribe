@@ -58,6 +58,28 @@ const COMPLETED_REPLAY_MAX_LINE_DELAY_MS = 400;
 const COMPLETED_REPLAY_MIN_LINE_DELAY_MS = 10;
 const COMPLETED_RELOAD_ACK_TIMEOUT_MS = 15_000;
 
+type EditorImageState = Pick<Awaited<ReturnType<typeof getOCRRun>>, "itemImageId" | "imageUrl" | "contextId" | "model">;
+
+// Imported pages can have canonical annotations and a queued job before their
+// first OCR run exists. Opening them must remain a read-only operation.
+async function loadEditorImage(itemImageID: string): Promise<EditorImageState> {
+  try {
+    return await getOCRRun(itemImageID);
+  } catch (error) {
+    if (ConnectError.from(error).code !== Code.NotFound) throw error;
+    const manifest = await getEditorManifest(itemImageID);
+    const image = manifest.item.images.find((candidate) => candidate.id.toString() === itemImageID);
+    if (!image) throw new Error("The selected item image is not part of this item.");
+    const jobs = await listTranscriptionJobs(image.id);
+    return {
+      itemImageId: image.id,
+      imageUrl: image.imageUrl,
+      contextId: jobs[0]?.contextId ?? 0n,
+      model: "Not yet transcribed",
+    };
+  }
+}
+
 interface EditorTranscriptionJob {
   id: bigint;
   itemImageId?: bigint;
@@ -1546,7 +1568,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
 
   async function activateItemImage(
     targetItemImageID: string,
-    knownRun?: Awaited<ReturnType<typeof getOCRRun>>,
+    knownRun?: EditorImageState,
     knownJob?: Awaited<ReturnType<typeof getTranscriptionJob>>,
   ): Promise<void> {
     if (!targetItemImageID) return;
@@ -1572,7 +1594,7 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     );
 
     try {
-      const run = knownRun ?? (await getOCRRun(targetItemImageID));
+      const run = knownRun ?? (await loadEditorImage(targetItemImageID));
       if (sequence !== activationSequence) return;
       const returnedItemImageID = uint64ToString(run.itemImageId);
       if (returnedItemImageID !== targetItemImageID) {
@@ -2167,9 +2189,9 @@ export async function renderEditor(app: HTMLElement): Promise<void> {
     return;
   }
 
-  let runResp: Awaited<ReturnType<typeof getOCRRun>> | null = null;
+  let runResp: EditorImageState | null = null;
   try {
-    runResp = await getOCRRun(itemImageID);
+    runResp = await loadEditorImage(itemImageID);
   } catch {
     runResp = null;
   }

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { TranscriptionJobAttemptOutcome } from "../proto/scribe/v1/transcription_pb";
 import { renderEditor } from "./editor";
 
@@ -132,6 +133,35 @@ describe("renderEditor", () => {
       .toContain("Failed to load the OCR run");
     expect(document.getElementById("editor-recovery-retry")?.textContent).toContain("Retry");
     expect(document.querySelector('#mirador-viewer a')?.textContent).toContain("Back to library");
+  });
+
+  it.each(["pending", "running", "failed"])("opens an imported page with a %s job before OCR provenance exists", async (status) => {
+    window.history.replaceState({}, "", "/editor?itemId=book&itemImageId=22&workspace_id=2");
+    mocks.getOCRRun.mockRejectedValue(new ConnectError("ocr run not found", Code.NotFound));
+    mocks.getEditorManifest.mockResolvedValue({
+      item: { id: "book", images: [22n, 23n].map((id) => ({ id, canvasUri: `https://example.test/canvas/${id}`, imageUrl: `https://example.test/page-${id}.jpg` })) },
+      manifestJSON: "{}",
+      selectedCanvasId: "https://example.test/canvas/22",
+    });
+    const job = { id: 91n, itemImageId: 22n, contextId: 22n, status, completedSegments: 0, totalSegments: 0 };
+    mocks.listTranscriptionJobs.mockImplementation(async (id: bigint) => [{ ...job, id: id + 69n, itemImageId: id }]);
+    mocks.getTranscriptionJob.mockImplementation(async (id: bigint) => ({ ...job, id, itemImageId: id - 69n }));
+    const app = document.createElement("div");
+    document.body.appendChild(app);
+
+    await renderEditor(app);
+
+    expect(mocks.viewer).toHaveBeenCalled();
+    expect(mocks.subscribeToEvents).toHaveBeenCalled();
+    expect(mocks.getTranscriptionJob).toHaveBeenCalledWith(91n);
+    expect(document.querySelector("#editor-recovery-retry")).toBeNull();
+    expect(document.getElementById("editor-meta")?.textContent).toContain("image 22");
+
+    document.dispatchEvent(new CustomEvent("scribe:active-canvas", {
+      detail: { canvasId: "https://example.test/canvas/23", itemImageId: "23", windowId: "scribe-editor-window" },
+    }));
+    await vi.waitFor(() => expect(document.getElementById("editor-meta")?.textContent).toContain("image 23"));
+    expect(mocks.listTranscriptionJobs).toHaveBeenCalledWith(23n);
   });
 
   it("rejects a malformed exact transcription job before loading editor state", async () => {

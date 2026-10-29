@@ -79,6 +79,11 @@ silently accepted outside their declared context.
 
 ## Draft and published revisions
 
+The editor can open an imported page before its first OCR run exists. It uses
+the item's image metadata and canonical AnnotationPage while monitoring the
+queued, running, or failed transcription job. Reading a page never creates a
+placeholder OCR provenance record or starts another transcription.
+
 The canonical page and its revision remain the correction source of truth. A
 published row stores the complete validated bytes of one canonical revision,
 along with its publisher and publication time. It is a durable access grant,
