@@ -696,22 +696,21 @@ export default function ScribeActionPanel({
               : `${pendingRemoteIds.length} server updates are waiting behind local edits. Save or reload and rebase to resolve them.`}
           </Alert>
         ) : null}
+        {annotations.some((annotation) => annotation.textGranularity === 'block') ? (
+          <Box sx={{ flexShrink: 0, maxWidth: 960, p: 1, width: '100%' }}>
+            <Typography variant="subtitle2">Region types</Typography>
+            {annotations.filter((annotation) => annotation.textGranularity === 'block').map((annotation, index) => {
+              const bodies = Array.isArray(annotation.body) ? annotation.body : [annotation.body];
+              const type = bodies.find((body) => body && typeof body === 'object' && body.purpose === 'classifying');
+              return <label key={annotation.id} style={{ display: 'block' }}>Region {index + 1}{' '}
+                <select aria-label={`Region ${index + 1} type`} disabled={isBusy || !onRegionType} value={type && typeof type === 'object' ? type.value : 'unknown'} onChange={(event) => onRegionType?.(annotation.id || '', event.target.value)}>
+                  {['text','heading','caption','header','footer','page-number','marginalia','footnote','list','drop-capital','signature','table','field','image','math','separator','advert','noise','unknown'].map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>;
+            })}
+          </Box>
+        ) : null}
       </Box>
-
-      {annotations.some((annotation) => annotation.textGranularity === 'block') ? (
-        <Box sx={{ p: 1 }}>
-          <Typography variant="subtitle2">Region types</Typography>
-          {annotations.filter((annotation) => annotation.textGranularity === 'block').map((annotation, index) => {
-            const bodies = Array.isArray(annotation.body) ? annotation.body : [annotation.body];
-            const type = bodies.find((body) => body && typeof body === 'object' && body.purpose === 'classifying');
-            return <label key={annotation.id} style={{ display: 'block' }}>Region {index + 1}{' '}
-              <select aria-label={`Region ${index + 1} type`} disabled={isBusy || !onRegionType} value={type && typeof type === 'object' ? type.value : 'unknown'} onChange={(event) => onRegionType?.(annotation.id || '', event.target.value)}>
-                {['text','heading','caption','header','footer','page-number','marginalia','footnote','list','drop-capital','signature','table','field','image','math','separator','advert','noise','unknown'].map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-            </label>;
-          })}
-        </Box>
-      ) : null}
       <StructuralEditDialogs structuralEdits={structuralEdits} />
     </CompanionWindow>
   );
