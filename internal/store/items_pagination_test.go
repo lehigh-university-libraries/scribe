@@ -125,3 +125,44 @@ func itemPageIDs(items []store.ItemSummary) []string {
 	}
 	return ids
 }
+
+func TestItemSearchMatchesMetadataAndCanonicalOCR(t *testing.T) {
+	database := annotationTestDB(t)
+	ctx := context.Background()
+	suffix := uuid.NewString()
+	workspaceID, imageID := createAnnotationTestResource(t, database, suffix+"-search", "https://source.example/canvas/search")
+	foreignWorkspaceID, foreignImageID := createAnnotationTestResource(t, database, suffix+"-foreign-search", "https://source.example/canvas/foreign-search")
+	annotations := store.NewAnnotationStore(database)
+	items := store.NewItemStore(database)
+	var itemID string
+	for workspace, image := range map[uint64]uint64{workspaceID: imageID, foreignWorkspaceID: foreignImageID} {
+		if _, err := database.Exec(`UPDATE items SET metadata = '{"external_identifier":"431833","title":"Historia of Nicholas"}' WHERE workspace_id = ?`, workspace); err != nil {
+			t.Fatal(err)
+		}
+		page := canonicalTestPage(t, workspace, image, "https://source.example/canvas/search", "Paid 100%_ in florins")
+		if _, err := annotations.SavePage(ctx, page, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := database.QueryRow("SELECT item_id FROM item_images WHERE id = ?", imageID).Scan(&itemID); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"431833", "historia", "FLORINS", "%_"} {
+		page, err := items.ListPage(ctx, workspaceID, 1, query, nil)
+		if err != nil || len(page.Items) != 1 || page.Items[0].ID != itemID || page.Items[0].PreviewImage == nil || page.NextCursor != nil {
+			t.Fatalf("search %q = %+v/%v, want only %s with its preview", query, page, err, itemID)
+		}
+	}
+	page := canonicalTestPage(t, workspaceID, imageID, "https://source.example/canvas/search", "Corrected transcription")
+	if _, err := annotations.SavePage(ctx, page, 1); err != nil {
+		t.Fatal(err)
+	}
+	old, err := items.ListPage(ctx, workspaceID, 1, "florins", nil)
+	if err != nil || len(old.Items) != 0 {
+		t.Fatalf("obsolete OCR search = %+v/%v", old, err)
+	}
+	current, err := items.ListPage(ctx, workspaceID, 1, "Corrected", nil)
+	if err != nil || len(current.Items) != 1 || current.Items[0].ID != itemID {
+		t.Fatalf("corrected OCR search = %+v/%v", current, err)
+	}
+}

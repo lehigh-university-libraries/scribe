@@ -474,7 +474,7 @@ type ListItemsRequest struct {
 	// Opaque continuation token returned by the previous response.
 	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	// Case-insensitive literal substring match over item name, Scribe ID,
-	// external reference ID, and source type.
+	// external reference ID, source type, metadata values, and committed OCR text.
 	// Continuation tokens are bound to the normalized query.
 	Query         string `protobuf:"bytes,3,opt,name=query,proto3" json:"query,omitempty"`
 	unknownFields protoimpl.UnknownFields

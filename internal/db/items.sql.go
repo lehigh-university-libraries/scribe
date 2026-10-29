@@ -334,6 +334,13 @@ FROM (
         OR i.id LIKE ? ESCAPE '!'
         OR i.external_reference_id LIKE ? ESCAPE '!'
         OR CAST(i.source_type AS CHAR) LIKE CAST(? AS CHAR) ESCAPE '!'
+        OR JSON_SEARCH(CAST(i.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', ?, '!') IS NOT NULL
+        OR EXISTS (
+          SELECT 1 FROM annotations a
+          JOIN item_images image ON image.id = a.item_image_id AND image.workspace_id = a.workspace_id
+          WHERE a.workspace_id = i.workspace_id AND image.item_id = i.id
+            AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', ?, '!', '$.body.value', '$.body[*].value') IS NOT NULL
+        )
       )
       AND (
         ? IS NULL
@@ -383,6 +390,8 @@ func (q *Queries) ListItemPreviewsForItemsPageManual(ctx context.Context, arg Li
 		arg.FilterPattern,
 		arg.FilterPattern,
 		arg.FilterPattern,
+		arg.FilterPattern,
+		arg.FilterPattern,
 		arg.CursorCreatedAt,
 		arg.CursorCreatedAt,
 		arg.CursorCreatedAt,
@@ -427,29 +436,36 @@ func (q *Queries) ListItemPreviewsForItemsPageManual(ctx context.Context, arg Li
 
 const listItemSummariesPageManual = `-- name: ListItemSummariesPageManual :many
 SELECT
-  id,
-  name,
-  source_type,
-  external_reference_id,
-  created_at,
-  updated_at
+  items.id,
+  items.name,
+  items.source_type,
+  items.external_reference_id,
+  items.created_at,
+  items.updated_at
 FROM items
-WHERE workspace_id = ?
+WHERE items.workspace_id = ?
   AND (
-    name LIKE ? ESCAPE '!'
-    OR id LIKE ? ESCAPE '!'
-    OR external_reference_id LIKE ? ESCAPE '!'
-    OR CAST(source_type AS CHAR) LIKE CAST(? AS CHAR) ESCAPE '!'
+    items.name LIKE ? ESCAPE '!'
+    OR items.id LIKE ? ESCAPE '!'
+    OR items.external_reference_id LIKE ? ESCAPE '!'
+    OR CAST(items.source_type AS CHAR) LIKE CAST(? AS CHAR) ESCAPE '!'
+    OR JSON_SEARCH(CAST(items.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', ?, '!') IS NOT NULL
+    OR EXISTS (
+      SELECT 1 FROM annotations a
+      JOIN item_images image ON image.id = a.item_image_id AND image.workspace_id = a.workspace_id
+      WHERE a.workspace_id = items.workspace_id AND image.item_id = items.id
+        AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', ?, '!', '$.body.value', '$.body[*].value') IS NOT NULL
+    )
   )
   AND (
     ? IS NULL
-    OR created_at < ?
+    OR items.created_at < ?
     OR (
-      created_at = ?
-      AND id < ?
+      items.created_at = ?
+      AND items.id < ?
     )
   )
-ORDER BY created_at DESC, id DESC
+ORDER BY items.created_at DESC, items.id DESC
 LIMIT ?
 `
 
@@ -473,6 +489,8 @@ type ListItemSummariesPageManualRow struct {
 func (q *Queries) ListItemSummariesPageManual(ctx context.Context, arg ListItemSummariesPageManualParams) ([]ListItemSummariesPageManualRow, error) {
 	rows, err := q.db.QueryContext(ctx, listItemSummariesPageManual,
 		arg.WorkspaceID,
+		arg.FilterPattern,
+		arg.FilterPattern,
 		arg.FilterPattern,
 		arg.FilterPattern,
 		arg.FilterPattern,

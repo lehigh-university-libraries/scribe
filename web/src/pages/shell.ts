@@ -13,7 +13,7 @@ import type { AnnotationExportFormat } from "../proto/scribe/v1/annotation_pb";
 import { ContextSchema, type Context, type GetModelCatalogResponse } from "../proto/scribe/v1/context_pb";
 import { UploadBatchFileStatus, type ItemSummary } from "../proto/scribe/v1/item_pb";
 import type { WorkspaceAccess, WorkspaceMember } from "../proto/scribe/v1/workspace_pb";
-import { avatar, buttons, canAdminWorkspace, canWriteWorkspace, card, contextOptions, currentWorkspace, currentWorkspaceRole, editorHrefForItem, formatDateTime, input, itemExportFormats, loginHref, primary, renderAPIKeys, renderItemActions, renderItemCard, renderProviderSecrets, workspaceIdString, type ItemExportActionState } from "./shell_helpers";
+import { avatar, buttons, canAdminWorkspace, canWriteWorkspace, card, contextOptions, currentWorkspace, currentWorkspaceRole, formatDateTime, input, itemExportFormats, loginHref, primary, renderAPIKeys, renderItemActions, renderItemCard, renderProviderSecrets, workspaceIdString, type ItemExportActionState } from "./shell_helpers";
 
 type ShellView = "library" | "contexts" | "settings";
 type ShellPanel = Exclude<ShellView, "library"> | null;
@@ -499,8 +499,8 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       <button id="sidebar-create-workspace" class="${buttons} mt-3 w-full justify-center" type="button">New workspace</button>
       <button id="sidebar-new-annotation" class="${primary} mt-4 w-full justify-center" type="button">New annotation</button>
       <label class="sr-only" for="sidebar-search">Search annotations</label>
-      <input id="sidebar-search" aria-label="Search annotations" type="search" value="${state.search}" placeholder="Search annotations" class="${input} mt-4" />
-      <div class="mt-5 grid gap-2">${items.map((item) => html`<article class="rounded-md border px-3 py-2"><a href="${editorHrefForItem(item)}" class="block truncate text-sm font-semibold">${item.name || item.id}</a>${renderItemActions(item, state.itemExports.get(item.id))}</article>`)}</div>
+      <input id="sidebar-search" aria-label="Search annotations" type="search" value="${state.search}" placeholder="Search identifiers, titles, OCR text" class="${input} mt-4" />
+      <div class="mt-5 grid gap-1">${items.map((item) => html`<details data-item-menu class="rounded-md border px-3 py-2"><summary class="cursor-pointer truncate text-sm font-semibold" title="${item.name || item.id}">${item.name || item.id}</summary>${renderItemActions(item, state.itemExports.get(item.id))}</details>`)}</div>
       ${state.itemsNextPageToken ? html`<button id="sidebar-load-more" class="${buttons} mt-3 w-full justify-center" type="button"${state.itemsLoadingMore ? " disabled" : ""}>${state.itemsLoadingMore ? "Loading…" : "Load more"}</button>` : ""}
     ` : html`<h2 class="text-2xl font-semibold">Scribe</h2><p class="mt-3 text-sm text-muted-foreground">${state.authError || "Sign in to manage workspaces."}</p><a href="${loginHref(state.auth)}" class="${primary} mt-4">Sign in with Google</a>`);
 
@@ -543,6 +543,18 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       }
     }
     document.getElementById("sidebar-load-more")?.addEventListener("click", () => void loadMoreItems());
+    sidebar.querySelectorAll<HTMLDetailsElement>("[data-item-menu]").forEach((menu) => {
+      let pinned = false;
+      menu.addEventListener("mouseenter", () => { menu.open = true; });
+      menu.addEventListener("mouseleave", () => {
+        if (!pinned && !menu.contains(document.activeElement)) menu.open = false;
+      });
+      menu.querySelector("summary")?.addEventListener("click", (event) => {
+        event.preventDefault();
+        pinned = !pinned;
+        menu.open = pinned;
+      });
+    });
   }
 
   function renderLibrary() {
@@ -550,7 +562,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
       setHTML(content, html`<section class="mx-auto max-w-2xl py-16 text-center"><h2 class="text-4xl font-semibold">Create annotations with your workspace</h2><a href="${loginHref(state.auth)}" class="${primary} mt-8">Sign in with Google</a></section>`);
       return;
     }
-    const annotations = state.items;
+    const annotations = state.itemsQuery ? state.items : state.items.slice(0, 5);
     setHTML(content, html`
       <section class="mx-auto max-w-5xl">
         ${state.dataError ? html`<div class="mb-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">${state.dataError}</div>` : ""}
@@ -562,7 +574,7 @@ export async function renderShell(app: HTMLElement, initialView: ShellView): Pro
           <form id="library-form-multi" class="${state.activeLibraryTab === "multi" ? "mt-5 grid gap-3" : "hidden"}"><input id="library-multi-files" aria-label="Upload multiple images" type="file" multiple class="${input}" /><div class="flex gap-2"><button class="${primary}" type="submit">Upload or resume batch</button><button id="library-multi-cancel" class="${buttons}" type="button">Cancel</button></div><p id="library-multi-status" aria-live="polite" class="text-sm text-muted-foreground"></p></form>
           <form id="library-form-manifest" class="${state.activeLibraryTab === "manifest" ? "mt-5 grid gap-3" : "hidden"}"><input id="library-manifest-url" aria-label="IIIF manifest URL" type="url" required class="${input}" placeholder="https://example.org/manifest.json" /><label class="text-sm"><input type="radio" name="library-manifest-mode" value="import" checked /> Edit imported hOCR directly</label><label class="text-sm"><input type="radio" name="library-manifest-mode" value="reprocess" /> Reprocess imported pages</label><button class="${primary}" type="submit">Ingest manifest</button><p id="library-manifest-status" aria-live="polite" class="text-sm text-muted-foreground"></p></form>
         </div>
-        <div class="mt-8 flex flex-wrap items-center justify-between gap-3"><h2 class="text-2xl font-semibold">Annotations</h2><div class="flex gap-2">${state.itemsNextPageToken ? html`<button id="library-load-more" class="${buttons}" type="button"${state.itemsLoadingMore ? " disabled" : ""}>${state.itemsLoadingMore ? "Loading…" : "Load more"}</button>` : ""}<button id="library-refresh" class="${buttons}" type="button">Refresh</button></div></div>
+        <div class="mt-8 flex flex-wrap items-center justify-between gap-3"><h2 class="text-2xl font-semibold">${state.itemsQuery ? "Search results" : "Latest five items"}</h2><div class="flex gap-2">${state.itemsQuery && state.itemsNextPageToken ? html`<button id="library-load-more" class="${buttons}" type="button"${state.itemsLoadingMore ? " disabled" : ""}>${state.itemsLoadingMore ? "Loading…" : "Load more"}</button>` : ""}<button id="library-refresh" class="${buttons}" type="button">Refresh</button></div></div>
         <div class="mt-5 grid gap-3 lg:grid-cols-2">${annotations.length === 0 ? html`<div class="${card} text-sm text-muted-foreground">${state.itemsQuery ? "No annotations match this search." : "No annotations yet."}</div>` : annotations.map((item) => renderItemCard(item, state.itemExports.get(item.id)))}</div>
       </section>
     `);

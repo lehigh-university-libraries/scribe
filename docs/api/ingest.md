@@ -75,6 +75,15 @@ decoding the same document repeatedly.
 
 ## Manifest imports
 
+The library homepage shows the five newest items. Its search covers all items
+in the current workspace, including names, external references, metadata
+values, and committed OCR text. Sidebar names reveal their actions on hover or
+click; keyboard users can open each disclosure with Enter or Space. Search
+results remain paginated, and corrections replace the searchable OCR text.
+Integrations can supply `metadata.external_identifier` and `metadata.title`
+for a human-readable source identifier and original title, independently of
+the opaque `external_reference_id` used for callback correlation.
+
 Manifest import fetches at most the configured response-byte limit, decodes the
 document, counts every declared Presentation 2 or Presentation 3 Canvas, and
 then runs the IIIF validation and extraction boundary. The default maximum is

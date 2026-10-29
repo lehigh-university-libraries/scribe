@@ -45,29 +45,36 @@ WHERE id = sqlc.arg(id);
 
 -- name: ListItemSummariesPageManual :many
 SELECT
-  id,
-  name,
-  source_type,
-  external_reference_id,
-  created_at,
-  updated_at
+  items.id,
+  items.name,
+  items.source_type,
+  items.external_reference_id,
+  items.created_at,
+  items.updated_at
 FROM items
-WHERE workspace_id = sqlc.arg(workspace_id)
+WHERE items.workspace_id = sqlc.arg(workspace_id)
   AND (
-    name LIKE sqlc.arg(filter_pattern) ESCAPE '!'
-    OR id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
-    OR external_reference_id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
-    OR CAST(source_type AS CHAR) LIKE CAST(sqlc.arg(filter_pattern) AS CHAR) ESCAPE '!'
+    items.name LIKE sqlc.arg(filter_pattern) ESCAPE '!'
+    OR items.id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
+    OR items.external_reference_id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
+    OR CAST(items.source_type AS CHAR) LIKE CAST(sqlc.arg(filter_pattern) AS CHAR) ESCAPE '!'
+    OR JSON_SEARCH(CAST(items.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', sqlc.arg(filter_pattern), '!') IS NOT NULL
+    OR EXISTS (
+      SELECT 1 FROM annotations a
+      JOIN item_images image ON image.id = a.item_image_id AND image.workspace_id = a.workspace_id
+      WHERE a.workspace_id = items.workspace_id AND image.item_id = items.id
+        AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', sqlc.arg(filter_pattern), '!', '$.body.value', '$.body[*].value') IS NOT NULL
+    )
   )
   AND (
     sqlc.narg(cursor_created_at) IS NULL
-    OR created_at < sqlc.narg(cursor_created_at)
+    OR items.created_at < sqlc.narg(cursor_created_at)
     OR (
-      created_at = sqlc.narg(cursor_created_at)
-      AND id < sqlc.arg(cursor_id)
+      items.created_at = sqlc.narg(cursor_created_at)
+      AND items.id < sqlc.arg(cursor_id)
     )
   )
-ORDER BY created_at DESC, id DESC
+ORDER BY items.created_at DESC, items.id DESC
 LIMIT ?;
 
 -- name: ListItemPreviewsForItemsPageManual :many
@@ -113,6 +120,13 @@ FROM (
         OR i.id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
         OR i.external_reference_id LIKE sqlc.arg(filter_pattern) ESCAPE '!'
         OR CAST(i.source_type AS CHAR) LIKE CAST(sqlc.arg(filter_pattern) AS CHAR) ESCAPE '!'
+        OR JSON_SEARCH(CAST(i.metadata AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', sqlc.arg(filter_pattern), '!') IS NOT NULL
+        OR EXISTS (
+          SELECT 1 FROM annotations a
+          JOIN item_images image ON image.id = a.item_image_id AND image.workspace_id = a.workspace_id
+          WHERE a.workspace_id = i.workspace_id AND image.item_id = i.id
+            AND JSON_SEARCH(CAST(a.payload AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci, 'one', sqlc.arg(filter_pattern), '!', '$.body.value', '$.body[*].value') IS NOT NULL
+        )
       )
       AND (
         sqlc.narg(cursor_created_at) IS NULL

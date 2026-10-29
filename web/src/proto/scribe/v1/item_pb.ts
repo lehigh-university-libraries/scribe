@@ -224,7 +224,7 @@ export type ListItemsRequest = Message<"scribe.v1.ListItemsRequest"> & {
 
   /**
    * Case-insensitive literal substring match over item name, Scribe ID,
-   * external reference ID, and source type.
+   * external reference ID, source type, metadata values, and committed OCR text.
    * Continuation tokens are bound to the normalized query.
    *
    * @generated from field: string query = 3;

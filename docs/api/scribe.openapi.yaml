@@ -4102,7 +4102,7 @@ components:
           maxLength: 200
           description: |-
             Case-insensitive literal substring match over item name, Scribe ID,
-             external reference ID, and source type.
+             external reference ID, source type, metadata values, and committed OCR text.
              Continuation tokens are bound to the normalized query.
       title: ListItemsRequest
       additionalProperties: false

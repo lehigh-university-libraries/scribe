@@ -171,7 +171,7 @@ describe("annotation upload actions", () => {
 
     expect(listItems).toHaveBeenCalledWith(expect.objectContaining({ pageSize: 50 }));
     expect(document.body.textContent).toContain("Newest");
-    document.getElementById("library-load-more")?.click();
+    document.getElementById("sidebar-load-more")?.click();
 
     await waitFor(() => {
       expect(listItems).toHaveBeenLastCalledWith(expect.objectContaining({ pageSize: 50, pageToken: "next-page" }));
@@ -361,6 +361,26 @@ describe("annotation upload actions", () => {
     await waitFor(() => expect(document.querySelector('[data-item-delete="item-delete-once"]')).toBeNull());
   });
 
+  it("shows five recent items while sidebar names disclose their actions", async () => {
+    const items = Array.from({ length: 7 }, (_, index) => itemSummary(`item-${index}`, `Title ${index}`));
+    await setupShell("library", vi.fn(), undefined, { items, nextPageToken: "next-page" });
+    expect(document.querySelectorAll("#shell-content article")).toHaveLength(5);
+    expect(document.querySelectorAll("#shell-sidebar [data-item-menu]")).toHaveLength(7);
+    const menu = document.querySelector<HTMLDetailsElement>("#shell-sidebar [data-item-menu]")!;
+    expect(menu.open).toBe(false);
+    expect(menu.querySelector("summary")?.textContent).toBe("Title 0");
+    menu.dispatchEvent(new Event("mouseenter"));
+    expect(menu.open).toBe(true);
+    menu.dispatchEvent(new Event("mouseleave"));
+    expect(menu.open).toBe(false);
+    menu.querySelector("summary")?.click();
+    expect(menu.open).toBe(true);
+    expect(menu.querySelector('[data-item-logs="item-0"]')).toBeTruthy();
+    menu.querySelector("summary")?.click();
+    expect(menu.open).toBe(false);
+    expect(document.getElementById("library-load-more")).toBeNull();
+  });
+
   it("searches the complete library through the server", async () => {
     await setupShell("library", vi.fn(), undefined, {
       items: [itemSummary("item-new", "Newest")],
@@ -424,7 +444,7 @@ describe("annotation upload actions", () => {
         nextPageToken: "",
       });
 
-    document.getElementById("library-load-more")?.click();
+    document.getElementById("sidebar-load-more")?.click();
     const workspaceSelect = document.getElementById("sidebar-workspace-select") as HTMLSelectElement;
     const otherWorkspace = document.createElement("option");
     otherWorkspace.textContent = "Other workspace";
