@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
-FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS go-base
-FROM islandora/scyllaridae:7@sha256:ed6d2c2e0e0ba0aa225081912848de010ab706940735775c0b3926c5532739d8 AS scyllaridae
+FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS go-base
+FROM islandora/scyllaridae:7@sha256:e56c35e06f6e4b23ba787dfaaca5924f3caacf5136c8c208f71e9068d3506b81 AS scyllaridae
 FROM gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.26.3@sha256:f333a9c59890c3c67b8505166c5dbdcc0b29fca9173a2e09ca0446ab6997a736 AS cloudsql
 
 # Repeated containerized tests reuse this prepared toolchain instead of
