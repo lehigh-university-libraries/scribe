@@ -38,7 +38,7 @@ kraken:
       doi: "10.5281/zenodo.13788177"
       sha256: "dfb911ba25fd11f93efc1b0c340957162981ecfdaac0ee1e26793d491f770244"
 ollama:
-  base_image: "ollama/ollama:0.40.11@sha256:dea72d1e22270fe095b68fdf756d2b489d615643c5a2eaebbc5f569181e322d8"
+  base_image: "ollama/ollama:0.40.13@sha256:b2f0122c476bc9fe7ce679d8bb4bd555351e25e2554eefb156f61cb0a89cf429"
   default_model: "glm-ocr:bf16"
   cloud_run:
     regions: ["us-east4"]
