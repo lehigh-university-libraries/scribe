@@ -2,6 +2,14 @@ package worddetection
 
 import "testing"
 
+func TestKrakenOCRRetainsLineTextWhenTokenCutsCollapse(t *testing.T) {
+	raw := []byte(`{"entities":[{"id":"line","type":"line","text":"a '","boundary":[[0,0],[60,0],[60,30],[0,30]],"baseline":[[0,20],[60,20]],"cuts":[[[0,0],[10,0],[10,30],[0,30]],[],[[30,10],[30,10],[30,10],[30,10]]],"confidences":[0.9,0.9,0.9]}]}`)
+	lines, err := parseKrakenOCR(raw)
+	if err != nil || len(lines) != 1 || lines[0].Text != "a '" || len(lines[0].Words) != 0 || lines[0].Width != 60 || lines[0].Height != 30 {
+		t.Fatalf("Kraken line projection = %+v/%v", lines, err)
+	}
+}
+
 func TestKrakenOCRCharacterCutsAndReadingOrder(t *testing.T) {
 	data := []byte(`{"entities":[{"id":"right","type":"line","text":"文","boundary":[[100,20],[140,25],[140,45],[100,40]],"baseline":[[100,35],[140,40]],"cuts":[[[100,20],[140,25],[140,45],[100,40]]],"confidences":[0.8]},{"id":"left","type":"line","text":"a b","boundary":[[0,0],[60,10],[60,30],[0,20]],"baseline":[[0,15],[60,25]],"cuts":[[[0,0],[20,3],[20,23],[0,20]],[[20,3],[30,5],[30,25],[20,23]],[[30,5],[60,10],[60,30],[30,25]]],"confidences":[0.9,0.5,0.7]}],"line_orders":[["left","right"]]}`)
 	lines, err := parseKrakenOCR(data)

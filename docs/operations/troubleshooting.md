@@ -3,6 +3,13 @@
 Start with the failed managed readiness job and Cloud Run revision logs. There
 is no SSH, COS bootstrap, Docker daemon, or VM lifecycle to repair.
 
+Kraken may recognize text whose character cuts cannot locate every token. Such
+lines retain their full text and line geometry without word boxes; one
+unlocated token must not discard the page or disappear from its transcription.
+Malformed cuts and nonfinite coordinates still fail validation. After deploying
+a parser fix, retry the failed transcription from the existing editor item;
+reimporting the book is unnecessary.
+
 ```bash
 terraform -chdir=terraform output -raw backend_readiness_job
 terraform -chdir=terraform output -raw ocr_readiness_job
