@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
-FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS go-base
+FROM golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS go-base
 FROM islandora/scyllaridae:7@sha256:e56c35e06f6e4b23ba787dfaaca5924f3caacf5136c8c208f71e9068d3506b81 AS scyllaridae
-FROM gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.26.3@sha256:f333a9c59890c3c67b8505166c5dbdcc0b29fca9173a2e09ca0446ab6997a736 AS cloudsql
+FROM gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.27.0@sha256:7d156a5c466e31596afd6c8ed134f19c207a297418392fdad2686524ca4e7a3c AS cloudsql
 
 # Repeated containerized tests reuse this prepared toolchain instead of
 # resolving Alpine packages for every test invocation. This stage is not a
@@ -32,7 +32,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
     && CGO_ENABLED=0 GOOS=linux go build -o /out/scribe-readiness ./cmd/readiness \
     && CGO_ENABLED=0 GOOS=linux go build -o /out/scribe-pdf-export ./cmd/pdf-export
 
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM alpine:3.24@sha256:3f4d6b32e26703c6082839234f43769d5046b3ac7c910033911d1e71d8cd630a
 WORKDIR /app
 RUN apk add --no-cache \
     ca-certificates=20261020-r0 \
