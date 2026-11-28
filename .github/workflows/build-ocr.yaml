@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: .go-version
           cache: false
@@ -48,7 +48,7 @@ jobs:
           workload_identity_provider: ${{ vars.OCR_GCLOUD_OIDC_POOL }}
           service_account: ${{ vars.OCR_GSA }}
           token_format: access_token
-      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
         with:
           registry: us-docker.pkg.dev
           username: oauth2accesstoken
